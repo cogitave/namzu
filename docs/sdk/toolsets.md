@@ -104,6 +104,13 @@ yet — there is nowhere on `ToolDefinition` for it to go until that wiring
 lands — so it exists here only because source ids and their glob matching
 are this module's concern.
 
+For an `mcp_server` source, `readOnlyHintTrusted` defaults to
+`source.mcpServer?.readOnlyHintTrusted` — the operator's per-server trust
+decision (one value per connected server, not per tool), which is where
+`mcpToolset` (a later item) will write it. The optional `mcp` argument
+overrides that default rather than being the only way to supply it, for a
+caller that already has the decision in hand some other way.
+
 ## Combining toolsets
 
 `combineToolsets(source, toolsets)` merges several toolsets into one,
@@ -151,11 +158,16 @@ costs nothing when idle), or a `ToolsetChangeReport`:
 - `removed` — a name whose owning toolset stopped contributing it, with no
   other toolset picking it up.
 - `drifted` — a name its ORIGINAL owning toolset still contributes, but as
-  a different `ToolDefinition` object than before. The manager holds the
-  previously admitted object rather than adopting the new one, so a live
-  toolset's own internal change never busts the `toolWireSchema` cache
-  (keyed by `inputSchema` object identity) or invalidates a preparation
-  already in flight for that name.
+  a different `ToolDefinition` object than the one that toolset returned
+  the last time it was observed (construction, or the previous
+  `refresh()`). The manager holds the previously admitted object rather
+  than adopting the new one, so a live toolset's own internal change never
+  busts the `toolWireSchema` cache (keyed by `inputSchema` object identity)
+  or invalidates a preparation already in flight for that name. Because
+  drift is judged against the last observation and not the served object,
+  a name that drifted once and has been stable since is reported only on
+  the `refresh()` where it actually changed — not again on every later
+  `refresh()` that some unrelated toolset's own change happens to trigger.
 - `refused` — a newcomer that collides with a name its incumbent still
   serves. The incumbent wins regardless of toolset order; the newcomer
   never reaches the manager.

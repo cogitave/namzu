@@ -25,7 +25,7 @@ import { cloneJsonValue as clonePreparedInput } from '../utils/json-snapshot.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { ToolsetConflictError } from './combine.js'
-import type { Toolset, ToolSourceRef, ToolsetAvailability } from './types.js'
+import type { ToolSourceRef, Toolset, ToolsetAvailability } from './types.js'
 import { toToolSourceRef } from './types.js'
 
 export type { ToolExecutionResult }
@@ -151,6 +151,15 @@ export class ToolManager {
 	private toolsByName = new Map<string, ToolDefinition>()
 	private ownerToolsetByName = new Map<string, Toolset>()
 	private defaultAvailabilityByName = new Map<string, ToolsetAvailability>()
+	/**
+	 * The object each name's owning toolset returned the LAST time `refresh()`
+	 * (or construction) observed it — distinct from `toolsByName`, which holds
+	 * whatever was first admitted under that name and never changes on drift.
+	 * `refresh()` diffs against this map, not `toolsByName`, so a name that
+	 * drifted once and has been stable ever since is not reported as drifted
+	 * again just because some unrelated toolset's change forced a re-walk.
+	 */
+	private lastObservedByName = new Map<string, ToolDefinition>()
 	private dirty = false
 
 	private readonly preparations = new WeakMap<
@@ -206,6 +215,7 @@ export class ToolManager {
 		this.toolsByName = toolsByName
 		this.ownerToolsetByName = ownerToolsetByName
 		this.defaultAvailabilityByName = defaultAvailabilityByName
+		this.lastObservedByName = new Map(toolsByName)
 	}
 
 	/**
@@ -221,10 +231,16 @@ export class ToolManager {
 	 *  - A name a toolset served before and stopped, with no other toolset
 	 *    now contributing it: `removed`.
 	 *  - A name still contributed by its ORIGINAL owning toolset, under a
-	 *    different `ToolDefinition` object than before: `drifted` — the
-	 *    previously admitted definition keeps serving; the new object is
-	 *    held, not adopted, so `toolWireSchema`'s identity-keyed cache (see
-	 *    the class doc) survives a live toolset's own internal change.
+	 *    `ToolDefinition` object different from the one that toolset returned
+	 *    the LAST time it was observed (construction, or the previous
+	 *    `refresh()`): `drifted` — the previously admitted definition keeps
+	 *    serving; the new object is held, not adopted, so `toolWireSchema`'s
+	 *    identity-keyed cache (see the class doc) survives a live toolset's
+	 *    own internal change. Comparing against the last OBSERVATION, not
+	 *    the served object, means a name that drifted once and has been
+	 *    stable since is reported only on the refresh where it actually
+	 *    changed, not again on every later refresh some unrelated toolset's
+	 *    change happens to trigger.
 	 *  - A name some OTHER toolset starts contributing while its incumbent
 	 *    owner still serves it: `refused` — the incumbent wins regardless of
 	 *    toolset order; the newcomer is reported, never applied.
@@ -237,6 +253,7 @@ export class ToolManager {
 		const nextToolsByName = new Map<string, ToolDefinition>()
 		const nextOwnerByName = new Map<string, Toolset>()
 		const nextDefaultAvailabilityByName = new Map<string, ToolsetAvailability>()
+		const nextLastObservedByName = new Map<string, ToolDefinition>()
 		const added: string[] = []
 		const drifted: string[] = []
 		const refused: { name: string; reason: string }[] = []
@@ -245,16 +262,21 @@ export class ToolManager {
 		// keeps its slot — held at its OLD object identity even if the fresh
 		// one differs (drift), so a live toolset's own change never bumps an
 		// unrelated newcomer ahead of it, and never busts the wire-schema
-		// identity cache mid-turn.
+		// identity cache mid-turn. Drift is judged against the last fresh
+		// observation, not the held object, and that observation is updated
+		// unconditionally so a name that just drifted is not drifted again
+		// next time nothing about it has changed.
 		for (const [name, ownerToolset] of this.ownerToolsetByName) {
 			const ownerEntry = current.find((entry) => entry.toolset === ownerToolset)
 			const freshTool = ownerEntry?.tools.find((tool) => tool.name === name)
 			if (!freshTool) continue // handled as `removed` below, unless re-added by pass 2
 			const oldTool = this.toolsByName.get(name)
-			if (oldTool && freshTool !== oldTool) drifted.push(name)
+			const lastObserved = this.lastObservedByName.get(name)
+			if (lastObserved && freshTool !== lastObserved) drifted.push(name)
 			nextToolsByName.set(name, oldTool ?? freshTool)
 			nextOwnerByName.set(name, ownerToolset)
 			nextDefaultAvailabilityByName.set(name, ownerToolset.availability ?? 'active')
+			nextLastObservedByName.set(name, freshTool)
 		}
 
 		// Pass 2: walk every toolset, in order, for names no incumbent
@@ -277,6 +299,7 @@ export class ToolManager {
 				nextToolsByName.set(tool.name, tool)
 				nextOwnerByName.set(tool.name, toolset)
 				nextDefaultAvailabilityByName.set(tool.name, toolset.availability ?? 'active')
+				nextLastObservedByName.set(tool.name, tool)
 				added.push(tool.name)
 			}
 		}
@@ -286,6 +309,7 @@ export class ToolManager {
 		this.toolsByName = nextToolsByName
 		this.ownerToolsetByName = nextOwnerByName
 		this.defaultAvailabilityByName = nextDefaultAvailabilityByName
+		this.lastObservedByName = nextLastObservedByName
 
 		return { added, removed, drifted, refused }
 	}
@@ -359,7 +383,9 @@ export class ToolManager {
 		states: readonly ToolsetAvailability[],
 		filter?: readonly string[],
 	): ToolDefinition[] {
-		const candidates = filter ? filter.map((name) => this.getOrThrow(name)) : [...this.toolsByName.values()]
+		const candidates = filter
+			? filter.map((name) => this.getOrThrow(name))
+			: [...this.toolsByName.values()]
 		return candidates.filter((tool) => states.includes(this.availability(tool.name)))
 	}
 
@@ -748,7 +774,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	}
 
 	/** `callableToolNames` (`registry/tool/callable.ts`) picks these two by name; adapts `availability`'s different name. */
-	private callableView(): { listNames(): string[]; getAvailability(name: string): 'active' | 'deferred' } {
+	private callableView(): {
+		listNames(): string[]
+		getAvailability(name: string): 'active' | 'deferred'
+	} {
 		return { listNames: () => this.listNames(), getAvailability: (name) => this.availability(name) }
 	}
 
@@ -820,7 +849,10 @@ function isTrustedReadOnlyBySource(
 /** Project a `ToolSourceRef` to the `ToolProvenance` shape `screenToolResult` reads, for MCP-kind sources only. */
 function sourceToProvenance(source: ToolSourceRef): ToolProvenance | undefined {
 	if (source.kind !== 'mcp_server') return undefined
-	return { server: source.server ?? source.id, readOnlyHintTrusted: source.readOnlyHintTrusted ?? false }
+	return {
+		server: source.server ?? source.id,
+		readOnlyHintTrusted: source.readOnlyHintTrusted ?? false,
+	}
 }
 
 /**

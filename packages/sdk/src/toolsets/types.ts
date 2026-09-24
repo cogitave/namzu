@@ -86,6 +86,15 @@ export interface ToolSourceRef {
 /**
  * Project a `ToolSource` down to the lean shape a later item stamps onto
  * each tool. Pure; reads nothing but its arguments.
+ *
+ * `readOnlyHintTrusted` defaults to `source.mcpServer?.readOnlyHintTrusted`
+ * — the operator's per-server trust decision, wired by whatever built this
+ * `ToolSource` (`mcpToolset`, plan.md §4). The `mcp` parameter overrides that
+ * default rather than being the only channel for it: a caller that already
+ * has the decision in hand some other way (a test, a wrapper) may still pass
+ * it explicitly, but `sourceOf` (`toolsets/manager.ts`) relies on the
+ * default so a trusted server's tools resolve as trusted with no extra
+ * wiring at the call site.
  */
 export function toToolSourceRef(
 	source: ToolSource,
@@ -96,7 +105,7 @@ export function toToolSourceRef(
 		id: source.id,
 		kind: source.kind,
 		server: source.mcpServer?.name ?? source.name,
-		readOnlyHintTrusted: mcp?.readOnlyHintTrusted ?? false,
+		readOnlyHintTrusted: mcp?.readOnlyHintTrusted ?? source.mcpServer?.readOnlyHintTrusted ?? false,
 	}
 }
 

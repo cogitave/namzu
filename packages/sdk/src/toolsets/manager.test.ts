@@ -6,7 +6,7 @@ import type { SessionId, TurnId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import { createToolMessage, createUserMessage } from '../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolTierConfig } from '../types/tool/index.js'
-import { liveToolset, tool as fixtureTool } from './__fixtures__/toolsets.js'
+import { tool as fixtureTool, liveToolset } from './__fixtures__/toolsets.js'
 import { ToolsetConflictError } from './combine.js'
 import { ToolManager } from './manager.js'
 import { toolset } from './toolset.js'
@@ -53,13 +53,43 @@ function manager(
 
 describe('ToolManager — resolution', () => {
 	it('resolves in toolset order, then tool order', () => {
-		const m = manager([toolset('a', [makeTool('a1'), makeTool('a2')]), toolset('b', [makeTool('b1')])])
+		const m = manager([
+			toolset('a', [makeTool('a1'), makeTool('a2')]),
+			toolset('b', [makeTool('b1')]),
+		])
 		expect(m.listNames()).toEqual(['a1', 'a2', 'b1'])
 	})
 
 	it('sourceOf names the owning toolset', () => {
-		const m = manager([toolset({ id: 'mcp:github', kind: 'mcp_server', name: 'GitHub' }, [makeTool('read')])])
-		expect(m.sourceOf('read')).toEqual({ id: 'mcp:github', kind: 'mcp_server', server: 'GitHub', readOnlyHintTrusted: false })
+		const m = manager([
+			toolset({ id: 'mcp:github', kind: 'mcp_server', name: 'GitHub' }, [makeTool('read')]),
+		])
+		expect(m.sourceOf('read')).toEqual({
+			id: 'mcp:github',
+			kind: 'mcp_server',
+			server: 'GitHub',
+			readOnlyHintTrusted: false,
+		})
+	})
+
+	it("sourceOf carries an operator-trusted MCP server's readOnlyHintTrusted through", () => {
+		const m = manager([
+			toolset(
+				{
+					id: 'mcp:github',
+					kind: 'mcp_server',
+					name: 'GitHub',
+					mcpServer: { name: 'github', readOnlyHintTrusted: true },
+				},
+				[makeTool('read')],
+			),
+		])
+		expect(m.sourceOf('read')).toEqual({
+			id: 'mcp:github',
+			kind: 'mcp_server',
+			server: 'github',
+			readOnlyHintTrusted: true,
+		})
 	})
 
 	it('sourceOf throws for an unknown name', () => {
@@ -94,7 +124,7 @@ describe('ToolManager — resolution', () => {
 })
 
 describe('ToolManager — availability (derived)', () => {
-	it('a plain toolset\'s tools default to active', () => {
+	it("a plain toolset's tools default to active", () => {
 		const m = manager([toolset('a', [makeTool('read')])])
 		expect(m.availability('read')).toBe('active')
 	})
@@ -187,6 +217,28 @@ describe('ToolManager — refresh()', () => {
 		expect(m.get('a1')).not.toBe(replacement)
 	})
 
+	it('does not re-report a name as drifted on a later refresh triggered by an unrelated toolset', () => {
+		const original = fixtureTool('a1')
+		const liveA = liveToolset('mcp:a', [original])
+		const b1 = fixtureTool('b1')
+		const liveB = liveToolset('mcp:b', [b1])
+		const m = manager([liveA.toolset, liveB.toolset])
+
+		// a1 drifts once; reported, and held at its original identity.
+		const replacement = fixtureTool('a1', { description: 'a new description' })
+		liveA.setTools([replacement])
+		expect(m.refresh()).toEqual({ added: [], removed: [], drifted: ['a1'], refused: [] })
+
+		// A is left completely alone from here on (same `replacement` object
+		// every time it would be asked again). B changes independently,
+		// which flips the shared dirty flag and forces a full re-walk.
+		const b2 = fixtureTool('b2')
+		liveB.setTools([b1, b2])
+		const report = m.refresh()
+		expect(report).toEqual({ added: ['b2'], removed: [], drifted: [], refused: [] })
+		expect(m.get('a1')).toBe(original)
+	})
+
 	it('refuses a newcomer that collides with a name its incumbent still serves', () => {
 		const incumbent = toolset('a', [makeTool('shared')])
 		const live = liveToolset('mcp:b', [])
@@ -206,7 +258,7 @@ describe('ToolManager — refresh()', () => {
 		const m = manager([live.toolset, toolset('b', [])])
 		// b starts empty; nobody else contests `shared` while a still serves it.
 		live.setTools([])
-		let report = m.refresh()
+		const report = m.refresh()
 		expect(report).toEqual({ added: [], removed: ['shared'], drifted: [], refused: [] })
 		expect(m.has('shared')).toBe(false)
 	})
@@ -238,7 +290,9 @@ describe('ToolManager — refresh()', () => {
 
 describe('ToolManager — view()', () => {
 	it('exposes only has / availability / searchDeferred', () => {
-		const m = manager([deferred(toolset('a', [makeTool('hidden', { description: 'find the hidden thing' })]))])
+		const m = manager([
+			deferred(toolset('a', [makeTool('hidden', { description: 'find the hidden thing' })])),
+		])
 		const view = m.view()
 		expect(view.has('hidden')).toBe(true)
 		expect(view.availability('hidden')).toBe('deferred')
@@ -277,7 +331,9 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 	it('toPromptSection lists active names and deferred name+hint', () => {
 		const m = manager([
 			toolset('a', [makeTool('read')]),
-			deferred(toolset('b', [makeTool('hidden', { description: 'Do the hidden thing. More detail.' })])),
+			deferred(
+				toolset('b', [makeTool('hidden', { description: 'Do the hidden thing. More detail.' })]),
+			),
 		])
 		const section = m.toPromptSection()
 		expect(section).toContain('<available_tools>\n- read\n</available_tools>')
@@ -320,7 +376,9 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		const m = manager([
 			toolset('a', [
 				makeTool('prepared', {
-					inputSchema: z.object({ k: z.string() }).transform(({ k }) => ({ k: `${k}-${++parses}` })),
+					inputSchema: z
+						.object({ k: z.string() })
+						.transform(({ k }) => ({ k: `${k}-${++parses}` })),
 					execute: async (input) => {
 						executed.push(input)
 						return { success: true, output: 'ok' }
@@ -378,7 +436,10 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
 		const m = manager([toolset('a', [makeTool('prepared', { execute })])])
 
-		const result = await m.executePrepared({ toolName: 'prepared', input: { k: 'value' } }, makeContext())
+		const result = await m.executePrepared(
+			{ toolName: 'prepared', input: { k: 'value' } },
+			makeContext(),
+		)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/not owned by this registry/i)
@@ -406,7 +467,11 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 			toolset('a', [makeTool('read'), makeTool('write')]),
 			deferred(toolset('b', [makeTool('later')])),
 		])
-		const result = await m.execute('write', {}, makeContext({ allowedTools: ['gone', 'later', 'read'] }))
+		const result = await m.execute(
+			'write',
+			{},
+			makeContext({ allowedTools: ['gone', 'later', 'read'] }),
+		)
 		expect(result.success).toBe(false)
 		expect(result.permissionDenied).toBe(true)
 		expect(result.error).toBe('Tool "write" is not available on this step. Available: read')
@@ -449,7 +514,7 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		expect(execute).toHaveBeenCalled()
 	})
 
-	it('an untrusted MCP source\'s isReadOnly claim does not settle the plan-mode gate on its own', async () => {
+	it("an untrusted MCP source's isReadOnly claim does not settle the plan-mode gate on its own", async () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
 		const m = manager([
 			toolset({ id: 'mcp:x', kind: 'mcp_server', name: 'x' }, [
@@ -473,8 +538,39 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		expect(execute).not.toHaveBeenCalled()
 	})
 
+	it("a trusted MCP source's isReadOnly claim DOES settle the plan-mode gate", async () => {
+		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
+		const m = manager([
+			toolset(
+				{
+					id: 'mcp:x',
+					kind: 'mcp_server',
+					name: 'x',
+					mcpServer: { name: 'x', readOnlyHintTrusted: true },
+				},
+				[makeTool('read', { isReadOnly: () => true, execute })],
+			),
+		])
+		const result = await m.execute(
+			'read',
+			{},
+			makeContext({
+				permissionContext: {
+					mode: 'plan',
+					sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+					turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+					workingDirectory: '/tmp',
+				},
+			}),
+		)
+		expect(result.success).toBe(true)
+		expect(execute).toHaveBeenCalled()
+	})
+
 	it('returns error when input fails zod validation', async () => {
-		const m = manager([toolset('a', [makeTool('strict', { inputSchema: z.object({ required: z.string() }) })])])
+		const m = manager([
+			toolset('a', [makeTool('strict', { inputSchema: z.object({ required: z.string() }) })]),
+		])
 		const result = await m.execute('strict', { required: 123 }, makeContext())
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/Validation failed for "strict"/)
