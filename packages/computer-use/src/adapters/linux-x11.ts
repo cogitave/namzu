@@ -3,6 +3,7 @@ import type {
 	ComputerUseCapabilities,
 	ComputerUseResult,
 	DisplayGeometry,
+	DisplayInfo,
 	MouseButton,
 	Point,
 	ScrollDirection,
@@ -133,11 +134,23 @@ export class LinuxX11Adapter implements Adapter {
 	private async screenshot() {
 		const result = await runCommandOrThrow('maim', ['-f', 'png'])
 		const dims = decodePngDims(result.stdout)
+		// maim captures the whole X screen — every monitor — whose origin is
+		// (0, 0) and whose pixels are the ones xdotool moves through.
+		const display: DisplayInfo = {
+			id: 'screen',
+			x: 0,
+			y: 0,
+			width: dims.width,
+			height: dims.height,
+			scaleFactor: await this.detectScaleFactor(),
+			primary: true,
+		}
 		return {
 			data: result.stdout,
 			mimeType: 'image/png' as const,
 			width: dims.width,
 			height: dims.height,
+			display,
 		}
 	}
 

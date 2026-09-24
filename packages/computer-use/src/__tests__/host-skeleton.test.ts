@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SubprocessComputerUseHost } from '../SubprocessComputerUseHost.js'
 import type { Adapter } from '../adapters/types.js'
 import { ComputerUseOutcomeUnknownError } from '../errors.js'
@@ -86,6 +86,85 @@ describe('SubprocessComputerUseHost', () => {
 		const host = new SubprocessComputerUseHost({ adapter: makeAdapter() })
 		await expect(host.dispose()).resolves.toBeUndefined()
 		await expect(host.execute({ type: 'screenshot' })).rejects.toThrow('not initialised')
+	})
+
+	it('dispose stops what the adapter keeps running, once', async () => {
+		let disposed = 0
+		const adapter: Adapter = {
+			...makeAdapter(),
+			async dispose() {
+				disposed++
+			},
+		}
+		const host = new SubprocessComputerUseHost({ adapter })
+		await host.dispose()
+		await host.dispose()
+		expect(disposed).toBe(1)
+	})
+
+	it('forwards the window methods to an adapter that has them, and says so when it does not', async () => {
+		const window = {
+			id: '0x1',
+			title: 'Untitled - Notepad',
+			app: 'notepad',
+			pid: 1,
+			bounds: { x: 0, y: 0, width: 10, height: 10 },
+			focused: true,
+			minimized: false,
+		}
+		const adapter: Adapter = {
+			...makeAdapter(),
+			backend: 'cua-driver 0.28.2',
+			async listWindows() {
+				return [window]
+			},
+			async focusWindow(id) {
+				return { ok: id === '0x1', focusedId: '0x1' }
+			},
+		}
+		const host = new SubprocessComputerUseHost({ adapter })
+		expect(host.backend).toBe('cua-driver 0.28.2')
+		await expect(host.listWindows()).resolves.toEqual([window])
+		await expect(host.focusWindow('0x1')).resolves.toEqual({ ok: true, focusedId: '0x1' })
+
+		const plain = new SubprocessComputerUseHost({ adapter: makeAdapter() })
+		await expect(plain.listWindows()).rejects.toThrow(/listWindows is not supported/)
+		await expect(plain.captureRegion({ x: 0, y: 0, width: 1, height: 1 })).rejects.toThrow(
+			/captureRegion is not supported/,
+		)
+	})
+
+	it('names the fallback reason when a fallen-back adapter meets a silent desktop', async () => {
+		vi.resetModules()
+		vi.doMock('../adapters/win32.js', () => ({
+			Win32Adapter: {
+				create: async (options: unknown) => {
+					seenOptions.push(options)
+					return {
+						...makeAdapter(),
+						backend: 'powershell',
+						fallbackReason: 'Could not download cua-driver: fetch failed',
+						async getDisplayGeometry() {
+							throw new Error('CopyFromScreen: The handle is invalid')
+						},
+					}
+				},
+			},
+		}))
+		const seenOptions: unknown[] = []
+		const { SubprocessComputerUseHost: Host } = await import('../SubprocessComputerUseHost.js')
+		const host = new Host({
+			env: { WSL_DISTRO_NAME: 'archlinux' },
+			platform: 'linux',
+			windows: { download: false },
+		})
+		await expect(host.initialize()).rejects.toThrow(
+			/handle is invalid \(cua-driver was not used: Could not download cua-driver: fetch failed\)/,
+		)
+		expect(seenOptions).toEqual([
+			{ download: false, env: { WSL_DISTRO_NAME: 'archlinux' }, platform: 'linux' },
+		])
+		vi.doUnmock('../adapters/win32.js')
 	})
 
 	it('rejects initialize() for unknown display server with no adapter', async () => {

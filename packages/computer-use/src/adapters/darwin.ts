@@ -125,19 +125,24 @@ async function probe(): Promise<ProbeResult> {
 // Adapter
 // ---------------------------------------------------------------------------
 
+/**
+ * Units: the host contract is physical pixels. `screencapture` writes the
+ * backing store (2880x1800 on a 1440x900-point Retina panel), while
+ * `cliclick` and System Events work in points. The conversion happens here
+ * and only here: every point going in is divided by pixels-per-point and
+ * every point coming out is multiplied by it, once.
+ *
+ * Pixels-per-point is learned from a capture (its width over the display's
+ * width in points), so it is the backing store's own ratio whatever "Looks
+ * like" resolution is chosen; `system_profiler`'s panel pixels are not the
+ * backing store in a scaled mode. Before the first capture the adapter uses
+ * `system_profiler`'s ratio, read once.
+ */
 export class DarwinAdapter implements Adapter {
 	readonly capabilities: ComputerUseCapabilities
 	private readonly hasCliclick: boolean
-	/**
-	 * The main display in points (what cliclick and System Events take),
-	 * read once from system_profiler.
-	 */
-	private logical: DisplayGeometry | undefined
-	/**
-	 * Captured pixels per point on the main display: 2 on a Retina panel,
-	 * whatever "Looks like" resolution is chosen. Learned from a capture, so
-	 * it is the backing store's own ratio, not the panel's native one.
-	 */
+	private geometry: Promise<MainDisplay> | undefined
+	/** Captured pixels per point on the main display, from the latest capture. */
 	private pixelsPerPoint: number | undefined
 
 	private constructor(probeResult: ProbeResult) {
@@ -179,45 +184,41 @@ export class DarwinAdapter implements Adapter {
 		return new DarwinAdapter(probeResult)
 	}
 
+	/** The main display in physical pixels (the capture's), with pixels per point. */
 	async getDisplayGeometry(): Promise<DisplayGeometry> {
-		const result = await runCommandOrThrow('system_profiler', ['-json', 'SPDisplaysDataType'])
-		const parsed = JSON.parse(result.stdout.toString('utf8')) as {
-			SPDisplaysDataType?: readonly {
-				spdisplays_ndrvs?: readonly {
-					_spdisplays_resolution?: string
-					_spdisplays_pixels?: string
-				}[]
-			}[]
+		const { logical } = await this.readGeometry()
+		const scaleFactor = await this.scale()
+		return {
+			width: Math.round(logical.width * scaleFactor),
+			height: Math.round(logical.height * scaleFactor),
+			scaleFactor,
 		}
-		const primary = parsed.SPDisplaysDataType?.[0]?.spdisplays_ndrvs?.[0]
-		if (!primary) {
-			throw new Error('DarwinAdapter: could not parse display geometry from system_profiler')
-		}
-		const physical = parsePixelDims(primary._spdisplays_pixels ?? primary._spdisplays_resolution)
-		const logical = parsePixelDims(primary._spdisplays_resolution)
-		if (!physical || !logical) {
-			throw new Error('DarwinAdapter: missing pixel/resolution fields in system_profiler output')
-		}
-		const scaleFactor = physical.width > 0 ? physical.width / logical.width : 1
-		this.logical = { width: logical.width, height: logical.height, scaleFactor }
-		return this.logical
 	}
 
-	/**
-	 * `screencapture` writes physical pixels and every input tool here takes
-	 * points. The host contract is physical pixels both ways, so points are
-	 * converted at this boundary: a click aimed at pixel (2000, 1000) of a
-	 * Retina capture is sent as point (1000, 500).
-	 */
+	/** The main display in pixels and in points, read once; a failed read is retried next time. */
+	private readGeometry(): Promise<MainDisplay> {
+		if (!this.geometry) {
+			this.geometry = readMainDisplay().catch((error: unknown) => {
+				this.geometry = undefined
+				throw error
+			})
+		}
+		return this.geometry
+	}
+
 	private async scale(): Promise<number> {
 		if (this.pixelsPerPoint !== undefined) return this.pixelsPerPoint
-		const logical = this.logical ?? (await this.getDisplayGeometry())
-		return logical.scaleFactor > 0 ? logical.scaleFactor : 1
+		return (await this.readGeometry()).scaleFactor
 	}
 
-	private async toPoints(pixel: Point): Promise<Point> {
+	private async toPoints(pixels: Point): Promise<Point> {
 		const scale = await this.scale()
-		return { x: Math.round(pixel.x / scale), y: Math.round(pixel.y / scale) }
+		return { x: Math.round(pixels.x / scale), y: Math.round(pixels.y / scale) }
+	}
+
+	private async toPixels(points: Point): Promise<Point> {
+		const scale = await this.scale()
+		return { x: Math.round(points.x * scale), y: Math.round(points.y * scale) }
 	}
 
 	async execute(action: ComputerUseAction): Promise<ComputerUseResult> {
@@ -225,7 +226,7 @@ export class DarwinAdapter implements Adapter {
 			case 'screenshot':
 				return { type: 'screenshot', result: await this.screenshot() }
 			case 'cursor_position':
-				return { type: 'cursor_position', point: await this.cursorPosition() }
+				return { type: 'cursor_position', point: await this.toPixels(await this.cursorPosition()) }
 			case 'mouse_move':
 				await this.mouseMove(action.to)
 				return { type: 'ok' }
@@ -269,9 +270,10 @@ export class DarwinAdapter implements Adapter {
 			await unlink(tmpPath).catch(() => undefined)
 		}
 		const dims = decodePngDims(data)
-		const logical = this.logical ?? (await this.getDisplayGeometry().catch(() => undefined))
-		const scaleFactor = logical && logical.width > 0 ? dims.width / logical.width : 1
-		this.pixelsPerPoint = scaleFactor
+		const main = await this.readGeometry().catch(() => undefined)
+		const ratio = main && main.logical.width > 0 ? dims.width / main.logical.width : 1
+		const scaleFactor = Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+		if (main) this.pixelsPerPoint = scaleFactor
 		const display: DisplayInfo = {
 			id: 'main',
 			x: 0,
@@ -286,6 +288,7 @@ export class DarwinAdapter implements Adapter {
 
 	// --- cursor position (requires cliclick) --------------------------------
 
+	/** The cursor in points, as cliclick reports it; {@link execute} converts it. */
 	private async cursorPosition(): Promise<Point> {
 		if (!this.hasCliclick) {
 			throw new ActionCapabilityError(
@@ -304,15 +307,17 @@ export class DarwinAdapter implements Adapter {
 				`DarwinAdapter: unexpected cliclick output "${result.stdout.toString('utf8')}"`,
 			)
 		}
-		const scale = await this.scale()
-		return { x: Math.round(x * scale), y: Math.round(y * scale) }
+		return { x, y }
 	}
 
 	// --- mouse --------------------------------------------------------------
 
-	private async mouseMove(pixel: Point) {
+	// Each takes physical pixels and converts to points after its refusals,
+	// so a refused gesture never costs a display read.
+
+	private async mouseMove(pixels: Point) {
 		if (this.hasCliclick) {
-			const to = await this.toPoints(pixel)
+			const to = await this.toPoints(pixels)
 			await runCommandOrThrow('cliclick', [`m:${to.x},${to.y}`])
 			return
 		}
@@ -323,31 +328,31 @@ export class DarwinAdapter implements Adapter {
 		)
 	}
 
-	private async mouseClick(pixel: Point, button: 'left' | 'right' | 'middle') {
+	private async mouseClick(pixels: Point, button: 'left' | 'right' | 'middle') {
 		if (button === 'middle')
 			throw new ActionCapabilityError(
 				'mouse_click',
 				'mouse',
 				'middle-click is not supported by this macOS adapter',
 			)
-		const at = await this.toPoints(pixel)
-		if (this.hasCliclick) {
-			const prefix = button === 'right' ? 'rc' : 'c'
-			await runCommandOrThrow('cliclick', [`${prefix}:${at.x},${at.y}`])
-			return
-		}
-		if (button !== 'left') {
+		if (!this.hasCliclick && button !== 'left') {
 			throw new ActionCapabilityError(
 				'mouse_click',
 				'mouse',
 				`${button}-click requires \`cliclick\` on macOS (osascript only supports left-click)`,
 			)
 		}
+		const at = await this.toPoints(pixels)
+		if (this.hasCliclick) {
+			const prefix = button === 'right' ? 'rc' : 'c'
+			await runCommandOrThrow('cliclick', [`${prefix}:${at.x},${at.y}`])
+			return
+		}
 		const script = `tell application "System Events" to click at {${at.x}, ${at.y}}`
 		await runCommandOrThrow('osascript', ['-e', script])
 	}
 
-	private async mouseDrag(fromPixel: Point, toPixel: Point) {
+	private async mouseDrag(fromPixels: Point, toPixels: Point) {
 		if (!this.hasCliclick) {
 			throw new ActionCapabilityError(
 				'mouse_drag',
@@ -355,8 +360,8 @@ export class DarwinAdapter implements Adapter {
 				'install `cliclick` (brew install cliclick) to enable drag on macOS',
 			)
 		}
-		const from = await this.toPoints(fromPixel)
-		const to = await this.toPoints(toPixel)
+		const from = await this.toPoints(fromPixels)
+		const to = await this.toPoints(toPixels)
 		await runCommandOrThrow('cliclick', [`dd:${from.x},${from.y}`, `du:${to.x},${to.y}`])
 	}
 
@@ -391,6 +396,42 @@ export class DarwinAdapter implements Adapter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+interface Size {
+	readonly width: number
+	readonly height: number
+}
+
+/** The main display as `system_profiler` describes it: panel pixels, points, and their ratio. */
+interface MainDisplay {
+	readonly physical: Size
+	readonly logical: Size
+	readonly scaleFactor: number
+}
+
+/** The main display from `system_profiler`: its pixels, its points, and their ratio. */
+async function readMainDisplay(): Promise<MainDisplay> {
+	const result = await runCommandOrThrow('system_profiler', ['-json', 'SPDisplaysDataType'])
+	const parsed = JSON.parse(result.stdout.toString('utf8')) as {
+		SPDisplaysDataType?: readonly {
+			spdisplays_ndrvs?: readonly {
+				_spdisplays_resolution?: string
+				_spdisplays_pixels?: string
+			}[]
+		}[]
+	}
+	const primary = parsed.SPDisplaysDataType?.[0]?.spdisplays_ndrvs?.[0]
+	if (!primary) {
+		throw new Error('DarwinAdapter: could not parse display geometry from system_profiler')
+	}
+	const physical = parsePixelDims(primary._spdisplays_pixels ?? primary._spdisplays_resolution)
+	const logical = parsePixelDims(primary._spdisplays_resolution)
+	if (!physical || !logical) {
+		throw new Error('DarwinAdapter: missing pixel/resolution fields in system_profiler output')
+	}
+	const ratio = logical.width > 0 ? physical.width / logical.width : 1
+	return { physical, logical, scaleFactor: Number.isFinite(ratio) && ratio > 0 ? ratio : 1 }
+}
 
 function parsePixelDims(value: string | undefined): { width: number; height: number } | null {
 	if (!value) return null
