@@ -330,6 +330,11 @@ export async function mcpToolset(
 	}
 
 	async function refreshPrompts(): Promise<void> {
+		if (!client.getState().serverCapabilities?.prompts) {
+			promptDefs = []
+			rebuildMain()
+			return
+		}
 		const prompts = await discovery.discoverPromptsFrom(client)
 		promptDefs = prompts.map((p) => {
 			const base = mcpPromptToToolDefinition(p, client, serverName)

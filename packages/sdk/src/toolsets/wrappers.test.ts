@@ -236,6 +236,19 @@ describe('requireApproval', () => {
 		expect(byName.read).toBeUndefined()
 		expect(byName.write?.(undefined)).toBe(true)
 	})
+
+	it('keeps a mapped definition stable until the source replaces it', () => {
+		let current = tool('write')
+		const live = {
+			source: { id: 'demo', kind: 'host_tool' as const, name: 'demo' },
+			tools: () => [current],
+		}
+		const wrapped = requireApproval(live)
+		const first = wrapped.tools()[0]
+		expect(wrapped.tools()[0]).toBe(first)
+		current = tool('write')
+		expect(wrapped.tools()[0]).not.toBe(first)
+	})
 })
 
 describe('withMetadata', () => {

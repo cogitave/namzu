@@ -1,5 +1,6 @@
 import { installationRows } from '../installation.js'
 import { statusCard } from './status-card.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
@@ -306,6 +307,7 @@ export interface SlashContext {
 		readonly connected: readonly {
 			readonly name: string
 			readonly tools: readonly string[]
+			readonly instructions?: string
 		}[]
 		readonly failed: readonly {
 			readonly name: string
@@ -1782,7 +1784,13 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 	]
 	for (const server of mcp.connected) {
 		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
-		if (details) for (const tool of server.tools) lines.push(`  ${tool}`)
+		if (details) {
+			if (server.instructions) {
+				const safe = terminalDisplayText(server.instructions).replace(/\s+/g, ' ').trim()
+				lines.push(`  instructions: ${safe.length > 300 ? `${safe.slice(0, 300)}…` : safe}`)
+			}
+			for (const tool of server.tools) lines.push(`  ${tool}`)
+		}
 	}
 	for (const server of mcp.failed) lines.push(`${server.name}: unavailable — ${server.reason}`)
 	if (!details && mcp.connected.length > 0) lines.push('/mcp tools to list available tools.')

@@ -139,9 +139,19 @@ export function requireApproval(
 ): Toolset {
 	const predicate = selector ? toPredicate(ts, selector) : () => true
 	const source = toToolSourceRef(ts.source)
-	return mapTools(ts, (tool) =>
-		predicate(tool, source) ? { ...tool, requiresApproval: () => true } : tool,
-	)
+	const mapped = new WeakMap<ToolDefinition, ToolDefinition>()
+	return deriveToolset(ts, {
+		tools: () =>
+			ts.tools().map((tool) => {
+				if (!predicate(tool, source)) return tool
+				let approved = mapped.get(tool)
+				if (!approved) {
+					approved = { ...tool, requiresApproval: () => true }
+					mapped.set(tool, approved)
+				}
+				return approved
+			}),
+	})
 }
 
 /**

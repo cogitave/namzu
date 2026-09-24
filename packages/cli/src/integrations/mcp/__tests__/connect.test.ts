@@ -263,12 +263,12 @@ describe('a declared server', () => {
 				{
 					name: 'tickets',
 					toolCount: 2,
-					tools: ['mcp_tickets_create', 'mcp_tickets_close'],
+					tools: ['mcp__tickets__create', 'mcp__tickets__close'],
 				},
 			])
 			// Prefixed with the server name so two servers offering `create` do
 			// not collide and the transcript says where a call went.
-			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp_tickets_create', 'mcp_tickets_close'])
+			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp__tickets__create', 'mcp__tickets__close'])
 		} finally {
 			await mcp.close()
 		}
@@ -285,7 +285,7 @@ describe('a declared server', () => {
 			{ cwd: dir },
 		)
 		try {
-			const create = mcp.tools.find((t) => t.name === 'mcp_tickets_create')
+			const create = mcp.tools.find((t) => t.name === 'mcp__tickets__create')
 			const result = await create?.execute({ title: 'the build is red' }, {} as never)
 			expect(result?.success).toBe(true)
 			expect(JSON.stringify(result?.output)).toContain('opened the build is red')
@@ -293,6 +293,75 @@ describe('a declared server', () => {
 			await mcp.close()
 		}
 	})
+
+	it('applies server policy, retry budget and approval to the live toolsets', async () => {
+		const server = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: {
+					command: process.execPath,
+					args: [server],
+					allow: ['create'],
+					deny: ['close'],
+					maxRetries: 2,
+					requireApproval: true,
+					readOnlyHintTrusted: true,
+				},
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.failed).toEqual([])
+			expect(mcp.connected[0]?.tools).toEqual(['mcp__tickets__create'])
+			expect(mcp.toolsets).toHaveLength(2)
+			expect(mcp.toolsets[1]?.availability).toBe('deferred')
+			expect(mcp.toolsets[0]?.source.mcpServer?.readOnlyHintTrusted).toBe(true)
+			const create = mcp.tools.find((tool) => tool.name === 'mcp__tickets__create')
+			expect(create?.maxRetries).toBe(2)
+			expect(create?.requiresApproval?.({ title: 'work' })).toBe(true)
+			expect(mcp.toolsets[0]?.tools()[0]).toBe(mcp.toolsets[0]?.tools()[0])
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it('surfaces server instructions without changing their content', async () => {
+		const server = writeServer(
+			'instructed.js',
+			WORKING_SERVER.replace(
+				'capabilities: { tools: {} },',
+				"capabilities: { tools: {} }, instructions: 'Use create sparingly.',",
+			),
+		)
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, args: [server] } },
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected[0]?.instructions).toBe('Use create sparingly.')
+			expect(mcp.toolsets[0]?.source.description).toBe('Use create sparingly.')
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it.each([
+		[{ allow: [''] }, /allow must be a list/],
+		[{ deny: 'close' }, /deny must be a list/],
+		[{ maxRetries: -1 }, /maxRetries must be a nonnegative integer/],
+		[{ requireApproval: 'yes' }, /requireApproval must be true or false/],
+		[{ readOnlyHintTrusted: 'yes' }, /readOnlyHintTrusted must be true or false/],
+	] as const)(
+		'names an invalid server tool policy instead of silently skipping it',
+		async (policy, reason) => {
+			const mcp = await connectMcpServers(
+				{ tickets: { command: process.execPath, ...policy } as never },
+				{ cwd: dir },
+			)
+			expect(mcp.connected).toEqual([])
+			expect(mcp.failed[0]?.reason).toMatch(reason)
+		},
+	)
 
 	it('leaves no child process behind when the session closes', async () => {
 		// The reason `close()` exists. A stdio server is a child process and

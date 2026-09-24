@@ -14,7 +14,7 @@
  *       "search":   { "url": "https://tools.example.internal/mcp" }
  *     }
  *
- * Its tools arrive prefixed with the server's name (`mcp_tickets_create`), so
+ * Its tools arrive prefixed with the server's name (`mcp__tickets__create`), so
  * two servers offering `search` do not collide and the transcript says where a
  * call went.
  *
@@ -34,11 +34,12 @@
 
 import {
 	MCPClient,
+	type MCPToolsetOptions,
 	type MCPTransportUnion,
 	type ToolDefinition,
 	type Toolset,
-	mcpToolToToolDefinition,
-	toolset,
+	mcpToolset,
+	requireApproval,
 } from '@namzu/sdk'
 
 /**
@@ -125,6 +126,16 @@ export interface McpServerSpec {
 	 * `connectTimeoutMs` for the handshake that will actually answer.
 	 */
 	readonly eraProbeTimeoutMs?: number
+	/** Server-reported names admitted from tools, prompts and resources. */
+	readonly allow?: readonly string[]
+	/** Server-reported names refused even if `allow` includes them. */
+	readonly deny?: readonly string[]
+	/** Retries only tool calls the SDK marks safe to repeat. Defaults to none. */
+	readonly maxRetries?: number
+	/** Require a person to approve every call this server contributes. */
+	readonly requireApproval?: boolean
+	/** Trust this server's read-only hints for review exemptions. Defaults to false. */
+	readonly readOnlyHintTrusted?: boolean
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -136,11 +147,13 @@ export interface ConnectedMcpServer {
 	 * What this server actually contributes, by tool name.
 	 *
 	 * Carried from the listing rather than recovered later. The names arrive
-	 * prefixed with the server's own (`mcp_tickets_create`), so a caller COULD
+	 * prefixed with the server's own (`mcp__tickets__create`), so a caller COULD
 	 * split them back apart — but that turns an encoding this file owns into a
 	 * format two places have to agree about, and the list is free right here.
 	 */
 	readonly tools: readonly string[]
+	/** The server's current initialize instructions, if it supplied any. */
+	readonly instructions?: string
 }
 
 export interface FailedMcpServer {
@@ -150,15 +163,11 @@ export interface FailedMcpServer {
 }
 
 export interface McpConnection {
-	/** Adapted tools from every server that connected, ready to register. */
+	/** Current definitions from every connected server, read from its live toolsets. */
 	readonly tools: readonly ToolDefinition[]
 	/**
-	 * One `Toolset` per server that connected, kind `mcp_server`, named
-	 * `mcp:<server>` — plan.md v3 §8's interim step (a real, live
-	 * `mcpToolset` primitive is a later wave; see the SDK's `toolsets/`).
-	 * `readOnlyHintTrusted` is `false` for every server here, matching
-	 * `mcpToolToToolDefinition`'s own default: this module has no per-server
-	 * trust configuration yet.
+	 * Two live entries per connected server: its configured main tools and its
+	 * always-deferred resource tools. Both carry the `mcp:<server>` source.
 	 */
 	readonly toolsets: readonly Toolset[]
 	/** One coherent live snapshot; use this when successes and failures are shown together. */
@@ -330,18 +339,49 @@ export function eraProbeTimeoutFor(spec: McpServerSpec): number | undefined | st
 	return ms
 }
 
+function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions | string {
+	for (const field of ['allow', 'deny'] as const) {
+		const value = spec[field]
+		if (
+			value !== undefined &&
+			(!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item.length > 0))
+		) {
+			return `${field} must be a list of nonempty server-reported names`
+		}
+	}
+	if (
+		spec.maxRetries !== undefined &&
+		(!Number.isSafeInteger(spec.maxRetries) || spec.maxRetries < 0)
+	) {
+		return `maxRetries must be a nonnegative integer, got ${JSON.stringify(spec.maxRetries)}`
+	}
+	if (spec.requireApproval !== undefined && typeof spec.requireApproval !== 'boolean') {
+		return 'requireApproval must be true or false'
+	}
+	if (spec.readOnlyHintTrusted !== undefined && typeof spec.readOnlyHintTrusted !== 'boolean') {
+		return 'readOnlyHintTrusted must be true or false'
+	}
+	return {
+		id: `mcp:${name}`,
+		allow: spec.allow,
+		deny: spec.deny,
+		maxRetries: spec.maxRetries,
+		readOnlyHintTrusted: spec.readOnlyHintTrusted,
+	}
+}
+
 export async function connectMcpServers(
 	config: McpServersConfig | undefined,
 	options: { readonly cwd: string },
 ): Promise<McpConnection> {
 	const entries = Object.entries(config ?? {})
-	const tools: ToolDefinition[] = []
 	const toolsets: Toolset[] = []
 	const startupFailed: FailedMcpServer[] = []
 	const clients: MCPClient[] = []
 	const liveServers: Array<{
 		readonly client: MCPClient
-		readonly summary: ConnectedMcpServer
+		readonly name: string
+		readonly toolsets: readonly Toolset[]
 	}> = []
 
 	// Sequential, not parallel. Each server may spawn a process and each is
@@ -349,6 +389,10 @@ export async function connectMcpServers(
 	// of nothing and the failure output arrive interleaved, for a saving that
 	// matters only to someone running many servers, who has other problems.
 	for (const [name, spec] of entries) {
+		if (typeof spec !== 'object' || spec === null) {
+			startupFailed.push({ name, reason: 'server spec must be a mapping' })
+			continue
+		}
 		const transport = transportFor(spec, options.cwd)
 		if (typeof transport === 'string') {
 			startupFailed.push({ name, reason: transport })
@@ -364,6 +408,11 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: eraProbeTimeoutMs })
 			continue
 		}
+		const toolsetOptions = toolsetOptionsFor(spec, name)
+		if (typeof toolsetOptions === 'string') {
+			startupFailed.push({ name, reason: toolsetOptions })
+			continue
+		}
 		const client = new MCPClient({
 			serverName: name,
 			transport,
@@ -371,34 +420,16 @@ export async function connectMcpServers(
 		})
 		try {
 			await withDeadline(client.connect(), deadline, `server "${name}"`)
-			const listed = await withDeadline(
-				client.listTools(),
+			const discovered = await withDeadline(
+				mcpToolset(client, toolsetOptions),
 				deadline,
-				`server "${name}" listing its tools`,
+				`server "${name}" discovering its tools`,
 			)
-			// Adapted once, then read twice. Adapting a second time to collect
-			// the names would build a parallel set of definitions bound to the
-			// same client — cheap today and exactly the kind of duplicate a
-			// future adapter with a side effect turns into a bug.
-			const adapted = listed.map((tool) => mcpToolToToolDefinition(tool, client, name))
-			tools.push(...adapted)
-			toolsets.push(
-				toolset(
-					{
-						id: `mcp:${name}`,
-						kind: 'mcp_server',
-						name,
-						mcpServer: { name, readOnlyHintTrusted: false },
-					},
-					adapted,
-				),
-			)
-			const summary = {
-				name,
-				toolCount: adapted.length,
-				tools: adapted.map((tool) => tool.name),
-			} satisfies ConnectedMcpServer
-			liveServers.push({ client, summary })
+			const mounted = spec.requireApproval
+				? discovered.map((entry) => requireApproval(entry))
+				: [...discovered]
+			toolsets.push(...mounted)
+			liveServers.push({ client, name, toolsets: mounted })
 			clients.push(client)
 		} catch (err) {
 			startupFailed.push({ name, reason: reasonOf(err) })
@@ -426,14 +457,22 @@ export async function connectMcpServers(
 	} => {
 		const connected: ConnectedMcpServer[] = []
 		const failed: FailedMcpServer[] = [...startupFailed]
-		for (const { client, summary } of liveServers) {
+		for (const { client, name, toolsets: serverToolsets } of liveServers) {
 			const state = client.getState()
 			if (state.status === 'connected') {
-				connected.push(summary)
+				const names = serverToolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
+				connected.push({
+					name,
+					toolCount: names.length,
+					tools: names,
+					...(state.serverInstructions !== undefined
+						? { instructions: state.serverInstructions }
+						: {}),
+				})
 				continue
 			}
 			failed.push({
-				name: summary.name,
+				name,
 				reason:
 					state.error ??
 					(state.status === 'disconnected'
@@ -445,7 +484,9 @@ export async function connectMcpServers(
 	}
 
 	return {
-		tools,
+		get tools() {
+			return toolsets.flatMap((entry) => entry.tools())
+		},
 		toolsets,
 		current,
 		get connected() {
@@ -455,6 +496,7 @@ export async function connectMcpServers(
 			return current().failed
 		},
 		close: async () => {
+			await Promise.all(toolsets.map((entry) => entry.close?.()))
 			await Promise.all(
 				clients.map((c) =>
 					withDeadline(c.disconnect(), CLOSE_TIMEOUT_MS, 'closing a tool server').catch(() => {

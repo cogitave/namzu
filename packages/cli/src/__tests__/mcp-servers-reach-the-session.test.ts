@@ -139,11 +139,11 @@ describe('a tool server declared in namzu.config.json', () => {
 			// answers "did it connect" where the operator's question is whether the
 			// tool they wanted is among them.
 			expect(session.mcpConnected).toEqual([
-				{ name: 'tickets', toolCount: 1, tools: ['mcp_tickets_create'] },
+				{ name: 'tickets', toolCount: 1, tools: ['mcp__tickets__create'] },
 			])
 			// The load-bearing one. Connecting and adapting is not the feature —
 			// the model has to be able to see and call it.
-			expect(session.toolNames()).toContain('mcp_tickets_create')
+			expect(session.toolNames()).toContain('mcp__tickets__create')
 		} finally {
 			await session.close()
 		}
@@ -210,7 +210,7 @@ describe('a tool server declared in namzu.config.json', () => {
 		try {
 			expect(session.toolNames()).toContain('bash')
 			expect(session.toolNames()).toContain('read')
-			expect(session.toolNames()).toContain('mcp_tickets_create')
+			expect(session.toolNames()).toContain('mcp__tickets__create')
 		} finally {
 			await session.close()
 		}
