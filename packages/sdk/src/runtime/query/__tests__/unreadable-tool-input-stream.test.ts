@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { isProviderRequestError } from '../../../provider/errors.js'
+import { MockLLMProvider } from '../../../provider/mock.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -42,7 +43,7 @@ function providerOf(chunks: Array<StreamChunk | Error>): LLMProvider {
 	} as unknown as LLMProvider
 }
 
-async function run(chunks: Array<StreamChunk | Error>) {
+async function run(chunks: Array<StreamChunk | Error> | LLMProvider) {
 	const events: SessionEvent[] = []
 	const pending: SessionEvent[] = []
 	const emitEvent = async (e: SessionEventDraft) => {
@@ -56,7 +57,7 @@ async function run(chunks: Array<StreamChunk | Error>) {
 		}
 	}
 	const gen = streamProviderTurn(
-		providerOf(chunks),
+		Array.isArray(chunks) ? providerOf(chunks) : chunks,
 		{ model: 'm', messages: [] } as never,
 		emitEvent,
 		drainPending,
@@ -111,6 +112,35 @@ function completed(events: SessionEvent[]) {
 }
 
 describe('unreadable tool input is classified from how the response ended', () => {
+	it("reads MockLLMProvider's truncateArguments as truncated, even with a call scripted after it", async () => {
+		// Its documentation promised a `truncated` call. With a later call in
+		// the script, the mock streamed that call after the cut, and the cut
+		// call came out `malformed`.
+		const { result, events } = await run(
+			new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{
+								name: 'write',
+								args: { path: 'a.md', content: 'x'.repeat(40) },
+								truncateArguments: true,
+							},
+							{ name: 'ask', args: { q: 'y' } },
+						],
+					},
+				],
+			}),
+		)
+
+		expect(completed(events)).toHaveLength(1)
+		expect(completed(events)[0]).toMatchObject({
+			inputTruncated: true,
+			inputError: { reason: 'truncated', finishReason: 'length' },
+		})
+		expect(result?.response.message.toolCalls?.map((call) => call.function.name)).toEqual(['write'])
+	})
+
 	it('calls broken JSON on a normally finished response malformed, with the parser error', async () => {
 		const broken = '{"question":"Which one?","options":["a" "b"]}'
 		const { result, events } = await run([

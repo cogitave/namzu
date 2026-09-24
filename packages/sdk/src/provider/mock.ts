@@ -150,9 +150,12 @@ export class MockLLMProvider implements LLMProvider {
 				throw new Error(call.throwAfterArguments)
 			}
 
-			if (call.truncateArguments !== true) {
-				yield { id, delta: { toolCallEnd: { index, id: callId } } }
-			}
+			// An output limit stops the response where it is, so nothing the
+			// script puts after a truncated call is streamed. It used to go on
+			// to the next call, which made the cut call one the model had
+			// moved on from: malformed, not truncated.
+			if (call.truncateArguments === true) break
+			yield { id, delta: { toolCallEnd: { index, id: callId } } }
 		}
 
 		yield {

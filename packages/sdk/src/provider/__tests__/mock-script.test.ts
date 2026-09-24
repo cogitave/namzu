@@ -104,6 +104,32 @@ describe('MockLLMProvider — scripted tool calls', () => {
 		expect(finishReason).toBe('length')
 	})
 
+	it('ends the response at a truncated call, as the output limit does', async () => {
+		// The later call used to be streamed after the cut one, which no output
+		// limit can produce, and made the cut call one the model had moved on
+		// from: the turn loop read it as malformed.
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{ name: 'write', args: { content: 'x'.repeat(40) }, truncateArguments: true },
+						{ name: 'ask', args: { q: 'y' } },
+					],
+				},
+			],
+		})
+		const names: string[] = []
+		let finishReason: string | undefined
+		for await (const chunk of provider.chatStream(PARAMS)) {
+			for (const call of chunk.delta.toolCalls ?? []) {
+				if (call.function?.name) names.push(call.function.name)
+			}
+			finishReason = chunk.finishReason ?? finishReason
+		}
+		expect(names).toEqual(['write'])
+		expect(finishReason).toBe('length')
+	})
+
 	it('keeps a scripted finish reason for a truncated call', async () => {
 		const provider = new MockLLMProvider({
 			turns: [

@@ -246,4 +246,6 @@ and marking the text it adds of its own:
 - `@namzu/openai` Codex: `response.incomplete` is reported as `length`, or
   `content_filter` when that is the stated reason. It carries no replay state.
 - `MockLLMProvider`: a `truncateArguments` call sends half its arguments and
-  the turn finishes with `length` unless the script sets `finishReason`.
+  the turn finishes with `length` unless the script sets `finishReason`. The
+  response ends at that call, as an output limit ends it: calls scripted after
+  it in the same turn are not streamed, so the cut call reads as `truncated`.
