@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The review policy
-description: The five modes a turn resolves tool review under, which calls skip review, and how a host supplies the person to ask.
+description: The five modes a turn resolves tool review under, which calls skip review, asking once per session before the screen is shared, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
@@ -88,6 +88,10 @@ A tool whose input schema canonicalises an argument to a URL declares it with `T
 # Calls a skill pre-approved
 
 A skill loaded earlier in the turn can pre-approve calls through its `allowed-tools`. The review phase marks each covered call with `ToolCallSummary.skillGrant = { skill }`, but only when no deny, explicit ask, destructive flag or escalation applies to it. `createReviewHandler` approves a batch without asking when every call it would have asked about carries the mark, and reports those ids in `approve_tools.skillGranted` so the kernel can record each approval in the audit trail under the skill's name. `plan` and `strict` refuse before that check, so a skill never outranks them. `skillGrants: 'ignore'` turns the check off. See [Skills and allowed-tools](skills.md).
+
+# The first look at the screen
+
+`screenConsent: { sessions: Set<string> }` asks once per session before the model first sees the screen. A call captures the screen when `capturesScreen(name, input)` says so — by default the tool's own `ToolDefinition.capturesScreen` declaration read from `registry` (`defineTool({ capturesScreen })`); `computer_use` declares its screenshots, zooms, window lists, UI snapshots and every action that returns a screenshot afterwards. The first batch in a session holding such a call, and not allowed or denied by a rule, is put to `prompt` with `ToolReviewRequest.screenConsent: true` in `prompt`, `accept-edits` and `plan`, even when every call only reads. A yes adds the session id to `sessions` and answers that batch too; a no refuses it with `SCREEN_CONSENT_DECLINED_FEEDBACK`. `strict` refuses the call unless a rule allowed it, `auto` never asks, and without a `prompt` the batch is refused with `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A host keeps one record across mode switches and turns; a new session id is asked again. Without the option the screen is treated like any other read. So that the first capture reaches the policy at all, the gate's `allow_read_only` rule (`allowReadOnlyTools`) does not allow a call that declares `capturesScreen`: it falls through to review, where the policy asks once or, without a consent record, approves it as the read it is. A custom `ResumeHandler` therefore now sees such calls. An explicit rule for the tool (`allow_by_name`, `permissions: { computer_use: 'allow' }`) still allows them without asking. See [The computer_use tool](computer-actions.md#sharing-the-screen-asked-once-per-session).
 
 # Escalated calls
 

@@ -34,7 +34,8 @@ Adapters publish an exact `supportedActions` subset. Optional `mouseClickButtons
 and `mouseDragButtons` distinguish gesture support: on macOS scrolling is
 unavailable, move/drag require cliclick, and drag supports only the left button.
 The SDK tool filters its advertised actions and rejects unsupported gestures
-before desktop execution. See [computer action capabilities](../../docs/sdk/computer-actions.md).
+before desktop execution. See [the computer_use tool](../../docs/sdk/computer-actions.md)
+and [the host contract](../../docs/sdk/computer-use-host.md).
 
 ## Install
 
@@ -80,10 +81,100 @@ report a clean completion, the host throws
 SDK returns that state to the model with `retrySafety: 'unsafe'` instead of
 inviting an automatic replay.
 
-When Namzu runs inside WSL, the host selects the paired Windows desktop and
-uses `powershell.exe` through WSL interop. This takes precedence over WSLg's
-`DISPLAY`/`WAYLAND_DISPLAY`, which describe Linux GUI applications rather than
-the Windows desktop containing the terminal.
+Every coordinate and size crossing the host is in **physical pixels**: the
+pixels of the captured bitmap, never points or DPI-scaled units. A capture
+carries `display` (origin, size, `scaleFactor`) and action points are
+relative to that display. On a Retina Mac the adapter converts to points for
+`cliclick` itself, so a click at the pixel you saw lands there; on Windows
+every backend is DPI aware.
+
+`host.dispose()` stops whatever the adapter keeps running. Call it when the
+session ends.
+
+## Windows and WSL
+
+When Namzu runs inside WSL, the host selects the paired Windows desktop. This
+takes precedence over WSLg's `DISPLAY`/`WAYLAND_DISPLAY`, which describe Linux
+GUI applications rather than the Windows desktop containing the terminal.
+
+The desktop is driven by [cua-driver](https://github.com/trycua/cua) (MIT),
+one `cua-driver.exe mcp` process for the host's lifetime, spoken to over its
+standard streams:
+
+- **Pinned and checked.** The first `initialize()` downloads cua-driver
+  0.28.2 for this architecture (x64 or arm64, a 27–29 MB archive from the
+  project's GitHub releases), checks the SHA-256 of the archive and of the
+  executable in it against values in this package, and keeps
+  `cua-driver.exe` in `<NAMZU_HOME>/computer-use/cua-driver/0.28.2/`
+  (`~/.namzu` by default). Nothing else in the archive is written. Later
+  sessions start the cached copy after checking its hash again.
+- **Quiet.** It runs with its telemetry and its release check switched off
+  (`CUA_DRIVER_RS_TELEMETRY_ENABLED=0`, `CUA_DRIVER_RS_UPDATE_CHECK=0`,
+  forwarded through `WSLENV`), without any environment variable whose name
+  looks like a secret, and with its animated agent cursor off. Measured: a
+  whole session left nothing in the Windows user profile.
+- **Windows.** `capabilities.windows` is `true`: `listWindows()` and
+  `focusWindow(id)` (which restores a minimized window, gets past the
+  foreground lock and reports what is actually in front afterwards).
+- **Controls (experimental).** `capabilities.uiTree` is `true`:
+  `uiSnapshot(windowId?)` reads a window's UI Automation tree (the window in
+  front without an id) and `uiAct(ref, action, value?)` acts on a control of
+  the latest snapshot — `invoke`, `toggle`, `select`, `expand`, `collapse`
+  through UI Automation in the background, `set_value` through the control's
+  value, or by typing into an empty field that has none. The SDK tool offers
+  these as `ui_snapshot` and `ui_act`. Pressing six Calculator buttons this
+  way took about 90 ms, without bringing the window to the front.
+- **Fallback.** When cua-driver cannot be downloaded, verified or started,
+  or does not reach the desktop, the host uses PowerShell instead — one
+  `powershell.exe` per action, DPI aware, Unicode text, no window list.
+  `host.backend` says which is in use (`cua-driver 0.28.2`, `powershell`),
+  `host.fallbackReason` why cua-driver is not.
+
+`NAMZU_CUA_DRIVER=off` keeps cua-driver out (no download); a path in it runs
+that `cua-driver.exe` instead of the pinned build. The same choices in code:
+
+```ts
+import { SubprocessComputerUseHost } from '@namzu/computer-use'
+
+const host = new SubprocessComputerUseHost({
+  windows: {
+    backend: 'auto', // or 'cua-driver' (no fallback) or 'powershell'
+    download: true, // false: use a cached or configured build only
+  },
+})
+await host.initialize()
+console.log(host.backend, host.fallbackReason)
+if (host.capabilities.windows) {
+  const windows = await host.listWindows()
+  const notepad = windows.find((window) => window.app === 'notepad')
+  if (notepad) await host.focusWindow(notepad.id)
+}
+await host.dispose()
+```
+
+Measured on Windows 10 22H2 from WSL2, one 3440x1440 display at 100 %:
+
+| Call | PowerShell per action (before) | cua-driver |
+| --- | --- | --- |
+| `initialize()` | 0.3 s | 0.5–0.7 s (2.2 s the first time, with the download) |
+| screenshot (3440x1440 PNG) | 0.40–0.42 s | 0.08–0.13 s |
+| cursor position | 0.31 s | 1–6 ms |
+| move | 0.54–0.60 s | 1–5 ms |
+| click | 0.68–0.83 s | 0.13–0.14 s |
+| key | not measured | 0.04–0.05 s |
+| type 21 characters | not measured | 0.09 s |
+| focus a window | not offered | 4–22 ms |
+| list windows | not offered | 1.2–1.9 s |
+
+What cua-driver does not do, and so neither does this host on Windows: it
+captures the primary display only; it has no region capture (the SDK crops a
+full capture instead); its window list includes windows Windows keeps
+cloaked (a suspended Settings app, the text-input host), and it does not say
+which window has focus — `focused` is the front-most window that is not
+minimized. A single punctuation key (`/`, `+`) is typed as text, because
+cua-driver resolves it to a key without its shift state and on a Turkish
+layout `/` came out as `7`; a chord such as `ctrl+/` still goes through
+cua-driver's key mapping.
 
 ## Documentation
 
