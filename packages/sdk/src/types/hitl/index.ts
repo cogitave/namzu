@@ -175,8 +175,21 @@ export interface ToolModification {
 
 export interface UserQuestionOption {
 	id: string
+	/**
+	 * The label as shown and as the answer quotes it. `ask_user_question`
+	 * takes a recommendation marker the model wrote out of habit
+	 * ("(Recommended)", "(Önerilen)", …) out of it and sets `recommended`
+	 * instead, so a host never has to parse a label to find the
+	 * recommendation.
+	 */
 	label: string
 	description?: string
+	/**
+	 * The model recommends this option. A host marks it (a badge, an
+	 * emphasis) rather than relying on the label to say so. Absent, not
+	 * `false`, on every other option.
+	 */
+	recommended?: boolean
 }
 
 /**

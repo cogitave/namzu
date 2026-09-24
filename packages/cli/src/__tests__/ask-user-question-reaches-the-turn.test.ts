@@ -134,9 +134,36 @@ describe('ask_user_question', () => {
 
 		expect(asked?.question).toBe('Which audience is this for?')
 		expect(asked?.header).toBe('Audience')
-		expect(asked?.options.map((o) => o.label)).toEqual(['Board (Recommended)', 'Engineers'])
+		expect(asked?.options.map((o) => o.label)).toEqual(['Board', 'Engineers'])
+		expect(asked?.options.map((o) => o.recommended === true)).toEqual([true, false])
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('User answered "Which audience is this for?": "Engineers"')
+	})
+
+	it('shows a localised recommendation as the flag, and keeps its marker out of the answer', async () => {
+		const session = await openSession(true)
+		let asked: UserQuestion | undefined
+		const tool = await sendOnce(session, async (question) => {
+			asked = question
+			return { kind: 'answer', selectedOptionIds: [question.options[0]?.id ?? ''] }
+		})
+		if (!tool) throw new Error('no tool')
+
+		const result = await tool.execute(
+			{
+				question: 'Sunum kimin için?',
+				options: [
+					{ label: 'Yönetim kurulu (Önerilen)', recommended: true },
+					{ label: 'Mühendisler' },
+				],
+			},
+			toolContext(),
+		)
+
+		expect(asked?.options.map((o) => o.label)).toEqual(['Yönetim kurulu', 'Mühendisler'])
+		expect(asked?.options[0]?.recommended).toBe(true)
+		expect(result.output).toBe('User answered "Sunum kimin için?": "Yönetim kurulu"')
+		expect(result.output).not.toContain('Önerilen')
 	})
 
 	it('carries free text, and reports a skip as no answer rather than a choice', async () => {

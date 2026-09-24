@@ -266,14 +266,38 @@ describe('coordinator ask_user_question request synthesis', () => {
 		// zod defaults applied by the schema parse, exactly like the registry
 		expect(request.question.multiSelect).toBe(false)
 		expect(request.question.allowFreeText).toBe(true)
+		// The host is handed the recommendation as a field and the label
+		// without the marker the model wrote into it.
 		expect(request.question.options).toEqual([
 			{
 				id: 'opt_1',
-				label: 'Board (Recommended)',
+				label: 'Board',
 				description: 'Executive framing, business outcomes first',
+				recommended: true,
 			},
 			{ id: 'opt_2', label: 'Engineering team' },
 			{ id: 'opt_3', label: 'Customer' },
+		])
+	})
+
+	it('parks with the recommendation the model flagged, and a localised marker out of the label', async () => {
+		const { requests } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_2'] },
+			input: {
+				question: 'Kitle kim?',
+				options: [
+					{ label: 'Mühendisler' },
+					{ label: 'Yönetim kurulu (Önerilen)', recommended: true },
+				],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: 'Mühendisler' },
+			{ id: 'opt_2', label: 'Yönetim kurulu', recommended: true },
 		])
 	})
 
@@ -338,9 +362,44 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		expect(result.output).toBe('User answered "Who is the audience?": "Board"')
 		expect(result.data).toEqual({
 			question: 'Who is the audience?',
-			selected: [{ id: 'opt_1', label: 'Board' }],
+			selected: [{ id: 'opt_1', label: 'Board', recommended: true }],
 			answered: true,
 		})
+	})
+
+	it.each([
+		['Yönetim kurulu (Önerilen)', 'Yönetim kurulu'],
+		['Vorstand (Empfohlen)', 'Vorstand'],
+		['董事会（推荐）', '董事会'],
+	])(
+		'never records the marker of %j, flagged or not, in the answer the model reads',
+		async (label, clean) => {
+			for (const flag of [{ recommended: true }, {}]) {
+				const { result } = await executeAsk({
+					decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+					input: {
+						question: 'Who is the audience?',
+						options: [{ label, ...flag }, { label: 'Engineering team' }],
+					},
+				})
+				expect(result.output).toBe(`User answered "Who is the audience?": "${clean}"`)
+				expect(result.data).toEqual({
+					question: 'Who is the audience?',
+					selected: [{ id: 'opt_1', label: clean, recommended: true }],
+					answered: true,
+				})
+			}
+		},
+	)
+
+	it('records no recommendation on an option the model did not recommend', async () => {
+		const { result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_2'] },
+		})
+		expect(result.data).toMatchObject({
+			selected: [{ id: 'opt_2', label: 'Engineering team' }],
+		})
+		expect((result.data as { selected: object[] }).selected[0]).not.toHaveProperty('recommended')
 	})
 
 	it('joins multiple selected labels', async () => {
@@ -529,5 +588,34 @@ describe('the question contract is closed, not merely shaped', () => {
 
 		expect(tool.validationErrorHint).toContain('"options" must be a JSON array')
 		expect(tool.validationErrorHint).toContain('never a string')
+		expect(tool.validationErrorHint).toContain('"recommended":true')
+	})
+
+	it('takes the recommendation as a field and never asks for a marker in the label', () => {
+		const tool = askTool(noopHandler)
+		const option = (
+			tool.modelInputSchema as {
+				properties: { options: { items: { properties: Record<string, { type: string }> } } }
+			}
+		).properties.options.items.properties
+		expect(option.recommended?.type).toBe('boolean')
+		expect(
+			tool.inputSchema.safeParse({
+				question: 'Who is the audience?',
+				options: [{ label: 'Board', recommended: true }, { label: 'Engineering' }],
+			}).success,
+		).toBe(true)
+
+		// The old instruction was to append " (Recommended)"; a model answering
+		// in the user's language translated it. Nothing tells it to any more.
+		for (const text of [
+			tool.description,
+			JSON.stringify(tool.modelInputSchema),
+			tool.validationErrorHint ?? '',
+		]) {
+			expect(text).not.toMatch(/append/i)
+			expect(text).not.toContain('"label":"First (Recommended)"')
+		}
+		expect(tool.description).toContain('recommended: true')
 	})
 })
