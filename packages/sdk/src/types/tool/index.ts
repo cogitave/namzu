@@ -948,6 +948,52 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	capturesScreen?(input: TInput): boolean
 
 	/**
+	 * This call always needs a person's approval, whatever the host's rules
+	 * say and whatever mode the turn is running in.
+	 *
+	 * Distinct from {@link isDestructive}, and stronger. A destructive call
+	 * is still let through by a gate `allow` rule (`allow_by_name`,
+	 * `allow_by_category`, …) and by `auto` mode or an unattended turn — the
+	 * rule and the mode both outrank it. This flag cannot be outranked either
+	 * way: it survives an `allow` rule the same way an escalation does (the
+	 * decision is forced back to review before the rule's `allow` ever
+	 * settles anything), and it is asked about, or refused when nobody can
+	 * be asked, in every mode — `auto` and a remembered "approve all"
+	 * included — the same way a sandbox escape or a path outside the turn's
+	 * roots is. No grant, skill grant or `accept-edits` exemption covers it.
+	 * A `deny` rule still wins: this flag can only ADD a review, never open
+	 * one a rule closed.
+	 *
+	 * For a call that is sensitive for a reason other than being
+	 * destructive — it costs money, it leaves an audit trail somewhere else,
+	 * it is policy-sensitive — rather than a tool author reaching for
+	 * `isDestructive` on a call that does not destroy anything, just to get
+	 * the review a host might not otherwise configure. See
+	 * `docs/sdk/review-policy.md`.
+	 *
+	 * Never populated from a connected server's own wire annotations
+	 * (`mcpToolToToolDefinition` does not set it): a server cannot demand,
+	 * or waive, its own review requirement. It is host/plugin-trust-boundary
+	 * metadata, like {@link capturesScreen}.
+	 */
+	requiresApproval?(input: TInput): boolean
+
+	/**
+	 * Free-form, tool-author-declared data for filtering and behaviour
+	 * customization — never a classification the runtime itself reads.
+	 *
+	 * Not sent to the model: unlike {@link outputSchema}, which is shown in
+	 * the description precisely so the model can act on it, this is for a
+	 * host, a capability or a toolset wrapper to read back, with
+	 * `matchesToolSelector` (`tools/roster.ts`) or by hand. A connected
+	 * server's own annotations that have nowhere else to land — its
+	 * `title`, `idempotentHint`, `openWorldHint`, and any `_meta` it
+	 * attached — arrive here (`mcpToolToToolDefinition`); `isReadOnly` and
+	 * `isDestructive` keep the two hints that already have a typed home.
+	 */
+	metadata?: Readonly<Record<string, unknown>>
+
+	/**
 	 * Opt-in ordering boundary in a direct model tool-call batch. Earlier
 	 * calls settle before this call starts; later calls wait for this call
 	 * to settle (including failed results). Defaults to false. Independent

@@ -473,6 +473,22 @@ export function mcpToolToToolDefinition(
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
 	const toolName = `mcp_${serverName}_${tool.name}`
 
+	// Everything the server's own annotations carry that `isReadOnly`/
+	// `isDestructive` do not already have a typed home for — `title`,
+	// `idempotentHint`, `openWorldHint` — plus any `_meta` on the listing
+	// entry itself. Never sent back to the model (ToolDefinition.metadata is
+	// wire-excluded); a host, capability or toolset wrapper reads it with
+	// `matchesToolSelector` or by hand.
+	const mcpMetadata: Record<string, unknown> = {}
+	if (tool.annotations?.title !== undefined) mcpMetadata.title = tool.annotations.title
+	if (tool.annotations?.idempotentHint !== undefined) {
+		mcpMetadata.idempotentHint = tool.annotations.idempotentHint
+	}
+	if (tool.annotations?.openWorldHint !== undefined) {
+		mcpMetadata.openWorldHint = tool.annotations.openWorldHint
+	}
+	if (tool._meta !== undefined) mcpMetadata._meta = tool._meta
+
 	return {
 		name: toolName,
 		description: tool.description
@@ -495,6 +511,7 @@ export function mcpToolToToolDefinition(
 		isReadOnly: () => tool.annotations?.readOnlyHint ?? false,
 		isDestructive: () => tool.annotations?.destructiveHint ?? false,
 		isConcurrencySafe: () => true,
+		...(Object.keys(mcpMetadata).length > 0 ? { metadata: mcpMetadata } : {}),
 		provenance: { server: serverName, readOnlyHintTrusted },
 
 		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {

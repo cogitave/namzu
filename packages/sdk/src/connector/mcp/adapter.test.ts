@@ -167,6 +167,55 @@ describe('mcpToolToToolDefinition', () => {
 		expect(tool.isDestructive?.({})).toBe(false)
 	})
 
+	it('carries the annotations and _meta that have no typed home into metadata', () => {
+		const tool = mcpToolToToolDefinition(
+			{
+				name: 't',
+				inputSchema: { type: 'object' } as MCPJsonSchema,
+				annotations: {
+					title: 'Search the docs',
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+				_meta: { 'vendor.example/rateLimit': 5 },
+			},
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.metadata).toEqual({
+			title: 'Search the docs',
+			idempotentHint: true,
+			openWorldHint: false,
+			_meta: { 'vendor.example/rateLimit': 5 },
+		})
+		// readOnlyHint/destructiveHint already have a typed home; not duplicated.
+		expect(tool.metadata).not.toHaveProperty('readOnlyHint')
+	})
+
+	it('carries no metadata when the server sent no annotations and no _meta', () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 't', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.metadata).toBeUndefined()
+	})
+
+	it('never populates requiresApproval: a connected server cannot demand its own review', () => {
+		const tool = mcpToolToToolDefinition(
+			{
+				name: 't',
+				inputSchema: { type: 'object' } as MCPJsonSchema,
+				annotations: { destructiveHint: true },
+				_meta: { requiresApproval: true },
+			},
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.requiresApproval).toBeUndefined()
+	})
+
 	it('execute calls client.callTool(tool.name, input) and adapts result', async () => {
 		const client = mockClient({
 			content: [{ type: 'text', text: 'hello' }],

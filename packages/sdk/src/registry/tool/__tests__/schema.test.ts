@@ -90,6 +90,22 @@ describe('renderToolSchema', () => {
 		expect(a).toBe(b)
 		expect(a).not.toHaveProperty('$schema')
 	})
+
+	it('never puts ToolDefinition.metadata on the wire', () => {
+		// `metadata` is for a host, capability or toolset wrapper to read
+		// back — never a classification the model sees, unlike `outputSchema`
+		// (shown in the description on purpose).
+		const registry = new ToolRegistry()
+		registry.register({
+			...tool('search_docs', z.object({ q: z.string() })),
+			metadata: { tag: 'experimental', internalOwner: 'search-team' },
+		})
+
+		const rendered = registry.toLLMTools()[0]
+		expect(rendered?.function).not.toHaveProperty('metadata')
+		expect(JSON.stringify(rendered)).not.toContain('experimental')
+		expect(JSON.stringify(rendered)).not.toContain('internalOwner')
+	})
 })
 
 describe('MCP schema round trip', () => {

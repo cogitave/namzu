@@ -136,6 +136,19 @@ export interface ToolCallSummary {
 	 */
 	escalation?: ToolCallEscalation
 	/**
+	 * The tool itself declared that this exact call always needs a person's
+	 * approval (`ToolDefinition.requiresApproval`), regardless of the host's
+	 * rules or the turn's mode.
+	 *
+	 * Computed once, when the batch is prepared for review, the same way
+	 * {@link isDestructive} is — so it survives a gate `allow` rule (the
+	 * decision is forced back to `review` before the rule can settle
+	 * anything) and is asked about, or refused unattended, in every mode,
+	 * like {@link escalation}. No grant, skill grant or `accept-edits`
+	 * exemption covers it, and a `deny` rule still wins.
+	 */
+	requiresApproval?: true
+	/**
 	 * Present when a skill loaded earlier in this turn pre-approved this call
 	 * through its `allowed-tools`, and nothing stronger stands in the way.
 	 *

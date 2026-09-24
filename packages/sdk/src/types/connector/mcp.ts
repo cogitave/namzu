@@ -276,6 +276,14 @@ export interface MCPToolDefinition {
 	 */
 	outputSchema?: MCPValueJsonSchema
 	annotations?: MCPToolAnnotations
+	/**
+	 * Server-defined data on the tool's own listing entry, carried opaquely:
+	 * this client acts on none of it. `mcpToolToToolDefinition` lands it in
+	 * `ToolDefinition.metadata` alongside the annotations that have no other
+	 * typed home, so a host reading either does not have to reach past this
+	 * client's own parsed shape back to the raw listing.
+	 */
+	_meta?: Record<string, unknown>
 }
 
 /**
