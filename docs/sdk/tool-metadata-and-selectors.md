@@ -33,7 +33,7 @@ A `ToolSelector` is one of three shapes, so a capability or a toolset wrapper ca
 - **A partial, deep-equal match against `ToolDefinition.metadata`**: every key the selector names must be present on the tool's metadata with an equal value; a nested plain object recurses the same way, so `{ source: { team: 'search' } }` matches a tool whose metadata is `{ source: { team: 'search', tier: 2 } }`. A key the tool's metadata does not carry, or carries a different value for, fails the match. An empty object (`{}`) matches every tool; a tool with no `metadata` at all matches only the empty selector.
 - **A predicate**: `(tool: ToolDefinition) => boolean`, for anything the two shapes above cannot express.
 
-`matchesToolSelector` is synchronous only, unlike Pydantic AI's equivalent (which also allows an async predicate): every place namzu filters a tool roster today does so synchronously, and an `Awaitable` branch nothing calls is a surface with nothing to test. It reads only `tool.name` and `tool.metadata`, never a tool's schema or its `execute`.
+`matchesToolSelector` is synchronous only, unlike some other agent frameworks' equivalent selector (which also allow an async predicate): every place namzu filters a tool roster today does so synchronously, and an `Awaitable` branch nothing calls is a surface with nothing to test. It reads only `tool.name` and `tool.metadata`, never a tool's schema or its `execute`.
 
 # What an MCP server's annotations become
 

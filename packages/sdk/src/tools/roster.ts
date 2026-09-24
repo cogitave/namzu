@@ -57,10 +57,10 @@ export function filterToolsNamed(
  *   selector matches every tool;
  * - a predicate, for anything the two shapes above cannot express.
  *
- * Synchronous only, unlike Pydantic AI's `ToolSelector` (which also allows an
- * async predicate): every place namzu filters a roster today does so
- * synchronously, and an `Awaitable` branch nothing calls is a surface with
- * nothing to test.
+ * Synchronous only, unlike some other agent frameworks' equivalent selector
+ * type (which also allow an async predicate): every place namzu filters a
+ * roster today does so synchronously, and an `Awaitable` branch nothing
+ * calls is a surface with nothing to test.
  */
 export type ToolSelector =
 	| readonly string[]
