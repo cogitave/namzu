@@ -4,7 +4,7 @@
 
 **Words you type in the interactive composer can now act for that message — on by default.** This changes what existing keystrokes do, so it is a major version.
 
-- `hypermode` at the start or end of a message (or clause) arms a one-turn hypermode: that turn runs at the model's highest published effort and the model is asked to delegate independent work to parallel agents. The next turn gets neither, and `/hypermode` (the session setting) is not turned on.
+- `hypermode` at the start or end of a message (or clause) arms a one-turn hypermode: that turn runs at `xhigh` effort (the highest level below it on a model without `xhigh`) and the model is asked to delegate independent work to parallel agents. The next turn gets neither, and `/hypermode` (the session setting) is not turned on.
 - "save this as a skill", "turn it into a skill", "bunu skill olarak kaydet", "bunu skill'e çevir", "bundan bir skill yap" and their request forms (`kaydeder misin`, `kaydedebilir misin`, `kaydedelim mi`, …) run `/skills save` after the turn — only when that turn completed, did tool work and did not already save a skill. A message that is only the phrase runs `/skills save` at once.
 - Schedule phrases ("run it every day", "bunu her sabah çalıştır") are only suggested; they never act on their own.
 

@@ -479,7 +479,7 @@ it('previews supported effort as requested and unsupported effort as unavailable
 	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
 })
 
-it("turning hypermode on pins effort to the model's highest published level", async () => {
+it('turning hypermode on pins the highest level not above xhigh on a menu without it', async () => {
 	const screen = await open()
 	await submit(screen, '/hypermode on')
 	await until(
@@ -547,7 +547,21 @@ it('keeps /orchestrate working as a deprecated alias that says so', async () => 
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-it("hypermode survives a model switch and re-pins to the new model's highest level", async () => {
+it('pins xhigh, not the top level, on a model whose menu goes up to max', async () => {
+	oldOverrides = { reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] }
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is on — effort pinned to xhigh'),
+		'Hypermode did not pin xhigh',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('xhigh')
+})
+
+it("hypermode survives a model switch and re-pins to the new model's xhigh", async () => {
 	activate = async (model) =>
 		fakeAgentSession({ ...makeSession(model), reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'] })
 	const screen = await open()

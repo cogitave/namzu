@@ -42,7 +42,9 @@ const row = (
 		{
 			columns,
 			turnActive: options.turnActive ?? false,
-			highestEffort: 'xhigh',
+			// A menu that goes up to max: hypermode still names xhigh.
+			highestEffort: 'max',
+			hypermodeEffort: 'xhigh',
 			standaloneAllowed: true,
 		},
 	)
@@ -150,12 +152,10 @@ describe('the copy is true in every permission mode', () => {
 describe('the transcript line', () => {
 	it('names what the message carried', () => {
 		expect(
-			transcriptTagLine(['hypermode', 'save-skill'], { highestEffort: 'xhigh', steered: false }),
+			transcriptTagLine(['hypermode', 'save-skill'], { effort: 'xhigh', steered: false }),
 		).toBe('hypermode (this turn, effort xhigh) · save as skill (after this turn)')
-		expect(
-			transcriptTagLine(['hypermode'], { highestEffort: undefined, steered: true }),
-		).toBeUndefined()
-		expect(transcriptTagLine(['save-skill'], { highestEffort: undefined, steered: true })).toBe(
+		expect(transcriptTagLine(['hypermode'], { effort: undefined, steered: true })).toBeUndefined()
+		expect(transcriptTagLine(['save-skill'], { effort: undefined, steered: true })).toBe(
 			'save as skill (after the running turn)',
 		)
 	})

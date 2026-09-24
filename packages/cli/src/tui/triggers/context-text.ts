@@ -8,6 +8,9 @@
  * operator's message itself reaches the model and the session log unchanged.
  */
 
+import type { ReasoningEffort } from '@namzu/sdk'
+
+import { hypermodeEffort } from '../hypermode.js'
 import type { ContextTextId, TriggerId } from './registry.js'
 import { triggerDefinition } from './registry.js'
 
@@ -33,13 +36,20 @@ export function triggerContextTexts(ids: readonly TriggerId[]): string[] {
 	return texts
 }
 
-/** Whether the armed triggers pin the model's highest effort for the turn. */
-export function pinsHighestEffort(ids: readonly TriggerId[]): boolean {
-	return ids.some((id) => {
-		const effect = triggerDefinition(id).effect
-		return (
-			(effect.kind === 'turn-context' && effect.effort === 'highest') ||
-			effect.kind === 'turn-effort'
-		)
-	})
+/**
+ * The effort the armed triggers pin for their turn, on a model that
+ * publishes `levels`: the highest level for max effort, else the level
+ * hypermode pins (`xhigh`, or the nearest below it). `undefined` when none
+ * pins one, or the model publishes no menu.
+ */
+export function triggerEffort(
+	ids: readonly TriggerId[],
+	levels: readonly ReasoningEffort[] | undefined,
+): ReasoningEffort | undefined {
+	const kinds = ids.map((id) => triggerDefinition(id).effect)
+	if (kinds.some((effect) => effect.kind === 'turn-effort'))
+		return levels && levels.length > 0 ? levels[levels.length - 1] : undefined
+	if (kinds.some((effect) => effect.kind === 'turn-context' && effect.effort === 'hypermode'))
+		return hypermodeEffort(levels)
+	return undefined
 }

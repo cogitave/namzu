@@ -20,8 +20,10 @@ export interface TagCopyContext {
 	readonly columns: number
 	/** A turn is running, so Enter steers into it. */
 	readonly turnActive: boolean
-	/** The model's highest published effort level, when it publishes a menu. */
+	/** The model's highest published effort level, when it publishes a menu (max effort). */
 	readonly highestEffort: string | undefined
+	/** The level hypermode pins on this model (`xhigh`, or the nearest below it). */
+	readonly hypermodeEffort: string | undefined
 	/** No paste chips and no attachments: a trigger-only message may run its command. */
 	readonly standaloneAllowed: boolean
 }
@@ -58,10 +60,11 @@ function single(hit: TriggerHit, detection: Detection, context: TagCopyContext):
 }
 
 function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): string {
-	const { columns, turnActive, highestEffort } = context
+	const { columns, turnActive } = context
 	const label = `${ARMED_MARK} ${hit.label}`
 	if (columns < 40) return label
-	const effort = highestEffort ? `effort ${highestEffort}` : undefined
+	const pinned = hit.id === 'hypermode' ? context.hypermodeEffort : context.highestEffort
+	const effort = pinned ? `effort ${pinned}` : undefined
 	const detail = ((): { full: string; short: string; tiny?: string } => {
 		if (turnActive && TURN_SCOPED.has(hit.id))
 			return {
@@ -110,7 +113,7 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 }
 
 function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
-	const { columns, highestEffort } = context
+	const { columns, hypermodeEffort } = context
 	const armedCount = hits.filter((hit) => hit.state === 'armed').length
 	const offCount = hits.filter((hit) => hit.state === 'dropped').length
 	const key = armedCount > 0 ? 'alt+w drop' : offCount > 0 ? 'alt+w restores' : 'alt+w arms'
@@ -131,8 +134,8 @@ function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
 		switch (hit.state) {
 			case 'armed':
 				// The effort pin is said wherever hypermode is armed.
-				return hit.id === 'hypermode' && highestEffort
-					? `${ARMED_MARK} hypermode (effort ${highestEffort})`
+				return hit.id === 'hypermode' && hypermodeEffort
+					? `${ARMED_MARK} hypermode (effort ${hypermodeEffort})`
 					: `${ARMED_MARK} ${hit.label}`
 			case 'suggested':
 				return `${OTHER_MARK} ${hit.label}?`
@@ -159,9 +162,13 @@ function fit(text: string, columns: number): string {
  */
 export function transcriptTagLine(
 	ids: readonly TriggerId[],
-	context: { readonly highestEffort: string | undefined; readonly steered: boolean },
+	context: {
+		/** The effort the turn was pinned to, when a trigger pinned one. */
+		readonly effort: string | undefined
+		readonly steered: boolean
+	},
 ): string | undefined {
-	const effort = context.highestEffort ? `, effort ${context.highestEffort}` : ''
+	const effort = context.effort ? `, effort ${context.effort}` : ''
 	const parts = ids.flatMap((id) => {
 		switch (id) {
 			case 'hypermode':

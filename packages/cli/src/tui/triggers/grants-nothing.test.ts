@@ -24,7 +24,11 @@ describe('trigger effects grant nothing', () => {
 			expect(allowed, trigger.id).toBeDefined()
 			for (const key of Object.keys(trigger.effect))
 				expect(allowed, `${trigger.id}.${key}`).toContain(key)
-			if ('effort' in trigger.effect) expect(trigger.effect.effort).toBe('highest')
+			// An effort pin is the level /hypermode pins, or the highest for max
+			// effort: never a value a trigger chooses by itself.
+			if (trigger.effect.kind === 'turn-context' && 'effort' in trigger.effect)
+				expect(trigger.effect.effort).toBe('hypermode')
+			if (trigger.effect.kind === 'turn-effort') expect(trigger.effect.effort).toBe('highest')
 			if (trigger.effect.kind === 'after-turn') expect(trigger.effect.command).toBe('/skills save')
 		}
 	})

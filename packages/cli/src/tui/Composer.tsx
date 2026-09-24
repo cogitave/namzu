@@ -126,8 +126,10 @@ export interface ComposerTriggerSettings {
 	/** Show suggestions (`composerTriggers.suggest`). */
 	readonly suggest: boolean
 	readonly context: TriggerContext
-	/** The model's highest published effort level, named in the tag row when a trigger pins it. */
+	/** The model's highest published effort level, named in the tag row by the max-effort trigger. */
 	readonly highestEffort?: string
+	/** The level hypermode pins on this model (`xhigh`, or the nearest below it), named in its tag. */
+	readonly hypermodeEffort?: string
 }
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
@@ -1208,6 +1210,7 @@ export function Composer({
 				columns: Math.max(1, (terminal.columns ?? 80) - 4),
 				turnActive,
 				highestEffort: triggers.highestEffort,
+				hypermodeEffort: triggers.hypermodeEffort,
 				standaloneAllowed: pastes.length === 0 && attachments.length === 0,
 			})
 		: null

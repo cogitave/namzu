@@ -259,6 +259,22 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	expect(footer).not.toContain('effort hypermode')
 })
 
+it('names xhigh on the hypermode stop when the model publishes max too', async () => {
+	candidateLevels = ['low', 'medium', 'high', 'xhigh', 'max']
+	const screen = await open()
+	await chooseNextModel(screen)
+	await shows(screen, `Select Reasoning Level for ${NEXT}`)
+	expect(choices(screen)).toEqual([
+		'default',
+		'low',
+		'medium',
+		'high',
+		'xhigh',
+		'max',
+		'xhigh + hypermode (workflows)',
+	])
+})
+
 it('keeps the vertical list on a terminal too narrow for the slider', async () => {
 	const screen = await open(59)
 	await submit(screen, '/effort')

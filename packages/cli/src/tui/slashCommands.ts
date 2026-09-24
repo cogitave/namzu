@@ -1405,8 +1405,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		help: {
 			usage: ['/hypermode [on|off]'],
 			details: [
-				'A session setting, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to the highest level this model or usable fallback publishes and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
-				'For one message only, start or end that message with the word hypermode: effort pinned to the highest level for that turn, then back.',
+				'A session setting, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to xhigh (the highest level below it when this model or usable fallback publishes no xhigh) and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
+				'For one message only, start or end that message with the word hypermode: effort pinned the same way for that turn, then back.',
 			],
 		},
 		description: 'Toggle hypermode for this session: /hypermode [on|off].',

@@ -161,7 +161,7 @@ import {
 	suggestionWindowSize,
 } from './Composer.js'
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
-import { pinsHighestEffort, triggerContextTexts } from './triggers/context-text.js'
+import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
 import { transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
 import {
@@ -173,7 +173,13 @@ import {
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
-import { HYPERMODE, HYPERMODE_SUMMARY, ORCHESTRATE_ALIAS_NOTICE, hypermodeStopLabel } from './hypermode.js'
+import {
+	HYPERMODE,
+	HYPERMODE_SUMMARY,
+	ORCHESTRATE_ALIAS_NOTICE,
+	hypermodeEffort,
+	hypermodeStopLabel,
+} from './hypermode.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
@@ -2497,16 +2503,16 @@ export function App({
 				pushMessage('system', 'Hypermode is off.')
 				return
 			}
-			const highest = highestReasoningEffort(session.reasoningEffortLevels)
-			if (highest !== undefined) {
+			const pinned = hypermodeEffort(session.reasoningEffortLevels)
+			if (pinned !== undefined) {
 				// Turning it on twice keeps the effort from before the first time.
 				if (!hypermodePinRef.current)
-					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned: highest }
-				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned: highest }
-				setReasoningEffort(highest)
+					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
+				setReasoningEffort(pinned)
 				pushMessage(
 					'system',
-					`Hypermode is on — effort pinned to ${highest} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
+					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
 				)
 				return
 			}
@@ -3573,9 +3579,7 @@ export function App({
 			// mode survives the switch: re-pin to the new model's highest published
 			// level instead of clearing, exactly as it pinned when first turned on.
 			if (signal !== undefined) {
-				const repinned = hypermodeRef.current
-					? highestReasoningEffort(s.reasoningEffortLevels)
-					: undefined
+				const repinned = hypermodeRef.current ? hypermodeEffort(s.reasoningEffortLevels) : undefined
 				// A new model starts at its own default; that is what turning
 				// hypermode off returns to now.
 				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
@@ -5866,9 +5870,7 @@ export function App({
 			const turnTriggers = requestedTriggers.filter(
 				(id) => triggerUnavailable(id, triggerContext) === undefined,
 			)
-			const pinnedEffort = pinsHighestEffort(turnTriggers)
-				? highestReasoningEffort(session.reasoningEffortLevels)
-				: undefined
+			const pinnedEffort = triggerEffort(turnTriggers, session.reasoningEffortLevels)
 
 			if (goalRound) {
 				pushMessage(
@@ -5889,7 +5891,7 @@ export function App({
 					humanPromptMeta(attached.length, attachments),
 				)
 				const tagLine = transcriptTagLine(turnTriggers, {
-					highestEffort: pinnedEffort,
+					effort: pinnedEffort,
 					steered: false,
 				})
 				if (tagLine) pushMessage('system', tagLine, false, '✦', undefined, theme.accent.trigger)
@@ -6595,7 +6597,7 @@ export function App({
 				live.contextTexts = [
 					...new Set([...(live.contextTexts ?? []), ...triggerContextTexts(afterTurn)]),
 				]
-				const line = transcriptTagLine(afterTurn, { highestEffort: undefined, steered: true })
+				const line = transcriptTagLine(afterTurn, { effort: undefined, steered: true })
 				if (line) pushMessage('system', line, false, '✦', undefined, theme.accent.trigger)
 			}
 			if (turnOnly.length > 0)
@@ -9086,6 +9088,7 @@ export function App({
 		session?.approvalLatched() ?? false,
 	)
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
+	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
 		? {
 				registry: composerTriggerRegistry,
@@ -9099,6 +9102,7 @@ export function App({
 					scheduleTool: true,
 				},
 				...(highestEffort ? { highestEffort } : {}),
+				...(hypermodeLevel ? { hypermodeEffort: hypermodeLevel } : {}),
 			}
 		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
@@ -9762,7 +9766,7 @@ function reasoningEffortPicker(
 				// Below a rule, visually apart from the levels above: a session
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
-				label: hypermodeStopLabel(highestReasoningEffort(levels)),
+				label: hypermodeStopLabel(hypermodeEffort(levels)),
 				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,

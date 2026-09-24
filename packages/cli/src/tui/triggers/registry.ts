@@ -42,9 +42,12 @@ export type ContextTextId = 'hypermode' | 'save-skill' | 'schedule'
 export type TriggerableCommand = '/skills save'
 
 export type TriggerEffect =
-	/** Request-only context for the turn, and optionally the model's highest effort for it. */
-	| { readonly kind: 'turn-context'; readonly text: ContextTextId; readonly effort?: 'highest' }
-	/** The model's highest effort for this turn only. */
+	/**
+	 * Request-only context for the turn, and optionally an effort for it:
+	 * `hypermode`, the level `/hypermode` pins (`xhigh`, or the nearest below).
+	 */
+	| { readonly kind: 'turn-context'; readonly text: ContextTextId; readonly effort?: 'hypermode' }
+	/** The model's highest published effort for this turn only (max effort). */
 	| { readonly kind: 'turn-effort'; readonly effort: 'highest' }
 	/** A command run once after the turn the message lands in, when that turn did work. */
 	| {
@@ -120,7 +123,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 				],
 			],
 		},
-		effect: { kind: 'turn-context', text: 'hypermode', effort: 'highest' },
+		effect: { kind: 'turn-context', text: 'hypermode', effort: 'hypermode' },
 		scope: 'turn',
 		arming: COMPOSER_TRIGGER_DEFAULTS.hypermode,
 	},

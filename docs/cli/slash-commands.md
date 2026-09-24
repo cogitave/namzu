@@ -51,7 +51,7 @@ explain why they cannot run and are checked again when selected.
 | `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future turns: /effort [level\|default]. |
-| `/hypermode` | Toggle hypermode for this session: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to the highest level, and independent work delegated to parallel agents by default. |
+| `/hypermode` | Toggle hypermode for this session: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to `xhigh` (or the highest level below it the model publishes), and independent work delegated to parallel agents by default. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
@@ -149,7 +149,7 @@ picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.
 
 For one message only, start or end that message with the word `hypermode`
-(`hypermode fix the flaky test`): that turn gets the highest effort and the
+(`hypermode fix the flaky test`): that turn gets the hypermode effort and the
 delegation request, the next one neither, and the session setting is not
 touched. See [Composer triggers](composer-triggers.md).
 
@@ -171,8 +171,9 @@ is a left-to-right slider:
 
 The stops are `default`, the model's published levels from low to high, and
 then the hypermode stop after a `┆`, in violet. Its label names the level the
-mode pins, then the mode — `xhigh + hypermode (workflows)` for a model whose
-menu ends at `xhigh`, `max + hypermode (workflows)` for one that ends at `max`
+mode pins, then the mode — `xhigh + hypermode (workflows)` for a model that
+publishes `xhigh` (a menu that goes on to `max` included), and
+`high + hypermode (workflows)` for one whose menu stops at `high`
 — and beneath it, whole, its one-line description with whether it is on:
 `Off · delegates to parallel agents by default`. On a terminal where the
 description would run past the right edge it moves left to end inside it. The
@@ -184,9 +185,11 @@ tokens and time; it wraps rather than being cut, and its rows are kept blank on
 the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
 vertical list, with the same label and description as its own row below a rule. There is no
 separate key for "this session only": the setting already lasts only for the
-session. Turning the mode on pins reasoning effort to the model's
-highest published level — the last entry of the menu, since every provider
-publishes low-to-high — and strengthens the delegation guidance for future
+session. Turning the mode on pins reasoning effort to `xhigh`, or, on a
+model that does not publish `xhigh`, to the highest level it publishes below
+`xhigh` — never to `max` or `ultra`, which cost more than delegating work
+needs (only a menu made entirely of levels above `xhigh` gets its lowest
+one) — and strengthens the delegation guidance for future
 turns in this session, from "delegate genuinely independent work" toward
 delegating by default; this widens prompt guidance only, and mounts no
 roster and starts no delegation by itself. Turning it off puts back the effort
@@ -199,8 +202,8 @@ hypermode`, and `hypermode` alone when no level is pinned — never a
 fabricated sixth effort value. Like effort, the mode is in-memory and
 per-session; it is not saved to preferences. A model switch resets an
 explicit effort override to the new model's default as it always has, but
-while the mode is on it re-pins to the *new* model's highest published level
-instead, and the interactive effort chooser that otherwise follows a
+while the mode is on it re-pins to the level the mode pins on the *new*
+model instead, and the interactive effort chooser that otherwise follows a
 standalone `/model` pick does not reopen on top of that automatic re-pin.
 
 You can also ask for a change within a larger conversation request, for example

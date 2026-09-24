@@ -2,7 +2,7 @@
  * Composer triggers through the real App: what a typed trigger changes about
  * the turn it starts, and what it must never change.
  *
- * - `hypermode` pins the model's highest effort and adds namzu's request-only
+ * - `hypermode` pins `xhigh` (not the model's top level, `max` here) and adds namzu's request-only
  *   context for that turn alone; the session's hypermode stays off and the
  *   next turn gets neither. Dropped with Alt+W, pasted, or talked about, it
  *   does nothing.
@@ -99,7 +99,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			compact: async () => null,
 			providerSummary: 'test-provider',
 			modelSummary: 'test-model',
-			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+			// Up to max, so the tests show hypermode pins xhigh and not the top.
+			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 			toolNames: () => [],
 			errorHint: null,
 			errorKind: null,
@@ -206,7 +207,7 @@ async function mount() {
 	return { harness, typeKeys, enter, shown, now }
 }
 
-it('arms hypermode for one turn: the highest effort and namzu’s context, then neither', async () => {
+it('arms hypermode for one turn: xhigh and namzu’s context, then neither', async () => {
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	expect(now()).toContain(

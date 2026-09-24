@@ -2,6 +2,8 @@
 
 The built CLI (`packages/cli/dist/bin.js` at `2cfed5cc`) driven in a real PTY by `tui-composer-triggers-drive.py`, frames rendered through `@xterm/headless`. A fresh `NAMZU_HOME` per run: the trust prompt answered `y`, then `2` (OpenAI, Codex session) in the provider picker, then `/model gpt-5.6-luna`. Real model: codex/gpt-5.6-luna. `--dangerously-skip-permissions`, so no review box takes keystrokes; `save_skill` shows its own screen in every mode. The fixture repository has six `TODO`s and one `FIXME` in three files. Keys are typed one at a time, 20 ms apart; the paste is a bracketed paste; the burst is the whole text in one write.
 
+**Recorded before the owner's decision that hypermode pins `xhigh`.** These frames show the mode and the trigger pinning `max`, gpt-5.6-luna's highest level, as the build at `2cfed5cc` did. The build after that decision is recorded in the last section.
+
 Specs: `tui-composer-triggers-main.json` (120x40, real model) and `tui-composer-triggers-widths.json` (80x24, 40x30 and 80x24 with `NO_COLOR=1`, no model call).
 
 ## `/effort`: the last stop
