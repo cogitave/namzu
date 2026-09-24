@@ -41,6 +41,7 @@ NDJSON, so stdout stays a clean protocol stream.
 | `delta` | Assistant text as it streams. Earlier deltas may include progress, or an answer later rejected by verification. |
 | `reasoning` | A reasoning block, when the model exposes one. |
 | `tool-start`, `tool-progress`, `tool-end` | Around each tool call, keyed by `toolUseId`. |
+| `tool-input-unreadable` | A tool call whose streamed arguments could not be read, before its `tool-start`: `toolUseId`, `turnId`, `inputError` (`reason` is `truncated`, cut off, or `malformed`, not valid JSON; with `finishReason`, `parseError`, `offset`, `length` and `precedingLength`, see [Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) and `partialArguments`, the first 16 384 characters of what arrived. The call is not run, and its `tool-end` is an error. |
 | `usage` | Token and cost totals, and the budget snapshot. Carries `sessionId` and `turnId`. |
 | `task`, `job`, `context` | Task-list changes, background jobs, and compaction. |
 | `provider-fallback`, `capability-warning`, `history-repair` | Notices about how the request was served. |
