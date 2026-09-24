@@ -75,7 +75,7 @@ function setup() {
 	})
 	let n = 0
 	return {
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		systemPrompt: 'You are a coding agent.',

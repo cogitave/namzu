@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
@@ -93,9 +93,8 @@ function provider(reported: 'stop' | 'tool_calls'): LLMProvider {
 }
 
 async function run(reported: 'stop' | 'tool_calls') {
-	const tools = new ToolRegistry()
 	let calls = 0
-	tools.register({
+	const tools = testToolset({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string() }),
@@ -107,7 +106,7 @@ async function run(reported: 'stop' | 'tool_calls') {
 
 	const result = await drainQuery({
 		provider: provider(reported),
-		tools,
+		toolsets: [tools],
 		messages: [createUserMessage('echo hi')],
 		turnConfig: {
 			model: 'scripted-model',
@@ -161,7 +160,6 @@ describe('a provider that says stop while asking for a tool', () => {
 	})
 
 	it('still ends the turn when there are no tool calls', async () => {
-		const tools = new ToolRegistry()
 		const result = await drainQuery({
 			provider: {
 				id: 'plain',
@@ -182,7 +180,7 @@ describe('a provider that says stop while asking for a tool', () => {
 					return true
 				},
 			},
-			tools,
+			toolsets: [],
 			messages: [createUserMessage('hi')],
 			turnConfig: {
 				model: 'plain-model',

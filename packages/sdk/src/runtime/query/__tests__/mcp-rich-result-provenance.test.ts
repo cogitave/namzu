@@ -7,7 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { mcpToolToToolDefinition } from '../../../connector/mcp/adapter.js'
 import type { MCPClient } from '../../../connector/mcp/client.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { toolset } from '../../../toolsets/toolset.js'
 import type { MCPToolResult } from '../../../types/connector/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -48,7 +48,6 @@ describe('MCP rich-result provenance reaches the provider', () => {
 		const client = {
 			callTool: async () => raw,
 		} as unknown as MCPClient
-		const tools = new ToolRegistry()
 		const definition = mcpToolToToolDefinition(
 			{
 				name: 'screenshot',
@@ -58,7 +57,15 @@ describe('MCP rich-result provenance reaches the provider', () => {
 			client,
 			'remote-desktop',
 		)
-		tools.register(definition)
+		const tools = toolset(
+			{
+				id: 'mcp:remote-desktop',
+				kind: 'mcp_server',
+				name: 'remote-desktop',
+				mcpServer: { name: 'remote-desktop' },
+			},
+			[definition],
+		)
 
 		// The host escape hatch remains byte-for-byte remote data; only the
 		// model-facing projection receives provenance framing.
@@ -83,7 +90,7 @@ describe('MCP rich-result provenance reaches the provider', () => {
 		})
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
@@ -136,17 +143,23 @@ describe('MCP rich-result provenance reaches the provider', () => {
 			isError: false,
 		}
 		const client = { callTool: async () => raw } as unknown as MCPClient
-		const tools = new ToolRegistry()
-		tools.register(
-			mcpToolToToolDefinition(
-				{
-					name: 'screenshot',
-					description: 'Return a remote screenshot',
-					inputSchema: { type: 'object' },
-				},
-				client,
-				'remote-desktop',
-			),
+		const definition = mcpToolToToolDefinition(
+			{
+				name: 'screenshot',
+				description: 'Return a remote screenshot',
+				inputSchema: { type: 'object' },
+			},
+			client,
+			'remote-desktop',
+		)
+		const tools = toolset(
+			{
+				id: 'mcp:remote-desktop',
+				kind: 'mcp_server',
+				name: 'remote-desktop',
+				mcpServer: { name: 'remote-desktop' },
+			},
+			[definition],
 		)
 		const provider = new MockLLMProvider({
 			turns: [
@@ -166,7 +179,7 @@ describe('MCP rich-result provenance reaches the provider', () => {
 
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,

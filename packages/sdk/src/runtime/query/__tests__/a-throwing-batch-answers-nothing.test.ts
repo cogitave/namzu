@@ -5,9 +5,10 @@ import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { InMemorySessionLog, type SessionLease } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type { AssistantMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -74,26 +75,28 @@ class RefusingSessionLog extends InMemorySessionLog {
 	}
 }
 
-function toolsThatRecord(executions: string[]): ToolRegistry {
-	const tools = new ToolRegistry()
+function toolsThatRecord(executions: string[]): ToolManager {
 	// No `isConcurrencySafe`, so every call is scheduled onto the serial
 	// chain — which is where one rejection skips the ones behind it.
-	tools.register({
-		name: 'note',
-		description: 'records that it ran',
-		inputSchema: z.object({ tag: z.string() }),
-		execute: async ({ tag }: { tag: string }) => {
-			executions.push(tag)
-			return { success: true, output: tag }
-		},
+	return new ToolManager({
+		toolsets: [
+			testToolset({
+				name: 'note',
+				description: 'records that it ran',
+				inputSchema: z.object({ tag: z.string() }),
+				execute: async ({ tag }: { tag: string }) => {
+					executions.push(tag)
+					return { success: true, output: tag }
+				},
+			}),
+		],
+		messages: () => [],
 	})
-	return tools
 }
 
-function pluginThatObserves(tools: ToolRegistry): PluginLifecycleManager {
+function pluginThatObserves(): PluginLifecycleManager {
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: new PluginRegistry(),
-		toolRegistry: tools,
 		scopeRoots: { project: process.cwd(), user: process.cwd() },
 		log: resolveLogger(undefined),
 	})
@@ -129,7 +132,7 @@ describe('a batch whose per-call work throws', () => {
 		const executor = new ToolExecutor(
 			{
 				tools,
-				pluginManager: pluginThatObserves(tools),
+				pluginManager: pluginThatObserves(),
 				sessionId: generateSessionId(),
 				turnId,
 				workingDirectory: process.cwd(),
@@ -169,8 +172,7 @@ describe('a turn whose tool batch throws', () => {
 		const executions: string[] = []
 		// Fails once and is retryable, so the call reaches its retry admission
 		// — the one admission that happens INSIDE the batch, per call.
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'flaky',
 			description: 'fails once, then succeeds',
 			inputSchema: z.object({ tag: z.string() }),
@@ -198,7 +200,7 @@ describe('a turn whose tool batch throws', () => {
 					{ text: 'done' },
 				],
 			}),
-			tools,
+			toolsets: [tools],
 			sessionLog,
 			agentId: 'a',
 			agentName: 'A',

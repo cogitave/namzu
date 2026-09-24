@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import { drainQuery } from '../index.js'
@@ -29,8 +29,7 @@ it.each([100_000, 1_000])(
 		const inbox = new CompletionInbox()
 		inbox.attach(stubTaskScheduler({ getTask: () => handle, onTaskCompleted: () => () => {} }))
 		const steering = new SteeringBinding()
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'deliver',
 				description: 'Deliver a worker result',
@@ -57,7 +56,7 @@ it.each([100_000, 1_000])(
 		const latest: string[] = []
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			steering,
 			agentId: 'parent',
@@ -117,8 +116,7 @@ it('keeps a task launched before the turn visible after the turn launches many m
 	// the scheduler genuinely has nothing to report for it.
 	inbox.launched(runningId)
 
-	const tools = new ToolRegistry()
-	tools.register(
+	const tools = testToolset(
 		defineTool({
 			name: 'delegate_more',
 			description: 'Launch several more workers that finish immediately',
@@ -156,7 +154,7 @@ it('keeps a task launched before the turn visible after the turn launches many m
 	})
 	await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		completionInbox: inbox,
 		agentId: 'parent',
 		agentName: 'parent',
