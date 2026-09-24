@@ -24,6 +24,11 @@ vi.mock('node:fs', async (importOriginal) => {
 	return {
 		...actual,
 		existsSync: (path: string) => path === powershell || actual.existsSync(path),
+		// This machine's /etc/wsl.conf may move the drives; the test says it does not.
+		readFileSync: ((path: unknown, ...rest: unknown[]) => {
+			if (path === '/etc/wsl.conf') throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+			return (actual.readFileSync as (...args: unknown[]) => unknown)(path, ...rest)
+		}) as typeof actual.readFileSync,
 	}
 })
 vi.mock('node:os', async (importOriginal) => ({

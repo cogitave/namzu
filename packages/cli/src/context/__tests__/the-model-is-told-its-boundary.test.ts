@@ -14,6 +14,8 @@ import {
 	type ExecutionBoundary,
 	composeEnvironmentPrompt,
 	detectWsl,
+	parseWslMountRoot,
+	readWslMountRoot,
 } from '../environment.js'
 
 const base: EnvironmentFacts = { today: '2026-09-22', branch: 'main', isRepository: true }
@@ -186,5 +188,31 @@ describe('WSL', () => {
 		expect(text).toMatch(/interop is off here/)
 		expect(text).not.toContain('powershell.exe')
 		expect(text).not.toContain('explorer.exe')
+	})
+})
+
+describe('the WSL mount root', () => {
+	it('is /mnt/ when wsl.conf is absent or says nothing about it', () => {
+		expect(parseWslMountRoot(undefined)).toBe('/mnt/')
+		expect(parseWslMountRoot('')).toBe('/mnt/')
+		expect(parseWslMountRoot('[boot]\nsystemd=true\n[automount]\noptions="metadata"\n')).toBe(
+			'/mnt/',
+		)
+		expect(readWslMountRoot(() => undefined)).toBe('/mnt/')
+	})
+
+	it('reads [automount] root, with a trailing slash, in any case, quoted or commented', () => {
+		expect(parseWslMountRoot('[automount]\nroot = /win\n')).toBe('/win/')
+		expect(parseWslMountRoot('\uFEFF[AutoMount]\r\nRoot="/drives/" # moved\r\n')).toBe('/drives/')
+		expect(parseWslMountRoot("[automount]\nroot = '/'\n")).toBe('/')
+		expect(
+			readWslMountRoot((path) => (path === '/etc/wsl.conf' ? '[automount]\nroot=/w' : '')),
+		).toBe('/w/')
+	})
+
+	it('ignores a root outside [automount], a commented one, and a relative one', () => {
+		expect(parseWslMountRoot('[interop]\nroot = /win\n')).toBe('/mnt/')
+		expect(parseWslMountRoot('[automount]\n# root = /win\n')).toBe('/mnt/')
+		expect(parseWslMountRoot('[automount]\nroot = win\n')).toBe('/mnt/')
 	})
 })

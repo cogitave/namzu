@@ -40,7 +40,7 @@ import { constants, accessSync, existsSync } from 'node:fs'
 import { platform } from 'node:os'
 import { delimiter, isAbsolute, join } from 'node:path'
 
-import { detectWsl } from '../context/environment.js'
+import { DEFAULT_WSL_MOUNT_ROOT, detectWsl, readWslMountRoot } from '../context/environment.js'
 
 /** Resolve a launcher before claiming that one started. */
 function executableOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
@@ -59,8 +59,13 @@ function executableOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
 	return null
 }
 
-/** Where Windows keeps PowerShell, as WSL mounts it by default. */
-export const WSL_POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+/** Where Windows keeps PowerShell, under a WSL mount root (`/mnt/` by default). */
+export function wslPowershell(mountRoot: string = DEFAULT_WSL_MOUNT_ROOT): string {
+	return `${mountRoot}c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`
+}
+
+/** PowerShell under the default mount root. */
+export const WSL_POWERSHELL = wslPowershell()
 
 /** The whole WSL script. The address is data in the environment, never text here. */
 export const WSL_OPEN_SCRIPT = [
@@ -73,6 +78,8 @@ export interface BrowserHost {
 	readonly platform?: NodeJS.Platform
 	readonly env?: NodeJS.ProcessEnv
 	readonly exists?: (path: string) => boolean
+	/** Reads `/etc/wsl.conf`, for where the Windows drives are mounted. */
+	readonly readFile?: (path: string) => string | undefined
 }
 
 interface Launch {
@@ -83,18 +90,20 @@ interface Launch {
 }
 
 /** Windows' protocol handler through interop, or `null` when this is not a WSL that can reach it. */
-function wslLaunch(
-	url: string,
-	env: NodeJS.ProcessEnv,
-	exists: (path: string) => boolean,
-): Launch | null {
+function wslLaunch(url: string, env: NodeJS.ProcessEnv, host: BrowserHost): Launch | null {
+	const exists = host.exists ?? existsSync
 	const wsl = detectWsl(env, { exists, list: () => [] })
-	if (!wsl?.interop || !exists(WSL_POWERSHELL)) return null
+	if (!wsl?.interop) return null
+	// `/etc/wsl.conf` can move the drives (`[automount] root = /win/`), and
+	// PowerShell and the directory it starts in move with them.
+	const mountRoot = host.readFile ? readWslMountRoot(host.readFile) : readWslMountRoot()
+	const powershell = wslPowershell(mountRoot)
+	if (!exists(powershell)) return null
 	const passed = (env.WSLENV ?? '')
 		.split(':')
 		.filter((name) => name && !name.startsWith('NAMZU_OPEN_URL'))
 	return {
-		command: WSL_POWERSHELL,
+		command: powershell,
 		args: [
 			'-NoProfile',
 			'-NonInteractive',
@@ -106,7 +115,7 @@ function wslLaunch(
 		env: { ...env, NAMZU_OPEN_URL: url, WSLENV: [...passed, 'NAMZU_OPEN_URL'].join(':') },
 		// A Windows program started from a Linux directory warns about UNC
 		// paths; the drive PowerShell lives on is a Windows directory.
-		cwd: '/mnt/c',
+		cwd: `${mountRoot}c`,
 	}
 }
 
@@ -120,7 +129,7 @@ function launchFor(url: string, host: BrowserHost): Launch | null {
 		}
 	}
 	if (currentPlatform === 'linux') {
-		const wsl = wslLaunch(url, env, host.exists ?? existsSync)
+		const wsl = wslLaunch(url, env, host)
 		if (wsl) return wsl
 	}
 	const command = executableOnPath(currentPlatform === 'darwin' ? 'open' : 'xdg-open', env)

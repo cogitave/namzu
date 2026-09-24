@@ -38,7 +38,7 @@ same-named program earlier on `PATH` cannot answer instead:
 |---|---|
 | Windows | `%SystemRoot%\System32\rundll32.exe url.dll,FileProtocolHandler <url>` |
 | macOS | `open <url>`, found on an absolute `PATH` entry |
-| WSL with interop | `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe` running the fixed script `Start-Process -FilePath $env:NAMZU_OPEN_URL`, sent as `-EncodedCommand`. The address is passed only in `NAMZU_OPEN_URL`, which `WSLENV` names, so the script's text never contains it |
+| WSL with interop | `<root>c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`, where `<root>` is `[automount] root` in `/etc/wsl.conf` (`/mnt/` by default), started in `<root>c` and running the fixed script `Start-Process -FilePath $env:NAMZU_OPEN_URL`, sent as `-EncodedCommand`. The address is passed only in `NAMZU_OPEN_URL`, which `WSLENV` names, so the script's text never contains it |
 | Other Linux, or WSL without interop or PowerShell | `xdg-open <url>`, found on an absolute `PATH` entry |
 
 Under WSL the page therefore opens in the Windows browser, and `namzu login`'s

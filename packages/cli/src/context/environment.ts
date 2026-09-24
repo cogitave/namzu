@@ -33,7 +33,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -116,6 +116,55 @@ export function detectWsl(
 		.sort()
 		.map((name) => `/mnt/${name}`)
 	return { distro, interop, drives }
+}
+
+/** Where WSL mounts the Windows drives unless `/etc/wsl.conf` moves them. */
+export const DEFAULT_WSL_MOUNT_ROOT = '/mnt/'
+
+/**
+ * The `[automount] root` of a `wsl.conf`, with a trailing slash; `/mnt/` when
+ * the file, the section or the key is absent, or the value is not absolute.
+ *
+ * The same reading `@namzu/browser` makes (`parseWslMountRoot` there), kept
+ * here because the CLI's leaf packages do not import one another: sections
+ * and keys in any case, `#`/`;` comments, quotes around the value, a BOM.
+ */
+export function parseWslMountRoot(wslConf: string | undefined): string {
+	if (!wslConf) return DEFAULT_WSL_MOUNT_ROOT
+	let inAutomount = false
+	let root: string | undefined
+	for (const raw of wslConf.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+		const line = raw.trim()
+		if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
+		const section = /^\[([^\]]+)\]$/.exec(line)
+		if (section) {
+			inAutomount = (section[1] ?? '').trim().toLowerCase() === 'automount'
+			continue
+		}
+		const eq = line.indexOf('=')
+		if (!inAutomount || eq <= 0 || line.slice(0, eq).trim().toLowerCase() !== 'root') continue
+		let value = line
+			.slice(eq + 1)
+			.replace(/\s[#;].*$/, '')
+			.trim()
+		if (/^(["']).*\1$/.test(value)) value = value.slice(1, -1)
+		root = value
+	}
+	if (!root || !root.startsWith('/')) return DEFAULT_WSL_MOUNT_ROOT
+	return root.endsWith('/') ? root : `${root}/`
+}
+
+/** This machine's mount root, from `/etc/wsl.conf`; `/mnt/` when it cannot be read. */
+export function readWslMountRoot(
+	readFile: (path: string) => string | undefined = (path) => {
+		try {
+			return readFileSync(path, 'utf8')
+		} catch {
+			return undefined
+		}
+	},
+): string {
+	return parseWslMountRoot(readFile('/etc/wsl.conf'))
 }
 
 export interface EnvironmentFacts {

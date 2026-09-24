@@ -11,7 +11,7 @@ vi.mock('node:fs', async (importOriginal) => ({
 	accessSync,
 }))
 
-import { WSL_OPEN_SCRIPT, WSL_POWERSHELL, openInBrowser } from './open-browser.js'
+import { WSL_OPEN_SCRIPT, WSL_POWERSHELL, openInBrowser, wslPowershell } from './open-browser.js'
 
 // A plain Linux desktop, whatever machine the suite runs on (a WSL one would
 // otherwise take the Windows branch).
@@ -94,6 +94,8 @@ describe('openInBrowser under WSL', () => {
 		WSLENV: 'WT_SESSION:USERPROFILE/p',
 	}
 	const powershellPresent = (path: string) => path === WSL_POWERSHELL
+	// No /etc/wsl.conf: the drives are under /mnt/, whatever this machine says.
+	const noConf = () => undefined
 
 	beforeEach(() => {
 		spawn.mockReset()
@@ -104,9 +106,14 @@ describe('openInBrowser under WSL', () => {
 	it('opens the Windows browser through PowerShell by absolute path, the address as data only', () => {
 		spawn.mockReturnValue(child())
 		const url = 'https://example.invalid/?a=1&b=\'x\'"y"$(calc)`z`'
-		expect(openInBrowser(url, { platform: 'linux', env: wslEnv, exists: powershellPresent })).toBe(
-			true,
-		)
+		expect(
+			openInBrowser(url, {
+				platform: 'linux',
+				env: wslEnv,
+				exists: powershellPresent,
+				readFile: noConf,
+			}),
+		).toBe(true)
 		expect(spawn).toHaveBeenCalledTimes(1)
 		const [command, args, options] = spawn.mock.calls[0] as [
 			string,
@@ -139,6 +146,7 @@ describe('openInBrowser under WSL', () => {
 			platform: 'linux',
 			env: wslEnv,
 			exists: powershellPresent,
+			readFile: noConf,
 		})
 		const [command] = spawn.mock.calls[0] as [string]
 		expect(command).not.toMatch(/cmd\.exe|explorer\.exe/i)
@@ -168,8 +176,30 @@ describe('openInBrowser under WSL', () => {
 				platform: 'linux',
 				env: wslEnv,
 				exists: powershellPresent,
+				readFile: noConf,
 			}),
 		).toBe(false)
 		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it('finds PowerShell under the mount root /etc/wsl.conf moves the drives to', () => {
+		spawn.mockReturnValue(child())
+		const moved = '/win/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+		const read = vi.fn((path: string) =>
+			path === '/etc/wsl.conf' ? '[automount]\nenabled = true\nroot = /win\n' : undefined,
+		)
+		expect(
+			openInBrowser('https://example.invalid/', {
+				platform: 'linux',
+				env: wslEnv,
+				exists: (path) => path === moved,
+				readFile: read,
+			}),
+		).toBe(true)
+		expect(wslPowershell('/win/')).toBe(moved)
+		const [command, , options] = spawn.mock.calls[0] as [string, string[], { cwd: string }]
+		expect(command).toBe(moved)
+		expect(options.cwd).toBe('/win/c')
+		expect(read).toHaveBeenCalledWith('/etc/wsl.conf')
 	})
 })
