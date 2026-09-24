@@ -134,9 +134,9 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 			[
 				'claude-sonnet-5',
 				{
-					inputCostPer1M: 3,
-					outputCostPer1M: 15,
-					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.3, writeCostPer1M: 3.75 },
+					inputCostPer1M: 2,
+					outputCostPer1M: 10,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 2.5 },
 				},
 			],
 		]),

@@ -30,6 +30,9 @@ describe('golden rates', () => {
 		['anthropic', 'claude-opus-5-5', 4, 20, 0.2, 5],
 		['anthropic', 'claude-fable-5-1', 10, 50, 0.25, 12.5],
 		['anthropic', 'claude-mythos-5-1', 10, 50, 0.25, 12.5],
+		// Recorded at the $3/$15 scheduled for 2026-09-01; the vendor kept the
+		// introductory $2/$10 as the standard price instead.
+		['anthropic', 'claude-sonnet-5', 2, 10, 0.2, 2.5],
 		['anthropic', 'claude-haiku-4-5', 1, 5, 0.1, 1.25],
 		['openai', 'gpt-4o', 2.5, 10, 1.25, undefined],
 	])('%s/%s is priced at %d in, %d out', (provider, model, input, output, read, write) => {
