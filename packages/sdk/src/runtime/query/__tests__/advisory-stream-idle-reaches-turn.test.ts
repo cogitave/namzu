@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
@@ -138,15 +138,36 @@ describe('query-owned advisors inherit the turn stream boundary', () => {
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
 		const events: SessionEvent[] = []
-		const safety = setTimeout(
-			() => caller.abort(new Error('test safety bound: advisor watchdog did not settle')),
-			1_000,
-		)
+		const dir = await workdir()
 
+		// The advisor's stall watchdog (`streamIdleTimeoutMs: 10`) is a real
+		// `setTimeout` inside `withStreamIdleTimeout`, and this case used to
+		// race it against a one-second real-time safety bound instead of
+		// controlling it. Both sides read the wall clock, so a loaded CI
+		// runner — several forked test files competing for the same CPU —
+		// could make the "private abort, then finish on the table" path take
+		// longer in real time than the hand-rolled safety net, which then
+		// aborted the caller itself and turned `run.status` into `cancelled`.
+		// Reproduced locally by pinning the process to one starved core
+		// (`taskset -c 0`, a dozen busy loops on the same core): the run
+		// consistently came back `cancelled`.
+		//
+		// A fake clock removes the race rather than widening it: the watchdog
+		// fires on exactly one deterministic advance, timed to the real event
+		// (`advisor.started`) that marks the request as open, so nothing here
+		// depends on how fast the host machine is. If a regression left the
+		// advisor's abort unresolved, `await running` would hang and fail on
+		// Vitest's own test timeout — a real bug, not a clock coincidence.
+		vi.useFakeTimers()
 		try {
-			const run = await drainQuery(params(main, advisor, await workdir(), caller, 10), (event) => {
+			const running = drainQuery(params(main, advisor, dir, caller, 10), (event) => {
 				events.push(event)
 			})
+
+			await advisor.started
+			await vi.advanceTimersByTimeAsync(10)
+
+			const run = await running
 
 			expect(run.status).toBe('completed')
 			expect(run.stopReason).toBe('token_budget')
@@ -166,7 +187,7 @@ describe('query-owned advisors inherit the turn stream boundary', () => {
 			})
 			expect(caller.signal.aborted).toBe(false)
 		} finally {
-			clearTimeout(safety)
+			vi.useRealTimers()
 			if (!caller.signal.aborted) caller.abort(new Error('test cleanup'))
 		}
 	})
