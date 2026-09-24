@@ -5,9 +5,10 @@ import {
 	type BrowserResult,
 	type ToolContext,
 	type ToolDefinition,
-	ToolRegistry,
+	ToolManager,
 	browserHostErrorOf,
 	createBrowserTools,
+	toolset,
 } from '@namzu/sdk'
 import { chromium } from 'playwright-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -254,9 +255,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 
 	it('reports the handoff through the SDK tool as handoff data', async () => {
 		const [browser, act] = createBrowserTools(host)
-		const registry = new ToolRegistry()
-		registry.register(browser as ToolDefinition)
-		registry.register(act as ToolDefinition)
+		const registry = new ToolManager({
+			toolsets: [toolset('test', [browser as ToolDefinition, act as ToolDefinition])],
+			messages: () => [],
+		})
 		const result = await registry.execute(
 			'browser',
 			{ action: 'navigate', url: `${origin()}/otp.html` },

@@ -7,7 +7,6 @@ import {
 	type SessionEvent,
 	type SessionId,
 	type TenantId,
-	ToolRegistry,
 	type TopicId,
 	type Turn,
 	TurnCancelled,
@@ -87,7 +86,7 @@ describe('context-window cancellation reaches the query transport', () => {
 		const running = drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: {
 					model: 'vendor/model',
 					timeoutMs: 5_000,
@@ -206,7 +205,7 @@ describe('context-window cancellation reaches the query transport', () => {
 			const running = drainQuery(
 				{
 					provider,
-					tools: new ToolRegistry(),
+					toolsets: [],
 					turnConfig: {
 						model: 'vendor/model',
 						timeoutMs: 5_000,

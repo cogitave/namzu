@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	type SessionEvent,
-	ToolRegistry,
 	defineTool,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 	query,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -89,20 +89,21 @@ describe('Zen through the query kernel', () => {
 			success: true,
 			output: String(value * 2),
 		}))
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'double',
-				description: 'Double a number without external effects',
-				inputSchema: z.object({ value: z.number() }),
-				category: 'analysis',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				execute,
-			}),
-		)
+		const toolsets = [
+			toolset('test', [
+				defineTool({
+					name: 'double',
+					description: 'Double a number without external effects',
+					inputSchema: z.object({ value: z.number() }),
+					category: 'analysis',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					execute,
+				}),
+			]),
+		]
 		const requests: { headers: Headers; body: Record<string, unknown> }[] = []
 		vi.stubGlobal(
 			'fetch',
@@ -140,7 +141,7 @@ describe('Zen through the query kernel', () => {
 		const events: SessionEvent[] = []
 		for await (const event of query({
 			provider,
-			tools,
+			toolsets,
 			workingDirectory,
 			messages: [{ role: 'user', content: 'Use the double tool on 21 and tell me the result.' }],
 			agentId: 'zen-kernel-test',

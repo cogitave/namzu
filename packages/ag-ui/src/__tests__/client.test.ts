@@ -8,12 +8,13 @@ import {
 	MockLLMProvider,
 	type QueryParams,
 	type StreamChunk,
-	ToolRegistry,
+	type Toolset,
 	defineTool,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -35,14 +36,14 @@ async function queryParams(
 	input: RunAgentInput,
 	signal: AbortSignal,
 	provider: MockLLMProvider,
-	tools = new ToolRegistry(),
+	toolsets: readonly Toolset[] = [],
 	sessionLog?: InMemorySessionLog,
 ): Promise<QueryParams> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-ag-ui-client-'))
 	directories.push(workingDirectory)
 	return {
 		provider,
-		tools,
+		toolsets,
 		messages: toNamzuMessages(input.messages),
 		signal,
 		workingDirectory,
@@ -207,28 +208,29 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		const adapter = new AGUIAdapter({
 			createQuery: async ({ input, signal, ui }) => {
 				ui.setState({ count: 1, status: 'running' })
-				const tools = new ToolRegistry()
-				tools.register(
-					defineTool({
-						name: 'echo',
-						description: 'Echo a string',
-						inputSchema: z.object({ text: z.string() }),
-						category: 'analysis',
-						permissions: [],
-						readOnly: true,
-						destructive: false,
-						concurrencySafe: true,
-						execute: async (args) => {
-							ui.patchState([
-								{ op: 'replace', path: '/count', value: 2 },
-								{ op: 'replace', path: '/status', value: 'done' },
-							])
-							ui.custom('echo-observed', { text: args.text })
-							return execute(args)
-						},
-					}),
-				)
-				return queryParams(input, signal, provider, tools)
+				const toolsets = [
+					toolset('test', [
+						defineTool({
+							name: 'echo',
+							description: 'Echo a string',
+							inputSchema: z.object({ text: z.string() }),
+							category: 'analysis',
+							permissions: [],
+							readOnly: true,
+							destructive: false,
+							concurrencySafe: true,
+							execute: async (args) => {
+								ui.patchState([
+									{ op: 'replace', path: '/count', value: 2 },
+									{ op: 'replace', path: '/status', value: 'done' },
+								])
+								ui.custom('echo-observed', { text: args.text })
+								return execute(args)
+							},
+						}),
+					]),
+				]
+				return queryParams(input, signal, provider, toolsets)
 			},
 		})
 		const client = httpClient(adapter)
@@ -309,21 +311,22 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		const adapter = new AGUIAdapter({
 			createQuery: ({ input, signal }) => {
 				inputs.push(input)
-				const tools = new ToolRegistry()
-				tools.register(
-					defineTool({
-						name: 'echo',
-						description: 'Echo a remembered value',
-						inputSchema: z.object({}),
-						category: 'analysis',
-						permissions: [],
-						readOnly: true,
-						destructive: false,
-						concurrencySafe: true,
-						execute,
-					}),
-				)
-				return queryParams(input, signal, provider, tools)
+				const toolsets = [
+					toolset('test', [
+						defineTool({
+							name: 'echo',
+							description: 'Echo a remembered value',
+							inputSchema: z.object({}),
+							category: 'analysis',
+							permissions: [],
+							readOnly: true,
+							destructive: false,
+							concurrencySafe: true,
+							execute,
+						}),
+					]),
+				]
+				return queryParams(input, signal, provider, toolsets)
 			},
 		})
 		const client = httpClient(adapter)
@@ -396,22 +399,23 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		})
 		const adapter = new AGUIAdapter({
 			createQuery: ({ input, signal }) => {
-				const tools = new ToolRegistry()
-				tools.register(
-					defineTool({
-						name: 'echo',
-						description: 'Echo through a backend service',
-						inputSchema: z.object({}),
-						category: 'analysis',
-						permissions: [],
-						readOnly: true,
-						destructive: false,
-						concurrencySafe: true,
-						maxRetries: 0,
-						execute,
-					}),
-				)
-				return queryParams(input, signal, provider, tools)
+				const toolsets = [
+					toolset('test', [
+						defineTool({
+							name: 'echo',
+							description: 'Echo through a backend service',
+							inputSchema: z.object({}),
+							category: 'analysis',
+							permissions: [],
+							readOnly: true,
+							destructive: false,
+							concurrencySafe: true,
+							maxRetries: 0,
+							execute,
+						}),
+					]),
+				]
+				return queryParams(input, signal, provider, toolsets)
 			},
 		})
 		const client = httpClient(adapter)
@@ -523,7 +527,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'This answer is persisted.' }] })
 		const adapter = new AGUIAdapter({
 			createQuery: async ({ input, signal }) =>
-				queryParams(input, signal, provider, new ToolRegistry(), sessionLog),
+				queryParams(input, signal, provider, [], sessionLog),
 		})
 		const client = httpClient(adapter)
 		const atFinish: { answered: boolean; status: string | undefined }[] = []
@@ -622,21 +626,22 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		const adapter = new AGUIAdapter({
 			maxEventBytes: 256,
 			createQuery: ({ input, signal }) => {
-				const tools = new ToolRegistry()
-				tools.register(
-					defineTool({
-						name: 'echo',
-						description: 'Echo a value',
-						inputSchema: z.object({}),
-						category: 'analysis',
-						permissions: [],
-						readOnly: true,
-						destructive: false,
-						concurrencySafe: true,
-						execute,
-					}),
-				)
-				return queryParams(input, signal, provider, tools)
+				const toolsets = [
+					toolset('test', [
+						defineTool({
+							name: 'echo',
+							description: 'Echo a value',
+							inputSchema: z.object({}),
+							category: 'analysis',
+							permissions: [],
+							readOnly: true,
+							destructive: false,
+							concurrencySafe: true,
+							execute,
+						}),
+					]),
+				]
+				return queryParams(input, signal, provider, toolsets)
 			},
 		})
 		const client = httpClient(adapter)
@@ -774,7 +779,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		}
 		const adapter = new AGUIAdapter({
 			createQuery: async ({ input, signal }) =>
-				queryParams(input, signal, new HeldProvider(), new ToolRegistry(), sessionLog),
+				queryParams(input, signal, new HeldProvider(), [], sessionLog),
 		})
 		const request = new Request('http://namzu.test/agent', {
 			method: 'POST',
@@ -822,7 +827,7 @@ describe('an AG-UI thread is a namzu session, a run one turn of it (golden strea
 		const provider = new MockLLMProvider({ turns: [{ text: 'Golden answer', chunkSize: 4 }] })
 		const adapter = new AGUIAdapter({
 			createQuery: async ({ input, signal }) =>
-				queryParams(input, signal, provider, new ToolRegistry(), sessionLog),
+				queryParams(input, signal, provider, [], sessionLog),
 		})
 		const client = httpClient(adapter, 'golden-thread: any string')
 		const events: BaseEvent[] = []
@@ -877,7 +882,7 @@ describe('an AG-UI thread is a namzu session, a run one turn of it (golden strea
 		const onError = vi.fn()
 		const adapter = new AGUIAdapter({
 			createQuery: async ({ input, signal }) =>
-				queryParams(input, signal, new HeldProvider(), new ToolRegistry(), sessionLog),
+				queryParams(input, signal, new HeldProvider(), [], sessionLog),
 			onError,
 		})
 		const first = new AbortController()

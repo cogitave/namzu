@@ -1,8 +1,9 @@
 import {
 	DuplicateProviderError,
 	ProviderRegistry,
-	ToolRegistry,
+	ToolManager,
 	createComputerUseTool,
+	toolset,
 } from '@namzu/sdk'
 import type { ChatCompletionParams, ComputerUseHost, LLMToolSchema } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -198,8 +199,10 @@ describe('AnthropicProvider — buildCreateParams', () => {
 			getDisplayGeometry: async () => ({ width: 1, height: 1, scaleFactor: 1 }),
 			execute: async () => ({ type: 'ok' as const }),
 		} satisfies ComputerUseHost
-		const registry = new ToolRegistry()
-		registry.register(createComputerUseTool(host))
+		const registry = new ToolManager({
+			toolsets: [toolset('test', [createComputerUseTool(host)])],
+			messages: () => [],
+		})
 		const registeredComputerUse = registry.toLLMTools()[0]
 		if (!registeredComputerUse) throw new Error('computer_use did not reach the model tool catalog')
 		const sourceSchema = registeredComputerUse.function.parameters
