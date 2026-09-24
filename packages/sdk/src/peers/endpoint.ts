@@ -22,6 +22,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs'
 import { type Socket, createServer } from 'node:net'
 import { basename } from 'node:path'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 import { parsePeerAddress } from './address.js'
 import { pingPeer } from './client.js'
 import {
@@ -99,6 +101,14 @@ export interface CreatePeerEndpointOptions {
 	readonly outstandingExpiryMs?: number
 	/** Default `Date.now`; injectable so an expiry test does not have to wait 24 real hours. */
 	readonly now?: () => number
+	/**
+	 * Discards when absent ({@link resolveLogger}). Used only to warn, at
+	 * most once per peer per minute, when the outstanding-delivery or
+	 * outstanding-subscription table drops a registration at the per-peer
+	 * cap or evicts one to stay under the peer-count cap — never for
+	 * anything else this endpoint does, and never with message content.
+	 */
+	readonly logger?: Logger
 }
 
 export interface PeerEndpoint {
@@ -206,12 +216,16 @@ interface OutstandingEntry {
  * maxOutstandingPeers} tables (deliveries, subscriptions) use one of these,
  * independently.
  *
- * Eviction is oldest-registered-first (Map iteration order, which is
- * insertion order in JavaScript and is left undisturbed by an in-place count
- * update) once {@link MAX_OUTSTANDING_PEERS} distinct peers are tracked at
- * once — a plain, easy-to-reason-about FIFO bound rather than a true LRU,
- * which this table does not need: it does not matter WHICH excess peer is
- * forgotten first, only that the table cannot grow without bound.
+ * Eviction is LRU, not merely oldest-registered: every touch — a fresh
+ * registration for a peer already tracked, or a notice successfully
+ * consumed for one — moves that peer to the most-recently-used position by
+ * deleting and re-inserting its Map entry (mutating it in place, as an
+ * earlier version of this table did, leaves its iteration position
+ * unchanged, which evicted a busy peer touched only once at the start ahead
+ * of one registered once and never touched again). Once
+ * {@link MAX_OUTSTANDING_PEERS} distinct peers are tracked at once, the
+ * genuinely least-recently-touched one — the first key in iteration order —
+ * is evicted to make room for a new one.
  */
 class BoundedOutstandingTable {
 	private readonly entries = new Map<string, OutstandingEntry>()
@@ -221,6 +235,8 @@ class BoundedOutstandingTable {
 		private readonly maxPerPeer: number,
 		private readonly expiryMs: number,
 		private readonly now: () => number,
+		/** Called with the affected peer's session id when a registration is dropped at the per-peer cap, or a peer is evicted to stay under the peer-count cap. */
+		private readonly onCapped?: (peerSessionId: string) => void,
 	) {}
 
 	private sweepExpired(): void {
@@ -230,17 +246,32 @@ class BoundedOutstandingTable {
 		}
 	}
 
+	/** Move `peerSessionId` to the most-recently-used (last) position by deleting and re-inserting it. */
+	private touch(peerSessionId: string, entry: OutstandingEntry): void {
+		this.entries.delete(peerSessionId)
+		this.entries.set(peerSessionId, entry)
+	}
+
 	register(peerSessionId: string): void {
 		this.sweepExpired()
 		const existing = this.entries.get(peerSessionId)
 		if (existing) {
-			existing.count = Math.min(existing.count + 1, this.maxPerPeer)
+			const next = Math.min(existing.count + 1, this.maxPerPeer)
+			if (next === existing.count) this.onCapped?.(peerSessionId)
+			existing.count = next
 			existing.expiresAt = this.now() + this.expiryMs
+			// A fresh registration is activity whether or not the count could
+			// grow further, so it renews the peer's most-recently-used position
+			// either way.
+			this.touch(peerSessionId, existing)
 			return
 		}
 		if (this.entries.size >= this.maxPeers) {
 			const oldestKey = this.entries.keys().next().value
-			if (oldestKey !== undefined) this.entries.delete(oldestKey)
+			if (oldestKey !== undefined) {
+				this.entries.delete(oldestKey)
+				this.onCapped?.(oldestKey)
+			}
 		}
 		this.entries.set(peerSessionId, { count: 1, expiresAt: this.now() + this.expiryMs })
 	}
@@ -250,9 +281,43 @@ class BoundedOutstandingTable {
 		this.sweepExpired()
 		const existing = this.entries.get(peerSessionId)
 		if (!existing || existing.count <= 0) return false
-		if (existing.count === 1) this.entries.delete(peerSessionId)
-		else existing.count -= 1
+		this.entries.delete(peerSessionId)
+		if (existing.count > 1) {
+			existing.count -= 1
+			// Still outstanding for this peer: a consumed notice is activity
+			// too, so it renews the most-recently-used position (re-inserting
+			// after the delete above is exactly that).
+			this.entries.set(peerSessionId, existing)
+		}
 		return true
+	}
+}
+
+/** How often the same peer's cap/eviction warning is allowed to repeat. */
+const OUTSTANDING_CAP_WARNING_THROTTLE_MS = 60_000
+
+/**
+ * A warning, at most once per `(table, peerSessionId)` pair per
+ * {@link OUTSTANDING_CAP_WARNING_THROTTLE_MS}, for a dropped registration or
+ * an eviction in one of the two outstanding tables. Carries no message
+ * content — only which table and which peer session id — since that is all
+ * either table ever has to say about itself.
+ */
+function createOutstandingCapWarner(
+	logger: Logger,
+	now: () => number,
+): (table: 'delivery' | 'subscription', peerSessionId: string) => void {
+	const lastWarnedAt = new Map<string, number>()
+	return (table, peerSessionId) => {
+		const key = `${table}:${peerSessionId}`
+		const nowMs = now()
+		const last = lastWarnedAt.get(key)
+		if (last !== undefined && nowMs - last < OUTSTANDING_CAP_WARNING_THROTTLE_MS) return
+		lastWarnedAt.set(key, nowMs)
+		logger.warn('Outstanding peer-notice correlation dropped at a bound', {
+			'namzu.peers.outstanding_table': table,
+			'namzu.peers.peer_session_id': peerSessionId,
+		})
 	}
 }
 
@@ -324,17 +389,21 @@ export async function createPeerEndpoint(
 	const maxOutstandingPeers = options.maxOutstandingPeers ?? MAX_OUTSTANDING_PEERS
 	const maxOutstandingPerPeer = options.maxOutstandingPerPeer ?? MAX_OUTSTANDING_PER_PEER
 	const outstandingExpiryMs = options.outstandingExpiryMs ?? OUTSTANDING_EXPIRY_MS
+	const logger = resolveLogger(options.logger).child({ [SCOPE_ATTRIBUTE]: 'peers/endpoint' })
+	const warnOutstandingCapped = createOutstandingCapWarner(logger, now)
 	const outstandingDeliveries = new BoundedOutstandingTable(
 		maxOutstandingPeers,
 		maxOutstandingPerPeer,
 		outstandingExpiryMs,
 		now,
+		(peerSessionId) => warnOutstandingCapped('delivery', peerSessionId),
 	)
 	const outstandingSubscriptions = new BoundedOutstandingTable(
 		maxOutstandingPeers,
 		maxOutstandingPerPeer,
 		outstandingExpiryMs,
 		now,
+		(peerSessionId) => warnOutstandingCapped('subscription', peerSessionId),
 	)
 
 	const server = createServer((socket) => {

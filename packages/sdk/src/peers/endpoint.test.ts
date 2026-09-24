@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
+import type { LogContext, Logger } from '../utils/logger.js'
 import { PeerClient } from './client.js'
 import {
 	type CreatePeerEndpointOptions,
@@ -516,6 +517,81 @@ describe('createPeerEndpoint: outstanding deliveries/subscriptions are bounded a
 		await expect(send('sess-new')).resolves.toEqual({ kind: 'responded', ok: true })
 	})
 
+	it('evicts by LRU, not by first-ever-registered: a peer touched again survives a peer touched only once', async () => {
+		// Exactly the sequence a live probe found broken: an in-place count
+		// update on re-registration left the Map's iteration order (and so
+		// eviction order) keyed on first insertion, not last activity — a busy
+		// peer touched twice was evicted ahead of one touched only once.
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPeers: 2,
+		})
+		endpoint.registerOutstandingDelivery('sess-old') // registered first...
+		endpoint.registerOutstandingDelivery('sess-mid') // ...then second...
+		// ...then sess-old gets FRESH, legitimate activity (e.g. this session
+		// sent it another message) -- this should make it the MOST-recently-used
+		// entry, not the least.
+		endpoint.registerOutstandingDelivery('sess-old')
+		// A third, brand-new distinct peer now needs a slot: sess-mid, never
+		// touched again, is the genuinely least-recently-used one.
+		endpoint.registerOutstandingDelivery('sess-new')
+
+		const client = new PeerClient()
+		const send = (sessionId: string) =>
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId }),
+					about: { sessionId, name: 'x', ref: 'aaaaaa' },
+				},
+			)
+		// sess-old was registered twice (count 2): one notice leaves one
+		// outstanding, so it is consumed here and still present below.
+		await expect(send('sess-old')).resolves.toEqual({ kind: 'responded', ok: true })
+		await expect(send('sess-mid')).resolves.toEqual({ kind: 'responded', ok: false })
+		await expect(send('sess-new')).resolves.toEqual({ kind: 'responded', ok: true })
+	})
+
+	it('consuming a notice also counts as activity: it renews the most-recently-used position too', async () => {
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPeers: 2,
+		})
+		// sess-old registered twice (count 2), so consuming once below leaves it
+		// with an outstanding count of 1 rather than removing it.
+		endpoint.registerOutstandingDelivery('sess-old')
+		endpoint.registerOutstandingDelivery('sess-old')
+		endpoint.registerOutstandingDelivery('sess-mid')
+
+		const client = new PeerClient()
+		const send = (sessionId: string) =>
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId }),
+					about: { sessionId, name: 'x', ref: 'aaaaaa' },
+				},
+			)
+		// Consume one of sess-old's two outstanding deliveries: this is
+		// activity, so it should renew sess-old's most-recently-used position
+		// even though the entry is not removed (count drops from 2 to 1).
+		await expect(send('sess-old')).resolves.toEqual({ kind: 'responded', ok: true })
+
+		// A third distinct peer now needs a slot: sess-mid, untouched since its
+		// one registration, is the genuinely least-recently-used entry — NOT
+		// sess-old, even though sess-old's entry is older by insertion order.
+		endpoint.registerOutstandingDelivery('sess-new')
+
+		await expect(send('sess-mid')).resolves.toEqual({ kind: 'responded', ok: false })
+		// sess-old still has its second outstanding delivery.
+		await expect(send('sess-old')).resolves.toEqual({ kind: 'responded', ok: true })
+		await expect(send('sess-new')).resolves.toEqual({ kind: 'responded', ok: true })
+	})
+
 	it('sweeps an outstanding delivery that expired with no activity', async () => {
 		let clock = 1_000_000
 		const endpoint = await start({
@@ -584,6 +660,116 @@ describe('createPeerEndpoint: outstanding deliveries/subscriptions are bounded a
 				},
 			),
 		).resolves.toEqual({ kind: 'responded', ok: true })
+	})
+})
+
+interface RecordedWarn {
+	readonly message: string
+	readonly data: LogContext | undefined
+}
+
+/** A `Logger` that records every `warn` call and discards everything else. */
+function recordingLogger(): { logger: Logger; warnings: RecordedWarn[] } {
+	const warnings: RecordedWarn[] = []
+	const logger: Logger = {
+		debug: () => {},
+		info: () => {},
+		warn: (message, data) => {
+			warnings.push({ message, data })
+		},
+		error: () => {},
+		child: () => logger,
+	}
+	return { logger, warnings }
+}
+
+describe('createPeerEndpoint: warns once per peer per minute when an outstanding table drops or evicts', () => {
+	it('warns when a registration is dropped at the per-peer cap, with no message content', async () => {
+		const { logger, warnings } = recordingLogger()
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPerPeer: 2,
+			logger,
+		})
+		endpoint.registerOutstandingDelivery('sess-2')
+		endpoint.registerOutstandingDelivery('sess-2')
+		expect(warnings).toHaveLength(0)
+		// The third registration cannot grow the count past the cap of 2.
+		endpoint.registerOutstandingDelivery('sess-2')
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]?.message).toBe('Outstanding peer-notice correlation dropped at a bound')
+		expect(warnings[0]?.data).toEqual({
+			'namzu.peers.outstanding_table': 'delivery',
+			'namzu.peers.peer_session_id': 'sess-2',
+		})
+	})
+
+	it('warns when a peer is evicted to stay under the peer-count cap', async () => {
+		const { logger, warnings } = recordingLogger()
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPeers: 1,
+			logger,
+		})
+		endpoint.registerOutstandingSubscription('sess-old')
+		expect(warnings).toHaveLength(0)
+		// A second distinct peer evicts sess-old to stay under the cap of 1.
+		endpoint.registerOutstandingSubscription('sess-new')
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]?.data).toEqual({
+			'namzu.peers.outstanding_table': 'subscription',
+			'namzu.peers.peer_session_id': 'sess-old',
+		})
+	})
+
+	it('throttles repeats to once per peer per minute, and logs again once the minute passes', async () => {
+		let clock = 1_000_000
+		const { logger, warnings } = recordingLogger()
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPerPeer: 1,
+			logger,
+			now: () => clock,
+		})
+		endpoint.registerOutstandingDelivery('sess-2') // count 1
+		endpoint.registerOutstandingDelivery('sess-2') // dropped at the cap: warns once
+		endpoint.registerOutstandingDelivery('sess-2') // dropped again, 0ms later: throttled
+		endpoint.registerOutstandingDelivery('sess-2') // still throttled
+		expect(warnings).toHaveLength(1)
+
+		clock += 59_000 // just under a minute since the first warning
+		endpoint.registerOutstandingDelivery('sess-2')
+		expect(warnings).toHaveLength(1)
+
+		clock += 2_000 // now just over a minute since the first warning
+		endpoint.registerOutstandingDelivery('sess-2')
+		expect(warnings).toHaveLength(2)
+	})
+
+	it('tracks the delivery and subscription tables separately for throttling', async () => {
+		const { logger, warnings } = recordingLogger()
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPerPeer: 1,
+			logger,
+		})
+		endpoint.registerOutstandingDelivery('sess-2')
+		endpoint.registerOutstandingDelivery('sess-2') // dropped: warns once for delivery
+		endpoint.registerOutstandingSubscription('sess-2')
+		endpoint.registerOutstandingSubscription('sess-2') // dropped: warns once for subscription, unthrottled by the delivery warning above
+		expect(warnings).toHaveLength(2)
+		expect(warnings.map((w) => w.data?.['namzu.peers.outstanding_table'])).toEqual([
+			'delivery',
+			'subscription',
+		])
+	})
+
+	it('does not warn for an ordinary registration that stays under both caps', async () => {
+		const { logger, warnings } = recordingLogger()
+		const endpoint = await start({ verifySender: (from) => from, logger })
+		endpoint.registerOutstandingDelivery('sess-2')
+		endpoint.registerOutstandingSubscription('sess-3')
+		expect(warnings).toHaveLength(0)
 	})
 })
 
