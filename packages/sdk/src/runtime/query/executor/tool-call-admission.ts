@@ -518,18 +518,25 @@ function sizeAdvice(
  * What to tell the model about a call whose arguments could not be read.
  *
  * Each part answers one question, and a part with no answer is left out:
- * what happened (from `error`, which says cut off or malformed and why), what
- * to do (size advice only for a tool that declares large string arguments,
- * and only when the call was cut off), and the tool's own
- * `unreadableInputHint`. A call recorded before the reason was kept has no
- * `error` and gets the plain statement that its arguments were unreadable.
+ * what happened (from `error`, which says cut off or malformed and why), and
+ * what to do about it. For a malformed call that is a valid JSON object and
+ * the tool's own `malformedInputHint`. For a cut-off that sending less can
+ * get past, it is a size budget for a tool that declares large string
+ * arguments and the tool's own `truncatedInputHint`. A content filter's stop
+ * gets neither. A call recorded before the reason was kept has no `error`
+ * and gets the plain statement that its arguments were unreadable, and no
+ * hint, since which one applies is not known.
  */
 export function unreadableToolInputMessage(
 	toolName: string,
 	error: ToolInputError | undefined,
-	tool?: Pick<ToolDefinition, 'unreadableInputHint' | 'largeStringArguments'>,
+	tool?: Pick<ToolDefinition, 'truncatedInputHint' | 'malformedInputHint' | 'largeStringArguments'>,
 ): string {
 	const parts: string[] = []
+	const hint = (text: string | undefined) => {
+		const trimmed = text?.trim()
+		if (trimmed) parts.push(trimmed)
+	}
 	if (!error) {
 		parts.push(
 			`Error: The arguments for "${toolName}" could not be read as JSON. The tool was NOT executed. Send the call again with complete, valid JSON arguments.`,
@@ -542,6 +549,7 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The arguments for "${toolName}" were not valid JSON (${error.parseError}${where}; ${error.length} characters in all). The tool was NOT executed. Send the call again with its arguments as one valid JSON object.`,
 		)
+		hint(tool?.malformedInputHint)
 	} else {
 		const cause =
 			error.finishReason === 'length'
@@ -559,9 +567,8 @@ export function unreadableToolInputMessage(
 						? 'Send the call again, with less text before it in the same response.'
 						: 'Send the call again.'),
 			)
+			hint(tool?.truncatedInputHint)
 		}
 	}
-	const hint = tool?.unreadableInputHint?.trim()
-	if (hint) parts.push(hint)
 	return parts.join(' ')
 }

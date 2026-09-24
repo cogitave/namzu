@@ -73,15 +73,16 @@ The message is assembled from the reason and from the tool:
 
 - **Malformed.** The parser's error, and the character where parsing stopped
   when the error does not already name it. Then: send the call again with the
-  arguments as one valid JSON object. It gives no size advice.
+  arguments as one valid JSON object, and the tool's own `malformedInputHint`
+  if it declares one. It gives no size advice, because size does not fix
+  malformed JSON.
 - **Truncated.** What stopped the response (the output token limit, a content
   filter, or the stream ending), after how many characters. After an output
   limit or a stream that ended, it adds a size budget if the tool declares
-  large string arguments. Otherwise the model is told to send the call again,
-  and after an output limit, with less text before it. After a content filter
-  it adds no advice.
-- The tool's own `unreadableInputHint`, when it declares one, for either
-  reason.
+  large string arguments, and the tool's own `truncatedInputHint` if it
+  declares one. Otherwise the model is told to send the call again, and after
+  an output limit, with less text before it. After a content filter it adds
+  no advice and no hint: sending less does not get past a filter.
 
 A tool declares what it needs on its definition or through `defineTool`:
 
@@ -92,11 +93,13 @@ import { z } from 'zod'
 export const saveNote = defineTool({
 	name: 'save_note',
 	description: 'Save a note to the project notebook.',
-	inputSchema: z.object({ title: z.string(), body: z.string() }),
+	inputSchema: z.object({ title: z.string(), body: z.string(), tags: z.array(z.string()) }),
 	// The argument that can be long, and the characters one call should keep it under.
 	largeStringArguments: { body: 8_000 },
-	// Appended for a truncated or a malformed call.
-	unreadableInputHint: 'Save a long note as several notes with numbered titles.',
+	// Appended when a call was cut off and sending less gets past it.
+	truncatedInputHint: 'Save a long note as several notes with numbered titles.',
+	// Appended when the arguments were not valid JSON.
+	malformedInputHint: 'Pass "tags" as a JSON array of strings.',
 	category: 'custom',
 	permissions: [],
 	readOnly: false,
@@ -115,8 +118,12 @@ same cut again.
 The built-in tools that take long text declare it: `write` (`content`), `edit`
 (`old_string`, `new_string`), `create_task` and the coordinator `Agent` tool
 (`prompt`), and the CLI's `Agent` tool (`prompt`), each with a 12 000-character
-budget and its own hint. Any other tool, such as a question or plan tool, gets
-no size advice and no file-writing advice.
+budget and a `truncatedInputHint`: for `write`, extend a short opening with
+`edit` calls; for `edit`, several smaller edits; for the `Agent` tools, name a
+file instead of pasting its content. None declares a `malformedInputHint`, so
+a malformed call to any of them, or one a content filter stopped, gets no
+advice about size or files. Any other tool, such as a question or plan tool,
+gets no size advice and no file-writing advice.
 
 ## Tool-call framing
 

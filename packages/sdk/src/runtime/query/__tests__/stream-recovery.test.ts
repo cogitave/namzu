@@ -136,7 +136,7 @@ describe('query stream recovery', () => {
 				content: z.string(),
 			}),
 			largeStringArguments: { content: 12_000 },
-			unreadableInputHint: 'Write a long file in sections.',
+			truncatedInputHint: 'Write a long file in sections.',
 			execute: actualWrite,
 		})
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-stream-recovery-'))

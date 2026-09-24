@@ -9,7 +9,7 @@ A tool call whose streamed arguments do not parse is now reported as **truncated
 **New, all optional:**
 - `ToolInputError` (`reason: 'truncated' | 'malformed'`, `finishReason`, `parseError`, `offset`, `length`) on `ToolCall.metadata.inputError`.
 - `inputError` and `partialArguments` (first 16 384 characters) on the `tool_input_completed` event. The SSE bridge sends them as `input_error` and `partial_arguments`, with `input_truncated`.
-- `ToolDefinition.unreadableInputHint` and `ToolDefinition.largeStringArguments` (for example `{ content: 12_000 }`), also accepted by `defineTool`. `write`, `edit`, `create_task` and the coordinator `Agent` tool declare them.
+- `ToolDefinition.truncatedInputHint`, `ToolDefinition.malformedInputHint` and `ToolDefinition.largeStringArguments` (for example `{ content: 12_000 }`), also accepted by `defineTool`. The truncated hint is appended only to a cut-off call that sending less can get past, never after a content filter; the malformed hint only to a malformed call. `write`, `edit`, `create_task` and the coordinator `Agent` tool declare large text and a truncated hint, so a malformed call to them gets no size or file advice.
 
 `inputTruncated` is still set on every unreadable call, cut off or malformed, as before. Code that reads it keeps working. Read `inputError.reason` to tell the two apart.
 

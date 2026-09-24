@@ -775,14 +775,26 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 */
 	validationErrorHint?: string
 	/**
-	 * Concise, model-readable recovery guidance appended when this tool's
-	 * streamed arguments could not be read at all — the response stopped
-	 * before they closed, or they were not valid JSON — so the call never
-	 * reached {@link inputSchema}. The counterpart of
+	 * Concise, model-readable advice appended when a call to this tool was cut
+	 * off before its arguments closed, by the output limit or by the stream
+	 * ending: how this tool takes long input in parts. It comes with the size
+	 * budget {@link largeStringArguments} sets.
+	 *
+	 * Only for a cut-off, because it is advice about sending less. A content
+	 * filter's stop does not get it, since sending less does not get past a
+	 * filter, and a malformed call does not, since size does not fix JSON: that
+	 * is {@link malformedInputHint}.
+	 */
+	truncatedInputHint?: string
+	/**
+	 * Concise, model-readable advice appended when this tool's arguments
+	 * arrived whole, on a response that finished normally, and were not valid
+	 * JSON, so the call never reached {@link inputSchema}: for example that an
+	 * argument is a JSON array, not a string. The counterpart of
 	 * {@link validationErrorHint}, which covers a call that parsed and was
 	 * then rejected.
 	 */
-	unreadableInputHint?: string
+	malformedInputHint?: string
 	/**
 	 * The arguments that carry long free-form text — a file body, a
 	 * replacement, a delegated assignment — each with the number of characters

@@ -98,14 +98,30 @@ describe('unreadableToolInputMessage', () => {
 		expect(message).toContain('keep `content` under 2500 characters')
 	})
 
-	it("appends the tool's own hint, for either reason", () => {
-		const tool = { unreadableInputHint: 'Ask one question per call.' }
-		expect(unreadableToolInputMessage('ask', malformed, tool)).toMatch(
-			/ Ask one question per call\.$/,
-		)
-		expect(unreadableToolInputMessage('ask', cutOff(10, 'length'), tool)).toMatch(
-			/ Ask one question per call\.$/,
-		)
+	it("appends the tool's hint for the reason the call failed, and only that one", () => {
+		const tool = {
+			truncatedInputHint: 'Write a long note as several notes.',
+			malformedInputHint: 'Pass "tags" as a JSON array of strings.',
+		}
+		const malformedMessage = unreadableToolInputMessage('note', malformed, tool)
+		expect(malformedMessage).toMatch(/ Pass "tags" as a JSON array of strings\.$/)
+		expect(malformedMessage).not.toContain('several notes')
+
+		const cutOffMessage = unreadableToolInputMessage('note', cutOff(10, 'length'), tool)
+		expect(cutOffMessage).toMatch(/ Write a long note as several notes\.$/)
+		expect(cutOffMessage).not.toContain('JSON array')
+
+		const droppedMessage = unreadableToolInputMessage('note', cutOff(10), tool)
+		expect(droppedMessage).toMatch(/ Write a long note as several notes\.$/)
+	})
+
+	it('gives a content-filtered or unexplained call neither hint', () => {
+		const tool = { truncatedInputHint: 'Send less.', malformedInputHint: 'Fix the JSON.' }
+		for (const error of [cutOff(10, 'content_filter'), undefined]) {
+			const message = unreadableToolInputMessage('note', error, tool)
+			expect(message).not.toContain('Send less.')
+			expect(message).not.toContain('Fix the JSON.')
+		}
 	})
 
 	it('says a content filter stopped the call, with no advice to send less', () => {
@@ -131,11 +147,22 @@ describe('unreadableToolInputMessage', () => {
 })
 
 describe('the built-in tools declare what they need', () => {
-	it('write and edit declare their large text and a recovery hint', () => {
+	it('write and edit declare their large text and advice for a cut-off call', () => {
 		expect(WriteFileTool.largeStringArguments).toEqual({ content: 12_000 })
-		expect(WriteFileTool.unreadableInputHint).toMatch(/edit/)
+		expect(WriteFileTool.truncatedInputHint).toMatch(/edit/)
 		expect(EditTool.largeStringArguments).toEqual({ old_string: 12_000, new_string: 12_000 })
-		expect(EditTool.unreadableInputHint).toBeTruthy()
+		expect(EditTool.truncatedInputHint).toBeTruthy()
+	})
+
+	it('a malformed write or edit, or one a content filter stopped, gets no advice about size or files', () => {
+		// The size and file-splitting advice these tools carry answered every
+		// unreadable call, which does nothing for malformed JSON or a filter.
+		for (const tool of [WriteFileTool, EditTool]) {
+			for (const error of [malformed, cutOff(300, 'content_filter')]) {
+				const message = unreadableToolInputMessage(tool.name, error, tool)
+				expect(message).not.toMatch(/marker|several edit|under \d+ characters|split/i)
+			}
+		}
 	})
 })
 
@@ -189,7 +216,7 @@ describe('the executor answers an unreadable call from its reason and its tool',
 		name: 'ask_user_question',
 		description: 'Ask the user',
 		inputSchema: z.object({ question: z.string(), options: z.array(z.string()) }),
-		unreadableInputHint: 'Pass "options" as a JSON array of strings.',
+		malformedInputHint: 'Pass "options" as a JSON array of strings.',
 		category: 'custom',
 		permissions: [],
 		readOnly: true,
@@ -224,7 +251,7 @@ describe('the executor answers an unreadable call from its reason and its tool',
 		const output = batch.results[0]?.output ?? ''
 		expect(output).toContain('was cut off: the response reached its output token limit')
 		expect(output).toContain('keep `content` under 12000 characters')
-		expect(output).toContain(WriteFileTool.unreadableInputHint)
+		expect(output).toContain(WriteFileTool.truncatedInputHint)
 	})
 
 	it('offers a repairer the same message it would have sent the model', async () => {
