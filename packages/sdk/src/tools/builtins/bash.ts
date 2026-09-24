@@ -134,12 +134,20 @@ function shellProgress(report?: (message: string) => void) {
 	}
 }
 
+/** A progress callback for {@link execHostShell}: one line, per stream, coalesced. */
+export type ExecHostShellProgress = (report: { stream: 'stdout' | 'stderr'; data: string }) => void
+
 /**
  * Keep the shell's process group until inherited pipes close. Node's exec
  * timeout/AbortSignal kills only the wrapper and closes its pipes immediately,
  * leaving the command and its descendants running after the promise settles.
+ *
+ * Exported so a host running a command line OUTSIDE a live turn — a
+ * scheduled job's own script — gets the exact same spawn, dialect,
+ * grace-period kill and capped-output behaviour the `bash` tool gives a
+ * model's call, rather than a second, drifting copy of it.
  */
-function execHostShell(
+export function execHostShell(
 	command: string,
 	options: {
 		cwd: string
@@ -147,7 +155,7 @@ function execHostShell(
 		timeout: number
 		maxBuffer: number
 		signal?: AbortSignal
-		onOutput?: ReturnType<typeof shellProgress>
+		onOutput?: ExecHostShellProgress
 	},
 ): Promise<{ stdout: string; stderr: string }> {
 	options.signal?.throwIfAborted()

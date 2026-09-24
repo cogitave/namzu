@@ -52,15 +52,17 @@ import type { SchedulePaths } from '../paths.js'
 import { compileJobPolicy, withheldTools } from '../policy.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
-import type {
-	ScheduleJob,
-	ScheduleRunResult,
-	ScheduleRunStatus,
-	ScheduleRunTrigger,
+import {
+	type ScheduleJob,
+	type ScheduleRunResult,
+	type ScheduleRunStatus,
+	type ScheduleRunTrigger,
+	runResultVersion,
 } from '../types.js'
 import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
 import { CallTally } from './calls.js'
 import { writeRunResult } from './result.js'
+import { capOutput, runScript } from './run-script.js'
 import { unattendedNote } from './unattended-note.js'
 
 export const HOLD_REASON = 'Scheduled run: waiting for the operator to approve'
@@ -193,7 +195,14 @@ export async function runFire(
 		extra: Partial<ScheduleRunResult> = {},
 	): number => {
 		if (settledByWatchdog) return 1
-		writeRunResult(paths, { ...base(), status, exitCode, endedAt: now().toISOString(), ...extra })
+		const result: ScheduleRunResult = {
+			...base(),
+			status,
+			exitCode,
+			endedAt: now().toISOString(),
+			...extra,
+		}
+		writeRunResult(paths, { ...result, v: runResultVersion(result) })
 		log.info('scheduled run finished', {
 			'namzu.schedule.job_id': args.jobId,
 			'namzu.schedule.run_id': args.runId,
@@ -269,6 +278,17 @@ export async function runFire(
 		// A rule someone believes is in force and that would be dropped is
 		// worse than not running.
 		return blocked(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
+	}
+
+	// ── a pure script job: no model, no session, no browser or provider ────
+	// Everything above already re-verified the job is active, its
+	// confirmation still holds (which now covers the script's own text), its
+	// folder is the confirmed one and its project config has not drifted —
+	// exactly what an agent run checks before it opens a session. A script
+	// job stops here instead of going any further.
+	const runKind = job.runKind ?? 'agent'
+	if (runKind === 'script') {
+		return runScriptJob(job, folder.canonical, paths, deps, finish, blocked)
 	}
 
 	// ── the browser, when the job has one ─────────────────────────────────
@@ -552,6 +572,54 @@ export async function runFire(
 		})
 	}
 	return finish('completed', 0, { ...(summary ? { summary } : {}), ...withUsage })
+}
+
+/**
+ * Run a pure `script` job's body on the host and map the outcome to a
+ * status: `completed` (exit 0), `failed` (non-zero exit), `timed-out` (the
+ * script's own `timeoutMs`, a separate clock from `budget.timeoutMs`).
+ * `blocked-config` only for what stops the script before it could even
+ * start — here, the host's shell no longer matching the dialect the script
+ * was verified in. Never `awaiting-approval`/`approval-expired`/
+ * `interrupted` in the tool-parking sense: nothing about a script can park.
+ */
+async function runScriptJob(
+	job: ScheduleJob,
+	cwd: string,
+	paths: SchedulePaths,
+	deps: FireDependencies,
+	finish: (
+		status: ScheduleRunStatus,
+		exitCode: number,
+		extra?: Partial<ScheduleRunResult>,
+	) => number,
+	blocked: (reason: string, exitCode?: number) => number,
+): Promise<number> {
+	const script = job.script
+	if (!script) return blocked(`${job.name} is a script job with no script recorded`)
+	const env = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+	const result = await runScript(script.body, script.shell, {
+		cwd,
+		env,
+		timeoutMs: script.timeoutMs,
+	})
+	if (result.dialectMismatch) {
+		return blocked(
+			`the script was confirmed for ${result.dialectMismatch.expected}, but this host now runs commands as ${result.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
+		)
+	}
+	const scriptOutput = { stdout: capOutput(result.stdout), stderr: capOutput(result.stderr) }
+	if (result.timedOut) {
+		return finish('timed-out', 1, {
+			reason: `the script exceeded its ${script.timeoutMs} ms timeout`,
+			scriptOutput,
+		})
+	}
+	if (result.exitCode === 0) return finish('completed', 0, { scriptOutput })
+	return finish('failed', result.exitCode ?? 1, {
+		reason: `the script exited ${result.exitCode ?? 'without a code'}`,
+		scriptOutput,
+	})
 }
 
 /**
