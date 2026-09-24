@@ -1,5 +1,9 @@
 export { SubprocessComputerUseHost } from './SubprocessComputerUseHost.js'
-export type { SubprocessComputerUseHostOptions } from './SubprocessComputerUseHost.js'
+export type {
+	SubprocessComputerUseHostOptions,
+	SubprocessComputerUseHostWindowsOptions,
+} from './SubprocessComputerUseHost.js'
+export type { Win32Backend } from './adapters/win32.js'
 export { detectDisplayServer } from './detect/index.js'
 export { ComputerUseOutcomeUnknownError } from './errors.js'
 
