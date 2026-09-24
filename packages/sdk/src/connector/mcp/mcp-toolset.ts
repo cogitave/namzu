@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { NAMZU } from '../../constants/telemetry/index.js'
-import { combineToolsets } from '../../toolsets/combine.js'
+import { ToolsetConflictError } from '../../toolsets/combine.js'
 import type { Toolset, ToolsetAvailability } from '../../toolsets/types.js'
 import { deferred } from '../../toolsets/wrappers.js'
 import type { MCPResource, MCPServerCapabilities } from '../../types/connector/index.js'
@@ -85,7 +85,7 @@ export interface MCPToolsetOptions {
 	/**
 	 * The operator marked this server's read-only claims trustworthy. Per
 	 * server, default `false` — an unmarked server's claim raises the
-	 * requirement and never lowers it. See `ToolProvenance.readOnlyHintTrusted`.
+	 * requirement and never lowers it. The owning source carries this decision.
 	 */
 	readonly readOnlyHintTrusted?: boolean
 	/**
@@ -113,11 +113,13 @@ export interface MCPToolsetOptions {
 	readonly logger?: Logger
 }
 
+/** Mount both entries: server tools use the configured availability; resource tools stay deferred. */
+export type MCPToolsets = readonly [main: Toolset, resources: Toolset]
+
 /** What `list_resources`/`read_resource` need from the enclosing closure. */
 interface ResourceToolsState {
 	readonly client: MCPClient
 	readonly serverName: string
-	readonly readOnlyHintTrusted: boolean
 	admittedUris: ReadonlySet<string>
 }
 
@@ -146,7 +148,7 @@ function buildResourceTools(
 	discovery: MCPToolDiscovery,
 	state: ResourceToolsState,
 ): ToolDefinition[] {
-	const { client, serverName, readOnlyHintTrusted } = state
+	const { client, serverName } = state
 
 	const listResources: ToolDefinition = {
 		name: mcpToolsetName(serverName, 'list_resources'),
@@ -157,7 +159,6 @@ function buildResourceTools(
 		isReadOnly: () => true,
 		isDestructive: () => false,
 		isConcurrencySafe: () => true,
-		provenance: { server: serverName, readOnlyHintTrusted },
 		async execute(_input: unknown, context: ToolContext): Promise<ToolResult> {
 			try {
 				const resources = await refreshAdmittedResources(discovery, state, {
@@ -195,7 +196,6 @@ function buildResourceTools(
 		isReadOnly: () => true,
 		isDestructive: () => false,
 		isConcurrencySafe: () => true,
-		provenance: { server: serverName, readOnlyHintTrusted },
 		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
 			const { uri } = input as { uri: string }
 			// Admission, not merely a lookup: the server does not get to decide
@@ -247,19 +247,10 @@ function buildResourceTools(
  * `mcp__<server>__list_resources` and `mcp__<server>__read_resource` are
  * built with `deferred(...)` regardless of `options.availability` — a
  * server's resource catalogue is usually not worth showing up front the way
- * its tools are. `Toolset.availability` is a whole-toolset default, though,
- * not a per-tool one, so this is implemented as an inner toolset (the
- * resource pair) combined with the main one via `combineToolsets`, which
- * also gives the combination `combineToolsets`'s atomic same-source
- * collision check (`ToolsetConflictError`) for free, covering a tool,
- * prompt or resource-tool name landing on the same `mcp__…` string as
- * another. `combineToolsets`'s own return carries no single `.availability`
- * (a combination is heterogeneous by nature), so this function sets
- * `options.availability` on the returned toolset itself rather than leaving
- * that to `combineToolsets` — the two resource tools stay independently
- * `deferred` on their own inner toolset either way, this only decides what a
- * caller reading `.availability` off the toolset this function hands back
- * sees.
+ * its tools are. `Toolset.availability` is a whole-toolset default, so this
+ * function returns two toolsets to mount together: the main tools and the
+ * deferred resource pair. It checks name collisions across both entries
+ * before returning and after a notification refresh.
  *
  * ## Change and reconnection
  *
@@ -281,7 +272,7 @@ function buildResourceTools(
 export async function mcpToolset(
 	client: MCPClient,
 	options: MCPToolsetOptions = {},
-): Promise<Toolset> {
+): Promise<MCPToolsets> {
 	const initial = client.getState()
 	if (initial.status !== 'connected') {
 		throw new Error(
@@ -304,7 +295,7 @@ export async function mcpToolset(
 		...(initial.serverInstructions !== undefined
 			? { description: initial.serverInstructions }
 			: {}),
-		mcpServer: { name: serverName },
+		mcpServer: { name: serverName, readOnlyHintTrusted },
 	}
 
 	const discovery = new MCPToolDiscovery([client], {
@@ -333,9 +324,6 @@ export async function mcpToolset(
 				readOnlyHintTrusted,
 				options.maxRetries,
 			)
-			// B1b/B1c: once `ToolDefinition.provenance` is removed, drop this
-			// spread's `provenance` field — the owning toolset's `source` (this
-			// function's `source`, above) carries the same fact from then on.
 			return { ...base, name: mcpToolsetName(serverName, d.tool.name) }
 		})
 		rebuildMain()
@@ -353,7 +341,6 @@ export async function mcpToolset(
 	const resourceState: ResourceToolsState = {
 		client,
 		serverName,
-		readOnlyHintTrusted,
 		admittedUris: new Set(),
 	}
 
@@ -395,7 +382,17 @@ export async function mcpToolset(
 		supportsResources ? refreshResourceUris() : Promise.resolve(),
 	])
 
+	const assertUnique = (): void => {
+		const names = new Set<string>()
+		for (const tool of [...mainTools, ...resourceTools]) {
+			if (names.has(tool.name)) throw new ToolsetConflictError(tool.name, source, source)
+			names.add(tool.name)
+		}
+	}
+	assertUnique()
+
 	const notify = (): void => {
+		assertUnique()
 		for (const listener of listeners) listener()
 	}
 	const onChange = (listener: () => void): (() => void) => {
@@ -478,25 +475,14 @@ export async function mcpToolset(
 	const resourceToolset: Toolset = {
 		source,
 		// A `let`, not a snapshot: `syncResourceCapability` reassigns this on
-		// every reconnect, and `combineToolsets` calls `tools()` fresh on every
-		// one of ITS OWN `tools()` calls (see combine.ts), so a capability that
-		// appears or disappears between two calls is visible without rebuilding
-		// anything this function returns.
+		// every reconnect, so a capability that appears or disappears between
+		// two calls is visible without rebuilding either returned toolset.
 		tools: () => resourceTools,
 		onChange,
 		close,
 	}
 
-	// `combineToolsets` itself sets no `.availability` on what it returns (a
-	// combination is heterogeneous by nature: the resource pair stays
-	// `deferred` on its own inner toolset regardless). Setting it here, always,
-	// is what lets `options.availability` reach a caller reading `.availability`
-	// off this function's return value whether or not the server happens to
-	// have resources today — including a server that gains or loses them on a
-	// later reconnect, which is exactly why this is unconditional rather than
-	// branching on `supportsResources` the way this function used to.
-	return {
-		...combineToolsets(source, [mainToolset, deferred(resourceToolset)]),
-		availability: options.availability,
-	}
+	// Keep these as separate ToolManager entries. A Toolset has one availability
+	// for all its tools, so merging them would silently activate the resources.
+	return [mainToolset, deferred(resourceToolset)]
 }

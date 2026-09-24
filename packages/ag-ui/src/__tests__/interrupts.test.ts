@@ -22,7 +22,8 @@ import {
 	type QueryParams,
 	type ResumeHandler,
 	type StreamChunk,
-	ToolRegistry,
+	type ToolDefinition,
+	ToolManager,
 	buildAskUserQuestionTool,
 	createReviewHandler,
 	defineTool,
@@ -30,6 +31,7 @@ import {
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -72,8 +74,11 @@ interface HarnessOptions {
 	readonly turns: MockTurn[]
 	/** Wraps the scripted provider, for faults the script cannot express. */
 	readonly provider?: (scripted: MockLLMProvider) => LLMProvider
-	readonly tools?: (context: AGUITurnContext, registry: ToolRegistry) => void
-	readonly resumeHandler?: (context: AGUITurnContext, registry: ToolRegistry) => ResumeHandler
+	readonly tools?: (
+		context: AGUITurnContext,
+		collector: { register(tool: ToolDefinition): void },
+	) => void
+	readonly resumeHandler?: (context: AGUITurnContext, registry: ToolManager) => ResumeHandler
 	readonly withoutLog?: boolean
 	readonly params?: (context: AGUITurnContext) => Partial<QueryParams>
 	readonly adapter?: Partial<AGUIAdapterOptions>
@@ -115,11 +120,13 @@ function harness(options: HarnessOptions): Harness {
 			const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-ag-ui-interrupts-'))
 			directories.push(workingDirectory)
 			const { log, scope } = thread(context.input.threadId)
-			const tools = new ToolRegistry()
-			options.tools?.(context, tools)
+			const definitions: ToolDefinition[] = []
+			options.tools?.(context, { register: (tool) => definitions.push(tool) })
+			const toolsets = [toolset('ag-ui-test', definitions)]
+			const tools = new ToolManager({ toolsets, messages: () => [] })
 			return {
 				provider: serving,
-				tools,
+				toolsets,
 				messages: context.input.messages
 					.filter((message) => message.role === 'user')
 					.map((message) => ({ role: 'user' as const, content: String(message.content) })),

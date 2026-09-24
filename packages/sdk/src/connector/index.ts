@@ -108,4 +108,5 @@ export type {
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
 	MCPToolsetOptions,
+	MCPToolsets,
 } from './mcp/index.js'

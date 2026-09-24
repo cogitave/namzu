@@ -19,7 +19,9 @@ import {
 	type SessionIndex,
 	type ToolCallSummary,
 	type ToolDefinition,
+	type ToolManager,
 	type ToolReviewPrompt,
+	type ToolSourceRef,
 	type Turn,
 	type TurnId,
 	abandonTurn,
@@ -31,6 +33,7 @@ import {
 	isTurnInProgressError,
 	query,
 	resumeSession,
+	toToolSourceRef,
 } from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
 import { AGUIEventMapper, type AGUIPause } from './events.js'
@@ -102,7 +105,7 @@ export interface AGUITurnInterrupts {
 	 *
 	 * - `user_question` (`ask_user_question`, `ToolContext.requestPause`): an
 	 *   `input_required` interrupt; the turn waits inside the tool.
-	 * - `tool_review`: the prompt-mode review policy over `params.tools`, with
+	 * - `tool_review`: the prompt-mode review policy over `params.toolsets`, with
 	 *   {@link prompt} as the person — reads that need no review run, and the
 	 *   rest become `tool_call` interrupts on a paused turn.
 	 * - `plan_approval`: a `confirmation` interrupt on a paused turn.
@@ -134,7 +137,7 @@ export interface AGUITurnContext {
 	readonly interrupts: AGUITurnInterrupts
 	/**
 	 * The client's declared tools this endpoint admits (`frontendTools`), as
-	 * tool definitions. Register them in `params.tools` for the model to be
+	 * tool definitions. Include them in `params.toolsets` for the model to be
 	 * able to call them; each call waits for the client's result.
 	 */
 	readonly frontendTools: readonly ToolDefinition[]
@@ -1337,7 +1340,7 @@ export class AGUIAdapter {
 					review ??= createReviewHandler({
 						mode: 'prompt',
 						prompt,
-						...(turn.params ? { registry: turn.params.tools } : {}),
+						...(turn.params ? { registry: reviewRegistry(turn.params) } : {}),
 					})
 					try {
 						return await review(request)
@@ -1394,7 +1397,7 @@ export class AGUIAdapter {
 	private toolDeadline(turn: LiveTurn, toolName: string | undefined): number | undefined {
 		const params = turn.params
 		if (!params) return undefined
-		const own = toolName ? params.tools.get(toolName)?.timeoutMs : undefined
+		const own = toolName ? reviewRegistry(params).get(toolName)?.timeoutMs : undefined
 		const deadline = own ?? params.toolTimeoutMs ?? SDK_DEFAULT_TOOL_TIMEOUT_MS
 		return Number.isFinite(deadline) && deadline > 0 ? deadline : undefined
 	}
@@ -1453,6 +1456,26 @@ export class AGUIAdapter {
  * When the policy asked about a batch none of whose calls qualify, every
  * call it could run is asked about.
  */
+/** A source-aware snapshot for review, without subscribing to live toolsets. */
+function reviewRegistry(params: QueryParams): Pick<ToolManager, 'get' | 'sourceOf'> {
+	const byName = new Map<string, { tool: ToolDefinition; source: ToolSourceRef }>()
+	for (const toolset of params.toolsets) {
+		const source = toToolSourceRef(toolset.source)
+		for (const tool of toolset.tools()) {
+			if (byName.has(tool.name)) throw new Error(`Tool name is not unique: ${tool.name}`)
+			byName.set(tool.name, { tool, source })
+		}
+	}
+	return {
+		get: (name) => byName.get(name)?.tool,
+		sourceOf: (name) => {
+			const source = byName.get(name)?.source
+			if (!source) throw new Error(`Unknown tool: ${name}`)
+			return source
+		},
+	}
+}
+
 function needsPerson(
 	calls: readonly ToolCallSummary[],
 	params: QueryParams | undefined,
@@ -1464,7 +1487,7 @@ function needsPerson(
 			call.isDestructive ||
 			call.escalation !== undefined ||
 			!params ||
-			!isReviewExempt(params.tools, call.name, call.input),
+			!isReviewExempt(reviewRegistry(params), call.name, call.input),
 	)
 	return asked.length > 0 ? asked : open
 }

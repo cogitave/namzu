@@ -842,6 +842,7 @@ export type {
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
 	MCPToolsetOptions,
+	MCPToolsets,
 } from './connector/index.js'
 
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────

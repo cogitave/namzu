@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The MCP toolset
-description: mcpToolset(client, options) — the one path from a connected MCP server to a live Toolset, its mcp__<server>__<rest> naming, its two deferred resource tools, and how it reacts to list_changed and a reconnect.
+description: mcpToolset(client, options) — the path from a connected MCP server to two live toolsets, its mcp__<server>__<rest> naming, deferred resource tools, and how it reacts to list_changed and a reconnect.
 resource: packages/sdk/src/connector/mcp/mcp-toolset.ts
 tags: [sdk, mcp, connector, toolsets]
 status: stable
@@ -10,18 +10,20 @@ generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 
 # The MCP toolset
 
-`mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) turns an already-connected `MCPClient` into a live [`Toolset`](toolsets.md): its tools, its prompts (through the existing adapters) and its resources, discovered, admitted and named together. It is the one path onto a `Toolset` from MCP — the CLI and a plugin are both meant to build a server's toolset this way, rather than calling `mcpToolToToolDefinition`/`mcpPromptToToolDefinition` directly.
+`mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) turns an already-connected `MCPClient` into two live [`Toolset`](toolsets.md) entries: one for its tools and prompts, one for its resources. Mount both entries in `ToolManager`. They are discovered, admitted and named together. The CLI and plugins use this path for MCP servers.
 
 ```ts sketch
 const client = new MCPClient({ serverName: 'github', transport: { type: 'stdio', command: 'gh-mcp' } })
 await client.connect()
-const toolset = await mcpToolset(client, {
+const [main, resources] = await mcpToolset(client, {
   deny: ['delete_repo'],
   readOnlyHintTrusted: true,
   maxRetries: 2,
 })
-toolset.tools() // [{ name: 'mcp__github__create_issue', ... }, ...]
-await toolset.close?.() // stops the reconnect supervisor this call started
+main.tools() // [{ name: 'mcp__github__create_issue', ... }, ...]
+resources.availability // 'deferred'
+const manager = new ToolManager({ toolsets: [main, resources], messages: () => [] })
+await main.close?.() // stops the reconnect supervisor this call started
 ```
 
 ## Naming
@@ -41,7 +43,7 @@ When the server's `initialize`/discover capabilities include a `resources` key a
 - `mcp__<server>__list_resources` — takes no arguments, calls `resources/list`, applies `options.allow`/`options.deny` to the result, and returns the admitted catalogue as JSON. Every call refreshes the admitted-URI set `read_resource` checks against.
 - `mcp__<server>__read_resource` — takes `{ uri }`. The `uri` is refused unless it is one the server has listed AND policy admitted — through `list_resources`, through the initial discovery this function runs at construction, or through a `resources/list_changed` refresh. Both the catalogue and a resource's content reach the model through the same framing (`frameServerResult`) an ordinary tool call's result does: server-authored text, marked as such.
 
-These two tools are always wrapped `deferred(...)`, regardless of `options.availability` — a resource catalogue usually is not worth showing up front the way a server's tools are. `Toolset.availability` is a whole-toolset default, not a per-tool one, so this is built as an inner toolset (the resource pair) combined with the main one via `combineToolsets`, which also gives the combination its atomic same-source collision check for free (a tool, prompt or resource-tool name landing on the same `mcp__…` string as another throws `ToolsetConflictError`). `combineToolsets`'s own return carries no single `.availability` — a combination is heterogeneous by nature — so this function sets `options.availability` on what it returns itself, whether or not the server currently has resources; the resource pair stays independently `deferred` either way.
+These two tools are always wrapped `deferred(...)`, regardless of `options.availability` — a resource catalogue usually is not worth showing up front the way a server's tools are. `Toolset.availability` is a whole-toolset default, so `mcpToolset` returns `[main, resources]` as separate entries. The main entry takes `options.availability`; the resource entry stays deferred, even after a reconnect. Mount the pair together. This function checks collisions across both entries at construction and after refresh; a tool, prompt or resource-tool name landing on the same `mcp__…` string throws `ToolsetConflictError`.
 
 Whether the server supports resources AT ALL is re-checked on every reconnect, not decided once at construction: a server that gains the capability on a later connection (a restart with a newer build, say) gets the two tools added to the next `tools()` snapshot, and one that loses it has them removed.
 

@@ -100,23 +100,24 @@ handlers on the factory's context:
 
 ```ts
 import { AGUIAdapter, type AGUITurnContext, type QueryParams } from '@namzu/ag-ui'
-import { ToolRegistry, buildAskUserQuestionTool } from '@namzu/sdk'
+import { buildAskUserQuestionTool, toolset } from '@namzu/sdk'
 
 /** Your authorized scope, provider and stores for the request's thread. */
 type HostParams = (
   context: AGUITurnContext,
-) => Promise<Omit<QueryParams, 'tools' | 'resumeHandler'>>
+) => Promise<Omit<QueryParams, 'toolsets' | 'resumeHandler'>>
 
 export function createInteractiveHandler(hostParams: HostParams) {
   const adapter = new AGUIAdapter({
     frontendTools: { allow: ['pick_color'] },
     async createQuery(context) {
-      const tools = new ToolRegistry()
-      tools.register(buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }))
-      for (const tool of context.frontendTools) tools.register(tool)
+      const toolsets = [toolset('ag-ui', [
+        buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
+        ...context.frontendTools,
+      ])]
       return {
         ...(await hostParams(context)),
-        tools,
+        toolsets,
         resumeHandler: context.interrupts.resumeHandler,
       }
     },

@@ -244,7 +244,7 @@ behaves across sends, resume and children under this model.
 
 ## MCP
 
-`mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) is the one path from a connected `MCPClient` to a live `Toolset`: tools, prompts and resources, named `mcp__<server>__<rest>`, reacting to `list_changed` and to reconnection. See [The MCP toolset](mcp-toolset.md).
+`mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) returns two live toolsets to mount together: tools and prompts under the configured availability, and resources always deferred. Names use `mcp__<server>__<rest>`; both entries react to `list_changed` and reconnection. See [The MCP toolset](mcp-toolset.md).
 
 ## Not yet built
 
