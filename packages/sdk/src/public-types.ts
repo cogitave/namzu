@@ -272,6 +272,7 @@ export type { PermissionPreset } from './authorization/index.js'
 export type { EvaluateRuleOptions } from './authorization/rules.js'
 export type {
 	ShellCommand,
+	NestedShellCommand,
 	ShellLexOptions,
 	ShellLexResult,
 	ShellRedirection,

@@ -195,7 +195,10 @@ The rules a run is gated by, in order (the first that matches decides):
      opaque](../sdk/command-lines.md#when-a-line-is-opaque). A command also
      escapes the reading when its name expands (`$S --user stop …`) or when it
      runs text as code: a shell the lexer did not follow (`bash` reading its
-     input or a script, `sudo bash -c`, `env -S`), `eval`, `source`, `.`,
+     input or a script, `sudo bash -c`, `env -S`, and any shell other than
+     `sh`, `bash`, `dash`, `zsh`, `ksh`, `ash` and `mksh` even with `-c`:
+     `powershell -c`, `pwsh -c`, `fish -c`, `tcsh -c`, `bash.exe -c`),
+     `eval`, `source`, `.`,
      `xargs`, `watch`, `ssh`, `su`, `python`, `node`, `perl`, `ruby`, `awk`,
      `sed` and the like, and `powershell`, `pwsh` and `cmd`. Such a line is
      refused when its text — as written, with quotes and expansion marks
@@ -283,7 +286,12 @@ The rules a run is gated by, in order (the first that matches decides):
    purpose. On 1 189 labelled lines of code text for PowerShell, `cmd`,
    Python, Node and `sh` (half of them reaching the scheduler, `NAMZU_HOME`
    or the profiles, half only mentioning namzu or "scheduled"), 72% of the
-   harmless ones were refused before and 6% after;
+   harmless ones were refused before and 7% after (every one of those a
+   PowerShell string starting `namzu …` with a `$(…)` in it, read as a
+   possible call to the CLI), and 92 dangerous ones — every
+   `powershell -c` or `pwsh -c` among them — had run unread before 29.1.x
+   took the lexer's own word for which `-c` payloads it follows; none do
+   now;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;

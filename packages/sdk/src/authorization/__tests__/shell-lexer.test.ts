@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ShellCommand, type ShellLexResult, lexShellCommandLine } from '../shell-lexer.js'
+import {
+	type ShellCommand,
+	type ShellLexResult,
+	lexShellCommandLine,
+	nestedShellCommand,
+} from '../shell-lexer.js'
 
 /**
  * What the lexer says a line runs. Each case here is a rule of bash's that
@@ -272,6 +277,52 @@ describe('nested shells', () => {
 		let line = 'git push'
 		for (let level = 0; level < 6; level += 1) line = `bash -c ${JSON.stringify(line)}`
 		expect(lexShellCommandLine(line).reasons).toContain('nested shells too deep')
+	})
+
+	// A host that decides on this reading must know which text it already
+	// holds: the scheduled-run floor took any shell at the head with `-c` as
+	// read, and `powershell -c 'namzu schedule stop'` was read by nobody.
+	describe('nestedShellCommand says which payloads the reading holds', () => {
+		const payload = (line: string) => {
+			const command = lexShellCommandLine(line).commands[0] as ShellCommand
+			const nested = nestedShellCommand(command.words.slice(command.assignments))
+			return nested === null ? null : 'payload' in nested ? nested.payload.value : nested
+		}
+
+		it.each([
+			'bash -c "git push"',
+			'/bin/bash -lc "git push"',
+			'bash -o pipefail -c "git push"',
+			'bash -c -- "git push"',
+			'busybox sh -c "git push"',
+			'A=1 sh -c "git push"',
+		])('the payload of %j', (line) => {
+			expect(payload(line)).toBe('git push')
+		})
+
+		it.each([
+			"powershell -c 'git push'",
+			"pwsh -command 'git push'",
+			"fish -c 'git push'",
+			"tcsh -c 'git push'",
+			"bash.exe -c 'git push'",
+			"BASH -c 'git push'",
+			"bash script -c 'git push'",
+			"busybox fish -c 'git push'",
+			'bash',
+		])('none for %j, which the reading does not hold', (line) => {
+			expect(payload(line)).toBeNull()
+			expect(lexShellCommandLine(line).commands.filter((c) => c.origin === 'shell')).toEqual([])
+		})
+
+		it('says why when the reading is opaque instead', () => {
+			expect(payload('bash -c "$CMD"')).toEqual({ opaque: 'nested shell option' })
+			expect(payload('bash -c -- "$CMD"')).toEqual({
+				opaque: 'nested shell command is expanded at runtime',
+			})
+			expect(payload('bash -c')).toEqual({ opaque: 'nested shell without a command' })
+			expect(payload('bash $OPT -c x')).toEqual({ opaque: 'nested shell option' })
+		})
 	})
 })
 

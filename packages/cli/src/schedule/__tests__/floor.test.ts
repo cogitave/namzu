@@ -187,6 +187,23 @@ describe('the tripwire, on text a program runs as code', () => {
 		])
 	})
 
+	it('reads text given to a shell with -c when the lexer did not follow it', () => {
+		// The lexer reads the `-c` payload of sh, bash, dash, zsh, ksh, ash and
+		// mksh only. `-c` after any other shell was taken as read too, so
+		// these ran unread and untripped.
+		denied([
+			"powershell -c 'namzu schedule stop'",
+			"powershell.exe -c 'Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux'",
+			"pwsh -command 'namzu schedule stop'",
+			"fish -c 'namzu schedule stop'",
+			"tcsh -c 'systemctl --user stop namzu-scheduler'",
+			"bash.exe -c 'namzu schedule stop'",
+			"bash script.sh -c 'namzu schedule stop'",
+		])
+		// What the lexer did follow is still read, not tripped over.
+		allowed(["bash -c 'npm test && echo namzu-scheduler'", "busybox sh -c 'echo hi'"])
+	})
+
 	it('names the rule that matched, and where, instead of everything it protects', () => {
 		expect(detail('powershell.exe -NoProfile -Command "namzu schedule stop"')).toBe(
 			'`powershell.exe` runs commands the floor does not read, and it holds `schedule stop` (a `namzu schedule` subcommand other than list, show, status, history, logs), in the argument `namzu schedule stop`',

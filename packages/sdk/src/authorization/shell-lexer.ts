@@ -155,6 +155,72 @@ export const NESTED_SHELLS: ReadonlySet<string> = new Set([
 	'mksh',
 ])
 
+/** What {@link nestedShellCommand} found: the payload the lexer reads, or why it could not. */
+export type NestedShellCommand =
+	| {
+			/** The shell's basename, one of {@link NESTED_SHELLS}. */
+			readonly shell: string
+			/** The `-c` argument, read as a command line of its own. */
+			readonly payload: ShellWord
+	  }
+	| {
+			/** Why the lexer calls the line opaque instead (`nested shell option` …). */
+			readonly opaque: string
+	  }
+
+/**
+ * Whether the lexer reads a simple command's payload as a command line of
+ * its own: `words` are the command's words without its leading assignments.
+ * The command must start a shell in {@link NESTED_SHELLS} by basename,
+ * exactly as written (`bash`, `/bin/sh`; not `bash.exe`, `BASH` or `fish`),
+ * or `busybox` running one, with `-c` among its options; the payload is the
+ * first argument that is not an option. `null` when it reads no payload.
+ *
+ * A host deciding on {@link lexShellCommandLine}'s reading uses this to know
+ * which text that reading already includes. Every other text a program runs
+ * as code — `powershell -c '…'`, `fish -c '…'`, `bash.exe -c '…'`, a script
+ * — is not in it.
+ */
+export function nestedShellCommand(words: readonly ShellWord[]): NestedShellCommand | null {
+	const head = words[0]
+	if (head === undefined || head.expands) return null
+	const name = basename(head.value)
+	if (name === 'busybox') {
+		const next = words[1]
+		return next !== undefined && !next.expands && NESTED_SHELLS.has(basename(next.value))
+			? nestedShellCommand(words.slice(1))
+			: null
+	}
+	if (!NESTED_SHELLS.has(name)) return null
+	let command = false
+	let payload: ShellWord | undefined
+	for (let i = 1; i < words.length; i += 1) {
+		const word = words[i] as ShellWord
+		if (word.expands) return { opaque: 'nested shell option' }
+		const value = word.value
+		if (value === '--' || value === '-') {
+			payload = words[i + 1]
+			break
+		}
+		if (value.startsWith('--')) {
+			if (value === '--rcfile' || value === '--init-file') i += 1
+			continue
+		}
+		if (/^[-+][A-Za-z]+$/.test(value)) {
+			if (value.startsWith('-') && value.includes('c')) command = true
+			// `-o name`, `-O name`: the option takes the next word.
+			if (/[oO]$/.test(value)) i += 1
+			continue
+		}
+		payload = word
+		break
+	}
+	if (!command) return null
+	if (payload === undefined) return { opaque: 'nested shell without a command' }
+	if (payload.expands) return { opaque: 'nested shell command is expanded at runtime' }
+	return { shell: name, payload }
+}
+
 /** How many `bash -c` payloads deep the lexer follows before it gives up. */
 const MAX_SHELL_DEPTH = 4
 /** How deep compound commands and expansions may nest before it gives up. */
@@ -1202,55 +1268,17 @@ class Parser {
 			}
 			return
 		}
-		if (name === 'busybox' && words[1] !== undefined && !words[1].expands) {
-			if (NESTED_SHELLS.has(basename(words[1].value))) this.nestedShell(words.slice(1))
+		const nested = nestedShellCommand(words)
+		if (nested === null) return
+		if ('opaque' in nested) {
+			this.context.opaque(nested.opaque)
 			return
 		}
-		if (!NESTED_SHELLS.has(name)) return
-		this.nestedShell(words)
+		this.nestedShell(nested.shell, nested.payload)
 	}
 
-	/**
-	 * `bash [options] -c payload [name args…]`: the payload is the first
-	 * non-option argument once `-c` has been seen among the options.
-	 */
-	private nestedShell(words: readonly ShellWord[]): void {
-		const shell = basename(words[0]?.value ?? '')
-		let command = false
-		let payload: ShellWord | undefined
-		for (let i = 1; i < words.length; i += 1) {
-			const word = words[i] as ShellWord
-			if (word.expands) {
-				this.context.opaque('nested shell option')
-				return
-			}
-			const value = word.value
-			if (value === '--' || value === '-') {
-				payload = words[i + 1]
-				break
-			}
-			if (value.startsWith('--')) {
-				if (value === '--rcfile' || value === '--init-file') i += 1
-				continue
-			}
-			if (/^[-+][A-Za-z]+$/.test(value)) {
-				if (value.startsWith('-') && value.includes('c')) command = true
-				// `-o name`, `-O name`: the option takes the next word.
-				if (/[oO]$/.test(value)) i += 1
-				continue
-			}
-			payload = word
-			break
-		}
-		if (!command) return
-		if (payload === undefined) {
-			this.context.opaque('nested shell without a command')
-			return
-		}
-		if (payload.expands) {
-			this.context.opaque('nested shell command is expanded at runtime')
-			return
-		}
+	/** Read the payload of `bash -c payload` as a command line of its own. */
+	private nestedShell(shell: string, payload: ShellWord): void {
 		if (this.depth + 1 >= MAX_SHELL_DEPTH) {
 			this.context.opaque('nested shells too deep')
 			return

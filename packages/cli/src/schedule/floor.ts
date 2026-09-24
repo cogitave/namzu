@@ -94,6 +94,7 @@ import {
 	builtinCommandArguments,
 	commandArgumentOf,
 	lexShellCommandLine,
+	nestedShellCommand,
 } from '@namzu/sdk'
 
 /** Scheduler verbs a run may use: they read, they change nothing. */
@@ -414,20 +415,22 @@ function runsUnreadText(command: ShellCommand): string | null {
 	const words = command.words
 	const head = command.assignments
 	const names = words.map((w) => (w.expands ? '' : commandName(w.value)))
-	// The lexer reads the payload of a shell at the head of its command run
-	// with `-c`. Anywhere else, or without `-c`, it did not.
-	const dashAt = words.findIndex(
-		(w, i) => i > head && !w.expands && /^-[a-z]*c[a-z]*$/.test(w.value),
-	)
-	// A payload that expands is not one the lexer could read.
-	const dashC = dashAt > 0 && words[dashAt + 1] !== undefined && !words[dashAt + 1]?.expands
+	// The shell at the head whose `-c` payload the lexer read, and `busybox`
+	// in front of it: exactly the lexer's own decision. Any other shell —
+	// `powershell -c`, `fish -c`, `bash.exe -c`, one given a script — runs
+	// text the lexer never read, whatever its options look like.
+	const nested = nestedShellCommand(words.slice(head))
+	const readTo =
+		nested !== null && 'payload' in nested
+			? head + (commandName((words[head] as ShellWord).value) === 'busybox' ? 1 : 0)
+			: -1
 	for (let i = 0; i < words.length; i++) {
 		const name = names[i] as string
 		if (name === '') continue
 		const program = shown((words[i] as ShellWord).value)
 		if (INTERPRETERS.test(name)) return `${program} runs text as code`
 		if (i === head && name === '.') return '`.` runs a file as commands'
-		if (SHELLS.has(name) && !(i === head && dashC))
+		if (SHELLS.has(name) && !(i >= head && i <= readTo))
 			return `${program} runs commands the floor does not read`
 	}
 	for (const [program, option] of Object.entries(STRING_OPTIONS)) {
