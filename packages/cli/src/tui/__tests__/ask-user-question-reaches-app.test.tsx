@@ -71,7 +71,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					question: 'Which audience is this for?',
 					header: 'Audience',
 					options: [
-						{ id: 'opt_1', label: 'Board (Recommended)', description: 'High level' },
+						{ id: 'opt_1', label: 'Board', description: 'High level', recommended: true },
 						{ id: 'opt_2', label: 'Engineers', description: 'Details and diagrams' },
 					],
 					multiSelect: false,
@@ -128,13 +128,27 @@ async function askedOnScreen() {
 	// Wait for the chooser to be committed before a key can pick a row.
 	await tick(80)
 	const frame = harness.lastFrame() ?? ''
-	expect(frame).toContain('Board (Recommended)')
+	expect(frame).toContain('Board')
 	expect(frame).toContain('Engineers')
+	// The recommendation is a badge on its row, not text in the label.
+	const recommendedRow = frame.split('\n').find((row) => row.includes('Board'))
+	expect(recommendedRow).toContain('[recommended]')
+	const otherRow = frame.split('\n').find((row) => row.includes('Engineers'))
+	expect(otherRow).not.toContain('[recommended]')
 	expect(frame, 'free text was allowed, so the escape hatch is offered').toContain('Something else…')
 	return harness
 }
 
 describe('a question from the model', () => {
+	it('records the recommended row under its plain label', async () => {
+		const harness = await askedOnScreen()
+		harness.stdin.write('\r')
+
+		await frameShows(harness.lastFrame, 'MODEL GOT: opt_1')
+		expect(harness.lastFrame() ?? '').toContain('Answered "Which audience is this for?": Board')
+		expect(harness.lastFrame() ?? '').not.toContain('Board [recommended]"')
+	})
+
 	it('is answered by the row the operator picks', async () => {
 		const harness = await askedOnScreen()
 		harness.stdin.write(DOWN)

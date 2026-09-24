@@ -25,7 +25,7 @@ describe('Agent Skills loader', () => {
 				'compatibility: Requires filesystem tools',
 				'allowed-tools: read write edit',
 				'metadata:',
-				'  owner: vandal',
+				'  owner: acme',
 				'  version: "1.0"',
 				'---',
 				'Use grounded sources before drafting.',
@@ -42,7 +42,7 @@ describe('Agent Skills loader', () => {
 			compatibility: 'Requires filesystem tools',
 			allowedTools: 'read write edit',
 			metadata: {
-				owner: 'vandal',
+				owner: 'acme',
 				version: '1.0',
 			},
 		})

@@ -6314,7 +6314,7 @@ redis"` passes through untouched; the extra words are what distinguish a request
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a

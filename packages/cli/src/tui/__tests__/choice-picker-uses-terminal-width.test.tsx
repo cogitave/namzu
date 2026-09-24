@@ -59,6 +59,25 @@ it('keeps badges, search, selected detail and controls visible on a narrow termi
 	)
 })
 
+it('draws a recommended option\'s badge on its own row only', async () => {
+	mounted = await renderToScreen(
+		<ChoicePicker
+			title="Which audience is this for?"
+			options={[
+				{ label: 'Board', description: 'High level', recommended: true },
+				{ label: 'Engineers', description: 'Details and diagrams' },
+			]}
+			selected={0}
+		/>,
+		{ cols: 80, rows: 12 },
+	)
+	const rows = mounted.viewport()
+	expect(rows.find((row) => row.includes('Board'))).toContain('[recommended]')
+	expect(rows.find((row) => row.includes('Engineers'))).not.toContain('[recommended]')
+	expect(rows.join('\n')).toContain('High level')
+	expect(rows.join('\n')).toContain('Details and diagrams')
+})
+
 it('reports an empty filtered result without a phantom selected row', async () => {
 	mounted = await renderToScreen(
 		<ChoicePicker title="Select branch" options={[]} selected={-1} query="unknown" />,

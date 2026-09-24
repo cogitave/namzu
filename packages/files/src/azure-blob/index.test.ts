@@ -16,10 +16,10 @@ const CONN =
  * The suite is `describe.skipIf(...)`-gated so a `pnpm test` from a
  * fresh checkout (no docker compose, no Azure account) reports as
  * pass-with-skip, not as a hard failure. To exercise the real
- * assertions, start Azurite (`docker compose up -d azurite` from
- * the Vandal repo, or any `azurite-blob` instance on
- * localhost:10000) or set AZURE_STORAGE_CONNECTION_STRING to a
- * real account.
+ * assertions, start Azurite on localhost:10000 (`docker run -d
+ * -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob
+ * --blobHost 0.0.0.0`, or any other `azurite-blob` instance) or set
+ * AZURE_STORAGE_CONNECTION_STRING to a real account.
  */
 async function probeAzurite(): Promise<boolean> {
 	try {
@@ -43,7 +43,7 @@ if (!azuriteAvailable) {
 	const endpoint = CONN.match(/BlobEndpoint=([^;]+)/)?.[1] ?? '<unconfigured>'
 	// biome-ignore lint/suspicious/noConsole: intentional skip diagnostic for CI logs
 	console.warn(
-		`[@namzu/files/azure-blob] SKIP integration suite: blob endpoint not reachable at ${endpoint}. Start Azurite (e.g. \`docker compose up -d azurite\` from the Vandal repo) or set AZURE_STORAGE_CONNECTION_STRING to a real account to run the real assertions.`,
+		`[@namzu/files/azure-blob] SKIP integration suite: blob endpoint not reachable at ${endpoint}. Start Azurite (e.g. \`docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0\`) or set AZURE_STORAGE_CONNECTION_STRING to a real account to run the real assertions.`,
 	)
 }
 

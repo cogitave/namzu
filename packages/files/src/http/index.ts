@@ -2,8 +2,8 @@
 // Returns Web Standards (Request/Response) handlers for the canonical
 // URL layout. Next.js App Router consumes them directly; thin Hono /
 // Express adapters can be layered on top in a later phase. URL semantics
-// and path-traversal protection live here; Vandal merely wires the
-// routes into its host framework.
+// and path-traversal protection live here; the host merely wires the
+// routes into its own framework.
 
 import type { BlobStore, FileRecord, FileRegistry, FileRole, FileScopeType } from '../index.js'
 

@@ -175,8 +175,28 @@ export interface ToolModification {
 
 export interface UserQuestionOption {
 	id: string
+	/**
+	 * The label as shown and as the answer quotes it. `ask_user_question`
+	 * takes out of it a recommendation marker the model wrote out of habit:
+	 * "(Recommended)" on any option, and "(Önerilen)", "(Empfohlen)", … on
+	 * a recommended option, when every option whose label ends in a
+	 * parenthesised group is recommended, did not end in "(Recommended)", and
+	 * ends in that same one. A group that differs between options, or is left
+	 * before "(Recommended)" ("Cloud (AWS) (Recommended)" → "Cloud (AWS)"),
+	 * is kept. The recommendation is `recommended`, so a host never has to
+	 * parse a label to find it. Apart from surrounding spaces and
+	 * "(Recommended)", an option that is not recommended keeps its label as
+	 * written.
+	 */
 	label: string
 	description?: string
+	/**
+	 * The model recommends this option: it set `recommended: true` on it, or
+	 * left the flag out and ended the label in "(Recommended)". A host marks
+	 * it (a badge, an emphasis) rather than relying on the label to say so.
+	 * Absent, not `false`, on every other option.
+	 */
+	recommended?: boolean
 }
 
 /**
