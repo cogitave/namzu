@@ -15,6 +15,10 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Background job exit'
 		case 'limit-finalization':
 			return 'Limit finalization request'
+		case 'peer-message':
+			return 'Message from another session'
+		case 'peer-notice':
+			return 'Notice from another session'
 		case 'repeat-call':
 			return 'Repeat-call advisory'
 		case 'steering':
