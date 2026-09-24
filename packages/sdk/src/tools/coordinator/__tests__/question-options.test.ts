@@ -189,6 +189,25 @@ describe('questionOptions', () => {
 		}
 	})
 
+	it('recommends only by the flag or, without one, by "(Recommended)", and changes nothing else', () => {
+		// What the host is told: an option is recommended when the model set
+		// `recommended: true`, or left the flag out and wrote "(Recommended)";
+		// an option that is not recommended loses only surrounding spaces and a
+		// trailing "(Recommended)".
+		const options = questionOptions([
+			{ label: ' Cloud (AWS) ' },
+			{ label: 'On-premises (Recommended)' },
+			{ label: 'Hybrid (Önerilen)' },
+			{ label: 'Edge (Recommended)', recommended: false },
+		])
+		expect(options).toEqual([
+			{ id: 'opt_1', label: 'Cloud (AWS)' },
+			{ id: 'opt_2', label: 'On-premises', recommended: true },
+			{ id: 'opt_3', label: 'Hybrid (Önerilen)' },
+			{ id: 'opt_4', label: 'Edge' },
+		])
+	})
+
 	it('never overrides an explicit recommended: false, not even for an English marker', () => {
 		const options = questionOptions([
 			{ label: 'Board (Recommended)', recommended: false },

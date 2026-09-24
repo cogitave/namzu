@@ -182,15 +182,17 @@ export interface UserQuestionOption {
 	 * a recommended option, when every option whose label ends in a
 	 * parenthesised group is recommended and ends in that same one. A group
 	 * that differs between options is kept. The recommendation is
-	 * `recommended`, so a host never has to parse a label to find it. An
-	 * option the model did not flag keeps its label as written.
+	 * `recommended`, so a host never has to parse a label to find it. Apart
+	 * from surrounding spaces and "(Recommended)", an option that is not
+	 * recommended keeps its label as written.
 	 */
 	label: string
 	description?: string
 	/**
-	 * The model recommends this option. A host marks it (a badge, an
-	 * emphasis) rather than relying on the label to say so. Absent, not
-	 * `false`, on every other option.
+	 * The model recommends this option: it set `recommended: true` on it, or
+	 * left the flag out and ended the label in "(Recommended)". A host marks
+	 * it (a badge, an emphasis) rather than relying on the label to say so.
+	 * Absent, not `false`, on every other option.
 	 */
 	recommended?: boolean
 }

@@ -14,7 +14,9 @@
  * - "(Recommended)" at the end of a label, in any letter case, is a marker on
  *   whichever option carries it: it comes off, and the option is recommended
  *   unless the model set `recommended: false` on it. The field is the model's
- *   word; the English marker speaks only where the field is absent.
+ *   word; the English marker speaks only where the field is absent. So an
+ *   option is recommended when the model set `recommended: true` on it, or
+ *   left the flag out and ended its label in "(Recommended)".
  * - On a recommended option, a trailing parenthesised group of one to three
  *   words, in ASCII or full-width parentheses, is the marker a model writes
  *   out of habit next to the flag, when every option whose label ends in a
@@ -29,10 +31,12 @@
  *   marker is all that tells the two apart.
  * - Which labels change is decided on the labels as written, before any
  *   changes, so the outcome does not depend on the order of the options.
- * - Nothing else is a recommendation. Recommending is optional, so an option
- *   the model did not flag, first or not, keeps its trailing group
- *   ("Cloud (AWS)", "Tabs (current)") and is never marked recommended because
- *   of one; `recommended: false` is never overridden.
+ * - Nothing else changes a label or makes an option recommended.
+ *   Recommending is optional, so an option that is not recommended, first or
+ *   not, keeps its label as written apart from surrounding spaces and a
+ *   trailing "(Recommended)": its trailing group ("Cloud (AWS)",
+ *   "Tabs (current)", "Kurul (Önerilen)") is never read as a recommendation,
+ *   and `recommended: false` is never overridden.
  */
 
 import type { UserQuestionOption } from '../../types/hitl/index.js'
