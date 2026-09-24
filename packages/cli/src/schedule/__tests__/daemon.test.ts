@@ -8,7 +8,7 @@
 
 import { readdirSync } from 'node:fs'
 import { DiskSessionLeaseStore, NOOP_LOGGER } from '@namzu/sdk'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildJob, confirmJob } from '../build.js'
 import {
 	type DaemonNotice,
@@ -379,10 +379,9 @@ describe('upgrades', () => {
 			monotonic: () => Date.now(),
 		})
 		const done = d.run()
-		await new Promise((r) => setTimeout(r, 80))
-		expect(spawned).toHaveLength(1)
+		await vi.waitFor(() => expect(spawned).toHaveLength(1), { timeout: 5_000 })
 		fingerprint = 'v2'
-		await new Promise((r) => setTimeout(r, 80))
+		await vi.waitFor(() => expect(d.status().draining).toBe(true), { timeout: 5_000 })
 		let finished = false
 		void done.then(() => {
 			finished = true
@@ -391,7 +390,7 @@ describe('upgrades', () => {
 		for (const release of releases.splice(0)) release()
 		expect(await done).toBe(0)
 		expect(spawned).toHaveLength(1)
-	})
+	}, 12_000)
 
 	it("leaves another job's occurrence that comes due during a drain to the daemon that takes over", async () => {
 		holdRuns = true
