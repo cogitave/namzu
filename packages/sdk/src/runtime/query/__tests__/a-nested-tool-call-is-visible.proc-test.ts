@@ -5,17 +5,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type {
 	RequestToolPause,
 	ToolContext,
-	ToolRegistryContract,
+	ToolDefinition,
 	ToolResult,
 } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
@@ -68,13 +69,13 @@ function registryWith(
 	runCode: ReturnType<typeof buildRunCodeTool>,
 	toolNames: readonly string[],
 	options: ProgramHarnessOptions,
-): ToolRegistryContract {
-	const registry = new ToolRegistry()
-	registry.register(
+): ToolManager {
+	const definitions: ToolDefinition[] = []
+	definitions.push(
 		options.observeParentContext
 			? {
 					...runCode,
-					async execute(input, context) {
+					async execute(input: unknown, context: ToolContext) {
 						options.observeParentContext?.(context)
 						return await runCode.execute(input as never, context)
 					},
@@ -82,7 +83,7 @@ function registryWith(
 			: runCode,
 	)
 	for (const name of new Set([...toolNames, ...(options.additionalTools ?? [])])) {
-		registry.register(
+		definitions.push(
 			defineTool({
 				name,
 				description: `Test ${name}`,
@@ -101,7 +102,7 @@ function registryWith(
 			}),
 		)
 	}
-	return registry
+	return new ToolManager({ toolsets: [testToolset(...definitions)], messages: () => [] })
 }
 
 async function runProgram(
@@ -464,7 +465,7 @@ describe('a nested failure is reported as one', () => {
 					has: vi.fn(() => true),
 					listNames: vi.fn(() => []),
 					getAvailability: vi.fn(),
-				} as unknown as ToolRegistryContract,
+				} as unknown as ToolManager,
 				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',

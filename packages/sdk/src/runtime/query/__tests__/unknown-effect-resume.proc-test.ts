@@ -33,18 +33,18 @@ it.each(['single', 'batch'])(
 				`import * as sdk from ${JSON.stringify(moduleURL)};
 import {readFile,writeFile} from 'node:fs/promises';import {join} from 'node:path';
 const [mode,root,raw,hasSibling]=process.argv.slice(2),scope=JSON.parse(raw),seed=mode==='seed';
-const tools=new sdk.ToolRegistry(),names=hasSibling!=='single'?['settled','uncertain','untouched']:['uncertain'];
-for(const name of names)tools.register({name,description:'Synthetic local effect.',inputSchema:sdk.mcpJsonSchemaToZod({type:'object',properties:{}}),isDestructive:()=>true,execute:async()=>{
+const names=hasSibling!=='single'?['settled','uncertain','untouched']:['uncertain'];
+const toolsets=[sdk.toolset('effects',names.map(name=>({name,description:'Synthetic local effect.',inputSchema:sdk.mcpJsonSchemaToZod({type:'object',properties:{}}),isDestructive:()=>true,execute:async()=>{
  let n=0;try{n=Number(await readFile(join(root,name),'utf8'))}catch{}
  await writeFile(join(root,name),String(n+1));
  if(seed&&name==='uncertain'){process.send({ready:true});setInterval(()=>{},1000);await new Promise(()=>{});}
  return{success:true,output:name+' receipt'};
-}});
+}})))];
 const paths=new sdk.SessionPaths({home:join(root,'home'),slug:'effects'});
 const log=sdk.DiskSessionLog.at(paths,{sessionId:scope.sessionId});
 // A short lease, so the resuming process can take the session the killed one left.
 const lease=await log.claim({holder:mode+':'+process.pid,ttlMs:400});
-const params={...scope,tools,paths,lease,workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',turnConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
+const params={...scope,toolsets,paths,lease,workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',turnConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
 if(seed)await sdk.drainQuery({...params,provider:new sdk.MockLLMProvider({turns:[{toolCalls:names.map(name=>({id:name,name,args:{}}))}]}),messages:[sdk.createUserMessage('Do each effect once.')]});
 else{const {turnId:_t,...session}=scope;
  // The checkpoints are found beside the log, under the same paths.

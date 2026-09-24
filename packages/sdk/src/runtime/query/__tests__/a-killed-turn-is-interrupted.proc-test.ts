@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionPaths } from '../../../session/paths.js'
 import { DiskSessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { ProjectId, SessionId, TenantId, TopicId, TurnId } from '../../../types/ids/index.js'
 import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import { TurnInProgressError } from '../../../types/session/turn.js'
@@ -47,14 +47,12 @@ const paths = new sdk.SessionPaths({ home: join(root, 'home'), slug: 'killed' })
 const log = sdk.DiskSessionLog.at(paths, { sessionId: ids.sessionId })
 // A short lease: the next process may take the session soon after the kill.
 const lease = await log.claim({ holder: 'doomed:' + process.pid, ttlMs: 400 })
-const tools = new sdk.ToolRegistry()
-tools.register({ name: 'fast', description: 'returns', inputSchema: z.object({}), execute: async () => ({ success: true, output: 'fast done' }) })
-tools.register({ name: 'block', description: 'never returns', inputSchema: z.object({}), execute: async () => {
+const toolsets = [sdk.toolset('worker', [{ name: 'fast', description: 'returns', inputSchema: z.object({}), execute: async () => ({ success: true, output: 'fast done' }) }, { name: 'block', description: 'never returns', inputSchema: z.object({}), execute: async () => {
   await writeFile(join(root, 'blocked'), 'yes')
   await new Promise(() => {})
-} })
+} }])]
 await sdk.drainQuery({
-  ...ids, paths, lease, tools, workingDirectory: root, agentId: 'doomed', agentName: 'Doomed',
+  ...ids, paths, lease, toolsets, workingDirectory: root, agentId: 'doomed', agentName: 'Doomed',
   provider: new sdk.MockLLMProvider({ turns: [
     { toolCalls: [{ id: 'c1', name: 'fast', args: {} }], finishReason: 'tool_calls' },
     { toolCalls: [{ id: 'c2', name: 'block', args: {} }], finishReason: 'tool_calls' },
@@ -126,7 +124,7 @@ function params(killed: Killed, provider: MockLLMProvider) {
 		...session,
 		paths: killed.paths,
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		workingDirectory: killed.root,
 		agentId: 'next',
 		agentName: 'Next',
@@ -185,8 +183,7 @@ describe('a turn whose process was killed', () => {
 		// them) exactly as a host is told it may. Neither the dead turn's
 		// tool call nor turn 2's own may appear twice.
 		const killed = await killedTurn()
-		const echoTools = new ToolRegistry()
-		echoTools.register({
+		const echoTools = testToolset({
 			name: 'echo',
 			description: 'echo',
 			inputSchema: z.object({}),
@@ -202,7 +199,7 @@ describe('a turn whose process was killed', () => {
 					],
 				}),
 			),
-			tools: echoTools,
+			toolsets: [echoTools],
 			abandonInterrupted: true,
 			messages: [createUserMessage('continue after the crash')],
 		})
