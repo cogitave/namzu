@@ -1,5 +1,24 @@
 # @namzu/sandbox
 
+## 21.0.0
+
+### Patch Changes
+
+- Updated dependencies [28102e1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [82769f1]
+- Updated dependencies [28102e1]
+  - @namzu/sdk@46.0.0
+
 ## 20.0.0
 
 ### Patch Changes
