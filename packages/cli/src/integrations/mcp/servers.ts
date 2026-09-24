@@ -64,6 +64,15 @@ export interface McpServerSpec {
 	/** Stdio: the executable to run. */
 	readonly command?: string
 	readonly args?: readonly string[]
+	/**
+	 * A value may reference the operator's own environment with a bare
+	 * `${VAR_NAME}` — no `${VAR:-default}` fallback, and an unset
+	 * `VAR_NAME` fails this server with a named reason rather than running
+	 * with an empty string. See {@link expandEnvRefsInRecord}. Prefer
+	 * `inheritEnv` below for a plain "grant this variable under its own
+	 * name"; use `${VAR_NAME}` here to rename a variable into whatever key
+	 * the server expects.
+	 */
 	readonly env?: Readonly<Record<string, string>>
 	/**
 	 * Variables from the operator's own environment this server may have.
@@ -81,6 +90,11 @@ export interface McpServerSpec {
 	readonly cwd?: string
 	/** HTTP: the server's endpoint. */
 	readonly url?: string
+	/**
+	 * Same `${VAR_NAME}` expansion as `env` above — the only secret-safe
+	 * option for a header value, since `inheritEnv` reaches the stdio
+	 * child's process environment only, never an HTTP header.
+	 */
 	readonly headers?: Readonly<Record<string, string>>
 	/**
 	 * How long THIS server gets to connect, hand shake and list its tools, in
@@ -157,33 +171,95 @@ export interface McpConnection {
 }
 
 /**
+ * A bare `${VAR}` reference inside an `env` or `headers` value — identifier
+ * characters only, no `:-default` fallback. See {@link expandEnvRefsInRecord}.
+ */
+const ENV_REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+
+/**
+ * Expand `${VAR}` references inside `env`/`headers` values against the
+ * operator's own environment.
+ *
+ * Deliberately narrower than the interpolation some other MCP clients'
+ * configs use (see docs/cli/mcp-servers.md): bare `${VAR}` only, no
+ * `${VAR:-default}` fallback, and only inside `env` and `headers` values —
+ * never `command`, `args`, `url` or `cwd`, which have no legitimate secret
+ * use case and would only widen the surface for an accidental literal `${`
+ * to break. A referenced variable that is unset is refused with a named
+ * reason, not silently substituted with an empty string: that is exactly
+ * the footgun a `:-default` fallback would reintroduce, and this module's
+ * whole design is "every failure is named" rather than a server running
+ * quietly with a secret it never got.
+ *
+ * `inheritEnv` stays the primary idiom for "grant this named variable to
+ * the child process under its own name" — this is for the config VALUE
+ * itself, letting an operator rename an env var into whatever key or
+ * header a server expects, and giving `headers` a secret-safe option it
+ * has never had (`inheritEnv` only reaches the stdio child's process env,
+ * not header values).
+ *
+ * Returns the expanded record, or a reason string naming the first unset
+ * variable a value referenced.
+ */
+export function expandEnvRefsInRecord(
+	record: Readonly<Record<string, string>>,
+	env: NodeJS.ProcessEnv,
+): Readonly<Record<string, string>> | string {
+	const result: Record<string, string> = {}
+	for (const [key, raw] of Object.entries(record)) {
+		let missing: string | undefined
+		const expanded = raw.replace(ENV_REF_PATTERN, (whole, name: string) => {
+			const value = env[name]
+			if (value === undefined) {
+				missing = name
+				return whole
+			}
+			return value
+		})
+		if (missing !== undefined) {
+			return `references \${${missing}}, which is not set in the operator's environment`
+		}
+		result[key] = expanded
+	}
+	return result
+}
+
+/**
  * Turn one spec into a transport, or say why it is not one.
  *
  * Refused rather than guessed. A spec with both a command and a URL is an
  * operator who edited one into a file that already had the other, and picking
  * either would run something they did not mean to run.
  */
-export function transportFor(spec: McpServerSpec, defaultCwd: string): MCPTransportUnion | string {
+export function transportFor(
+	spec: McpServerSpec,
+	defaultCwd: string,
+	env: NodeJS.ProcessEnv = process.env,
+): MCPTransportUnion | string {
 	const hasCommand = typeof spec.command === 'string' && spec.command.trim().length > 0
 	const hasUrl = typeof spec.url === 'string' && spec.url.trim().length > 0
 	if (hasCommand && hasUrl) {
 		return 'it declares both a command and a url — pick one'
 	}
 	if (hasCommand) {
+		const expandedEnv = spec.env ? expandEnvRefsInRecord(spec.env, env) : undefined
+		if (typeof expandedEnv === 'string') return expandedEnv
 		return {
 			type: 'stdio',
 			command: spec.command as string,
 			...(spec.args ? { args: [...spec.args] } : {}),
-			...(spec.env ? { env: { ...spec.env } } : {}),
+			...(expandedEnv ? { env: expandedEnv } : {}),
 			...(spec.inheritEnv ? { inheritEnv: [...spec.inheritEnv] } : {}),
 			cwd: spec.cwd ?? defaultCwd,
 		}
 	}
 	if (hasUrl) {
+		const expandedHeaders = spec.headers ? expandEnvRefsInRecord(spec.headers, env) : undefined
+		if (typeof expandedHeaders === 'string') return expandedHeaders
 		return {
 			type: 'streamable-http',
 			url: spec.url as string,
-			...(spec.headers ? { headers: { ...spec.headers } } : {}),
+			...(expandedHeaders ? { headers: expandedHeaders } : {}),
 		}
 	}
 	return 'it declares neither a command nor a url'
