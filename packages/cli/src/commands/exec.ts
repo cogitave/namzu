@@ -345,6 +345,9 @@ async function execPrint(
 		// gates is byte-identical to the one that shipped before them.
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
+		// Run from the user's own terminal, so a page can be opened on their
+		// desktop. Never `exec --json`, `drain` or a scheduled run.
+		openUrl: true,
 		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),

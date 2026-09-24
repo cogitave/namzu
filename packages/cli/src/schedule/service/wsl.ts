@@ -15,11 +15,19 @@
  */
 
 import { existsSync } from 'node:fs'
+import { readWslMountRoot, wslSystem32 } from '../../context/environment.js'
 import { checkWslPath } from './quote.js'
 import type { CommandRunner } from './runner.js'
 import { type TaskDefinition, taskPath } from './windows-task.js'
 
 export interface WindowsTools {
+	/** Where WSL mounts the Windows drives, with a trailing slash (`/mnt/`). */
+	readonly mountRoot: string
+	/**
+	 * `C:` as WSL mounts it (`/mnt/c`): the directory a Windows program is
+	 * started in, since one started in a Linux directory warns about UNC paths.
+	 */
+	readonly drive: string
 	readonly systemRoot: string
 	readonly cmd: string
 	readonly schtasks: string
@@ -29,11 +37,20 @@ export interface WindowsTools {
 	readonly wsl: string
 }
 
-export const DEFAULT_SYSTEM32 = '/mnt/c/Windows/System32'
+/** `System32` under the default mount root. */
+export const DEFAULT_SYSTEM32 = wslSystem32()
 
-export function windowsTools(system32 = DEFAULT_SYSTEM32): WindowsTools {
+/**
+ * The Windows programs, under `system32` — by default under the drive mount
+ * root `/etc/wsl.conf` sets (`[automount] root`, `/mnt/` unless moved).
+ */
+export function windowsTools(system32 = wslSystem32(readWslMountRoot())): WindowsTools {
+	const systemRoot = system32.replace(/\/System32$/i, '')
+	const drive = systemRoot.replace(/\/Windows$/i, '')
 	return {
-		systemRoot: system32.replace(/\/System32$/i, ''),
+		mountRoot: drive.replace(/[^/]+$/, ''),
+		drive,
+		systemRoot,
 		cmd: `${system32}/cmd.exe`,
 		schtasks: `${system32}/schtasks.exe`,
 		powershell: `${system32}/WindowsPowerShell/v1.0/powershell.exe`,
@@ -50,14 +67,14 @@ export async function probeInterop(
 	env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
 	if (!existsSync(tools.cmd))
-		return { ok: false, reason: `${tools.cmd} was not found (is C: mounted at /mnt/c?)` }
+		return { ok: false, reason: `${tools.cmd} was not found (is C: mounted at ${tools.drive}?)` }
 	if (!env.WSL_INTEROP && !existsSync('/proc/sys/fs/binfmt_misc/WSLInterop')) {
 		return {
 			ok: false,
 			reason: 'WSL interop is disabled ([interop] enabled=false in /etc/wsl.conf)',
 		}
 	}
-	const result = await run(tools.cmd, ['/d', '/c', 'ver'], { timeoutMs: 20_000, cwd: '/mnt/c' })
+	const result = await run(tools.cmd, ['/d', '/c', 'ver'], { timeoutMs: 20_000, cwd: tools.drive })
 	return result.code === 0
 		? { ok: true }
 		: {
@@ -68,7 +85,7 @@ export async function probeInterop(
 
 /** `DOMAIN\user` of the Windows account, from `whoami.exe`. */
 export async function windowsUser(run: CommandRunner, tools: WindowsTools): Promise<string> {
-	const result = await run(tools.whoami, [], { timeoutMs: 20_000, cwd: '/mnt/c' })
+	const result = await run(tools.whoami, [], { timeoutMs: 20_000, cwd: tools.drive })
 	const user = result.stdout.trim()
 	if (result.code !== 0 || !/^[^\\\s]+\\[^\\\s]+$/.test(user)) {
 		throw new Error(
