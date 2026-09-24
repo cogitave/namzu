@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SkillRegistry } from '../../../skills/registry.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { SkillTool } from '../../../tools/builtins/skill.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -53,10 +55,9 @@ async function skillsWith(allowedTools: string): Promise<SkillRegistry> {
 	return registry
 }
 
-function toolsWithBash(ran: string[]): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(SkillTool)
-	tools.register(
+function toolsWithBash(ran: string[]): Toolset {
+	return testToolset(
+		SkillTool,
 		defineTool({
 			name: 'bash',
 			description: 'run a command',
@@ -72,8 +73,7 @@ function toolsWithBash(ran: string[]): ToolRegistry {
 				return { success: true, output: `ran ${input.command}` }
 			},
 		}),
-	)
-	tools.register(
+
 		defineTool({
 			name: 'read',
 			description: 'read',
@@ -86,7 +86,6 @@ function toolsWithBash(ran: string[]): ToolRegistry {
 			execute: async () => ({ success: true, output: 'read' }),
 		}),
 	)
-	return tools
 }
 
 /**
@@ -116,7 +115,7 @@ function provider(opts: {
 }
 
 async function turn(opts: {
-	tools: ToolRegistry
+	tools: Toolset
 	skills: SkillRegistry
 	load: boolean
 	command: string
@@ -138,12 +137,12 @@ async function turn(opts: {
 			...(opts.script ? { script: opts.script } : {}),
 		}),
 		...opts.extra,
-		tools: opts.tools,
+		toolsets: [opts.tools],
 		skillRegistry: opts.skills,
 		resumeHandler: createReviewHandler({
 			mode: opts.mode,
 			prompt: opts.prompt,
-			registry: opts.tools,
+			registry: new ToolManager({ toolsets: [opts.tools], messages: () => [] }),
 		}),
 		authorizationGate: {
 			enabled: true,
@@ -240,8 +239,7 @@ describe('a loaded skill through the real turn', () => {
 		// destructive call is never skill-approved. Telling the model "write
 		// is pre-approved" and then prompting anyway would be a promise the
 		// review never keeps.
-		const tools = toolsWithBash([])
-		tools.register(WriteFileTool)
+		const tools = testToolset(...toolsWithBash([]).tools(), WriteFileTool)
 		const seen: string[] = []
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
 		const result = await turn({
