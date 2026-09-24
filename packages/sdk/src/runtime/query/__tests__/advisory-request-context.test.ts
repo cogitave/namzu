@@ -29,11 +29,11 @@ async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-advisory-request-'))
 	roots.push(workingDirectory)
 	const toolsets: Toolset[] = []
-	return {
+	const addTool = (tool: ToolDefinition) => toolsets.push(testToolset(tool))
+	const params = {
 		provider,
 		turnId: generateTurnId(),
 		toolsets,
-		addTool: (tool: ToolDefinition) => toolsets.push(testToolset(tool)),
 		agentId: 'advisory-request',
 		agentName: 'Advisory request',
 		workingDirectory,
@@ -58,6 +58,7 @@ async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 			budget: { maxCallsPerTurn: 2 },
 		},
 	} satisfies Parameters<typeof drainQuery>[0]
+	return { params, addTool }
 }
 const rows = (messages: readonly Message[]) =>
 	String(messages[1]?.content)
@@ -89,9 +90,9 @@ it.each(['trigger', 'tool'] as const)(
 			],
 		})
 		const advisor = new MockLLMProvider({ turns: [{ text: 'Advice delivered.' }] })
-		const params = await fixture(main, advisor)
+		const { params, addTool } = await fixture(main, advisor)
 		let reads = 0
-		params.addTool({
+		addTool({
 			name: 'observe',
 			description: 'Observe.',
 			inputSchema: z.object({}),
@@ -179,8 +180,8 @@ it('includes prepared system/context additions and isolates them from driver mut
 		},
 	})
 	const advisor = new MockLLMProvider({ turns: [{ text: 'Advice.' }] })
-	const params = await fixture(main, advisor)
-	params.addTool({
+	const { params, addTool } = await fixture(main, advisor)
+	addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -228,8 +229,8 @@ it('captures the successful image-repaired request, not the rejected image paylo
 		},
 	}
 	const advisor = new MockLLMProvider({ turns: [{ text: 'Advice.' }] })
-	const params = await fixture(provider, advisor)
-	params.addTool({
+	const { params, addTool } = await fixture(provider, advisor)
+	addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -264,8 +265,8 @@ it('rebuilds the snapshot on the next turn without persisting the earlier transi
 	const main = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'observe', args: {} }] }, { text: 'Needs review.' }],
 	})
-	const params = await fixture(main, advisor)
-	params.addTool({
+	const { params, addTool } = await fixture(main, advisor)
+	addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -313,8 +314,8 @@ it('releases the captured turn when cancelled during the advisory call', async (
 		onRequest: () => controller.abort(new Error('Operator cancelled.')),
 		turns: [{ error: { message: 'Advisor cancelled.' } }],
 	})
-	const params = await fixture(main, advisor)
-	params.addTool({
+	const { params, addTool } = await fixture(main, advisor)
+	addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
