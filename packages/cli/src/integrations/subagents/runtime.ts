@@ -770,6 +770,11 @@ export async function createSubagentRuntime(
 			},
 			required: ['description', 'prompt'],
 		}),
+		// The one argument that can be long, and what to do when it was cut
+		// off; without these the model was told how to write files instead.
+		largeStringArguments: { prompt: 12_000 },
+		unreadableInputHint:
+			'Put long material in a file the sub-agent can read and name the file in the prompt instead of pasting its content.',
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

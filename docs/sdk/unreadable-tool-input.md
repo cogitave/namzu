@@ -113,10 +113,10 @@ is lowered to that half. A budget the response could not hold would lead to the
 same cut again.
 
 The built-in tools that take long text declare it: `write` (`content`), `edit`
-(`old_string`, `new_string`), and `create_task` and the coordinator `Agent`
-tool (`prompt`), each with a 12 000-character budget and its own hint. Any
-other tool, such as a question or plan tool, gets no size advice and no
-file-writing advice.
+(`old_string`, `new_string`), `create_task` and the coordinator `Agent` tool
+(`prompt`), and the CLI's `Agent` tool (`prompt`), each with a 12 000-character
+budget and its own hint. Any other tool, such as a question or plan tool, gets
+no size advice and no file-writing advice.
 
 ## A stream that breaks tool-call framing
 
