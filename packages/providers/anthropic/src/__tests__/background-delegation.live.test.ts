@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	CompletionInbox,
-	ToolRegistry,
 	asProjectId,
 	asSessionId,
 	asTenantId,
@@ -11,6 +10,7 @@ import {
 	buildCoordinatorTools,
 	drainQuery,
 	runAgent,
+	toolset,
 } from '@namzu/sdk'
 import type { TaskHandle, TaskScheduler } from '@namzu/sdk'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -138,19 +138,21 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
 
-		const tools = new ToolRegistry()
-		for (const tool of buildCoordinatorTools({
-			gateway,
-			completionInbox: inbox,
-			workingDirectory: workingDirectory(),
-			allowedAgentIds: ['lookup'],
-		})) {
-			tools.register(tool)
-		}
+		const toolsets = [
+			toolset(
+				'test',
+				buildCoordinatorTools({
+					gateway,
+					completionInbox: inbox,
+					workingDirectory: workingDirectory(),
+					allowedAgentIds: ['lookup'],
+				}),
+			),
+		]
 
 		const turn = await drainQuery({
 			provider: provider(),
-			tools,
+			toolsets,
 			completionInbox: inbox,
 			agentId: 'supervisor',
 			agentName: 'Supervisor',
@@ -212,19 +214,21 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
 
-		const tools = new ToolRegistry()
-		for (const tool of buildCoordinatorTools({
-			gateway,
-			completionInbox: inbox,
-			workingDirectory: workingDirectory(),
-			allowedAgentIds: ['lookup'],
-		})) {
-			tools.register(tool)
-		}
+		const toolsets = [
+			toolset(
+				'test',
+				buildCoordinatorTools({
+					gateway,
+					completionInbox: inbox,
+					workingDirectory: workingDirectory(),
+					allowedAgentIds: ['lookup'],
+				}),
+			),
+		]
 
 		const turn = await drainQuery({
 			provider: provider(),
-			tools,
+			toolsets,
 			completionInbox: inbox,
 			agentId: 'supervisor',
 			agentName: 'Supervisor',

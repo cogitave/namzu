@@ -12,9 +12,10 @@ export type { ToolSource, ToolSourceKind }
  * A toolset's own default for the tools it contributes.
  *
  * Deliberately narrower than {@link ToolAvailability} (`'active' |
- * 'deferred' | 'suspended'`): `'suspended'` is runtime state a session
- * enters and leaves, not something a tool source declares about itself.
- * Absent means `'active'`.
+ * 'deferred' | 'suspended'`): `'suspended'` names runtime state a session
+ * would enter and leave, not something a tool source declares about
+ * itself — and it is currently reserved rather than implemented (see
+ * `ToolAvailability`'s own doc comment). Absent means `'active'`.
  */
 export type ToolsetAvailability = 'active' | 'deferred'
 
@@ -86,6 +87,15 @@ export interface ToolSourceRef {
 /**
  * Project a `ToolSource` down to the lean shape a later item stamps onto
  * each tool. Pure; reads nothing but its arguments.
+ *
+ * `readOnlyHintTrusted` defaults to `source.mcpServer?.readOnlyHintTrusted`
+ * — the operator's per-server trust decision, wired by whatever built this
+ * `ToolSource` (`mcpToolset`, plan.md §4). The `mcp` parameter overrides that
+ * default rather than being the only channel for it: a caller that already
+ * has the decision in hand some other way (a test, a wrapper) may still pass
+ * it explicitly, but `sourceOf` (`toolsets/manager.ts`) relies on the
+ * default so a trusted server's tools resolve as trusted with no extra
+ * wiring at the call site.
  */
 export function toToolSourceRef(
 	source: ToolSource,
@@ -96,12 +106,27 @@ export function toToolSourceRef(
 		id: source.id,
 		kind: source.kind,
 		server: source.mcpServer?.name ?? source.name,
-		readOnlyHintTrusted: mcp?.readOnlyHintTrusted ?? false,
+		readOnlyHintTrusted: mcp?.readOnlyHintTrusted ?? source.mcpServer?.readOnlyHintTrusted ?? false,
 	}
 }
 
-/** A synchronous test over one tool, for {@link filtered} and {@link requireApproval}. */
-export type ToolPredicate = (tool: ToolDefinition) => boolean
+/**
+ * A synchronous test over one tool, for {@link filtered} and
+ * {@link requireApproval}.
+ *
+ * `source` is the CONTRIBUTING TOOLSET's own source (`ts.source` projected
+ * through {@link toToolSourceRef}) — not a per-tool source, which does not
+ * exist until a later item stamps one onto each `ToolDefinition` (see
+ * {@link ToolFilterSelector}'s note on `sourceIdGlob`). A predicate that
+ * needs to tell a trusted MCP server's tool from an untrusted one's (the
+ * `isTrustedReadOnly` recipe in `tools/roster.ts`) reads this — which is
+ * correct for a plain, single-source toolset, and why that recipe must run
+ * on each contributing toolset before {@link combineToolsets} merges them:
+ * applied to an already-combined multi-source toolset, `source` is the
+ * COMBINED umbrella source, not any one contributor's, and a predicate that
+ * trusts it that far trusts every contributor equally.
+ */
+export type ToolPredicate = (tool: ToolDefinition, source: ToolSourceRef) => boolean
 
 /**
  * What `filtered` (and `requireApproval`'s optional selector) may match on.

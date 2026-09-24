@@ -10,8 +10,8 @@ import {
 	MockLLMProvider,
 	type SessionEvent,
 	type TaskHandle,
+	ToolManager,
 	type ToolContext,
-	ToolRegistry,
 	createToolPresenter,
 	query,
 } from '@namzu/sdk'
@@ -40,6 +40,8 @@ import {
 import { type AgentEvent, type AgentSession, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -168,6 +170,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'model',
 			reasoningEffortLevels: [],
 			toolNames: () => ['Agent'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],
@@ -577,12 +580,11 @@ describe('Ctrl+T', () => {
 					healthCheck: () => child.healthCheck(),
 				} satisfies LLMProvider
 			},
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 		})
 		try {
-			const tools = new ToolRegistry()
-			tools.register(runtime.agentTool)
-			const presenter = createToolPresenter(tools)
+			const toolsets = [testToolset(runtime.agentTool)]
+			const presenter = createToolPresenter(new ToolManager({ toolsets, messages: () => [] }))
 			const parent = new MockLLMProvider({
 				turns: [
 					{
@@ -604,7 +606,7 @@ describe('Ctrl+T', () => {
 				const events = query({
 					taskScheduler: await runtime.gatewayForTurn(parentFixture.scope.turnId),
 					provider: parent,
-					tools,
+					toolsets,
 					turnConfig: {
 						model: 'mock-model',
 						tokenBudget: 100_000,

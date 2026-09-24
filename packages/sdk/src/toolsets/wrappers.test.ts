@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
+import type { ToolDefinition } from '../types/tool/index.js'
 import { liveToolset, tool } from './__fixtures__/toolsets.js'
+import { combineToolsets } from './combine.js'
 import { toolset } from './toolset.js'
+import type { ToolSourceRef } from './types.js'
 import {
 	deferred,
 	filtered,
@@ -134,6 +138,81 @@ describe('filtered', () => {
 		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
 		live.setTools([tool('read'), tool('write')])
 		expect(ts.tools().map((t) => t.name)).toEqual(['read', 'write'])
+	})
+
+	it('hands a function predicate the toolset it was called on, not the tool itself', () => {
+		const mcpSource = {
+			id: 'mcp:github',
+			kind: 'mcp_server' as const,
+			name: 'GitHub',
+			mcpServer: { name: 'GitHub', readOnlyHintTrusted: true },
+		}
+		const ts = filtered(toolset(mcpSource, [tool('read')]), (_tool, source) => {
+			expect(source).toEqual({
+				id: 'mcp:github',
+				kind: 'mcp_server',
+				server: 'GitHub',
+				readOnlyHintTrusted: true,
+			})
+			return true
+		})
+		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
+	})
+
+	describe('the read-only recipe (tools/roster.ts, agents/explore.ts)', () => {
+		// `isTrustedReadOnly(tool, undefined, source)` is what `roster.ts` and
+		// `explore.ts` document a host copying to build a read-only-only
+		// delegate roster. The regression this guards: applying that recipe
+		// to a toolset ALREADY merged from several sources (an untrusted MCP
+		// server among them) must not let the untrusted server's own
+		// `readOnlyHint: true` through — because a `filtered` predicate is
+		// handed the ONE toolset it runs on, `filtered` must run before
+		// `combineToolsets`, on each contributing toolset, not after.
+		const readOnlyOnly = (t: ToolDefinition, source: ToolSourceRef) =>
+			isTrustedReadOnly(t, undefined, source)
+
+		it('excludes an untrusted MCP tool when each source toolset is filtered before combining', () => {
+			const hostSource = { id: 'host', kind: 'host_tool' as const, name: 'host' }
+			const untrustedMcp = {
+				id: 'mcp:untrusted-server',
+				kind: 'mcp_server' as const,
+				name: 'untrusted-server',
+				mcpServer: { name: 'untrusted-server', readOnlyHintTrusted: false },
+			}
+			const hostToolset = toolset(hostSource, [tool('read_file', { isReadOnly: () => true })])
+			const untrustedToolset = toolset(untrustedMcp, [
+				tool('mcp_delete_everything', { isReadOnly: () => true }),
+			])
+
+			const roster = combineToolsets('delegate', [
+				filtered(hostToolset, readOnlyOnly),
+				filtered(untrustedToolset, readOnlyOnly),
+			])
+
+			expect(roster.tools().map((t) => t.name)).toEqual(['read_file'])
+		})
+
+		it('wrongly admits the untrusted tool if filtered runs AFTER combining instead — the anti-pattern this recipe warns against', () => {
+			const hostSource = { id: 'host', kind: 'host_tool' as const, name: 'host' }
+			const untrustedMcp = {
+				id: 'mcp:untrusted-server',
+				kind: 'mcp_server' as const,
+				name: 'untrusted-server',
+				mcpServer: { name: 'untrusted-server', readOnlyHintTrusted: false },
+			}
+			const combined = combineToolsets('parent', [
+				toolset(hostSource, [tool('read_file', { isReadOnly: () => true })]),
+				toolset(untrustedMcp, [tool('mcp_delete_everything', { isReadOnly: () => true })]),
+			])
+
+			// `combined.source` is the umbrella `parent` source, kind
+			// `host_tool` — so the untrusted contributor's own source is
+			// invisible here, and this is exactly what `roster.ts` says not
+			// to do.
+			const roster = filtered(combined, readOnlyOnly)
+
+			expect(roster.tools().map((t) => t.name)).toEqual(['read_file', 'mcp_delete_everything'])
+		})
 	})
 })
 

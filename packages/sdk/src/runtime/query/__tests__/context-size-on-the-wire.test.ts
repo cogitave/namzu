@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { type CompactionConfig, CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -46,7 +45,7 @@ async function run(
 	await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: turns as never }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,

@@ -9,7 +9,7 @@ import { createConnectorExecuteTool } from '../../../connector/tools/definitions
 import { ConnectorManager } from '../../../manager/connector/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ConnectorRegistry } from '../../../registry/connector/definitions.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -66,8 +66,7 @@ describe('connector cancellation reaches a real turn', () => {
 		)
 		await connectorManager.connect(instance.id)
 
-		const tools = new ToolRegistry()
-		tools.register(createConnectorExecuteTool({ manager: connectorManager }))
+		const tools = testToolset(createConnectorExecuteTool({ manager: connectorManager }))
 		const provider = new MockLLMProvider({
 			turns: [
 				{

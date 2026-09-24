@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { MOCK_CAPABILITIES } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import {
 	generateProjectId,
@@ -61,7 +60,7 @@ async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 	await drainQuery(
 		{
 			provider: failingProvider(code, status),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],

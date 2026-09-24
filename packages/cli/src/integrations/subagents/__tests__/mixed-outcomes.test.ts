@@ -6,11 +6,12 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	ProviderError,
-	ToolRegistry,
+	type Toolset,
 	defineTool,
 	generateTurnId,
 	isTerminalAgentTaskState,
 	mcpJsonSchemaToZod,
+	toolset,
 } from '@namzu/sdk'
 import { expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -32,9 +33,8 @@ it.each(['tool', 'provider'])(
 			model: 'mock',
 			resolveParent: (turnId) =>
 				parent.resolveParent(turnId === foreign ? parent.scope.turnId : turnId),
-			buildTools: () => {
-				const tools = new ToolRegistry()
-				tools.register(
+			buildTools: (): readonly Toolset[] => [
+				toolset('test', [
 					defineTool({
 						name: 'hold',
 						description: 'Controlled read-only observation',
@@ -53,9 +53,8 @@ it.each(['tool', 'provider'])(
 							return { success: true, output: 'observation' }
 						},
 					}),
-				)
-				return tools
-			},
+				]),
+			],
 			resolveResumeHandler: () => async (request) =>
 				request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
 			buildProvider: () => {

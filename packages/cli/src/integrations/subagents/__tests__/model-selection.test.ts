@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, ToolRegistry } from '@namzu/sdk'
+import { MockLLMProvider } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -29,7 +29,7 @@ describe('delegated model selection', () => {
 			cwd,
 			model: 'parent-model',
 			resolveParent: parent.resolveParent,
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider,
 			resolveModel,
 			listModels: async () => 'catalogue',
@@ -106,7 +106,7 @@ describe('delegated model selection', () => {
 			cwd,
 			model: 'session-model',
 			resolveParent: parent.resolveParent,
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider,
 			resolveModel,
 			// A resumed scheduled turn runs on its job's model.
@@ -158,7 +158,7 @@ describe('delegated model selection', () => {
 			cwd,
 			model: 'parent',
 			resolveParent: parent.resolveParent,
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider,
 			resolveModel: async () => {
 				throw new Error('Model unavailable')

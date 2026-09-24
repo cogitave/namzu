@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { PromptContributionRegistry, skillsContribution } from '../../../prompt/contributions.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { AgentPersona } from '../../../types/persona/index.js'
 import type { ProjectId } from '../../../types/session/ids.js'
 import type { Skill } from '../../../types/skills/index.js'
@@ -141,8 +141,7 @@ describe('prompt cache options', () => {
 
 	it('uses current render options while preserving skills and environment composition', () => {
 		const c = cache()
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			['first-tool', 'second-tool'].map((name) => ({
 				name,
 				description: `Use ${name}`,

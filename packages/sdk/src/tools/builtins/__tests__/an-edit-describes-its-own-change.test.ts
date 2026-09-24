@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { EditTool } from '../edit.js'
 
 /**
@@ -14,8 +14,7 @@ import { EditTool } from '../edit.js'
  */
 
 function presenter() {
-	const registry = new ToolRegistry()
-	registry.register(EditTool)
+	const registry = testToolset(EditTool)
 	return createToolPresenter(registry)
 }
 

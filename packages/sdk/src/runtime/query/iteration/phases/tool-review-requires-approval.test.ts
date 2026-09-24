@@ -93,6 +93,7 @@ function turn(opts: {
 			return { success: true, output: `${name} ok` }
 		}),
 		has: vi.fn((name: string) => name in DEFINITIONS),
+		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => Object.keys(DEFINITIONS)),
 		getAvailability: vi.fn(() => 'active'),
 		register: vi.fn(),

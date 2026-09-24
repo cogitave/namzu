@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { runAgent } from '../runAgent.js'
 
 /**
@@ -53,8 +53,7 @@ describe('runAgent forwards what the kernel takes', () => {
 		// whether the tool body ran.
 		let ran = false
 
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'delete_everything',
 			description: 'Deletes everything.',
 			inputSchema: z.object({}),

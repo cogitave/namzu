@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ToolRegistryContract } from '@namzu/sdk'
+import { ToolManager, type Toolset } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -37,9 +37,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
-let capturedBuildTools: (() => ToolRegistryContract) | null = null
+let capturedBuildTools: (() => readonly Toolset[]) | null = null
 vi.mock('../../integrations/subagents/runtime.js', () => ({
-	createSubagentRuntime: async (opts: { buildTools: () => ToolRegistryContract }) => {
+	createSubagentRuntime: async (opts: { buildTools: () => readonly Toolset[] }) => {
 		capturedBuildTools = opts.buildTools
 		return {
 			gatewayForTurn: async () => ({}) as never,
@@ -199,7 +199,9 @@ describe('save_skill belongs to the TUI alone', () => {
 			expect(tui.toolNames()).toContain(SAVE_SKILL_TOOL_NAME)
 			// It loads what it saved through the skill tool, next turn.
 			expect(tui.toolNames()).toContain('skill')
-			const child = (capturedBuildTools as unknown as () => ToolRegistryContract)().listNames()
+			const child = (capturedBuildTools as unknown as () => readonly Toolset[])()
+				.flatMap((ts) => ts.tools())
+				.map((tool) => tool.name)
 			expect(child).toContain('read')
 			expect(child).not.toContain(SAVE_SKILL_TOOL_NAME)
 		} finally {
@@ -215,7 +217,10 @@ describe('save_skill belongs to the TUI alone', () => {
 			expect(await handler(review)).toEqual({ action: 'approve_tools' })
 			expect(onPermission).not.toHaveBeenCalled()
 
-			const registry = call.tools as ToolRegistryContract
+			const registry = new ToolManager({
+				toolsets: call.toolsets as readonly Toolset[],
+				messages: () => [],
+			})
 			const tool = registry.get(SAVE_SKILL_TOOL_NAME)
 			expect(tool).toBeDefined()
 			const result = await tool?.execute(

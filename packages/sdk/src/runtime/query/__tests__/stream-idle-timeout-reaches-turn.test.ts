@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -55,7 +54,7 @@ class GenericAbortStallProvider implements LLMProvider {
 function baseParams(provider: LLMProvider, workingDirectory: string, caller: AbortController) {
 	return {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,

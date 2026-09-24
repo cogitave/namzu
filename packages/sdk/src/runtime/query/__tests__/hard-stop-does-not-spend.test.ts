@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import type { SessionEvent, TurnConfig } from '../../../types/session/index.js'
@@ -53,8 +53,7 @@ async function run(
 				}
 			: {}),
 	})
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'observe',
 		description: 'Return observed work',
 		inputSchema: z.object({}),

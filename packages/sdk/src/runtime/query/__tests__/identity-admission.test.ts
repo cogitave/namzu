@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import {
 	MockLLMProvider,
-	ToolRegistry,
 	createUserMessage,
 	drainQuery,
 	generateProjectId,
@@ -33,7 +32,7 @@ describe.each(['query', 'drainQuery'] as const)('%s identity admission', (entryP
 			const provider = new MockLLMProvider({ turns: [{ text: 'must not be called' }] })
 			const params: Parameters<typeof query>[0] = {
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: { model: 'mock-model', tokenBudget: 2_000, timeoutMs: 2_000, maxIterations: 1 },
 				agentId: 'identity-admission',
 				agentName: 'Identity admission',

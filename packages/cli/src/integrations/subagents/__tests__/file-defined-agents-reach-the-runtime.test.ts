@@ -11,11 +11,12 @@ import {
 	type AgentDefinition,
 	AgentRegistry,
 	MockLLMProvider,
-	ToolRegistry,
+	type Toolset,
 	getBuiltinTools,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { testToolset } from '../../../test-support/toolset.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import type { AgentFileDefinition } from '../definitions.js'
 import { EXPLORE_SUBAGENT, GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
@@ -72,11 +73,7 @@ async function runtimeWith(definitions: readonly AgentFileDefinition[]) {
 		cwd: process.cwd(),
 		model: 'session-model',
 		buildProvider: () => new MockLLMProvider({ turns: [] }),
-		buildTools: () => {
-			const tools = new ToolRegistry()
-			tools.register(getBuiltinTools())
-			return tools
-		},
+		buildTools: (): readonly Toolset[] => [testToolset(...getBuiltinTools())],
 		definitions,
 	})
 	return { runtime, registered }
@@ -87,12 +84,15 @@ async function configOf(registered: readonly AgentDefinition[], id: string) {
 	if (!definition?.configBuilder) throw new Error(`no definition registered for ${id}`)
 	const config = (await definition.configBuilder({})) as unknown as {
 		model: string
-		tools: { listNames(): string[] }
+		toolsets: readonly Toolset[]
 		systemPrompt?: string
 	}
 	return {
 		model: config.model,
-		names: config.tools.listNames().sort(),
+		names: config.toolsets
+			.flatMap((ts) => ts.tools())
+			.map((tool) => tool.name)
+			.sort(),
 		prompt: config.systemPrompt ?? '',
 		description: definition.info.description,
 	}

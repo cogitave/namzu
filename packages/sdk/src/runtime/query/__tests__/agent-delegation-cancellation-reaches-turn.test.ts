@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildAgentTool } from '../../../tools/coordinator/agent.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
@@ -90,8 +90,7 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-agent-cancel-'))
 		workdirs.push(workingDirectory)
 		const gateway = new HeldScheduler(holdCreation)
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			buildAgentTool({
 				gateway,
 				workingDirectory,

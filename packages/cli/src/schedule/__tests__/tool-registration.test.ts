@@ -43,7 +43,7 @@ describe('where the schedule tools are registered', () => {
 		const agent = readFileSync(join(SRC, 'tui/agent.ts'), 'utf8')
 		const buildToolsAt = agent.indexOf('buildTools: () => {')
 		const extraAt = agent.indexOf(
-			'for (const tool of options.extraTools ?? []) registry.register(tool)',
+			"if (options.extraTools && options.extraTools.length > 0) {\n\t\ttoolsets.push(toolset('extra', options.extraTools))",
 		)
 		expect(extraAt).toBeGreaterThan(buildToolsAt)
 		const buildToolsBody = agent.slice(

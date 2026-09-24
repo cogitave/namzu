@@ -6,7 +6,7 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	type ToolContext,
-	ToolRegistry,
+	type Toolset,
 	TurnCancelled,
 	cancelCauseOf,
 	createUserMessage,
@@ -14,6 +14,7 @@ import {
 	drainQuery,
 	generateTurnId,
 	mcpJsonSchemaToZod,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -68,9 +69,8 @@ async function backgroundTurn() {
 		tokenBudget: 1_000_000,
 		resolveResumeHandler: () => async (request) =>
 			request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
-		buildTools: () => {
-			const tools = new ToolRegistry()
-			tools.register(
+		buildTools: (): readonly Toolset[] => [
+			toolset('test', [
 				defineTool({
 					name: 'child_probe',
 					description: 'An independent read-only child observation.',
@@ -82,9 +82,8 @@ async function backgroundTurn() {
 					concurrencySafe: true,
 					execute: async () => ({ success: true, output: 'child observation' }),
 				}),
-			)
-			return tools
-		},
+			]),
+		],
 		buildProvider: () => {
 			childCount++
 			return {
@@ -163,31 +162,32 @@ async function backgroundTurn() {
 			return parentScript.chatStream(params)
 		},
 	}
-	const tools = new ToolRegistry()
-	tools.register(runtime.agentTool)
-	tools.register(runtime.sendMessageTool)
-	tools.register(
-		defineTool({
-			name: 'parent_work',
-			description: 'Work the parent can do independently of its delegate.',
-			inputSchema: mcpJsonSchemaToZod({ type: 'object', properties: {} }),
-			category: 'custom',
-			permissions: [],
-			readOnly: true,
-			destructive: false,
-			concurrencySafe: true,
-			async execute() {
-				const signal = await childStarted.promise
-				independentWhileHeld = !childReleased && !signal.aborted
-				order.push('parent independent work')
-				return { success: true, output: 'Independent parent work completed.' }
-			},
-		}),
-	)
+	const toolsets: Toolset[] = [
+		toolset('test', [
+			runtime.agentTool,
+			runtime.sendMessageTool,
+			defineTool({
+				name: 'parent_work',
+				description: 'Work the parent can do independently of its delegate.',
+				inputSchema: mcpJsonSchemaToZod({ type: 'object', properties: {} }),
+				category: 'custom',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				async execute() {
+					const signal = await childStarted.promise
+					independentWhileHeld = !childReleased && !signal.aborted
+					order.push('parent independent work')
+					return { success: true, output: 'Independent parent work completed.' }
+				},
+			}),
+		]),
+	]
 	const caller = new AbortController()
 	const pending = drainQuery({
 		provider,
-		tools,
+		toolsets,
 		taskScheduler: gateway,
 		completionInbox,
 		// No operator inbox or waiter: background progress must not need input.

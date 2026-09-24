@@ -560,16 +560,20 @@ export {
 	PluginRegistry,
 	RegistryCollisionError,
 	ToolNameCollisionError,
-	ToolRegistry,
 } from './registry/index.js'
 export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/index.js'
 
-// Toolsets (plan.md §1): the unit every tool comes from, before any of it
-// reaches a `ToolRegistry`. `toolset()` builds a plain static one;
+// Toolsets (plan.md v3 §1-2): the unit every tool comes from, and the
+// runtime-owned resolver of them. `toolset()` builds a plain static one;
 // `combineToolsets` merges several under one umbrella source, atomically
 // (throwing `ToolsetConflictError` on a name collision instead of silently
 // picking a winner); the rest are composable wrappers over any `Toolset`.
+// `ToolManager` is an advanced API: `query()` builds one per turn from
+// `toolsets`, and a host embedding the execution pipeline directly (rather
+// than through `query()`/the agent classes) builds its own.
 export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
+export { ToolManager } from './toolsets/manager.js'
+export type { ToolManagerConfig, ToolsetChangeReport } from './toolsets/manager.js'
 export { matchesSourceIdGlob } from './toolsets/source-glob.js'
 export { toolset } from './toolsets/toolset.js'
 export { toToolSourceRef } from './toolsets/types.js'

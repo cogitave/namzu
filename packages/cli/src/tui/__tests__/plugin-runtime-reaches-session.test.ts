@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolRegistry, createUserMessage } from '@namzu/sdk'
+import { createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -283,13 +283,15 @@ describe('the CLI owns a real plugin runtime', () => {
 			'utf8',
 		)
 		await writeFile(join(bad, 'plugin.json'), '{"definitely":"invalid"}', 'utf8')
-		const tools = new ToolRegistry()
 
+		// No shared registry to inspect afterward any more (plan.md v3 §7):
+		// `PluginLifecycleManager` owns its own toolsets, so a construction
+		// that rejects never hands a caller a runtime to read one FROM at
+		// all — the promise rejecting, rather than partially resolving with
+		// `good`'s tool still contributed, IS the rollback guarantee here.
 		await expect(
-			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, tools, cwd),
+			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, cwd),
 		).rejects.toThrow(/Plugin runtime could not start/i)
-		expect(tools.has('good__probe')).toBe(false)
-		expect(tools.has('skill')).toBe(false)
 	})
 
 	it('keeps discovery and plugin imports off until enabled exactly', async () => {

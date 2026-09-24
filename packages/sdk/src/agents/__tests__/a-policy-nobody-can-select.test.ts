@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
 import type { Agent } from '../../types/agent/core.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type { SiblingFailurePolicy } from '../../types/agent/scheduler.js'
@@ -185,7 +184,7 @@ async function fanOut(policy?: SiblingFailurePolicy): Promise<FanOutManager> {
 			}),
 			agentIds: [SLOW, FAILING],
 			agentManager,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			systemPrompt: 'You coordinate.',
 			model: 'mock-model',
 			tokenBudget: 100_000,

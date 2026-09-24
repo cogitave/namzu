@@ -7,7 +7,6 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MOCK_CAPABILITIES } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
@@ -63,7 +62,7 @@ function params(
 ) {
 	return {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		compactionConfig,
 		turnConfig: {
 			model: 'compaction-model',

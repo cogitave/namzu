@@ -1,6 +1,7 @@
 import { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET } from '../agents/runAgent.js'
 import type { AgentIdentity } from '../agents/runAgent.js'
-import { ToolRegistry } from '../registry/tool/execute.js'
+import { toolset } from '../toolsets/toolset.js'
+import type { Toolset } from '../toolsets/types.js'
 import type { SupervisorAgentConfig } from '../types/agent/supervisor.js'
 import type { LLMProvider } from '../types/provider/index.js'
 
@@ -44,14 +45,17 @@ export interface DelegatePlan {
 	readonly manifest: DirectoryManifest
 	/** The delegate's own instructions, tools and model, already assembled. */
 	readonly systemPrompt: string
-	readonly tools: ToolRegistry
+	readonly toolsets: readonly Toolset[]
 	readonly model: string
 }
 
-function toolsOf(manifest: DirectoryManifest): ToolRegistry {
-	const tools = new ToolRegistry()
-	for (const entry of manifest.tools) tools.register(entry.definition)
-	return tools
+function toolsOf(manifest: DirectoryManifest): readonly Toolset[] {
+	return [
+		toolset(
+			'directory',
+			manifest.tools.map((entry) => entry.definition),
+		),
+	]
 }
 
 function delegatePlan(entry: SubAgentEntry, fallbackModel: string): DelegatePlan {
@@ -59,7 +63,7 @@ function delegatePlan(entry: SubAgentEntry, fallbackModel: string): DelegatePlan
 		id: entry.id,
 		manifest: entry.manifest,
 		systemPrompt: entry.manifest.instructions,
-		tools: toolsOf(entry.manifest),
+		toolsets: toolsOf(entry.manifest),
 		// A delegate may name its own model — a cheap one for a narrow job is
 		// the common case — and inherits the supervisor's only when it does
 		// not. Inheriting unconditionally would silently bill every specialist
@@ -114,7 +118,7 @@ export function deriveSupervisorOptions(
 		agentManager: input.agentManager,
 		agentIds: delegates.map((d) => d.id),
 		systemPrompt: manifest.instructions,
-		tools: toolsOf(manifest),
+		toolsets: toolsOf(manifest),
 		// Skills were loaded and then dropped. The manifest reads a whole
 		// `skills/` directory and `SupervisorAgentConfig` takes them, and the
 		// cast that used to close this object meant nobody was told the field

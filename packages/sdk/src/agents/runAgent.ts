@@ -1,9 +1,9 @@
-import { ToolRegistry } from '../registry/tool/execute.js'
 import { type QueryParams, drainQuery } from '../runtime/query/index.js'
 import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
 import { resolveNamzuHome } from '../session/home.js'
 import { SessionPaths, ensureProject } from '../session/paths.js'
 import { InMemorySessionLog } from '../store/session-log/index.js'
+import type { Toolset } from '../toolsets/types.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
@@ -13,7 +13,6 @@ import type { SessionEventListener } from '../types/session/events.js'
 import type { Turn } from '../types/session/turn.js'
 import type { Skill } from '../types/skills/index.js'
 import type { StructuredOutputConfig } from '../types/structured-output/index.js'
-import type { ToolRegistryContract } from '../types/tool/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -75,7 +74,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	 */
 	model: string
 
-	tools?: ToolRegistryContract
+	/** Every tool this turn may see comes from one of these — see `toolsets/types.ts`. */
+	toolsets?: readonly Toolset[]
 
 	/**
 	 * Screens to run against every tool result, where the registry was not
@@ -303,7 +303,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(layout.paths ? { paths: layout.paths } : {}),
 			...(options.sessionLog ? { sessionLog: options.sessionLog } : {}),
 			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
-			tools: options.tools ?? new ToolRegistry(),
+			toolsets: options.toolsets ?? [],
 			...(options.toolResultGuardrails !== undefined
 				? { toolResultGuardrails: options.toolResultGuardrails }
 				: {}),

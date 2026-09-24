@@ -5,7 +5,6 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	SessionPaths,
-	ToolRegistry,
 	type TurnId,
 	generateTurnId,
 } from '@namzu/sdk'
@@ -42,7 +41,7 @@ async function setup(width: number, buildProvider?: () => LLMProvider) {
 			return current
 		},
 		buildProvider: buildProvider ?? (() => new MockLLMProvider({ turns: [{ text: 'done' }] })),
-		buildTools: () => new ToolRegistry(),
+		buildTools: () => [],
 	})
 	const [first, second] = await Promise.all([
 		runtime.gatewayForTurn(firstTurn),

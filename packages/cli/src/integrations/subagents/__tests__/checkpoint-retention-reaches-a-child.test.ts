@@ -1,7 +1,13 @@
 import { mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, SessionPaths, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
+import {
+	MockLLMProvider,
+	SessionPaths,
+	type Toolset,
+	mcpJsonSchemaToZod,
+	toolset,
+} from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -54,20 +60,20 @@ it('bounds the checkpoints a delegated child leaves', async () => {
 			{ text: 'probed' },
 		],
 	})
-	const buildTools = () => {
-		const tools = new ToolRegistry()
-		tools.register({
-			name: 'probe',
-			description: 'probe',
-			inputSchema: mcpJsonSchemaToZod({
-				type: 'object',
-				properties: { n: { type: 'number' } },
-				required: ['n'],
-			}),
-			execute: async () => ({ success: true, output: 'probed' }),
-		})
-		return tools
-	}
+	const buildTools = (): readonly Toolset[] => [
+		toolset('test', [
+			{
+				name: 'probe',
+				description: 'probe',
+				inputSchema: mcpJsonSchemaToZod({
+					type: 'object',
+					properties: { n: { type: 'number' } },
+					required: ['n'],
+				}),
+				execute: async () => ({ success: true, output: 'probed' }),
+			},
+		]),
+	]
 	const stateRoot = join(cwd, 'state')
 	const runtime = await createSubagentRuntime({
 		cwd,

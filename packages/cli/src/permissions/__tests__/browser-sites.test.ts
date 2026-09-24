@@ -3,8 +3,9 @@ import {
 	type AuthorizationRule,
 	type BrowserHost,
 	NOOP_LOGGER,
-	ToolRegistry,
+	ToolManager,
 	createBrowserTools,
+	toolset,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
@@ -34,8 +35,10 @@ const host: BrowserHost = {
 	},
 }
 
-const registry = new ToolRegistry()
-for (const tool of createBrowserTools(host)) registry.register(tool as never)
+const registry = new ToolManager({
+	toolsets: [toolset('test', createBrowserTools(host))],
+	messages: () => [],
+})
 
 function gateOf(rules: readonly AuthorizationRule[]) {
 	// The TUI's gate: the dangerous-pattern floor and the read-only default on.

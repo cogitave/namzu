@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SupervisorAgentConfig } from '../../types/agent/supervisor.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
@@ -92,8 +92,7 @@ describe('agent front doors preserve the request rich-content budget', () => {
 
 	it('ReactiveAgent retains oversized text before sending the smaller configured preview', async () => {
 		const output = 'original evidence '.repeat(5000)
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'observe',
 			description: 'Return test evidence',
 			inputSchema: z.object({}),

@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { InMemorySessionLog } from '../../store/session-log/memory.js'
 import { fixtureId } from '../../test-support/ids.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { defineTool } from '../../tools/defineTool.js'
 import type { SessionId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -154,8 +154,7 @@ describe('every span of a turn', () => {
 		const sessionId = fixtureId.session('turnspan-all')
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-turnspan-'))
 		workdirs.push(dir)
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'echo',
 				description: 'echo',

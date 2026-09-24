@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { createCommandGate } from '../../../turn/command-gate.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
@@ -50,7 +49,7 @@ function scriptedRun(
 	const sessionId = generateSessionId()
 	const params = {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
@@ -158,7 +157,7 @@ describe('judging the answer a turn is about to settle with', () => {
 
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
@@ -369,7 +368,7 @@ describe('judging the answer a turn is about to settle with', () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],

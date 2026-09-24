@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -66,8 +66,7 @@ async function runStartingAJob(
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-runjobs-'))
 	dirs.push(workingDirectory)
 
-	const tools = new ToolRegistry()
-	tools.register(BashTool)
+	const tools = testToolset(BashTool)
 
 	const provider = new MockLLMProvider({
 		responseDelayMs,
@@ -87,7 +86,7 @@ async function runStartingAJob(
 
 	return await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',
@@ -141,8 +140,7 @@ describe('a turn takes its background jobs with it', () => {
 		const registry = new BackgroundJobRegistry()
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-runjobs-fail-'))
 		dirs.push(workingDirectory)
-		const tools = new ToolRegistry()
-		tools.register(BashTool)
+		const tools = testToolset(BashTool)
 
 		// One good turn that starts the job, then a provider that explodes.
 		let turn = 0
@@ -168,7 +166,7 @@ describe('a turn takes its background jobs with it', () => {
 					},
 				] as never,
 			}),
-			tools,
+			toolsets: [tools],
 			turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',

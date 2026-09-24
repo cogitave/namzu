@@ -40,38 +40,20 @@ export const SearchToolsTool = defineTool({
 
 		const allowed = context.allowedTools !== undefined ? new Set(context.allowedTools) : null
 		// `searchDeferred` returns a ranked list (score-descending), so slicing
-		// the head is a true top-k activation, not an arbitrary subset.
+		// the head is a true top-k reveal, not an arbitrary subset.
 		const ranked = context.toolRegistry
 			.searchDeferred(input.query)
 			.filter((tool) => !allowed || allowed.has(tool.name))
 
 		if (ranked.length === 0) {
-			const active = context.toolRegistry
-				.searchActive?.(input.query)
-				.filter(
-					(tool) =>
-						(!allowed || allowed.has(tool.name)) &&
-						context.toolRegistry?.getAvailability(tool.name) === 'active',
-				)
-			const activeReceipt =
-				active === undefined
-					? 'This registry cannot search active tools.'
-					: active.length === 0
-						? 'No matching active tools were found.'
-						: `Already active matching tools (up to ${ACTIVATION_TOP_K}):\n${active
-								.slice(0, ACTIVATION_TOP_K)
-								.map((tool) => `- ${tool.name}`)
-								.join('\n')}`
 			return {
 				success: true,
-				output: `No deferred tools matching "${input.query}". ${activeReceipt}`,
+				output: `No deferred tools matching "${input.query}".`,
 			}
 		}
 
 		const activated = ranked.slice(0, ACTIVATION_TOP_K)
 		const nearMisses = ranked.slice(ACTIVATION_TOP_K, ACTIVATION_TOP_K + NEAR_MISS_LIMIT)
-
-		context.toolRegistry.activate(activated.map((t) => t.name))
 
 		const descriptions = activated.map((t) => `- ${t.name}: ${t.description}`).join('\n')
 		const sections = [`Activated ${activated.length} tool(s):\n${descriptions}`]
@@ -91,6 +73,11 @@ export const SearchToolsTool = defineTool({
 		return {
 			success: true,
 			output: sections.join('\n\n'),
+			// No `activate()` call: the manager derives availability from what a
+			// tool message REVEALS (`ToolResult.reveals`, persisted as
+			// `ToolMessage.revealedTools`), not from a mutation made here. See
+			// `toolsets/manager.ts`'s `availability()`.
+			reveals: activated.map((t) => t.name),
 			data: {
 				activated: activated.map((t) => t.name),
 				count: activated.length,

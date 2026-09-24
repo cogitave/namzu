@@ -8,9 +8,9 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
@@ -49,8 +49,7 @@ async function setup(base: string, selected: string, turns = 1) {
 			return model === 'narrow' ? 6_000 : 200_000
 		},
 	})
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'noop',
 		description: 'No effects',
 		inputSchema: z.object({}),

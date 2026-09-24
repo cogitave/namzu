@@ -71,6 +71,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 			return { success: true, output: `${name} ok` }
 		}),
 		has: vi.fn(() => true),
+		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => Object.keys(defs)),
 		getAvailability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),

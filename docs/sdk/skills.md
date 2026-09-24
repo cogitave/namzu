@@ -17,13 +17,12 @@ A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description
 A skill's body often names files beside its `SKILL.md` (`scripts/render.sh`, `references/api.md`, `assets/`). The registry reads the skill from a directory on the host, and that path is not always one the model's tools can open: under a sandbox or a remote workspace they see a different filesystem. Only the host knows what they can reach, so the host says it, per skill:
 
 ```ts
-import { ToolRegistry, createSkillTool } from '@namzu/sdk'
+import { toolset, createSkillTool } from '@namzu/sdk'
 
 // This host mounts its skills directory at /skills inside the sandbox.
 const HOST_SKILLS = '/srv/agent/skills/'
 
-const tools = new ToolRegistry()
-tools.register(
+const tools = toolset('skills', [
   createSkillTool({
     // `skill.directory` is where the host reads the skill; `context.sandbox`
     // is the turn's sandbox, absent when the tools run on the host.
@@ -33,7 +32,7 @@ tools.register(
       return `/skills/${skill.directory.slice(HOST_SKILLS.length)}`
     },
   }),
-)
+])
 ```
 
 `resolveModelDirectory(skill, context)` (`SkillDirectoryResolver`) is called with `{ name, directory }` (`SkillDirectoryRequest`: the registered name and the host's directory, `undefined` when the registry does not say) and `{ sandbox? }` (`SkillDirectoryContext`), and returns the directory the model can open, `undefined` (or `''`) when it cannot reach one, or a promise of either. With it:

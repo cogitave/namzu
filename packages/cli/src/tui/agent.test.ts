@@ -14,11 +14,12 @@ import type {
 } from '@namzu/sdk'
 import {
 	DiskMemoryStore,
-	ToolRegistry,
+	ToolManager,
 	asPlanId,
 	buildMemoryTools,
 	createToolPresenter,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { PLAN_MODE_REFUSAL } from '../permissions/mode.js'
@@ -50,8 +51,10 @@ const env = { turnId, sessionId, projectId }
  * against a stub registry would prove the host can render a view and say
  * nothing about whether the tools produce one.
  */
-const presenterRegistry = new ToolRegistry()
-presenterRegistry.register(getBuiltinTools())
+const presenterRegistry = new ToolManager({
+	toolsets: [toolset('test', getBuiltinTools())],
+	messages: () => [],
+})
 const presenter = createToolPresenter(presenterRegistry)
 
 /** The rows a tool's own `presentCall` produces, as the transcript shows them. */
@@ -405,10 +408,11 @@ describe('batchNeedsPrompt', () => {
  * three tools which declare `readOnly: false`, and nothing compared the two.
  */
 describe('isPromptExempt', () => {
-	const registry = new ToolRegistry()
 	const store = new DiskMemoryStore({ baseDir: join(tmpdir(), 'namzu-exempt-test') })
-	registry.register(getBuiltinTools())
-	registry.register(buildMemoryTools(store))
+	const registry = new ToolManager({
+		toolsets: [toolset('test', [...getBuiltinTools(), ...buildMemoryTools(store)])],
+		messages: () => [],
+	})
 
 	it('exempts tools that declare themselves read-only', () => {
 		expect(isPromptExempt(registry, 'read', {})).toBe(true)
@@ -621,23 +625,29 @@ describe('the rows under a tool call', () => {
 		// The reason for the whole change. `remote_patch` could not have been
 		// matched by name — it is not `edit` and not `write` — and on the old
 		// code it rendered as a truncated JSON blob of its own arguments.
-		const registry = new ToolRegistry()
-		registry.register({
-			name: 'remote_patch',
-			description: 'patches a remote record',
-			inputSchema: { type: 'object' },
-			category: 'analysis',
-			permissions: [],
-			readOnly: false,
-			destructive: true,
-			concurrencySafe: false,
-			presentCall: (input: { before: string; after: string }) => ({
-				kind: 'diff' as const,
-				before: input.before,
-				after: input.after,
-			}),
-			execute: async () => ({ success: true, output: 'ok' }),
-		} as never)
+		const registry = new ToolManager({
+			toolsets: [
+				toolset('test', [
+					{
+						name: 'remote_patch',
+						description: 'patches a remote record',
+						inputSchema: { type: 'object' },
+						category: 'analysis',
+						permissions: [],
+						readOnly: false,
+						destructive: true,
+						concurrencySafe: false,
+						presentCall: (input: { before: string; after: string }) => ({
+							kind: 'diff' as const,
+							before: input.before,
+							after: input.after,
+						}),
+						execute: async () => ({ success: true, output: 'ok' }),
+					} as never,
+				]),
+			],
+			messages: () => [],
+		})
 
 		const rows = viewToLines(
 			createToolPresenter(registry).presentCall('remote_patch', { before: 'old', after: 'new' }),
@@ -733,8 +743,10 @@ describe('makeResumeHandler under plan', () => {
 
 describe('isPromptExempt and the network', () => {
 	it('never exempts a network tool, however read-only it declares itself', () => {
-		const registry = new ToolRegistry()
-		registry.register(WebFetchTool)
+		const registry = new ToolManager({
+			toolsets: [toolset('test', [WebFetchTool])],
+			messages: () => [],
+		})
 		expect(WebFetchTool.isReadOnly?.({ url: 'https://example.com' } as never)).toBe(true)
 		expect(isPromptExempt(registry, 'web_fetch', { url: 'https://example.com' })).toBe(false)
 	})

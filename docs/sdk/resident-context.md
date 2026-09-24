@@ -18,7 +18,7 @@ does not enforce a tenant boundary without that host check.
 
 ```ts
 import {
-  createResidentStepContext, PromptContributionRegistry, ToolRegistry,
+  createResidentStepContext, PromptContributionRegistry, toolset,
   type ResidentStepPromptOptions, type TurnId,
 } from '@namzu/sdk'
 
@@ -29,8 +29,7 @@ export function contextForAdmission(
     ...options,
     authorizeLearningRead: context => context.turnId === turnId && isActive(),
   })
-  const tools = new ToolRegistry()
-  for (const tool of bundle.tools) tools.register(tool)
+  const tools = toolset('resident-step', bundle.tools)
   const promptContributions = new PromptContributionRegistry()
   for (const contribution of bundle.contributions) promptContributions.register(contribution)
   return { tools, promptContributions }

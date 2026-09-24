@@ -6,8 +6,8 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import { drainQuery } from '../index.js'
@@ -28,8 +28,7 @@ it.each(['enabled', 'opt-out', 'disabled', 'unconfigured'] as const)(
 		const changed = `${initial}EXTERNAL CHANGE\n`
 		await writeFile(path, initial)
 		let reads = 0
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'observe_file',
 				description: 'Read the file',

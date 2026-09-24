@@ -1,7 +1,13 @@
 import { matchesToolSelector } from '../tools/roster.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { matchesSourceIdGlob } from './source-glob.js'
-import type { ToolFilterSelector, ToolPredicate, Toolset, ToolsetAvailability } from './types.js'
+import {
+	type ToolFilterSelector,
+	type ToolPredicate,
+	type Toolset,
+	type ToolsetAvailability,
+	toToolSourceRef,
+} from './types.js'
 
 /**
  * Build a derived `Toolset` that keeps the inner toolset's `source`,
@@ -71,11 +77,16 @@ export function renamed(ts: Toolset, names: Readonly<Record<string, string>>): T
  * See {@link ToolFilterSelector} for what a non-function selector can match
  * on. A `sourceIdGlob` selector is all-or-nothing per toolset — it tests
  * this toolset's own `source.id`, not a per-tool source, because no
- * per-tool source exists yet (plan.md §3, a later item).
+ * per-tool source exists yet (plan.md §3, a later item). A function
+ * `predicate` is handed `ts.source` (projected through
+ * {@link toToolSourceRef}) as its second argument for the same reason —
+ * see {@link ToolPredicate}'s note on what that source means, and does not
+ * mean, once toolsets have been combined.
  */
 export function filtered(ts: Toolset, selector: ToolFilterSelector | ToolPredicate): Toolset {
 	const predicate = toPredicate(ts, selector)
-	return deriveToolset(ts, { tools: () => ts.tools().filter(predicate) })
+	const source = toToolSourceRef(ts.source)
+	return deriveToolset(ts, { tools: () => ts.tools().filter((tool) => predicate(tool, source)) })
 }
 
 function toPredicate(ts: Toolset, selector: ToolFilterSelector | ToolPredicate): ToolPredicate {
@@ -127,8 +138,9 @@ export function requireApproval(
 	selector?: ToolFilterSelector | ToolPredicate,
 ): Toolset {
 	const predicate = selector ? toPredicate(ts, selector) : () => true
+	const source = toToolSourceRef(ts.source)
 	return mapTools(ts, (tool) =>
-		predicate(tool) ? { ...tool, requiresApproval: () => true } : tool,
+		predicate(tool, source) ? { ...tool, requiresApproval: () => true } : tool,
 	)
 }
 

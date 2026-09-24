@@ -37,6 +37,7 @@ import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -123,6 +124,7 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 		providerSummary,
 		modelSummary: 'a-model',
 		toolNames: () => [],
+		presenter: genericPresenter,
 		errorHint: null,
 		errorKind: null,
 		instructionFiles: [],

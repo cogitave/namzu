@@ -10,12 +10,12 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { SupervisorAgent } from '../../../agents/SupervisorAgent.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AgentTaskContext } from '../../../types/agent/task.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
@@ -104,9 +104,7 @@ describe('a subagent cannot question the operator', () => {
 		})
 		const question = hostTool('ask_user_question')
 		const review = hostTool('review_probe')
-		const tools = new ToolRegistry()
-		tools.register(question.tool)
-		tools.register(review.tool)
+		const tools = testToolset(question.tool, review.tool)
 
 		const registry = new AgentRegistry()
 		const child = new SupervisorAgent({
@@ -145,7 +143,7 @@ describe('a subagent cannot question the operator', () => {
 				provider,
 				agentIds: [],
 				agentManager: manager,
-				tools,
+				toolsets: [tools],
 				systemPrompt: 'Coordinate without asking the operator directly.',
 				model: 'mock-model',
 				tokenBudget: 100_000,

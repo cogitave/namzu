@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -42,7 +41,7 @@ async function run(provider: MockLLMProvider, over: Record<string, unknown> = {}
 	workdirs.push(dir)
 	await drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,

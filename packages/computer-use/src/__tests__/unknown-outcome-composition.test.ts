@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	type ToolContext,
-	ToolRegistry,
+	ToolManager,
 	createComputerUseTool,
 	generateSessionId,
 	generateTurnId,
+	toolset,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { SubprocessComputerUseHost } from '../SubprocessComputerUseHost.js'
@@ -73,8 +74,10 @@ describe('computer-use unknown-outcome composition', () => {
 
 		try {
 			const host = new SubprocessComputerUseHost({ adapter })
-			const registry = new ToolRegistry()
-			registry.register(createComputerUseTool(host, { settleMs: 0 }))
+			const registry = new ToolManager({
+				toolsets: [toolset('test', [createComputerUseTool(host, { settleMs: 0 })])],
+				messages: () => [],
+			})
 
 			// Coordinates are pixels of a screenshot: take one first.
 			expect(

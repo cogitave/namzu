@@ -16,7 +16,7 @@ import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import { BackgroundJobRegistry, type ToolRegistry, getBuiltinTools } from '@namzu/sdk'
+import { BackgroundJobRegistry, ToolManager, type Toolset, getBuiltinTools } from '@namzu/sdk'
 import type { ToolContext, TurnId } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -159,8 +159,11 @@ describe('createAgentSession runs where it is told to', () => {
 				for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
 					// The query mock captures the exact registry shown to the provider.
 				}
-				const registry = queryCalls[0]?.tools as ToolRegistry
-				const tools = registry.getCallableTools()
+				const registry = new ToolManager({
+					toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+					messages: () => [],
+				})
+				const tools = registry.listNames().map((name) => registry.get(name)!)
 				const bash = tools.find((tool) => tool.name === 'bash')
 
 				// The CLI supplies both capabilities. The executor binds job starts
@@ -202,8 +205,11 @@ describe('createAgentSession runs where it is told to', () => {
 		for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
 			// The query mock captures the exact registry shown to the provider.
 		}
-		const registry = queryCalls[0]?.tools as ToolRegistry
-		const tools = registry.getCallableTools()
+		const registry = new ToolManager({
+			toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		const tools = registry.listNames().map((name) => registry.get(name)!)
 		const bash = tools.find((tool) => tool.name === 'bash')
 
 		expect(queryCalls[0]?.sandboxProvider).toBeUndefined()

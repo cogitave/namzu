@@ -23,9 +23,11 @@ import {
 	type SessionId,
 	type ToolCallSummary,
 	type ToolContext,
-	ToolRegistry,
+	ToolManager,
+	type Toolset,
 	asTurnId,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -79,10 +81,8 @@ const shadowExplore: AgentFileDefinition = {
 	path: '/p/.namzu/agents/explore.md',
 }
 
-function builtins(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(getBuiltinTools())
-	return tools
+function builtins(): readonly Toolset[] {
+	return [toolset('test', getBuiltinTools())]
 }
 
 async function runtimeWith(
@@ -202,7 +202,11 @@ describe('the launch decision', () => {
 				{ all: false },
 				onPermission,
 				mode,
-				reviewExemptionFor(mode, builtins(), (input) => runtime.launchesReadOnlyAgent(input)),
+				reviewExemptionFor(
+					mode,
+					new ToolManager({ toolsets: builtins(), messages: () => [] }),
+					(input) => runtime.launchesReadOnlyAgent(input),
+				),
 			)
 			const decision = await handler(review(calls))
 			return { decision, asked }

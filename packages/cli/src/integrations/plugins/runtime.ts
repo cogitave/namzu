@@ -2,9 +2,6 @@ import {
 	PluginLifecycleManager,
 	PluginRegistry,
 	SkillRegistry,
-	SkillTool,
-	type ToolDefinition,
-	type ToolRegistry,
 	attachShellHooks,
 	discoverAllPluginDirs,
 } from '@namzu/sdk'
@@ -50,10 +47,17 @@ function message(error: unknown): string {
  * The exact `enabled === true` check is the default-off boundary. Nothing in
  * the plugin directories is discovered, read, or imported on every other
  * value. Callers invoke this only after project trust has pinned `cwd`.
+ *
+ * No longer takes a tool registry to register into (plan.md v3 §7):
+ * `PluginLifecycleManager` owns its own two toolsets (`manager.toolsets`,
+ * file-declared and MCP-discovered, both live) and a caller folds them into
+ * its own `toolsets` array. The `skill` tool itself is the CALLER's concern
+ * now too — this runtime only reports `skills.size` so the caller can decide
+ * live whether to offer it, rather than this module owning a "who registered
+ * it first" flag over a shared mutable registry.
  */
 export async function createCliPluginRuntime(
 	config: PluginConfig | undefined,
-	tools: ToolRegistry,
 	cwd: string,
 	/**
 	 * Operator shell hooks. They ride the same lifecycle manager plugins use,
@@ -61,12 +65,6 @@ export async function createCliPluginRuntime(
 	 * installed, and `pluginCount` honestly 0.
 	 */
 	hooks?: HooksConfig,
-	/**
-	 * The `skill` tool to register when plugin skills arrive and the session
-	 * has none yet: the session's own, so a plugin skill is told the same
-	 * directory rules as a file skill. Defaults to the SDK's `SkillTool`.
-	 */
-	skillTool: ToolDefinition = SkillTool,
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
@@ -79,7 +77,6 @@ export async function createCliPluginRuntime(
 	const skills = new SkillRegistry(log)
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: plugins,
-		toolRegistry: tools,
 		skillRegistry: skills,
 		scopeRoots: { project: cwd, user: userRoot },
 		log,
@@ -97,7 +94,6 @@ export async function createCliPluginRuntime(
 			})
 		: { project: [], user: [] }
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
-	let ownsSkillTool = false
 
 	try {
 		for (const scope of allowedScopes) {
@@ -109,12 +105,7 @@ export async function createCliPluginRuntime(
 				if (enabled) await manager.enable(plugin.id)
 			}
 		}
-		if (skills.size > 0 && !tools.has(skillTool.name)) {
-			tools.register(skillTool)
-			ownsSkillTool = true
-		}
 	} catch (error) {
-		if (ownsSkillTool) tools.unregister(skillTool.name)
 		const cleanupErrors: unknown[] = []
 		for (const plugin of [...installed].reverse()) {
 			try {
@@ -135,15 +126,12 @@ export async function createCliPluginRuntime(
 	let closePromise: Promise<void> | undefined
 	let closed = false
 	let mutation: Promise<void> | undefined
-	const syncSkillTool = () => {
-		if (skills.size > 0 && !tools.has(skillTool.name)) {
-			tools.register(skillTool)
-			ownsSkillTool = true
-		} else if (skills.size === 0 && ownsSkillTool) {
-			tools.unregister(skillTool.name)
-			ownsSkillTool = false
-		}
-	}
+	const contributedToolNames = (prefix: string): string[] =>
+		manager.toolsets
+			.flatMap((ts) => ts.tools())
+			.map((tool) => tool.name)
+			.filter((name) => name.startsWith(prefix))
+			.sort()
 	return {
 		manager,
 		skills,
@@ -169,10 +157,7 @@ export async function createCliPluginRuntime(
 						status: plugin.status === 'installed' ? 'disabled' : plugin.status,
 						...(startupEnabled !== undefined ? { startupEnabled } : {}),
 						...(startupError ? { startupError } : {}),
-						tools: tools
-							.listNames()
-							.filter((name) => name.startsWith(prefix))
-							.sort(),
+						tools: contributedToolNames(prefix),
 						skills: skills
 							.list()
 							.map((skill) => skill.metadata.name)
@@ -197,7 +182,6 @@ export async function createCliPluginRuntime(
 			try {
 				await mutation
 			} finally {
-				syncSkillTool()
 				mutation = undefined
 			}
 		},
@@ -218,10 +202,6 @@ export async function createCliPluginRuntime(
 			closePromise = (async () => {
 				if (mutation) await mutation.catch(() => {})
 				const errors: unknown[] = []
-				if (ownsSkillTool) {
-					tools.unregister(skillTool.name)
-					ownsSkillTool = false
-				}
 				for (const plugin of [...installed].reverse()) {
 					try {
 						await manager.uninstall(plugin.id)

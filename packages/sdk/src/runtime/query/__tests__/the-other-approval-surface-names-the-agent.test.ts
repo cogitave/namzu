@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type { HITLResumeDecision, PlanApprovalData } from '../../../types/hitl/index.js'
 import {
 	generateProjectId,
@@ -39,7 +38,7 @@ async function agentIdSeenByResumeHandler(): Promise<PlanApprovalData['steps']> 
 
 	await drainQuery({
 		provider: new MockLLMProvider({ responses: [{ content: 'done' }] } as never),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],

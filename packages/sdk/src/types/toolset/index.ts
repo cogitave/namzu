@@ -17,6 +17,16 @@ export interface ToolSource {
 		readonly url?: string
 		readonly transport?: 'streamable_http' | 'sse' | 'stdio'
 		readonly authorizationRef?: string
+		/**
+		 * The operator marked this connected server's read-only claims
+		 * trustworthy (plan.md §4's `readOnlyHintTrusted` option). Absent or
+		 * `false` means untrusted — an unmarked server's `isReadOnly` claim
+		 * raises the plan-mode bar but never lowers it on its own; see
+		 * `toToolSourceRef` and `tools/trusted-read-only.ts`. One value per
+		 * server, not per tool: every tool an `mcpToolset` contributes for a
+		 * given server carries the same trust decision.
+		 */
+		readonly readOnlyHintTrusted?: boolean
 	}
 	readonly providerTool?: {
 		readonly type: string

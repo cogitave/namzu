@@ -1,4 +1,5 @@
-import type { ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
+import type { ToolManager } from '../../toolsets/manager.js'
+import type { ToolResult } from '../../types/tool/index.js'
 import type { ToolCallView, ToolResultView } from '../../types/tool/presentation.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
@@ -53,12 +54,12 @@ export function genericLabel(input: unknown): string {
 }
 
 /**
- * `registry` is the `ToolRegistryContract` a turn already holds, so a
- * presenter never needs its own copy of what is registered — and a tool
- * added at runtime by a plugin is presentable the moment it is registered.
+ * `registry` is the `ToolManager` a turn already holds, so a presenter never
+ * needs its own copy of what is resolved — and a tool a live toolset adds is
+ * presentable the moment `refresh()` adopts it.
  */
 export function createToolPresenter(
-	registry: ToolRegistryContract,
+	registry: Pick<ToolManager, 'get'>,
 	logger?: Logger,
 ): ToolPresenter {
 	// `SCOPE_ATTRIBUTE`, not a bare `component` key. The 40 bare ones are a

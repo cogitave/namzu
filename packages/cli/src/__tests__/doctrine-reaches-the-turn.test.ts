@@ -169,7 +169,7 @@ describe('the working doctrine', () => {
 	})
 
 	it('does not tell a sub-agent to use the tools only the parent has', async () => {
-		// A sub-agent's registry comes from `buildToolRegistry` with no task
+		// A sub-agent's registry comes from the same base toolsets, without a task
 		// store and no `Agent` tool. A rule naming either is, for that reader,
 		// an instruction to fail — which is what the first draft shipped.
 		const prompt = await subagentSystemPrompt()

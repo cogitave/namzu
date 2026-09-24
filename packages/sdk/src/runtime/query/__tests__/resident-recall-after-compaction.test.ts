@@ -9,8 +9,8 @@ import { DiskResidentAgenda } from '../../../manager/resident/agenda.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { createResidentStepContributions } from '../../../prompt/resident-step.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildResidentHistoryTools } from '../../../tools/resident-history.js'
 import {
 	type Message,
@@ -58,8 +58,7 @@ it.each(['structured', 'sliding-window'] as const)(
 			outputInstructions: 'Report the exact retained receipt.',
 		}))
 			contributions.register(contribution)
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			buildResidentHistoryTools((context) => {
 				if (context.turnId !== turnId) throw new Error('Wrong owner.')
 				return source

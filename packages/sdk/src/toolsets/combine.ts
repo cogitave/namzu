@@ -1,6 +1,6 @@
 import { RegistryCollisionError } from '../registry/collision.js'
 import type { ToolDefinition } from '../types/tool/index.js'
-import type { ToolSource, Toolset } from './types.js'
+import type { ToolSource, Toolset, ToolsetAvailability } from './types.js'
 
 /**
  * Two toolsets (or one toolset, twice) contributed a tool with the same
@@ -64,10 +64,16 @@ export function combineToolsets(
 ): Toolset {
 	const resolvedSource: ToolSource =
 		typeof source === 'string' ? { id: source, kind: 'host_tool', name: source } : source
+	// Omitted rather than set to `'active'`: absent already means `'active'`
+	// (`Toolset.availability`'s own doc comment), so this only adds the field
+	// for the one case worth stating explicitly — every input agreeing on
+	// `'deferred'`.
+	const availability = uniformAvailability(resolvedSource.id, toolsets)
 
 	const combined: Toolset = {
 		source: resolvedSource,
 		tools: () => mergeTools(toolsets),
+		...(availability === 'deferred' ? { availability } : {}),
 	}
 
 	const liveOnChange = toolsets
@@ -92,6 +98,40 @@ export function combineToolsets(
 	}
 
 	return combined
+}
+
+/**
+ * The one `availability` a merged toolset may report, or `undefined` when
+ * there is nothing to report (no inputs).
+ *
+ * A `Toolset` has exactly one `availability` for every tool it contributes —
+ * there is no per-tool field, and `ToolManager` derives a name's default
+ * from whichever ARRAY ENTRY owns it (`manager.ts`'s `availability`; the
+ * same rule `runtime/query/index.ts` documents at its own two-entry
+ * `runtime:active`/`runtime:deferred` split, which it keeps unmerged for
+ * exactly this reason). Silently defaulting a mixed merge to `'active'`
+ * would misreport every `deferred` input's tools as always active, with
+ * nothing in the returned `Toolset` to say so. So a mix throws here,
+ * naming the two sources that disagree, rather than combining them.
+ */
+function uniformAvailability(
+	combinedId: string,
+	toolsets: readonly Toolset[],
+): ToolsetAvailability | undefined {
+	let agreed: { readonly availability: ToolsetAvailability; readonly source: ToolSource } | undefined
+	for (const inner of toolsets) {
+		const availability = inner.availability ?? 'active'
+		if (!agreed) {
+			agreed = { availability, source: inner.source }
+			continue
+		}
+		if (agreed.availability !== availability) {
+			throw new Error(
+				`combineToolsets("${combinedId}"): "${agreed.source.id}" is ${agreed.availability} and "${inner.source.id}" is ${availability}. combineToolsets reports one availability for the whole merged toolset, so combining toolsets that disagree would silently report the deferred side's tools as active. Combine toolsets that share an availability, or keep the eager and deferred halves as separate entries in the caller's own toolsets array instead of merging them.`,
+			)
+		}
+	}
+	return agreed?.availability
 }
 
 function mergeTools(toolsets: readonly Toolset[]): ToolDefinition[] {

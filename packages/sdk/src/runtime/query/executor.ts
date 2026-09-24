@@ -15,6 +15,8 @@ import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
+import type { ToolManager } from '../../toolsets/manager.js'
+import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { ToolCallEscalation } from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
@@ -40,7 +42,6 @@ import type {
 	ToolContext,
 	ToolDispatchOptions,
 	ToolHandoff,
-	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
@@ -304,7 +305,7 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
-	tools: ToolRegistryContract
+	tools: ToolManager
 	sessionId: SessionId
 	turnId: TurnId
 	workingDirectory: string
@@ -494,6 +495,15 @@ export interface ToolCallOutcome {
 	isError?: boolean
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
+	/**
+	 * Names this call actually revealed (`ToolResult.reveals`, filtered to
+	 * deferred names inside any active allow-list — see the `reveals`
+	 * handling in `executeSingle`). Carried onto the persisted tool message
+	 * (`ToolMessage.revealedTools`) so `ToolManager.availability`
+	 * (`toolsets/manager.ts`) can derive activation from history instead of
+	 * a mutable map.
+	 */
+	revealedTools?: readonly string[]
 }
 
 export interface ToolExecutionBatch {
@@ -797,6 +807,7 @@ export class ToolExecutor {
 			toolInput: input,
 			toolDef: this.config.tools.get(toolName),
 			commandDialect: this.commandDialect(toolName),
+			toolSource: this.toolSource(toolName),
 		})
 	}
 
@@ -808,6 +819,17 @@ export class ToolExecutor {
 	commandDialect(toolName: string): ShellDialect {
 		const tool = this.config.tools.get(toolName)
 		return tool?.commandDialect?.({ sandboxed: this.config.sandbox !== undefined }) ?? 'sh'
+	}
+
+	/**
+	 * Where `toolName` came from, for the gate's `allow_read_only` rule to
+	 * tell an operator-trusted MCP server's `readOnlyHint` from an untrusted
+	 * one's. `sourceOf` throws for a name the manager does not have, so this
+	 * checks first rather than let an unknown nested-call name throw here
+	 * instead of being refused by the gate itself.
+	 */
+	toolSource(toolName: string): ToolSourceRef | undefined {
+		return this.config.tools.has(toolName) ? this.config.tools.sourceOf(toolName) : undefined
 	}
 
 	/**
@@ -1155,7 +1177,7 @@ export class ToolExecutor {
 		// so the failure signal and any image block were structurally lost at
 		// the last possible moment.
 		const messages: Message[] = results.map((r) =>
-			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError),
+			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError, r.revealedTools),
 		)
 
 		return { messages, results, observations }
@@ -1261,6 +1283,7 @@ export class ToolExecutor {
 			toolInput: preparedInput,
 			toolDef: this.config.tools.get(name),
 			commandDialect: this.commandDialect(name),
+			toolSource: this.toolSource(name),
 		})
 		if (gateResult && gateResult.decision !== 'allow') {
 			const reason =
@@ -1945,24 +1968,31 @@ export class ToolExecutor {
 			}
 		}
 
-		// `reveals`: a curated activation, the same one `search_tools` performs,
-		// offered to any tool's own result. `getAvailability(name) === 'deferred'`
-		// is the one guard that makes an arbitrary tool/plugin/MCP-authored list
-		// safe to hand to `activate()` unfiltered otherwise: an unregistered name
-		// reports `'active'` by default (never matching, so it can never reach
-		// `activate()`'s `getOrThrow` and throw mid-finalization), and an
-		// already-active or `'suspended'` name is left exactly where it is — a
-		// host that suspended a tool on purpose is not overridden by a tool
-		// result. The `allowedTools` check keeps a narrowed turn narrowed: a
-		// name outside it is never made callable no matter what a result claims.
+		// `reveals`: a curated set of names this call's own result makes
+		// callable, the same mechanism `search_tools` uses. `availability(name)
+		// === 'deferred'` is the one guard that makes an arbitrary
+		// tool/plugin/MCP-authored list safe to write unfiltered otherwise: an
+		// unregistered name reports `'active'` by default (never matching, so
+		// it can never be written as revealed), and an already-active name is
+		// left exactly where it is. The `allowedTools` check keeps a narrowed
+		// turn narrowed: a name outside it is never made callable no matter
+		// what a result claims.
+		//
+		// `revealedTools` is written onto the persisted tool message; nothing
+		// here mutates the manager itself, because `ToolManager.availability`
+		// (`toolsets/manager.ts`) DERIVES availability from this field the
+		// next time it reads the turn's post-compaction history — compaction
+		// is the one boundary that resets it. There is no `activate()` call
+		// to make: the manager has no mutable membership to activate.
+		let revealedTools: readonly string[] | undefined
 		if (!this.config.abortSignal.aborted && result.reveals && result.reveals.length > 0) {
 			const revealed = result.reveals.filter(
 				(name) =>
-					this.config.tools.getAvailability(name) === 'deferred' &&
+					this.config.tools.availability(name) === 'deferred' &&
 					(toolContext.allowedTools === undefined || toolContext.allowedTools.includes(name)),
 			)
 			if (revealed.length > 0) {
-				this.config.tools.activate(revealed)
+				revealedTools = revealed
 			}
 		}
 
@@ -2043,6 +2073,7 @@ export class ToolExecutor {
 			...(result.handoff !== undefined && !this.config.abortSignal.aborted
 				? { handoff: result.handoff }
 				: {}),
+			...(revealedTools !== undefined ? { revealedTools } : {}),
 		}
 	}
 

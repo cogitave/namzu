@@ -8,7 +8,7 @@ import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import {
@@ -59,9 +59,7 @@ it('returns admission-time drift to the model and preserves the newer body', asy
 			return { text: 'The file changed after I read it, so I left the newer body intact.' }
 		},
 	})
-	const tools = new ToolRegistry()
-	tools.register(ReadFileTool)
-	tools.register(WriteFileTool)
+	const tools = testToolset(ReadFileTool, WriteFileTool)
 
 	const run = await drainQuery({
 		provider,

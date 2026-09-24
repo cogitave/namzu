@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { ProviderRequestError } from '../../../provider/errors.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
@@ -105,8 +105,7 @@ describe('query stream recovery', () => {
 			success: true,
 			output: 'should not run',
 		}))
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'write_file',
 			description: 'write a file',
 			inputSchema: z.object({

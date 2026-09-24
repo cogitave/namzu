@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
@@ -53,8 +53,7 @@ describe('query shares one allowance with descendant model work', () => {
 			],
 		})
 		let child: Turn | undefined
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'delegate',
 			description: 'Delegate bounded work',
 			inputSchema: z.object({}),

@@ -1,49 +1,33 @@
 /**
- * Narrower rosters from a wider one.
+ * Selecting a narrower roster of tools from a wider one.
  *
- * A delegate that can only look, or a file-defined agent with an allowlist,
- * needs a registry that is the parent's minus something — and every host
- * that builds delegates wrote the same two loops. They live here so the
- * predicate for "read-only" is the one the authorization gate and the
- * prompt exemption already use (`isTrustedReadOnly`), not a third reading
- * of the same flag.
+ * `filterReadOnlyTools`/`filterToolsNamed` (a registry-shaped "copy the
+ * matching subset into a new one") are gone (plan.md v3 §8, a break): a
+ * toolset's own `filtered(ts, selector)` (`toolsets/wrappers.ts`) replaces
+ * both — `filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined, source))`
+ * for the read-only case, `filtered(ts, names)` for the name-list case —
+ * and, unlike the old registry-level copy, it keeps the inner toolset's
+ * `availability` and stays live over a live source instead of freezing a
+ * snapshot at filter time.
  *
- * Both filters INTERSECT: a name in an allowlist that the source does not
- * carry is simply not there. A filter can never widen.
+ * **Filter each contributing toolset, then combine — never the reverse.**
+ * `filtered`'s predicate reads `source` from the ONE toolset it is called
+ * on (`ToolPredicate`, `toolsets/types.ts`). Call it on a wide toolset
+ * `combineToolsets` already merged from several sources and `source` is
+ * the merge's own umbrella source, not any one contributor's — so a
+ * predicate built to keep only trusted-read-only tools would keep an
+ * untrusted MCP server's tool too, because it never sees that server's
+ * source. Filter each source's toolset on its own, THEN combine the
+ * filtered results:
+ *
+ *     const readOnlyOnly = parentToolsets.map((ts) =>
+ *       filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined, source)),
+ *     )
+ *     // readOnlyOnly: readonly Toolset[], hand it to a child ToolManager
+ *     // directly, or combineToolsets(...) it if the caller needs one Toolset.
  */
 
-import { ToolRegistry } from '../registry/tool/execute.js'
-import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
-import { isTrustedReadOnly } from './trusted-read-only.js'
-
-/**
- * The tools that declare themselves read-only and are trusted to say so.
- *
- * Decided by `isTrustedReadOnly` with no input, which is each tool's own
- * declaration: a new read-only builtin joins the roster without this file
- * learning its name, and a connected server's tool that merely CLAIMS to be
- * read-only stays out unless its provenance is trusted.
- */
-export function filterReadOnlyTools(source: ToolRegistryContract): ToolRegistry {
-	const filtered = new ToolRegistry()
-	for (const tool of source.getAll()) {
-		if (isTrustedReadOnly(tool, undefined)) filtered.register(tool)
-	}
-	return filtered
-}
-
-/** The tools whose names are listed. Names the source does not carry are ignored. */
-export function filterToolsNamed(
-	source: ToolRegistryContract,
-	names: Iterable<string>,
-): ToolRegistry {
-	const allowed = new Set(names)
-	const filtered = new ToolRegistry()
-	for (const tool of source.getAll()) {
-		if (allowed.has(tool.name)) filtered.register(tool)
-	}
-	return filtered
-}
+import type { ToolDefinition } from '../types/tool/index.js'
 
 /**
  * How a capability, toolset wrapper or host names the tools it wants,

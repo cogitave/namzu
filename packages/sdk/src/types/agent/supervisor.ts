@@ -1,5 +1,6 @@
 import type { CompactionConfig } from '../../config/runtime.js'
 import type { SteeringChannel } from '../../runtime/query/steering.js'
+import type { Toolset } from '../../toolsets/types.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { AuthorizationGateConfig } from '../authorization/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
@@ -8,7 +9,6 @@ import type { TaskRouterConfig } from '../router/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
 import type { StructuredOutputConfig } from '../structured-output/index.js'
-import type { ToolRegistryContract } from '../tool/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
 import type { AgentManagerContract } from './manager.js'
@@ -59,7 +59,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 */
 	onPlanApproved?: () => Promise<void> | void
 	agentManager?: AgentManagerContract
-	tools?: ToolRegistryContract
+	/** Every tool this turn may see comes from one of these — see `toolsets/types.ts`. */
+	toolsets?: readonly Toolset[]
 
 	systemPrompt: string
 

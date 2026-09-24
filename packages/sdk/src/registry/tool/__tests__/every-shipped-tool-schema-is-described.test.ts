@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { testToolset } from '../../../test-support/toolset.js'
 import {
 	BashTool,
 	EditTool,
@@ -24,12 +25,12 @@ import {
 } from '../../../tools/builtins/index.js'
 import { buildCoordinatorTools } from '../../../tools/coordinator/index.js'
 import { buildMemoryTools } from '../../../tools/memory/index.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { ComputerUseHost } from '../../../types/computer-use/index.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
-import { ToolRegistry } from '../execute.js'
 import { findUndescribedProperties } from '../portable.js'
 
 /**
@@ -135,12 +136,11 @@ function everyShippedTool(): ToolDefinition[] {
  * one, and that schema reaches the same `tools` block.
  */
 function wireSchemas(): { name: string; parameters: Record<string, unknown> }[] {
-	const registry = new ToolRegistry()
+	const registry = new ToolManager({ toolsets: [testToolset(tool)], messages: () => [] })
 	const seen = new Set<string>()
 	for (const tool of everyShippedTool()) {
 		if (seen.has(tool.name)) continue
 		seen.add(tool.name)
-		registry.register(tool)
 	}
 	return registry.toLLMTools().map((tool) => ({
 		name: tool.function.name,

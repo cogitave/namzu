@@ -38,8 +38,9 @@ export class HostCommandNameCollisionError extends RegistryCollisionError {
  * right for a tool roster a host assembles deliberately and wrong here.
  * These are operator-facing, and a shadowed command is invisible — it does
  * not fail, it simply never runs, and the one that wins depends on
- * registration order. `ToolRegistry` reaches the same conclusion for the
- * same reason one directory over.
+ * registration order. `ToolManager` (`toolsets/manager.ts`) reaches the
+ * same conclusion for the same reason one directory over — a toolset
+ * collision throws rather than shadowing silently.
  */
 export class HostCommandRegistry extends ManagedRegistry<HostCommandDescriptor> {
 	constructor(logger?: ConstructorParameters<typeof ManagedRegistry>[0]['logger']) {

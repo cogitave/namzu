@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SearchToolsTool, createUserMessage } from '@namzu/sdk'
+import { SearchToolsTool, createUserMessage, toolset } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { sessionMemoryStore } from '../../__fixtures__/session-memory.js'
@@ -212,7 +212,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 		}
 	})
 
-	it('loads the requested runtime task tool and resets activation for the next send', async () => {
+	it('loads the requested runtime task tool and keeps it active for the next send', async () => {
 		mockProvider((_request, index) => {
 			if (index % 3 === 0)
 				return response({ name: 'search_tools', input: { query: 'task_create' } })
@@ -236,7 +236,13 @@ describe('explicit tool loading reaches the real session and query', () => {
 				})
 				expect(requests).toHaveLength((turn + 1) * 3)
 				const [first, second, third] = requests.slice(turn * 3, turn * 3 + 3)
-				expect(names(first)).toEqual([...core, 'search_tools'].sort())
+				// Availability is derived from what the session's own history has
+				// revealed (plan.md v3 §2), and that history persists across sends
+				// of the same session — so once turn 0 reveals `task_create`, turn
+				// 1's own first request already carries it active, unlike turn 0's.
+				expect(names(first)).toEqual(
+					(turn === 0 ? [...core, 'search_tools'] : [...core, 'search_tools', 'task_create']).sort(),
+				)
 				expect(names(second)).toContain('task_create')
 				expect(names(third)).toContain('task_create')
 				expect(JSON.stringify(third.messages)).toContain('Task created:')
@@ -269,6 +275,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 		// query only mounts discovery when absent, so deferring this entry strands it.
 		vi.spyOn(mcp, 'connectMcpServers').mockResolvedValue({
 			tools: [SearchToolsTool],
+			toolsets: [toolset('mcp:test', [SearchToolsTool])],
 			connected: [],
 			failed: [],
 			current: () => ({ connected: [], failed: [] }),

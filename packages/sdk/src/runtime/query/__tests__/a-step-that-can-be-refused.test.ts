@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
@@ -73,7 +72,7 @@ async function run(opts: {
 	const result = await drainQuery(
 		{
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
@@ -178,7 +177,7 @@ describe('a host can refuse the next model call', () => {
 
 		const settled = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',

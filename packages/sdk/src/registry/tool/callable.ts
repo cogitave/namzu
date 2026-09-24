@@ -1,4 +1,4 @@
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 
 /**
  * The tools a call on this step can reach: registered now, active, and on
@@ -18,7 +18,7 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
  * that may call nothing, and the answer is then empty too.
  */
 export function callableToolNames(
-	tools: Pick<ToolRegistryContract, 'listNames' | 'getAvailability'>,
+	tools: Pick<ToolManager, 'listNames' | 'availability'>,
 	allowed: readonly string[] | undefined,
 ): string[] {
 	const permitted = allowed === undefined ? undefined : new Set(allowed)
@@ -26,8 +26,7 @@ export function callableToolNames(
 		.listNames()
 		.filter(
 			(name) =>
-				(permitted === undefined || permitted.has(name)) &&
-				tools.getAvailability(name) === 'active',
+				(permitted === undefined || permitted.has(name)) && tools.availability(name) === 'active',
 		)
 }
 

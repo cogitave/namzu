@@ -10,12 +10,12 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { SupervisorAgent } from '../../../agents/SupervisorAgent.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AgentTaskContext } from '../../../types/agent/task.js'
 import type { TenantId } from '../../../types/ids/index.js'
@@ -78,8 +78,7 @@ describe('a handoff inside a delegated child', () => {
 			error: 'sign-in required',
 			handoff: { kind: 'human-required' as const, reason: REASON },
 		}))
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'open_page',
 				description: 'open a page',
@@ -126,7 +125,7 @@ describe('a handoff inside a delegated child', () => {
 				provider,
 				agentIds: [],
 				agentManager: manager,
-				tools,
+				toolsets: [tools],
 				systemPrompt: 'Do the delegated work.',
 				model: 'mock-model',
 				tokenBudget: 100_000,

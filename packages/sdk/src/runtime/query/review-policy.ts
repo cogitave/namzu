@@ -21,8 +21,8 @@
  * person (`prompt`).
  */
 
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -122,14 +122,16 @@ export const REVIEW_EXEMPT_WRITES: ReadonlySet<string> = new Set([
  * know, or one that declares nothing, is reviewed.
  */
 export function isReviewExempt(
-	registry: Pick<ToolRegistry, 'get'>,
+	registry: Pick<ToolManager, 'get' | 'sourceOf'>,
 	name: string,
 	input: unknown,
 ): boolean {
 	if (REVIEW_EXEMPT_WRITES.has(name.toLowerCase())) return true
-	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
+	const resolvedName = registry.get(name) ? name : name.toLowerCase()
+	const tool = registry.get(resolvedName)
 	if (tool?.category === 'network') return false
-	return isTrustedReadOnly(tool, input)
+	const source = tool ? registry.sourceOf(resolvedName) : undefined
+	return isTrustedReadOnly(tool, input, source)
 }
 
 export type ReviewExemption = (name: string, input: unknown) => boolean
@@ -263,7 +265,7 @@ export interface ReviewPolicyOptions {
 	readonly prompt?: ToolReviewPrompt
 	/** Which calls skip review; default `isReviewExempt` over `registry`, or nothing without one. */
 	readonly exempt?: ReviewExemption
-	readonly registry?: Pick<ToolRegistry, 'get'>
+	readonly registry?: Pick<ToolManager, 'get' | 'sourceOf'>
 	/**
 	 * Where "approve all" is remembered. A host that shows the state (a
 	 * badge saying the session is unattended) passes its own box so both

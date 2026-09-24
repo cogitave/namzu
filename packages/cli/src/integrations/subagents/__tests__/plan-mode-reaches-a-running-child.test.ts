@@ -6,11 +6,12 @@ import {
 	MockLLMProvider,
 	type ResumeHandler,
 	type ToolContext,
-	ToolRegistry,
+	type Toolset,
 	asTurnId,
 	createReviewHandler,
 	defineTool,
 	mcpJsonSchemaToZod,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -78,9 +79,8 @@ async function scenario(options: { wireReviewAllowedCalls: boolean }) {
 		if (request.type === 'tool_review') reviewed.push(request.toolCalls.map((tc) => tc.name))
 		return modeControl.handler(request)
 	}
-	const tools = (): ToolRegistry => {
-		const registry = new ToolRegistry()
-		registry.register(
+	const tools = (): readonly Toolset[] => [
+		toolset('test', [
 			defineTool({
 				name: 'touch',
 				description: 'creates a file',
@@ -103,9 +103,8 @@ async function scenario(options: { wireReviewAllowedCalls: boolean }) {
 					return { success: true, output: `created ${path}` }
 				},
 			}),
-		)
-		return registry
-	}
+		]),
+	]
 	const parent = await subagentParentFixture(cwd, TURN)
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,

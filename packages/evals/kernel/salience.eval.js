@@ -16,7 +16,7 @@ import { join } from "node:path";
 import {
 	MockLLMProvider,
 	SessionPaths,
-	ToolRegistry,
+	toolset,
 	autoApproveHandler,
 	customScorer,
 	drainQuery,
@@ -34,30 +34,32 @@ const NEEDLE = "acc_4213";
 const BULK =
 	"filler text that the model has already read and moved past ".repeat(70);
 
-function registry() {
-	const tools = new ToolRegistry();
-	tools.register({
-		name: "dump",
-		description:
-			"Return a large block of text; the first carries the account id.",
-		inputSchema: z.object({ which: z.number() }),
-		category: "custom",
-		permissions: [],
-		readOnly: true,
-		destructive: false,
-		concurrencySafe: true,
-		execute: async ({ which }) => ({
-			success: true,
-			// The needle sits DEEP in the body: the stale-result placeholder keeps
-			// a head and a tail, so a needle in the first line would survive a
-			// clearing pass by accident and prove nothing.
-			output:
-				which === 0
-					? `billing config\n${BULK}\nthe account id is ${NEEDLE}, never bill another.\n${BULK}`
-					: `dump ${which}\n${BULK}`,
-		}),
-	});
-	return tools;
+function toolsets() {
+	return [
+		toolset("test", [
+			{
+				name: "dump",
+				description:
+					"Return a large block of text; the first carries the account id.",
+				inputSchema: z.object({ which: z.number() }),
+				category: "custom",
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async ({ which }) => ({
+					success: true,
+					// The needle sits DEEP in the body: the stale-result placeholder keeps
+					// a head and a tail, so a needle in the first line would survive a
+					// clearing pass by accident and prove nothing.
+					output:
+						which === 0
+							? `billing config\n${BULK}\nthe account id is ${NEEDLE}, never bill another.\n${BULK}`
+							: `dump ${which}\n${BULK}`,
+				}),
+			},
+		]),
+	];
 }
 
 const dump = (i) => ({
@@ -84,7 +86,7 @@ async function runCase(input) {
 	try {
 		const turn = await drainQuery({
 			provider: new MockLLMProvider({ turns: turns() }),
-			tools: registry(),
+			toolsets: toolsets(),
 			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,

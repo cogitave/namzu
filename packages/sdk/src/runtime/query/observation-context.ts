@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { findRetainedIndices } from '../../compaction/retention.js'
 import { estimateMessageTokens } from '../../compaction/token-estimate.js'
 import { isClearedToolResult } from '../../compaction/tool-result-editing.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { Message, ToolMessage } from '../../types/message/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 /**
  * Request-only exact observation masking. Every reference targets a full result
@@ -13,7 +13,7 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
  */
 export function projectObservationContext(
 	messages: Message[],
-	tools: Pick<ToolRegistryContract, 'get'>,
+	tools: Pick<ToolManager, 'get'>,
 	preserveToolResultsFrom: readonly string[] = [],
 ): Message[] {
 	const calls = new Map<string, { name: string; arguments: string } | null>()

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type {
 	PluginHookContext,
 	PluginHookEvent,
@@ -62,7 +61,7 @@ async function run(
 					{ text: 'the answer', usage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } },
 				],
 			}),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: options.prompt ?? 'what is the answer' }],

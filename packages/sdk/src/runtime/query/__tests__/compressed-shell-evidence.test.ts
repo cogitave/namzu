@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import { ToolExecutor } from '../executor.js'
@@ -19,9 +19,7 @@ afterEach(async () => {
 async function execute(output: string, hook?: PluginHookResult) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-shell-evidence-'))
 	roots.push(root)
-	const tools = new ToolRegistry()
-	const image = { type: 'image' as const, data: 'AAAA', mediaType: 'image/png' }
-	tools.register({
+	const tools = testToolset({
 		name: 'shell_observation',
 		description: 'Return shell output.',
 		category: 'shell',
@@ -32,6 +30,7 @@ async function execute(output: string, hook?: PluginHookResult) {
 			content: [{ type: 'text', text: output }, image],
 		}),
 	})
+	const image = { type: 'image' as const, data: 'AAAA', mediaType: 'image/png' }
 	const turnId = fixtureId.turn('shell-evidence')
 	const events: SessionEvent[] = []
 	const stub = { info() {}, warn() {}, error() {}, debug() {} }

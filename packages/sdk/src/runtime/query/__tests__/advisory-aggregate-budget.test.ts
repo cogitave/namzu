@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
@@ -33,8 +33,7 @@ async function fixture() {
 	const turnId = generateTurnId()
 	const sessionId = generateSessionId()
 	const budget = SessionTokenBudget.create(1_000, { rootSessionId: sessionId, rootTurnId: turnId })
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'echo',
 		description: 'Echo.',
 		inputSchema: z.object({}),

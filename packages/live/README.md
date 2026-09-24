@@ -166,9 +166,10 @@ refused.
   worker deployment belong to caller adapters.
 - Local inference and native speech-to-speech can be implemented as drivers;
   they are not bundled or claimed by this package.
-- When using `NamzuModel`, register tools in Namzu's `ToolRegistry`. There is no
-  second tool executor in the live runtime. Custom `LiveModel` implementations
-  own their tool semantics themselves.
+- When using `NamzuModel`, pass tools as `toolsets` (`NamzuQueryConfig.toolsets`,
+  a `readonly Toolset[]` — see `@namzu/sdk`'s `toolset()`). There is no second
+  tool executor in the live runtime. Custom `LiveModel` implementations own
+  their tool semantics themselves.
 
 ## Documentation
 

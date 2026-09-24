@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -131,9 +131,7 @@ describe('query long-document tool flow', () => {
 				},
 			},
 		])
-		const tools = new ToolRegistry()
-		tools.register(WriteFileTool)
-		tools.register(EditTool)
+		const tools = testToolset(WriteFileTool, EditTool)
 		const events: SessionEvent[] = []
 
 		const run = await drainQuery(

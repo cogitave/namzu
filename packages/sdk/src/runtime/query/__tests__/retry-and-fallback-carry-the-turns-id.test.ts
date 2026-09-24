@@ -23,7 +23,6 @@ import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -65,7 +64,7 @@ function baseTurnConfig(): TurnConfig {
 
 function baseParams(workingDirectory: string) {
 	return {
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: baseTurnConfig(),
 		agentId: 'agent_correlated',
 		agentName: 'Correlated Agent',

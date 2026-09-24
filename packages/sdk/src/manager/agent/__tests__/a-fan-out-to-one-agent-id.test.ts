@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { ReactiveAgent } from '../../../agents/ReactiveAgent.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 
 /**
@@ -71,7 +70,7 @@ describe('an agent can hand out a shell a single turn has to itself', () => {
 			timeoutMs: 10_000,
 			maxIterations: 2,
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			systemPrompt: 'hold',
 			sessionId: 'd49d1ad2-8ebd-40cb-9100-011222d0f3c8' as never,
 			topicId: '301b2633-a464-461a-ae0d-f593c87c1b1d' as never,

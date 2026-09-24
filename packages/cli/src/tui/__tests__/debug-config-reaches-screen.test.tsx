@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -40,6 +41,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => [],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],

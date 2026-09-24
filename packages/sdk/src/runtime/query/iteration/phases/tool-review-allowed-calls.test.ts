@@ -94,6 +94,7 @@ function harness(opts: {
 			return { success: true, output: `${name} ok` }
 		}),
 		has: vi.fn(() => true),
+		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => ['bash']),
 		getAvailability: vi.fn(() => 'active'),
 		register: vi.fn(),

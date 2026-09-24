@@ -6,7 +6,6 @@ import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { resolveNamzuHome } from '../../../session/home.js'
 import {
 	generateProjectId,
@@ -43,7 +42,7 @@ it('writes nothing into the working directory when no session log is given', asy
 
 	const turn = await drainQuery({
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],

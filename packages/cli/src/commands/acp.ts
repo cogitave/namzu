@@ -8,10 +8,10 @@ import {
 	ServerStdioTransport,
 	type SessionEvent,
 	type SessionId,
-	ToolRegistry,
-	createToolPresenter,
+	type ToolPresenter,
 	createUserMessage,
 	generateSessionId,
+	genericLabel,
 	isEntityId,
 	openSessionIndex,
 } from '@namzu/sdk'
@@ -148,7 +148,7 @@ async function lookupInIndex(
 
 type AcpLiveSession = Pick<
 	AgentSession,
-	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close'
+	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close' | 'presenter'
 >
 
 export interface AcpRuntimeDependencies {
@@ -172,6 +172,24 @@ interface AcpRuntimeRecord {
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/**
+	 * Delegates to whichever session's own event is being rendered RIGHT NOW
+	 * — never "whichever session's `prompt` call is live", which two
+	 * concurrent prompts both are. `record.route` (see `gateway.prompt`
+	 * below) wraps the SDK's `onEvent` so that `activeRecord` is set to
+	 * `record` for exactly the synchronous span of that one call: `update.ts`
+	 * reads `presenter` synchronously while building the update it emits, so
+	 * bracketing the call this tightly, rather than for the whole turn, is
+	 * what keeps a second session's prompt — live at the same time — from
+	 * ever being read as "active" while this event is presented. Falls back
+	 * to the generic label/view before any turn has run. Was permanently a
+	 * presenter over an empty, never-populated registry; every ACP
+	 * tool-call/result view fell back to the generic label for every tool,
+	 * every session (fixed here, not in the SDK: `ACPServerConfig.presenter`
+	 * is one value for the whole server, not per session, so this is the
+	 * best a CLI-side fix can do without also changing that surface).
+	 */
+	readonly presenter: ToolPresenter
 	close(): Promise<void>
 }
 
@@ -198,6 +216,24 @@ export function createCliAcpRuntime(
 	const constructing = new Map<string, string>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
 	let closed = false
+	// The record whose event `toAcpSessionUpdate` is presenting RIGHT NOW —
+	// set only for the synchronous span of one `record.route(event)` call
+	// (see `gateway.prompt`), never for a whole turn, so two turns in flight
+	// at once cannot read each other's record while presenting their own
+	// event.
+	let activeRecord: AcpRuntimeRecord | undefined
+	const presenter: ToolPresenter = {
+		presentCall: (toolName, input) =>
+			activeRecord?.session.presenter.presentCall(toolName, input) ?? {
+				kind: 'generic',
+				label: genericLabel(input),
+			},
+		presentResult: (toolName, input, result) =>
+			activeRecord?.session.presenter.presentResult(toolName, input, result) ?? {
+				kind: 'generic',
+				label: genericLabel(input),
+			},
+	}
 
 	const sharedProbe = () => {
 		if (!probePromise) {
@@ -345,7 +381,25 @@ export function createCliAcpRuntime(
 				if (signal.aborted) return { stopReason: 'cancelled' }
 				throw error
 			}
-			record.route = onEvent
+			// Wraps `onEvent`, not aliases it: `toAcpSessionUpdate` reads
+			// `presenter` synchronously while building the update this call
+			// produces, so `activeRecord` is `record` for exactly that
+			// synchronous span and restored (not just cleared) afterward — a
+			// concurrent session's own routed event, firing between two of
+			// this session's, sets and restores the SAME variable around its
+			// own span without corrupting this one. `routedEvent`, not
+			// `onEvent`, is what the `finally` below compares against, since
+			// `record.route` never holds `onEvent` itself anymore.
+			const routedEvent = (event: SessionEvent): void => {
+				const outer = activeRecord
+				activeRecord = record
+				try {
+					onEvent(event)
+				} finally {
+					activeRecord = outer
+				}
+			}
+			record.route = routedEvent
 			try {
 				let stopReason: string | undefined
 				let settledHistory: readonly Message[] | undefined
@@ -397,13 +451,14 @@ export function createCliAcpRuntime(
 					...(settledHistory === undefined ? {} : { history: settledHistory }),
 				}
 			} finally {
-				if (record.route === onEvent) record.route = undefined
+				if (record.route === routedEvent) record.route = undefined
 			}
 		},
 	}
 
 	return {
 		gateway,
+		presenter,
 		close: async () => {
 			closed = true
 			const owned = [...records.values()]
@@ -423,7 +478,7 @@ export async function runAcpCommand(ctx: CommandContext): Promise<number> {
 		transport: new ServerStdioTransport(),
 		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),
-		presenter: createToolPresenter(new ToolRegistry()),
+		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 	})
 
