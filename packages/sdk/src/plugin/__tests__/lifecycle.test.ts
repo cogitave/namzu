@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId, SessionId, TurnId } from '../../types/ids/index.js'
 import type { PluginHookContext, PluginHookResult } from '../../types/plugin/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 
 describe('PluginLifecycleManager', () => {
 	let manager: PluginLifecycleManager
 	let pluginRegistry: PluginRegistry
-	let toolRegistry: ToolRegistryContract
 	let logger: Logger
 
 	const mockSessionId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
@@ -23,13 +21,6 @@ describe('PluginLifecycleManager', () => {
 			unregister: vi.fn(),
 			getOrThrow: vi.fn(),
 			findByName: vi.fn(),
-			getAll: vi.fn(() => []),
-		} as any
-
-		toolRegistry = {
-			register: vi.fn(),
-			unregister: vi.fn(),
-			execute: vi.fn(),
 			getAll: vi.fn(() => []),
 		} as any
 
@@ -57,7 +48,6 @@ describe('PluginLifecycleManager', () => {
 
 		manager = new PluginLifecycleManager({
 			pluginRegistry,
-			toolRegistry,
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger,
 			hookTimeoutMs: 5000,
@@ -203,7 +193,6 @@ describe('PluginLifecycleManager', () => {
 
 			const managerWithShortTimeout = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry,
 				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: logger,
 				hookTimeoutMs: 10, // Very short timeout
@@ -229,7 +218,6 @@ describe('PluginLifecycleManager', () => {
 		it('fans out interrupt observers after skip, error, and timeout results', async () => {
 			const observationalManager = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry,
 				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: logger,
 				hookTimeoutMs: 10,
