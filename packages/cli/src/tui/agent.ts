@@ -1,4 +1,5 @@
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
+import { createOpenUrlTool } from '../integrations/web/open-url.js'
 import {
 	createWebSearchTool,
 	resolveWebSearch,
@@ -1791,6 +1792,13 @@ export interface AgentSessionOptions {
 	 * tools); a headless surface passes none.
 	 */
 	readonly extraTools?: readonly ToolDefinition[]
+	/**
+	 * Mount `open_url`, which opens a page in the user's own browser. Only a
+	 * surface with the user at their desktop passes it: the TUI and `exec`.
+	 * A scheduled run, `drain`, `exec --json`, ACP and a resident worker leave
+	 * it absent, and a sub-agent's registry never has it.
+	 */
+	readonly openUrl?: boolean
 }
 
 export async function createAgentSession(
@@ -2909,6 +2917,7 @@ export async function createAgentSession(
 	// The host's own additions, to this registry only: `buildTools` above
 	// builds a child's roster separately, so none of these reach a sub-agent.
 	for (const tool of options.extraTools ?? []) registry.register(tool)
+	if (options.openUrl) registry.register(createOpenUrlTool())
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan. Tasks
 	// belong to the session (`<session-id>/tasks/`) and record the turn that

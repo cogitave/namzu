@@ -172,12 +172,31 @@ describe('the paired Windows home visible from WSL', () => {
 		expect(windowsPathToWsl('/home/arda')).toBeNull()
 	})
 
+	it('converts under the mount root wsl.conf moved the drives to', () => {
+		expect(windowsPathToWsl('C:\\Users\\Arda', '/win/')).toBe('/win/c/Users/Arda')
+		expect(windowsPathToWsl('D:/People/Ada', '/')).toBe('/d/People/Ada')
+	})
+
+	it('runs cmd.exe from, and answers with a home under, a moved mount root', () => {
+		const run = vi.fn(() => 'C:\\Users\\Arda\r\n')
+		// The default command is under the moved root; it does not exist here,
+		// so the probe answers "no paired home" without starting anything.
+		expect(wslWindowsHome({ WSL_DISTRO_NAME: 'test' }, run as never, undefined, '/win/')).toBeNull()
+		expect(run).not.toHaveBeenCalled()
+		const root = home()
+		const command = join(root, 'cmd.exe')
+		writeFileSync(command, '')
+		expect(wslWindowsHome({ WSL_DISTRO_NAME: 'test' }, run as never, command, '/win/')).toBe(
+			'/win/c/Users/Arda',
+		)
+	})
+
 	it('uses the pinned system command only on WSL', () => {
 		const root = home()
 		const command = join(root, 'cmd.exe')
 		writeFileSync(command, '')
 		const run = vi.fn(() => 'C:\\Users\\Arda\r\n')
-		expect(wslWindowsHome({ WSL_DISTRO_NAME: 'test' }, run as never, command)).toBe(
+		expect(wslWindowsHome({ WSL_DISTRO_NAME: 'test' }, run as never, command, '/mnt/')).toBe(
 			'/mnt/c/Users/Arda',
 		)
 		expect(run).toHaveBeenCalledWith(
