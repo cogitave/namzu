@@ -59,6 +59,44 @@ describe('HTTP provider, OpenAI dialect finish reasons', () => {
 		const chunks = await chunksOf('openai', [openAiFinish(null), 'data: [DONE]'])
 		expect(chunks[0]?.finishReason).toBeUndefined()
 	})
+
+	it.each(['max_tokens', 'max_output_tokens'])(
+		"reports a server's own name for the output limit, %s, as length",
+		async (reason) => {
+			const chunks = await chunksOf('openai', [openAiFinish(reason), 'data: [DONE]'])
+			const finish = chunks.find((chunk) => chunk.finishReason)
+			expect(finish?.finishReason).toBe('length')
+			expect(finish?.finishDetail).toBeUndefined()
+		},
+	)
+
+	it.each([
+		'model_length',
+		'context_length',
+		'context_length_exceeded',
+		'model_context_window_exceeded',
+	])('reports %s as a length finish at the context window', async (reason) => {
+		// It read as a normal finish, so a tool call the full window cut off
+		// was reported as one the model finished and got wrong.
+		const chunks = await chunksOf('openai', [openAiFinish(reason), 'data: [DONE]'])
+		const finish = chunks.find((chunk) => chunk.finishReason)
+		expect(finish?.finishReason).toBe('length')
+		expect(finish?.finishDetail).toBe('context_window')
+	})
+
+	it('fails the stream on an error finish instead of calling it a normal one', async () => {
+		await expect(chunksOf('openai', [openAiFinish('error'), 'data: [DONE]'])).rejects.toMatchObject(
+			{
+				kind: 'server',
+				providerId: 'http',
+			},
+		)
+	})
+
+	it('reports no finish reason for a value it does not know, rather than a normal finish', async () => {
+		const chunks = await chunksOf('openai', [openAiFinish('recitation_blocked'), 'data: [DONE]'])
+		expect(chunks.some((chunk) => chunk.finishReason !== undefined)).toBe(false)
+	})
 })
 
 const anthropicFrames = (stopReason: string, toolUse = false) => [

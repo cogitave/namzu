@@ -281,9 +281,18 @@ reasoning or what came before it, since neither is what ran out.
   with `finishDetail: 'context_window'`, and `guardrail_intervened` as
   `content_filter`. A tool call opens with the id
   the driver keeps, including the one it makes up when the wire has none.
-- `@namzu/http` (OpenAI dialect) and `@namzu/openrouter`: `finish_reason` is
-  mapped instead of cast. `function_call` becomes `tool_calls`, and an unknown
-  value becomes `stop`. OpenRouter's `error` fails the stream.
+- `@namzu/http` (OpenAI dialect): `finish_reason` is mapped instead of cast.
+  `function_call` becomes `tool_calls`; `max_tokens` and `max_output_tokens`
+  become `length`; `model_length` (Mistral), `context_length`,
+  `context_length_exceeded` and `model_context_window_exceeded` become
+  `length` with `finishDetail: 'context_window'`; `eos`, `eos_token`,
+  `end_turn` and `stop_sequence` become `stop`. `error` fails the stream. A
+  value the driver does not know reports no finish reason, so the last call
+  is classified as for a stream that did not say how it ended, never as one
+  the model finished.
+- `@namzu/openrouter`: `finish_reason` is mapped instead of cast.
+  `function_call` becomes `tool_calls`, an unknown value becomes `stop`, and
+  `error` fails the stream.
 - `@namzu/deepseek`: `insufficient_system_resource` fails the stream instead of
   reading as `stop`.
 - `@namzu/openai` Codex: `response.incomplete` is reported as `length`, or
