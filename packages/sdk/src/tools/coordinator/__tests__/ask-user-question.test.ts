@@ -422,6 +422,36 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		})
 	})
 
+	it.each([
+		['Cloud (AWS) (Recommended)', 'Cloud (AWS)'],
+		['Tests (unit) (Recommended)', 'Tests (unit)'],
+	])('shows and records %j, the old instruction followed, as %j', async (label, clean) => {
+		// The old tool description told the model to append " (Recommended)",
+		// and a checkpoint written before the upgrade re-executes that call:
+		// the answer read "Cloud (AWS)" then and must still read it.
+		const { requests, result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+			input: {
+				question: 'Where should it run?',
+				options: [{ label }, { label: 'On-premises' }],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: clean, recommended: true },
+			{ id: 'opt_2', label: 'On-premises' },
+		])
+		expect(result.output).toBe(`User answered "Where should it run?": "${clean}"`)
+		expect(result.data).toEqual({
+			question: 'Where should it run?',
+			selected: [{ id: 'opt_1', label: clean, recommended: true }],
+			answered: true,
+		})
+	})
+
 	it('records no recommendation on an option the model did not recommend', async () => {
 		const { result } = await executeAsk({
 			decision: { action: 'answer_question', selectedOptionIds: ['opt_2'] },

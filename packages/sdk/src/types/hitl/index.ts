@@ -180,11 +180,13 @@ export interface UserQuestionOption {
 	 * takes out of it a recommendation marker the model wrote out of habit:
 	 * "(Recommended)" on any option, and "(Önerilen)", "(Empfohlen)", … on
 	 * a recommended option, when every option whose label ends in a
-	 * parenthesised group is recommended and ends in that same one. A group
-	 * that differs between options is kept. The recommendation is
-	 * `recommended`, so a host never has to parse a label to find it. Apart
-	 * from surrounding spaces and "(Recommended)", an option that is not
-	 * recommended keeps its label as written.
+	 * parenthesised group is recommended, did not end in "(Recommended)", and
+	 * ends in that same one. A group that differs between options, or is left
+	 * before "(Recommended)" ("Cloud (AWS) (Recommended)" → "Cloud (AWS)"),
+	 * is kept. The recommendation is `recommended`, so a host never has to
+	 * parse a label to find it. Apart from surrounding spaces and
+	 * "(Recommended)", an option that is not recommended keeps its label as
+	 * written.
 	 */
 	label: string
 	description?: string

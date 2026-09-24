@@ -16,16 +16,21 @@
  *   unless the model set `recommended: false` on it. The field is the model's
  *   word; the English marker speaks only where the field is absent. So an
  *   option is recommended when the model set `recommended: true` on it, or
- *   left the flag out and ended its label in "(Recommended)".
+ *   left the flag out and ended its label in "(Recommended)". The model was
+ *   told to append that marker to the name, so what is left before it is the
+ *   name: a group there ("Cloud (AWS) (Recommended)") is a qualifier and
+ *   stays, never a second marker.
  * - On a recommended option, a trailing parenthesised group of one to three
  *   words, in ASCII or full-width parentheses, is the marker a model writes
  *   out of habit next to the flag, when every option whose label ends in a
- *   group is recommended and ends in that same group. The model is told never
- *   to end a label in a parenthesised note, so on a compliant call that group
- *   is a marker, and a model writing one writes the same word on each option
- *   it recommends. A group that differs between options, flagged or not, is
- *   what tells them apart ("Tests (unit)" / "Tests (e2e)", "Postgres
- *   (managed)" / "Postgres (self-hosted)"), and stays.
+ *   group is recommended, did not end in "(Recommended)", and ends in that
+ *   same group. The model is told never to end a label in a parenthesised
+ *   note, so on a compliant call that group is a marker, and a model writing
+ *   one writes the same word on each option it recommends. A group that
+ *   differs between options, flagged or not, is what tells them apart
+ *   ("Tests (unit)" / "Tests (e2e)", "Postgres (managed)" / "Postgres
+ *   (self-hosted)"), and stays; so does every group in a question where
+ *   one option's group is a qualifier.
  * - A marker stays, too, on an option whose label without it would be the
  *   label of another option, as written or without its own marker: then the
  *   marker is all that tells the two apart.
@@ -105,21 +110,28 @@ export function foldForComparison(text: string): string {
 
 /**
  * The options' trailing groups are one localised marker: every option that
- * ends in a group is recommended, and all of them end in the same one-to-three
- * word group.
+ * ends in a group is recommended, did not end in "(Recommended)", and ends in
+ * the same one-to-three word group as the others.
  */
 function isMarker(grouped: readonly { option: Working; group: TrailingGroup }[]): boolean {
 	const first = grouped[0]
 	if (!first || !MARKER_TEXT.test(first.group.text)) return false
 	const text = foldForComparison(first.group.text)
 	return grouped.every(
-		({ option, group }) => option.recommended && foldForComparison(group.text) === text,
+		({ option, group }) =>
+			option.recommended && !option.hadEnglishMarker && foldForComparison(group.text) === text,
 	)
 }
 
 interface Working {
 	label: string
 	readonly recommended: boolean
+	/**
+	 * The label ended in "(Recommended)", which came off. That was the marker,
+	 * so a group left before it ("Cloud (AWS) (Recommended)") is part of the
+	 * name: it is a qualifier, never a second marker.
+	 */
+	readonly hadEnglishMarker: boolean
 	readonly description: string | undefined
 }
 
@@ -134,17 +146,22 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 		const group = trailingGroup(label)
 		// Unambiguous wherever it appears; kept for a model trained on it.
 		const english = group !== null && ENGLISH_MARKER.test(group.text)
+		const removed = english && group.base !== ''
 		return {
-			label: english && group.base !== '' ? group.base : label,
+			label: removed ? group.base : label,
 			// An explicit `false` stands even against the English marker.
 			recommended: option.recommended ?? english,
+			hadEnglishMarker: removed,
 			description: option.description,
 		}
 	})
 
 	// Only a recommended option can carry a localised marker. An unflagged
 	// one is left as written: its group is as likely "(AWS)" as "(Önerilen)",
-	// and guessing turned a qualifier into a recommendation.
+	// and guessing turned a qualifier into a recommendation. Nor can an
+	// option whose "(Recommended)" just came off: the old instruction was to
+	// append that marker to the name, so what is left is the name, "(AWS)"
+	// and all. Either kind of qualifier keeps the same group on every option.
 	const grouped = working.flatMap((option) => {
 		const group = trailingGroup(option.label)
 		return group ? [{ option, group }] : []

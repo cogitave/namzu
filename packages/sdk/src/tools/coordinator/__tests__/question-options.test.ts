@@ -154,6 +154,11 @@ describe('questionOptions', () => {
 				{ label: 'Board' },
 				{ label: 'Engineers (Önerilen)', recommended: true },
 			],
+			[
+				{ label: 'Cloud (AWS) (Recommended)' },
+				{ label: 'Edge (Empfohlen)', recommended: true },
+				{ label: 'On-premises' },
+			],
 		]
 		for (const question of questions) {
 			const expected = new Map(
@@ -234,13 +239,36 @@ describe('questionOptions', () => {
 		])
 	})
 
-	it('removes both a localised and an English marker from one label', () => {
-		const options = questionOptions([
-			{ label: 'Kurul (Önerilen) (Recommended)' },
-			{ label: 'Mühendisler' },
-		])
-		expect(labels(options)).toEqual(['Kurul', 'Mühendisler'])
-		expect(recommended(options)).toEqual(['opt_1'])
+	it.each([
+		['Cloud (AWS) (Recommended)', 'Cloud (AWS)'],
+		['Tests (unit) (Recommended)', 'Tests (unit)'],
+		['Cache（Redis）(Recommended)', 'Cache（Redis）'],
+		['Kurul (Önerilen) (Recommended)', 'Kurul (Önerilen)'],
+	])('keeps the group left in %j once "(Recommended)" comes off', (label, clean) => {
+		// The old instruction was to append " (Recommended)" to the name, so
+		// what is left before it is the name, qualifier and all.
+		for (const flag of [{}, { recommended: true }]) {
+			const options = questionOptions([{ label, ...flag }, { label: 'On-premises' }])
+			expect(labels(options)).toEqual([clean, 'On-premises'])
+			expect(recommended(options)).toEqual(['opt_1'])
+		}
+	})
+
+	it('keeps every group when one option\'s group is left from "(Recommended)"', () => {
+		// That group is a qualifier, and like an unflagged option's it says the
+		// groups in this question name the options.
+		for (const question of [
+			[{ label: 'Lint (Empfohlen)', recommended: true }, { label: 'Tests (unit) (Recommended)' }],
+			[
+				{ label: 'Kurul (Önerilen) (Recommended)' },
+				{ label: 'Mühendisler (Önerilen)', recommended: true },
+			],
+		]) {
+			for (const order of permutations(question)) {
+				const shown = labels(questionOptions(order))
+				expect(shown).toEqual(order.map((option) => option.label.replace(/ \(Recommended\)$/u, '')))
+			}
+		}
 	})
 
 	it('keeps a qualifier the options share: it names them, it does not recommend one', () => {
