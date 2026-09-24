@@ -41,6 +41,16 @@ export type { McpEnvelope, McpEnvelopeInput, MCPDecodedResult } from './envelope
 export { validateMcpHeaderAnnotations } from './x-mcp-header.js'
 export type { McpHeaderAnnotationVerdict, McpParamHeaderBinding } from './x-mcp-header.js'
 
+// `mcpToolset` (below) is now the ONE path new code should take onto a
+// `Toolset` from MCP (plan.md §4): tools, prompts and resources, discovered,
+// admitted and named together. `mcpToolToToolDefinition` and
+// `mcpPromptToToolDefinition` — the pieces `mcpToolset` wraps — were planned
+// to stop being exported here, but `packages/cli`'s own
+// `integrations/mcp/servers.ts` still calls `mcpToolToToolDefinition`
+// directly (its own naming convention, `mcp_<server>_<tool>`, predates
+// `mcp__`); migrating that CLI path — its tests assert the old names — is
+// item C1's job (plan.md's execution order), not this one's, so both stay
+// exported until C1 lands and removes them here.
 export {
 	mcpToolToToolDefinition,
 	toolDefinitionToMCPTool,
@@ -52,6 +62,9 @@ export {
 
 export { MCPToolDiscovery } from './discovery.js'
 export { mcpPromptToToolDefinition, renderPromptMessages } from './prompt-adapter.js'
+
+export { mcpToolset, mcpToolsetName } from './mcp-toolset.js'
+export type { MCPToolsetOptions } from './mcp-toolset.js'
 
 export { MCPConnectorBridge } from '../../bridge/mcp/connector/adapter.js'
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { MCPToolDefinition } from '../../../types/connector/index.js'
+import type { MCPResource, MCPToolDefinition } from '../../../types/connector/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { MCPClient } from '../client.js'
 import { MCPToolDiscovery } from '../discovery.js'
@@ -31,6 +31,27 @@ function fakeClient(serverName: string, initial: MCPToolDefinition[]) {
 	return {
 		client,
 		swap: (next: MCPToolDefinition[]) => {
+			advertised = next
+		},
+	}
+}
+
+function resource(name: string, uri = `file:///${name}.txt`): MCPResource {
+	return { uri, name }
+}
+
+/** A server whose advertised resource list can be swapped between listings. */
+function fakeResourceClient(serverName: string, initial: MCPResource[]) {
+	let advertised = initial
+	const client = {
+		id: `client_${serverName}`,
+		isConnected: () => true,
+		getState: () => ({ serverName }),
+		listResources: () => Promise.resolve(advertised),
+	} as unknown as MCPClient
+	return {
+		client,
+		swap: (next: MCPResource[]) => {
 			advertised = next
 		},
 	}
@@ -129,5 +150,45 @@ describe('drift detection', () => {
 		// `rm_rf` never entered the registry, so it is a policy refusal to
 		// log — not a change to the agent's capabilities.
 		expect(onDrift).not.toHaveBeenCalled()
+	})
+})
+
+describe('discoverResourcesFrom admits only what the host allows', () => {
+	it('applies a per-server allowlist, matched on the resource name', async () => {
+		const { client } = fakeResourceClient('files', [resource('readme'), resource('secret')])
+		const discovery = new MCPToolDiscovery([client], {
+			policies: { files: { allow: ['readme'] } },
+			logger: makeLogger(),
+		})
+
+		const admitted = await discovery.discoverResourcesFrom(client)
+		expect(admitted.map((r) => r.name)).toEqual(['readme'])
+	})
+
+	it('denies a name even when it would otherwise be allowed', async () => {
+		const { client } = fakeResourceClient('files', [resource('readme'), resource('secret')])
+		const discovery = new MCPToolDiscovery([client], {
+			policies: { files: { deny: ['secret'] } },
+			logger: makeLogger(),
+		})
+
+		const admitted = await discovery.discoverResourcesFrom(client)
+		expect(admitted.map((r) => r.name)).toEqual(['readme'])
+	})
+
+	it("falls back to the '*' policy for a server with no entry of its own", async () => {
+		const { client } = fakeResourceClient('unnamed', [resource('readme'), resource('secret')])
+		const discovery = new MCPToolDiscovery([client], {
+			policies: { '*': { deny: ['secret'] } },
+			logger: makeLogger(),
+		})
+
+		expect((await discovery.discoverResourcesFrom(client)).map((r) => r.name)).toEqual(['readme'])
+	})
+
+	it('admits everything when no policy is configured', async () => {
+		const { client } = fakeResourceClient('files', [resource('readme'), resource('secret')])
+		const discovery = new MCPToolDiscovery([client], { logger: makeLogger() })
+		expect(await discovery.discoverResourcesFrom(client)).toHaveLength(2)
 	})
 })

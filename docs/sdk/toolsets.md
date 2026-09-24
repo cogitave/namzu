@@ -240,6 +240,10 @@ toolset (task tools, `search_tools`, the structured-output tool, advisory
 tools) — see [Tool discovery](tool-discovery.md) for how availability
 behaves across sends, resume and children under this model.
 
+## MCP
+
+`mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) is the one path from a connected `MCPClient` to a live `Toolset`: tools, prompts and resources, named `mcp__<server>__<rest>`, reacting to `list_changed` and to reconnection. See [The MCP toolset](mcp-toolset.md).
+
 ## Not yet built
 
 `requiresApproval` (a predicate of the tool's input, set by

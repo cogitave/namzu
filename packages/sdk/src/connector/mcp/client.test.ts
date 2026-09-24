@@ -183,6 +183,21 @@ describe('MCPClient — server-initiated requests are answered, not dropped', ()
 		// A notification must NOT be answered.
 		expect(h.sent).toHaveLength(0)
 	})
+
+	it('onNotification returns an unsubscribe, mirroring onLifecycle', async () => {
+		const h = harness()
+		await h.client.connect()
+		const seen = vi.fn()
+		const unsubscribe = h.client.onNotification(seen)
+
+		unsubscribe()
+		h.receive({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })
+
+		// A listener that cannot be removed keeps whatever it closes over
+		// referenced by the client for as long as the client lives — the same
+		// leak `onLifecycle`'s own unsubscribe already avoids.
+		expect(seen).not.toHaveBeenCalled()
+	})
 })
 
 describe('MCPClient — legacy `initialize` instructions', () => {

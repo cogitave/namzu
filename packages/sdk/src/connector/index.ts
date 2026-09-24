@@ -76,6 +76,8 @@ export {
 	mcpJsonSchemaToZod,
 	mcpPromptToToolDefinition,
 	mcpToolResultToToolResult,
+	mcpToolset,
+	mcpToolsetName,
 	mcpToolToToolDefinition,
 	renderPromptMessages,
 	resolveMcpEra,
@@ -105,4 +107,5 @@ export type {
 	MCPToolDrift,
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
+	MCPToolsetOptions,
 } from './mcp/index.js'

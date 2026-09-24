@@ -844,8 +844,19 @@ export class MCPClient {
 		}
 	}
 
-	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): void {
+	/**
+	 * Returns an unsubscribe, mirroring {@link onLifecycle} below — a listener
+	 * that cannot be removed keeps whatever it closes over (a discovery
+	 * object, a logger, a caller's own state) referenced by this client for
+	 * as long as the client lives, even after the listener's own owner is
+	 * done with it.
+	 */
+	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): () => void {
 		this.notificationHandlers.push(handler)
+		return () => {
+			const index = this.notificationHandlers.indexOf(handler)
+			if (index >= 0) this.notificationHandlers.splice(index, 1)
+		}
 	}
 
 	/**
@@ -858,9 +869,7 @@ export class MCPClient {
 	 * this adds no state, it just says out loud what the client already
 	 * knew.
 	 *
-	 * Returns an unsubscribe. `onNotification` above does not, which is the
-	 * bug this avoids repeating: a listener that cannot be removed keeps a
-	 * disposed host object alive for as long as the client lives.
+	 * Returns an unsubscribe, the same shape `onNotification` above returns.
 	 */
 	onLifecycle(listener: MCPEventListener): () => void {
 		this.lifecycleListeners.push(listener)
