@@ -6,9 +6,10 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { CheckpointManager, findPendingCheckpoint, readParks } from '../checkpoint.js'
 import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
 import {
@@ -50,9 +51,8 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -65,7 +65,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 /** The park a process leaves behind when it dies while a human is reading. */
@@ -100,7 +99,7 @@ async function resumeWith(session: CheckpointedSession, workingDirectory: string
 		tenantId: session.scope.tenantId,
 		pendingDecision: { action: 'approve_plan' },
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] } as never),
-		tools: echoRegistry(),
+		toolsets: [echoToolset()],
 		agentId: 'agent_plan_park',
 		agentName: 'Plan park agent',
 		workingDirectory,
