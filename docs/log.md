@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-24
+
+- **Creation** [The computer-use host contract](sdk/computer-use-host.md): `ComputerUseHost` is specified in physical pixels throughout, with action points relative to the display last captured and window bounds in virtual-desktop pixels. `ScreenshotResult` gains optional `display` (`DisplayInfo`: `id`, `x`, `y`, `width`, `height`, `scaleFactor`, `primary`); hosts gain optional `listWindows()`, `focusWindow(id)` and `captureRegion(rect)` behind the new capability flags `windows` and `regionCapture`, and experimental `uiSnapshot(windowId?)`/`uiAct(ref, action, value?)` behind `uiTree`. New types `DisplayInfo`, `Rect`, `WindowInfo`, `FocusWindowResult`, `UiElement`, `UiElementAction`, `UiSnapshot`, `UiActResult` (`packages/sdk/src/types/computer-use/index.ts`). `.changeset/computer-use-host-interface.md`, **minor** for `@namzu/sdk`.
+
 ## 2026-09-23
 
 - **Update** [Tool execution](sdk/tool-execution.md): `ToolCallView` (generic) gains `outcome: 'cancelled'` for a result the person declined on the tool's own screen; `save_skill` and the `schedule` tool use it, and the CLI shows `○ … ⎿ Cancelled — nothing was saved` instead of `✗ … failed: Error: The operator cancelled`; the CLI's `tool-end` event carries `cancelled: true`

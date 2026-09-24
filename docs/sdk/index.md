@@ -20,6 +20,7 @@ The kernel.
 * [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
 
 * [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.
+* [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
 * [Browser tools](browser-tools.md) - The browser and browser_act tools over a BrowserHost, canonical URLs and origins for site rules, snapshot framing and structural host errors.
 * [The browser host](browser-host.md) - @namzu/browser's PlaywrightBrowserHost: engine detection, profiles and leases, the site policy after every navigation, the human-handoff classifier and snapshot refs.
 
