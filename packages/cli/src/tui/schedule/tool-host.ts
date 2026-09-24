@@ -14,14 +14,18 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import {
 	type ScheduleConfirmAnswer,
 	type ScheduleConfirmRequest,
+	type ScheduleJobChanges,
 	type ScheduleJobDraft,
 	type ScheduleJobPreview,
 	type ScheduleJobSummary,
+	type ScheduleSpec,
 	type ScheduleToolHost,
+	type ScheduleUpdateRequest,
 	describeSchedule,
 	hostTimeZone,
 	revealHiddenCharacters,
 	upcomingFireTimes,
+	validateTimeZone,
 } from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
@@ -30,16 +34,37 @@ import {
 	DEFAULT_MAX_ITERATIONS,
 	DEFAULT_TIMEOUT_MS,
 	DEFAULT_TOKEN_BUDGET,
+	type JobRequest,
+	JobRequestError,
 	buildJob,
 	confirmJob,
+	editedJob,
 	previewLines,
 	runsPerDay,
 } from '../../schedule/build.js'
+import {
+	changesBlock,
+	changesSinceConfirmed,
+	confirmationView,
+	describeChanges,
+	permissionsChanged,
+} from '../../schedule/changes.js'
 import { schedulePaths } from '../../schedule/paths.js'
-import { compileJobPolicy } from '../../schedule/policy.js'
+import {
+	type CompiledJobPolicy,
+	type PermissionInput,
+	compileJobPolicy,
+} from '../../schedule/policy.js'
 import { readManifest } from '../../schedule/service/manifest.js'
-import { appendHistory } from '../../schedule/store/history.js'
-import { createJob, deleteJob, findJob, listJobs, updateJob } from '../../schedule/store/jobs.js'
+import { appendHistory, readHistory } from '../../schedule/store/history.js'
+import {
+	ScheduleConflictError,
+	createJob,
+	deleteJob,
+	findJob,
+	listJobs,
+	updateJob,
+} from '../../schedule/store/jobs.js'
 import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import type { QuestionFn } from '../agent.js'
@@ -106,23 +131,118 @@ async function credentialText(provider: string): Promise<string> {
 	}
 }
 
+/** The preview lines, the credential, the warnings, and the full prompt with hidden characters shown. */
+function confirmationBody(
+	p: ScheduleJobPreview,
+	findings: readonly string[],
+	lines: readonly string[],
+): string[] {
+	return [
+		...lines,
+		`Credential  ${p.credentialSource ?? 'unknown'}`,
+		...p.warnings.map((w) => `Warning     ${w}`),
+		...findings.map((f) => `Warning     ${f}`),
+		'Prompt (exactly as the run will read it)',
+		...revealHiddenCharacters(p.prompt)
+			.split('\n')
+			.map((l) => `  │ ${l}`),
+	]
+}
+
 /** The preview lines, the full prompt with hidden characters shown, and the tripwire's findings. */
 export function renderConfirmation(
 	request: ScheduleConfirmRequest,
 	lines: readonly string[],
 ): string {
-	const p = request.preview
 	return [
 		'⏲ PROPOSED BY THE MODEL, NOT BY YOU — a scheduled job that runs later with nobody watching.',
-		...lines,
-		`Credential  ${p.credentialSource ?? 'unknown'}`,
-		...p.warnings.map((w) => `Warning     ${w}`),
-		...request.promptFindings.map((f) => `Warning     ${f}`),
-		'Prompt (exactly as the run will read it)',
-		...revealHiddenCharacters(p.prompt)
-			.split('\n')
-			.map((l) => `  │ ${l}`),
+		...confirmationBody(request.preview, request.promptFindings, lines),
 	].join('\n')
+}
+
+/**
+ * A change the model proposed: what changes first (`-`/`+` lines, as
+ * `schedule edit` shows them), a warning when the permissions change, then
+ * the job as it would run, whole.
+ */
+export function renderUpdateConfirmation(
+	request: ScheduleUpdateRequest,
+	lines: readonly string[],
+): string {
+	return [
+		`⏲ PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job ${request.preview.name}, which runs later with nobody watching.`,
+		...changesBlock(request.changes),
+		...(request.permissionsChange
+			? [
+					'Warning     THE PERMISSIONS CHANGE: from its next run the job may do what the rules below allow.',
+				]
+			: []),
+		...confirmationBody(request.preview, request.promptFindings, lines),
+	].join('\n')
+}
+
+/**
+ * The request `buildJob` rebuilds a job from, for a change the model
+ * proposed: every field it left out as the job has it. A new permission set
+ * keeps the job's `execution` unless it names one, and the job's additional
+ * directories (which only the operator sets).
+ */
+export function updateRequest(
+	current: ScheduleJob,
+	changes: ScheduleJobChanges,
+	cwd: string,
+): JobRequest {
+	const cron = current.schedule.kind === 'cron' ? current.schedule : undefined
+	let spec: ScheduleSpec | undefined
+	if (changes.when === undefined) {
+		if (changes.tz === undefined) spec = current.schedule
+		else if (cron) spec = { ...cron, tz: validateTimeZone(changes.tz) }
+		else
+			throw new JobRequestError(
+				`a time zone changes only a cron schedule, and "${current.name}" is not one; give when as well.`,
+			)
+	}
+	const tz = changes.tz ?? cron?.tz
+	const dirs = current.permissions.additionalDirectories
+	const kept = dirs && dirs.length > 0 ? { additionalDirectories: [...dirs] } : {}
+	const proposed = changes.permissions
+	const permissions: PermissionInput = proposed
+		? {
+				...(proposed.preset ? { preset: proposed.preset } : {}),
+				...(proposed.rules ? { rules: proposed.rules } : {}),
+				unmatched: proposed.unmatched,
+				execution: proposed.execution ?? current.permissions.execution,
+				...kept,
+				...(proposed.browser ? { browser: proposed.browser } : {}),
+			}
+		: {
+				rules: current.permissions.rules,
+				unmatched: current.permissions.unmatched,
+				execution: current.permissions.execution,
+				...kept,
+				...(current.permissions.browser ? { browser: current.permissions.browser } : {}),
+			}
+	return {
+		name: current.name,
+		prompt: changes.prompt ?? current.prompt,
+		when: changes.when ?? '',
+		...(spec ? { spec } : {}),
+		folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
+		...(tz ? { tz } : {}),
+		permissions,
+		budget: { ...current.budget, ...(changes.budget ?? {}) },
+		model: `${current.model.provider}${current.model.model ? `/${current.model.model}` : ''}`,
+		...(current.model.effort ? { effort: current.model.effort } : {}),
+		includeSummary: current.notify.includeSummary,
+		keepSessions: current.retention.keepSessions,
+		pauseAfterFailures: current.failurePolicy.pauseAfterFailures,
+		approvalTtlMs: current.approvalTtlMs,
+		createdBy: current.createdBy,
+		// `unmatched: allow` on the host is the operator's choice
+		// (`--allow-unattended-host`); a change that keeps the permissions
+		// keeps it, and the tool can never propose it.
+		allowUnattendedHost: proposed === undefined && current.permissions.unmatched === 'allow',
+	}
 }
 
 /**
@@ -166,6 +286,70 @@ export function chosenByTheModel(
 
 export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 	const built = new WeakMap<ScheduleJobPreview, { job: ScheduleJob; lines: string[] }>()
+	const proposedUpdates = new WeakMap<
+		ScheduleJobPreview,
+		{
+			readonly current: ScheduleJob
+			readonly job: ScheduleJob
+			readonly lines: string[]
+			readonly changes: string[]
+		}
+	>()
+	/** What the person is shown for a job, every field computed here; `extra` warnings last. */
+	const previewOf = async (
+		job: ScheduleJob,
+		extra: readonly string[],
+		now: Date,
+	): Promise<{ preview: ScheduleJobPreview; policy: CompiledJobPolicy }> => {
+		const policy = compileJobPolicy(job.permissions, {
+			layers: readPermissionLayers({ cwd: job.folder.canonical }),
+			namzuHome: ui.home(),
+			folder: job.folder,
+		})
+		if (policy.diagnostics.length > 0)
+			throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
+		const roots = [ui.cwd(), ...ui.extraRoots()]
+		const outside = !roots.some((root) => within(root, job.folder.canonical))
+		const perDay = runsPerDay(job.schedule, now)
+		const warnings = [
+			...(outside
+				? ['The folder is outside this session’s working directory and added directories.']
+				: []),
+			...(policy.network ? ['This run can reach the network.'] : []),
+			...(job.permissions.browser
+				? [
+						`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
+					]
+				: []),
+			...extra,
+		]
+		const preview: ScheduleJobPreview = {
+			name: job.name,
+			folder: job.folder.canonical,
+			outsideSessionRoots: outside,
+			prompt: job.prompt,
+			schedule: describeSchedule(job.schedule, {
+				tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
+			}),
+			nextFireTimes: upcomingFireTimes(job.schedule, now, 3).map((t) => t.toISOString()),
+			rules: policy.lines,
+			unmatched: job.permissions.unmatched,
+			execution: job.permissions.execution,
+			networkAccess: policy.network,
+			budget: {
+				maxIterations: job.budget.maxIterations,
+				tokenBudget: job.budget.tokenBudget,
+				timeoutMs: job.budget.timeoutMs,
+			},
+			...(job.schedule.kind === 'at' ? {} : { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
+			model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
+			credentialSource: await credentialText(job.model.provider),
+			warnings,
+		}
+		return { preview, policy }
+	}
+	const NOT_INSTALLED_NOTE =
+		'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`. Tell them; do not say it will run.'
 	const paths = () => schedulePaths(ui.home())
 	const history = (job: ScheduleJob, action: 'created' | 'paused' | 'resumed' | 'removed') =>
 		appendHistory(paths(), job.id, {
@@ -208,55 +392,10 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				},
 				{ paths: paths(), config: ui.config(), now },
 			)
-			const policy = compileJobPolicy(job.permissions, {
-				layers: readPermissionLayers({ cwd: job.folder.canonical }),
-				namzuHome: ui.home(),
-				folder: job.folder,
-			})
-			if (policy.diagnostics.length > 0)
-				throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
-			const roots = [ui.cwd(), ...ui.extraRoots()]
-			const outside = !roots.some((root) => within(root, job.folder.canonical))
-			const perDay = runsPerDay(job.schedule, now)
-			const warnings = [
-				...(outside
-					? ['The folder is outside this session’s working directory and added directories.']
-					: []),
-				...(policy.network ? ['This run can reach the network.'] : []),
-				...(job.permissions.browser
-					? [
-							`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
-						]
-					: []),
-				...chosenByTheModel(draft, job, ui.cwd(), ui.config()).map(
-					(line) => `Chosen by the model, not the default: ${line}`,
-				),
-			]
-			const preview: ScheduleJobPreview = {
-				name: job.name,
-				folder: job.folder.canonical,
-				outsideSessionRoots: outside,
-				prompt: job.prompt,
-				schedule: describeSchedule(job.schedule, {
-					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
-				}),
-				nextFireTimes: upcomingFireTimes(job.schedule, now, 3).map((t) => t.toISOString()),
-				rules: policy.lines,
-				unmatched: job.permissions.unmatched,
-				execution: job.permissions.execution,
-				networkAccess: policy.network,
-				budget: {
-					maxIterations: job.budget.maxIterations,
-					tokenBudget: job.budget.tokenBudget,
-					timeoutMs: job.budget.timeoutMs,
-				},
-				...(job.schedule.kind === 'at'
-					? {}
-					: { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
-				model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
-				credentialSource: await credentialText(job.model.provider),
-				warnings,
-			}
+			const chosen = chosenByTheModel(draft, job, ui.cwd(), ui.config()).map(
+				(line) => `Chosen by the model, not the default: ${line}`,
+			)
+			const { preview, policy } = await previewOf(job, chosen, now)
 			built.set(preview, { job, lines: previewLines(job, policy, now) })
 			return preview
 		},
@@ -310,14 +449,107 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			ui.say(
 				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
-			return {
-				name: job.name,
-				...(installed
-					? {}
-					: {
-							note: 'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`. Tell them; do not say it will run.',
-						}),
+			return { name: job.name, ...(installed ? {} : { note: NOT_INSTALLED_NOTE }) }
+		},
+
+		// A change is confirmed like a new job, whole, with what changes
+		// above it, and saved to the same job: its id, name and history stay.
+		// Every field it can touch is in the confirmation's digest, so the
+		// saved job carries the operator's new confirmation, as an edit on a
+		// terminal does.
+		async previewUpdate(ref: string, changes: ScheduleJobChanges) {
+			const current = findJob(paths(), ref)
+			const now = new Date()
+			const job = editedJob(
+				current,
+				buildJob(updateRequest(current, changes, ui.cwd()), {
+					paths: paths(),
+					config: ui.config(),
+					now,
+				}),
+			)
+			const { preview, policy } = await previewOf(job, [], now)
+			const view = (j: ScheduleJob) =>
+				confirmationView(
+					j,
+					compileJobPolicy(j.permissions, {
+						layers: readPermissionLayers({ cwd: j.folder.canonical }),
+						namzuHome: ui.home(),
+						folder: j.folder,
+					}),
+					now,
+				)
+			const differs = describeChanges(view(current), view(job))
+			if (differs.length === 0) throw new Error(`That changes nothing in "${current.name}".`)
+			const lines = [...changesSinceConfirmed(readHistory(paths(), current.id)), ...differs]
+			proposedUpdates.set(preview, {
+				current,
+				job,
+				lines: previewLines(job, policy, now),
+				changes: lines,
+			})
+			return { preview, changes: lines, permissionsChange: permissionsChanged(current, job) }
+		},
+
+		async confirmUpdate(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<boolean> {
+			const entry = proposedUpdates.get(request.preview)
+			if (!entry) return false
+			ui.say(renderUpdateConfirmation(request, entry.lines))
+			const answer = await ui.ask(
+				{
+					questionId: `schedule-update:${entry.current.id}`,
+					question: `Save the change the model proposed to the scheduled job "${entry.current.name}"? (details above)`,
+					header: 'Proposed by the model',
+					options: [
+						{ id: 'cancel', label: 'Cancel', description: 'Change nothing' },
+						{
+							id: 'save',
+							label: 'Save',
+							description: request.permissionsChange
+								? 'It keeps its history and runs under the new permissions above'
+								: 'It keeps its history and runs as shown above',
+						},
+					],
+					multiSelect: false,
+					allowFreeText: false,
+				},
+				signal,
+			)
+			return answer.kind === 'answer' && answer.selectedOptionIds[0] === 'save'
+		},
+
+		async update(preview: ScheduleJobPreview) {
+			const entry = proposedUpdates.get(preview)
+			if (!entry) throw new Error('That proposal is no longer current; propose it again.')
+			const now = new Date()
+			let next: ScheduleJob
+			try {
+				next = updateJob(paths(), entry.current.id, entry.current.revision, () =>
+					confirmJob(entry.job, 'tool-confirmed', now, {
+						paused: entry.current.state === 'paused',
+					}),
+				)
+			} catch (error) {
+				if (error instanceof ScheduleConflictError)
+					throw new Error(
+						`"${entry.current.name}" changed while the operator was being asked; propose the change again.`,
+					)
+				throw error
 			}
+			proposedUpdates.delete(preview)
+			appendHistory(paths(), next.id, {
+				v: 1,
+				kind: 'job',
+				at: now.toISOString(),
+				action: 'edited',
+				by: 'tool',
+				changes: entry.changes,
+			})
+			const installed = readManifest(paths()) !== undefined
+			ui.say(
+				`⏲ Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
+			)
+			return { name: next.name, ...(installed ? {} : { note: NOT_INSTALLED_NOTE }) }
 		},
 
 		// Every job, whatever `allFolders` says: a model that has just created

@@ -22,7 +22,7 @@ import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
 import { ScheduleDaemon } from '../../schedule/daemon/daemon.js'
 import { runFire } from '../../schedule/fire/fire.js'
 import { appendHistory, foldHistory, readHistory } from '../../schedule/store/history.js'
-import { listJobs } from '../../schedule/store/jobs.js'
+import { confirmationHolds, listJobs, readJob, updateJob } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import {
 	type PermissionRequest,
@@ -580,6 +580,132 @@ describe('the schedule tool’s host', () => {
 		symlinkSync(sb.project, link)
 		const viaLink = await host('create', () => link).tool.execute({ action: 'list' }, {} as never)
 		expect(viaLink.output).toMatch(/^here · .*\(this folder\)$/m)
+	})
+
+	describe('update', () => {
+		// The operator's trial: asked to change a job, the model deleted it
+		// and created it again, and its history went with it.
+		const every2 = { ...input, name: 'alert', when: 'every 2m', prompt: 'Show the alert.' }
+
+		it('changes the job in place after the operator saves: same id, history kept, confirmed again', async () => {
+			expect((await host('create').tool.execute(every2, {} as never)).success).toBe(true)
+			const [before] = listJobs(sb.paths).jobs
+			const { tool, said, questions } = host('save')
+			const result = await tool.execute(
+				{ action: 'update', job: 'alert', when: 'every 5m', prompt: 'Show the alert twice.' },
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			expect(result.output).toMatch(/updated in place and keeps its history/)
+			const [after] = listJobs(sb.paths).jobs
+			expect(after?.id).toBe(before?.id)
+			expect(after?.createdAt).toBe(before?.createdAt)
+			expect(after?.revision).toBe((before?.revision ?? 0) + 1)
+			expect(after?.prompt).toBe('Show the alert twice.')
+			expect(after?.schedule).toMatchObject({ kind: 'every', everyMs: 5 * 60_000 })
+			expect(after?.confirmation?.surface).toBe('tool-confirmed')
+			expect(after && confirmationHolds(after)).toBe(true)
+			// What changes is shown above the job, as `schedule edit` shows it.
+			expect(said.at(-2)).toContain(
+				'PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job alert',
+			)
+			expect(said.at(-2)).toMatch(
+				/Changed since it was last confirmed\n {2}- When {8}every 2 minutes/,
+			)
+			expect(said.at(-2)).toContain('+ When        every 5 minutes')
+			expect(said.at(-2)).toContain('+ Prompt  Show the alert twice.')
+			expect(said.at(-2)).not.toContain('THE PERMISSIONS CHANGE')
+			expect(questions.at(-1)?.options.map((o) => o.id)).toEqual(['cancel', 'save'])
+			const history = readHistory(sb.paths, after?.id as string)
+			expect(history.map((r) => (r.kind === 'job' ? r.action : r.kind))).toEqual([
+				'created',
+				'edited',
+			])
+			const edited = history.at(-1)
+			expect(edited?.kind === 'job' && edited.by).toBe('tool')
+			expect(edited?.kind === 'job' && edited.changes).toContain('+ When        every 5 minutes')
+		})
+
+		it('changes nothing unless the operator saves', async () => {
+			await host('create').tool.execute(every2, {} as never)
+			const [before] = listJobs(sb.paths).jobs
+			const result = await host('cancel').tool.execute(
+				{ action: 'update', job: 'alert', when: 'every 5m' },
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.data).toEqual({ cancelled: true })
+			expect(listJobs(sb.paths).jobs[0]).toEqual(before)
+		})
+
+		it('says so when the permissions change, and they are what the job runs under after', async () => {
+			await host('create').tool.execute(every2, {} as never)
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'alert',
+					permissions: {
+						preset: 'edit-in-folder',
+						rules: { bash: { 'powershell.exe -NoProfile -Command*': 'allow' } },
+						unmatched: 'deny',
+					},
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			expect(said.at(-2)).toContain('THE PERMISSIONS CHANGE')
+			expect(said.at(-2)).toMatch(/\+ bash "powershell\.exe -NoProfile -Command\*": allow/)
+			const [job] = listJobs(sb.paths).jobs
+			expect(job?.permissions.rules.bash).toEqual({
+				'powershell.exe -NoProfile -Command*': 'allow',
+			})
+			expect(job && confirmationHolds(job)).toBe(true)
+		})
+
+		it('keeps a paused job paused', async () => {
+			await host('create-paused').tool.execute(every2, {} as never)
+			await host('save').tool.execute(
+				{ action: 'update', job: 'alert', when: 'every 5m' },
+				{} as never,
+			)
+			expect(listJobs(sb.paths).jobs[0]?.state).toBe('paused')
+		})
+
+		it('refuses what changes nothing, a time zone alone on a schedule that has none, and a job that moved on', async () => {
+			await host('create').tool.execute(every2, {} as never)
+			const { tool } = host('save')
+			expect(
+				(await tool.execute({ action: 'update', job: 'alert', when: 'every 2m' }, {} as never))
+					.error,
+			).toMatch(/changes nothing/)
+			expect(
+				(await tool.execute({ action: 'update', job: 'alert', tz: 'Europe/Istanbul' }, {} as never))
+					.error,
+			).toMatch(/only a cron schedule/)
+			// The job is changed elsewhere while the operator is being asked.
+			const racing = createScheduleToolHost({
+				home: () => sb.home,
+				cwd: () => sb.project,
+				extraRoots: () => [],
+				model: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
+				config: () => ({}),
+				sessionId: () => undefined,
+				say: () => {},
+				ask: async () => {
+					const job = listJobs(sb.paths).jobs[0]
+					if (job) updateJob(sb.paths, job.id, job.revision, (j) => ({ ...j, prompt: 'meanwhile' }))
+					return { kind: 'answer', selectedOptionIds: ['save'] }
+				},
+			})
+			const [raced] = buildScheduleTools(racing)
+			const lost = await raced?.execute(
+				{ action: 'update', job: 'alert', when: 'every 5m' },
+				{} as never,
+			)
+			expect(lost?.error).toMatch(/changed while the operator was being asked/)
+			expect(readJob(sb.paths, listJobs(sb.paths).jobs[0]?.id as string)?.prompt).toBe('meanwhile')
+		})
 	})
 
 	it('refuses a folder the CLI would refuse, and lists other folders without prompts', async () => {

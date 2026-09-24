@@ -14,7 +14,14 @@ import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import type { PermissionsConfig } from '../../permissions/rules.js'
-import { type JobRequest, JobRequestError, buildJob, confirmJob, previewLines } from '../build.js'
+import {
+	type JobRequest,
+	JobRequestError,
+	buildJob,
+	confirmJob,
+	editedJob,
+	previewLines,
+} from '../build.js'
 import {
 	changesBlock,
 	changesSinceConfirmed,
@@ -435,19 +442,7 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 			config: ctx.config,
 			now,
 		})
-		const candidate: ScheduleJob = {
-			...current,
-			prompt: rebuilt.prompt,
-			folder: rebuilt.folder,
-			schedule: rebuilt.schedule,
-			permissions: rebuilt.permissions,
-			budget: rebuilt.budget,
-			model: rebuilt.model,
-			notify: rebuilt.notify,
-			failurePolicy: rebuilt.failurePolicy,
-			retention: rebuilt.retention,
-			approvalTtlMs: rebuilt.approvalTtlMs,
-		}
+		const candidate = editedJob(current, rebuilt)
 		const view = (job: ScheduleJob) =>
 			confirmationView(
 				job,

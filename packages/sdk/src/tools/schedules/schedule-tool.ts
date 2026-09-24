@@ -7,7 +7,9 @@ import { scanSchedulePrompt } from './prompt-scan.js'
 import type {
 	ScheduleBrowserGrant,
 	ScheduleBrowserSiteLevel,
+	ScheduleJobChanges,
 	ScheduleJobDraft,
+	ScheduleJobUpdateProposal,
 	ScheduleToolHost,
 } from './types.js'
 
@@ -15,7 +17,8 @@ export const SCHEDULE_TOOL_NAME = 'schedule'
 
 /**
  * A person reads the whole proposal — the prompt, the rules, the schedule,
- * the credential source — before answering `create`, `resume` or `delete`.
+ * the credential source — before answering `create`, `update`, `resume` or
+ * `delete`.
  * The executor's `DEFAULT_TOOL_TIMEOUT_MS` (two minutes) is sized for a tool
  * call, not a person on the other end of a screen, and would abandon the
  * call out from under them mid-read. `save_skill`
@@ -30,18 +33,25 @@ const BROWSER_PROFILE = /^[a-z0-9][a-z0-9-]{0,62}$/
 
 const inputSchema = z.object({
 	action: z
-		.enum(['create', 'list', 'pause', 'resume', 'delete'])
-		.describe('What to do. create, resume and delete ask the operator first.'),
+		.enum(['create', 'list', 'update', 'pause', 'resume', 'delete'])
+		.describe(
+			'What to do. create, update, resume and delete ask the operator first. To change a job, update it: deleting and creating it again loses its history.',
+		),
 	name: z
 		.string()
 		.regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 		.optional()
 		.describe('create: job name, lowercase letters, digits and dashes'),
-	prompt: z.string().min(1).max(20_000).optional().describe('create: what the run is asked to do'),
+	prompt: z
+		.string()
+		.min(1)
+		.max(20_000)
+		.optional()
+		.describe('create, update: what the run is asked to do'),
 	when: z
 		.string()
 		.optional()
-		.describe('create: "every 30m", "0 9 * * 1-5" (cron), "at 2026-09-24 09:00", "in 2h"'),
+		.describe('create, update: "every 30m", "0 9 * * 1-5" (cron), "at 2026-09-24 09:00", "in 2h"'),
 	folder: z
 		.string()
 		.optional()
@@ -90,7 +100,9 @@ const inputSchema = z.object({
 				.describe('Browser access; omit for none'),
 		})
 		.optional()
-		.describe('create: REQUIRED explicit permission set; there is no default'),
+		.describe(
+			'create: REQUIRED explicit permission set; there is no default. update: the whole new set, only when the permissions change',
+		),
 	budget: z
 		.object({
 			maxIterations: z
@@ -118,7 +130,7 @@ const inputSchema = z.object({
 		})
 		.optional()
 		.describe('Limits of ONE run; omit to use the defaults'),
-	job: z.string().optional().describe('pause/resume/delete: job name'),
+	job: z.string().optional().describe('update/pause/resume/delete: job name'),
 	allFolders: z.boolean().optional().describe('list: include jobs of other folders (names only)'),
 })
 
@@ -208,6 +220,27 @@ function browserGrant(
 	}
 }
 
+/** A proposed permission set as a draft carries it, or why it is refused. */
+function checkPermissions(
+	host: ScheduleToolHost,
+	proposed: NonNullable<Input['permissions']>,
+): { ok: true; permissions: ScheduleJobDraft['permissions'] } | { ok: false; error: string } {
+	if (!proposed.preset && !proposed.rules && !proposed.browser) {
+		return {
+			ok: false,
+			error:
+				'permissions needs a preset, rules or a browser grant; an empty permission set is not a choice.',
+		}
+	}
+	if (!proposed.browser) return { ok: true, permissions: proposed }
+	const grant = browserGrant(host, proposed.browser)
+	if (!grant.ok) return grant
+	return { ok: true, permissions: { ...proposed, browser: grant.grant } }
+}
+
+const NETWORK_WITH_HOST_SHELL =
+	'A scheduled job proposed here cannot combine web or browser access with a shell on the host. Deny bash, use execution "sandbox", or ask the operator to create it with `namzu schedule add`.'
+
 async function create(
 	host: ScheduleToolHost,
 	input: Input,
@@ -221,18 +254,9 @@ async function create(
 			`create needs ${missing.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
 		)
 	}
-	const proposed = input.permissions as NonNullable<Input['permissions']>
-	if (!proposed.preset && !proposed.rules && !proposed.browser) {
-		return refuse(
-			'permissions needs a preset, rules or a browser grant; an empty permission set is not a choice.',
-		)
-	}
-	let permissions: ScheduleJobDraft['permissions'] = proposed
-	if (proposed.browser) {
-		const grant = browserGrant(host, proposed.browser)
-		if (!grant.ok) return refuse(grant.error)
-		permissions = { ...proposed, browser: grant.grant }
-	}
+	const checked = checkPermissions(host, input.permissions as NonNullable<Input['permissions']>)
+	if (!checked.ok) return refuse(checked.error)
+	const permissions = checked.permissions
 	const draft: ScheduleJobDraft = {
 		name: input.name as string,
 		prompt: input.prompt as string,
@@ -242,11 +266,7 @@ async function create(
 		permissions,
 		...(input.budget ? { budget: input.budget } : {}),
 	}
-	if (networkWithHostShell(draft)) {
-		return refuse(
-			'A scheduled job proposed here cannot combine web or browser access with a shell on the host. Deny bash, use execution "sandbox", or ask the operator to create it with `namzu schedule add`.',
-		)
-	}
+	if (networkWithHostShell(draft)) return refuse(NETWORK_WITH_HOST_SHELL)
 	let preview: Awaited<ReturnType<ScheduleToolHost['preview']>>
 	try {
 		preview = await host.preview(draft)
@@ -300,6 +320,89 @@ async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
 	return { success: true, output: lines.join('\n'), data: { jobs } }
 }
 
+/** The fields `update` may change, as the model set them. */
+const CHANGEABLE = ['prompt', 'when', 'folder', 'tz', 'permissions', 'budget'] as const
+
+async function update(
+	host: ScheduleToolHost,
+	input: Input,
+	signal: AbortSignal | undefined,
+): Promise<ToolResult> {
+	if (!host.previewUpdate || !host.confirmUpdate || !host.update) {
+		return refuse(
+			'This host cannot change a scheduled job. Ask the operator to change it themselves; do not delete and create it again, which loses its history.',
+		)
+	}
+	if (!input.job) return refuse("update needs job (the job's name) and the fields to change.")
+	if (input.name !== undefined) {
+		return refuse(
+			'update cannot rename a job: name the job to change with job, and leave name out.',
+		)
+	}
+	const given = CHANGEABLE.filter((k) => input[k] !== undefined)
+	if (given.length === 0) {
+		return refuse(`update needs at least one of ${CHANGEABLE.join(', ')} to change.`)
+	}
+	let permissions: ScheduleJobDraft['permissions'] | undefined
+	if (input.permissions) {
+		const checked = checkPermissions(host, input.permissions)
+		if (!checked.ok) return refuse(checked.error)
+		permissions = checked.permissions
+		if (networkWithHostShell({ name: '', prompt: '', when: '', permissions }))
+			return refuse(NETWORK_WITH_HOST_SHELL)
+	}
+	const changes: ScheduleJobChanges = {
+		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+		...(input.when !== undefined ? { when: input.when } : {}),
+		...(input.folder !== undefined ? { folder: input.folder } : {}),
+		...(input.tz !== undefined ? { tz: input.tz } : {}),
+		...(permissions ? { permissions } : {}),
+		...(input.budget ? { budget: input.budget } : {}),
+	}
+	let proposal: ScheduleJobUpdateProposal
+	try {
+		proposal = await host.previewUpdate(input.job, changes)
+	} catch (error) {
+		return refuse(error instanceof Error ? error.message : String(error))
+	}
+	let confirmed = false
+	try {
+		confirmed = await host.confirmUpdate(
+			{
+				...proposal,
+				promptFindings: scanSchedulePrompt(proposal.preview.prompt),
+				proposedBy: 'model',
+			},
+			signal,
+		)
+	} catch {
+		confirmed = false
+	}
+	// As for `create`: never save on an answer that came after the
+	// operator was no longer being asked.
+	if (signal?.aborted) confirmed = false
+	if (!confirmed) {
+		return {
+			...refuse(
+				`The operator did not confirm the change; "${proposal.preview.name}" was not changed.`,
+			),
+			data: { cancelled: true },
+		}
+	}
+	let saved: Awaited<ReturnType<NonNullable<ScheduleToolHost['update']>>>
+	try {
+		saved = await host.update(proposal.preview)
+	} catch (error) {
+		return refuse(error instanceof Error ? error.message : String(error))
+	}
+	const said = `Job "${saved.name}" was updated in place and keeps its history. It runs ${proposal.preview.schedule}.`
+	return {
+		success: true,
+		output: saved.note ? `${said} ${saved.note}` : said,
+		data: { name: saved.name, updated: true, changes: proposal.changes },
+	}
+}
+
 async function lifecycle(
 	host: ScheduleToolHost,
 	input: Input,
@@ -331,12 +434,13 @@ async function lifecycle(
 }
 
 /**
- * The `schedule` tool: create, list, pause, resume and delete the operator's
- * scheduled jobs from a conversation.
+ * The `schedule` tool: create, list, update, pause, resume and delete the
+ * operator's scheduled jobs from a conversation.
  *
- * Creation, resuming and deleting are confirmed by a person through the host
- * (`ScheduleToolHost.confirm`), on a screen the host draws from its own
- * computation. The model cannot propose that uncovered calls run without
+ * Creation, updating, resuming and deleting are confirmed by a person
+ * through the host (`ScheduleToolHost.confirm`, `confirmUpdate`), on a
+ * screen the host draws from its own computation. An update changes the
+ * job in place, so it keeps its id and its history. The model cannot propose that uncovered calls run without
  * asking, nor web access beside a host shell. Register it only where a person
  * is present to confirm: never in a headless run, a scheduled run or a
  * sub-agent.
@@ -346,7 +450,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],
@@ -358,8 +462,8 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 			concurrencySafe: false,
 			presentCall: presentScheduleCall,
 			presentResult: presentScheduleResult,
-			// A person, not a tool, answers `create`/`resume`/`delete`; see
-			// `OPERATOR_CONFIRM_TIMEOUT_MS`.
+			// A person, not a tool, answers `create`/`update`/`resume`/`delete`;
+			// see `OPERATOR_CONFIRM_TIMEOUT_MS`.
 			timeoutMs: OPERATOR_CONFIRM_TIMEOUT_MS,
 			async execute(input, context: ToolContext) {
 				switch (input.action) {
@@ -367,6 +471,8 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 						return create(host, input, context.abortSignal)
 					case 'list':
 						return list(host, input)
+					case 'update':
+						return update(host, input, context.abortSignal)
 					default:
 						return lifecycle(host, input, input.action, context.abortSignal)
 				}

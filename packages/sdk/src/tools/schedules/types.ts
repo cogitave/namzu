@@ -122,6 +122,42 @@ export interface ScheduleJobSummary {
 	readonly inSessionFolder?: boolean
 }
 
+/**
+ * What the model proposes to change in an existing job. Every field left
+ * out keeps the job's current value. `permissions`, when given, is the whole
+ * new set, with the same limits as a new job's; the host keeps the job's
+ * `execution` when it is not given, and its additional directories.
+ */
+export interface ScheduleJobChanges {
+	readonly prompt?: string
+	readonly when?: string
+	readonly folder?: string
+	readonly tz?: string
+	readonly permissions?: ScheduleJobDraft['permissions']
+	readonly budget?: ScheduleJobDraft['budget']
+}
+
+/** A proposed change to a job, as the host computed it. */
+export interface ScheduleJobUpdateProposal {
+	/** The job as it would be once changed. Every field is the host's own computation. */
+	readonly preview: ScheduleJobPreview
+	/**
+	 * What differs from the job as it stands (and from edits saved since it
+	 * was last confirmed), one line each: `- ` what goes, `+ ` what comes.
+	 */
+	readonly changes: readonly string[]
+	/** The change touches what a run may do: its rules, `unmatched`, where it runs, its browser grant. */
+	readonly permissionsChange: boolean
+}
+
+/** What the person confirming a change is shown. */
+export interface ScheduleUpdateRequest extends ScheduleJobUpdateProposal {
+	/** The prompt tripwire's findings over `preview.prompt`. */
+	readonly promptFindings: readonly string[]
+	/** Always `model` from this tool. */
+	readonly proposedBy: 'model'
+}
+
 /** What the person answered to a proposed job. */
 export type ScheduleConfirmAnswer = 'create' | 'create-paused' | 'cancel'
 
@@ -183,6 +219,25 @@ export interface ScheduleToolHost {
 	pause(job: string): Promise<void>
 	resume(job: string): Promise<void>
 	delete(job: string): Promise<void>
+	/**
+	 * Validate a change to `job` (a name or id prefix) and compute what the
+	 * person will be shown. Throws with a message on a refusal. The tool
+	 * offers `update` only when a host has all three of `previewUpdate`,
+	 * `confirmUpdate` and `update`.
+	 */
+	previewUpdate?(job: string, changes: ScheduleJobChanges): Promise<ScheduleJobUpdateProposal>
+	/**
+	 * Ask the person whether to save the change. Anything but `true` — a
+	 * thrown error, a closed screen — changes nothing. See `confirm` on
+	 * `signal`.
+	 */
+	confirmUpdate?(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<boolean>
+	/**
+	 * Save the change the person confirmed, to the same job: its id and its
+	 * history are kept, and the confirmation is the person's. `note` as for
+	 * `create`.
+	 */
+	update?(preview: ScheduleJobPreview): Promise<{ readonly name: string; readonly note?: string }>
 }
 
 /** A prompt the session re-sends to itself on an interval. */

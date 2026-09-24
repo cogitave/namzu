@@ -599,7 +599,14 @@ other than the session's, the sandbox, a budget, a visible browser window —
 is marked on the confirmation: `Chosen by the model, not the default: time
 zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
 installed, the line that says the job was created also says it does not run
-until `namzu schedule install`. The tool's `list` shows every job in
+until `namzu schedule install`. The tool's `update` changes a job in place
+the way `schedule edit` does: the confirmation starts with what changes
+(`Changed since it was last confirmed`, `-`/`+` lines), says `THE PERMISSIONS
+CHANGE` when the rules, `unmatched`, where it runs or the browser grant do,
+and then shows the job as it will run, whole; `Cancel` is the default and
+`Save` writes the same job, its id and history kept, with your new
+confirmation (`tool-confirmed`), paused if it was paused. Its history records
+`edited by tool` with the changes. The tool's `list` shows every job in
 `NAMZU_HOME`, whatever folder it runs in and whatever `allFolders` says, as
 `namzu schedule list` does; the jobs of the session's own folder are marked
 `(this folder)` and are the only ones whose prompt the model is given. It used
