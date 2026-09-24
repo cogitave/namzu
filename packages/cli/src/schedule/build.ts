@@ -161,6 +161,16 @@ export function buildJob(
 	if (request.wakeGate !== undefined && runKind !== 'script+agent') {
 		throw new JobRequestError('a wake-gate only applies to a script+agent job')
 	}
+	// Native (non-WSL) Windows resolves the `bash` tool's shell to `cmd.exe`,
+	// read only as a loose `sh`-dialect approximation — an acceptable bar for
+	// a human watching a live turn, not for a whole script body confirmed
+	// once and never reviewed again. WSL is unaffected: a WSL process reports
+	// `platform: 'linux'`, since `__fire` there runs inside the distro.
+	if (runKind !== 'agent' && process.platform === 'win32') {
+		throw new JobRequestError(
+			`a ${runKind} job is not supported on native Windows yet: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+		)
+	}
 	const permissions = (() => {
 		try {
 			return expandPermissions(request.permissions)

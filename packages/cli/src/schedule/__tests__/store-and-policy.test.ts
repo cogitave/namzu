@@ -335,6 +335,22 @@ describe('building a script/script+agent job', () => {
 		).toThrow(/execution: sandbox is not yet supported/)
 	})
 
+	it('refuses a script/script+agent job on native (non-WSL) Windows', () => {
+		const real = process.platform
+		Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+		try {
+			expect(() =>
+				build({
+					runKind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				}),
+			).toThrow(/not supported on native Windows/)
+		} finally {
+			Object.defineProperty(process, 'platform', { value: real })
+		}
+	})
+
 	it('editedJob preserves runKind/script when the edit does not touch them', () => {
 		const current = build({
 			runKind: 'script',

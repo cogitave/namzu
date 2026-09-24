@@ -45,6 +45,33 @@ that is not an absolute path.
 | Windows | Task Scheduler `\namzu\<name>` | at logon | a trigger repeating every 5 minutes |
 | WSL | Task Scheduler `\namzu\<name>-wsl-<distro>`, through `wsl.exe` | at Windows logon | a trigger repeating every 5 minutes |
 
+### `script`/`script+agent` jobs, per backend
+
+A [`script`/`script+agent` job](scheduled-tasks.md#kinds)'s body is bash or
+`sh` only — there is no PowerShell dialect the floor and the job's rules can
+read a whole script body in. What actually runs it follows the backend:
+
+- **`systemd-user`** (Linux) and **`launchd`** (macOS): the daemon and every
+  `__fire` child are ordinary Linux/macOS processes, so a script runs
+  through whichever of `bash`/`/bin/sh` the host resolves for the `bash`
+  tool, unchanged.
+- **WSL** (`wsl-windows-task`): Task Scheduler only keeps the distro running
+  through `wsl.exe`; the daemon, and therefore every `__fire` child it
+  spawns — including a job's script — is a **Linux process inside the
+  distro**. A script runs on the Linux side exactly as under `systemd-user`.
+  There is no automatic bridging to the Windows side for a job's own
+  script. To reach Windows from a bash script, shell out to
+  `powershell.exe` **by absolute path** with `-Command '<literal text>'`
+  (never `-EncodedCommand`, refused outright — see [What a run may
+  do](scheduled-tasks.md#what-a-run-may-do)); the floor can still read the
+  literal text as one of the outer command's words.
+- **Native `windows-task`** (Windows, not WSL): `add`/the `schedule` tool
+  **refuses to create** a `script`/`script+agent` job outright. The
+  interactive `bash` tool's loose `sh`-dialect approximation of `cmd.exe`
+  is an acceptable bar for a human watching a live turn, but not for a
+  script a human confirms once and never reviews again. Revisit once a
+  `cmd`/PowerShell dialect exists in the shared lexer.
+
 ### Linux: systemd
 
 ```ini
