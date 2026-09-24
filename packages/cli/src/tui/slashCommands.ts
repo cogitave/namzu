@@ -32,6 +32,7 @@ import {
 	type HostCommandOutcome,
 	type MemoryType,
 	type ReasoningEffort,
+	RegistryCollisionError,
 	type SerializableHostCommand,
 	type SessionTokenBudgetSummary,
 	isMemoryType,
@@ -487,9 +488,11 @@ export function matchSlashCommands(
 }
 
 /** A registry command whose name a CLI-local one already answers to. */
-export class CommandNameCollisionError extends Error {
+export class CommandNameCollisionError extends RegistryCollisionError {
 	constructor(name: string) {
 		super(
+			'SlashCommands',
+			name,
 			`/${name} is registered by the kernel AND by this host. One of them would silently never run, and which depends on merge order — rename one.`,
 		)
 		this.name = 'CommandNameCollisionError'

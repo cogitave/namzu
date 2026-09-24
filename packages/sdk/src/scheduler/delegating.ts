@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE, ZERO_COST } from '../constants/limits.js'
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { Delegate, DelegateRequest, DelegateResult } from '../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskState } from '../types/agent/task.js'
@@ -40,11 +41,15 @@ export interface DelegatingTaskSchedulerConfig {
 }
 
 /** Two delegates, or a delegate and nothing, claiming one id. */
-export class DelegateIdCollisionError extends Error {
+export class DelegateIdCollisionError extends RegistryCollisionError {
 	readonly details: { id: string }
 
 	constructor(details: { id: string }) {
-		super(`Two delegates are registered under the id "${details.id}".`)
+		super(
+			'DelegatingTaskScheduler',
+			details.id,
+			`Two delegates are registered under the id "${details.id}".`,
+		)
 		this.name = 'DelegateIdCollisionError'
 		this.details = details
 	}
