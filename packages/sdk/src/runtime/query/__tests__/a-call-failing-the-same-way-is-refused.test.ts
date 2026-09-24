@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
@@ -42,10 +43,9 @@ const call = (args: Record<string, unknown>, id: string): MockTurn => ({
 	finishReason: 'tool_calls',
 })
 
-function tools(outcomes: readonly boolean[], executions: string[]): ToolRegistry {
-	const registry = new ToolRegistry()
+function tools(outcomes: readonly boolean[], executions: string[]): Toolset {
 	let n = 0
-	registry.register(
+	return testToolset(
 		defineTool({
 			name: 'screenshot',
 			description: 'fails until it does not',
@@ -65,7 +65,6 @@ function tools(outcomes: readonly boolean[], executions: string[]): ToolRegistry
 			},
 		}),
 	)
-	return registry
 }
 
 async function run(turns: readonly MockTurn[], outcomes: readonly boolean[]) {
@@ -74,7 +73,7 @@ async function run(turns: readonly MockTurn[], outcomes: readonly boolean[]) {
 	const executions: string[] = []
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-		tools: tools(outcomes, executions),
+		toolsets: [tools(outcomes, executions)],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 12 },
 		agentId: 'a',
 		agentName: 'A',

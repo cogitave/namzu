@@ -7,9 +7,10 @@ import { z } from 'zod'
 import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
@@ -57,9 +58,8 @@ class CapturingProvider extends MockLLMProvider {
 	}
 }
 
-function registry(): ToolRegistry {
-	const r = new ToolRegistry()
-	r.register(
+function registry(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'probe',
 			description: 'probes',
@@ -72,7 +72,6 @@ function registry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'ok' }),
 		}),
 	)
-	return r
 }
 
 const textOf = (messages: Message[]) =>
@@ -91,7 +90,7 @@ async function run(opts: {
 
 	const result = await drainQuery({
 		provider,
-		tools: registry(),
+		toolsets: [registry()],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',
