@@ -6,7 +6,8 @@
  * autocomplete dropdown is open), Tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
- * Ctrl+G edits the draft in VISUAL/EDITOR, Backspace deletes.
+ * Ctrl+G edits the draft in VISUAL/EDITOR, Backspace deletes, Alt+W drops or
+ * arms the composer trigger nearest the cursor (`./triggers/`).
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
@@ -20,6 +21,25 @@ import { parseModelSelectionIntent } from './model-selection-intent.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { tagRow } from './triggers/copy.js'
+import {
+	type Detection,
+	EMPTY_DETECTION,
+	type TriggerContext,
+	type TriggerHit,
+	detectTriggers,
+} from './triggers/detect.js'
+import {
+	type EditOrigin,
+	type Span,
+	type TriggerOverride,
+	applyEdit,
+	diffEdit,
+	overrideMap,
+	replaceAll,
+	shiftOverrides,
+} from './triggers/provenance.js'
+import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
@@ -92,6 +112,22 @@ export interface ComposerProps {
 	readonly onOpenAgentPanel?: () => void
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
+	/**
+	 * Composer triggers (`./triggers/`). Absent means the feature is off: no
+	 * highlight, no tag row, and every submit carries no triggers.
+	 */
+	readonly triggers?: ComposerTriggerSettings
+	/** A turn is running, so Enter steers into it; the tag row says what that means for a trigger. */
+	readonly turnActive?: boolean
+}
+
+export interface ComposerTriggerSettings {
+	readonly registry: TriggerRegistry
+	/** Show suggestions (`composerTriggers.suggest`). */
+	readonly suggest: boolean
+	readonly context: TriggerContext
+	/** The model's highest published effort level, named in the tag row when a trigger pins it. */
+	readonly highestEffort?: string
 }
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
@@ -117,9 +153,32 @@ export type SubmitSource =
 	| 'operator-loop'
 	| 'model-loop'
 
-export interface SubmitMeta {
-	readonly source: SubmitSource
+/**
+ * A trigger armed when the operator pressed Enter or Tab, with its words'
+ * offsets in the message as sent (the trimmed text `onSubmit` receives).
+ */
+export interface ArmedTrigger {
+	readonly id: TriggerId
+	readonly start: number
+	readonly end: number
 }
+
+/**
+ * Only the composer's own submit can carry triggers: the type has no
+ * `triggers` for any other source, so a loop, a picker or a menu cannot arm
+ * one by passing an argument.
+ */
+export type SubmitMeta =
+	| {
+			readonly source: 'composer'
+			readonly triggers: readonly ArmedTrigger[]
+			/**
+			 * The message is nothing but armed triggers and filler words, with no
+			 * paste chip or attachment: a standalone trigger runs its command.
+			 */
+			readonly onlyTriggers: boolean
+	  }
+	| { readonly source: Exclude<SubmitSource, 'composer'> }
 
 export interface ComposerDraft {
 	readonly token: number
@@ -147,10 +206,70 @@ interface ComposerDisplay {
 	readonly after: string
 	readonly leadingEllipsis: boolean
 	readonly trailingEllipsis: boolean
+	/** The window of the source drawn, `[start, end)`. */
+	readonly start: number
+	readonly end: number
+}
+
+/** A run of the drawn draft, styled when it is a trigger's words. */
+interface DisplaySegment {
+	readonly text: string
+	readonly style?: 'armed' | 'unavailable'
+}
+
+/**
+ * `source[from, to)` cut at trigger words, each piece made terminal-safe on
+ * its own. Escaping after cutting, never before, is what keeps the highlight
+ * on the right cells: `terminalDisplayText` turns one unsafe code point into
+ * several characters, and offsets into the source would miss them.
+ */
+function displaySegments(
+	source: string,
+	from: number,
+	to: number,
+	styled: readonly { readonly start: number; readonly end: number; readonly style: 'armed' | 'unavailable' }[],
+): DisplaySegment[] {
+	const segments: DisplaySegment[] = []
+	let at = from
+	for (const span of styled) {
+		const start = Math.max(from, span.start)
+		const end = Math.min(to, span.end)
+		if (end <= start || start < at) continue
+		if (start > at) segments.push({ text: terminalDisplayText(source.slice(at, start)) })
+		segments.push({ text: terminalDisplayText(source.slice(start, end)), style: span.style })
+		at = end
+	}
+	if (to > at) segments.push({ text: terminalDisplayText(source.slice(at, to)) })
+	return segments
+}
+
+function renderSegments(segments: readonly DisplaySegment[]) {
+	return segments.map((segment, index) =>
+		segment.style ? (
+			<Text
+				// biome-ignore lint/suspicious/noArrayIndexKey: segments of one draft, in order.
+				key={index}
+				color={segment.style === 'armed' ? theme.accent.trigger : theme.status.warn}
+				bold={segment.style === 'armed'}
+				underline={segment.style === 'armed'}
+			>
+				{segment.text}
+			</Text>
+		) : (
+			segment.text
+		),
+	)
+}
+
+interface SavedDraft {
+	readonly value: string
+	readonly cursor: number
+	/** Which of its characters were not typed here (`./triggers/provenance.ts`). */
+	readonly spans: readonly Span[]
 }
 
 interface HistorySearchState {
-	readonly draft: { readonly value: string; readonly cursor: number }
+	readonly draft: SavedDraft
 	readonly query: string
 	readonly matches: readonly string[]
 	/** -1 is the original draft; zero is the newest matching history entry. */
@@ -293,6 +412,8 @@ function composerDisplayValue(source: string, cursor: number): ComposerDisplay {
 		after: terminalDisplayText(source.slice(cursor, end)),
 		leadingEllipsis: start > 0,
 		trailingEllipsis: end < source.length,
+		start,
+		end,
 	}
 }
 
@@ -375,6 +496,8 @@ export function Composer({
 	onDraftPresenceChange,
 	onOpenAgentPanel,
 	onCycleMode,
+	triggers,
+	turnActive = false,
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
@@ -383,10 +506,13 @@ export function Composer({
 	const cursorRef = useRef(0)
 	const [, setHistoryIndexState] = useState<number>(-1)
 	const historyIndexRef = useRef(-1)
-	const historyDraftRef = useRef<{
-		readonly value: string
-		readonly cursor: number
-	} | null>(null)
+	const historyDraftRef = useRef<SavedDraft | null>(null)
+	// Characters of the draft not typed here, and Alt+W decisions. Refs, so
+	// submit reads what the last key left; `triggerVersion` re-renders when
+	// only an Alt+W decision changed.
+	const spansRef = useRef<readonly Span[]>([])
+	const overridesRef = useRef<readonly TriggerOverride[]>([])
+	const [triggerVersion, setTriggerVersion] = useState(0)
 	const [historySearch, setHistorySearchState] = useState<HistorySearchState | null>(null)
 	const historySearchRef = useRef<HistorySearchState | null>(null)
 	const verticalColumnRef = useRef<number | null>(null)
@@ -445,12 +571,27 @@ export function Composer({
 		Math.max(10, ...visibleCommandSuggestions.map((command) => command.name.length + 4)),
 	)
 
-	const setBuffer = useCallback((nextValue: string, nextCursor = nextValue.length) => {
-		valueRef.current = nextValue
-		cursorRef.current = nextCursor
-		setValueState(nextValue)
-		setCursorState(nextCursor)
-	}, [])
+	/**
+	 * Replace the whole draft. `spans` says which characters were not typed
+	 * here; absent, the whole text counts as `origin`. Alt+W decisions belong
+	 * to the text they were made on and go with it.
+	 */
+	const setBuffer = useCallback(
+		(
+			nextValue: string,
+			nextCursor = nextValue.length,
+			origin: EditOrigin = 'recalled',
+			spans?: readonly Span[],
+		) => {
+			valueRef.current = nextValue
+			cursorRef.current = nextCursor
+			spansRef.current = spans ?? replaceAll(nextValue.length, origin)
+			overridesRef.current = []
+			setValueState(nextValue)
+			setCursorState(nextCursor)
+		},
+		[],
+	)
 
 	const setHistoryIndex = useCallback((next: number) => {
 		historyIndexRef.current = next
@@ -468,13 +609,56 @@ export function Composer({
 		setSelected(resolved)
 	}, [])
 
+	/** The triggers `draft` names, read with this draft's provenance and Alt+W decisions. */
+	const detect = (draft: string): Detection =>
+		triggers
+			? detectTriggers(draft, triggers.registry, triggers.context, {
+					nonTyped: spansRef.current,
+					overrides: overrideMap(overridesRef.current),
+					suggest: triggers.suggest,
+				})
+			: EMPTY_DETECTION
+
+	const setOverride = (hit: TriggerHit, state: TriggerOverride['state'] | null) => {
+		const others = overridesRef.current.filter(
+			(override) => !(override.id === hit.id && override.start === hit.start),
+		)
+		overridesRef.current =
+			state === null ? others : [...others, { id: hit.id, start: hit.start, end: hit.end, state }]
+		setTriggerVersion((version) => version + 1)
+	}
+
+	/** Alt+W: the trigger nearest the cursor changes state. */
+	const toggleNearestTrigger = () => {
+		const cursor = cursorRef.current
+		const distance = (hit: TriggerHit) =>
+			cursor < hit.start ? hit.start - cursor : cursor > hit.end ? cursor - hit.end : 0
+		const nearest = [...detect(valueRef.current).hits].sort((a, b) => distance(a) - distance(b))[0]
+		if (!nearest) return
+		const decided = overridesRef.current.some(
+			(override) => override.id === nearest.id && override.start === nearest.start,
+		)
+		if (decided) setOverride(nearest, null)
+		else if (nearest.state === 'suggested') setOverride(nearest, 'armed')
+		else setOverride(nearest, 'dropped')
+	}
+
+	/**
+	 * One edit of the draft, by the operator (`typed`) or not. The characters
+	 * it inserts are remembered as typed or not, and the draft's other spans
+	 * and Alt+W decisions move with it.
+	 */
 	const editBuffer = useCallback(
-		(nextValue: string, nextCursor = nextValue.length) => {
+		(nextValue: string, nextCursor = nextValue.length, origin: EditOrigin = 'typed') => {
 			verticalColumnRef.current = null
 			historyDraftRef.current = null
 			setHistorySearch(null)
 			setHistoryIndex(-1)
-			setBuffer(nextValue, nextCursor)
+			const edit = diffEdit(valueRef.current, nextValue, cursorRef.current)
+			const spans = applyEdit(spansRef.current, edit, origin)
+			const overrides = shiftOverrides(overridesRef.current, edit)
+			setBuffer(nextValue, nextCursor, origin, spans)
+			overridesRef.current = overrides
 		},
 		[setBuffer, setHistoryIndex, setHistorySearch],
 	)
@@ -483,7 +667,7 @@ export function Composer({
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
 		setHistorySearch(null)
-		setBuffer('', 0)
+		setBuffer('', 0, 'typed')
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
 		setPastes([])
@@ -494,7 +678,7 @@ export function Composer({
 	useEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
 		restoredTokenRef.current = draftToRestore.token
-		setBuffer(draftToRestore.text)
+		setBuffer(draftToRestore.text, draftToRestore.text.length, 'restored')
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
 		verticalColumnRef.current = null
@@ -529,6 +713,7 @@ export function Composer({
 			editBuffer(
 				valueRef.current.slice(0, position) + normalized + valueRef.current.slice(position),
 				position + normalized.length,
+				'pasted',
 			)
 		},
 		{ isActive: !disabled && !hidden },
@@ -568,7 +753,8 @@ export function Composer({
 			const liveSelection = Math.min(selectedRef.current, Math.max(0, liveSuggestionCount - 1))
 			const acceptSuggestion = (): boolean => {
 				if (liveSuggestionKind === 'command') {
-					editBuffer(`/${liveCommandSuggestions[liveSelection]?.name ?? ''} `)
+					const completed = `/${liveCommandSuggestions[liveSelection]?.name ?? ''} `
+					editBuffer(completed, completed.length, 'completion')
 					setSelectedIndex(0)
 					return true
 				}
@@ -581,6 +767,7 @@ export function Composer({
 							replacement +
 							valueRef.current.slice(liveMention.end),
 						liveMention.start + replacement.length,
+						'completion',
 					)
 					setSelectedIndex(0)
 					return true
@@ -611,7 +798,19 @@ export function Composer({
 					.join('\n\n')
 				if (message.length === 0 && attachments.length === 0) return false
 				const submittedAttachments = attachments.length > 0 ? attachments : undefined
-				onSubmit(message, submittedAttachments, mode, { source: 'composer' })
+				// Read again from what the last key left, not from the last render.
+				const detection = detect(valueRef.current)
+				// The message is the draft trimmed: offsets move by what the trim took.
+				const lead = valueRef.current.length - valueRef.current.trimStart().length
+				const armed = detection.hits
+					.filter((hit) => hit.state === 'armed')
+					.map((hit) => ({ id: hit.id, start: hit.start - lead, end: hit.end - lead }))
+				onSubmit(message, submittedAttachments, mode, {
+					source: 'composer',
+					triggers: armed,
+					onlyTriggers:
+						armed.length > 0 && detection.onlyTriggers && pastes.length === 0 && attachments.length === 0,
+				})
 				reset()
 				return true
 			}
@@ -636,6 +835,7 @@ export function Composer({
 						draft: browsedHistoryDraft ?? {
 							value: query,
 							cursor: cursorRef.current,
+							spans: spansRef.current,
 						},
 						query,
 						matches: [...history]
@@ -650,8 +850,8 @@ export function Composer({
 						: Math.max(search.position - 1, -1)
 				const next = { ...search, position }
 				setHistorySearch(next)
-				if (position < 0) setBuffer(next.draft.value, next.draft.cursor)
-				else setBuffer(next.matches[position] ?? next.draft.value)
+				if (position < 0) setBuffer(next.draft.value, next.draft.cursor, 'typed', next.draft.spans)
+				else setBuffer(next.matches[position] ?? next.draft.value, undefined, 'recalled')
 				return
 			}
 			if (key.return) {
@@ -685,7 +885,12 @@ export function Composer({
 				if (escapeInterrupts) return
 				const activeSearch = historySearchRef.current
 				if (activeSearch) {
-					setBuffer(activeSearch.draft.value, activeSearch.draft.cursor)
+					setBuffer(
+						activeSearch.draft.value,
+						activeSearch.draft.cursor,
+						'typed',
+						activeSearch.draft.spans,
+					)
 					setHistorySearch(null)
 					return
 				}
@@ -722,6 +927,15 @@ export function Composer({
 					return
 				}
 				const position = cursorRef.current
+				// Right after an armed keyword, Backspace drops the trigger first
+				// and deletes nothing; the next Backspace deletes as usual.
+				const keyword = detect(valueRef.current).hits.find(
+					(hit) => hit.state === 'armed' && hit.id === 'hypermode' && hit.end === position,
+				)
+				if (keyword && keyword.end - keyword.start === 'hypermode'.length) {
+					setOverride(keyword, 'dropped')
+					return
+				}
 				const previous = previousGraphemeBoundary(valueRef.current, position)
 				editBuffer(valueRef.current.slice(0, previous) + valueRef.current.slice(position), previous)
 				return
@@ -805,11 +1019,12 @@ export function Composer({
 					historyDraftRef.current = {
 						value: valueRef.current,
 						cursor: cursorRef.current,
+						spans: spansRef.current,
 					}
 				}
 				const next = Math.min(historyIndexRef.current + 1, history.length - 1)
 				setHistoryIndex(next)
-				setBuffer(history[history.length - 1 - next] ?? '')
+				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
 				return
 			}
 			if (key.downArrow || (key.ctrl && input === 'n')) {
@@ -840,12 +1055,12 @@ export function Composer({
 					const draft = historyDraftRef.current
 					historyDraftRef.current = null
 					setHistoryIndex(-1)
-					setBuffer(draft?.value ?? '', draft?.cursor ?? 0)
+					setBuffer(draft?.value ?? '', draft?.cursor ?? 0, 'typed', draft?.spans ?? [])
 					return
 				}
 				const next = historyIndexRef.current - 1
 				setHistoryIndex(next)
-				setBuffer(history[history.length - 1 - next] ?? '')
+				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
 				return
 			}
 			if (key.ctrl && input === 'g') {
@@ -864,7 +1079,9 @@ export function Composer({
 						setHistoryIndex(-1)
 						setHistorySearch(null)
 						setSelectedIndex(0)
-						editBuffer(cleaned, cleaned.length)
+						historyDraftRef.current = null
+						verticalColumnRef.current = null
+						setBuffer(cleaned, cleaned.length, 'editor')
 					})
 					.catch((error: unknown) => {
 						onNotice?.(
@@ -929,7 +1146,14 @@ export function Composer({
 				editBuffer(
 					valueRef.current.slice(0, position) + killed + valueRef.current.slice(position),
 					position + killed.length,
+					'yank',
 				)
+				return
+			}
+			// Alt+W: drop the trigger nearest the cursor, or bring one back, or
+			// arm one the row only suggested.
+			if (key.meta && input === 'w') {
+				toggleNearestTrigger()
 				return
 			}
 			if (key.ctrl || key.meta) return
@@ -948,9 +1172,15 @@ export function Composer({
 			}
 			setSelectedIndex(0)
 			const position = cursorRef.current
+			// One grapheme is a key. More in one chunk is queued keys or a paste
+			// without bracketed-paste markers; nothing here can tell which, so it
+			// does not count as typed.
+			let graphemes = 0
+			for (const _ of graphemeSegmenter.segment(input)) if (++graphemes > 1) break
 			editBuffer(
 				valueRef.current.slice(0, position) + input + valueRef.current.slice(position),
 				position + input.length,
+				graphemes > 1 ? 'burst' : 'typed',
 			)
 		},
 		{ isActive: !disabled && !hidden },
@@ -970,6 +1200,24 @@ export function Composer({
 	const effortAvailable =
 		effortIntent === 'default' ||
 		(effortIntent !== undefined && reasoningEffortLevels?.includes(effortIntent))
+	void triggerVersion
+	const detection =
+		!modelIntent && !effortIntent && !disabled ? detect(value) : EMPTY_DETECTION
+	const triggerRow = triggers
+		? tagRow(detection, {
+				columns: Math.max(1, (terminal.columns ?? 80) - 4),
+				turnActive,
+				highestEffort: triggers.highestEffort,
+				standaloneAllowed: pastes.length === 0 && attachments.length === 0,
+			})
+		: null
+	const styledSpans = detection.hits.flatMap((hit) =>
+		hit.state === 'armed' || hit.state === 'unavailable'
+			? [{ start: hit.start, end: hit.end, style: hit.state }]
+			: [],
+	)
+	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
+	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
 	const promptGlyph = disabled ? '…' : '›'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
@@ -987,6 +1235,20 @@ export function Composer({
 			{modelIntent ? (
 				<Box paddingX={1}>
 					<Text color={theme.accent.tool}>Model: {modelIntent.query} · requested</Text>
+				</Box>
+			) : null}
+			{triggerRow ? (
+				<Box paddingX={1}>
+					<Text
+						color={
+							detection.hits.some((hit) => hit.state === 'armed')
+								? theme.accent.trigger
+								: theme.text.muted
+						}
+						wrap="truncate-end"
+					>
+						{triggerRow}
+					</Text>
 				</Box>
 			) : null}
 			{pastes.length > 0 || attachments.length > 0 ? (
@@ -1017,9 +1279,9 @@ export function Composer({
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
 							{displayValue.leadingEllipsis ? '… ' : ''}
-							{displayValue.before}
+							{renderSegments(beforeSegments)}
 							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
-							{displayValue.after}
+							{renderSegments(afterSegments)}
 							{displayValue.trailingEllipsis ? ' …' : ''}
 						</Text>
 					)}

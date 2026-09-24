@@ -65,6 +65,28 @@ it takes a still colour gradient. Nothing on it moves. Where colour is refused
 40 columns the tag is left off the border whole; the footer still names the
 mode there.
 
+### Composer triggers
+
+A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
+kaydet" — gets one row inside the message frame, above the input, where the
+`Effort:`/`Model:` previews go:
+`✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`.
+The armed words in the draft are bold and underlined in sky (ANSI 117), the
+trigger's own colour: violet belongs to the session mode, which lasts, and a
+trigger lasts one message. The highlight is cut from the draft before unsafe
+characters are escaped for the terminal, so it stays on the right cells. `✦`
+(armed) and `✧` (suggested, dropped, unavailable) are one cell wide and are not
+emoji, and the state is always also a word or mark (`?`, `(off)`,
+`unavailable …`), so a terminal without colour, or a reader who cannot tell
+the two glyphs apart, loses nothing. The row is one row at every width and
+shortens by steps (full copy from 80 columns, a short form from 60, label and
+key from 40, the label alone below). The border tag and the footer are
+unchanged by a trigger: a one-turn effort pin shows in the row and in the
+transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
+and the footer keeps the session's own effort. The queue line names the armed
+triggers of queued messages (`⏎ 1 message queued — sending when ready · ✦ save
+as skill`).
+
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on
 their own, `‖` (U+2016) for modes that hold. `⏸` (U+23F8), which the reference

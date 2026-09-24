@@ -26,6 +26,12 @@ export interface SemanticColors {
 		 * border tag and the footer segment. Never a status colour.
 		 */
 		readonly hypermode: string
+		/**
+		 * An armed composer trigger (sky): its words in the draft and its tag
+		 * row. Kept apart from the session mode's violet, which names what lasts
+		 * for the session; a trigger lasts one message.
+		 */
+		readonly trigger: string
 	}
 	readonly status: {
 		readonly ok: string
@@ -51,6 +57,7 @@ export const theme: SemanticColors = {
 		system: 'ansi256(109)',
 		tool: 'ansi256(248)',
 		hypermode: 'ansi256(141)',
+		trigger: 'ansi256(117)',
 	},
 	status: {
 		ok: 'ansi256(77)',

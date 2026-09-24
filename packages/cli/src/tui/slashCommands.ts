@@ -110,6 +110,8 @@ export type SlashAction =
 	 * deprecation line before doing exactly what `/hypermode` does.
 	 */
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
+	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
+	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -701,21 +703,30 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config sources',
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
+				'/config triggers [on|off|list]',
+			],
+			details: [
+				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
 			],
 		},
-		action: (ctx, args) =>
-			args.length === 0
-				? { kind: 'settings-picker' }
-				: args[0] === 'limits'
-					? turnLimitsAction(args.slice(1))
-					: {
-							kind: 'message',
-							role: 'system',
-							content:
-								args.join(' ') === 'sources'
-									? renderConfigDebug(ctx.configDebug)
-									: 'Usage: /config [sources|limits]',
-						},
+		action: (ctx, args) => {
+			if (args.length === 0) return { kind: 'settings-picker' }
+			if (args[0] === 'limits') return turnLimitsAction(args.slice(1))
+			if (args[0] === 'triggers') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'composer-triggers', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config triggers [on|off|list]' }
+			}
+			return {
+				kind: 'message',
+				role: 'system',
+				content:
+					args.join(' ') === 'sources'
+						? renderConfigDebug(ctx.configDebug)
+						: 'Usage: /config [sources|limits|triggers]',
+			}
+		},
 	},
 	{
 		name: 'settings',
@@ -1395,6 +1406,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			usage: ['/hypermode [on|off]'],
 			details: [
 				'A session setting, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to the highest level this model or usable fallback publishes and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
+				'For one message only, start or end that message with the word hypermode: effort pinned to the highest level for that turn, then back.',
 			],
 		},
 		description: 'Toggle hypermode for this session: /hypermode [on|off].',

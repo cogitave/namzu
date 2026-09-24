@@ -651,6 +651,15 @@ export interface SendOptions {
 	 */
 	readonly hypermode?: boolean
 	/**
+	 * What the host tells the model about this turn in its own words — the
+	 * composer triggers the operator armed (`./triggers/context-text.ts`).
+	 * Read at every iteration and sent through the kernel's `context`
+	 * placement: after the history, request-only, never in it, and never in
+	 * the system prompt, so the cached prefix is the same with or without it.
+	 * Absent or empty adds nothing.
+	 */
+	readonly hostContext?: () => readonly string[]
+	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
 	 */
@@ -3818,6 +3827,13 @@ export async function createAgentSession(
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
 						if (webCapability) promptContributions.register(webGuidanceContribution)
+						const hostContext = opts?.hostContext
+						if (hostContext)
+							promptContributions.register({
+								id: 'namzu.cli.composer-triggers',
+								placement: 'context',
+								render: () => hostContext().join('\n\n') || null,
+							})
 						if (nativeWebSearch)
 							promptContributions.register({
 								id: 'namzu.web.hosted-search',

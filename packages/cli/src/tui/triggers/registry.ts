@@ -14,18 +14,15 @@
  * sub-agents never import it (a test says so).
  */
 
+import { COMPOSER_TRIGGER_DEFAULTS, COMPOSER_TRIGGER_IDS } from '../../config/composer-triggers.js'
+import type { ComposerTriggerId } from '../../config/schema.js'
 import { fold } from './fold.js'
 import { type CompiledPattern, compilePattern } from './pattern.js'
 import { verbForms } from './verbs.js'
 
-export type TriggerId = 'hypermode' | 'save-skill' | 'schedule' | 'max-effort'
+export type TriggerId = ComposerTriggerId
 
-export const TRIGGER_IDS: readonly TriggerId[] = [
-	'hypermode',
-	'save-skill',
-	'schedule',
-	'max-effort',
-]
+export const TRIGGER_IDS: readonly TriggerId[] = COMPOSER_TRIGGER_IDS
 
 /**
  * What a trigger does when the text arms it.
@@ -125,7 +122,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		},
 		effect: { kind: 'turn-context', text: 'hypermode', effort: 'highest' },
 		scope: 'turn',
-		arming: 'arm',
+		arming: COMPOSER_TRIGGER_DEFAULTS.hypermode,
 	},
 	{
 		id: 'save-skill',
@@ -162,7 +159,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		effect: { kind: 'after-turn', command: '/skills save', text: 'save-skill' },
 		scope: 'after-turn',
 		standalone: '/skills save',
-		arming: 'arm',
+		arming: COMPOSER_TRIGGER_DEFAULTS['save-skill'],
 	},
 	{
 		id: 'schedule',
@@ -183,7 +180,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		scope: 'turn',
 		// Phrases about a schedule usually describe the code being written
 		// ("write a backup script and schedule it"): offered, never armed.
-		arming: 'suggest',
+		arming: COMPOSER_TRIGGER_DEFAULTS.schedule,
 	},
 	{
 		id: 'max-effort',
@@ -196,7 +193,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		loose: {},
 		effect: { kind: 'turn-effort', effort: 'highest' },
 		scope: 'turn',
-		arming: 'off',
+		arming: COMPOSER_TRIGGER_DEFAULTS['max-effort'],
 	},
 ]
 

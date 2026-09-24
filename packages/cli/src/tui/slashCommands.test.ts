@@ -1393,7 +1393,27 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits]'),
+			content: expect.stringContaining('/config [sources|limits|triggers]'),
+		})
+	})
+
+	it('reads /config triggers on|off|list, and lists by default', () => {
+		const ctx = context()
+		expect(runSlash('/config triggers off', ctx)).toEqual({
+			kind: 'composer-triggers',
+			setting: 'off',
+		})
+		expect(runSlash('/config triggers ON', ctx)).toEqual({
+			kind: 'composer-triggers',
+			setting: 'on',
+		})
+		expect(runSlash('/config triggers', ctx)).toEqual({
+			kind: 'composer-triggers',
+			setting: 'list',
+		})
+		expect(runSlash('/config triggers maybe', ctx)).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /config triggers [on|off|list]',
 		})
 	})
 })

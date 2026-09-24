@@ -29,7 +29,9 @@ machine's time zone. In a loop you made, a prompt starting with `/` runs that
 command, and `!` and `#` mean what they mean when you type them
 ([composer prefixes](composer-prefixes.md)). A loop the model made never does
 any of that; see [The model's version](#the-models-version). A loop's prompt
-is not added to the composer's history: Up brings back what you typed.
+is not added to the composer's history: Up brings back what you typed. No
+loop's prompt ever carries a [composer trigger](composer-triggers.md): only
+keys typed in the composer arm one.
 
 ## When it fires
 

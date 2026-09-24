@@ -45,7 +45,7 @@ import {
 	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
 	pinTrustedProjectPath,
@@ -156,9 +156,21 @@ import {
 	Composer,
 	type ComposerDraft,
 	type ComposerSubmitMode,
+	type ComposerTriggerSettings,
 	type SubmitMeta,
 	suggestionWindowSize,
 } from './Composer.js'
+import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { pinsHighestEffort, triggerContextTexts } from './triggers/context-text.js'
+import { transcriptTagLine } from './triggers/copy.js'
+import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
+import {
+	BUILTIN_TRIGGERS,
+	type TriggerId,
+	compileRegistry,
+	triggerDefinition,
+} from './triggers/registry.js'
+import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { HYPERMODE, HYPERMODE_SUMMARY, ORCHESTRATE_ALIAS_NOTICE, hypermodeStopLabel } from './hypermode.js'
@@ -612,6 +624,10 @@ type StreamState = {
 	skillFlow?: boolean
 	/** The permission mode the turn started in. */
 	startedInPlanMode?: boolean
+	/** After-turn composer triggers bound to this turn: run once when it ends, if it earned them. */
+	followUps?: TriggerId[]
+	/** namzu's words for this turn's triggers: request-only context, read at every iteration. */
+	contextTexts?: string[]
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -741,6 +757,11 @@ type QueuedPrompt =
 			readonly attachments?: readonly MessageAttachment[]
 			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
 			readonly skillFlow?: true
+			/**
+			 * Composer triggers armed when the operator sent it (`./triggers/`).
+			 * Only the composer's own submit sets this; see `SubmitMeta`.
+			 */
+			readonly triggers?: readonly TriggerId[]
 	  }
 	| {
 			readonly kind: 'goal'
@@ -1974,6 +1995,57 @@ export function App({
 	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
 	/** `/skills save off|on` in this session, over whatever the config files say. */
 	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
+	/** `/config triggers on|off` in this session, over whatever the config files say. */
+	const [composerTriggersOverride, setComposerTriggersOverride] = useState<boolean | undefined>()
+	const composerTriggerSettings = useMemo(
+		() => resolveComposerTriggers(ctx.composerTriggers),
+		[ctx.composerTriggers],
+	)
+	const composerTriggerRegistry = useMemo(
+		() =>
+			compileRegistry(BUILTIN_TRIGGERS, {
+				arming: composerTriggerSettings.arming,
+				locales: composerTriggerSettings.languages,
+			}),
+		[composerTriggerSettings],
+	)
+	const composerTriggersOn = composerTriggersOverride ?? composerTriggerSettings.enabled
+	/**
+	 * Whether the model can run `skill-creator` here, which save-as-skill
+	 * needs. Read once for the tag row; read again when a turn starts and when
+	 * its follow-up would run, in case the skills changed meanwhile.
+	 */
+	const readSkillCreator = useCallback((): boolean => {
+		try {
+			const creator = discoverSkills({
+				cwd: ctx.cwd,
+				...(ctx.skills ? { config: ctx.skills } : {}),
+			}).find((skill) => skill.name === SKILL_CREATOR_SKILL)
+			return Boolean(creator && !creator.problem && creator.invocation !== 'operator')
+		} catch {
+			return false
+		}
+	}, [ctx.cwd, ctx.skills])
+	const skillCreatorAvailable = useMemo(() => readSkillCreator(), [readSkillCreator])
+	/** The session as the triggers see it right now, for a check at a turn's start or end. */
+	const triggerContextNow = useCallback(
+		(): TriggerContext => ({
+			permissionMode: permissionModeRef.current,
+			sessionHypermode: hypermodeRef.current,
+			effortMenu: (session?.reasoningEffortLevels?.length ?? 0) > 0,
+			// The interactive session always mounts `Agent` and the `schedule`
+			// tool; only scheduled runs withhold them, and those never read
+			// composer triggers.
+			agentTool: true,
+			skillCreator: readSkillCreator(),
+			scheduleTool: true,
+		}),
+		[readSkillCreator, session],
+	)
+	/** A turn's hand-off to its after-turn triggers; assigned below, where the queue lives. */
+	const triggerFollowUpsRef = useRef<
+		((st: StreamState, ending: 'completed' | 'stopped' | 'paused' | 'cancelled' | 'failed') => boolean) | null
+	>(null)
 	const conversationLearning = useCallback(() => {
 		if (learningRef.current.generation !== conversationGenRef.current) {
 			learningRef.current = {
@@ -5589,7 +5661,10 @@ export function App({
 								: undefined
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
-					offerSkillSuggestion(st)
+					// A save the operator asked for in words takes the place of
+					// the proposal to save it.
+					if (!triggerFollowUpsRef.current?.(st, st.completed ? 'completed' : 'stopped'))
+						offerSkillSuggestion(st)
 					break
 				}
 				case 'paused':
@@ -5601,6 +5676,7 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
+					triggerFollowUpsRef.current?.(st, 'paused')
 					if (event.handoff) {
 						// Nothing failed and nothing needs approving: a tool needs the
 						// operator to do something first. Continuing is one key.
@@ -5623,6 +5699,7 @@ export function App({
 				case 'error':
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
+					triggerFollowUpsRef.current?.(st, st.outcome)
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
 						pushMessage('system', describeTurnInterruption(event), false, '!')
@@ -5750,6 +5827,17 @@ export function App({
 			// Reserved before the turn begins, so everything that refers to this
 			// turn — its goal-round authority above all — names it from the start.
 			const turnId = generateTurnId()
+			// The composer triggers the operator armed for this message, checked
+			// again now: the mode or the session may have changed while it waited
+			// in the queue. None of them changes the operator's words.
+			const requestedTriggers = prompt.kind === 'human' ? (prompt.triggers ?? []) : []
+			const triggerContext = triggerContextNow()
+			const turnTriggers = requestedTriggers.filter(
+				(id) => triggerUnavailable(id, triggerContext) === undefined,
+			)
+			const pinnedEffort = pinsHighestEffort(turnTriggers)
+				? highestReasoningEffort(session.reasoningEffortLevels)
+				: undefined
 
 			if (goalRound) {
 				pushMessage(
@@ -5769,6 +5857,23 @@ export function App({
 					undefined,
 					humanPromptMeta(attached.length, attachments),
 				)
+				const tagLine = transcriptTagLine(turnTriggers, {
+					highestEffort: pinnedEffort,
+					steered: false,
+				})
+				if (tagLine) pushMessage('system', tagLine, false, '✦', undefined, theme.accent.trigger)
+				for (const id of requestedTriggers) {
+					const reason = triggerUnavailable(id, triggerContext)
+					if (reason)
+						pushMessage(
+							'system',
+							`${triggerDefinition(id).label} · not applied: ${reason}`,
+							false,
+							'✧',
+							undefined,
+							theme.text.muted,
+						)
+				}
 			}
 			// A plan is scoped to the request it was made for. Cleared here, at
 			// the start of the next one, rather than when the previous turn
@@ -5799,6 +5904,8 @@ export function App({
 							startedInPlanMode: permissionModeRef.current === 'plan',
 						}
 					: {}),
+				followUps: turnTriggers.filter((id) => triggerDefinition(id).scope === 'after-turn'),
+				contextTexts: triggerContextTexts(turnTriggers),
 			}
 			liveStreamRef.current = st
 			// A skill activated with /skills <name> stays in the prompt of every
@@ -6048,8 +6155,15 @@ export function App({
 						// while this turn runs, and the change governs what follows.
 						currentPermissionMode: () => permissionModeRef.current,
 						limits: turnLimits,
-						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
+						// A trigger that pins the highest effort does so for this
+						// turn only; the session's own setting is untouched.
+						...((pinnedEffort ?? turnReasoningEffort) !== undefined
+							? { effort: pinnedEffort ?? turnReasoningEffort }
+							: {}),
 						...(turnHypermode ? { hypermode: true } : {}),
+						// Read at every iteration, so an after-turn trigger a steer
+						// binds to this turn is said from the next one on.
+						hostContext: () => st.contextTexts ?? [],
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
@@ -6277,6 +6391,7 @@ export function App({
 			sendTerminalNotification,
 			session,
 			setQueuePause,
+			triggerContextNow,
 			wakeGoalDriver,
 		],
 	)
@@ -6432,6 +6547,39 @@ export function App({
 		[ctx.cwd, pushMessage, session],
 	)
 
+	/**
+	 * Enter steered a message into the running turn. Its after-turn triggers
+	 * (save as skill) bind to that turn and are told to the model from its next
+	 * iteration; its turn triggers do not apply to a turn already running —
+	 * the tag row said so before Enter, and Tab would have queued it instead.
+	 */
+	const bindSteeredTriggers = useCallback(
+		(ids: readonly TriggerId[]) => {
+			if (ids.length === 0) return
+			const live = liveStreamRef.current
+			const afterTurn = ids.filter((id) => triggerDefinition(id).scope === 'after-turn')
+			const turnOnly = ids.filter((id) => triggerDefinition(id).scope === 'turn')
+			if (live && afterTurn.length > 0) {
+				live.followUps = [...new Set([...(live.followUps ?? []), ...afterTurn])]
+				live.contextTexts = [
+					...new Set([...(live.contextTexts ?? []), ...triggerContextTexts(afterTurn)]),
+				]
+				const line = transcriptTagLine(afterTurn, { highestEffort: undefined, steered: true })
+				if (line) pushMessage('system', line, false, '✦', undefined, theme.accent.trigger)
+			}
+			if (turnOnly.length > 0)
+				pushMessage(
+					'system',
+					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running turn. Tab queues a message as a new turn with it.`,
+					false,
+					'✧',
+					undefined,
+					theme.text.muted,
+				)
+		},
+		[pushMessage],
+	)
+
 	const handleSubmit = useCallback(
 		(
 			value: string,
@@ -6523,13 +6671,40 @@ export function App({
 				})
 				return
 			}
+			// Composer triggers (`./triggers/`). Only the composer's own submit
+			// carries them, so nothing a loop, a picker or the model sends can
+			// arm one. A message that is nothing but a trigger with a command of
+			// its own (`bunu skill olarak kaydet`) runs that command here, in this
+			// same call, so history holds the operator's words once; a trigger
+			// that needs a task and got none is not applied, and says so.
+			let armedTriggers: readonly TriggerId[] =
+				meta.source === 'composer' ? meta.triggers.map((trigger) => trigger.id) : []
+			let dispatch = value
+			if (meta.source === 'composer' && meta.onlyTriggers && armedTriggers.length > 0) {
+				const command = armedTriggers
+					.map((id) => triggerDefinition(id).standalone)
+					.find((standalone) => standalone !== undefined)
+				const needTask = armedTriggers.filter((id) => triggerDefinition(id).standalone === undefined)
+				if (needTask.length > 0)
+					pushMessage(
+						'system',
+						`${needTask.map((id) => triggerDefinition(id).label).join(', ')} · not applied: the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}.`,
+						false,
+						'✧',
+						undefined,
+						theme.text.muted,
+					)
+				armedTriggers = []
+				if (!command) return
+				dispatch = command
+			}
 			// What actually gets sent. A `prompt` action replaces it with text the
 			// command composed, and then takes the ordinary send path below —
 			// including the queue — so a command-driven turn is not a second way
 			// to run one.
-			let outgoing = value
+			let outgoing = dispatch
 			let skillFlow = false
-			const slash = operatorText ? runSlash(value, slashCtx, hostCommands) : null
+			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
@@ -6671,6 +6846,13 @@ export function App({
 							},
 							{ name: 'setup', label: 'Provider setup', description: 'Check installed CLIs and access; connect or install without leaving Namzu.' },
 							{
+								name: `config triggers ${composerTriggersOn ? 'off' : 'on'}`,
+								label: 'Composer triggers',
+								description: composerTriggersOn
+									? 'On · hypermode and save-as-skill words act for their message. Select to turn off.'
+									: 'Off · words in a message are only words. Select to turn on.',
+							},
+							{
 								name: 'config sources',
 								label: 'Setting sources',
 								description: 'Show which configuration files and overrides are in use.',
@@ -6687,7 +6869,7 @@ export function App({
 								description: command.description,
 								disabledReason: command.problem,
 							})),
-							windowSize: 7,
+							windowSize: 8,
 						})
 						return
 					}
@@ -7561,6 +7743,20 @@ export function App({
 						)
 						return
 					}
+					case 'composer-triggers': {
+						const profile = ctx.configDebug?.selectedProfile?.name
+						const cascade = { cwd: ctx.cwd, ...(profile ? { profile } : {}) }
+						if (slash.setting === 'list') {
+							pushMessage('system', describeComposerTriggers(composerTriggersOn, cascade))
+							return
+						}
+						const on = slash.setting === 'on'
+						// The session follows the choice whatever the files say; the
+						// message says whether a later start will too.
+						setComposerTriggersOverride(on)
+						pushMessage('system', setComposerTriggers(on, cascade))
+						return
+					}
 					case 'hypermode': {
 						if (slash.via === 'orchestrate') pushMessage('system', ORCHESTRATE_ALIAS_NOTICE)
 						const enabled = slash.enabled === 'toggle' ? !hypermodeRef.current : slash.enabled
@@ -7631,6 +7827,7 @@ export function App({
 				text: outgoing,
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
+				...(armedTriggers.length > 0 && !skillFlow ? { triggers: armedTriggers } : {}),
 			}
 			// `/skills save` and `/skills new` are turns of their own: steered into
 			// a running turn, they would lose the flag that keeps the skill-making
@@ -7650,8 +7847,10 @@ export function App({
 							attachedFiles: expanded.attached.length,
 							queueBoundary: queuedRef.current.length,
 						})
-					)
+					) {
+						bindSteeredTriggers(armedTriggers)
 						return
+					}
 				}
 			}
 			enqueueQueued(prompt)
@@ -7660,6 +7859,8 @@ export function App({
 			activeSkills,
 			advanceQueueContinuation,
 			applyPermissionMode,
+			bindSteeredTriggers,
+			composerTriggersOn,
 			conversationLearning,
 			applyReasoningEffort,
 			appLifetime,
@@ -7699,6 +7900,60 @@ export function App({
 	// path instead of growing a second command executor.
 	commandPickerSubmitRef.current = (command) =>
 		handleSubmit(command, undefined, 'submit', { source: 'command-picker' })
+	// A turn's after-turn triggers, when it ends. Save as skill runs exactly the
+	// prompt `/skills save` sends, at the front of the queue, only when the
+	// turn completed, did tool work, did not already save a skill, and saving
+	// is still possible now. Otherwise one row says why, and `/skills save`
+	// still works. Returns whether the turn had one, so the proposal to save
+	// it is not also printed.
+	triggerFollowUpsRef.current = (st, ending) => {
+		const followUps = st.followUps ?? []
+		st.followUps = []
+		if (!followUps.includes('save-skill')) return false
+		const reason =
+			ending === 'cancelled'
+				? 'the turn was cancelled'
+				: ending === 'failed'
+					? 'the turn failed'
+					: ending === 'paused'
+						? 'the turn paused'
+						: ending === 'stopped'
+							? 'the turn stopped before it finished'
+							: !st.learning || st.learning.steps < 1
+								? 'the turn did no tool work'
+								: st.learning.savedSkill
+									? 'the turn already saved a skill'
+									: triggerUnavailable('save-skill', triggerContextNow())
+		if (reason) {
+			pushMessage(
+				'system',
+				`save as skill · not run: ${reason} · /skills save runs it anyway`,
+				false,
+				'✧',
+				undefined,
+				theme.text.muted,
+			)
+			return true
+		}
+		// The proposal was taken up, as `/skills save` records it.
+		conversationLearning().proposed = true
+		const home = resolveNamzuHome()
+		const ledger = readSuggestionLedger(home)
+		if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
+		replaceQueued([
+			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
+			...queuedRef.current,
+		])
+		pushMessage(
+			'system',
+			'save as skill · running /skills save for this turn',
+			false,
+			'✦',
+			undefined,
+			theme.accent.trigger,
+		)
+		return true
+	}
 	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
@@ -8799,6 +9054,22 @@ export function App({
 		permissionMode,
 		session?.approvalLatched() ?? false,
 	)
+	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
+	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
+		? {
+				registry: composerTriggerRegistry,
+				suggest: composerTriggerSettings.suggest,
+				context: {
+					permissionMode: displayedPermissionMode,
+					sessionHypermode: hypermode,
+					effortMenu: highestEffort !== undefined,
+					agentTool: true,
+					skillCreator: skillCreatorAvailable,
+					scheduleTool: true,
+				},
+				...(highestEffort ? { highestEffort } : {}),
+			}
+		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
 	// normal composer view, as opposed to provider setup or a lifecycle
 	// picker/prompt. The agent rail is a feature of that view: computing this
@@ -9047,6 +9318,7 @@ export function App({
 												? 'held after a resumable turn paused; wait for recovery, change model, or send a message to release it'
 												: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
 											: 'sending when ready'}
+										{queuedTriggerLabels(queued)}
 									</Text>
 								</Box>
 							) : null}
@@ -9097,6 +9369,8 @@ export function App({
 								}))}
 								mentionCandidates={mentionCandidates}
 								history={history}
+								{...(composerTriggers ? { triggers: composerTriggers } : {})}
+								turnActive={!compacting && (state === 'thinking' || state === 'tool')}
 							/>
 						</ComposerFrame>
 					</>
@@ -9405,6 +9679,16 @@ function permissionPicker(
  * without ever being mistaken for a level `/effort <token>` could select.
  */
 const HYPERMODE_VALUE = 'hypermode' as const
+
+/** ` · ✦ save as skill` when queued messages carry composer triggers, so the queue line says so. */
+function queuedTriggerLabels(queued: readonly QueuedPrompt[]): string {
+	const labels = new Set<string>()
+	for (const prompt of queued) {
+		if (prompt.kind !== 'human') continue
+		for (const id of prompt.triggers ?? []) labels.add(triggerDefinition(id).label)
+	}
+	return labels.size > 0 ? ` · ✦ ${[...labels].join(', ')}` : ''
+}
 
 /** Last entry of a low-to-high menu every provider publishes in that order; `undefined` when none is known. */
 function highestReasoningEffort(

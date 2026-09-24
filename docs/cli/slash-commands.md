@@ -20,7 +20,7 @@ explain why they cannot run and are checked again when selected.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -147,6 +147,11 @@ it is never a `ReasoningEffort` value, so `/effort hypermode` reports
 neither name is an effort level a provider publishes. When the `/effort`
 picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.
+
+For one message only, start or end that message with the word `hypermode`
+(`hypermode fix the flaky test`): that turn gets the highest effort and the
+delegation request, the next one neither, and the session setting is not
+touched. See [Composer triggers](composer-triggers.md).
 
 The mode was called orchestrate mode before; `/orchestrate` still works, prints
 `/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode;
@@ -330,6 +335,7 @@ terminals place descriptions below labels.
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
+- **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.
 
 ### Resuming a conversation
 
