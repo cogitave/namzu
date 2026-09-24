@@ -287,6 +287,9 @@ export const EditTool = defineTool({
 	enforceModelInput: true,
 	validationErrorHint:
 		'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.',
+	largeStringArguments: { old_string: 12_000, new_string: 12_000 },
+	unreadableInputHint:
+		'Split a large change into several edit calls, each replacing a shorter unique span; to add a long section, append it in parts with insertLine: "end".',
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.

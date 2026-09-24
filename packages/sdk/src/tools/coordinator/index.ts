@@ -545,6 +545,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					}
 				: {}),
 		}),
+		largeStringArguments: { prompt: 12_000 },
+		unreadableInputHint:
+			'Put long material in a shared workspace file and name the file in the prompt instead of pasting its content.',
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

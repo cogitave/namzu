@@ -144,16 +144,61 @@ export interface ToolCall {
 	 * JSON payload, while provider/runtime recovery state lives here.
 	 */
 	metadata?: {
+		/**
+		 * The streamed arguments could not be read, and `function.arguments`
+		 * was normalized to `"{}"`. Set for every unreadable call, cut off or
+		 * malformed alike: the name predates that distinction, and
+		 * {@link inputError} is what says which it was.
+		 */
 		inputTruncated?: boolean
 		/**
-		 * The partial argument buffer as it arrived, when the stream cut off
-		 * mid-JSON. `function.arguments` is normalized to `"{}"` in that
-		 * case so tool args stay clean, which leaves this as the only record
-		 * of what the model was actually saying — and a `repairToolCall`
-		 * hook has nothing to repair without it.
+		 * The argument buffer as it arrived, when it could not be read.
+		 * `function.arguments` is normalized to `"{}"` in that case so tool
+		 * args stay clean, which leaves this as the only record of what the
+		 * model was actually saying — and a `repairToolCall` hook has nothing
+		 * to repair without it.
 		 */
 		partialArguments?: string
+		/**
+		 * Why the arguments could not be read. Present with
+		 * {@link inputTruncated} on every call the runtime marked; absent on a
+		 * call marked by an older runtime, which recorded only the flag.
+		 */
+		inputError?: ToolInputError
 	}
+}
+
+/**
+ * Why a streamed tool call's arguments could not be read. See
+ * {@link ToolInputError}.
+ */
+export type ToolInputErrorReason = 'truncated' | 'malformed'
+
+/**
+ * A tool call whose streamed arguments did not parse as JSON, and why.
+ *
+ * The distinction is made from how the response ended, never from the text:
+ *
+ * - `truncated` — the response stopped before the model closed the
+ *   arguments. It reached its output limit (`finishReason: 'length'`), a
+ *   content filter stopped it (`'content_filter'`), or the stream ended
+ *   without reporting a finish reason at all.
+ * - `malformed` — the response finished normally (`'stop'` or
+ *   `'tool_calls'`) and the arguments still were not valid JSON.
+ */
+export interface ToolInputError {
+	readonly reason: ToolInputErrorReason
+	/** How the response ended, as the provider reported it. Absent when the stream reported nothing. */
+	readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/** The JSON parser's own message. */
+	readonly parseError: string
+	/**
+	 * Zero-based character offset in the arguments where parsing failed: their
+	 * length when the text simply ended. Absent when the parser did not say.
+	 */
+	readonly offset?: number
+	/** How many characters of arguments arrived. */
+	readonly length: number
 }
 
 export interface BaseMessage {

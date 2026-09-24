@@ -1096,11 +1096,22 @@ type CoreSessionEvent =
 			toolUseId: ToolUseId
 			input: unknown
 			/**
-			 * True when the provider stream ended before the tool JSON
-			 * arguments closed. `input` stays a sanitized object so public
-			 * consumers never receive internal recovery sentinels.
+			 * True when the streamed arguments could not be read, whether the
+			 * response stopped before they closed or they were not valid JSON;
+			 * {@link inputError} says which. `input` is then `{}`, a sanitized
+			 * object, so public consumers never receive internal recovery
+			 * sentinels.
 			 */
 			inputTruncated?: boolean
+			/** Why the arguments could not be read. Present exactly when `inputTruncated` is. */
+			inputError?: import('../message/index.js').ToolInputError
+			/**
+			 * The arguments as they arrived, when they could not be read: at most
+			 * the first 16 384 characters, with `inputError.length` saying how many
+			 * there were. The whole text stays on the assistant message, as
+			 * `ToolCall.metadata.partialArguments`.
+			 */
+			partialArguments?: string
 	  }
 
 /**

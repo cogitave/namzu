@@ -3,8 +3,12 @@ import {
 	assertHostedWebSearchSupported,
 	assertNativeStructuredOutputSupported,
 } from '../../../provider/capabilities.js'
-import { isProviderRequestError } from '../../../provider/errors.js'
+import { ProviderRequestError, isProviderRequestError } from '../../../provider/errors.js'
 import { StreamTextAccumulator } from '../../../provider/stream-text.js'
+import {
+	describeToolCallFramingViolation,
+	toolCallFramingViolation,
+} from '../../../provider/tool-call-framing.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import {
 	recordModelDuration,
@@ -20,6 +24,7 @@ import type {
 	Citation,
 	Message,
 	ReasoningBlock,
+	ToolInputError,
 } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type {
@@ -34,6 +39,12 @@ import type { Logger } from '../../../utils/logger.js'
 import type { EmitEvent } from '../events.js'
 import type { RequestImageIdentity } from '../request-rich-content.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import {
+	type ParsedToolArguments,
+	capPartialArguments,
+	classifyUnreadableToolInput,
+	parseToolArguments,
+} from './tool-input.js'
 
 /**
  * Map a provider's coarse `finishReason` plus the orchestrator's
@@ -81,8 +92,15 @@ export interface StreamingTurnResult {
  * - Stream ends without `finishReason` (a known vendor-SDK failure mode
  *   dropped message_stop): we still emit `message_completed` from a
  *   finally-style fall-through path with `stopReason: 'refusal'`.
- * - `tool_input_delta` with no `toolUseId` registered yet: we drop
- *   the fragment and log a warning (proxies seen to misorder events).
+ * - A tool-call fragment before its call's id, or a new id on an index
+ *   another call holds: the stream is refused with a classified
+ *   `ProviderRequestError` naming the violation. Both used to be absorbed —
+ *   the fragment dropped, the second call's arguments appended to the
+ *   first's — and the model was told its call had been cut off.
+ * - Arguments that do not parse: classified once the stream has ended, from
+ *   its finish reason, as `truncated` or `malformed` (`ToolInputError`). A
+ *   failed parse at `toolCallEnd` defers its `tool_input_completed` to then,
+ *   because the finish reason arrives after the block closes.
  * - `chunk.error`: when no tool input is recoverable, we surface as
  *   a thrown error after emitting the message_completed terminator so
  *   consumer cards still close. If a tool-use block was already open,
@@ -198,6 +216,10 @@ export async function* streamProviderTurn(
 	const model = ''
 	const text = new StreamTextAccumulator()
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
+	// What the stream itself reported, if anything. `finishReason` above
+	// defaults to 'stop' for the response; classifying unreadable tool input
+	// needs to know a stream that reported nothing from one that finished.
+	let reportedFinishReason: ChatCompletionResponse['finishReason'] | undefined
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -219,13 +241,18 @@ export async function* streamProviderTurn(
 			 * `ChatCompletionResponse.toolCalls[].function.arguments` is
 			 * derived from this — never from the raw buffer — so the
 			 * downstream executor (`runtime/query/executor.ts`) never has
-			 * to re-parse a truncated string. A truncated tool call is
+			 * to re-parse an unreadable string. An unreadable tool call is
 			 * surfaced as `arguments: "{}"` plus `metadata.inputTruncated`
-			 * so tool args remain clean while the executor can still
-			 * return a specific retry hint.
+			 * and `metadata.inputError` so tool args remain clean while the
+			 * executor can still return a specific retry hint.
 			 */
 			parsed: unknown | null
-			inputTruncated: boolean
+			/**
+			 * A parse that failed at `toolCallEnd`, waiting for the finish
+			 * reason that classifies it. Cleared once classified.
+			 */
+			pendingFailure?: Extract<ParsedToolArguments, { ok: false }>
+			inputError?: ToolInputError
 		}
 	>()
 	// Reasoning blocks, bucketed by stream index exactly like tool calls.
@@ -249,6 +276,8 @@ export async function* streamProviderTurn(
 
 	let streamError: string | undefined
 	let streamCause: unknown
+	/** The stream broke tool-call framing; nothing it sent becomes a tool call. */
+	let framingViolated = false
 
 	const streamParams = {
 		...params,
@@ -442,6 +471,20 @@ export async function* streamProviderTurn(
 
 			for (const tc of chunk.delta.toolCalls ?? []) {
 				let bucket = toolBuckets.get(tc.index)
+				const violation = toolCallFramingViolation(bucket, tc)
+				if (violation) {
+					// Refused, not repaired: after either violation no buffer can be
+					// trusted to hold one call's arguments, and guessing is what
+					// told a model its intact call had been cut off. Thrown so the
+					// stream is torn down like any other stream failure; the flag
+					// keeps the recovery below from turning it into tool calls.
+					framingViolated = true
+					throw new ProviderRequestError({
+						kind: 'server',
+						providerId: provider.id,
+						detail: describeToolCallFramingViolation(violation),
+					})
+				}
 				if (!bucket) {
 					bucket = {
 						id: tc.id ?? '',
@@ -450,7 +493,6 @@ export async function* streamProviderTurn(
 						started: false,
 						completed: false,
 						parsed: null,
-						inputTruncated: false,
 					}
 					toolBuckets.set(tc.index, bucket)
 				}
@@ -472,22 +514,16 @@ export async function* streamProviderTurn(
 
 				const fragment = tc.function?.arguments
 				if (fragment) {
-					if (!bucket.id) {
-						log.warn('tool_input_delta arrived before tool id was known; dropping fragment', {
-							[NAMZU.TURN_ID]: turnId,
-							'namzu.runtime.index': tc.index,
-							'namzu.runtime.length': fragment.length,
-						})
-					} else {
-						bucket.argsBuf += fragment
-						await emitEvent({
-							type: 'tool_input_delta',
-							turnId,
-							toolUseId: bucket.id as ToolUseId,
-							partialJson: fragment,
-						})
-						yield* drainPending()
-					}
+					// The id is known: `toolCallFramingViolation` refused a
+					// fragment that arrived before it.
+					bucket.argsBuf += fragment
+					await emitEvent({
+						type: 'tool_input_delta',
+						turnId,
+						toolUseId: bucket.id as ToolUseId,
+						partialJson: fragment,
+					})
+					yield* drainPending()
 				}
 			}
 
@@ -496,30 +532,30 @@ export async function* streamProviderTurn(
 				const bucket = toolBuckets.get(index)
 				if (bucket && !bucket.completed) {
 					bucket.completed = true
-					let parsed: unknown = {}
-					try {
-						parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
-					} catch (err) {
-						bucket.inputTruncated = true
-						log.warn('tool input JSON parse failed at content_block_stop', {
-							[NAMZU.TURN_ID]: turnId,
-							'namzu.runtime.tool_use_id': endId,
-							'exception.message': err instanceof Error ? err.message : String(err),
+					const parsed = parseToolArguments(bucket.argsBuf)
+					if (parsed.ok) {
+						bucket.parsed = parsed.value
+						await emitEvent({
+							type: 'tool_input_completed',
+							turnId,
+							toolUseId: endId as ToolUseId,
+							input: parsed.value,
 						})
+						yield* drainPending()
+					} else {
+						// Whether this call was cut off or malformed is decided by
+						// how the response ends, and that arrives after the block
+						// closes. Its completion is emitted once the stream is over.
+						bucket.parsed = {}
+						bucket.pendingFailure = parsed
 					}
-					bucket.parsed = parsed
-					await emitEvent({
-						type: 'tool_input_completed',
-						turnId,
-						toolUseId: endId as ToolUseId,
-						input: parsed,
-						...(bucket.inputTruncated ? { inputTruncated: true } : {}),
-					})
-					yield* drainPending()
 				}
 			}
 
-			if (chunk.finishReason) finishReason = chunk.finishReason
+			if (chunk.finishReason) {
+				finishReason = chunk.finishReason
+				reportedFinishReason = chunk.finishReason
+			}
 			// Merge (per-field max), not last-write-wins: a late usage frame that
 			// omits input/cache tokens must not zero the counts seen earlier in the
 			// stream, which would under-report this turn's accumulated usage.
@@ -573,76 +609,83 @@ export async function* streamProviderTurn(
 		}
 	}
 
-	// Flush any tool buckets the provider failed to close (no toolCallEnd
-	// arrived — defensive against providers that don't yet emit it, and
-	// the load-bearing path when the provider stream ends with
-	// `stop_reason: "max_tokens"` mid-`input_json_delta`. In that case
-	// A provider's stream never sends a block-stop for the open
-	// tool_use block: the upstream model ran out of completion tokens
-	// before it could close the JSON literal, so the buffered
-	// `argsBuf` ends with something like `"content":"…some prefix` —
-	// not parseable.
+	// Settle every tool call the stream left open or unreadable. Two paths
+	// arrive here:
 	//
-	// Two cases coalesce here:
-	//   1. The buffer parses cleanly (the provider just forgot to emit
-	//      `content_block_stop` but the args are intact) — keep parsed.
-	//   2. The buffer is truncated mid-literal — `parsed = {}` is the
-	//      safe fallback so the executor's `JSON.parse(arguments)`
-	//      succeeds and downstream consumers don't crash. The PRICE
-	//      we used to pay was the model getting back a generic
-	//      "<field> is required" Zod error and not realising its
-	//      previous tool call was truncated server-side, so it would
-	//      retry with the SAME long input and hit the same cutoff in
-	//      a loop. Detect the truncation case and mark the tool call
-	//      with runtime metadata; the executor surfaces a specific
-	//      "your tool call was cut off by max_tokens — retry with
-	//      shorter input or split into smaller calls" message that the
-	//      model can act on.
+	//   1. No `toolCallEnd` came for the call — a driver that never emits one
+	//      (every call then settles here), or a stream that stopped before
+	//      the block closed. A buffer that parses is kept.
+	//   2. `toolCallEnd` came and the buffer did not parse. Its completion was
+	//      held back until now, because what it is depends on how the
+	//      response ended.
+	//
+	// An unreadable buffer becomes `parsed = {}` — the safe fallback, so the
+	// executor's `JSON.parse(arguments)` succeeds and nothing downstream
+	// crashes — plus `inputError`, classified from the finish reason the
+	// stream reported: `truncated` when the output limit or a content filter
+	// stopped the response, or it reported nothing at all; `malformed` when
+	// it finished normally and the JSON was still broken. The executor turns
+	// that into a message the model can act on. Without it the model got a
+	// generic "<field> is required" error for a call it did not know was
+	// broken, and a cut-off call came back with the same long input, into
+	// the same cutoff, in a loop. With only half of it — every failure called
+	// a cut-off, which is what this code did before the finish reason was
+	// read — a model whose JSON was malformed was told to send less.
 	for (const bucket of toolBuckets.values()) {
-		if (bucket.started && !bucket.completed) {
+		let failure = bucket.pendingFailure
+		if (!failure) {
+			if (!bucket.started || bucket.completed) continue
 			bucket.completed = true
-			let parsed: unknown = {}
-			let truncated = false
-			if (bucket.argsBuf) {
-				try {
-					parsed = JSON.parse(bucket.argsBuf)
-				} catch {
-					// argsBuf had content but didn't parse — almost
-					// certainly the max_tokens-mid-literal cutoff. Mark
-					// the bucket so the executor can return a model-
-					// readable hint instead of a generic Zod error.
-					truncated = true
-					parsed = {}
-				}
-			}
-			bucket.parsed = parsed
-			bucket.inputTruncated = truncated
-			if (truncated) {
-				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
-					[NAMZU.TURN_ID]: turnId,
-					'namzu.runtime.tool_use_id': bucket.id,
-					[GENAI.TOOL_NAME]: bucket.name,
-					'namzu.runtime.buffer_length': bucket.argsBuf.length,
+			const parsed = parseToolArguments(bucket.argsBuf)
+			if (parsed.ok) {
+				bucket.parsed = parsed.value
+				await emitEvent({
+					type: 'tool_input_completed',
+					turnId,
+					toolUseId: bucket.id as ToolUseId,
+					input: parsed.value,
 				})
+				yield* drainPending()
+				continue
 			}
-			await emitEvent({
-				type: 'tool_input_completed',
-				turnId,
-				toolUseId: bucket.id as ToolUseId,
-				input: parsed,
-				...(truncated ? { inputTruncated: true } : {}),
-			})
-			yield* drainPending()
+			failure = parsed
 		}
+		bucket.pendingFailure = undefined
+		bucket.parsed = {}
+		const inputError = classifyUnreadableToolInput(
+			failure,
+			bucket.argsBuf.length,
+			reportedFinishReason,
+		)
+		bucket.inputError = inputError
+		log.warn('tool input could not be read', {
+			[NAMZU.TURN_ID]: turnId,
+			'namzu.runtime.tool_use_id': bucket.id,
+			[GENAI.TOOL_NAME]: bucket.name,
+			'namzu.runtime.reason': inputError.reason,
+			'namzu.runtime.finish_reason': reportedFinishReason ?? 'none',
+			'namzu.runtime.buffer_length': bucket.argsBuf.length,
+			'exception.message': inputError.parseError,
+		})
+		await emitEvent({
+			type: 'tool_input_completed',
+			turnId,
+			toolUseId: bucket.id as ToolUseId,
+			input: {},
+			inputTruncated: true,
+			inputError,
+			partialArguments: capPartialArguments(bucket.argsBuf),
+		})
+		yield* drainPending()
 	}
 
 	// `arguments` MUST be valid JSON for the executor's `JSON.parse`
 	// (`runtime/query/executor.ts:executeSingle`) to succeed. We
 	// always serialise from the bucket's `parsed` object (filled by
 	// either the `toolCallEnd` branch above or the post-stream flush
-	// loop) instead of re-emitting `argsBuf`. When the provider
-	// stream truncated mid-input, `metadata.inputTruncated` carries that
-	// state; the executor parses cleanly and returns a specific
+	// loop) instead of re-emitting `argsBuf`. When the arguments could not
+	// be read, `metadata.inputTruncated` and `metadata.inputError` carry
+	// that state; the executor parses cleanly and returns a specific
 	// model-readable retry hint instead of the generic "Invalid JSON in
 	// tool arguments" intercept.
 	const toolCalls = [...toolBuckets.entries()]
@@ -658,13 +701,23 @@ export async function* streamProviderTurn(
 			// normalized to `{}` above, so without this the only record of
 			// what the model was actually saying is gone — and a
 			// `repairToolCall` hook has nothing to repair.
-			...(b.inputTruncated
-				? { metadata: { inputTruncated: true, partialArguments: b.argsBuf } }
+			...(b.inputError
+				? {
+						metadata: {
+							inputTruncated: true,
+							partialArguments: b.argsBuf,
+							inputError: b.inputError,
+						},
+					}
 				: {}),
 		}))
 
+	// Not after a framing violation: the calls it would recover are the ones
+	// the stream was just refused for garbling.
 	const recoveredToolInputFromStreamError =
-		streamError !== undefined && toolCalls.some((tc) => tc.id && tc.function.name)
+		streamError !== undefined &&
+		!framingViolated &&
+		toolCalls.some((tc) => tc.id && tc.function.name)
 	const effectiveFinishReason: ChatCompletionResponse['finishReason'] =
 		recoveredToolInputFromStreamError ? 'tool_calls' : finishReason
 

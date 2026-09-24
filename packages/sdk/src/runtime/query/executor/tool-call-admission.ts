@@ -1,7 +1,8 @@
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
-import type { ToolCall } from '../../../types/message/index.js'
+import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolCallRepair, ToolCallRepairReason } from '../../../types/tool/repair.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -72,7 +73,7 @@ export async function prepareDirectCall(
 			toolCall,
 			toolName,
 			input: {},
-			message: truncatedToolInputMessage(toolName),
+			message: unreadableToolCallMessage(host, toolCall, toolName),
 			isError: true,
 		}
 	}
@@ -355,7 +356,7 @@ export async function repairTruncatedCall(
 		host,
 		{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
 		toolName,
-		{ reason: 'invalid_json', message: truncatedToolInputMessage(toolName) },
+		{ reason: 'invalid_json', message: unreadableToolCallMessage(host, toolCall, toolName) },
 	)
 	if (repair) {
 		host.log.info('Repaired a tool call whose input stream was truncated', {
@@ -469,6 +470,98 @@ export function formatFailedToolOutput(
 	return `${output}\n\n${errorText}`
 }
 
-export function truncatedToolInputMessage(toolName: string): string {
-	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. Self-budget content/new_string under 12000 characters before calling file tools. For long files, create a short opening with write and a deterministic marker, then advance that marker with bounded exact edit calls; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
+/**
+ * The message a call with unreadable arguments is answered with, built from
+ * why they could not be read and from the tool the call named.
+ */
+export function unreadableToolCallMessage(
+	host: ToolAdmissionHost,
+	toolCall: ToolCall,
+	toolName: string,
+): string {
+	return unreadableToolInputMessage(
+		toolName,
+		toolCall.metadata?.inputError,
+		host.config.tools.get?.(toolName),
+	)
+}
+
+/**
+ * The characters one large argument should stay under, in the model's
+ * words, when the output limit cut a call off. Halved from what arrived,
+ * when that is smaller than the tool's own budget: a budget above what the
+ * response could hold would send the model straight back into the cutoff.
+ */
+function sizeAdvice(
+	largeStringArguments: ToolDefinition['largeStringArguments'],
+	error: ToolInputError,
+): string | undefined {
+	const declared = Object.entries(largeStringArguments ?? {}).filter(
+		([, budget]) => Number.isFinite(budget) && budget > 0,
+	)
+	if (declared.length === 0) return undefined
+	const ceiling =
+		error.finishReason === 'length'
+			? Math.max(100, Math.floor(error.length / 2 / 100) * 100)
+			: Number.POSITIVE_INFINITY
+	const budgets = declared.map(
+		([name, budget]) => `\`${name}\` under ${Math.floor(Math.min(budget, ceiling))} characters`,
+	)
+	const list =
+		budgets.length === 1
+			? budgets[0]
+			: `${budgets.slice(0, -1).join(', ')} and ${budgets[budgets.length - 1]}`
+	return `Send it again with less in one call: keep ${list}, and split longer text across several calls.`
+}
+
+/**
+ * What to tell the model about a call whose arguments could not be read.
+ *
+ * Each part answers one question, and a part with no answer is left out:
+ * what happened (from `error`, which says cut off or malformed and why), what
+ * to do (size advice only for a tool that declares large string arguments,
+ * and only when the call was cut off), and the tool's own
+ * `unreadableInputHint`. A call recorded before the reason was kept has no
+ * `error` and gets the plain statement that its arguments were unreadable.
+ */
+export function unreadableToolInputMessage(
+	toolName: string,
+	error: ToolInputError | undefined,
+	tool?: Pick<ToolDefinition, 'unreadableInputHint' | 'largeStringArguments'>,
+): string {
+	const parts: string[] = []
+	if (!error) {
+		parts.push(
+			`Error: The arguments for "${toolName}" could not be read as JSON. The tool was NOT executed. Send the call again with complete, valid JSON arguments.`,
+		)
+	} else if (error.reason === 'malformed') {
+		const where =
+			error.offset !== undefined && !/\bposition \d+/.test(error.parseError)
+				? ` at character ${error.offset}`
+				: ''
+		parts.push(
+			`Error: The arguments for "${toolName}" were not valid JSON (${error.parseError}${where}; ${error.length} characters in all). The tool was NOT executed. Send the call again with its arguments as one valid JSON object.`,
+		)
+	} else {
+		const cause =
+			error.finishReason === 'length'
+				? 'the response reached its output token limit'
+				: error.finishReason === 'content_filter'
+					? "the provider's content filter stopped the response"
+					: 'the response stream ended'
+		parts.push(
+			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
+		)
+		if (error.finishReason !== 'content_filter') {
+			parts.push(
+				sizeAdvice(tool?.largeStringArguments, error) ??
+					(error.finishReason === 'length'
+						? 'Send the call again, with less text before it in the same response.'
+						: 'Send the call again.'),
+			)
+		}
+	}
+	const hint = tool?.unreadableInputHint?.trim()
+	if (hint) parts.push(hint)
+	return parts.join(' ')
 }

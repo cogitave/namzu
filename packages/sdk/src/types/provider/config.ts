@@ -38,9 +38,11 @@ export interface MockToolCall {
 	/** Fragment size for the argument JSON; smaller exercises more buffering. */
 	argChunkSize?: number
 	/**
-	 * Omit the block-close signal and stop mid-JSON, reproducing the
-	 * provider cutting a tool call off at `max_tokens`. The consumer should
-	 * mark the call `inputTruncated` rather than crashing on a parse.
+	 * Send only the first half of the arguments, omit the block-close signal
+	 * and finish with `'length'` (unless the turn sets `finishReason`),
+	 * reproducing the provider cutting a tool call off at `max_tokens`. The
+	 * consumer should mark the call `inputTruncated` with a `truncated`
+	 * `inputError` rather than crashing on a parse.
 	 */
 	truncateArguments?: boolean
 	/**

@@ -297,10 +297,11 @@ could be the observation that withdrew a claim. And a mutation no path can be
 recovered from, whatever the transcript says came back to it: one declaring no
 `path`, one whose path no longer resolves inside the directories this turn may
 reach — a refused write to a path outside them is one of these, since a key is
-what withdrawing one path rather than the whole pass takes — or one the provider
-stream cut off mid-JSON, whose arguments are recorded as `{}` with the raw
-buffer kept only as `metadata.partialArguments`, what the model was saying
-rather than what ran. A merely LARGE call is none of these: the argument bound
+what withdrawing one path rather than the whole pass takes — or one whose streamed
+arguments could not be read (cut off or malformed; see
+[Unreadable tool input](unreadable-tool-input.md)), which are recorded as `{}`
+with the raw buffer kept only as `metadata.partialArguments`, what the model
+was saying rather than what ran. A merely LARGE call is none of these: the argument bound
 governs what may be believed, not what may be attributed, so an oversize `write`
 withdraws its own path's body and leaves every other witness in the conversation
 standing. Attribution is not unbounded, though — it is reading JSON, and for a

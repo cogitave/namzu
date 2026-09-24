@@ -274,9 +274,11 @@ Open text, tool-input, and iteration lifecycles close before terminal events.
 Unexpected EOF produces `NAMZU_STREAM_INCOMPLETE`. Repeated completed
 messages/results are not replayed as new content; a retained text prefix
 can be completed from its aggregate. A conflicting aggregate produces
-`NAMZU_MESSAGE_CONTENT_MISMATCH`. Truncated tool arguments retain their raw
-fragments and carry `metadata.namzu.inputTruncated` on `TOOL_CALL_END`;
-the normalized fallback object is not presented as the original call.
+`NAMZU_MESSAGE_CONTENT_MISMATCH`. Tool arguments that could not be read, cut
+off or malformed (see [Unreadable tool input](unreadable-tool-input.md)),
+retain their raw fragments and carry `metadata.namzu.inputTruncated` on
+`TOOL_CALL_END`; the normalized fallback object is not presented as the
+original call.
 Backend tool failures carry `metadata.namzu.isError` on their result.
 
 `AGUIEventMapper` exposes `start`, `map`, `finish`, `fail`, and `ended` for

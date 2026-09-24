@@ -15,6 +15,10 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	modelInputSchema?: Record<string, unknown>
 	enforceModelInput?: boolean
 	validationErrorHint?: string
+	/** Guidance for arguments that could not be read; see {@link ToolDefinition.unreadableInputHint}. */
+	unreadableInputHint?: string
+	/** Arguments carrying long text, with budgets; see {@link ToolDefinition.largeStringArguments}. */
+	largeStringArguments?: Readonly<Record<string, number>>
 	category: ToolDefinition['category']
 	permissions: ToolPermission[]
 	/** Whether this exact call only observes state; conservative for unknown inputs. */
@@ -113,6 +117,12 @@ export function defineTool<S extends z.ZodType>(
 		modelInputSchema: options.modelInputSchema,
 		enforceModelInput: options.enforceModelInput,
 		validationErrorHint: options.validationErrorHint,
+		...(options.unreadableInputHint !== undefined
+			? { unreadableInputHint: options.unreadableInputHint }
+			: {}),
+		...(options.largeStringArguments !== undefined
+			? { largeStringArguments: options.largeStringArguments }
+			: {}),
 		tier: options.tier,
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),

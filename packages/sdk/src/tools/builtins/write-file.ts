@@ -76,6 +76,12 @@ export const WriteFileTool = defineTool({
 	enforceModelInput: true,
 	validationErrorHint:
 		'Required shape: {"path":"file.md","content":"complete file body"}. Pass the whole body, not a diff.',
+	// What a cut-off `write` needs to hear, and only a cut-off or malformed
+	// one: the kernel's message for unreadable arguments used to carry this
+	// recipe for every tool, a question tool's included.
+	largeStringArguments: { content: 12_000 },
+	unreadableInputHint:
+		'For a long file, write a short opening that ends with a unique marker line, then extend it with edit calls that each replace the marker with the next section followed by the marker.',
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.

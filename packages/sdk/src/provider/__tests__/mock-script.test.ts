@@ -88,11 +88,33 @@ describe('MockLLMProvider — scripted tool calls', () => {
 		})
 
 		let sawEnd = false
+		let args = ''
+		let finishReason: string | undefined
 		for await (const chunk of provider.chatStream(PARAMS)) {
 			if (chunk.delta.toolCallEnd) sawEnd = true
+			for (const call of chunk.delta.toolCalls ?? []) args += call.function?.arguments ?? ''
+			finishReason = chunk.finishReason ?? finishReason
 		}
 		// No block-close signal — the consumer must infer truncation.
 		expect(sawEnd).toBe(false)
+		// And the JSON really stops partway, on the finish reason the output
+		// limit produces. It used to arrive whole, so nothing was truncated.
+		expect(args).toBe('{"conte')
+		expect(() => JSON.parse(args)).toThrow()
+		expect(finishReason).toBe('length')
+	})
+
+	it('keeps a scripted finish reason for a truncated call', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					finishReason: 'tool_calls',
+					toolCalls: [{ name: 'write', args: { content: 'x' }, truncateArguments: true }],
+				},
+			],
+		})
+		const response = await collectChatCompletion(provider.chatStream(PARAMS))
+		expect(response.finishReason).toBe('tool_calls')
 	})
 })
 

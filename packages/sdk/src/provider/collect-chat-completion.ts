@@ -3,6 +3,7 @@ import type { ReasoningBlock } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 import { StreamTextAccumulator } from './stream-text.js'
+import { describeToolCallFramingViolation, toolCallFramingViolation } from './tool-call-framing.js'
 
 /**
  * Drains a {@link StreamChunk} async iterable into the equivalent
@@ -18,7 +19,10 @@ import { StreamTextAccumulator } from './stream-text.js'
  * - ordinary text is concatenated in delta order; identified public text
  *   items are preserved and explicit final-answer items select the settled text;
  * - tool calls are bucketed by `index` into the existing
- *   `Array<{ id, function: { name, arguments } }>` shape;
+ *   `Array<{ id, function: { name, arguments } }>` shape. A stream that puts
+ *   a second call id on an index, or sends arguments before a call's id, is
+ *   refused with an error naming the violation, as the turn loop refuses it:
+ *   the second call's arguments used to be appended to the first's;
  * - reasoning blocks are bucketed by `index` the same way, because the
  *   assembled message is the thing a caller replays and
  *   {@link ReasoningBlock} is documented as replayed verbatim. This was
@@ -81,12 +85,17 @@ export async function collectChatCompletion(
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
-			const bucket = toolBuckets.get(tc.index) ?? {
+			const open = toolBuckets.get(tc.index)
+			const violation = toolCallFramingViolation(open, tc)
+			if (violation) {
+				throw new Error(`Provider stream error: ${describeToolCallFramingViolation(violation)}`)
+			}
+			const bucket = open ?? {
 				id: '',
 				name: '',
 				argsBuf: '',
 			}
-			if (tc.id) bucket.id = tc.id
+			if (tc.id && !bucket.id) bucket.id = tc.id
 			if (tc.function?.name) bucket.name = tc.function.name
 			if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
 			toolBuckets.set(tc.index, bucket)

@@ -103,6 +103,9 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 							.describe(`Which subagent to run (defaults to the only one: ${agentIds[0]})`)
 					: subagentTypeEnum.describe('Which subagent to run'),
 		}),
+		largeStringArguments: { prompt: 12_000 },
+		unreadableInputHint:
+			'Put long material in a file the subagent can read and name the file in the prompt instead of pasting its content.',
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

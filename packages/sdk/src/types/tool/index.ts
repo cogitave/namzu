@@ -774,6 +774,27 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * cannot be reconstructed from JSON Schema's top-level `required` list.
 	 */
 	validationErrorHint?: string
+	/**
+	 * Concise, model-readable recovery guidance appended when this tool's
+	 * streamed arguments could not be read at all — the response stopped
+	 * before they closed, or they were not valid JSON — so the call never
+	 * reached {@link inputSchema}. The counterpart of
+	 * {@link validationErrorHint}, which covers a call that parsed and was
+	 * then rejected.
+	 */
+	unreadableInputHint?: string
+	/**
+	 * The arguments that carry long free-form text — a file body, a
+	 * replacement, a delegated assignment — each with the number of characters
+	 * one call should keep it under, e.g. `{ content: 12_000 }`.
+	 *
+	 * Read only when a call to this tool is cut off before its arguments
+	 * close: the model is then told to keep these arguments under their
+	 * budgets and split longer text across calls. A tool that declares none
+	 * gets no size advice, because the length of its own arguments is not
+	 * what ran out.
+	 */
+	largeStringArguments?: Readonly<Record<string, number>>
 
 	/**
 	 * The shape this tool returns, as JSON Schema, appended to the
