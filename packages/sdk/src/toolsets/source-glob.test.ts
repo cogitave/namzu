@@ -17,7 +17,7 @@ describe('matchesSourceIdGlob', () => {
 		expect(matchesSourceIdGlob('plugin:acme', 'plugin:acme/*')).toBe(false)
 	})
 
-	it('escapes regex-special characters in the pattern\'s literal parts', () => {
+	it("escapes regex-special characters in the pattern's literal parts", () => {
 		expect(matchesSourceIdGlob('plugin:a.b', 'plugin:a.b')).toBe(true)
 		// A literal "." must not act as a regex wildcard.
 		expect(matchesSourceIdGlob('plugin:aXb', 'plugin:a.b')).toBe(false)

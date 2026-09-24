@@ -58,8 +58,12 @@ export class ToolsetConflictError extends RegistryCollisionError {
  * subscriptions, so a change three layers down still reaches it and
  * unsubscribing here cleans up all of them.
  */
-export function combineToolsets(source: ToolSource | string, toolsets: readonly Toolset[]): Toolset {
-	const resolvedSource: ToolSource = typeof source === 'string' ? { id: source, kind: 'host_tool', name: source } : source
+export function combineToolsets(
+	source: ToolSource | string,
+	toolsets: readonly Toolset[],
+): Toolset {
+	const resolvedSource: ToolSource =
+		typeof source === 'string' ? { id: source, kind: 'host_tool', name: source } : source
 
 	const combined: Toolset = {
 		source: resolvedSource,
