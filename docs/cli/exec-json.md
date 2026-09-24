@@ -41,6 +41,7 @@ NDJSON, so stdout stays a clean protocol stream.
 | `delta` | Assistant text as it streams. Earlier deltas may include progress, or an answer later rejected by verification. |
 | `reasoning` | A reasoning block, when the model exposes one. |
 | `tool-start`, `tool-progress`, `tool-end` | Around each tool call, keyed by `toolUseId`. |
+| `tool-input-unreadable` | A tool call whose streamed arguments could not be read, before its `tool-start`: `toolUseId`, `turnId`, `inputError` (`reason` is `truncated`, cut off, or `malformed`, not valid JSON; with the other `ToolInputError` fields, see [Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) and `partialArguments`, the first 16 384 characters of what arrived. The call is not run, and its `tool-end` is an error. |
 | `usage` | Token and cost totals, and the budget snapshot. Carries `sessionId` and `turnId`. |
 | `task`, `job`, `context` | Task-list changes, background jobs, and compaction. |
 | `provider-fallback`, `capability-warning`, `history-repair` | Notices about how the request was served. |
@@ -62,6 +63,14 @@ back.
 Without `--session`, prior history may be supplied on stdin as one JSON
 `Message[]`, and nothing is persisted: the call is a stateless one-shot.
 Invalid or provider-incomplete tool history is refused before a turn starts.
+A tool call's `metadata.inputError` (see
+[Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) is
+checked too: `reason` must be `truncated` or `malformed`, `length` and
+`precedingLength` non-negative integers, `parseError` a string, and the
+optional `offset`, `outputTokens` and `reasoningTokens` non-negative integers,
+`finishReason` one of the four and `finishDetail` `context_window`, since the
+model is told about that call from them.
+
 A message may carry `id` (`BaseMessage.id`, the durable record it came from —
 see [Session log](../sdk/session-log.md#a-hosts-cached-messages)); it is
 accepted and kept, never stripped or required. This stream's own events do

@@ -1,0 +1,98 @@
+{
+ "steps": [
+  {
+   "wait": 14
+  },
+  {
+   "type": "y"
+  },
+  {
+   "wait": 8
+  },
+  {
+   "type": "2"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "key": "enter"
+  },
+  {
+   "wait_for": "Type a message",
+   "timeout": 120
+  },
+  {
+   "wait": 20
+  },
+  {
+   "type": "/model gpt-5.6-luna",
+   "submit": true
+  },
+  {
+   "wait_for": "Switched to codex",
+   "timeout": 90
+  },
+  {
+   "wait": 3
+  },
+  {
+   "type": "/effort",
+   "submit": true
+  },
+  {
+   "wait": 5
+  },
+  {
+   "mark": "effort-picker"
+  },
+  {
+   "key": "esc"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "type": "/hypermode on",
+   "submit": true
+  },
+  {
+   "wait": 5
+  },
+  {
+   "mark": "hypermode-on"
+  },
+  {
+   "type": "/hypermode off",
+   "submit": true
+  },
+  {
+   "wait": 4
+  },
+  {
+   "mark": "hypermode-off"
+  },
+  {
+   "type": "hypermode fix the flaky test"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "keyword-armed"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "type": "/exit",
+   "submit": true
+  },
+  {
+   "wait": 5
+  }
+ ]
+}

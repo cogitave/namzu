@@ -15,7 +15,7 @@
  *  - ACI has no host filesystem; this backend ONLY accepts
  *    `azureFileShare` source variants and translates them to ACI's
  *    `properties.volumes[] + container.properties.volumeMounts[]`
- *    shape. The Vandal-side (or any host) provisions per-task
+ *    shape. The host provisions per-task
  *    shares upstream and hands them in via the layout.
  *
  * Authentication:
@@ -138,8 +138,8 @@ export interface ACIStandbyPoolBackendInternalConfig {
 	readonly armApiVersion?: string
 	/**
 	 * Prefix for the ACI container group name and the inner worker
-	 * container. Defaults to a Namzu-branded label; consumers (e.g.
-	 * Vandal) override via env / config to brand their own
+	 * container. Defaults to a Namzu-branded label; consumers
+	 * override it via env / config to brand their own
 	 * deployments. The runtime appends a sandbox id suffix; the
 	 * combined name is sanitised to ARM's allowed character set.
 	 */
@@ -732,7 +732,7 @@ async function spawnAciSandbox(
 					if (observation.accepted) return
 					retirementPromise = undefined
 				}
-				// ARM DELETE — let failures propagate. The Vandal-side
+				// ARM DELETE — let failures propagate. The host's
 				// lifecycle wraps this in its own try/catch with logging,
 				// so a silently swallowed error here means orphan ACI
 				// container groups pile up under the resource group with

@@ -751,6 +751,15 @@ function parseUsage(raw?: RawAnthropicUsage): TokenUsage {
 
 type NamzuFinishReason = ChatCompletionResponse['finishReason']
 
+/**
+ * Which limit a `'length'` finish reached, when it was the context window
+ * rather than `max_tokens`: after the one the turn loop continues a reply it
+ * cut off, and after the other there is no room to continue into.
+ */
+function finishDetail(reason?: string | null): Pick<StreamChunk, 'finishDetail'> {
+	return reason === 'model_context_window_exceeded' ? { finishDetail: 'context_window' } : {}
+}
+
 function mapStopReason(reason?: string | null): NamzuFinishReason {
 	switch (reason) {
 		case 'end_turn':
@@ -758,8 +767,17 @@ function mapStopReason(reason?: string | null): NamzuFinishReason {
 			return 'stop'
 		case 'tool_use':
 			return 'tool_calls'
+		// Both stop the output where it stands. `model_context_window_exceeded`
+		// is the context window rather than `max_tokens`, and fell to 'stop':
+		// a tool call it cut off mid-JSON then read as one the model finished
+		// and got wrong.
 		case 'max_tokens':
+		case 'model_context_window_exceeded':
 			return 'length'
+		// A refusal can end the response inside a tool_use block. As 'stop' it
+		// read as a finished turn, and the unfinished call as malformed.
+		case 'refusal':
+			return 'content_filter'
 		default:
 			return 'stop'
 	}
@@ -1362,7 +1380,7 @@ export class AnthropicProvider implements LLMProvider {
 							// Without this signal the executor sees an empty
 							// `arguments` string and rejects the call with
 							// `Error: Invalid JSON in tool arguments for "<tool>"`
-							// — exactly the failure the live cowork test
+							// — exactly the failure a live end-to-end run
 							// surfaced (Bash + Write both blank-input failed).
 							const idx = event.index ?? 0
 							if (activeReasoning.delete(idx)) {
@@ -1392,7 +1410,14 @@ export class AnthropicProvider implements LLMProvider {
 								if (event.delta.stop_reason === 'pause_turn')
 									throw new Error('Anthropic paused hosted search before completing its answer.')
 								const search = searchBlocks.complete(providerRoute)
-								if (search?.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								// The sources list is the driver's text, not the model's: it
+								// must not read as the model moving on from a tool call the
+								// output limit cut off.
+								if (search?.appendix)
+									yield {
+										id: messageId,
+										delta: { content: search.appendix, contentOrigin: 'driver' },
+									}
 								searchReplayEmitted = Boolean(search)
 								const replayState = search?.replay ?? completedReplayState()
 								yield {
@@ -1400,6 +1425,7 @@ export class AnthropicProvider implements LLMProvider {
 									...(replayState !== undefined ? { replayState } : {}),
 									delta: {},
 									finishReason: mapStopReason(event.delta.stop_reason),
+									...finishDetail(event.delta.stop_reason),
 									usage: event.usage ? parseUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {
@@ -1415,7 +1441,11 @@ export class AnthropicProvider implements LLMProvider {
 							if (searchReplayEmitted) return
 							const search = searchBlocks.complete(providerRoute)
 							if (search) {
-								if (search.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								if (search.appendix)
+									yield {
+										id: messageId,
+										delta: { content: search.appendix, contentOrigin: 'driver' },
+									}
 								yield { id: messageId, delta: {}, replayState: search.replay }
 								return
 							}

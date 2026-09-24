@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Message } from '../types/message/index.js'
+import type { Message, ToolCall } from '../types/message/index.js'
 import { generateGoalId } from '../utils/id.js'
 import { renderAdvisoryHistory } from './history.js'
 
@@ -132,6 +132,54 @@ describe('advisory public history', () => {
 		expect(rows[5]).not.toHaveProperty('isError')
 	})
 
+	it('tells the advisor a malformed call was malformed, and only a cut-off one incomplete', () => {
+		// `inputTruncated` is set on every unreadable call, and was read as
+		// "incomplete" for all of them, a malformed call included.
+		const call = (id: string, reason?: 'truncated' | 'malformed'): ToolCall => ({
+			id,
+			type: 'function',
+			function: { name: 'ask_user_question', arguments: '{}' },
+			metadata: {
+				inputTruncated: true,
+				partialArguments: '{"options":"a", "b"}',
+				...(reason
+					? {
+							inputError: {
+								reason,
+								finishReason:
+									reason === 'truncated' ? ('length' as const) : ('tool_calls' as const),
+								parseError: 'Unexpected token',
+								offset: 14,
+								length: 20,
+								precedingLength: 0,
+							},
+						}
+					: {}),
+			},
+		})
+		const [record] = records(
+			renderAdvisoryHistory([
+				{
+					role: 'assistant',
+					content: null,
+					toolCalls: [
+						call('cut', 'truncated'),
+						call('bad', 'malformed'),
+						call('old'),
+						{ id: 'ok', type: 'function', function: { name: 'read', arguments: '{}' } },
+					],
+				},
+			]),
+		)
+		const calls = JSON.parse(record as string).toolCalls
+		expect(calls.map((c: Record<string, unknown>) => Object.keys(c).slice(3))).toEqual([
+			['argumentsIncomplete'],
+			['argumentsMalformed'],
+			['argumentsUnreadable'],
+			[],
+		])
+	})
+
 	it('charges JSON escaping, role/call metadata and separators against the window', () => {
 		const messages: Message[] = [
 			{
@@ -149,7 +197,7 @@ describe('advisory public history', () => {
 			{ role: 'tool', toolCallId: 't', content: [{ type: 'text', text: '\n'.repeat(30) }] },
 		]
 		const full = records(renderAdvisoryHistory(messages))
-		expect(JSON.parse(full[0] as string).toolCalls[0].argumentsIncomplete).toBe(true)
+		expect(JSON.parse(full[0] as string).toolCalls[0].argumentsUnreadable).toBe(true)
 		const lastSize = (full[1] as string).length
 		const suffix = renderAdvisoryHistory(messages, lastSize / 4)
 		expect(records(suffix)).toEqual([full[1]])

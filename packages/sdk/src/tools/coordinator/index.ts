@@ -11,6 +11,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { asTaskId } from '../../utils/id.js'
+import { jsonStringEscapes } from '../builtins/json-string-hint.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { buildAskUserQuestionTool } from './ask-user-question.js'
@@ -545,6 +546,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					}
 				: {}),
 		}),
+		largeStringArguments: { prompt: 12_000 },
+		truncatedInputHint:
+			'Put long material in a shared workspace file and name the file in the prompt instead of pasting its content.',
+		// A delegated prompt is long free text, copied into a JSON string.
+		malformedInputHint: jsonStringEscapes('"prompt"'),
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

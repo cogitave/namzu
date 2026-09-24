@@ -144,7 +144,12 @@ describe('the composer on a production-shaped terminal', () => {
 
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith('', [clipboardImage])
+			expect(submit).toHaveBeenCalledWith(
+				'',
+				[clipboardImage],
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -175,7 +180,12 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 
 			expect(directions).toEqual(['raise', 'lower', 'raise', 'lower'])
-			expect(submit).toHaveBeenCalledWith('keep draft', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'keep draft',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -195,7 +205,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('keep', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'keep',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -218,7 +233,12 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith('hello', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'hello',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -240,7 +260,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('ab', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'ab',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -266,7 +291,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('head tail!', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'head tail!',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -288,7 +318,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('one\ntwo\nthree', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'one\ntwo\nthree',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -314,7 +349,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('abcdef!\nxy\n123456', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'abcdef!\nxy\n123456',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -333,7 +373,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('keep this', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'keep this',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -357,7 +402,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('unsent', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'unsent',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -391,7 +441,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('fix', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'fix',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -416,7 +471,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('fiXx', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'fiXx',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 			expect(screen.viewport().join('\n')).not.toContain('Ctrl+R older')
 		} finally {
 			await screen.unmount()
@@ -441,7 +501,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('unsent', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'unsent',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -465,7 +530,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('unmatched!', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'unmatched!',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -489,7 +559,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('alpha gamma', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'alpha gamma',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -513,7 +588,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('alpha! Xbeta', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'alpha! Xbeta',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -534,7 +614,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('beta', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'beta',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -555,7 +640,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('ab', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'ab',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -586,7 +676,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('k', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'k',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -609,7 +704,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('beta alpha gamma', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'beta alpha gamma',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -634,8 +734,20 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenNthCalledWith(1, 'keep', undefined)
-			expect(submit).toHaveBeenNthCalledWith(2, 'again CU', undefined)
+			expect(submit).toHaveBeenNthCalledWith(
+				1,
+				'keep',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
+			expect(submit).toHaveBeenNthCalledWith(
+				2,
+				'again CU',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -653,7 +765,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\t')
 			await screen.waitForRender()
 
-			expect(submit).toHaveBeenCalledWith('follow up', undefined, 'queue')
+			expect(submit).toHaveBeenCalledWith(
+				'follow up',
+				undefined,
+				'queue',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -705,7 +822,12 @@ describe('the composer on a production-shaped terminal', () => {
 
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith(`/${eighth.name}`)
+			expect(submit).toHaveBeenCalledWith(
+				`/${eighth.name}`,
+				undefined,
+				'submit',
+				{ source: 'composer-dropdown' },
+			)
 		} finally {
 			await screen.unmount()
 		}
@@ -741,7 +863,12 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('please')
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith('@src/f07.ts please', undefined)
+			expect(submit).toHaveBeenCalledWith(
+				'@src/f07.ts please',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
 		} finally {
 			await screen.unmount()
 		}

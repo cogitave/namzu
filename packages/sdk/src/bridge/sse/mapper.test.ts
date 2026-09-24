@@ -704,6 +704,35 @@ describe('mapSessionEventToStreamEvent — v3 message and tool-input lifecycle',
 			tool_use_id: TUID,
 			input: { file_path: '/etc/passwd' },
 		})
+		expect(r?.data).not.toHaveProperty('input_error')
+	})
+
+	it('tool_input_completed carries why unreadable arguments were not read, and what arrived', () => {
+		const inputError = {
+			reason: 'malformed' as const,
+			finishReason: 'tool_calls' as const,
+			parseError: 'Unexpected end of JSON input',
+			offset: 11,
+			length: 11,
+			precedingLength: 0,
+		}
+		const r = mapSessionEventToStreamEvent({
+			type: 'tool_input_completed',
+			sessionId: SID,
+			turnId: TID,
+			toolUseId: TUID,
+			input: {},
+			inputTruncated: true,
+			inputError,
+			partialArguments: '{"file_path',
+		})
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			input: {},
+			input_truncated: true,
+			input_error: inputError,
+			partial_arguments: '{"file_path',
+		})
 	})
 })
 

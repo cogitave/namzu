@@ -230,6 +230,13 @@ describe('Codex finalized output retention', () => {
 		)
 		const m = { ...assistant(chunks), toolCalls: undefined }
 		expect(m.content).toBe('Reading.\n\nSources: [Reference](<https://example.com/reference>)')
+		// The sources list is marked as the driver's own text; the model's is not.
+		expect(
+			chunks.flatMap((c) => (c.delta.content ? [[c.delta.content, c.delta.contentOrigin]] : [])),
+		).toEqual([
+			['Reading.', undefined],
+			['\n\nSources: [Reference](<https://example.com/reference>)', 'driver'],
+		])
 		expect(chunks.at(-1)?.finishReason).toBe('stop')
 		expect(toCodexInput([m], route)).toEqual([search, cited])
 		expect(chunks.flatMap((c) => c.delta.toolCalls ?? [])).toEqual([])
@@ -259,15 +266,22 @@ describe('Codex finalized output retention', () => {
 	})
 
 	it('does not commit replay for a disconnected or incomplete response', async () => {
-		for (const terminal of [
-			[],
-			[{ type: 'response.incomplete', response: { id: 'resp_fixture', output: [reasoning] } }],
-		]) {
-			const chunks = await collect(providerFor([done(0, reasoning), ...terminal]))
-			expect(chunks.some((c) => c.replayState !== undefined || c.finishReason !== undefined)).toBe(
-				false,
-			)
-		}
+		const disconnected = await collect(providerFor([done(0, reasoning)]))
+		expect(
+			disconnected.some((c) => c.replayState !== undefined || c.finishReason !== undefined),
+		).toBe(false)
+
+		// An incomplete response did stop, and says why — the output budget
+		// unless it names a filter — but its items are unfinished, so nothing
+		// is committed for replay.
+		const incomplete = await collect(
+			providerFor([
+				done(0, reasoning),
+				{ type: 'response.incomplete', response: { id: 'resp_fixture', output: [reasoning] } },
+			]),
+		)
+		expect(incomplete.some((c) => c.replayState !== undefined)).toBe(false)
+		expect(incomplete.at(-1)?.finishReason).toBe('length')
 	})
 
 	it('does not expose a completed replay state after cancellation or failure', async () => {

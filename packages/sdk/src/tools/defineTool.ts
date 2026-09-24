@@ -15,6 +15,12 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	modelInputSchema?: Record<string, unknown>
 	enforceModelInput?: boolean
 	validationErrorHint?: string
+	/** Advice for a call cut off before its arguments closed; see {@link ToolDefinition.truncatedInputHint}. */
+	truncatedInputHint?: string
+	/** Advice for a call whose arguments were not valid JSON, in place of `validationErrorHint`; see {@link ToolDefinition.malformedInputHint}. */
+	malformedInputHint?: string
+	/** Arguments carrying long text, with budgets; see {@link ToolDefinition.largeStringArguments}. */
+	largeStringArguments?: Readonly<Record<string, number>>
 	category: ToolDefinition['category']
 	permissions: ToolPermission[]
 	/** Whether this exact call only observes state; conservative for unknown inputs. */
@@ -115,6 +121,15 @@ export function defineTool<S extends z.ZodType>(
 		modelInputSchema: options.modelInputSchema,
 		enforceModelInput: options.enforceModelInput,
 		validationErrorHint: options.validationErrorHint,
+		...(options.truncatedInputHint !== undefined
+			? { truncatedInputHint: options.truncatedInputHint }
+			: {}),
+		...(options.malformedInputHint !== undefined
+			? { malformedInputHint: options.malformedInputHint }
+			: {}),
+		...(options.largeStringArguments !== undefined
+			? { largeStringArguments: options.largeStringArguments }
+			: {}),
 		tier: options.tier,
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),

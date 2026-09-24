@@ -400,7 +400,8 @@ export class GoogleProvider implements LLMProvider {
 				const appendix = `\n\nSources:\n${missing.map((url) => `- ${url}`).join('\n')}`
 				text += appendix
 				parts.push({ text: appendix })
-				yield { id, delta: { content: appendix } }
+				// The driver's text, not the model's.
+				yield { id, delta: { content: appendix, contentOrigin: 'driver' } }
 			}
 
 			yield {

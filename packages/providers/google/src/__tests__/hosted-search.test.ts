@@ -40,6 +40,13 @@ it('combines native search and functions and retains grounded links', async () =
 	expect(body.tools).toContainEqual({ googleSearch: {} })
 	expect(body.tools[0].functionDeclarations[0].name).toBe('read')
 	expect(chunks.map((c) => c.delta.content ?? '').join('')).toContain('https://example.com/source')
+	// The sources list is marked as the driver's own text; the model's is not.
+	expect(
+		chunks.flatMap((c) => (c.delta.content ? [[c.delta.content, c.delta.contentOrigin]] : [])),
+	).toEqual([
+		['A grounded answer.', undefined],
+		[expect.stringContaining('https://example.com/source'), 'driver'],
+	])
 	expect(chunks.flatMap((c) => (c.delta.hostedTool ? [c.delta.hostedTool.status] : []))).toEqual([
 		'running',
 		'completed',
