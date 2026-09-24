@@ -493,6 +493,32 @@ describe('only the call the response stopped on can have been cut off', () => {
 })
 
 describe('tool-call framing', () => {
+	it('places fragments a server sent with no index by their ids, instead of refusing parallel calls', async () => {
+		// Some OpenAI-compatible servers leave `index` out of `tool_calls`, and
+		// a driver that passes the wire value through sends none. Every
+		// fragment landed on one `undefined` index, and two parallel calls
+		// were refused as a reused index: the turn paused on a sound stream.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result, events } = await run([
+			unindexed({ id: 'call_a', type: 'function', function: { name: 'read', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":"a.md"}' } }),
+			unindexed({ id: 'call_b', type: 'function', function: { name: 'read', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":' } }),
+			unindexed({ id: 'call_b', function: { arguments: '"b.md"}' } }),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(
+			result?.response.message.toolCalls?.map((call) => [call.id, call.function.arguments]),
+		).toEqual([
+			['call_a', '{"path":"a.md"}'],
+			['call_b', '{"path":"b.md"}'],
+		])
+		expect(completed(events).map((e) => e.toolUseId)).toEqual(['call_a', 'call_b'])
+	})
+
 	it('refuses a second call id on an index another call holds, instead of joining their arguments', async () => {
 		const { error, events } = await run([
 			open(0, 'call_a'),

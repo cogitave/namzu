@@ -94,6 +94,37 @@ describe('collectChatCompletion and tool-call framing', () => {
 		).toEqual([['call_1', 'x', '{"a":1}']])
 	})
 
+	it('places fragments sent with no index by their ids', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				// Arguments before the id, with no index either: the id names
+				// the call they started.
+				unindexed({ function: { name: 'read', arguments: '{"path":' } }),
+				unindexed({ id: 'call_a', function: { arguments: '"a.md"}' } }),
+				unindexed({ id: 'call_b', type: 'function', function: { name: 'read', arguments: '' } }),
+				unindexed({ function: { arguments: '{"path":"b.md"}' } }),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		expect(response.message.toolCalls?.map((call) => [call.id, call.function.arguments])).toEqual([
+			['call_a', '{"path":"a.md"}'],
+			['call_b', '{"path":"b.md"}'],
+		])
+	})
+
+	it('still refuses a reused index a fragment does carry', async () => {
+		await expect(
+			collectChatCompletion(
+				chunks(
+					{ id: 'r', delta: { toolCalls: [{ index: 0, id: 'a', function: { name: 'x' } }] } },
+					{ id: 'r', delta: { toolCalls: [{ index: 0, id: 'b', function: { name: 'y' } }] } },
+				),
+			),
+		).rejects.toThrow('reused tool-call index 0')
+	})
+
 	it('still assembles well-framed parallel calls', async () => {
 		const response = await collectChatCompletion(
 			chunks(

@@ -6,6 +6,7 @@ import {
 import { ProviderRequestError, isProviderRequestError } from '../../../provider/errors.js'
 import { StreamTextAccumulator } from '../../../provider/stream-text.js'
 import {
+	ToolCallIndexer,
 	describeToolCallFramingViolation,
 	toolCallFramingViolation,
 } from '../../../provider/tool-call-framing.js'
@@ -276,6 +277,8 @@ export async function* streamProviderTurn(
 	// it filled the response.
 	let streamedLength = 0
 	const toolBuckets = new Map<number, ToolCallBucket>()
+	// Places a fragment that came without an index; see `ToolCallIndexer`.
+	const toolIndexer = new ToolCallIndexer()
 	// The call the model's latest output went to, or `undefined` once text,
 	// reasoning or a hosted tool followed it. An output limit, a content
 	// filter or a dropped stream stops the response wherever it is, so this
@@ -536,8 +539,9 @@ export async function* streamProviderTurn(
 			}
 
 			for (const tc of chunk.delta.toolCalls ?? []) {
-				let bucket = toolBuckets.get(tc.index)
-				const violation = toolCallFramingViolation(bucket, tc)
+				const index = toolIndexer.indexOf(tc)
+				let bucket = toolBuckets.get(index)
+				const violation = toolCallFramingViolation(bucket, tc, index)
 				if (violation) {
 					// Refused, not repaired: after either violation no buffer can be
 					// trusted to hold one call's arguments, and guessing is what
@@ -561,7 +565,7 @@ export async function* streamProviderTurn(
 						parsed: null,
 						precedingLength: streamedLength,
 					}
-					toolBuckets.set(tc.index, bucket)
+					toolBuckets.set(index, bucket)
 					lastOutputCall = bucket
 				}
 				if (tc.id && !bucket.id) bucket.id = tc.id
@@ -592,8 +596,9 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.delta.toolCallEnd) {
-				const { index, id: endId } = chunk.delta.toolCallEnd
-				const bucket = toolBuckets.get(index)
+				const { id: endId } = chunk.delta.toolCallEnd
+				const index = toolIndexer.closedIndex(chunk.delta.toolCallEnd)
+				const bucket = index === undefined ? undefined : toolBuckets.get(index)
 				if (bucket && !bucket.completed) {
 					// The block close names the call too; a call whose id no
 					// fragment carried is announced by it.

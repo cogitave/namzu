@@ -3,7 +3,11 @@ import type { ReasoningBlock } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 import { StreamTextAccumulator } from './stream-text.js'
-import { describeToolCallFramingViolation, toolCallFramingViolation } from './tool-call-framing.js'
+import {
+	ToolCallIndexer,
+	describeToolCallFramingViolation,
+	toolCallFramingViolation,
+} from './tool-call-framing.js'
 
 /**
  * Drains a {@link StreamChunk} async iterable into the equivalent
@@ -57,6 +61,8 @@ export async function collectChatCompletion(
 	}
 
 	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
+	// Places a fragment that came without an index; see `ToolCallIndexer`.
+	const toolIndexer = new ToolCallIndexer()
 	// Same bucketing rule the turn loop uses (`runtime/query/iteration/
 	// stream-turn.ts`), so a message assembled here and a message assembled
 	// there carry the same blocks in the same order.
@@ -88,8 +94,9 @@ export async function collectChatCompletion(
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
-			const open = toolBuckets.get(tc.index)
-			const violation = toolCallFramingViolation(open, tc)
+			const index = toolIndexer.indexOf(tc)
+			const open = toolBuckets.get(index)
+			const violation = toolCallFramingViolation(open, tc, index)
 			if (violation) {
 				throw new Error(`Provider stream error: ${describeToolCallFramingViolation(violation)}`)
 			}
@@ -101,7 +108,7 @@ export async function collectChatCompletion(
 			if (tc.id && !bucket.id) bucket.id = tc.id
 			if (tc.function?.name) bucket.name = tc.function.name
 			if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
-			toolBuckets.set(tc.index, bucket)
+			toolBuckets.set(index, bucket)
 		}
 
 		if (chunk.finishReason) {

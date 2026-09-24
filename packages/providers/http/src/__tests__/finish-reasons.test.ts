@@ -1,4 +1,4 @@
-import type { StreamChunk } from '@namzu/sdk'
+import { type StreamChunk, collectChatCompletion } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HttpProvider } from '../client.js'
@@ -96,6 +96,32 @@ describe('HTTP provider, OpenAI dialect finish reasons', () => {
 	it('reports no finish reason for a value it does not know, rather than a normal finish', async () => {
 		const chunks = await chunksOf('openai', [openAiFinish('recitation_blocked'), 'data: [DONE]'])
 		expect(chunks.some((chunk) => chunk.finishReason !== undefined)).toBe(false)
+	})
+})
+
+describe('HTTP provider, OpenAI dialect tool calls with no index', () => {
+	it('assembles parallel calls from a server that leaves `index` out', async () => {
+		// Passed through as it came, the missing index used to put both calls
+		// on one index, and the runtime refused the stream as a reused index.
+		const frame = (toolCall: Record<string, unknown>) =>
+			`data: ${JSON.stringify({ id: 'r', choices: [{ delta: { tool_calls: [toolCall] }, finish_reason: null }] })}`
+		const chunks = await chunksOf('openai', [
+			frame({ id: 'call_a', type: 'function', function: { name: 'read', arguments: '' } }),
+			frame({ function: { arguments: '{"path":"a.md"}' } }),
+			frame({ id: 'call_b', type: 'function', function: { name: 'read', arguments: '' } }),
+			frame({ function: { arguments: '{"path":"b.md"}' } }),
+			openAiFinish('tool_calls'),
+			'data: [DONE]',
+		])
+		const response = await collectChatCompletion(
+			(async function* () {
+				yield* chunks
+			})(),
+		)
+		expect(response.message.toolCalls?.map((call) => [call.id, call.function.arguments])).toEqual([
+			['call_a', '{"path":"a.md"}'],
+			['call_b', '{"path":"b.md"}'],
+		])
 	})
 })
 

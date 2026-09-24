@@ -224,6 +224,15 @@ A stream groups a call's fragments by `index`. The turn loop and
   them and sends them in one `tool_input_delta` right after
   `tool_input_started`, once the call's id and name are both known. No
   `tool_input_delta` comes before its call's `tool_input_started`.
+- A fragment with no index is placed by its id. Some OpenAI-compatible
+  servers leave `index` out of `tool_calls`, and a driver that passes the wire
+  value through then sends none. An id seen before continues its call; a new
+  id names the call the latest fragment went to when that call has no id yet,
+  and starts a call on the next free index otherwise; a fragment with no id
+  continues the call the latest fragment went to. A block close with no index
+  closes the call its id names. Such fragments all landed on one missing
+  index before, so two parallel calls were refused as the violation below and
+  the turn paused. A fragment that carries an index keeps it.
 - A second call id on an index another call holds is refused. The second
   call's arguments used to be appended to the first call's, which left one
   call that no tool could run. The turn loop throws a `ProviderRequestError`
