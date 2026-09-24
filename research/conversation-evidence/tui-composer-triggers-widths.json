@@ -1,0 +1,90 @@
+{
+ "steps": [
+  {
+   "wait": 14
+  },
+  {
+   "type": "y"
+  },
+  {
+   "wait": 8
+  },
+  {
+   "type": "2"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "key": "enter"
+  },
+  {
+   "wait_for": "Type a message",
+   "timeout": 120
+  },
+  {
+   "wait": 20
+  },
+  {
+   "type": "hypermode ile şu repodaki TODO'ları iki agent'a bölerek say"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "typed-armed"
+  },
+  {
+   "key": "alt-w"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "alt-w-dropped"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "type": "fix the tests, then save it as a skill"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "save-embedded"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "type": "what is hypermode?"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "question"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "type": "/exit",
+   "submit": true
+  },
+  {
+   "wait": 5
+  }
+ ]
+}

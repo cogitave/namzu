@@ -31,8 +31,8 @@ them. On the left: the active permission mode, colored by mode (`accept-edits`
 and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
 with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
-has set one, beside it as `· effort <level>`; [orchestrate mode](slash-commands.md#orchestrate-mode),
-when it is on, beside that as `· orchestrate` in the mode's own violet; then the working directory. When
+has set one, beside it as `· effort <level>`; [hypermode](slash-commands.md#hypermode),
+when it is on, beside that as `· hypermode` in the mode's own violet; then the working directory. When
 the mode is the unremarkable default (`prompt`), the left side shows a quiet
 `shift+tab to cycle` in place of a badge, rather than a line that is present in
 every state and therefore read in none. On the right: an interaction hint or a
@@ -41,15 +41,15 @@ precedence the path used to defer to, now extended to the model. The footer is
 always exactly one row: on narrow screens the working directory shrinks and
 drops first (as it already did on the old status line — a path is recoverable,
 the mode is not), then the effort label, then the cycle-key reminder, then the
-model on the right is dropped entirely, then `orchestrate`, and only as a last
-resort does the mode badge itself truncate. Orchestrate is not bundled with
+model on the right is dropped entirely, then `hypermode`, and only as a last
+resort does the mode badge itself truncate. Hypermode is not bundled with
 effort in that order and does not fall away with it: it is a persistent,
 behavior-changing session setting with no other on-screen indicator, so it
 holds the mode badge's own survival priority instead — it outlives effort, the
 working directory and the model being dropped for room, and it is dropped
 whole rather than truncated to a fragment of the word. It still never costs
-the badge a character: below the width where `orchestrate` fits whole beside
-an already-fitted badge, orchestrate disappears and the badge wins. This
+the badge a character: below the width where `hypermode` fits whole beside
+an already-fitted badge, hypermode disappears and the badge wins. This
 single line replaces two things that used to be drawn
 separately: the permission-mode row that used to appear inside the message
 frame above the input, and the separate status line — model, effort, working
@@ -58,12 +58,34 @@ frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
 
-While orchestrate mode is on, the message box's top border names it on the
-right, `┌─ MESSAGE ──── orchestrate ─┐`, in violet, and the run of `─` before
+While hypermode is on, the message box's top border names it on the
+right, `┌─ MESSAGE ──── hypermode ─┐`, in violet, and the run of `─` before
 it takes a still colour gradient. Nothing on it moves. Where colour is refused
 (`NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb`) the rule is the plain one, and below
 40 columns the tag is left off the border whole; the footer still names the
 mode there.
+
+### Composer triggers
+
+A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
+kaydet" — gets one row inside the message frame, above the input, where the
+`Effort:`/`Model:` previews go:
+`✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`.
+The armed words in the draft are bold and underlined in sky (ANSI 117), the
+trigger's own colour: violet belongs to the session mode, which lasts, and a
+trigger lasts one message. The highlight is cut from the draft before unsafe
+characters are escaped for the terminal, so it stays on the right cells. `✦`
+(armed) and `✧` (suggested, dropped, unavailable) are one cell wide and are not
+emoji, and the state is always also a word or mark (`?`, `(off)`,
+`unavailable …`), so a terminal without colour, or a reader who cannot tell
+the two glyphs apart, loses nothing. The row is one row at every width and
+shortens by steps (full copy from 84 terminal columns, a short form from 64,
+label and key from 44, the label alone below). The border tag and the footer are
+unchanged by a trigger: a one-turn effort pin shows in the row and in the
+transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
+and the footer keeps the session's own effort. The queue line names the armed
+triggers of queued messages (`⏎ 1 message queued — sending when ready · ✦ save
+as skill`).
 
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on

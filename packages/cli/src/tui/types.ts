@@ -10,6 +10,7 @@ import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type {
 	BrowserConfig,
 	CompactionCliConfig,
+	ComposerTriggersConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
@@ -112,6 +113,8 @@ export interface TuiContext {
 	readonly plugins?: PluginConfig
 	/** See `NamzuCliConfig.skills`. */
 	readonly skills?: SkillsConfig
+	/** See `NamzuCliConfig.composerTriggers`. Only the interactive terminal reads it. */
+	readonly composerTriggers?: ComposerTriggersConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
 	/**

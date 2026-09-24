@@ -219,6 +219,18 @@ without one the model picks one for the kind of task. Typed while a turn is
 running, `/skills save` (and `/skills new`) is not steered into that turn: it
 waits in the queue, says so, and runs when the turn ends.
 
+**Saving by asking in words.** "save this as a skill", "turn it into a
+skill", "bunu skill olarak kaydet", "bunu skill'e çevir" and "bundan bir skill
+yap", typed into the composer, arm a [composer trigger](composer-triggers.md):
+the words are highlighted and a row above the input says what will happen.
+Embedded in a task ("şu TODO'ları say ve bunu skill olarak kaydet"), it runs
+`/skills save` after that turn, but only when the turn completed, did tool
+work and did not already save a skill, and saving is still possible (not
+`plan` or `strict`); otherwise a row says why. The message on its own runs
+`/skills save` at once, as if typed. The proposal line above is not printed
+for a turn whose save you asked for. Alt+W drops the trigger before you send;
+`composerTriggers.builtin.save-skill: off` turns the phrases off.
+
 **Turning it off.** `/skills save off` writes `skills.suggest: false` to your
 user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
 was) and says which file; `/skills save on` writes `true`. Either applies to
