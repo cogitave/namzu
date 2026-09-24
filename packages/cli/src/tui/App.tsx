@@ -45,7 +45,7 @@ import {
 	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
 	pinTrustedProjectPath,
@@ -156,10 +156,30 @@ import {
 	Composer,
 	type ComposerDraft,
 	type ComposerSubmitMode,
+	type ComposerTriggerSettings,
+	type SubmitMeta,
 	suggestionWindowSize,
 } from './Composer.js'
+import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
+import { transcriptTagLine } from './triggers/copy.js'
+import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
+import {
+	BUILTIN_TRIGGERS,
+	type TriggerId,
+	compileRegistry,
+	triggerDefinition,
+} from './triggers/registry.js'
+import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
+import {
+	HYPERMODE,
+	HYPERMODE_SUMMARY,
+	ORCHESTRATE_ALIAS_NOTICE,
+	hypermodeEffort,
+	hypermodeStopLabel,
+} from './hypermode.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
@@ -480,8 +500,8 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly notice?: string
 			/** The published model whose paused queue this follow-up may configure. */
 			readonly selectedSession?: AgentSession
-			/** The last entry is the orchestrate-mode row, below a rule; never a `ReasoningEffort`. */
-			readonly values: readonly (ReasoningEffort | undefined | 'orchestrate')[]
+			/** The last entry is the hypermode row, below a rule; never a `ReasoningEffort`. */
+			readonly values: readonly (ReasoningEffort | undefined | 'hypermode')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -610,6 +630,10 @@ type StreamState = {
 	skillFlow?: boolean
 	/** The permission mode the turn started in. */
 	startedInPlanMode?: boolean
+	/** After-turn composer triggers bound to this turn: run once when it ends, if it earned them. */
+	followUps?: TriggerId[]
+	/** namzu's words for this turn's triggers: request-only context, read at every iteration. */
+	contextTexts?: string[]
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -739,6 +763,11 @@ type QueuedPrompt =
 			readonly attachments?: readonly MessageAttachment[]
 			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
 			readonly skillFlow?: true
+			/**
+			 * Composer triggers armed when the operator sent it (`./triggers/`).
+			 * Only the composer's own submit sets this; see `SubmitMeta`.
+			 */
+			readonly triggers?: readonly TriggerId[]
 	  }
 	| {
 			readonly kind: 'goal'
@@ -998,11 +1027,11 @@ export function App({
 	// A session setting layered above effort, not a level a provider publishes
 	// — see docs/cli/slash-commands.md's /effort section. In-memory and
 	// per-session like reasoningEffort above; no preferences file involved.
-	const [orchestrateMode, setOrchestrateModeState] = useState(false)
-	const orchestrateModeRef = useRef(false)
-	const setOrchestrateMode = useCallback((next: boolean) => {
-		orchestrateModeRef.current = next
-		setOrchestrateModeState(next)
+	const [hypermode, setHypermodeState] = useState(false)
+	const hypermodeRef = useRef(false)
+	const setHypermode = useCallback((next: boolean) => {
+		hypermodeRef.current = next
+		setHypermodeState(next)
 	}, [])
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
@@ -1594,7 +1623,7 @@ export function App({
 		say: (text: string) => void
 		ask: QuestionFn
 		askPermission: ScreenPermissionFn
-		submit: (text: string) => void
+		submit: (text: string, createdBy: 'model' | 'operator') => void
 		model?: { readonly provider: string; readonly model?: string }
 	} | null>(null)
 	const scheduleRef = useRef<ScheduleIntegration | null>(null)
@@ -1623,7 +1652,7 @@ export function App({
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
-			submit: (text) => scheduleLiveRef.current?.submit(text),
+			submit: (text, createdBy) => scheduleLiveRef.current?.submit(text, createdBy),
 		})
 	}
 	/**
@@ -1975,6 +2004,57 @@ export function App({
 	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
 	/** `/skills save off|on` in this session, over whatever the config files say. */
 	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
+	/** `/config triggers on|off` in this session, over whatever the config files say. */
+	const [composerTriggersOverride, setComposerTriggersOverride] = useState<boolean | undefined>()
+	const composerTriggerSettings = useMemo(
+		() => resolveComposerTriggers(ctx.composerTriggers),
+		[ctx.composerTriggers],
+	)
+	const composerTriggerRegistry = useMemo(
+		() =>
+			compileRegistry(BUILTIN_TRIGGERS, {
+				arming: composerTriggerSettings.arming,
+				locales: composerTriggerSettings.languages,
+			}),
+		[composerTriggerSettings],
+	)
+	const composerTriggersOn = composerTriggersOverride ?? composerTriggerSettings.enabled
+	/**
+	 * Whether the model can run `skill-creator` here, which save-as-skill
+	 * needs. Read once for the tag row; read again when a turn starts and when
+	 * its follow-up would run, in case the skills changed meanwhile.
+	 */
+	const readSkillCreator = useCallback((): boolean => {
+		try {
+			const creator = discoverSkills({
+				cwd: ctx.cwd,
+				...(ctx.skills ? { config: ctx.skills } : {}),
+			}).find((skill) => skill.name === SKILL_CREATOR_SKILL)
+			return Boolean(creator && !creator.problem && creator.invocation !== 'operator')
+		} catch {
+			return false
+		}
+	}, [ctx.cwd, ctx.skills])
+	const skillCreatorAvailable = useMemo(() => readSkillCreator(), [readSkillCreator])
+	/** The session as the triggers see it right now, for a check at a turn's start or end. */
+	const triggerContextNow = useCallback(
+		(): TriggerContext => ({
+			permissionMode: permissionModeRef.current,
+			sessionHypermode: hypermodeRef.current,
+			effortMenu: (session?.reasoningEffortLevels?.length ?? 0) > 0,
+			// The interactive session always mounts `Agent` and the `schedule`
+			// tool; only scheduled runs withhold them, and those never read
+			// composer triggers.
+			agentTool: true,
+			skillCreator: readSkillCreator(),
+			scheduleTool: true,
+		}),
+		[readSkillCreator, session],
+	)
+	/** A turn's hand-off to its after-turn triggers; assigned below, where the queue lives. */
+	const triggerFollowUpsRef = useRef<
+		((st: StreamState, ending: 'completed' | 'stopped' | 'paused' | 'cancelled' | 'failed') => boolean) | null
+	>(null)
 	const conversationLearning = useCallback(() => {
 		if (learningRef.current.generation !== conversationGenRef.current) {
 			learningRef.current = {
@@ -2359,28 +2439,37 @@ export function App({
 	)
 
 	/**
-	 * Turn the session's orchestrate mode on or off.
+	 * Turn the session's hypermode on or off.
 	 *
 	 * On: pins effort to the model's highest published level (last entry of
 	 * `reasoningEffortLevels`, which every provider publishes low-to-high) and
-	 * strengthens delegation guidance for future turns via `SendOptions.orchestrate`
+	 * strengthens delegation guidance for future turns via `SendOptions.hypermode`
 	 * — see `applyReasoningEffort` above for the mirrored guard shape. When the
 	 * model publishes no exact menu, effort is left alone and the notice says
 	 * so explicitly rather than silently doing nothing.
 	 */
-	const applyOrchestrateMode = useCallback(
+	/**
+	 * The effort in force before hypermode pinned the highest level, and the
+	 * level it pinned. Turning the mode off puts the effort back — unless the
+	 * operator chose another level meanwhile, which then stays.
+	 */
+	const hypermodePinRef = useRef<{
+		readonly before: ReasoningEffort | undefined
+		readonly pinned: ReasoningEffort
+	} | null>(null)
+	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
-					'No active session — pick a provider before turning orchestrate mode on.',
+					'No active session — pick a provider before turning hypermode on.',
 				)
 				return
 			}
 			if (selectedSession !== undefined && selectedSession !== session) {
 				pushMessage(
 					'system',
-					'Orchestrate mode was not changed: the selected model is no longer active.',
+					'Hypermode was not changed: the selected model is no longer active.',
 				)
 				return
 			}
@@ -2394,30 +2483,48 @@ export function App({
 			) {
 				pushMessage(
 					'system',
-					'Orchestrate mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+					'Hypermode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
 				)
 				return
 			}
-			setOrchestrateMode(enabled)
-			if (!enabled) {
-				pushMessage('system', 'Orchestrate mode is off.')
+			if (!enabled && !hypermodeRef.current) {
+				pushMessage('system', 'Hypermode is off.')
 				return
 			}
-			const highest = highestReasoningEffort(session.reasoningEffortLevels)
-			if (highest !== undefined) {
-				setReasoningEffort(highest)
+			setHypermode(enabled)
+			if (!enabled) {
+				const pin = hypermodePinRef.current
+				hypermodePinRef.current = null
+				if (pin && reasoningEffortRef.current === pin.pinned) {
+					setReasoningEffort(pin.before)
+					pushMessage(
+						'system',
+						`Hypermode is off — effort back to ${pin.before ?? 'the provider default'}.`,
+					)
+					return
+				}
+				pushMessage('system', 'Hypermode is off.')
+				return
+			}
+			const pinned = hypermodeEffort(session.reasoningEffortLevels)
+			if (pinned !== undefined) {
+				// Turning it on twice keeps the effort from before the first time.
+				if (!hypermodePinRef.current)
+					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
+				setReasoningEffort(pinned)
 				pushMessage(
 					'system',
-					`Orchestrate mode is on — effort pinned to ${highest} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
+					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
 				)
 				return
 			}
 			pushMessage(
 				'system',
-				`Orchestrate mode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this session.`,
+				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this session.`,
 			)
 		},
-		[hasUnsettledTurn, pushMessage, session, setOrchestrateMode, setReasoningEffort, state],
+		[hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -3102,8 +3209,8 @@ export function App({
 				removeStoredCredential(value as SubscriptionProviderId)
 				return
 			}
-			if (picker.kind === 'reasoning-effort' && value === ORCHESTRATE_MODE_VALUE) {
-				applyOrchestrateMode(!orchestrateModeRef.current, picker.selectedSession)
+			if (picker.kind === 'reasoning-effort' && value === HYPERMODE_VALUE) {
+				applyHypermode(!hypermodeRef.current, picker.selectedSession)
 				return
 			}
 			applyReasoningEffort(value as ReasoningEffort | undefined, picker.selectedSession)
@@ -3112,7 +3219,7 @@ export function App({
 			activateSkill,
 			advanceQueueContinuation,
 			appLifetime.signal,
-			applyOrchestrateMode,
+			applyHypermode,
 			applyPermissionMode,
 			applyReasoningEffort,
 			archiveCurrentConversation,
@@ -3471,13 +3578,15 @@ export function App({
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
-			// above, so they leave the current session selection untouched. Orchestrate
+			// above, so they leave the current session selection untouched. Hypermode
 			// mode survives the switch: re-pin to the new model's highest published
 			// level instead of clearing, exactly as it pinned when first turned on.
 			if (signal !== undefined) {
-				setReasoningEffort(
-					orchestrateModeRef.current ? highestReasoningEffort(s.reasoningEffortLevels) : undefined,
-				)
+				const repinned = hypermodeRef.current ? hypermodeEffort(s.reasoningEffortLevels) : undefined
+				// A new model starts at its own default; that is what turning
+				// hypermode off returns to now.
+				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
+				setReasoningEffort(repinned)
 			}
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
@@ -3486,9 +3595,9 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
-			// Orchestrate mode already re-pinned effort above; reopening this picker
+			// Hypermode already re-pinned effort above; reopening this picker
 			// would ask the operator to redo a choice the mode just made for them.
-			if (!orchestrateModeRef.current && options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
+			if (!hypermodeRef.current && options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 				// Own input before publishing ready or releasing a paused queue. The
 				// menu closes only after choosing an effort or keeping the new default.
 				setSelectedChoice(0)
@@ -5051,6 +5160,9 @@ export function App({
 						...question.options.map((option) => ({
 							label: option.label,
 							description: option.description ?? '',
+							// A badge, not label text: the SDK already took any
+							// "(Recommended)" the model wrote out of the label.
+							...(option.recommended === true ? { recommended: true } : {}),
 						})),
 						...(question.allowFreeText
 							? [{ label: 'Something else…', description: 'Answer in your own words' }]
@@ -5598,7 +5710,10 @@ export function App({
 								: undefined
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
-					offerSkillSuggestion(st)
+					// A save the operator asked for in words takes the place of
+					// the proposal to save it.
+					if (!triggerFollowUpsRef.current?.(st, st.completed ? 'completed' : 'stopped'))
+						offerSkillSuggestion(st)
 					break
 				}
 				case 'paused':
@@ -5610,6 +5725,7 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
+					triggerFollowUpsRef.current?.(st, 'paused')
 					if (event.handoff) {
 						// Nothing failed and nothing needs approving: a tool needs the
 						// operator to do something first. Continuing is one key.
@@ -5632,6 +5748,7 @@ export function App({
 				case 'error':
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
+					triggerFollowUpsRef.current?.(st, st.outcome)
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
 						pushMessage('system', describeTurnInterruption(event), false, '!')
@@ -5759,6 +5876,15 @@ export function App({
 			// Reserved before the turn begins, so everything that refers to this
 			// turn — its goal-round authority above all — names it from the start.
 			const turnId = generateTurnId()
+			// The composer triggers the operator armed for this message, checked
+			// again now: the mode or the session may have changed while it waited
+			// in the queue. None of them changes the operator's words.
+			const requestedTriggers = prompt.kind === 'human' ? (prompt.triggers ?? []) : []
+			const triggerContext = triggerContextNow()
+			const turnTriggers = requestedTriggers.filter(
+				(id) => triggerUnavailable(id, triggerContext) === undefined,
+			)
+			const pinnedEffort = triggerEffort(turnTriggers, session.reasoningEffortLevels)
 
 			if (goalRound) {
 				pushMessage(
@@ -5778,6 +5904,23 @@ export function App({
 					undefined,
 					humanPromptMeta(attached.length, attachments),
 				)
+				const tagLine = transcriptTagLine(turnTriggers, {
+					effort: pinnedEffort,
+					steered: false,
+				})
+				if (tagLine) pushMessage('system', tagLine, false, '✦', undefined, theme.accent.trigger)
+				for (const id of requestedTriggers) {
+					const reason = triggerUnavailable(id, triggerContext)
+					if (reason)
+						pushMessage(
+							'system',
+							`${triggerDefinition(id).label} · not applied: ${reason}`,
+							false,
+							'✧',
+							undefined,
+							theme.text.muted,
+						)
+				}
 			}
 			// A plan is scoped to the request it was made for. Cleared here, at
 			// the start of the next one, rather than when the previous turn
@@ -5808,6 +5951,8 @@ export function App({
 							startedInPlanMode: permissionModeRef.current === 'plan',
 						}
 					: {}),
+				followUps: turnTriggers.filter((id) => triggerDefinition(id).scope === 'after-turn'),
+				contextTexts: triggerContextTexts(turnTriggers),
 			}
 			liveStreamRef.current = st
 			// A skill activated with /skills <name> stays in the prompt of every
@@ -6004,7 +6149,7 @@ export function App({
 			activeTurnInboxRef.current = inbox
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
-			const turnOrchestrateMode = orchestrateModeRef.current
+			const turnHypermode = hypermodeRef.current
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
@@ -6057,8 +6202,15 @@ export function App({
 						// while this turn runs, and the change governs what follows.
 						currentPermissionMode: () => permissionModeRef.current,
 						limits: turnLimits,
-						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
-						...(turnOrchestrateMode ? { orchestrate: true } : {}),
+						// A trigger that pins the highest effort does so for this
+						// turn only; the session's own setting is untouched.
+						...((pinnedEffort ?? turnReasoningEffort) !== undefined
+							? { effort: pinnedEffort ?? turnReasoningEffort }
+							: {}),
+						...(turnHypermode ? { hypermode: true } : {}),
+						// Read at every iteration, so an after-turn trigger a steer
+						// binds to this turn is said from the next one on.
+						hostContext: () => st.contextTexts ?? [],
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
@@ -6286,6 +6438,7 @@ export function App({
 			sendTerminalNotification,
 			session,
 			setQueuePause,
+			triggerContextNow,
 			wakeGoalDriver,
 		],
 	)
@@ -6441,11 +6594,45 @@ export function App({
 		[ctx.cwd, pushMessage, session],
 	)
 
+	/**
+	 * Enter steered a message into the running turn. Its after-turn triggers
+	 * (save as skill) bind to that turn and are told to the model from its next
+	 * iteration; its turn triggers do not apply to a turn already running —
+	 * the tag row said so before Enter, and Tab would have queued it instead.
+	 */
+	const bindSteeredTriggers = useCallback(
+		(ids: readonly TriggerId[]) => {
+			if (ids.length === 0) return
+			const live = liveStreamRef.current
+			const afterTurn = ids.filter((id) => triggerDefinition(id).scope === 'after-turn')
+			const turnOnly = ids.filter((id) => triggerDefinition(id).scope === 'turn')
+			if (live && afterTurn.length > 0) {
+				live.followUps = [...new Set([...(live.followUps ?? []), ...afterTurn])]
+				live.contextTexts = [
+					...new Set([...(live.contextTexts ?? []), ...triggerContextTexts(afterTurn)]),
+				]
+				const line = transcriptTagLine(afterTurn, { effort: undefined, steered: true })
+				if (line) pushMessage('system', line, false, '✦', undefined, theme.accent.trigger)
+			}
+			if (turnOnly.length > 0)
+				pushMessage(
+					'system',
+					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running turn. Tab queues a message as a new turn with it.`,
+					false,
+					'✧',
+					undefined,
+					theme.text.muted,
+				)
+		},
+		[pushMessage],
+	)
+
 	const handleSubmit = useCallback(
 		(
 			value: string,
-			attachments?: readonly MessageAttachment[],
-			mode: ComposerSubmitMode = 'submit',
+			attachments: readonly MessageAttachment[] | undefined,
+			mode: ComposerSubmitMode,
+			meta: SubmitMeta,
 		) => {
 			if (goalCommandInFlightRef.current) {
 				pushMessage(
@@ -6480,8 +6667,19 @@ export function App({
 			}
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
-			setHistory((prev) => [...prev, value])
-			const selectionIntent = !attachments?.length ? parseModelSelectionIntent(value) : undefined
+			// A loop is not something the operator typed here, so it is not a line
+			// Up should bring back.
+			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
+			if (!fromLoop) setHistory((prev) => [...prev, value])
+			// What the model wrote is never the operator acting. A loop the model
+			// made (`session_loop`) fires this path on a timer, for up to a week,
+			// after one review of its creation — so its text must not reach the
+			// host-side meanings of `/`, `!`, `#` or a model switch: `!` runs on
+			// the host outside the sandbox with no review, and `#` writes memory
+			// every later turn reads. It is sent as the prompt it looks like.
+			const operatorText = meta.source !== 'model-loop'
+			const selectionIntent =
+				operatorText && !attachments?.length ? parseModelSelectionIntent(value) : undefined
 			if (selectionIntent) {
 				void selectModelIntent(selectionIntent.query)
 				return
@@ -6489,12 +6687,12 @@ export function App({
 			// `#` remembers, `!` runs — neither is a prompt. Both are the
 			// operator acting directly, the way other coding agents spell it,
 			// and both leave a row the model reads on its next turn.
-			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
+			if (operatorText && value.startsWith('#') && value.slice(1).trim().length > 0) {
 				const note = value.slice(1).trim()
 				void rememberProjectNote(note)
 				return
 			}
-			const escaped = shellEscapeCommand(value)
+			const escaped = operatorText ? shellEscapeCommand(value) : null
 			if (escaped !== null) {
 				pushMessage('user', value)
 				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
@@ -6520,13 +6718,40 @@ export function App({
 				})
 				return
 			}
+			// Composer triggers (`./triggers/`). Only the composer's own submit
+			// carries them, so nothing a loop, a picker or the model sends can
+			// arm one. A message that is nothing but a trigger with a command of
+			// its own (`bunu skill olarak kaydet`) runs that command here, in this
+			// same call, so history holds the operator's words once; a trigger
+			// that needs a task and got none is not applied, and says so.
+			let armedTriggers: readonly TriggerId[] =
+				meta.source === 'composer' ? meta.triggers.map((trigger) => trigger.id) : []
+			let dispatch = value
+			if (meta.source === 'composer' && meta.onlyTriggers && armedTriggers.length > 0) {
+				const command = armedTriggers
+					.map((id) => triggerDefinition(id).standalone)
+					.find((standalone) => standalone !== undefined)
+				const needTask = armedTriggers.filter((id) => triggerDefinition(id).standalone === undefined)
+				if (needTask.length > 0)
+					pushMessage(
+						'system',
+						`${needTask.map((id) => triggerDefinition(id).label).join(', ')} · not applied: the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}.`,
+						false,
+						'✧',
+						undefined,
+						theme.text.muted,
+					)
+				armedTriggers = []
+				if (!command) return
+				dispatch = command
+			}
 			// What actually gets sent. A `prompt` action replaces it with text the
 			// command composed, and then takes the ordinary send path below —
 			// including the queue — so a command-driven turn is not a second way
 			// to run one.
-			let outgoing = value
+			let outgoing = dispatch
 			let skillFlow = false
-			const slash = runSlash(value, slashCtx, hostCommands)
+			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
@@ -6668,6 +6893,13 @@ export function App({
 							},
 							{ name: 'setup', label: 'Provider setup', description: 'Check installed CLIs and access; connect or install without leaving Namzu.' },
 							{
+								name: `config triggers ${composerTriggersOn ? 'off' : 'on'}`,
+								label: 'Composer triggers',
+								description: composerTriggersOn
+									? 'On · hypermode and save-as-skill words act for their message. Select to turn off.'
+									: 'Off · words in a message are only words. Select to turn on.',
+							},
+							{
 								name: 'config sources',
 								label: 'Setting sources',
 								description: 'Show which configuration files and overrides are in use.',
@@ -6684,7 +6916,7 @@ export function App({
 								description: command.description,
 								disabledReason: command.problem,
 							})),
-							windowSize: 7,
+							windowSize: 8,
 						})
 						return
 					}
@@ -6962,7 +7194,7 @@ export function App({
 							),
 						)
 						setChoicePicker(
-							reasoningEffortPicker(session, current, false, orchestrateModeRef.current) ?? null,
+							reasoningEffortPicker(session, current, false, hypermodeRef.current) ?? null,
 						)
 						return
 					}
@@ -7558,9 +7790,24 @@ export function App({
 						)
 						return
 					}
-					case 'orchestrate-mode': {
-						const enabled = slash.enabled === 'toggle' ? !orchestrateModeRef.current : slash.enabled
-						applyOrchestrateMode(enabled)
+					case 'composer-triggers': {
+						const profile = ctx.configDebug?.selectedProfile?.name
+						const cascade = { cwd: ctx.cwd, ...(profile ? { profile } : {}) }
+						if (slash.setting === 'list') {
+							pushMessage('system', describeComposerTriggers(composerTriggersOn, cascade))
+							return
+						}
+						const on = slash.setting === 'on'
+						// The session follows the choice whatever the files say; the
+						// message says whether a later start will too.
+						setComposerTriggersOverride(on)
+						pushMessage('system', setComposerTriggers(on, cascade))
+						return
+					}
+					case 'hypermode': {
+						if (slash.via === 'orchestrate') pushMessage('system', ORCHESTRATE_ALIAS_NOTICE)
+						const enabled = slash.enabled === 'toggle' ? !hypermodeRef.current : slash.enabled
+						applyHypermode(enabled)
 						return
 					}
 					case 'export-picker': {
@@ -7627,6 +7874,7 @@ export function App({
 				text: outgoing,
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
+				...(armedTriggers.length > 0 && !skillFlow ? { triggers: armedTriggers } : {}),
 			}
 			// `/skills save` and `/skills new` are turns of their own: steered into
 			// a running turn, they would lose the flag that keeps the skill-making
@@ -7646,8 +7894,10 @@ export function App({
 							attachedFiles: expanded.attached.length,
 							queueBoundary: queuedRef.current.length,
 						})
-					)
+					) {
+						bindSteeredTriggers(armedTriggers)
 						return
+					}
 				}
 			}
 			enqueueQueued(prompt)
@@ -7656,6 +7906,8 @@ export function App({
 			activeSkills,
 			advanceQueueContinuation,
 			applyPermissionMode,
+			bindSteeredTriggers,
+			composerTriggersOn,
 			conversationLearning,
 			applyReasoningEffort,
 			appLifetime,
@@ -7693,7 +7945,62 @@ export function App({
 	// picker is also used by review/export flows. Keep only this dispatch hop in
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
-	commandPickerSubmitRef.current = handleSubmit
+	commandPickerSubmitRef.current = (command) =>
+		handleSubmit(command, undefined, 'submit', { source: 'command-picker' })
+	// A turn's after-turn triggers, when it ends. Save as skill runs exactly the
+	// prompt `/skills save` sends, at the front of the queue, only when the
+	// turn completed, did tool work, did not already save a skill, and saving
+	// is still possible now. Otherwise one row says why, and `/skills save`
+	// still works. Returns whether the turn had one, so the proposal to save
+	// it is not also printed.
+	triggerFollowUpsRef.current = (st, ending) => {
+		const followUps = st.followUps ?? []
+		st.followUps = []
+		if (!followUps.includes('save-skill')) return false
+		const reason =
+			ending === 'cancelled'
+				? 'the turn was cancelled'
+				: ending === 'failed'
+					? 'the turn failed'
+					: ending === 'paused'
+						? 'the turn paused'
+						: ending === 'stopped'
+							? 'the turn stopped before it finished'
+							: !st.learning || st.learning.steps < 1
+								? 'the turn did no tool work'
+								: st.learning.savedSkill
+									? 'the turn already saved a skill'
+									: triggerUnavailable('save-skill', triggerContextNow())
+		if (reason) {
+			pushMessage(
+				'system',
+				`save as skill · not run: ${reason} · /skills save runs it anyway`,
+				false,
+				'✧',
+				undefined,
+				theme.text.muted,
+			)
+			return true
+		}
+		// The proposal was taken up, as `/skills save` records it.
+		conversationLearning().proposed = true
+		const home = resolveNamzuHome()
+		const ledger = readSuggestionLedger(home)
+		if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
+		replaceQueued([
+			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
+			...queuedRef.current,
+		])
+		pushMessage(
+			'system',
+			'save as skill · running /skills save for this turn',
+			false,
+			'✦',
+			undefined,
+			theme.accent.trigger,
+		)
+		return true
+	}
 	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
@@ -7703,7 +8010,10 @@ export function App({
 		},
 		ask: askQuestion,
 		askPermission: onPermission,
-		submit: (text) => handleSubmit(text),
+		submit: (text, createdBy) =>
+			handleSubmit(text, undefined, 'submit', {
+				source: createdBy === 'operator' ? 'operator-loop' : 'model-loop',
+			}),
 	}
 	// Scheduled work since the TUI last looked: one line, after the first
 	// paint, never blocking it. Loops fire when a turn ends, and on their timer.
@@ -8796,6 +9106,24 @@ export function App({
 		permissionMode,
 		session?.approvalLatched() ?? false,
 	)
+	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
+	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
+	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
+		? {
+				registry: composerTriggerRegistry,
+				suggest: composerTriggerSettings.suggest,
+				context: {
+					permissionMode: displayedPermissionMode,
+					sessionHypermode: hypermode,
+					effortMenu: highestEffort !== undefined,
+					agentTool: true,
+					skillCreator: skillCreatorAvailable,
+					scheduleTool: true,
+				},
+				...(highestEffort ? { highestEffort } : {}),
+				...(hypermodeLevel ? { hypermodeEffort: hypermodeLevel } : {}),
+			}
+		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
 	// normal composer view, as opposed to provider setup or a lifecycle
 	// picker/prompt. The agent rail is a feature of that view: computing this
@@ -8979,7 +9307,6 @@ export function App({
 								selected={selectedChoice}
 								layout={effortSlider}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
-								highest={choicePicker.options.at(-2)?.label === 'default' ? undefined : choicePicker.options.at(-2)?.label}
 							/>
 						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
@@ -8997,7 +9324,7 @@ export function App({
 						) : null}
 						<ComposerFrame
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
-							{...(orchestrateMode ? { mode: 'orchestrate' } : {})}
+							{...(hypermode ? { mode: HYPERMODE } : {})}
 							focus={
 								phase === 'ready' &&
 								state !== 'awaiting-permission' &&
@@ -9048,6 +9375,7 @@ export function App({
 												? 'held after a resumable turn paused; wait for recovery, change model, or send a message to release it'
 												: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
 											: 'sending when ready'}
+										{queuedTriggerLabels(queued)}
 									</Text>
 								</Box>
 							) : null}
@@ -9098,6 +9426,8 @@ export function App({
 								}))}
 								mentionCandidates={mentionCandidates}
 								history={history}
+								{...(composerTriggers ? { triggers: composerTriggers } : {})}
+								turnActive={!compacting && (state === 'thinking' || state === 'tool')}
 							/>
 						</ComposerFrame>
 					</>
@@ -9113,7 +9443,7 @@ export function App({
 					provider={session?.providerSummary ?? null}
 					model={session?.modelSummary ?? null}
 					effort={reasoningEffort}
-					orchestrate={orchestrateMode}
+					hypermode={hypermode}
 					goal={statusGoal}
 					state={state}
 					hint={statusHint}
@@ -9399,13 +9729,23 @@ function permissionPicker(
 }
 
 /**
- * The picker's sentinel for the orchestrate-mode row, below the rule.
+ * The picker's sentinel for the hypermode row, below the rule.
  *
  * A plain string outside the `ReasoningEffort` union by construction — never
  * added to any model's published menu — so it can share the same picker
  * without ever being mistaken for a level `/effort <token>` could select.
  */
-const ORCHESTRATE_MODE_VALUE = 'orchestrate' as const
+const HYPERMODE_VALUE = 'hypermode' as const
+
+/** ` · ✦ save as skill` when queued messages carry composer triggers, so the queue line says so. */
+function queuedTriggerLabels(queued: readonly QueuedPrompt[]): string {
+	const labels = new Set<string>()
+	for (const prompt of queued) {
+		if (prompt.kind !== 'human') continue
+		for (const id of prompt.triggers ?? []) labels.add(triggerDefinition(id).label)
+	}
+	return labels.size > 0 ? ` · ✦ ${[...labels].join(', ')}` : ''
+}
 
 /** Last entry of a low-to-high menu every provider publishes in that order; `undefined` when none is known. */
 function highestReasoningEffort(
@@ -9418,14 +9758,14 @@ function reasoningEffortPicker(
 	session: AgentSession,
 	current: ReasoningEffort | undefined,
 	afterModelSelection = false,
-	orchestrateOn = false,
+	hypermodeOn = false,
 ): Extract<ChoicePickerState, { kind: 'reasoning-effort' }> | undefined {
 	const levels = session.reasoningEffortLevels
 	if (!session.hasProvider || levels === undefined) return undefined
 	const effortValues: readonly (ReasoningEffort | undefined)[] = [undefined, ...levels]
-	const values: readonly (ReasoningEffort | undefined | typeof ORCHESTRATE_MODE_VALUE)[] = [
+	const values: readonly (ReasoningEffort | undefined | typeof HYPERMODE_VALUE)[] = [
 		...effortValues,
-		ORCHESTRATE_MODE_VALUE,
+		HYPERMODE_VALUE,
 	]
 	return {
 		kind: 'reasoning-effort',
@@ -9446,12 +9786,11 @@ function reasoningEffortPicker(
 			})),
 			{
 				// Below a rule, visually apart from the levels above: a session
-				// setting, not a sixth level the provider published.
-				label: 'orchestrate',
-				description: orchestrateOn
-					? 'On · highest level and delegate by default'
-					: 'Off · highest level and delegate by default',
-				current: orchestrateOn,
+				// setting, not a sixth level the provider published. The label
+				// names the level it pins, then the mode.
+				label: hypermodeStopLabel(hypermodeEffort(levels)),
+				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
+				current: hypermodeOn,
 				ruleBefore: true,
 			},
 		],

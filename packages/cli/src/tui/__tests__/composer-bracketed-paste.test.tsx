@@ -23,7 +23,12 @@ it('assembles a fragmented terminal paste once, counts characters and never subm
 		expect(onSubmit).not.toHaveBeenCalled()
 		screen.press('\r')
 		await screen.waitForRender()
-		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(normalized, undefined)
+		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+			normalized,
+			undefined,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
 	} finally {
 		await screen.unmount()
 	}
@@ -43,7 +48,12 @@ it('inserts a short paste at the cursor without interpreting a pasted return as 
 		expect(onSubmit).not.toHaveBeenCalled()
 		screen.press('\r')
 		await screen.waitForRender()
-		expect(onSubmit).toHaveBeenCalledExactlyOnceWith('aİ😀b', undefined)
+		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+			'aİ😀b',
+			undefined,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
 	} finally {
 		await screen.unmount()
 	}
@@ -66,7 +76,12 @@ it('keeps type-ahead that arrives in one long read as typed text, not a chip tha
 		expect(screen.viewport().join('\n')).not.toContain('Pasted text')
 		screen.press('\r')
 		await screen.waitForRender()
-		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(`${typed}${burst}`, undefined)
+		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+			`${typed}${burst}`,
+			undefined,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
 	} finally {
 		await screen.unmount()
 	}

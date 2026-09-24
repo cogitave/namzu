@@ -3,12 +3,13 @@
  *
  *                Faster                                      Smarter
  *                ──────────────▲───────────────────────┆────────────
- *                default   low   medium   high   xhigh   max   ┆ orchestrate
- *                                                               max + delegate by default
+ *                default   low   medium   high   xhigh   ┆ xhigh + hypermode (workflows)
+ *                                                   Off · delegates to parallel agents by default
  *
  * Stops are `default`, then the model's published levels in the order the
- * provider publishes them (low to high), then `orchestrate` after a `┆`: a
- * session mode, not one more level, drawn in its own colour. The `▲` caret
+ * provider publishes them (low to high), then hypermode after a `┆`: a
+ * session mode, not one more level, drawn in its own colour, labelled with
+ * the level it pins. Under it, the mode's one-line description. The `▲` caret
  * marks the stop Enter would apply; the current setting's label is the
  * accent colour.
  *
@@ -36,7 +37,7 @@ export interface EffortSliderLayout {
 	readonly starts: readonly number[]
 	/** Column of each stop's centre, where the caret sits. */
 	readonly centres: readonly number[]
-	/** Column of the `┆` between the last level and `orchestrate`, when there is a mode stop. */
+	/** Column of the `┆` between the last level and `hypermode`, when there is a mode stop. */
 	readonly separator: number | undefined
 	/** Total width of the label row. */
 	readonly width: number
@@ -49,7 +50,7 @@ export interface EffortSliderLayout {
  * labels do not fit even with the narrowest gap — the caller then draws the
  * vertical list, which wraps where this cannot.
  *
- * `modeStop` says the last label is a mode (orchestrate) and gets the `┆`
+ * `modeStop` says the last label is a mode (hypermode) and gets the `┆`
  * before it.
  */
 export function effortSliderLayout(
@@ -93,8 +94,6 @@ export interface EffortSliderProps {
 	readonly selected: number
 	readonly layout: EffortSliderLayout
 	readonly columns: number
-	/** The highest published level's label, for the orchestrate stop's sub-label; absent when the model publishes none. */
-	readonly highest?: string
 }
 
 export function EffortSlider({
@@ -104,7 +103,6 @@ export function EffortSlider({
 	selected,
 	layout,
 	columns,
-	highest,
 }: EffortSliderProps) {
 	const last = options.length - 1
 	const pad = ' '.repeat(layout.indent)
@@ -115,9 +113,11 @@ export function EffortSlider({
 		column === caret ? '▲' : column === layout.separator ? SEPARATOR : '─',
 	)
 	const modeStart = layout.starts[last] ?? 0
-	const subLabel = `${highest ? `${highest} + ` : ''}delegate by default`
+	// The mode's own description, whole: it says what the stop does and
+	// whether it is on, which the label cannot.
+	const subLabel = options[last]?.description ?? ''
 	const room = Math.max(1, columns - 2)
-	// Under the orchestrate stop, pulled left as far as it has to be to end
+	// Under the hypermode stop, pulled left as far as it has to be to end
 	// inside the frame: the sub-label is always read whole, never cut.
 	const subStart = Math.max(0, Math.min(layout.indent + modeStart, room - stringWidth(subLabel)))
 	const warn = options.length > 2 && (selected === last || selected === last - 1)
@@ -148,10 +148,10 @@ export function EffortSlider({
 						color={
 							cell === '▲'
 								? selected === last
-									? theme.accent.orchestrate
+									? theme.accent.hypermode
 									: theme.accent.assistant
 								: cell === SEPARATOR
-									? theme.accent.orchestrate
+									? theme.accent.hypermode
 									: theme.border.default
 						}
 					>
@@ -172,11 +172,11 @@ export function EffortSlider({
 					const isMode = index === last && layout.separator !== undefined
 					return (
 						<Text key={option.label}>
-							<Text color={separatorHere ? theme.accent.orchestrate : undefined}>{lead}</Text>
+							<Text color={separatorHere ? theme.accent.hypermode : undefined}>{lead}</Text>
 							<Text
 								color={
 									isMode
-										? theme.accent.orchestrate
+										? theme.accent.hypermode
 										: option.current
 											? theme.accent.assistant
 											: index === selected

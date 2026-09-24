@@ -292,7 +292,7 @@ export interface DockerBackendInternalConfig {
 	 *    the spawned container to a shared docker bridge that the
 	 *    SDK consumer is also on, and connect by container DNS name
 	 *    (`http://<containerName>:2024`). Required when the SDK
-	 *    runs INSIDE a container (e.g. Vandal's app container
+	 *    runs INSIDE a container (e.g. a host's app container
 	 *    spawning sibling sandbox containers via the host's Docker
 	 *    daemon — `127.0.0.1` inside the app is the app, not the
 	 *    sandbox). The shared bridge name comes from `config.network`.
@@ -2596,7 +2596,7 @@ export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainer
 	// Resolve container paths now (before duplicate check) so
 	// duplicate detection sees the actual mount targets, including
 	// defaults applied when `containerPath` is omitted. Defaults
-	// come from `@namzu/sdk`'s exported constants so a Vandal prompt
+	// come from `@namzu/sdk`'s exported constants so a host's prompt
 	// template generator and the backend agree on a single source of
 	// truth.
 	const resolvedOutputs = layout.outputs

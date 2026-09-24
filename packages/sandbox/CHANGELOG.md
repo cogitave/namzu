@@ -487,8 +487,8 @@
 
 - 01fbc9b: Three additive declarations, no default changed and nothing removed:
 
-  - `MicroVMBackendConfig.onExecTiming` — the owned Firecracker tier's provider
-    config gains an optional per-exec timing hook.
+  - `MicroVMBackendConfig.onExecTiming` — the self-hosted Firecracker tier's
+    provider config gains an optional per-exec timing hook.
   - `FirecrackerTransportTiming` — exported from the package entry point, the
     shape that hook is called with.
   - `VsockTransportOptions.onExecTiming` — the same hook at the transport level,
@@ -2300,7 +2300,7 @@ onGap })`. When the exec connection fails, the handle reattaches from the
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a
@@ -2640,10 +2640,10 @@ progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
   (never returned by the orchestrator), keeping the package free of any key
   management.
 
-- 74a1198: Add the owned-Firecracker microVM backend (`microvm:self-hosted`) and its
-  host-side vsock transport.
+- 74a1198: Add the Firecracker microVM backend for a self-hosted orchestrator
+  (`microvm:self-hosted`) and its host-side vsock transport.
 
-  The `MicroVMBackendConfig` `self-hosted` arm gains the owned-platform seam:
+  The `MicroVMBackendConfig` `self-hosted` arm gains the orchestrator seam:
   `orchestratorEndpoint` + `getToken` (the ACI `getArmToken` closure pattern, so
   the package keeps zero Azure-SDK deps) route to a new `backends/firecracker/`
   backend instead of throwing `SandboxBackendNotImplementedError`; `template`
@@ -2713,13 +2713,13 @@ progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
       outputs: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/outputs",
+          hostPath: "/var/lib/<host>/sessions/<task>/outputs",
         },
       },
       uploads: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/uploads",
+          hostPath: "/var/lib/<host>/sessions/<task>/uploads",
         },
       },
       skills: [
@@ -2806,8 +2806,7 @@ b.cause = a`), and longer loops, replacing the offending node with
   - The docker backend no longer allocates host directories
     (`mkdtemp`) or removes them on `destroy()`. Every bind source is
     consumer-owned. This also fixes an `EACCES: permission denied,
-mkdir '/Users'` crash that hit sibling-container deployments
-    (Vandal Cowork).
+mkdir '/Users'` crash that hit sibling-container deployments.
   - The worker no longer reads `NAMZU_SANDBOX_LAYOUT` (it never
     branched on the env, only logged it; size grew with the skill
     list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
@@ -2872,9 +2871,9 @@ test:smoke`) runs an opt-in docker integration test exercising the
   - **System tools**: LibreOffice, pandoc, Ghostscript, qpdf, poppler-utils, tesseract (eng+tur), ImageMagick, exiftool, optipng, jpegoptim, graphviz, Chromium (+ chromium-driver), ripgrep, jq, yq, tree, htop.
   - **Node toolchain**: `@mermaid-js/mermaid-cli`, xlsx, docx, pptxgenjs, pdf-lib, sharp, markdown-it, dompurify, jsdom.
   - **Fonts**: Noto (Latin + CJK + emoji + symbol), Liberation, DejaVu, FreeFont — Turkish-friendly.
-  - **Distro**: Debian Bookworm slim, not Alpine — manylinux wheel coverage matters for the doc-gen path; compass-platform hit musl issues on the same workload.
+  - **Distro**: Debian Bookworm slim, not Alpine — manylinux wheel coverage matters for the doc-gen path, where musl produces hard-to-debug failures.
 
-  Hosts that want a leaner image build their own and reference it via `ContainerBackendConfig.image`. The fat default exists so the agent isn't told to use a tool that doesn't exist (the prompt-vs-runtime drift class of bugs Codex flagged repeatedly in the Vandal Cowork iterations).
+  Hosts that want a leaner image build their own and reference it via `ContainerBackendConfig.image`. The fat default exists so the agent isn't told to use a tool that doesn't exist (the prompt-vs-runtime drift class of bugs).
 
   Trust model: container is the trust boundary; worker listens on loopback inside its own netns; outbound network defaults to `none` until the egress proxy lands in P3.2. Worker runs as non-root (`namzu:1001`) inside the container; host mounts `/workspace` writable to that uid.
 
@@ -2901,7 +2900,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
 
   - **P3.1** — `process` backend (Anthropic sandbox-runtime adapter).
   - **P3.2** — `EgressPolicy` plumbing with the proxy daemon.
-  - **P3.3** — `container` backend (compass-platform pattern).
+  - **P3.3** — `container` backend (a long-lived worker container per task).
 
   The exported surface freezes:
 
@@ -2923,7 +2922,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
     developer's own machine.
   - `container` — OCI container per task. Two runtime options:
     `docker` (default, universal local-dev fallback; what
-    Northflank/Railway/Render/Compass-platform/GitHub Actions
+    Northflank/Railway/Render/GitHub Actions
     runners ship) and `runsc` (Google gVisor, trusted-tenant tier;
     what OpenAI Code Interpreter and Modal Labs ship).
   - `microvm` — Firecracker microVM per task, three concrete
@@ -2962,8 +2961,8 @@ test:smoke`) runs an opt-in docker integration test exercising the
   `runId` / `agentId` fields the SDK runtime had no way to populate,
   so the resolver context was permanently unreachable. Hosts that
   need per-tenant policies bake the tenant into the closure that
-  constructs the provider — exactly how compass-platform's
-  JWT-minting flow already works.
+  constructs the provider — the same way a server that mints
+  per-tenant JWTs already knows the tenant when it issues one.
 
   Same reason for dropping `tenantId` / `runId` / `agentId` from
   `SandboxBackendOptions`: a contract the runtime can't fulfill is

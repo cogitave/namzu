@@ -108,7 +108,7 @@ export type {
 
 // Re-export the default container-path constants the prompt-template
 // generator side wants to import without also depending on
-// `@namzu/sdk` directly. Single source of truth: a Vandal prompt
+// `@namzu/sdk` directly. Single source of truth: a host's prompt
 // saying "write outputs to `/mnt/user-data/outputs`" imports
 // `SANDBOX_DEFAULT_OUTPUTS_PATH` instead of hard-coding the string.
 export {
@@ -119,8 +119,8 @@ export {
 	SANDBOX_DEFAULT_UPLOADS_PATH,
 } from '@namzu/sdk'
 
-// Firecracker (owned Azure platform) public surface. The Vandal-side
-// `firecracker-lifecycle.ts` imports the agent-handle shape + the
+// Firecracker (self-hosted orchestrator) public surface. A host's
+// sandbox lifecycle imports the agent-handle shape + the
 // transport so it can mint the orchestrator handle and run the vsock
 // heartbeat probe without reaching into `backends/`.
 export type {
@@ -615,7 +615,7 @@ export interface ACIStandbyPoolBackendConfig {
 	 * Prefix for the ACI container group name and the inner worker
 	 * container. Combined with a generated sandbox id and
 	 * sanitised to ARM's allowed character set. Default
-	 * `namzu-task`; consumers (e.g. Vandal) override to brand
+	 * `namzu-task`; consumers override it to brand
 	 * their own deployments.
 	 */
 	readonly containerNamePrefix?: string
@@ -634,7 +634,7 @@ export interface ACIStandbyPoolBackendConfig {
  *     only).
  *
  * `image` is the container image to spawn per task. The package
- * ships a reference Dockerfile (compass-platform pattern) with
+ * ships a reference Dockerfile with
  * Python doc-gen libraries, LibreOffice, pandoc, Chromium, and
  * `tesseract` pre-installed; hosts that want a leaner image
  * supply their own.
@@ -781,7 +781,7 @@ export interface ContainerBackendConfig {
 	 * not a shell pipeline). Default unset (no extra labels).
 	 *
 	 * Convention for namzu hosts: namespace your keys
-	 * (`vandal.sandbox=true`, `vandal.task-id=<id>`, …) to avoid
+	 * (`acme.sandbox=true`, `acme.task-id=<id>`, …) to avoid
 	 * collisions with Docker / orchestrator labels.
 	 */
 	readonly labels?: Readonly<Record<string, string>>
@@ -828,7 +828,7 @@ export interface ContainerBackendConfig {
 }
 
 /**
- * `microvm` tier, against namzu's own guest orchestrator.
+ * `microvm` tier, against a self-hosted guest orchestrator.
  *
  * Two adapters to third-party managed schedulers were declared here
  * and never written: both threw on construction, and each demanded
@@ -836,9 +836,9 @@ export interface ContainerBackendConfig {
  * shape whose only reachable outcome is an exception is worse than
  * no shape, because it type-checks.
  *
- * What remains is the orchestrator namzu runs: the control plane
- * mints a guest per task and resumes it copy-on-write from a golden
- * snapshot, so a cold start is a resume rather than a boot.
+ * What remains is a self-hosted orchestrator, which the host runs: its
+ * control plane mints a guest per task and resumes it copy-on-write from
+ * a golden snapshot, so a cold start is a resume rather than a boot.
  */
 export type MicroVMBackendConfig = {
 	readonly tier: 'microvm'
@@ -864,8 +864,8 @@ export type MicroVMBackendConfig = {
 	/**
 	 * Resume this per-agent captured snapshot (layered on its base
 	 * golden) INSTEAD of a fresh golden boot. Tier-agnostic, additive,
-	 * optional: the backend that supports it (the owned firecracker
-	 * backend) honors it; others ignore it. Absent ⇒ the create body is
+	 * optional: the backend that supports it (the Firecracker backend)
+	 * honors it; others ignore it. Absent ⇒ the create body is
 	 * byte-identical and the generic golden-resume hot path is unchanged
 	 * (the field is only ever set by the host's per-agent trigger path).
 	 * Sibling to `template` (base-golden selector) — see
@@ -901,12 +901,12 @@ export type MicroVMBackendConfig = {
 	 */
 	readonly onExecTiming?: (timing: FirecrackerTransportTiming) => void
 	/**
-	 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
-	 * bridge). When present, the orchestrator returns an `mtls` agent
+	 * NETWORK-mode mTLS client material for the client-proxy bridge.
+	 * When present, the orchestrator returns an `mtls` agent
 	 * handle (host/port/sandboxId, NO cert material) and this CA/cert/key
 	 * is MERGED onto that handle before the transport dials the per-host
-	 * relay over mTLS. Injected by the consumer's runtime (the Vandal
-	 * host layer reads it from `VANDAL_SANDBOX_FC_TLS_*`), NEVER fetched
+	 * relay over mTLS. Injected by the consumer's runtime (from
+	 * wherever the host keeps its certificates), NEVER fetched
 	 * inside this package — same dependency boundary as `getToken`, so
 	 * `@namzu/sandbox` stays Azure-SDK-free. Absent for the single-host
 	 * VSOCK default (the live proofs).
@@ -923,7 +923,7 @@ export type MicroVMBackendConfig = {
 	 * dial over mTLS — presenting this client cert and pinning this CA —
 	 * instead of plain `fetch`. Secures the control plane when
 	 * `orchestratorEndpoint` is an `https://` URL reached over the PUBLIC
-	 * internet (the non-VNet-integrated caller→FC-host hop), where the
+	 * internet (no private network between caller and FC host), where the
 	 * shared-secret bearer alone would be exposed. The bearer is STILL sent
 	 * (defense in depth). Same `{ca,cert,key,servername}` shape + the same
 	 * consumer-injected dependency boundary as `mtls` (the one fleet CA
@@ -943,7 +943,7 @@ export type MicroVMBackendConfig = {
  * golden revision. Provider-AGNOSTIC: this is a sandbox-spec concept, a
  * sibling to {@link MicroVMBackendConfig}'s `template` (which selects a
  * base golden), not a provider-specific shape — hence no provider prefix
- * in the name. A microVM backend that supports per-agent resume (the owned
+ * in the name. A microVM backend that supports per-agent resume (the
  * Firecracker backend) honors it by resuming this agent's captured diff
  * INSTEAD of a fresh golden boot; backends that do not support it ignore it.
  *
@@ -1165,8 +1165,8 @@ export interface KubernetesBackendConfig {
  *   - `resolver` — async closure returning the allowlist.
  *     Parameterless **on purpose**: the resolver is a closure that
  *     captures whatever context the host has (tenantId, sessionId, turnId,
- *     auth token, etc.) at provider-construction time. Compass-
- *     platform's JWT-minting flow already works this way: the
+ *     auth token, etc.) at provider-construction time. A host that
+ *     mints per-tenant JWTs already works this way: its
  *     server knows the tenant when it issues the JWT, and the
  *     allowlist claim is baked in there. This avoids the
  *     "where does the resolver get its context from" plumbing
@@ -1519,9 +1519,9 @@ function pickBackend(
 			...(egressProfile !== undefined ? { egressProfile } : {}),
 		})
 	}
-	// `microvm:self-hosted` targeting the OWNED Azure Firecracker
-	// orchestrator (ses_051). The presence of `orchestratorEndpoint` +
-	// `getToken` distinguishes the owned-platform shape from the legacy
+	// `microvm:self-hosted` targeting a self-hosted Firecracker
+	// orchestrator. The presence of `orchestratorEndpoint` +
+	// `getToken` distinguishes the orchestrator shape from the legacy
 	// local `firecracker-containerd` shape (still unimplemented → throws
 	// below). No layout: FC is a remote-copy backend (archive-sync over
 	// vsock, like ACI), so it carries no host bind-mount layout.
@@ -1841,8 +1841,8 @@ export class ContainerSandboxLayoutValidationError extends Error {
  * structured-clone-like channel — `structuredClone(err)` drops the
  * subclass name and non-enumerable fields, `postMessage` follows
  * the same rules, and most log shippers serialise via JSON which
- * calls the unhelpful default `toJSON`. Vandal's supervisor
- * architecture crosses every one of those boundaries; explicit
+ * calls the unhelpful default `toJSON`. A host whose supervisor
+ * spans processes crosses every one of those boundaries; explicit
  * serialisation keeps the `reasons[]` discoverable downstream.
  *
  * Use:

@@ -85,10 +85,10 @@ agent mutation until release; reconnect preserves the owning lease.
 
 | Gap | Namzu evidence | Upstream evidence and next acceptance check |
 | --- | --- | --- |
-| Frontend tools | `packages/ag-ui/src/adapter.ts:141` refuses nonempty `tools` with HTTP 422. | Pydantic's [frontend toolset](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/ui/ag_ui/_adapter.py#L341) is built from frontend tool definitions. Add host-admitted deferred calls; an official client must receive and return one authorized result exactly once. |
-| Approval and interrupt resume | `adapter.ts:147` refuses `resume`; `events.ts:232` maps native pause to custom event plus error. | Pydantic's [resume conversion](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/ui/ag_ui/_adapter.py#L362) maps interrupt payloads to deferred results. Bind host-owned interrupt IDs to native checkpoints; test approval, denial, edited arguments, duplicate and foreign-thread resumes. |
+| Frontend tools | Audited: `packages/ag-ui/src/adapter.ts:141` refused nonempty `tools` with HTTP 422. **Addressed** in `@namzu/ag-ui` 2: `frontendTools` admits declared tools as tools that wait for the client; the run ends as success with the call unanswered, and the client's `tool` message on the next run is the result, applied once (`packages/ag-ui/src/frontend-tools.ts`). Without the option the 422 stays. | Pydantic's [frontend toolset](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/ui/ag_ui/_adapter.py#L341) is built from frontend tool definitions. The AG-UI 1.0 [frontend tool rules](https://github.com/ag-ui-protocol/ag-ui/blob/e62b348680c41f52a5ea0ed4eb714a6600066fa1/docs/spec/1.0/events/tool-calls.mdx) make this a completed run answered by history, not an interrupt, which Pydantic and CopilotKit's `useFrontendTool` also do. Verified with the official `HttpAgent` and a CopilotKit 1.73.3 page. |
+| Approval and interrupt resume | Audited: `adapter.ts:147` refused `resume`; `events.ts:232` mapped a native pause to a custom event plus error. **Addressed**: a pause ends the run with `outcome: interrupt` under host-minted ids bound to the native checkpoint (`packages/ag-ui/src/interrupts.ts`); `resume` continues that checkpoint through `resumeSession`, or hands the answer to the tool still waiting for it (`ask_user_question`, `requestPause`). A question's wait is held by the process that asked, not the checkpoint. | Pydantic's [resume conversion](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/ui/ag_ui/_adapter.py#L362) maps interrupt payloads to deferred results; the approval payload (`approved`, `editedArgs`, `reason`) is shared. Approval, denial, edited arguments, cancelled, duplicate, concurrent, foreign-thread, unknown, incomplete, malformed, expired and stale resumes are tested. |
 | Client-held replay fidelity | `messages.ts` drops reasoning/activity history and rejects encrypted conversational metadata. | Pydantic's [history conversion](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/ui/ag_ui/_adapter.py#L809) supports opaque thinking/compaction round trips. This is optional: server-owned history is a valid alternative. Never solve it by exposing private reasoning text. |
-| Reconnect and real UI coverage | Adapter disconnect cancels its request-owned run; CopilotKit React integration is a documentation sketch. | Add host-owned durable streaming/replay and a real CopilotKit UI fixture. SDK replay cursors can be reused. No equivalent built-in reconnect endpoint was established in the inspected Pydantic adapter, so this is not claimed as its kernel advantage. |
+| Reconnect and real UI coverage | Adapter disconnect cancels its request-owned run. A connection closing after a run that ended with an interrupt no longer cancels the turn waiting for the answer. A CopilotKit 1.73.3 React page was driven in headless Chromium for an approval, a frontend tool and a question, directly and through `CopilotRuntime`; it is not a repository fixture. | Add host-owned durable streaming/replay and a real CopilotKit UI fixture. SDK replay cursors can be reused. No equivalent built-in reconnect endpoint was established in the inspected Pydantic adapter, so this is not claimed as its kernel advantage. |
 
 The AG-UI [interrupt specification](https://docs.ag-ui.com/concepts/interrupts)
 is the interoperability target, rather than copying one framework's internal
@@ -159,7 +159,9 @@ keeps unknown requests distinct; the two defects in step 1 are addressed.
 2. Add uniform parsed-output review and cumulative tool-call preadmission with
    explicit retry/recovery contracts.
 3. Build the admitted deferred-tool/interrupt round trip, then exercise it
-   through the official client and a real CopilotKit UI.
+   through the official client and a real CopilotKit UI. Done for the adapter
+   in [AG-UI clients](ag-ui.md#interrupts); a repository CopilotKit fixture
+   and reconnect remain.
 4. Add browser semantic observation and explicit control ownership as optional
    capability/environment layers. Do not make a web coworker platform a kernel
    dependency.
@@ -176,8 +178,9 @@ the supported contracts and does not close the gaps listed here.
 The adapter now supports explicit initial `MESSAGES_SNAPSHOT` publication through
 `ui.setInitialMessages` inside the host query factory. Official-client tests
 verify stale display history replacement before new query events. This closes
-initial display reconciliation only; snapshots at a live interrupt boundary,
-frontend execution and replay-safe AG-UI resume remain open.
+initial display reconciliation only. Interrupts and resume, the state
+snapshot at an interrupt boundary and frontend tools followed in `@namzu/ag-ui`
+2; see [AG-UI clients](ag-ui.md#interrupts).
 
 Anthropic's provider-level `responseFormat` omission is now fixed: `json_schema`
 reaches `output_config.format` alongside effort. Real vendor-SDK loopback tests

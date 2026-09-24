@@ -339,6 +339,44 @@ export interface NamzuCliConfig {
 	 * built-ins included, with nothing disabled.
 	 */
 	readonly skills?: SkillsConfig
+	/**
+	 * Composer triggers: words typed into the interactive composer that name
+	 * one namzu action for that message — the `hypermode` keyword, a
+	 * save-as-skill phrase — highlighted with a tag row before Enter and
+	 * dropped with Alt+W. Absent means on, with each built-in at its default.
+	 *
+	 * Never read from the environment, and a project file (or a profile it
+	 * declares) can only turn things down: it cannot switch the feature back
+	 * on, raise a trigger from `suggest` to `arm`, or add a language the user
+	 * file left out. `/config triggers off` writes `enabled: false` to the user
+	 * file. Only the interactive terminal reads it; `exec`, `drain`, ACP and
+	 * scheduled runs never act on composer triggers.
+	 */
+	readonly composerTriggers?: ComposerTriggersConfig
+}
+
+/** A composer trigger's arming: `arm` from typed text, `suggest` only (Alt+W arms), or `off`. */
+export type ComposerTriggerArming = 'arm' | 'suggest' | 'off'
+
+/** The built-in composer triggers. */
+export type ComposerTriggerId = 'hypermode' | 'save-skill' | 'schedule' | 'max-effort'
+
+/** Languages whose phrases are matched. */
+export type ComposerTriggerLanguage = 'en' | 'tr'
+
+/** See `NamzuCliConfig.composerTriggers`. */
+export interface ComposerTriggersConfig {
+	/** The feature's one switch. Default `true`; `false` matches nothing at all. */
+	readonly enabled?: boolean
+	/** Offer loose matches and text that was not typed here as suggestions. Default `true`. */
+	readonly suggest?: boolean
+	/** Languages whose phrases are matched. Default `[en, tr]`. */
+	readonly languages?: readonly ComposerTriggerLanguage[]
+	/**
+	 * Per built-in trigger. Defaults: `hypermode: arm`, `save-skill: arm`,
+	 * `schedule: suggest`, `max-effort: off`.
+	 */
+	readonly builtin?: Readonly<Partial<Record<ComposerTriggerId, ComposerTriggerArming>>>
 }
 
 /** See `NamzuCliConfig.skills`. */

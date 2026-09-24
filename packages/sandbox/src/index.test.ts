@@ -722,7 +722,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 })
 
 describe('public exports — runtime import paths', () => {
-	// Vandal-side prompt template generators must
+	// A host's prompt template generators must
 	// be able to import the default-path constants from the sandbox
 	// package via the SDK's root barrel. `@namzu/sdk` exposes only
 	// `"."` in its package.json `exports`; subpath imports like
