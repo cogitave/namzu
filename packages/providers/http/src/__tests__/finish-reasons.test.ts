@@ -85,6 +85,13 @@ describe('HTTP provider, Anthropic dialect', () => {
 		expect(chunks.find((chunk) => chunk.finishReason)?.finishReason).toBe(expected)
 	})
 
+	it('marks a context-window stop as one, so the turn loop does not continue it', async () => {
+		const window = await chunksOf('anthropic', anthropicFrames('model_context_window_exceeded'))
+		expect(window.find((chunk) => chunk.finishReason)?.finishDetail).toBe('context_window')
+		const output = await chunksOf('anthropic', anthropicFrames('max_tokens'))
+		expect(output.find((chunk) => chunk.finishReason)?.finishDetail).toBeUndefined()
+	})
+
 	it('opens a tool call with the id its arguments carry', async () => {
 		const chunks = await chunksOf('anthropic', anthropicFrames('tool_use', true))
 		const calls = chunks.flatMap((chunk) => chunk.delta.toolCalls ?? [])

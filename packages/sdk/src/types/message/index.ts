@@ -197,6 +197,11 @@ export interface ToolInputError {
 	readonly reason: ToolInputErrorReason
 	/** How the response ended, as the provider reported it. Absent when the stream reported nothing. */
 	readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/**
+	 * `'context_window'` when a `'length'` finish was the model's context
+	 * window rather than its output token limit (`StreamChunk.finishDetail`).
+	 */
+	readonly finishDetail?: 'context_window'
 	/** The JSON parser's own message. */
 	readonly parseError: string
 	/**

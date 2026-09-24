@@ -119,6 +119,19 @@ export interface StreamChunk {
 		citation?: import('../message/index.js').Citation
 	}
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/**
+	 * Which limit a `'length'` finish reached, when it was not the output
+	 * token limit: `'context_window'` when the response filled the model's
+	 * context window (the Messages API's `model_context_window_exceeded`, an
+	 * OpenAI-compatible server's `model_length`).
+	 *
+	 * Both stop the output where it stands, so both are `'length'`, and a
+	 * tool call either one cut off is truncated. They differ in what can
+	 * follow: after the output limit the turn loop asks the model to continue
+	 * a reply it cut off mid-text, and after the context window there is no
+	 * room to continue into. Set only with `finishReason: 'length'`.
+	 */
+	finishDetail?: 'context_window'
 	usage?: TokenUsage
 	error?: string
 

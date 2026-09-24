@@ -605,6 +605,11 @@ export class BedrockProvider implements LLMProvider {
 							id: requestId,
 							delta: {},
 							finishReason: mapStopReason(event.messageStop.stopReason),
+							// The context window rather than `maxTokens`: the turn loop does
+							// not continue a reply that filled it.
+							...(event.messageStop.stopReason === 'model_context_window_exceeded'
+								? { finishDetail: 'context_window' as const }
+								: {}),
 						}
 					}
 

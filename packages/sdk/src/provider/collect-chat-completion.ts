@@ -47,6 +47,7 @@ export async function collectChatCompletion(
 	const text = new StreamTextAccumulator()
 	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
+	let finishDetail: ChatCompletionResponse['finishDetail']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -103,7 +104,10 @@ export async function collectChatCompletion(
 			toolBuckets.set(tc.index, bucket)
 		}
 
-		if (chunk.finishReason) finishReason = chunk.finishReason
+		if (chunk.finishReason) {
+			finishReason = chunk.finishReason
+			finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
+		}
 		// Merge (per-field max), not last-write-wins: a late frame that omits
 		// input/cache tokens must not zero the counts captured earlier in the stream.
 		if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
@@ -133,6 +137,7 @@ export async function collectChatCompletion(
 			...(replayState !== undefined ? { replayState } : {}),
 		},
 		finishReason,
+		...(finishDetail ? { finishDetail } : {}),
 		usage,
 	}
 }

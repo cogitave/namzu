@@ -261,6 +261,8 @@ export async function* streamProviderTurn(
 	// defaults to 'stop' for the response; classifying unreadable tool input
 	// needs to know a stream that reported nothing from one that finished.
 	let reportedFinishReason: ChatCompletionResponse['finishReason'] | undefined
+	// Which limit a 'length' finish reached, when it was the context window.
+	let finishDetail: ChatCompletionResponse['finishDetail']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -631,6 +633,7 @@ export async function* streamProviderTurn(
 			if (chunk.finishReason) {
 				finishReason = chunk.finishReason
 				reportedFinishReason = chunk.finishReason
+				finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
 			}
 			// Merge (per-field max), not last-write-wins: a late usage frame that
 			// omits input/cache tokens must not zero the counts seen earlier in the
@@ -752,6 +755,7 @@ export async function* streamProviderTurn(
 			},
 			reportedFinishReason,
 			usage,
+			finishDetail,
 		)
 		bucket.inputError = inputError
 		log.warn('tool input could not be read', {
@@ -901,6 +905,7 @@ export async function* streamProviderTurn(
 			...(citations.length > 0 ? { citations } : {}),
 		},
 		finishReason: effectiveFinishReason,
+		...(effectiveFinishReason === 'length' && finishDetail ? { finishDetail } : {}),
 		usage,
 	}
 

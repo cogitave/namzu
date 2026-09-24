@@ -243,6 +243,8 @@ export function classifyUnreadableToolInput(
 	 * output the stream did not carry (reasoning) took the room.
 	 */
 	usage?: Pick<ChatCompletionResponse['usage'], 'completionTokens' | 'reasoningTokens'>,
+	/** Which limit a `'length'` finish reached, when it was the context window. */
+	finishDetail?: ChatCompletionResponse['finishDetail'],
 ): ToolInputError {
 	const stopped =
 		finishReason === undefined || finishReason === 'length' || finishReason === 'content_filter'
@@ -260,6 +262,7 @@ export function classifyUnreadableToolInput(
 	return {
 		reason: truncated ? 'truncated' : 'malformed',
 		...(finishReason !== undefined ? { finishReason } : {}),
+		...(finishReason === 'length' && finishDetail ? { finishDetail } : {}),
 		parseError: failure.parseError,
 		...(failure.offset !== undefined ? { offset: failure.offset } : {}),
 		length: call.length,

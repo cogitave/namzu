@@ -30,6 +30,15 @@ async function chunksOf(events: unknown[]): Promise<StreamChunk[]> {
 }
 
 describe('Bedrock stop reasons', () => {
+	it('marks a context-window stop, so the turn loop does not continue a reply that filled it', async () => {
+		const window = await chunksOf([
+			{ messageStop: { stopReason: 'model_context_window_exceeded' } },
+		])
+		expect(window.find((chunk) => chunk.finishReason)?.finishDetail).toBe('context_window')
+		const output = await chunksOf([{ messageStop: { stopReason: 'max_tokens' } }])
+		expect(output.find((chunk) => chunk.finishReason)?.finishDetail).toBeUndefined()
+	})
+
 	it.each([
 		['max_tokens', 'length'],
 		['model_context_window_exceeded', 'length'],

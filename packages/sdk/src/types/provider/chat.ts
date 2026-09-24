@@ -193,5 +193,10 @@ export interface ChatCompletionResponse {
 		citations?: readonly import('../message/index.js').Citation[]
 	}
 	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/**
+	 * `'context_window'` when a `'length'` finish was the model's context
+	 * window rather than the output token limit; see `StreamChunk.finishDetail`.
+	 */
+	finishDetail?: 'context_window'
 	usage: TokenUsage
 }

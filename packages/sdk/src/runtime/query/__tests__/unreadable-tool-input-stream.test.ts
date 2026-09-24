@@ -112,6 +112,36 @@ function completed(events: SessionEvent[]) {
 }
 
 describe('unreadable tool input is classified from how the response ended', () => {
+	it('says a call the context window cut off was cut off by the window, not the output limit', async () => {
+		const cut = '{"path":"notes.md","content":"The first half'
+		const { result, events } = await run([
+			open(0, 'call_1', 'write'),
+			args(0, cut),
+			{
+				id: 'c',
+				delta: {},
+				finishReason: 'length',
+				finishDetail: 'context_window',
+				usage: { ...USAGE, completionTokens: 40_000 },
+			},
+		])
+		expect(result?.response.finishDetail).toBe('context_window')
+		const error = completed(events)[0]?.inputError
+		expect(error).toMatchObject({
+			reason: 'truncated',
+			finishReason: 'length',
+			finishDetail: 'context_window',
+		})
+		const message = unreadableToolInputMessage('write', error, {
+			largeStringArguments: { content: 12_000 },
+		})
+		expect(message).toContain("was cut off: the response filled the model's context window")
+		// The window is the conversation's length: neither hidden reasoning nor
+		// the text before the call is blamed, and the call is asked to carry less.
+		expect(message).not.toMatch(/reasoning|came before this call|output token limit/)
+		expect(message).toContain('keep `content` under 20 characters')
+	})
+
 	it("records the response's output tokens on a truncated call, so hidden reasoning can be told from the call", async () => {
 		const body = `{"path":"notes.md","content":"${'x'.repeat(270)}`
 		const { result } = await run([

@@ -778,6 +778,11 @@ export class HttpProvider implements LLMProvider {
 									id: messageId,
 									delta: {},
 									finishReason: mapAnthropicStopReason(event.delta.stop_reason),
+									// The context window rather than `max_tokens`: the turn loop
+									// does not continue a reply that filled it.
+									...(event.delta.stop_reason === 'model_context_window_exceeded'
+										? { finishDetail: 'context_window' as const }
+										: {}),
 									usage: event.usage ? parseAnthropicUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {

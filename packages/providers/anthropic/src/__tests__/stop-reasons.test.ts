@@ -24,7 +24,7 @@ function providerOver(events: unknown[]) {
 	return provider
 }
 
-async function finishReasonFor(stopReason: string): Promise<StreamChunk['finishReason']> {
+async function finishFor(stopReason: string): Promise<StreamChunk | undefined> {
 	const events = [
 		{ type: 'message_start', message: { id: 'msg_1' } },
 		{
@@ -41,17 +41,26 @@ async function finishReasonFor(stopReason: string): Promise<StreamChunk['finishR
 		{ type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 9 } },
 		{ type: 'message_stop' },
 	]
-	let finishReason: StreamChunk['finishReason']
+	let finish: StreamChunk | undefined
 	for await (const chunk of providerOver(events).chatStream({
 		model: 'm',
 		messages: [{ role: 'user', content: 'q' }],
 	} as ChatCompletionParams)) {
-		finishReason = chunk.finishReason ?? finishReason
+		if (chunk.finishReason) finish = chunk
 	}
-	return finishReason
+	return finish
+}
+
+async function finishReasonFor(stopReason: string): Promise<StreamChunk['finishReason']> {
+	return (await finishFor(stopReason))?.finishReason
 }
 
 describe('Anthropic stop reasons', () => {
+	it('marks a context-window stop, so the turn loop does not continue a reply that filled it', async () => {
+		expect((await finishFor('model_context_window_exceeded'))?.finishDetail).toBe('context_window')
+		expect((await finishFor('max_tokens'))?.finishDetail).toBeUndefined()
+	})
+
 	it.each([
 		['max_tokens', 'length'],
 		['model_context_window_exceeded', 'length'],

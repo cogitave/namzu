@@ -70,7 +70,8 @@ send less. That does not fix malformed JSON.
   reasons. The name is older than the distinction, and existing readers keep
   working.
 - `inputError`: a `ToolInputError`, with fields `reason`, `finishReason`
-  (absent when the stream reported none), `parseError` (the JSON parser's
+  (absent when the stream reported none), `finishDetail` (`context_window`
+  when a `length` finish was the context window), `parseError` (the JSON parser's
   message), `offset`, `length` and `precedingLength`. `offset` is where parsing
   stopped: the first character that cannot continue valid JSON, or the whole
   length when the text simply ended. It is found by scanning the arguments,
@@ -132,12 +133,16 @@ The message is assembled from the reason and from the tool:
   - Otherwise the call itself has to carry less. A tool that declares large
     string arguments is given a budget for each; any other tool is told to
     keep its arguments under half of what arrived, in all. That half is
-    rounded down (to hundreds above 400 characters, to tens above 40), and it
+    rounded down (to hundreds from 400 characters, to tens from 40), and it
     is always less than what arrived; a call cut after one character is only
     told to send the call again. Then the tool's own `truncatedInputHint`, if
     it declares one.
 - **Truncated by the stream ending.** The declared budgets, if the tool has
   any, or just to send the call again. Then the tool's `truncatedInputHint`.
+- **Truncated by the context window** (`finishDetail: 'context_window'`).
+  The response filled the model's context window. The call is told to carry
+  less, with the budgets above, and the tool's `truncatedInputHint`; nothing
+  about reasoning or about what came before it.
 - **Stopped by a content filter.** No advice and no hint: sending less does
   not get past a filter.
 
@@ -244,19 +249,37 @@ A stream groups a call's fragments by `index`. The turn loop and
 ## Finish reasons from the drivers
 
 The classification depends on each driver reporting how the response ended,
-and marking the text it adds of its own:
+and marking the text it adds of its own.
+
+A response that fills the model's context window stops where it stands, as
+one the output limit stops does, so both are `finishReason: 'length'` and a
+tool call either one cuts off is `truncated`. The chunk that reports the
+window also carries `finishDetail: 'context_window'`, which
+`ChatCompletionResponse.finishDetail` and `ToolInputError.finishDetail` carry
+on. The difference is what can follow. After the output limit, the turn loop
+asks the model to continue a reply it cut off mid-text; after the context
+window there is no room to continue into, so the reply stands as it is and
+the turn ends on it. A call the window cut off is told that the response
+filled the model's context window, and to carry less, with no word about
+reasoning or what came before it, since neither is what ran out.
+
+- A custom driver that reports a context-window stop as `length` should set
+  `finishDetail: 'context_window'` with it, or the turn loop continues the
+  reply into the full window.
 
 - `@namzu/anthropic`, `@namzu/google` and `@namzu/openai` Codex: the list of
   sources appended after a hosted search carries `contentOrigin: 'driver'`.
 
 - `@namzu/anthropic` and the HTTP driver's Anthropic dialect: `max_tokens` and
-  `model_context_window_exceeded` are reported as `length`, and `refusal` as
+  `model_context_window_exceeded` are reported as `length`, the second with
+  `finishDetail: 'context_window'` (see below), and `refusal` as
   `content_filter`. `@namzu/anthropic` no longer fails the stream when a tool
   call's JSON does not parse. Its search-replay record parsed every block's
   input and threw, so the block close and the finish reason never arrived, and
   every such call was reported as cut off.
-- `@namzu/bedrock`: `model_context_window_exceeded` is reported as `length`,
-  and `guardrail_intervened` as `content_filter`. A tool call opens with the id
+- `@namzu/bedrock`: `model_context_window_exceeded` is reported as `length`
+  with `finishDetail: 'context_window'`, and `guardrail_intervened` as
+  `content_filter`. A tool call opens with the id
   the driver keeps, including the one it makes up when the wire has none.
 - `@namzu/http` (OpenAI dialect) and `@namzu/openrouter`: `finish_reason` is
   mapped instead of cast. `function_call` becomes `tool_calls`, and an unknown

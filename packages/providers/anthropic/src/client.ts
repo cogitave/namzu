@@ -750,6 +750,15 @@ function parseUsage(raw?: RawAnthropicUsage): TokenUsage {
 
 type NamzuFinishReason = ChatCompletionResponse['finishReason']
 
+/**
+ * Which limit a `'length'` finish reached, when it was the context window
+ * rather than `max_tokens`: after the one the turn loop continues a reply it
+ * cut off, and after the other there is no room to continue into.
+ */
+function finishDetail(reason?: string | null): Pick<StreamChunk, 'finishDetail'> {
+	return reason === 'model_context_window_exceeded' ? { finishDetail: 'context_window' } : {}
+}
+
 function mapStopReason(reason?: string | null): NamzuFinishReason {
 	switch (reason) {
 		case 'end_turn':
@@ -1409,6 +1418,7 @@ export class AnthropicProvider implements LLMProvider {
 									...(replayState !== undefined ? { replayState } : {}),
 									delta: {},
 									finishReason: mapStopReason(event.delta.stop_reason),
+									...finishDetail(event.delta.stop_reason),
 									usage: event.usage ? parseUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {

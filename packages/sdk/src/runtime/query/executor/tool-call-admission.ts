@@ -642,8 +642,10 @@ export function unreadableToolInputMessage(
 		)
 		hint(tool?.malformedInputHint?.trim() ? tool.malformedInputHint : tool?.validationErrorHint)
 	} else {
-		const cause =
-			error.finishReason === 'length'
+		const contextWindow = error.finishReason === 'length' && error.finishDetail === 'context_window'
+		const cause = contextWindow
+			? "the response filled the model's context window"
+			: error.finishReason === 'length'
 				? 'the response reached its output token limit'
 				: error.finishReason === 'content_filter'
 					? "the provider's content filter stopped the response"
@@ -651,13 +653,22 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
 		)
-		const unseen = error.finishReason === 'length' ? unseenOutput(error) : undefined
+		// Only the output limit is shared between reasoning, text and the
+		// call. A full context window is the conversation's length: what the
+		// response spent on what does not change it, and less in the call is
+		// the one thing that helps.
+		const unseen =
+			error.finishReason === 'length' && !contextWindow ? unseenOutput(error) : undefined
 		if (unseen) {
 			parts.push(
 				unseen,
 				'Send the call again after less reasoning, or split the work into smaller steps that each need less of it.',
 			)
-		} else if (error.finishReason === 'length' && error.length < error.precedingLength) {
+		} else if (
+			error.finishReason === 'length' &&
+			!contextWindow &&
+			error.length < error.precedingLength
+		) {
 			parts.push(
 				`${error.precedingLength} of the ${error.precedingLength + error.length} characters the response streamed came before this call, so send the call again with less before it in the same response.`,
 			)
