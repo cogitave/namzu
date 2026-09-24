@@ -27,7 +27,7 @@ The operator application.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
-* [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, the manifest budget, tool gating, and the skills config keys.
+* [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
