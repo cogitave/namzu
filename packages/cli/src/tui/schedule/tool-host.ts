@@ -56,6 +56,7 @@ import {
 	type PermissionInput,
 	compileJobPolicy,
 } from '../../schedule/policy.js'
+import { verifyScheduledScript } from '../../schedule/script-check.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
@@ -144,15 +145,30 @@ function confirmationBody(
 	findings: readonly string[],
 	lines: readonly string[],
 ): string[] {
+	const scriptSection =
+		p.runKind && p.runKind !== 'agent' && p.script
+			? [
+					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; verified against the job's own rules and the scheduled-run floor)`,
+					...p.script.body.split('\n').map((l) => `  │ ${l}`),
+				]
+			: []
+	const promptSection = p.prompt.trim()
+		? [
+				p.runKind === 'script+agent'
+					? 'Prompt (used only when the wake-gate says wake: true)'
+					: 'Prompt (exactly as the run will read it)',
+				...revealHiddenCharacters(p.prompt)
+					.split('\n')
+					.map((l) => `  │ ${l}`),
+			]
+		: []
 	return [
 		...lines,
 		`Credential  ${p.credentialSource ?? 'unknown'}`,
 		...p.warnings.map((w) => `Warning     ${w}`),
 		...findings.map((f) => `Warning     ${f}`),
-		'Prompt (exactly as the run will read it)',
-		...revealHiddenCharacters(p.prompt)
-			.split('\n')
-			.map((l) => `  │ ${l}`),
+		...scriptSection,
+		...promptSection,
 	]
 }
 
@@ -236,6 +252,12 @@ export function updateRequest(
 		...(spec ? { spec } : {}),
 		folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
 		...(tz ? { tz } : {}),
+		// The tool cannot change a job's kind or script (only the CLI's own
+		// `schedule edit` can); an update carries the job's own forward
+		// unchanged, exactly as `editedJob` does for a terminal edit.
+		...(current.runKind ? { runKind: current.runKind } : {}),
+		...(current.script ? { script: current.script } : {}),
+		...(current.wakeGate ? { wakeGate: current.wakeGate } : {}),
 		permissions,
 		budget: { ...current.budget, ...(changes.budget ?? {}) },
 		model: `${current.model.provider}${current.model.model ? `/${current.model.model}` : ''}`,
@@ -315,6 +337,18 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		})
 		if (policy.diagnostics.length > 0)
 			throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
+		// A model-proposed script/wake-gate gets the same static check
+		// `schedule add` runs before anything is shown, so a proposal that
+		// cannot be verified — or whose commands the job's own rules do not
+		// allow — never reaches this confirmation screen at all.
+		if (job.runKind && job.runKind !== 'agent' && job.script) {
+			const checked = verifyScheduledScript(job.script.body, job.script.shell, policy)
+			if (!checked.ok) {
+				throw new Error(
+					`The ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+				)
+			}
+		}
 		const roots = [ui.cwd(), ...ui.extraRoots()]
 		const outside = !roots.some((root) => within(root, job.folder.canonical))
 		const perDay = runsPerDay(job.schedule, now)
@@ -335,6 +369,8 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			folder: job.folder.canonical,
 			outsideSessionRoots: outside,
 			prompt: job.prompt,
+			...(job.runKind && job.runKind !== 'agent' ? { runKind: job.runKind } : {}),
+			...(job.script ? { script: job.script } : {}),
 			schedule: describeSchedule(job.schedule, {
 				tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
 			}),
@@ -379,9 +415,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const job = buildJob(
 				{
 					name: draft.name,
-					prompt: draft.prompt,
+					prompt: draft.prompt ?? '',
 					when: draft.when,
 					folder,
+					...(draft.runKind ? { runKind: draft.runKind } : {}),
+					...(draft.script ? { script: draft.script } : {}),
 					...(draft.tz ? { tz: draft.tz } : {}),
 					permissions: {
 						...(draft.permissions.preset ? { preset: draft.permissions.preset } : {}),

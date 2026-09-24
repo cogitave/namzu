@@ -341,6 +341,96 @@ describe('schedule tool', () => {
 	})
 })
 
+describe('schedule tool: kind and script', () => {
+	const scriptInput = {
+		action: 'create',
+		name: 'ticker',
+		kind: 'script',
+		script: { body: 'echo hi', shell: 'bash' },
+		when: 'every 1m',
+		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+	}
+
+	it('accepts a script draft with no prompt, and reaches host.preview with runKind set', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(scriptInput as never, context)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.objectContaining({ runKind: 'script', script: { body: 'echo hi', shell: 'bash' } }),
+		)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.not.objectContaining({ prompt: expect.anything() }),
+		)
+	})
+
+	it('refuses kind: script with no script, naming the field', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute({ ...scriptInput, script: undefined }, context)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/script/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses an agent job (the default) that also carries a script', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{ ...createInput, script: { body: 'echo hi', shell: 'bash' } },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/no script/)
+	})
+
+	it('script+agent needs both a gate script and a prompt', async () => {
+		const { host } = fakeHost('create')
+		const noPrompt = await tool(host).execute(
+			{ ...scriptInput, kind: 'script+agent', prompt: undefined },
+			context,
+		)
+		expect(noPrompt.success).toBe(false)
+		expect(noPrompt.error).toMatch(/prompt/)
+		const withPrompt = await tool(host).execute(
+			{ ...scriptInput, kind: 'script+agent', prompt: 'summarise what changed' },
+			context,
+		)
+		expect(withPrompt.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(expect.objectContaining({ runKind: 'script+agent' }))
+	})
+
+	it('refuses a script job on the host beside network access, the same as an agent job would be', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{
+				...scriptInput,
+				permissions: {
+					rules: { bash: 'allow', web_fetch: 'allow' },
+					unmatched: 'deny',
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('does not refuse a sandboxed script job beside network access', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{
+				...scriptInput,
+				permissions: {
+					rules: { bash: 'allow', web_fetch: 'allow' },
+					unmatched: 'deny',
+					execution: 'sandbox',
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(true)
+	})
+})
+
 describe('session_loop tool', () => {
 	function loopHost(): SessionLoopHost & { loops: SessionLoop[] } {
 		const loops: SessionLoop[] = []

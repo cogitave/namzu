@@ -717,6 +717,58 @@ describe('the schedule tool’s host', () => {
 		const jobs = (listed.data as { jobs: { name: string; prompt?: string }[] }).jobs
 		expect(jobs.find((j) => j.name === 'elsewhere')?.prompt).toBeUndefined()
 	})
+
+	describe('a model-proposed script/script+agent job', () => {
+		const scriptInput = {
+			action: 'create',
+			name: 'ticker',
+			kind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			when: 'every 1m',
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		}
+
+		it('shows the exact script text on its own confirmation screen, verified before it is shown', async () => {
+			const { tool, said } = host('create')
+			const result = await tool.execute(scriptInput, {} as never)
+			expect(result.success).toBe(true)
+			expect(said[0]).toContain('Script (exactly as it will run, bash')
+			expect(said[0]).toContain('echo hi')
+			expect(said[0]).not.toContain('Prompt (exactly as the run will read it)')
+			const [job] = listJobs(sb.paths).jobs
+			expect(job?.runKind).toBe('script')
+			expect(job?.script).toMatchObject({ body: 'echo hi', shell: 'bash' })
+			expect(job?.prompt).toBe('')
+		})
+
+		it('refuses a script the floor denies before any confirmation is shown, the same as schedule add', async () => {
+			const { tool, said } = host('create')
+			const result = await tool.execute(
+				{
+					...scriptInput,
+					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/scheduled-run floor refused/)
+			expect(said).toEqual([])
+			expect(listJobs(sb.paths).jobs).toHaveLength(0)
+		})
+
+		it('an update keeps the job’s runKind and script when the model does not touch them', async () => {
+			expect((await host('create').tool.execute(scriptInput, {} as never)).success).toBe(true)
+			const { tool } = host('save')
+			const result = await tool.execute(
+				{ action: 'update', job: 'ticker', when: 'every 5m' },
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
+			expect(readJob(sb.paths, job?.id as string)?.runKind).toBe('script')
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo hi' })
+		})
+	})
 })
 
 describe('/loop', () => {

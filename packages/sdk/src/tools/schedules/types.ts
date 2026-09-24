@@ -11,10 +11,29 @@
 /** A rule effect, in the vocabulary of the CLI's `[permissions]` table. */
 export type ScheduleRuleEffect = 'allow' | 'ask' | 'deny'
 
-/** What the model proposes. Validated by the tool's schema, then by the host. */
+/**
+ * What the model proposes. Validated by the tool's schema, then by the host.
+ *
+ * `runKind` absent means `'agent'`, unchanged from before this field
+ * existed — every existing host keeps compiling and behaving the same.
+ * `prompt` is optional ONLY because a pure `'script'` draft has none; a
+ * `ScheduleToolHost` that read it as a bare `string` before this field
+ * existed now needs a null check under `strictNullChecks` (see the SDK's
+ * changeset for this release: this is a breaking change to the type, not a
+ * free widening).
+ */
 export interface ScheduleJobDraft {
 	readonly name: string
-	readonly prompt: string
+	/** Required unless `runKind` is `'script'`, whose prompt is unused. */
+	readonly prompt?: string
+	/** Absent: `'agent'`. */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/** Required when `runKind` is `'script'` or `'script+agent'` (the wake-gate). */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs?: number
+	}
 	/** Schedule words: `every 30m`, `0 9 * * 1-5`, `at 09:00`, `in 2h`. */
 	readonly when: string
 	/** Folder the job runs in. Absent: the session's working directory. */
@@ -78,7 +97,16 @@ export interface ScheduleJobPreview {
 	readonly folder: string
 	/** True when `folder` is outside the session's working directory and added directories. */
 	readonly outsideSessionRoots: boolean
+	/** Empty for a pure `'script'` job, whose prompt is unused. */
 	readonly prompt: string
+	/** Absent: `'agent'`. */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/** Present for `runKind: 'script'`/`'script+agent'`: the exact confirmed text. */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs: number
+	}
 	/** The schedule in words, with its zone. */
 	readonly schedule: string
 	/** The next fire times, ISO-8601 UTC. */

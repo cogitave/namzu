@@ -42,12 +42,30 @@ const inputSchema = z.object({
 		.regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 		.optional()
 		.describe('create: job name, lowercase letters, digits and dashes'),
+	kind: z
+		.enum(['agent', 'script', 'script+agent'])
+		.optional()
+		.describe(
+			'create: what the run does. agent (default): the model runs prompt. script: a fixed shell script runs unattended, no model call, no prompt. script+agent: a cheap gate script decides whether to wake the model; wake:false costs nothing. Prefer script/script+agent for a fixed, deterministic check that would otherwise cost tokens for no reason.',
+		),
+	script: z
+		.object({
+			body: z.string().min(1).describe('The exact script text, run verbatim once confirmed'),
+			shell: z.enum(['bash', 'sh']).describe('Which shell reads it; no default'),
+			timeoutMs: z.number().int().positive().optional().describe('The script’s own wall clock'),
+		})
+		.optional()
+		.describe(
+			'create: required when kind is script or script+agent. For script+agent this is the wake-gate: its stdout must be exactly one JSON line, {"wake": boolean, "context": string}.',
+		),
 	prompt: z
 		.string()
 		.min(1)
 		.max(20_000)
 		.optional()
-		.describe('create, update: what the run is asked to do'),
+		.describe(
+			'create, update: what the run is asked to do. Required unless kind is script (unused there); for script+agent this is the instruction handed to the model only when the wake-gate says wake: true.',
+		),
 	when: z
 		.string()
 		.optional()
@@ -150,6 +168,14 @@ function effectsOf(rule: unknown): string[] {
  * Refuse a network tool beside a shell that runs on the host: a scheduled run
  * that can both read the machine and reach the internet, unattended, is the
  * exfiltration shape, and only the operator can choose it.
+ *
+ * For `runKind: 'script'`/`'script+agent'` the "shell" isn't a rule the model
+ * could reach at some later live call — it's the confirmed script's own
+ * body, which unconditionally runs shell commands whenever it runs at all.
+ * The `bash` rule heuristic below answers a question ("could a live call
+ * reach bash") that isn't the one being asked here, so a script/script+agent
+ * job on the host is treated as reaching a shell outright, whatever its
+ * rules say about `bash`.
  */
 function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 	const rules = draft.permissions.rules ?? {}
@@ -157,6 +183,8 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 		draft.permissions.browser !== undefined ||
 		NETWORK_TOOLS.some((t) => effectsOf(rules[t]).some((e) => e === 'allow' || e === 'ask'))
 	if (!network) return false
+	const onHost = (draft.permissions.execution ?? 'host') === 'host'
+	if ((draft.runKind ?? 'agent') !== 'agent') return onHost
 	const bashEffects = effectsOf(rules.bash)
 	// The read-only preset denies bash; its rules are expanded by the host,
 	// so the draft carries only its name.
@@ -164,7 +192,7 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 		bashEffects.length > 0
 			? bashEffects.some((e) => e !== 'deny')
 			: draft.permissions.preset !== 'read-only' && draft.permissions.unmatched !== 'deny'
-	return shellPossible && (draft.permissions.execution ?? 'host') === 'host'
+	return shellPossible && onHost
 }
 
 /**
@@ -246,21 +274,29 @@ async function create(
 	input: Input,
 	signal: AbortSignal | undefined,
 ): Promise<ToolResult> {
-	const missing = (['name', 'prompt', 'when', 'permissions'] as const).filter(
+	const runKind = input.kind ?? 'agent'
+	const required: string[] = (['name', 'when', 'permissions'] as const).filter(
 		(k) => input[k] === undefined,
 	)
-	if (missing.length > 0) {
+	if (runKind !== 'script' && input.prompt === undefined) required.push('prompt')
+	if (runKind !== 'agent' && input.script === undefined) required.push('script')
+	if (required.length > 0) {
 		return refuse(
-			`create needs ${missing.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
+			`create needs ${required.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
 		)
+	}
+	if (runKind === 'agent' && input.script !== undefined) {
+		return refuse('an agent job has no script; omit kind (or set it to agent) to use one')
 	}
 	const checked = checkPermissions(host, input.permissions as NonNullable<Input['permissions']>)
 	if (!checked.ok) return refuse(checked.error)
 	const permissions = checked.permissions
 	const draft: ScheduleJobDraft = {
 		name: input.name as string,
-		prompt: input.prompt as string,
 		when: input.when as string,
+		...(runKind !== 'agent' ? { runKind } : {}),
+		...(input.script ? { script: input.script } : {}),
+		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		permissions,
