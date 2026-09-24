@@ -44,6 +44,7 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import {
 	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
+	isProjectInstructionMessage,
 	replaceProjectInstructionSnapshot,
 } from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
@@ -847,16 +848,30 @@ function projectRecordedHistory(
  * `messages` without the leading run of messages the session log already
  * holds, compared by value. A host that passes only the new input is
  * unaffected; one that passes the whole conversation adds only its tail.
+ *
+ * A project-instruction snapshot is skipped on both sides rather than
+ * compared, for the same reason a system message already is: it is not
+ * conversation content, and the log holds one PER TURN while a settled
+ * turn's own `messages` — what {@link collapseProjectInstructionSnapshots}
+ * leaves it, and what a host is told it may cache and pass back in — keeps
+ * only the newest. Comparing them positionally would fail on the second
+ * live send of any session with more than one, at the first message a
+ * turn's own snapshot's turn shed: the whole array would then be kept
+ * unstripped and concatenated after the log's own fold, duplicating every
+ * message the two shared — including one turn's own tool calls, which
+ * `validateToolCallIds` then correctly refuses as an unsafe rewrite.
  */
 function withoutRecordedPrefix(
 	messages: readonly Message[],
 	history: readonly RecordedMessage[],
 ): Message[] {
-	const recorded = history.filter((entry) => entry.message.role !== 'system')
+	const ignorable = (message: Message): boolean =>
+		message.role === 'system' || isProjectInstructionMessage(message)
+	const recorded = history.filter((entry) => !ignorable(entry.message))
 	let matched = 0
 	let r = 0
 	for (const message of messages) {
-		if (message.role === 'system') {
+		if (ignorable(message)) {
 			matched++
 			continue
 		}
