@@ -31,6 +31,10 @@
  *   marker is all that tells the two apart.
  * - Which labels change is decided on the labels as written, before any
  *   changes, so the outcome does not depend on the order of the options.
+ * - "The same group" and "the label of another option" are compared by
+ *   `foldForComparison`: letter case, runs of spaces and Unicode
+ *   normalisation aside, the same on every host whatever its locale, with
+ *   "İ", "I", "ı" and "i" one letter and "ß" the same as "ss".
  * - Nothing else changes a label or makes an option recommended.
  *   Recommending is optional, so an option that is not recommended, first or
  *   not, keeps its label as written apart from surrounding spaces and a
@@ -69,9 +73,34 @@ function trailingGroup(label: string): TrailingGroup | null {
 	return { base: (match[1] ?? '').trim(), text: (match[2] ?? match[3] ?? '').trim() }
 }
 
-/** A label or a group's text as two options are compared by. */
-function fold(text: string): string {
-	return text.normalize('NFC').replace(/\s+/gu, ' ').toLocaleLowerCase()
+/**
+ * A label or a group's text as two options are compared by: letter case and
+ * runs of whitespace aside, and the same on every host.
+ *
+ * `toLocaleLowerCase()` with no locale follows the host's `LANG`/`LC_ALL`,
+ * so the same model output compared differently on a Turkish host (where
+ * "İ" lowercases to "i") and elsewhere (where it lowercases to "i" plus a
+ * combining dot, U+0307), and a resumed turn on another machine could quote a
+ * label the person was never shown. `toLowerCase()` is Unicode's default
+ * mapping, the same in every locale; the letters whose lowercase depends on
+ * the language are then matched by explicit rules: "İ", "I", "ı" and "i" are
+ * one letter, and so are "ß", "ẞ" and "ss". The label itself is never
+ * rewritten by this; it only decides whether two texts are the same.
+ */
+export function foldForComparison(text: string): string {
+	return (
+		text
+			.normalize('NFC')
+			.replace(/\s+/gu, ' ')
+			.toLowerCase()
+			// Dotless "ı" (U+0131), and the "i" plus combining dot above (U+0307)
+			// that "İ" lowercases to, compare as "i".
+			.replace(/\u0131/gu, 'i')
+			.replace(/i\u0307/gu, 'i')
+			// "ß" (and "ẞ", which lowercases to it) compares as "ss".
+			.replace(/\u00df/gu, 'ss')
+			.normalize('NFC')
+	)
 }
 
 /**
@@ -82,8 +111,10 @@ function fold(text: string): string {
 function isMarker(grouped: readonly { option: Working; group: TrailingGroup }[]): boolean {
 	const first = grouped[0]
 	if (!first || !MARKER_TEXT.test(first.group.text)) return false
-	const text = fold(first.group.text)
-	return grouped.every(({ option, group }) => option.recommended && fold(group.text) === text)
+	const text = foldForComparison(first.group.text)
+	return grouped.every(
+		({ option, group }) => option.recommended && foldForComparison(group.text) === text,
+	)
 }
 
 interface Working {
@@ -122,12 +153,16 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 		// Each option is judged against the others' labels as written and as
 		// they would read without the marker, and nothing is shortened until
 		// every option is judged: the order of the options changes nothing.
-		const bases = new Map(grouped.map(({ option, group }) => [option, fold(group.base)]))
+		const bases = new Map(
+			grouped.map(({ option, group }) => [option, foldForComparison(group.base)]),
+		)
 		const shortened = grouped.filter(({ option, group }) => {
 			if (group.base === '') return false
-			const base = fold(group.base)
+			const base = foldForComparison(group.base)
 			return !working.some(
-				(other) => other !== option && (fold(other.label) === base || bases.get(other) === base),
+				(other) =>
+					other !== option &&
+					(foldForComparison(other.label) === base || bases.get(other) === base),
 			)
 		})
 		for (const { option, group } of shortened) option.label = group.base

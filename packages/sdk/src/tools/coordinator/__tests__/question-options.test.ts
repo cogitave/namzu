@@ -9,9 +9,9 @@
  * and the qualifiers that must survive it.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { questionOptions } from '../question-options.js'
+import { foldForComparison, questionOptions } from '../question-options.js'
 
 const labels = (options: ReturnType<typeof questionOptions>) => options.map((o) => o.label)
 const recommended = (options: ReturnType<typeof questionOptions>) =>
@@ -286,6 +286,105 @@ describe('questionOptions', () => {
 		const options = questionOptions([{ label: '(Önerilen)' }, { label: 'Other' }])
 		expect(labels(options)).toEqual(['(Önerilen)', 'Other'])
 		expect(recommended(options)).toEqual([])
+	})
+})
+
+describe('comparing labels, the same on every host', () => {
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it.each([
+		['ÖNERİLEN', 'Önerilen'],
+		['KURUL', 'kurul'],
+		['TAVSİYE EDİLEN', 'Tavsiye edilen'],
+		['TAVSIYE EDILEN', 'tavsiye edilen'],
+		['ı', 'i'],
+		['I', 'i'],
+		['İ', 'i'],
+		['i\u0307', 'i'],
+		['I\u0307', 'i'],
+		['STRASSE', 'Straße'],
+		['ẞ', 'ß'],
+		['O\u0308nerilen', 'Önerilen'],
+		['Tavsiye   edilen', 'tavsiye edilen'],
+	])('counts %j and %j as the same text', (a, b) => {
+		expect(foldForComparison(a)).toBe(foldForComparison(b))
+	})
+
+	it.each([
+		['Önerilen', 'Empfohlen'],
+		['o', 'ö'],
+		['Kurul', 'Kurullar'],
+	])('keeps %j and %j apart', (a, b) => {
+		expect(foldForComparison(a)).not.toBe(foldForComparison(b))
+	})
+
+	it('takes a marker off two flagged options that differ only in Turkish letter case', () => {
+		// "İ" lowercases to "i" plus a combining dot everywhere but a Turkish
+		// host, so a comparison that followed the host's locale kept both
+		// markers here and removed both there.
+		for (const flagged of [
+			['Lint (ÖNERİLEN)', 'Tests (Önerilen)'],
+			['Lint (TAVSİYE EDİLEN)', 'Tests (Tavsiye edilen)'],
+		]) {
+			const options = questionOptions([
+				...flagged.map((label) => ({ label, recommended: true })),
+				{ label: 'Benchmarks' },
+			])
+			expect(labels(options)).toEqual(['Lint', 'Tests', 'Benchmarks'])
+		}
+	})
+
+	it('keeps a marker whose removal would repeat a label that differs only in Turkish letter case', () => {
+		const options = questionOptions([
+			{ label: 'İZMİR (Önerilen)', recommended: true },
+			{ label: 'Ankara (Önerilen)', recommended: true },
+			{ label: 'İzmir' },
+		])
+		expect(labels(options)).toEqual(['İZMİR (Önerilen)', 'Ankara', 'İzmir'])
+	})
+
+	it('gives the same labels when the host locale is Turkish', () => {
+		// A Turkish default lowercases "I" to "ı" and "İ" to "i"; the process
+		// running this suite has whatever locale its host has. Forcing the
+		// Turkish mapping onto a locale-less `toLocaleLowerCase()` shows that
+		// nothing here depends on it. The proc suite runs the same questions
+		// in real processes under LC_ALL=tr_TR.UTF-8 and LC_ALL=C.
+		const questions: Parameters<typeof questionOptions>[0][] = [
+			[
+				{ label: 'Lint (ÖNERİLEN)', recommended: true },
+				{ label: 'Tests (Önerilen)', recommended: true },
+			],
+			[
+				{ label: 'Lint (TAVSIYE EDİLEN)', recommended: true },
+				{ label: 'Tests (Tavsiye edilen)', recommended: true },
+			],
+			[
+				{ label: 'İZMİR (Önerilen)', recommended: true },
+				{ label: 'Ankara (Önerilen)', recommended: true },
+				{ label: 'İzmir' },
+			],
+			[{ label: 'KIRMIZI (Önerilen)', recommended: true }, { label: 'kırmızı' }],
+		]
+		const asHostIs = questions.map((question) => labels(questionOptions(question)))
+
+		const lower = String.prototype.toLocaleLowerCase
+		vi.spyOn(String.prototype, 'toLocaleLowerCase').mockImplementation(function (
+			this: string,
+			locales?: Intl.LocalesArgument,
+		) {
+			return lower.call(this, locales ?? 'tr')
+		})
+		const asTurkish = questions.map((question) => labels(questionOptions(question)))
+
+		expect(asTurkish).toEqual(asHostIs)
+		expect(asHostIs).toEqual([
+			['Lint', 'Tests'],
+			['Lint', 'Tests'],
+			['İZMİR (Önerilen)', 'Ankara', 'İzmir'],
+			['KIRMIZI (Önerilen)', 'kırmızı'],
+		])
 	})
 })
 
