@@ -124,7 +124,8 @@ in `/etc/wsl.conf`). The Windows programs are found at their fixed locations
 under the drive mount root (`[automount] root` in `/etc/wsl.conf`, `/mnt/` by
 default), never through PATH, and recorded in the manifest. They are started in
 `C:` under that root, as is the PowerShell that shows a Windows notification. Runs get a PATH without the
-Windows `/mnt/*` entries: a failed lookup through them costs seconds.
+Windows drive entries, the one-letter directories under the mount root
+(`/mnt/c`, `/mnt/d`, … by default). A failed lookup through them costs seconds.
 
 A job with a [browser grant](scheduled-tasks.md#browser-access) drives the
 Windows Chrome or Edge from inside WSL, as the TUI does, through

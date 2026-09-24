@@ -15,6 +15,7 @@ import {
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { DEFAULT_WSL_MOUNT_ROOT, readWslMountRoot, wslSystem32 } from '../../context/environment.js'
 import type { AgentOAuthCredential } from './keychain.js'
 
 const MAX_CREDENTIAL_FILE_BYTES = 1024 * 1024
@@ -41,12 +42,18 @@ export function claudeCredentialsPath(
 	return join(configured ? resolve(configured) : join(home, '.claude'), '.credentials.json')
 }
 
-/** Convert an absolute Windows path into the drive mount WSL exposes. */
-export function windowsPathToWsl(path: string): string | null {
+/**
+ * Convert an absolute Windows path into the drive mount WSL exposes, under
+ * `mountRoot` (`/mnt/` unless `/etc/wsl.conf` moves it).
+ */
+export function windowsPathToWsl(
+	path: string,
+	mountRoot: string = DEFAULT_WSL_MOUNT_ROOT,
+): string | null {
 	const normalized = path.trim().replaceAll('\\', '/')
 	const match = /^([A-Za-z]):\/(.+)$/u.exec(normalized)
 	if (!match?.[1] || !match[2] || match[2].split('/').includes('..')) return null
-	return `/mnt/${match[1].toLowerCase()}/${match[2]}`
+	return `${mountRoot}${match[1].toLowerCase()}/${match[2]}`
 }
 
 /**
@@ -55,14 +62,19 @@ export function windowsPathToWsl(path: string): string | null {
  * The Windows executable is pinned instead of searched through PATH: this
  * lookup decides where a credential may be read, so a project-local `cmd.exe`
  * must not be able to redirect it. Failure is an ordinary "no second home"
- * result; native Linux never starts a process.
+ * result; native Linux never starts a process. Both the command and the home
+ * it answers with are under the drive mount root `/etc/wsl.conf` sets
+ * (`[automount] root`, `/mnt/` by default).
  */
 export function wslWindowsHome(
 	env: NodeJS.ProcessEnv = process.env,
 	run: typeof execFileSync = execFileSync,
-	command = '/mnt/c/Windows/System32/cmd.exe',
+	command?: string,
+	mountRoot?: string,
 ): string | null {
 	if (!env.WSL_DISTRO_NAME && !env.WSL_INTEROP) return null
+	const root = mountRoot ?? readWslMountRoot()
+	command ??= `${wslSystem32(root)}/cmd.exe`
 	try {
 		if (!statSync(command).isFile()) return null
 		const output = run(command, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
@@ -78,7 +90,7 @@ export function wslWindowsHome(
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'ignore'],
 		})
-		return windowsPathToWsl(String(output))
+		return windowsPathToWsl(String(output), root)
 	} catch {
 		return null
 	}
