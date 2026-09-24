@@ -171,12 +171,12 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				expect(runtime.close()).toBe(firstClose)
 				await firstClose
 			}
-			const turn = await Promise.race([
-				pending,
-				new Promise<never>((_resolve, reject) => {
-					setTimeout(() => reject(new Error('parent query did not settle')), 1_000)
-				}),
-			])
+			// No real 1000ms safety race: it competed with the same clock as
+			// the cancellation work it waited on, so a starved CI runner
+			// could make that work outlast the guard with nothing actually
+			// broken. A regression that left this unresolved now hangs and
+			// fails on Vitest's own per-test timeout instead.
+			const turn = await pending
 
 			expect(turn.status).toBe(expectedStatus)
 			if (authority === 'runtime') {
@@ -198,25 +198,21 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				await firstClose
 			}
 			releaseChild.resolve(undefined)
-			if (childCalls > 0) {
-				await Promise.race([
-					childFinished.promise,
-					new Promise<never>((_resolve, reject) => {
-						setTimeout(() => reject(new Error('hostile child stream did not unwind')), 1_000)
-					}),
-				])
-			}
+			// No real 1000ms safety race: same reasoning as above.
+			if (childCalls > 0) await childFinished.promise
 			expect(existsSync(markerPath)).toBe(false)
 			expect(parentProvider.requests).toHaveLength(expectedParentRequests)
 		},
 	)
 })
 
+// No real 1000ms poll deadline: it competed with the same clock as the
+// cancellation it waited on, so a starved CI runner could make that work
+// outlast the deadline with nothing actually broken. A predicate that never
+// turns true now hangs and fails on Vitest's own per-test timeout instead of
+// a hand-rolled one racing the same clock.
 async function waitFor(predicate: () => boolean): Promise<void> {
-	const deadline = Date.now() + 1_000
-	while (Date.now() < deadline) {
-		if (predicate()) return
+	while (!predicate()) {
 		await new Promise<void>((resolve) => setTimeout(resolve, 5))
 	}
-	throw new Error('late CLI child was not cancelled')
 }

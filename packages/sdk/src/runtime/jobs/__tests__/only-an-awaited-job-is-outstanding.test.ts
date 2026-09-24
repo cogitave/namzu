@@ -190,12 +190,15 @@ describe('an awaited job is the only thing that is outstanding', () => {
 		registry.announce(job({ id: 'job_1', status: 'exited', exitCode: 0 }))
 		unread = false
 
+		// No real 25ms probe: `waited` can only resolve via a real/announced
+		// arrival or its own internal 10s timer, neither of which has happened
+		// yet at this point, so an immediately-resolved promise is a
+		// deterministic way to observe "still pending" with no clock involved
+		// at all — nothing here can flake under load in either direction.
 		const waited = awaited.waitForArrival(10_000)
 		const early = await Promise.race([
 			waited.then(() => 'returned' as const),
-			new Promise<'waiting'>((resolve) => {
-				setTimeout(() => resolve('waiting'), 25).unref?.()
-			}),
+			Promise.resolve('waiting' as const),
 		])
 		expect(early, 'a delivered exit ended the wait for a job still running').toBe('waiting')
 
@@ -219,12 +222,13 @@ describe('an awaited job is the only thing that is outstanding', () => {
 		registry.announce(job({ id: 'job_3', status: 'exited', exitCode: 0 }))
 		unread = true
 
+		// Same reasoning as above: `waited` cannot resolve before this race is
+		// built, so an immediately-resolved promise observes "still pending"
+		// deterministically, with no real timer to race against CI load.
 		const waited = awaited.waitForArrival(10_000)
 		const early = await Promise.race([
 			waited.then(() => 'returned' as const),
-			new Promise<'waiting'>((resolve) => {
-				setTimeout(() => resolve('waiting'), 25).unref?.()
-			}),
+			Promise.resolve('waiting' as const),
 		])
 		expect(early, 'a job nobody awaited ended the wait for one this turn was').toBe('waiting')
 

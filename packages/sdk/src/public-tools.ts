@@ -34,7 +34,7 @@ export {
 } from './tools/untrusted-envelope.js'
 export { matchesToolSelector } from './tools/roster.js'
 export type { ToolSelector } from './tools/roster.js'
-export type { UntrustedEnvelope } from './tools/untrusted-envelope.js'
+export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-envelope.js'
 
 // ─── Built-in tools ──────────────────────────────────────────────────────
 

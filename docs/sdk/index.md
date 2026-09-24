@@ -33,10 +33,11 @@ The kernel.
 * [Model prices, and what an absent one means](model-prices.md) - Optional per-million rates on ModelInfo, why a driver omits a rate it never learned, and how a reader renders the absence.
 
 * [Tool execution barriers](tool-execution.md) - Explicit batch ordering while independent read segments remain parallel.
+* [Unreadable tool input](unreadable-tool-input.md) - Streamed tool arguments that do not parse: truncated or malformed by finish reason, what the model and host are told, and how tool-call fragments are grouped.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
 
 * [Run the kernel](quick-start.md) - An offline SDK turn, real tool execution, conversation identity and where the session is recorded.
-* [AG-UI clients](ag-ui.md) - Explicit host admission, backend tool streaming, shared UI state and CopilotKit connection limits.
+* [AG-UI clients](ag-ui.md) - Explicit host admission, backend and frontend tools, interrupts and resume, shared UI state and CopilotKit connection.
 * [Kubernetes sandboxes](kubernetes-sandbox.md) - Warm-pool claims on an agent-sandbox cluster, the pristine-claim rule, the per-instance agent credential, persistent block-disk workspaces and what is not built yet.
 * [Firecracker sandboxes](firecracker-sandbox.md) - The Firecracker microvm tier against a self-hosted orchestrator, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
 * [The container sandbox worker's credential](container-sandbox-worker.md) - The per-instance bearer token the container backend mints and the worker requires on every route but /healthz, the refusal that makes a routable bind without one impossible, the named escape and what it gives up, and the workers nobody can authenticate against.
@@ -56,6 +57,7 @@ The kernel.
 * [Cognitive storage research](cognitive-storage.md) - Pydantic AI source comparison and proposed boundaries for RAM, durable records, retrieval indexes and recovery.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.
 * [Delegation events](delegation-events.md) - What the kernel says when a turn delegates to a child session, which fields a host may act on, which are captions for a screen, and what the logs keep.
+* [Cross-session peer messaging (SDK)](peer-messaging.md) - The live-session registry, the namzu-peer/1 transport and the runtime-context rendering a delivered message or notice.
 * [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, and the JSON a shell hook reads on stdin.
 * [Skills and allowed-tools](skills.md) - Loading a SKILL.md through the skill tool, the directory a host tells the model a skill's files are in, and allowed-tools as a turn-scoped pre-approval that never narrows the tool set.
 * [The bash tool](bash-tool.md) - Which shell the bash tool runs a command in, on the host and in a sandbox, and how the permission rules follow that choice.

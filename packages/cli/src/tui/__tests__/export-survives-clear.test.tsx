@@ -122,9 +122,7 @@ afterEach(() => {
 })
 
 async function waitFor(frame: () => string | undefined, text: string): Promise<void> {
-	const started = performance.now()
-	while (!(frame() ?? '').includes(text) && performance.now() - started < RENDER_WAIT_MS) await tick()
-	expect(frame()).toContain(text)
+	await vi.waitFor(() => expect(frame()).toContain(text), RENDER_WAIT_MS)
 }
 
 async function submit(stdin: { write: (text: string) => void }, text: string): Promise<void> {
@@ -138,15 +136,11 @@ async function waitForComposerInput(harness: {
 	lastFrame(): string | undefined
 }): Promise<void> {
 	const probe = 'composer-ready-probe'
-	const started = performance.now()
-	while (
-		!(harness.lastFrame() ?? '').includes(probe) &&
-		performance.now() - started < RENDER_WAIT_MS
-	) {
+	await vi.waitFor(async () => {
 		harness.stdin.write(probe)
 		await tick(250)
-	}
-	expect(harness.lastFrame()).toContain(probe)
+		expect(harness.lastFrame()).toContain(probe)
+	}, RENDER_WAIT_MS)
 	// Ctrl+U clears every probe, including repeats sent before a busy render
 	// made the first accepted one visible.
 	harness.stdin.write('\u0015')

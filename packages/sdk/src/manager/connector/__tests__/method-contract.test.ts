@@ -154,12 +154,12 @@ describe('ConnectorManager method contracts', () => {
 			signal: caller.signal,
 		})
 
-		await Promise.race([
-			entered,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('input validation never started')), 250)
-			}),
-		])
+		// No real 250ms safety race guarding `entered`: it competed with the
+		// same clock as the validation step it waited on, so a starved CI
+		// runner could make that work outlast the guard with nothing
+		// actually broken. A regression that never entered validation now
+		// hangs and fails on Vitest's own per-test timeout instead.
+		await entered
 		caller.abort(new Error('input authority withdrawn'))
 		const result = await pending
 
@@ -254,19 +254,14 @@ describe('ConnectorManager method contracts', () => {
 			signal: caller.signal,
 		})
 
-		await Promise.race([
-			entered,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('output validation never started')), 250)
-			}),
-		])
+		// No real 250ms safety races: they competed with the same clock as
+		// the validation and cancellation work they waited on, so a starved
+		// CI runner could make that work outlast the guards with nothing
+		// actually broken. A regression now hangs and fails on Vitest's own
+		// per-test timeout instead.
+		await entered
 		caller.abort(new Error('output authority withdrawn'))
-		const result = await Promise.race([
-			pending,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('output validation ignored cancellation')), 250)
-			}),
-		])
+		const result = await pending
 
 		expect(connector.calls).toHaveLength(1)
 		expect(result).toMatchObject({

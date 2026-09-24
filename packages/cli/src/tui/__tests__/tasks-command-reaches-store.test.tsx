@@ -82,10 +82,7 @@ afterEach(() => {
 })
 
 async function waitFor(text: string) {
-	const started = performance.now()
-	while (!mounted?.frames.join('\n').includes(text) && performance.now() - started < 3000)
-		await tick()
-	expect(mounted?.frames.join('\n')).toContain(text)
+	await vi.waitFor(() => expect(mounted?.frames.join('\n')).toContain(text))
 }
 
 async function submit(command: string) {

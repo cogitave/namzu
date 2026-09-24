@@ -221,11 +221,8 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
  * still wait a fixed, generous interval. That asymmetry is inherent: proving a
  * decision happened only needs enough time, proving one did not needs all of it.
  */
-async function decisionSettles(timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (decisions.length === 0 && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
+async function decisionSettles(timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(decisions.length, 'no decision arrived').toBeGreaterThan(0), timeoutMs)
 }
 
 /**
@@ -261,14 +258,9 @@ async function promptOpenWithDraftInFlight() {
 	// step out, and a fixed wait here made the whole file fail intermittently
 	// with "the prompt never opened" — a flake in the setup, reported as a
 	// failure of whatever the test was actually about.
-	const started = performance.now()
-	while (
-		!(harness.lastFrame() ?? '').includes('enter confirm') &&
-		performance.now() - started < 3_000
-	) {
-		await tick(20)
-	}
-	expect(harness.lastFrame(), 'the prompt never opened').toContain('enter confirm')
+	await vi.waitFor(() =>
+		expect(harness.lastFrame(), 'the prompt never opened').toContain('enter confirm'),
+	)
 	return harness
 }
 
@@ -641,10 +633,7 @@ describe('/permissions session mode', () => {
 		stdin.write('change the file')
 		await tick(60)
 		stdin.write('\r')
-		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('enter confirm') && performance.now() - started < 3_000) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(lastFrame() ?? '').toContain('enter confirm'))
 
 		expect(permissionModes).toEqual(['prompt'])
 		expect(toolExecutions, 'the yolo launch still auto-approved after switching to prompt').toBe(0)
@@ -689,10 +678,7 @@ describe('/permissions session mode', () => {
 		stdin.write('ask again')
 		await tick(60)
 		stdin.write('\r')
-		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('enter confirm') && performance.now() - started < 3_000) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(lastFrame() ?? '').toContain('enter confirm'))
 
 		expect(permissionModes.at(-1)).toBe('prompt')
 		expect(toolExecutions, 'approve-all survived an explicit prompt-mode reset').toBe(1)

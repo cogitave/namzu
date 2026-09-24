@@ -262,13 +262,9 @@ afterEach(async () => {
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
-	timeoutMs = 5_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!harness.frames.join('\n').includes(text) && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
-	expect(harness.frames.join('\n')).toContain(text)
+	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text), timeoutMs)
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
@@ -277,9 +273,8 @@ async function submit(harness: { stdin: { write: (value: string) => void } }, te
 	harness.stdin.write('\r')
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (!predicate() && performance.now() - started < timeoutMs) await tick(20)
+async function waitUntil(predicate: () => boolean, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 
 async function waitForScreen(

@@ -119,6 +119,26 @@ describe('collectChatCompletion()', () => {
 		expect(result.usage.totalTokens).toBe(150)
 	})
 
+	it('carries a context-window finish detail with its length finish, and only with it', async () => {
+		const window = await collectChatCompletion(
+			fromArray([
+				{ id: 'r', delta: { content: 'half' } },
+				{ id: 'r', delta: {}, finishReason: 'length', finishDetail: 'context_window' },
+			]),
+		)
+		expect(window.finishReason).toBe('length')
+		expect(window.finishDetail).toBe('context_window')
+
+		// A later finish that is not a length finish takes the detail with it.
+		const later = await collectChatCompletion(
+			fromArray([
+				{ id: 'r', delta: {}, finishReason: 'length', finishDetail: 'context_window' },
+				{ id: 'r', delta: {}, finishReason: 'stop' },
+			]),
+		)
+		expect(later).not.toHaveProperty('finishDetail')
+	})
+
 	it('defaults finishReason to stop and usage to zero when provider omits them', async () => {
 		const result = await collectChatCompletion(fromArray([{ id: 'm', delta: { content: 'hi' } }]))
 		expect(result.finishReason).toBe('stop')

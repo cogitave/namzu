@@ -517,7 +517,7 @@ describe('AGUIEventMapper', () => {
 		})
 	})
 
-	it('reports a pause with checkpoint metadata and a terminal error without claiming AG-UI resume', () => {
+	it('reports a pause nobody turned into interrupts as an error, without leaking the checkpoint', () => {
 		const events = mapAll([
 			native('turn_paused', {
 				checkpointId: 'checkpoint' as Extract<
@@ -529,9 +529,119 @@ describe('AGUIEventMapper', () => {
 		])
 		expect(events).toEqual([
 			{ type: EventType.RUN_STARTED, threadId: OPTIONS.threadId, runId: OPTIONS.runId },
-			{ type: EventType.CUSTOM, name: 'namzu.turn.paused', value: { checkpointId: 'checkpoint' } },
 			{ type: EventType.RUN_ERROR, message: 'Namzu turn paused.', code: 'NAMZU_TURN_PAUSED' },
 		])
+		expect(JSON.stringify(events)).not.toContain('checkpoint')
+	})
+
+	it('holds a pause open for the interrupts that end the run', () => {
+		const mapper = new AGUIEventMapper(OPTIONS)
+		const events = [
+			...mapper.start(),
+			...[messageStarted(), textDelta('Checking'), toolStarted()].flatMap((event) =>
+				mapper.map(event),
+			),
+			...mapper.map(
+				native('turn_paused', {
+					checkpointId: 'checkpoint' as Extract<
+						SessionEvent,
+						{ type: 'turn_paused' }
+					>['checkpointId'],
+					reason: 'Sign in first.',
+					handoff: { kind: 'human-required', reason: 'Sign in first.' },
+				}),
+			),
+		]
+		expect(mapper.ended).toBe(true)
+		expect(mapper.paused).toEqual({
+			checkpointId: 'checkpoint',
+			reason: 'Sign in first.',
+			handoff: { kind: 'human-required', reason: 'Sign in first.' },
+		})
+		// Nothing after the pause is mapped.
+		expect(mapper.map(textDelta('late'))).toEqual([])
+		const closing = mapper.interrupt([
+			{ id: 'int-1', reason: 'namzu:handoff', message: 'Sign in first.' },
+		])
+		for (const event of [...events, ...closing])
+			expect(EventSchemas.safeParse(event).success, JSON.stringify(event)).toBe(true)
+		expect(closing.map((event) => event.type)).toEqual([
+			EventType.TOOL_CALL_END,
+			EventType.TEXT_MESSAGE_END,
+			EventType.RUN_FINISHED,
+		])
+		expect(closing.at(-1)).toEqual({
+			type: EventType.RUN_FINISHED,
+			threadId: OPTIONS.threadId,
+			runId: OPTIONS.runId,
+			outcome: {
+				type: 'interrupt',
+				interrupts: [{ id: 'int-1', reason: 'namzu:handoff', message: 'Sign in first.' }],
+			},
+		})
+		// One terminal event per run.
+		expect(mapper.interrupt([{ id: 'int-2', reason: 'x' }])).toEqual([])
+		expect(mapper.finish()).toEqual([])
+	})
+
+	it('ends a run with its frontend calls unanswered as a completed run', () => {
+		const mapper = new AGUIEventMapper(OPTIONS)
+		const events = [
+			...mapper.start(),
+			...mapper.announceTool(TOOL, 'pick_color', { palette: 'warm' }),
+			// A call already announced is not announced twice.
+			...mapper.announceTool(TOOL, 'pick_color', { palette: 'warm' }),
+			...mapper.yieldToClient(),
+		]
+		for (const event of events)
+			expect(EventSchemas.safeParse(event).success, JSON.stringify(event)).toBe(true)
+		expect(events.map((event) => event.type)).toEqual([
+			EventType.RUN_STARTED,
+			EventType.TEXT_MESSAGE_START,
+			EventType.TEXT_MESSAGE_END,
+			EventType.TOOL_CALL_START,
+			EventType.TOOL_CALL_ARGS,
+			EventType.TOOL_CALL_END,
+			EventType.RUN_FINISHED,
+		])
+		expect(events.at(-1)).toMatchObject({ outcome: { type: 'success' } })
+		expect(events.at(-1)).not.toHaveProperty('result')
+		expect(ofType(events, EventType.TOOL_CALL_RESULT)).toEqual([])
+		expect(ofType(events, EventType.TOOL_CALL_ARGS)).toEqual([
+			{ type: EventType.TOOL_CALL_ARGS, toolCallId: TOOL, delta: '{"palette":"warm"}' },
+		])
+	})
+
+	it('continues carried calls with their result only, and leaves client-produced results to the client', () => {
+		const mapper = new AGUIEventMapper({
+			...OPTIONS,
+			carriedToolCalls: [TOOL, OTHER_TOOL],
+			suppressedResults: [OTHER_TOOL],
+		})
+		const events = [
+			...mapper.start(),
+			...[
+				native('tool_executing', { toolUseId: TOOL, toolName: 'approve_me', input: {} }),
+				native('tool_completed', {
+					toolUseId: TOOL,
+					toolName: 'approve_me',
+					result: 'done',
+					isError: false,
+				}),
+				native('tool_executing', { toolUseId: OTHER_TOOL, toolName: 'client_tool', input: {} }),
+				native('tool_completed', {
+					toolUseId: OTHER_TOOL,
+					toolName: 'client_tool',
+					result: 'the client said so',
+					isError: false,
+				}),
+			].flatMap((event) => mapper.map(event)),
+		]
+		expect(events.map((event) => event.type)).toEqual([
+			EventType.RUN_STARTED,
+			EventType.TOOL_CALL_RESULT,
+		])
+		expect(events.at(-1)).toMatchObject({ toolCallId: TOOL, content: 'done' })
 	})
 
 	it('closes interleaved open tools, messages, and steps before reporting unexpected EOF', () => {
@@ -588,6 +698,43 @@ describe('AGUIEventMapper', () => {
 		expect(ofType(events, EventType.TOOL_CALL_RESULT)[0]?.metadata).toEqual({
 			namzu: { isError: true },
 		})
+	})
+
+	it('says why the arguments could not be read, so a cut-off call can be told from a malformed one', () => {
+		// `inputTruncated` alone is set for both, and was all TOOL_CALL_END
+		// carried: a host could not tell a length cut from malformed JSON.
+		const malformed = {
+			reason: 'malformed' as const,
+			finishReason: 'tool_calls' as const,
+			parseError: "Expected ',' or '}' after property value in JSON at position 20",
+			offset: 20,
+			length: 26,
+			precedingLength: 0,
+		}
+		const truncated = {
+			reason: 'truncated' as const,
+			finishReason: 'length' as const,
+			parseError: 'Unterminated string in JSON at position 17',
+			offset: 17,
+			length: 17,
+			precedingLength: 40,
+		}
+		for (const inputError of [malformed, truncated]) {
+			const events = mapAll([
+				toolStarted(),
+				native('tool_input_delta', { toolUseId: TOOL, partialJson: '{"text":"cut off' }),
+				native('tool_input_completed', {
+					toolUseId: TOOL,
+					input: {},
+					inputTruncated: true,
+					inputError,
+				}),
+				turnCompleted(),
+			])
+			expect(ofType(events, EventType.TOOL_CALL_END)[0]?.metadata).toEqual({
+				namzu: { inputTruncated: true, inputError },
+			})
+		}
 	})
 
 	it('does not invent arguments when a truncated call has no retained deltas', () => {

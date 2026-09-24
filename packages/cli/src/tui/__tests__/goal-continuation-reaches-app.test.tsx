@@ -231,19 +231,11 @@ function deferred(): {
 const UNTIL_TIMEOUT_MS = 20_000
 
 async function until(check: () => boolean, why: string): Promise<void> {
-	const started = performance.now()
-	while (!check() && performance.now() - started < UNTIL_TIMEOUT_MS) await tick()
-	expect(check(), why).toBe(true)
+	await vi.waitFor(() => expect(check(), why).toBe(true), UNTIL_TIMEOUT_MS)
 }
 
 async function untilAsync(check: () => Promise<boolean>, why: string): Promise<void> {
-	const started = performance.now()
-	let matched = await check()
-	while (!matched && performance.now() - started < UNTIL_TIMEOUT_MS) {
-		await tick()
-		matched = await check()
-	}
-	expect(matched, why).toBe(true)
+	await vi.waitFor(async () => expect(await check(), why).toBe(true), UNTIL_TIMEOUT_MS)
 }
 
 async function submit(

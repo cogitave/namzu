@@ -61,8 +61,8 @@ import {
 	repairTruncatedCall,
 	resolveCall,
 	runPreToolHook,
-	truncatedToolInputMessage,
 	unknownToolMessage,
+	unreadableToolCallMessage,
 } from './executor/tool-call-admission.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
@@ -1629,7 +1629,7 @@ export class ToolExecutor {
 					: null
 
 			if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
-				const message = truncatedToolInputMessage(toolName)
+				const message = unreadableToolCallMessage(this.admissionHost(), toolCall, toolName)
 				await this.emitEvent({
 					type: 'tool_executing',
 					turnId: this.config.turnId,

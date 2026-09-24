@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.5
+
+### Patch Changes
+
+- 2d4ff9a: Earlier entries in this package's CHANGELOG no longer name one particular application built on namzu, or quote a path from outside this repository. This changes only the CHANGELOG.md that ships in the tarball; no code or types change, and there is nothing to do to upgrade.
+
 ## 2.2.4
 
 ### Patch Changes

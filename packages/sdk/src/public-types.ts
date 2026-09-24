@@ -690,3 +690,44 @@ export type {
 	SessionLoop,
 	SessionLoopHost,
 } from './tools/schedules/index.js'
+
+// ─── system events + peer messaging (@experimental) ───────────────────────
+
+export type {
+	FormatSystemEventOptions,
+	SystemEvent,
+	SystemEventBody,
+	SystemEventKind,
+	SystemEventStatus,
+	SystemEventUsage,
+} from './runtime/system-events.js'
+
+export type { PeerAddress } from './peers/address.js'
+export type {
+	HardenPeerDirectory,
+	PeerRuntimeDir,
+	ResolvePeerRuntimeDirOptions,
+} from './peers/dir.js'
+export type { PeerRecord } from './peers/record.js'
+export type { ListLivePeersOptions, PeerLivenessOptions } from './peers/registry.js'
+export type {
+	DeliverRequest,
+	DeliverResponse,
+	DeliverStatus,
+	NoticeRequest,
+	NoticeResponse,
+	PeerFrom,
+	PeerNoticeAbout,
+	PeerNoticePayload,
+	PeerRequest,
+	PeerResponse,
+	PeerSessionKind,
+	PeerSessionState,
+	PingRequest,
+	PingResponse,
+	SubscribeIdleRequest,
+	SubscribeIdleResponse,
+} from './peers/protocol.js'
+export type { CreatePeerEndpointOptions, PeerEndpoint } from './peers/endpoint.js'
+export type { PeerClientOptions, PeerClientResult } from './peers/client.js'
+export type { PeerMessageEnvelopeInput } from './peers/envelope.js'

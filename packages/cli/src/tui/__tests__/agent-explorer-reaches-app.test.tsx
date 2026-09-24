@@ -1249,6 +1249,21 @@ describe('Ctrl+T', () => {
 		)
 	})
 
+	// Longer than this file's other cases on purpose, not by accident: the
+	// paging loop below drives ~60-90 real keypress-then-render round trips
+	// through the actual Ink renderer and a real `xterm-headless` terminal
+	// (see `support/screen.ts`) so it can prove every one of 412 lines of
+	// wide-character tool output eventually scrolls into view — there is no
+	// timer to fake here, the cost is real reconciliation and terminal-parser
+	// work. Measured directly (`performance.now()` around each phase): ~5.9s
+	// for that loop at rest, and ~25s for the same loop with the process
+	// pinned to two cores under eight competing busy loops. The package's
+	// shared 15s `testTimeout` (see `vitest.config.ts`) covers everything
+	// else in this file, which does far less real work per case, but was too
+	// tight for this one case under the CPU contention a full CI matrix leg
+	// produces — that gap, not a hang, is what timed the test out on CI.
+	// 60s keeps more than 2x headroom over the measured worst case while
+	// still failing a genuine hang in finite time.
 	it('shows a live child screen, pages its full tool output and restores the parent draft', async () => {
 		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
 		const child = agent({
@@ -1377,7 +1392,7 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('MESSAGE')
 		expect(frame).not.toContain('CHILD_LIVE_UPDATE')
 		expect(painted(screen)).not.toContain('parent finished')
-	})
+	}, 60_000)
 
 	it('keeps a completed child open, publishes the parent once on return and can reopen its history', async () => {
 		const child = agent({

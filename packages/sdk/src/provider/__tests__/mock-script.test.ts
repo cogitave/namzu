@@ -88,11 +88,59 @@ describe('MockLLMProvider — scripted tool calls', () => {
 		})
 
 		let sawEnd = false
+		let args = ''
+		let finishReason: string | undefined
 		for await (const chunk of provider.chatStream(PARAMS)) {
 			if (chunk.delta.toolCallEnd) sawEnd = true
+			for (const call of chunk.delta.toolCalls ?? []) args += call.function?.arguments ?? ''
+			finishReason = chunk.finishReason ?? finishReason
 		}
 		// No block-close signal — the consumer must infer truncation.
 		expect(sawEnd).toBe(false)
+		// And the JSON really stops partway, on the finish reason the output
+		// limit produces. It used to arrive whole, so nothing was truncated.
+		expect(args).toBe('{"conte')
+		expect(() => JSON.parse(args)).toThrow()
+		expect(finishReason).toBe('length')
+	})
+
+	it('ends the response at a truncated call, as the output limit does', async () => {
+		// The later call used to be streamed after the cut one, which no output
+		// limit can produce, and made the cut call one the model had moved on
+		// from: the turn loop read it as malformed.
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{ name: 'write', args: { content: 'x'.repeat(40) }, truncateArguments: true },
+						{ name: 'ask', args: { q: 'y' } },
+					],
+				},
+			],
+		})
+		const names: string[] = []
+		let finishReason: string | undefined
+		for await (const chunk of provider.chatStream(PARAMS)) {
+			for (const call of chunk.delta.toolCalls ?? []) {
+				if (call.function?.name) names.push(call.function.name)
+			}
+			finishReason = chunk.finishReason ?? finishReason
+		}
+		expect(names).toEqual(['write'])
+		expect(finishReason).toBe('length')
+	})
+
+	it('keeps a scripted finish reason for a truncated call', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					finishReason: 'tool_calls',
+					toolCalls: [{ name: 'write', args: { content: 'x' }, truncateArguments: true }],
+				},
+			],
+		})
+		const response = await collectChatCompletion(provider.chatStream(PARAMS))
+		expect(response.finishReason).toBe('tool_calls')
 	})
 })
 

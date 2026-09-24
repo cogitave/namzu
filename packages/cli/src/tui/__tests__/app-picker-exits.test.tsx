@@ -264,23 +264,16 @@ function deferred<T>() {
  * what it asserts. A test made green by its predecessor's late keystroke is
  * worse than a failing one.
  */
-async function exitedWithin(timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (!exited && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
+async function exitedWithin(timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(exited, 'the app did not exit').toBe(true), timeoutMs)
 }
 
 async function frameShows(
 	lastFrame: () => string | undefined,
 	text: string,
-	timeoutMs = 3_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!(lastFrame() ?? '').includes(text) && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
-	expect(lastFrame()).toContain(text)
+	await vi.waitFor(() => expect(lastFrame()).toContain(text), timeoutMs)
 }
 
 beforeEach(() => {
@@ -1351,8 +1344,11 @@ describe('cancelling the picker on first run', () => {
 		stdin.write('\r')
 		await vi.waitFor(() => expect(pickerSignal).toBeDefined())
 		stdin.write('\x1B')
-		await exitedWithin()
-		expect(pickerSignal?.aborted).toBe(true)
+		// Escape here cancels the sign-in sub-view and returns to the picker
+		// behind it rather than exiting the whole program — unlike every other
+		// `exitedWithin()` call in this file, so it waits on the actual
+		// post-condition (the picker's own transport aborted) instead.
+		await vi.waitFor(() => expect(pickerSignal?.aborted).toBe(true))
 
 		release({
 			url: 'https://example.test/authorize',

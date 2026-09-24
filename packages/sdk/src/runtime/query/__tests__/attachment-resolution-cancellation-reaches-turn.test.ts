@@ -37,6 +37,18 @@ import { TEST_SCOPE, records, sessionWithCheckpoint } from './support/session.js
 
 const dirs: string[] = []
 
+/**
+ * A message the kernel now stamps with the id its record was given, so a
+ * fixture built before that stamp no longer matches by full equality.
+ * `objectContaining` alone still misses: `createAssistantMessage` sets
+ * `toolCalls: undefined` explicitly when none are given, and matches an
+ * absent property differently than one round-tripped through JSON — which
+ * is what a real message went through to reach the log and come back.
+ */
+function matchingMessage(expected: Message): ReturnType<typeof expect.objectContaining> {
+	return expect.objectContaining(JSON.parse(JSON.stringify(expected)) as Record<string, unknown>)
+}
+
 function logger(): Logger {
 	const make = (): Logger =>
 		({
@@ -208,25 +220,19 @@ describe('stored attachment resolution belongs to the turn', () => {
 		await started
 		const reason = new TurnCancelled('user')
 		caller.abort(reason)
-		const safety = Symbol('attachment resolution ignored cancellation')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const outcome = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		let outcome: Awaited<typeof pending>
 		try {
-			expect(outcome).not.toBe(safety)
+			outcome = await pending
 		} finally {
-			// A broken implementation is released only after the bounded observer
-			// has its answer, so the test fails rather than leaving a live query.
+			// Release the stalled attachment fetch so nothing is left live
+			// regardless of how the query above settled.
 			release({ data: 'late-pdf', mediaType: 'application/pdf' })
-			if (outcome === safety) await pending
 		}
-		if (outcome === safety) return
 
 		expect(storeOptions?.signal).not.toBe(caller.signal)
 		expect(storeOptions?.signal?.aborted).toBe(true)
@@ -338,24 +344,16 @@ describe('stored attachment resolution belongs to the turn', () => {
 
 		await storeStarted
 		caller.abort(new TurnCancelled('user'))
-		const safety = Symbol('cancelled turn entered a non-cooperative guardrail')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const outcome = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: see the fix above at the top of this
+		// file for why racing it against the cancellation work it waited on
+		// was the flaky part, not the mechanism.
+		let outcome: Awaited<typeof pending>
 		try {
-			expect(outcome).not.toBe(safety)
+			outcome = await pending
 		} finally {
 			releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
 			releaseGuardrail({ action: 'pass' })
-			if (outcome === safety) await pending
 		}
-		if (outcome === safety) return
 
 		expect(inputGuardrail).not.toHaveBeenCalled()
 		expect(provider.requests).toHaveLength(0)
@@ -573,8 +571,8 @@ describe('stored attachment resolution belongs to the turn', () => {
 		if (!outcome.resumed) return
 		expect(provider.requests).toHaveLength(0)
 		expect(outcome.turn.status).toBe('cancelled')
-		expect(outcome.turn.messages).toContainEqual(priorUser)
-		expect(outcome.turn.messages).toContainEqual(priorAssistant)
+		expect(outcome.turn.messages).toContainEqual(matchingMessage(priorUser))
+		expect(outcome.turn.messages).toContainEqual(matchingMessage(priorAssistant))
 		expect(outcome.turn.messages).toContainEqual(queued)
 		expect(outcome.turn.tokenUsage).toEqual(tokenUsage)
 		const turnSpan = started.find((entry) => entry.name.startsWith('namzu.agent.turn '))
@@ -583,8 +581,8 @@ describe('stored attachment resolution belongs to the turn', () => {
 			spanId: traceContext.spanId,
 		})
 		const persisted = (await readFoldedHistory(session.log)).map((entry) => entry.message)
-		expect(persisted).toContainEqual(priorUser)
-		expect(persisted).toContainEqual(priorAssistant)
+		expect(persisted).toContainEqual(matchingMessage(priorUser))
+		expect(persisted).toContainEqual(matchingMessage(priorAssistant))
 		expect(persisted).toContainEqual(queued)
 	})
 
@@ -687,30 +685,22 @@ describe('stored attachment resolution belongs to the turn', () => {
 
 		await storeStarted
 		caller.abort(new TurnCancelled('user'))
-		const safety = Symbol('resume stalled after cancellation')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: see the fix above at the top of this
+		// file for why racing it against the cancellation work it waited on
+		// was the flaky part, not the mechanism.
+		let result: Awaited<typeof pending>
 		try {
-			expect(result).not.toBe(safety)
+			result = await pending
 		} finally {
 			releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
-			if (result === safety) await pending
 		}
-		if (result === safety) return
 
 		expect(rereads).toBe(0)
 		expect(provider.requests).toHaveLength(0)
 		expect(result.resumed).toBe(true)
 		if (!result.resumed) return
 		expect(result.turn.status).toBe('cancelled')
-		expect(result.turn.messages).toContainEqual(prior)
+		expect(result.turn.messages).toContainEqual(matchingMessage(prior))
 		expect(result.turn.messages).toContainEqual(queued)
 		expect(result.turn.tokenUsage).toEqual(tokenUsage)
 		expect(result.replay?.status).toBe('replayed')
@@ -808,22 +798,21 @@ describe('stored attachment resolution belongs to the turn', () => {
 			},
 			signal: caller.signal,
 		})
-		const safety = Symbol('replay observer pinned the cancelled turn')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-		rejectReplay(replayFailure)
-		if (result === safety) await pending
+		// No real 250ms safety race: see the fix at the top of this file for
+		// why racing it against the cancellation work it waited on was the
+		// flaky part, not the mechanism. `rejectReplay` unconditionally
+		// settling `heldReplay` in `finally` is what used to make the safety
+		// branch reachable at all; now it just guarantees the observer's
+		// promise is never left dangling, whichever way `pending` settles.
+		let result: Awaited<typeof pending>
+		try {
+			result = await pending
+		} finally {
+			rejectReplay(replayFailure)
+		}
 		await new Promise<void>((resolve) => setImmediate(resolve))
 		process.off('unhandledRejection', recordUnhandledRejection)
 
-		expect(result).not.toBe(safety)
-		if (result === safety) return
 		expect(replayCallbacks).toBe(1)
 		expect(unhandledRejections).toEqual([])
 		expect(result.resumed).toBe(true)
@@ -832,13 +821,13 @@ describe('stored attachment resolution belongs to the turn', () => {
 		expect(result.turn.status).toBe('cancelled')
 		expect(result.turn.stopReason).toBe('cancelled')
 		expect(result.replay?.status).toBe('replayed')
-		expect(result.turn.messages).toContainEqual(checkpointUser)
-		expect(result.turn.messages).toContainEqual(checkpointAssistant)
+		expect(result.turn.messages).toContainEqual(matchingMessage(checkpointUser))
+		expect(result.turn.messages).toContainEqual(matchingMessage(checkpointAssistant))
 		expect(result.turn.messages).toContainEqual(queued)
 		expect(result.turn.tokenUsage).toEqual(checkpointUsage)
 		const persistedMessages = (await readFoldedHistory(session.log)).map((entry) => entry.message)
-		expect(persistedMessages).toContainEqual(checkpointUser)
-		expect(persistedMessages).toContainEqual(checkpointAssistant)
+		expect(persistedMessages).toContainEqual(matchingMessage(checkpointUser))
+		expect(persistedMessages).toContainEqual(matchingMessage(checkpointAssistant))
 		expect(persistedMessages).toContainEqual(queued)
 		const lifecycle = ['approval_policy_changed', 'turn_resuming', 'turn_completed']
 		expect(events.map((event) => event.type).filter((type) => lifecycle.includes(type))).toEqual(

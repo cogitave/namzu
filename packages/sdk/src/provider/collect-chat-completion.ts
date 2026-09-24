@@ -1,8 +1,33 @@
 import { mergeTokenUsage } from '../types/common/index.js'
-import type { ReasoningBlock } from '../types/message/index.js'
+import type { ReasoningBlock, ToolInputError } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 import { StreamTextAccumulator } from './stream-text.js'
+import {
+	INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
+	ToolCallIndexer,
+	describeToolCallFramingViolation,
+	isUnindexedFragment,
+	toolCallFramingViolation,
+} from './tool-call-framing.js'
+
+/**
+ * Whether a streamed argument buffer could still be receiving more of a
+ * call's arguments right now: empty, or not yet a complete JSON value. Used
+ * only by `ToolCallIndexer.placeUnindexedFragment` to tell which open calls
+ * could still be an id-less fragment's target — not to validate a finished
+ * call, so it does not need the offset-finding `parseToolArguments` the turn
+ * loop uses for the message a model is shown.
+ */
+function canAcceptMoreText(buffer: string): boolean {
+	if (!buffer) return true
+	try {
+		JSON.parse(buffer)
+		return false
+	} catch {
+		return true
+	}
+}
 
 /**
  * Drains a {@link StreamChunk} async iterable into the equivalent
@@ -18,7 +43,12 @@ import { StreamTextAccumulator } from './stream-text.js'
  * - ordinary text is concatenated in delta order; identified public text
  *   items are preserved and explicit final-answer items select the settled text;
  * - tool calls are bucketed by `index` into the existing
- *   `Array<{ id, function: { name, arguments } }>` shape;
+ *   `Array<{ id, function: { name, arguments } }>` shape. Arguments that
+ *   arrive before the call's id belong to the call at their index and are
+ *   kept; the id is filled in when it arrives. A stream that puts a second
+ *   call id on an index is refused with an error naming the violation, as
+ *   the turn loop refuses it: the second call's arguments used to be
+ *   appended to the first's, which left one call no tool could run;
  * - reasoning blocks are bucketed by `index` the same way, because the
  *   assembled message is the thing a caller replays and
  *   {@link ReasoningBlock} is documented as replayed verbatim. This was
@@ -41,6 +71,7 @@ export async function collectChatCompletion(
 	const text = new StreamTextAccumulator()
 	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
+	let finishDetail: ChatCompletionResponse['finishDetail']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -49,7 +80,12 @@ export async function collectChatCompletion(
 		cacheWriteTokens: 0,
 	}
 
-	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
+	const toolBuckets = new Map<
+		number,
+		{ id: string; name: string; argsBuf: string; unreadable?: boolean }
+	>()
+	// Places a fragment that came without an index; see `ToolCallIndexer`.
+	const toolIndexer = new ToolCallIndexer()
 	// Same bucketing rule the turn loop uses (`runtime/query/iteration/
 	// stream-turn.ts`), so a message assembled here and a message assembled
 	// there carry the same blocks in the same order.
@@ -81,18 +117,47 @@ export async function collectChatCompletion(
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
-			const bucket = toolBuckets.get(tc.index) ?? {
-				id: '',
-				name: '',
-				argsBuf: '',
+			if (isUnindexedFragment(tc)) {
+				// Neither an id nor an index: never a guess. Evaluated fresh for
+				// THIS fragment, not decided once when some call opened.
+				const placement = toolIndexer.placeUnindexedFragment((i) =>
+					canAcceptMoreText(toolBuckets.get(i)?.argsBuf ?? ''),
+				)
+				if (typeof placement === 'number') {
+					const bucket = toolBuckets.get(placement) ?? { id: '', name: '', argsBuf: '' }
+					if (tc.function?.name) bucket.name = tc.function.name
+					if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
+					toolBuckets.set(placement, bucket)
+				} else {
+					// More than one open call could still have taken this
+					// fragment, or none could: every candidate is unreadable, and
+					// the fragment itself is attributed to none of them —
+					// appending it to a guess is exactly the splice this exists
+					// to refuse.
+					for (const candidate of placement.candidates) {
+						const bucket = toolBuckets.get(candidate.index)
+						if (bucket) bucket.unreadable = true
+					}
+				}
+				continue
 			}
-			if (tc.id) bucket.id = tc.id
+			const index = toolIndexer.indexOf(tc)
+			const open = toolBuckets.get(index)
+			const violation = toolCallFramingViolation(open, tc, index)
+			if (violation) {
+				throw new Error(`Provider stream error: ${describeToolCallFramingViolation(violation)}`)
+			}
+			const bucket = open ?? { id: '', name: '', argsBuf: '' }
+			if (tc.id && !bucket.id) bucket.id = tc.id
 			if (tc.function?.name) bucket.name = tc.function.name
 			if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
-			toolBuckets.set(tc.index, bucket)
+			toolBuckets.set(index, bucket)
 		}
 
-		if (chunk.finishReason) finishReason = chunk.finishReason
+		if (chunk.finishReason) {
+			finishReason = chunk.finishReason
+			finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
+		}
 		// Merge (per-field max), not last-write-wins: a late frame that omits
 		// input/cache tokens must not zero the counts captured earlier in the stream.
 		if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
@@ -103,7 +168,26 @@ export async function collectChatCompletion(
 		.map(([, b]) => ({
 			id: b.id,
 			type: 'function' as const,
-			function: { name: b.name, arguments: b.argsBuf },
+			// An interleaved call is never returned with the buffer it
+			// accumulated: that buffer may hold another call's spliced-in
+			// fragments, or may simply be missing whatever an id-less
+			// fragment carried elsewhere instead. Normalized to `{}`, exactly
+			// as the turn loop normalizes any other unreadable call.
+			function: { name: b.name, arguments: b.unreadable ? '{}' : b.argsBuf },
+			...(b.unreadable
+				? {
+						metadata: {
+							inputTruncated: true,
+							partialArguments: b.argsBuf,
+							inputError: {
+								reason: 'malformed',
+								parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
+								length: b.argsBuf.length,
+								precedingLength: 0,
+							} satisfies ToolInputError,
+						},
+					}
+				: {}),
 		}))
 
 	const reasoningBlocks: ReasoningBlock[] = [...reasoningBuckets.entries()]
@@ -122,6 +206,7 @@ export async function collectChatCompletion(
 			...(replayState !== undefined ? { replayState } : {}),
 		},
 		finishReason,
+		...(finishDetail ? { finishDetail } : {}),
 		usage,
 	}
 }

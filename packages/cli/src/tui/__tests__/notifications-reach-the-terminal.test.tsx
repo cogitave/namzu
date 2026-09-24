@@ -250,10 +250,8 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (!predicate() && performance.now() - started < timeoutMs) await tick(20)
-	expect(predicate()).toBe(true)
+async function waitUntil(predicate: () => boolean, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 
 async function frameShows(

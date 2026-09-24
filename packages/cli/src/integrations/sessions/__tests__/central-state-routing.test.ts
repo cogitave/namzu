@@ -96,7 +96,10 @@ describe('the conversation layout under NAMZU_HOME', () => {
 		expect(fromAlias.projectId).toBe(fromPackage.projectId)
 		expect(fromRoot.topicId).toBe(fromPackage.topicId)
 		expect(fromRoot.projectRoot).toBe(root)
-		expect(await loadConversation(fromRoot, conversation)).toEqual([message])
+		// `recordTurn` writes `message` under a fresh id without stamping it
+		// back onto this object, the way the real turn recorder does.
+		const [loadedMessage] = await loadConversation(fromRoot, conversation)
+		expect(loadedMessage).toMatchObject(message)
 		expect(existsSync(join(nested, '.namzu'))).toBe(false)
 	})
 
@@ -131,7 +134,10 @@ describe('desktop session keys', () => {
 		const reopened = await openSessions(workspace, { stateRoot, indexBackend: 'scan' })
 		expect(await findMappedConversation(reopened, 'window-a')).toBe(id)
 		expect(await resolveConversation(reopened, 'window-a')).toBe(id)
-		expect(await loadResumableConversation(reopened, id)).toEqual([message])
+		// `recordTurn` writes `message` under a fresh id without stamping it
+		// back onto this object, the way the real turn recorder does.
+		const [loadedMessage] = await loadResumableConversation(reopened, id)
+		expect(loadedMessage).toMatchObject(message)
 		expect(await reopened.index.listExternalRefs(id)).toEqual([
 			expect.objectContaining({ protocol: 'desktop', kind: 'session', sessionId: id }),
 		])

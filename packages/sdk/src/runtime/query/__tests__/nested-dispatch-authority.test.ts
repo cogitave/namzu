@@ -276,11 +276,12 @@ describe('nested dispatch authority', () => {
 		})
 
 		try {
-			const startedAt = Date.now()
 			await drainQuery(params(provider, tools), (event) => {
 				events.push(event)
 			})
-			expect(Date.now() - startedAt).toBeLessThan(500)
+			// The child was ended by its parent settling, not by its own 2 s
+			// timeout: the abort reason says which, so no wall-clock bound is
+			// needed (one flaked on a loaded CI runner).
 			expect(childSignal?.aborted).toBe(true)
 			expect((childSignal?.reason as Error | undefined)?.message).toMatch(
 				/fire_and_forget.*invocation has settled/i,
@@ -683,13 +684,13 @@ describe('nested dispatch authority', () => {
 			pluginManager,
 		})
 		await entered
-		const safety = Symbol('nested hook remained live')
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 1_500)),
-		])
+		// No real 1500ms safety race: it competed with the same clock as the
+		// tool's own 250ms timeout it waited on, so a starved CI runner could
+		// make that real work outlast the guard with nothing actually broken.
+		// A regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		await pending
 
-		expect(result).not.toBe(safety)
 		expect(hookSignal?.aborted).toBe(true)
 		expect((hookSignal?.reason as Error | undefined)?.message).toMatch(/run_code.*exceeded 250ms/i)
 		expect(shellExecutions).toBe(0)

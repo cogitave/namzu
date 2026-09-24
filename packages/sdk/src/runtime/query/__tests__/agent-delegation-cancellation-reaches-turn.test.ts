@@ -143,15 +143,12 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 		await gateway.createStarted.promise
 		if (!holdCreation) await gateway.waitStarted.promise
 		caller.abort(new TurnCancelled('user'))
-		const run = await Promise.race([
-			pending,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(
-					() => reject(new Error('parent session did not settle after cancellation')),
-					1_000,
-				)
-			}),
-		])
+		// No real 1000ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		const run = await pending
 
 		expect(run.status).toBe('cancelled')
 		expect(provider.requests).toHaveLength(1)

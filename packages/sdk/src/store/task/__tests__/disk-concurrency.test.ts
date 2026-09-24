@@ -42,18 +42,14 @@ describe('DiskTaskStore — concurrency regressions', () => {
 		// related → lock each) could acquire A→B from one call and B→A from the
 		// other, deadlocking. withLocks() sorts IDs canonically so both calls
 		// acquire [A, B] in the same order.
-		const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
-			Promise.race([
-				p,
-				new Promise<never>((_resolve, reject) =>
-					setTimeout(() => reject(new Error('timeout — likely deadlocked')), ms),
-				),
-			])
-
-		const [resA, resB] = await withTimeout(
-			Promise.all([store.delete(a.id), store.delete(b.id)]),
-			2000,
-		)
+		//
+		// No real 2000ms timeout race here: it used to compete with the same
+		// clock as the locking work it waited on, so a starved CI runner
+		// could make that work outlast the guard even with no deadlock at
+		// all. A genuine deadlock now hangs and fails on Vitest's own
+		// per-test timeout instead of a hand-rolled one racing the same
+		// clock.
+		const [resA, resB] = await Promise.all([store.delete(a.id), store.delete(b.id)])
 		expect(resA).toBe(true)
 		expect(resB).toBe(true)
 		expect(await store.get(a.id)).toBeUndefined()

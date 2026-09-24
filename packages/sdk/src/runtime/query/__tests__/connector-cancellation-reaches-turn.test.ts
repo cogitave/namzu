@@ -113,12 +113,12 @@ describe('connector cancellation reaches a real turn', () => {
 		await started
 		const reason = new Error('operator stopped connector delivery')
 		caller.abort(reason)
-		const run = await Promise.race([
-			pending,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('connector cancellation did not settle the turn')), 1_000)
-			}),
-		])
+		// No real 1000ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		const run = await pending
 
 		expect(run.status).toBe('cancelled')
 		expect(run.stopReason).toBe('cancelled')

@@ -18,6 +18,7 @@
 			"invariants",
 			"manager",
 			"model-router",
+			"peers",
 			"persona",
 			"plugin",
 			"pricing",

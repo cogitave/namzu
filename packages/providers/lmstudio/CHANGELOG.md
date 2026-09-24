@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.4
+
+### Patch Changes
+
+- 49491b9: A response `contextLengthReached` cut off, after it had produced content, now carries `finishDetail: 'context_window'` alongside `finishReason: 'length'`. It used to report a plain `'length'` finish, indistinguishable from `maxPredictedTokensReached`, so the runtime auto-continued it — sending a reply that had just filled the model's context window straight back in, in a prompt now longer than the window it had just overflowed. `maxPredictedTokensReached` is unchanged: still a plain `'length'` finish, since the output-token budget (not the conversation's length) is what ran out, and the runtime's ordinary auto-continue is right for it.
+
+  `contextLengthReached` with no content is unaffected: `chatStream` still fails that turn with a `context_overflow` error before any finish reason is reported.
+
+- 2d4ff9a: Earlier entries in this package's CHANGELOG no longer name one particular application built on namzu, or quote a path from outside this repository. This changes only the CHANGELOG.md that ships in the tarball; no code or types change, and there is nothing to do to upgrade.
+
 ## 2.1.3
 
 ### Patch Changes

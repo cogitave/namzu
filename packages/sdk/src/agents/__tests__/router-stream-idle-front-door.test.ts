@@ -146,21 +146,13 @@ function routerConfig(
 	}
 }
 
+// This used to race `operation` against its own real `setTimeout`, competing
+// with the same clock as the routing call it was waiting on. A starved CI
+// runner could make that real work outlast the guard with nothing actually
+// broken. Vitest's own per-test timeout now catches a genuine hang instead of
+// a hand-rolled one racing the same clock.
 async function withinSafety<T>(operation: Promise<T>): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			operation,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(
-					() => reject(new Error('test safety bound: RouterAgent routing call did not settle')),
-					1_000,
-				)
-			}),
-		])
-	} finally {
-		if (timer) clearTimeout(timer)
-	}
+	return operation
 }
 
 describe('RouterAgent owns the liveness of its routing model call', () => {

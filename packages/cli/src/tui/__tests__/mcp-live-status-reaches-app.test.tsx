@@ -112,11 +112,7 @@ afterEach(() => {
 })
 
 async function waitFor(text: string): Promise<void> {
-	const started = performance.now()
-	while (!mounted?.frames.join('\n').includes(text) && performance.now() - started < 3_000) {
-		await tick()
-	}
-	expect(mounted?.frames.join('\n')).toContain(text)
+	await vi.waitFor(() => expect(mounted?.frames.join('\n')).toContain(text))
 }
 
 it('reports a drop that happens after the command text rendered but before submission', async () => {

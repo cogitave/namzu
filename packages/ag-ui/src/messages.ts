@@ -8,6 +8,34 @@ import {
 } from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
 
+/**
+ * `toNamzuMessages` does NOT read an inbound AG-UI message's `id` onto the
+ * converted message's `BaseMessage.id`, even though it looks like the
+ * obvious counterpart to `fromNamzuMessages` emitting one (below).
+ *
+ * The id a live AG-UI run's `TEXT_MESSAGE_START`/`CONTENT`/`END` events give
+ * a client (`AGUITurnUI`, driven by the kernel's `message_started` /
+ * `text_delta` stream events) is a STREAMING correlation id
+ * (`stream-turn.ts`'s own `generateMessageId()` call, minted fresh per
+ * request with no caller ever passing its `announceAs` parameter) —
+ * DIFFERENT from the id `TurnRecorder` later stamps on the durable
+ * `message` record for that same content (`BaseMessage.id`). A client that
+ * dutifully round-trips the id it was actually given back through
+ * `toNamzuMessages` would therefore hand `query()` an id its own session log
+ * never recorded under, and every such turn would fail as
+ * `stale_cached_history` (`'foreign'`) — confirmed empirically while
+ * building this: a three-run AG-UI conversation that resent the assistant
+ * message id `TEXT_MESSAGE_START` gave the client failed its second run
+ * outright, because that id was never the durable one.
+ *
+ * `fromNamzuMessages` still emits the REAL durable id when its input came
+ * from a fold read (`foldSessionMessages`/`log.messages()`), because that id
+ * IS correct there — the mismatch is specific to the live per-message
+ * streaming path, not to `BaseMessage.id` itself. Accepting an inbound id
+ * back into `toNamzuMessages` needs the two id-minting paths unified first
+ * (`stream-turn.ts` reusing the record's own id rather than minting its
+ * own); until then this stays a one-way, display-only capability.
+ */
 export interface AGUIMessageOptions {
 	/** Admit trusted system/developer messages; both become Namzu system messages. Default false. */
 	readonly allowSystemMessages?: boolean
@@ -196,9 +224,13 @@ export function toNamzuMessages(
 
 export interface FromNamzuMessagesOptions {
 	/**
-	 * AG-UI requires a unique non-empty id per message; namzu messages carry
-	 * none. Ids are `${idPrefix}${index}`, stable for one history. Default
-	 * `namzu-message-`.
+	 * AG-UI requires a unique non-empty id per message. A namzu message that
+	 * came from the session's own fold carries `id` (`BaseMessage.id`, the
+	 * durable record it was read back from) and that is used directly, so a
+	 * client that round-trips the id unmodified through `toNamzuMessages` on
+	 * its next call reconciles by id rather than by value. `${idPrefix}${index}`
+	 * is the fallback for a message with none (one a caller constructed
+	 * itself, never recorded). Default prefix `namzu-message-`.
 	 */
 	readonly idPrefix?: string
 }
@@ -221,7 +253,7 @@ export function fromNamzuMessages(
 	const prefix = options.idPrefix ?? 'namzu-message-'
 	const result: AGUIMessage[] = []
 	for (const [index, message] of messages.entries()) {
-		const id = `${prefix}${index}`
+		const id = message.id ?? `${prefix}${index}`
 		switch (message.role) {
 			case 'system':
 				break

@@ -214,13 +214,9 @@ async function frameShows(
 	read: () => string | undefined,
 	text: string,
 	why: string,
-	timeoutMs = 3_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!(read() ?? '').includes(text) && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
-	expect(read(), why).toContain(text)
+	await vi.waitFor(() => expect(read(), why).toContain(text), timeoutMs)
 }
 
 let nowMs = 1_000_000

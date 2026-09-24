@@ -8,6 +8,7 @@ import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { applyEdit, normalizeEditInput } from './edit-apply.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
+import { jsonStringEscapes } from './json-string-hint.js'
 
 /**
  * Two schemas, on purpose.
@@ -278,6 +279,9 @@ function recordDrift(context: ToolContext, key: string): void {
 	context.fileReadTracker?.recordDriftObserved?.(key)
 }
 
+const EDIT_SHAPES =
+	'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.'
+
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
@@ -285,8 +289,14 @@ export const EditTool = defineTool({
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
-	validationErrorHint:
-		'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.',
+	validationErrorHint: EDIT_SHAPES,
+	// Replacement text is where arguments stop being JSON: a raw newline,
+	// quote or backslash copied into the string. The shapes follow, since a
+	// malformed call may equally have got those wrong.
+	malformedInputHint: `${jsonStringEscapes('"old_string" and "new_string", in "edits" too,')} ${EDIT_SHAPES}`,
+	largeStringArguments: { old_string: 12_000, new_string: 12_000 },
+	truncatedInputHint:
+		'Split a large change into several edit calls, each replacing a shorter unique span; to add a long section, append it in parts with insertLine: "end".',
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.

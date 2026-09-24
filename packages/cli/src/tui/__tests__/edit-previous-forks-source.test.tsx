@@ -180,23 +180,17 @@ afterEach(() => {
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
-	timeoutMs = 3_000,
+	timeoutMs?: number,
 ): Promise<void> {
 	const expected = text.replace(/\s+/g, ' ')
-	const started = performance.now()
-	while (
-		!harness.frames.join('\n').replace(/\s+/g, ' ').includes(expected) &&
-		performance.now() - started < timeoutMs
-	) {
-		await tick(20)
-	}
-	expect(harness.frames.join('\n').replace(/\s+/g, ' ')).toContain(expected)
+	await vi.waitFor(
+		() => expect(harness.frames.join('\n').replace(/\s+/g, ' ')).toContain(expected),
+		timeoutMs,
+	)
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (!predicate() && performance.now() - started < timeoutMs) await tick(20)
-	expect(predicate()).toBe(true)
+async function waitUntil(predicate: () => boolean, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {

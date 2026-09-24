@@ -349,6 +349,28 @@ export type AgentEvent =
 			 */
 			readonly readOnly?: true
 	  }
+	/**
+	 * A tool call whose streamed arguments could not be read, and why: cut
+	 * off (`inputError.reason: 'truncated'`) or not valid JSON
+	 * (`'malformed'`). The kernel's `tool_input_completed` carries both, and
+	 * nothing here passed it on, so a host reading `exec --json` saw only the
+	 * failed `tool-end` and could neither tell the two apart nor record what
+	 * the model sent. Comes before the call's `tool-start`; the TUI draws
+	 * nothing for it, since that `tool-end` already says what went wrong.
+	 */
+	| {
+			readonly kind: 'tool-input-unreadable'
+			readonly turnId?: string
+			readonly toolUseId: string
+			/** Absent only from a kernel that records no reason. */
+			readonly inputError?: import('@namzu/sdk').ToolInputError
+			/**
+			 * The arguments as they arrived: at most their first 16 384
+			 * characters, as the kernel's event carries them;
+			 * `inputError.length` says how many there were.
+			 */
+			readonly partialArguments?: string
+	  }
 	| {
 			readonly kind: 'tool-progress'
 			readonly turnId?: string
@@ -5463,6 +5485,18 @@ export function toAgentEvent(
 				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
+		case 'tool_input_completed':
+			return event.inputTruncated
+				? {
+						kind: 'tool-input-unreadable',
+						turnId: event.turnId,
+						toolUseId: event.toolUseId,
+						...(event.inputError ? { inputError: event.inputError } : {}),
+						...(event.partialArguments !== undefined
+							? { partialArguments: event.partialArguments }
+							: {}),
+					}
+				: null
 		case 'tool_progress':
 			return {
 				kind: 'tool-progress',

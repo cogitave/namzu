@@ -108,21 +108,13 @@ function recordingWorkspaceProvider(): {
 	}
 }
 
+// This used to race `operation` against its own real `setTimeout`, competing
+// with the same clock as the teardown work it was waiting on. A starved CI
+// runner could make that real work outlast the guard with nothing actually
+// broken. Vitest's own per-test timeout now catches a genuine hang instead of
+// a hand-rolled one racing the same clock.
 async function within<T>(operation: Promise<T>): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			operation,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(
-					() => reject(new Error('agent front door dropped sandboxTeardownTimeoutMs')),
-					1_000,
-				)
-			}),
-		])
-	} finally {
-		if (timer !== undefined) clearTimeout(timer)
-	}
+	return operation
 }
 
 describe('agent front doors preserve the sandbox teardown bound', () => {

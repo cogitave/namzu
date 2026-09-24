@@ -85,12 +85,12 @@ describe('remote MCP requests remain at their configured endpoint', () => {
 		transport.onError(reportError)
 
 		await transport.connect()
-		const error = await Promise.race([
-			reported,
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('redirect refusal was not reported')), 500)
-			}),
-		])
+		// No real 500ms safety race: it competed with the same clock as the
+		// local HTTP exchange it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that never reported the error now hangs and fails on
+		// Vitest's own per-test timeout instead.
+		const error = await reported
 
 		expect(error.message).toMatch(/configure the final MCP endpoint directly/i)
 		expect(source.requests).toHaveLength(1)

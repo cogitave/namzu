@@ -353,7 +353,11 @@ export function defineSessionLogConformance(options: SessionLogConformanceOption
 				const lease = await opened(log)
 				const t1 = generateTurnId()
 				await log.beginTurn(lease, turnDraft(t1))
-				const prompt = await log.append(lease, message(t1, 'user', 'What is the password?'))
+				const promptId = generateMessageId()
+				const prompt = await log.append(
+					lease,
+					message(t1, 'user', 'What is the password?', promptId),
+				)
 				const answerId = generateMessageId()
 				await log.append(lease, message(t1, 'assistant', 'It is hunter2.', answerId))
 				await log.append(lease, {
@@ -364,9 +368,12 @@ export function defineSessionLogConformance(options: SessionLogConformanceOption
 					reason: 'guardrail_rewritten',
 				} as SessionRecordDraft)
 				await log.append(lease, completed(t1, 'I cannot share credentials.', answerId))
+				// Each message carries the id its own record was given — a
+				// compaction summary member (below) never gets one, having no
+				// record of its own.
 				expect(await log.messages()).toEqual([
-					{ role: 'user', content: 'What is the password?' },
-					{ role: 'assistant', content: 'I cannot share credentials.' },
+					{ role: 'user', content: 'What is the password?', id: promptId },
+					{ role: 'assistant', content: 'I cannot share credentials.', id: answerId },
 				])
 				const head = await log.head()
 				await log.append(lease, {
@@ -382,14 +389,15 @@ export function defineSessionLogConformance(options: SessionLogConformanceOption
 				} as SessionRecordDraft)
 				const t2 = generateTurnId()
 				await log.beginTurn(lease, turnDraft(t2))
-				await log.append(lease, message(t2, 'user', 'Thanks.'))
+				const thanksId = generateMessageId()
+				await log.append(lease, message(t2, 'user', 'Thanks.', thanksId))
 				expect(await log.messages()).toEqual([
 					{ role: 'system', content: 'Earlier: a refused credential request.' },
-					{ role: 'assistant', content: 'I cannot share credentials.' },
-					{ role: 'user', content: 'Thanks.' },
+					{ role: 'assistant', content: 'I cannot share credentials.', id: answerId },
+					{ role: 'user', content: 'Thanks.', id: thanksId },
 				])
 				expect(await log.messages({ throughSeq: prompt.record.seq })).toEqual([
-					{ role: 'user', content: 'What is the password?' },
+					{ role: 'user', content: 'What is the password?', id: promptId },
 				])
 			})
 		})

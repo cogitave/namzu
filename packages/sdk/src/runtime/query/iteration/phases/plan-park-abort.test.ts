@@ -29,18 +29,11 @@ import { query } from '../../index.js'
 
 registerMock()
 
-/** Long enough for the turn to settle if it can, short enough to fail fast. */
-const SETTLE_WINDOW_MS = 750
-
-function delay(ms: number): Promise<'hung'> {
-	return new Promise((resolve) => setTimeout(() => resolve('hung'), ms))
-}
-
 interface ParkedPlanTurn {
 	/** Resolves the moment the host is asked to approve the plan. */
 	parked: Promise<void>
-	/** Resolves with the turn's terminal value, or 'hung' if it never settles. */
-	settled: Promise<Turn | 'hung'>
+	/** Resolves with the turn's terminal value. */
+	settled: Promise<Turn>
 	events: SessionEvent[]
 	requests: HITLDecisionRequest[]
 	abort: () => void
@@ -84,7 +77,7 @@ function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 		},
 	})
 
-	const settled = (async (): Promise<Turn | 'hung'> => {
+	const settled = (async (): Promise<Turn> => {
 		// A manual drain rather than `for await`, because the turn's terminal
 		// value is the thing under test and `for await` discards it.
 		const iterator = generator[Symbol.asyncIterator]()
@@ -101,7 +94,17 @@ function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 
 	return {
 		parked,
-		settled: Promise.race([settled, delay(SETTLE_WINDOW_MS)]),
+		// No race against a real deadline: it used to race a 750ms real
+		// `setTimeout` labelled 'hung', which competed with the real work of
+		// resolving the park and settling the turn. Under CI CPU contention
+		// that work could legitimately take longer than 750ms with nothing
+		// actually broken, so the real timer won and the test reported the
+		// turn as hung when it had not been given the chance to finish
+		// (reproduced locally under a starved core: `expected 'hung' not to
+		// be 'hung'`). Awaiting the real promise directly removes the race —
+		// a genuine hang now fails on Vitest's own per-test timeout instead
+		// of a hand-rolled one racing the same clock as the work it times.
+		settled,
 		events,
 		requests,
 		abort: () => controller.abort(new Error('operator stopped the turn')),
@@ -120,9 +123,8 @@ describe('a Stop while the turn is parked on plan approval', () => {
 		run.abort()
 
 		const outcome = await run.settled
-		expect(outcome).not.toBe('hung')
-		expect((outcome as Turn).status).toBe('cancelled')
-		expect((outcome as Turn).stopReason).toBe('cancelled')
+		expect(outcome.status).toBe('cancelled')
+		expect(outcome.stopReason).toBe('cancelled')
 	})
 
 	it('reports the cancellation on the event stream', async () => {

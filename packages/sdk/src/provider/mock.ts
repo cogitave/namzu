@@ -129,8 +129,15 @@ export class MockLLMProvider implements LLMProvider {
 			}
 
 			// Arguments arrive as JSON fragments, which is what forces the
-			// consumer's partial-JSON buffering to be exercised.
-			const args = call.rawArguments ?? JSON.stringify(call.args ?? {})
+			// consumer's partial-JSON buffering to be exercised. A truncated
+			// call stops halfway, as the output limit stops a real one: it
+			// used to send every fragment and only withhold the block close,
+			// so the arguments parsed and nothing was truncated at all.
+			const fullArgs = call.rawArguments ?? JSON.stringify(call.args ?? {})
+			const args =
+				call.truncateArguments === true
+					? fullArgs.slice(0, Math.max(1, Math.floor(fullArgs.length / 2)))
+					: fullArgs
 			const step = call.argChunkSize ?? Math.max(1, Math.ceil(args.length / 3))
 			for (let i = 0; i < args.length; i += step) {
 				yield {
@@ -143,15 +150,26 @@ export class MockLLMProvider implements LLMProvider {
 				throw new Error(call.throwAfterArguments)
 			}
 
-			if (call.truncateArguments !== true) {
-				yield { id, delta: { toolCallEnd: { index, id: callId } } }
-			}
+			// An output limit stops the response where it is, so nothing the
+			// script puts after a truncated call is streamed. It used to go on
+			// to the next call, which made the cut call one the model had
+			// moved on from: malformed, not truncated.
+			if (call.truncateArguments === true) break
+			yield { id, delta: { toolCallEnd: { index, id: callId } } }
 		}
 
 		yield {
 			id,
 			delta: {},
-			finishReason: turn.finishReason ?? (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+			finishReason:
+				turn.finishReason ??
+				// A call cut off mid-JSON is what the output limit does, and the
+				// finish reason is how a consumer tells that from malformed JSON.
+				(toolCalls.some((call) => call.truncateArguments === true)
+					? 'length'
+					: toolCalls.length > 0
+						? 'tool_calls'
+						: 'stop'),
 			usage: { ...EMPTY_USAGE, ...turn.usage },
 		}
 	}
