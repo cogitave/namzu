@@ -89,6 +89,37 @@ describe('reading and changing jobs', () => {
 		})
 	})
 
+	it('list marks a job’s kind, text and --json, and zero-tokens a pure script job', async () => {
+		confirmedJob(sb, { name: 'agent-job' })
+		confirmedJob(sb, {
+			name: 'ticker',
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		confirmedJob(sb, {
+			name: 'gate',
+			runKind: 'script+agent',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const text = recordingContext()
+		expect(await listCommand(text, ['--home', sb.home])).toBe(0)
+		const printed = String(text.out.printed[0])
+		expect(printed).toMatch(/^ticker {2}\[active\].*\[script, 0 tokens\]$/m)
+		expect(printed).toMatch(/^gate {2}\[active\].*\[script\+agent\]$/m)
+		expect(printed.split('\n').find((l) => l.startsWith('agent-job'))).not.toContain('[script')
+
+		const json = recordingContext()
+		await listCommand(json, ['--home', sb.home, '--json'])
+		const jobs = (
+			JSON.parse(String(json.out.printed[0])) as { jobs: { name: string; kind?: string }[] }
+		).jobs
+		expect(jobs.find((j) => j.name === 'agent-job')?.kind).toBeUndefined()
+		expect(jobs.find((j) => j.name === 'ticker')?.kind).toBe('script')
+		expect(jobs.find((j) => j.name === 'gate')?.kind).toBe('script+agent')
+	})
+
 	it('list, show and history say when a completed run had calls refused', async () => {
 		const job = confirmedJob(sb)
 		const { appendHistory } = await import('../store/history.js')

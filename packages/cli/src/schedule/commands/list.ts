@@ -45,6 +45,8 @@ export interface JobListing {
 	readonly schedule: string
 	readonly tz: string
 	readonly folder: string
+	/** Absent: `'agent'`, unchanged from before this field existed. */
+	readonly kind?: 'script' | 'script+agent'
 	readonly nextFireAt?: string
 	readonly lastRun?: ScheduleJobState['lastRun']
 	readonly activeRun?: {
@@ -65,6 +67,7 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 		schedule: describeSchedule(job.schedule, { tz: tzOf(job) }),
 		tz: tzOf(job),
 		folder: job.folder.canonical,
+		...(job.runKind && job.runKind !== 'agent' ? { kind: job.runKind } : {}),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastRun: state.lastRun } : {}),
 		...(state.activeRun
@@ -125,8 +128,13 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 				: 'running'
 			: ''
 		const tzWarning = r.tz !== host ? ` (host is ${host})` : ''
+		// `agent` (absent) is the common case and stays unmarked, as before;
+		// `script` costs no tokens at all — worth marking, since it is the
+		// reason to pick it over an agent job that would otherwise wake for a
+		// fixed, deterministic check every run.
+		const kind = r.kind === 'script' ? '  [script, 0 tokens]' : r.kind ? `  [${r.kind}]` : ''
 		return [
-			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}`,
+			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}${kind}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
 			`  ${r.folder}`,
 			...(r.activeRun?.resumeCommand

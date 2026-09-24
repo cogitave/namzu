@@ -94,8 +94,17 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 						: state.activeRun?.status === 'running'
 							? ' ● running'
 							: ''
+		// `agent` (absent) is the common case and stays unmarked; `script`
+		// costs no tokens at all, worth marking the same way `schedule list`
+		// does on the command line.
+		const kind =
+			job.runKind === 'script'
+				? '  [script, 0 tokens]'
+				: job.runKind === 'script+agent'
+					? '  [script+agent]'
+					: ''
 		lines.push(
-			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`⏲ ${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			const command = resumeCommand(job, state.activeRun.sessionId)

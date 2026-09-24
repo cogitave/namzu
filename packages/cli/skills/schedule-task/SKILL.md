@@ -72,6 +72,33 @@ script may still reach Windows: shell out to `powershell.exe` **by absolute
 path**, with `-Command '<literal text>'` — never `-EncodedCommand`, which is
 refused outright because its base64 payload cannot be read at all.
 
+**Command substitution (`$(...)` or `` `...` `` ) makes the whole script
+unreadable to the floor and is refused outright, not run unverified** — do
+not propose one that uses it, in `"script"` or the `"script+agent"` gate.
+Capture a command's output into a file and read the file on a later line
+instead of into a shell variable:
+
+```bash
+grep -c ERROR /var/log/app.log > /tmp/error-count.txt
+count="$(cat /tmp/error-count.txt)"   # still $(...) — do not do this
+```
+
+is still refused; write the whole check without ever capturing output into a
+variable, for example with a piped loop:
+
+```bash
+grep -c ERROR /var/log/app.log | while read -r count; do
+  if [ "$count" -gt 0 ]; then
+    echo "{\"wake\": true, \"context\": \"$count errors in app.log\"}"
+  else
+    echo "{\"wake\": false, \"context\": \"\"}"
+  fi
+done
+```
+
+or, when only a yes/no matters, test directly (`grep -q ERROR file &&
+...`) rather than counting into a variable at all.
+
 ## 1. The permission set (required, no default)
 
 Start from the smallest set that can do the job.

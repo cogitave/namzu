@@ -30,6 +30,7 @@ import {
 	type UserQuestion,
 	createAgentSession,
 } from '../agent.js'
+import { listScheduleJobs } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
 import {
 	type ScheduledResumeParams,
@@ -836,6 +837,21 @@ describe('the schedule tool’s host', () => {
 			expect(stored?.runKind).toBe('script+agent')
 			expect(stored?.prompt).toBe('summarise what changed')
 			expect(stored?.wakeGate).toMatchObject({ maxContextChars: expect.any(Number) })
+		})
+
+		it('the /schedule list marks a zero-token script job and a script+agent one', async () => {
+			expect((await host('create').tool.execute(scriptInput, {} as never)).success).toBe(true)
+			expect(
+				(
+					await host('create').tool.execute(
+						{ ...scriptInput, name: 'gate', kind: 'script+agent', prompt: 'summarise' },
+						{} as never,
+					)
+				).success,
+			).toBe(true)
+			const listed = await listScheduleJobs({ home: sb.home, cwd: sb.project } as never)
+			expect(listed).toMatch(/ticker {2}\[active\]\s+\[script, 0 tokens\]/)
+			expect(listed).toMatch(/gate {2}\[active\]\s+\[script\+agent\]/)
 		})
 	})
 })

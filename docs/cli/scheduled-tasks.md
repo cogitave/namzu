@@ -765,8 +765,11 @@ killed outright is settled by the next `run-now` or the scheduler, as soon as
 nothing holds its session.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
-tz, folder, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,
-resumeCommand?, handoff? } }] }`, `resumeCommand` for a run waiting for
+tz, folder, kind?, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,
+resumeCommand?, handoff? } }] }`, `kind` absent for an `agent` job and
+`"script"`/`"script+agent"` otherwise; the text list marks the same two
+kinds, `[script, 0 tokens]` and `[script+agent]` (an `agent` job stays
+unmarked, as before this field existed). `resumeCommand` for a run waiting for
 approval and `handoff: { reason }` for one a tool parked for a person (the
 text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
