@@ -80,7 +80,13 @@ export type {
 	SubscribeIdleResponse,
 } from './protocol.js'
 
-export { createPeerEndpoint, PeerEndpointError } from './endpoint.js'
+export {
+	createPeerEndpoint,
+	MAX_OUTSTANDING_PEERS,
+	MAX_OUTSTANDING_PER_PEER,
+	OUTSTANDING_EXPIRY_MS,
+	PeerEndpointError,
+} from './endpoint.js'
 export type { CreatePeerEndpointOptions, PeerEndpoint } from './endpoint.js'
 
 export { PeerClient, PeerClientError, pingPeer } from './client.js'

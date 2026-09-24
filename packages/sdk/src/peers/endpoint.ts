@@ -91,6 +91,14 @@ export interface CreatePeerEndpointOptions {
 	readonly maxRequestBytes?: number
 	/** Default 500ms; the timeout the default `verifySender`'s liveness ping uses. */
 	readonly livenessPingTimeoutMs?: number
+	/** Default {@link MAX_OUTSTANDING_PEERS}; override for tests. */
+	readonly maxOutstandingPeers?: number
+	/** Default {@link MAX_OUTSTANDING_PER_PEER}; override for tests. */
+	readonly maxOutstandingPerPeer?: number
+	/** Default {@link OUTSTANDING_EXPIRY_MS}; override for tests. */
+	readonly outstandingExpiryMs?: number
+	/** Default `Date.now`; injectable so an expiry test does not have to wait 24 real hours. */
+	readonly now?: () => number
 }
 
 export interface PeerEndpoint {
@@ -104,14 +112,19 @@ export interface PeerEndpoint {
 	 * dealt with this recipient cannot manufacture an outcome for a message
 	 * that was never sent. Counted, not boolean — several messages to the
 	 * same peer may be outstanding at once, and each accepted notice
-	 * consumes exactly one.
+	 * consumes exactly one. Bounded and expiring
+	 * ({@link MAX_OUTSTANDING_PEERS} distinct peers, {@link
+	 * MAX_OUTSTANDING_PER_PEER} per peer, {@link OUTSTANDING_EXPIRY_MS}
+	 * idle), so a peer that never answers cannot pin memory forever and a
+	 * session cannot be driven to register unbounded distinct peer ids.
 	 */
 	registerOutstandingDelivery(peerSessionId: string): void
 	/**
 	 * Record that THIS session subscribed (directly, or via
 	 * `deliver.subscribeIdle`) to `peerSessionId`'s idle/exit notice. An
 	 * `idle`/`exited` notice naming a peer with no outstanding subscription
-	 * is refused, the same reasoning as {@link registerOutstandingDelivery}.
+	 * is refused, the same reasoning as {@link registerOutstandingDelivery},
+	 * with the same bound and expiry.
 	 */
 	registerOutstandingSubscription(peerSessionId: string): void
 }
@@ -155,18 +168,92 @@ function defaultVerifySender(
 	}
 }
 
-/** A per-peer count of outstanding relationships this session is owed a notice for. */
-function bumpOutstanding(counts: Map<string, number>, peerSessionId: string): void {
-	counts.set(peerSessionId, (counts.get(peerSessionId) ?? 0) + 1)
+/**
+ * Distinct peer sessions an endpoint's outstanding-delivery or
+ * outstanding-subscription table tracks at once, before the oldest is
+ * evicted to make room. A session that talks to hundreds of distinct peers
+ * without ever hearing back from most of them is already an anomaly this
+ * table should not have to hold unbounded memory for.
+ */
+export const MAX_OUTSTANDING_PEERS = 256
+
+/**
+ * Outstanding relationships tracked for any ONE peer at once, before further
+ * registrations for that same peer stop increasing the count. Generous
+ * enough for many messages or resubscriptions in flight to a single busy
+ * peer; still a bound, so one peer cannot itself grow this table's memory
+ * without limit by being registered against repeatedly.
+ */
+export const MAX_OUTSTANDING_PER_PEER = 64
+
+/**
+ * How long an outstanding delivery or subscription is honoured with no
+ * activity before it is swept away on its own, matching the design's
+ * `notify_when_idle` subscription expiry (§1.7): a peer that never answers —
+ * crashed, or simply never will — must not pin memory forever.
+ */
+export const OUTSTANDING_EXPIRY_MS = 24 * 60 * 60 * 1000
+
+interface OutstandingEntry {
+	count: number
+	expiresAt: number
 }
 
-/** Consume one outstanding relationship, if any is on record; `false` when there is none to correlate to. */
-function consumeOutstanding(counts: Map<string, number>, peerSessionId: string): boolean {
-	const remaining = counts.get(peerSessionId) ?? 0
-	if (remaining <= 0) return false
-	if (remaining === 1) counts.delete(peerSessionId)
-	else counts.set(peerSessionId, remaining - 1)
-	return true
+/**
+ * A bounded, expiring, per-peer count of outstanding relationships this
+ * session is owed a notice for (an outstanding `deliver` it sent, or a
+ * subscription it made). Both {@link CreatePeerEndpointOptions.
+ * maxOutstandingPeers} tables (deliveries, subscriptions) use one of these,
+ * independently.
+ *
+ * Eviction is oldest-registered-first (Map iteration order, which is
+ * insertion order in JavaScript and is left undisturbed by an in-place count
+ * update) once {@link MAX_OUTSTANDING_PEERS} distinct peers are tracked at
+ * once — a plain, easy-to-reason-about FIFO bound rather than a true LRU,
+ * which this table does not need: it does not matter WHICH excess peer is
+ * forgotten first, only that the table cannot grow without bound.
+ */
+class BoundedOutstandingTable {
+	private readonly entries = new Map<string, OutstandingEntry>()
+
+	constructor(
+		private readonly maxPeers: number,
+		private readonly maxPerPeer: number,
+		private readonly expiryMs: number,
+		private readonly now: () => number,
+	) {}
+
+	private sweepExpired(): void {
+		const nowMs = this.now()
+		for (const [peerSessionId, entry] of this.entries) {
+			if (entry.expiresAt <= nowMs) this.entries.delete(peerSessionId)
+		}
+	}
+
+	register(peerSessionId: string): void {
+		this.sweepExpired()
+		const existing = this.entries.get(peerSessionId)
+		if (existing) {
+			existing.count = Math.min(existing.count + 1, this.maxPerPeer)
+			existing.expiresAt = this.now() + this.expiryMs
+			return
+		}
+		if (this.entries.size >= this.maxPeers) {
+			const oldestKey = this.entries.keys().next().value
+			if (oldestKey !== undefined) this.entries.delete(oldestKey)
+		}
+		this.entries.set(peerSessionId, { count: 1, expiresAt: this.now() + this.expiryMs })
+	}
+
+	/** Consume one outstanding relationship, if any is on record; `false` when there is none to correlate to. */
+	consume(peerSessionId: string): boolean {
+		this.sweepExpired()
+		const existing = this.entries.get(peerSessionId)
+		if (!existing || existing.count <= 0) return false
+		if (existing.count === 1) this.entries.delete(peerSessionId)
+		else existing.count -= 1
+		return true
+	}
 }
 
 /** Unlink `path` only if it is a socket owned by `uid` and nothing answers it. */
@@ -233,8 +320,22 @@ export async function createPeerEndpoint(
 
 	const sockets = new Set<Socket>()
 	let closing = false
-	const outstandingDeliveries = new Map<string, number>()
-	const outstandingSubscriptions = new Map<string, number>()
+	const now = options.now ?? Date.now
+	const maxOutstandingPeers = options.maxOutstandingPeers ?? MAX_OUTSTANDING_PEERS
+	const maxOutstandingPerPeer = options.maxOutstandingPerPeer ?? MAX_OUTSTANDING_PER_PEER
+	const outstandingExpiryMs = options.outstandingExpiryMs ?? OUTSTANDING_EXPIRY_MS
+	const outstandingDeliveries = new BoundedOutstandingTable(
+		maxOutstandingPeers,
+		maxOutstandingPerPeer,
+		outstandingExpiryMs,
+		now,
+	)
+	const outstandingSubscriptions = new BoundedOutstandingTable(
+		maxOutstandingPeers,
+		maxOutstandingPerPeer,
+		outstandingExpiryMs,
+		now,
+	)
 
 	const server = createServer((socket) => {
 		socket.on('error', () => {})
@@ -328,8 +429,8 @@ export async function createPeerEndpoint(
 					// sender with no dealings with this recipient at all.
 					const correlated =
 						request.kind === 'delivery'
-							? consumeOutstanding(outstandingDeliveries, verifiedFrom.sessionId)
-							: consumeOutstanding(outstandingSubscriptions, verifiedFrom.sessionId)
+							? outstandingDeliveries.consume(verifiedFrom.sessionId)
+							: outstandingSubscriptions.consume(verifiedFrom.sessionId)
 					if (!correlated) {
 						respond({ ok: false })
 						return
@@ -387,9 +488,8 @@ export async function createPeerEndpoint(
 	return {
 		address: options.address,
 		close,
-		registerOutstandingDelivery: (peerSessionId) =>
-			bumpOutstanding(outstandingDeliveries, peerSessionId),
+		registerOutstandingDelivery: (peerSessionId) => outstandingDeliveries.register(peerSessionId),
 		registerOutstandingSubscription: (peerSessionId) =>
-			bumpOutstanding(outstandingSubscriptions, peerSessionId),
+			outstandingSubscriptions.register(peerSessionId),
 	}
 }

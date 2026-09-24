@@ -7,6 +7,9 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { PeerClient } from './client.js'
 import {
 	type CreatePeerEndpointOptions,
+	MAX_OUTSTANDING_PEERS,
+	MAX_OUTSTANDING_PER_PEER,
+	OUTSTANDING_EXPIRY_MS,
 	type PeerEndpoint,
 	PeerEndpointError,
 	createPeerEndpoint,
@@ -453,6 +456,134 @@ describe('createPeerEndpoint: deliver / subscribe_idle / notice', () => {
 			name: 'the record name',
 			ref: 'bbbbbb',
 		})
+	})
+})
+
+describe('createPeerEndpoint: outstanding deliveries/subscriptions are bounded and expire', () => {
+	it('exports sensible default bounds', () => {
+		expect(MAX_OUTSTANDING_PEERS).toBe(256)
+		expect(MAX_OUTSTANDING_PER_PEER).toBe(64)
+		expect(OUTSTANDING_EXPIRY_MS).toBe(24 * 60 * 60 * 1000)
+	})
+
+	it('caps the count tracked per peer: excess registrations do not grant extra consumes', async () => {
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPerPeer: 3,
+		})
+		for (let i = 0; i < 10; i++) endpoint.registerOutstandingDelivery('sess-2')
+		const client = new PeerClient()
+		const send = () =>
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId: 'sess-2' }),
+					about: { sessionId: 'sess-2', name: 'bob', ref: 'bbbbbb' },
+				},
+			)
+		for (let i = 0; i < 3; i++) {
+			await expect(send()).resolves.toEqual({ kind: 'responded', ok: true })
+		}
+		// The cap was 3, not 10: a fourth notice has nothing left to correlate to.
+		await expect(send()).resolves.toEqual({ kind: 'responded', ok: false })
+	})
+
+	it('evicts the oldest distinct peer once more than the peer cap are tracked at once', async () => {
+		const endpoint = await start({
+			verifySender: (from) => from,
+			maxOutstandingPeers: 2,
+		})
+		endpoint.registerOutstandingDelivery('sess-old')
+		endpoint.registerOutstandingDelivery('sess-mid')
+		// A third distinct peer pushes the table over its cap of 2: the oldest
+		// (sess-old) is evicted to make room.
+		endpoint.registerOutstandingDelivery('sess-new')
+		const client = new PeerClient()
+		const send = (sessionId: string) =>
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId }),
+					about: { sessionId, name: 'x', ref: 'aaaaaa' },
+				},
+			)
+		await expect(send('sess-old')).resolves.toEqual({ kind: 'responded', ok: false })
+		await expect(send('sess-mid')).resolves.toEqual({ kind: 'responded', ok: true })
+		await expect(send('sess-new')).resolves.toEqual({ kind: 'responded', ok: true })
+	})
+
+	it('sweeps an outstanding delivery that expired with no activity', async () => {
+		let clock = 1_000_000
+		const endpoint = await start({
+			verifySender: (from) => from,
+			outstandingExpiryMs: 1_000,
+			now: () => clock,
+		})
+		endpoint.registerOutstandingDelivery('sess-2')
+		clock += 2_000 // past the 1000ms expiry, with no renewing activity
+		const client = new PeerClient()
+		await expect(
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId: 'sess-2' }),
+					about: { sessionId: 'sess-2', name: 'bob', ref: 'bbbbbb' },
+				},
+			),
+		).resolves.toEqual({ kind: 'responded', ok: false })
+	})
+
+	it('does not expire an outstanding delivery still within its window', async () => {
+		let clock = 1_000_000
+		const endpoint = await start({
+			verifySender: (from) => from,
+			outstandingExpiryMs: 10_000,
+			now: () => clock,
+		})
+		endpoint.registerOutstandingDelivery('sess-2')
+		clock += 1_000 // well within the 10s window
+		const client = new PeerClient()
+		await expect(
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'delivery',
+					outcome: 'queued',
+					from: makeFrom({ sessionId: 'sess-2' }),
+					about: { sessionId: 'sess-2', name: 'bob', ref: 'bbbbbb' },
+				},
+			),
+		).resolves.toEqual({ kind: 'responded', ok: true })
+	})
+
+	it('renews an outstanding subscription expiry on a fresh registration for the same peer', async () => {
+		let clock = 1_000_000
+		const endpoint = await start({
+			verifySender: (from) => from,
+			outstandingExpiryMs: 10_000,
+			now: () => clock,
+		})
+		endpoint.registerOutstandingSubscription('sess-2')
+		clock += 8_000 // within the window, but close to the original expiry
+		endpoint.registerOutstandingSubscription('sess-2') // renews the expiry from here
+		clock += 8_000 // past the ORIGINAL expiry (16s in), but only 8s since renewal
+		const client = new PeerClient()
+		await expect(
+			client.notice(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{
+					kind: 'idle',
+					from: makeFrom({ sessionId: 'sess-2' }),
+					about: { sessionId: 'sess-2', name: 'bob', ref: 'bbbbbb' },
+				},
+			),
+		).resolves.toEqual({ kind: 'responded', ok: true })
 	})
 })
 

@@ -134,6 +134,20 @@ record that THIS session sent a `deliver`/`subscribe_idle` (directly, or via
 `deliver.subscribeIdle`) to a peer, so a later `notice` about that peer can be
 told apart from an uncorrelated one (see `notice`, above).
 
+Each of the two outstanding tables (deliveries, subscriptions) is bounded and
+expiring, independently: at most `MAX_OUTSTANDING_PEERS` (256) distinct peers
+tracked at once, oldest-registered evicted first to make room for a new one;
+at most `MAX_OUTSTANDING_PER_PEER` (64) outstanding relationships counted for
+any one peer, further registrations for that peer past the cap a no-op; and
+`OUTSTANDING_EXPIRY_MS` (24h, matching the design's `notify_when_idle`
+subscription expiry, §1.7) of no activity before an entry is swept on its
+own, refreshed on every registration for that peer. `maxOutstandingPeers`,
+`maxOutstandingPerPeer`, `outstandingExpiryMs` and `now` (an injectable clock)
+are `createPeerEndpoint` options, primarily for tests. Without a bound, a
+session dealt with by hundreds of peers that never send the notice back would
+grow these tables without limit; without an expiry, a peer that crashed or
+simply never answers would pin its entry forever.
+
 
 `verifySender` does not just answer yes or no: on success it returns the
 identity the recipient should actually use, which is never simply the wire's
