@@ -23,7 +23,7 @@ it.each([false, true])(
 		const cwd = join(root, 'workspace')
 		await mkdir(cwd)
 		await writeFile(join(cwd, 'note.txt'), 'Current source.')
-		const tools = testToolset(getBuiltinTools().filter((t) => t.name === 'read'))
+		const tools = testToolset(...getBuiltinTools().filter((t) => t.name === 'read'))
 		const home = join(root, 'home')
 		const paths = new SessionPaths({ home, slug: slugForCwd(await realpath(cwd)) })
 		const sessionId = generateSessionId()
@@ -38,7 +38,7 @@ it.each([false, true])(
 			model: 'mock-model',
 			prompt: 'Read note.txt',
 			workingDirectory: cwd,
-			tools,
+			toolsets: [tools],
 			sessionId,
 			...(memory ? { sessionLog } : { paths }),
 		})

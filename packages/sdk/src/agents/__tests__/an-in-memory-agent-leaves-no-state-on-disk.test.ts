@@ -10,7 +10,6 @@ import { AgentManager } from '../../manager/agent/lifecycle.js'
 import { TopicManager } from '../../manager/topic/lifecycle.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { AgentRegistry } from '../../registry/agent/definitions.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { DefaultCapacityValidator } from '../../session/handoff/capacity.js'
 import { resolveNamzuHome } from '../../session/home.js'
 import { SessionPaths } from '../../session/paths.js'
@@ -19,7 +18,9 @@ import { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
 import { InMemorySessionLog } from '../../store/session-log/index.js'
 import { InMemorySessionStore } from '../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../store/topic/memory.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { defineTool } from '../../tools/defineTool.js'
+import type { Toolset } from '../../toolsets/types.js'
 import type { AgentTaskContext } from '../../types/agent/task.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
@@ -59,9 +60,8 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function echoTools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function echoTools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes',
@@ -74,7 +74,6 @@ function echoTools(): ToolRegistry {
 			execute: async (input) => ({ success: true, output: input.value }),
 		}),
 	)
-	return registry
 }
 
 /** A tool call, so the turn writes an iteration checkpoint, then an answer. */
@@ -111,7 +110,7 @@ it('a ReactiveAgent with an in-memory session log writes nothing to disk', async
 			timeoutMs: 20_000,
 			maxIterations: 4,
 			provider: workerProvider(),
-			tools: echoTools(),
+			toolsets: [echoTools()],
 			systemPrompt: 'work',
 			sessionLog,
 			sessionId,
@@ -155,7 +154,7 @@ async function delegationHarness() {
 			timeoutMs: 20_000,
 			maxIterations: 4,
 			provider: workerProvider(),
-			tools: echoTools(),
+			toolsets: [echoTools()],
 			systemPrompt: 'work',
 		}),
 	} as never)
@@ -221,7 +220,7 @@ async function runSupervisor(extra: (h: Harness) => Record<string, unknown>) {
 		}),
 		agentIds: ['worker'],
 		agentManager: h.manager,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		systemPrompt: 'You coordinate.',
 		model: 'mock',
 		tokenBudget: 0,

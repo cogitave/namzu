@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { frameServerResult } from '../../connector/mcp/adapter.js'
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
+import { toolset } from '../../toolsets/toolset.js'
 import type { Message } from '../../types/message/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { runAgent } from '../runAgent.js'
@@ -44,14 +44,21 @@ function echoingTool(server?: string): ToolDefinition {
 			const result = { success: true, output: query }
 			return server === undefined ? result : frameServerResult(result, server, 'lookup')
 		},
-		...(server === undefined ? {} : { provenance: { server, readOnlyHintTrusted: false } }),
 	}
 }
 
-function hostRegistry(...tools: readonly ToolDefinition[]): ToolRegistry {
-	const registry = new ToolRegistry()
-	for (const tool of tools) registry.register(tool)
-	return registry
+function hostToolset(server?: string) {
+	return toolset(
+		server === undefined
+			? { id: 'host:lookup', kind: 'host_tool', name: 'lookup' }
+			: {
+					id: `mcp:${server}`,
+					kind: 'mcp_server',
+					name: server,
+					mcpServer: { name: server, readOnlyHintTrusted: false },
+				},
+		[echoingTool(server)],
+	)
 }
 
 function provider(): MockLLMProvider {
@@ -75,7 +82,7 @@ describe('a turn screens a registry it did not build', () => {
 			provider: mock,
 			model: 'mock-model',
 			prompt: 'find the rollback procedure',
-			tools: hostRegistry(echoingTool('weather-co')),
+			toolsets: [hostToolset('weather-co')],
 		})
 
 		expect(toolMessages(mock)).toContain('tool-result-correspondence')
@@ -89,7 +96,7 @@ describe('a turn screens a registry it did not build', () => {
 			provider: mock,
 			model: 'mock-model',
 			prompt: 'find the rollback procedure',
-			tools: hostRegistry(echoingTool()),
+			toolsets: [hostToolset()],
 		})
 
 		expect(toolMessages(mock)).toContain(QUERY)
@@ -105,7 +112,7 @@ describe('a turn screens a registry it did not build', () => {
 			provider: mock,
 			model: 'mock-model',
 			prompt: 'find the rollback procedure',
-			tools: hostRegistry(echoingTool('weather-co')),
+			toolsets: [hostToolset('weather-co')],
 			toolResultGuardrails: [],
 		})
 
@@ -119,7 +126,7 @@ describe('a turn screens a registry it did not build', () => {
 			provider: mock,
 			model: 'mock-model',
 			prompt: 'find the rollback procedure',
-			tools: hostRegistry(echoingTool('weather-co')),
+			toolsets: [hostToolset('weather-co')],
 			toolResultGuardrails: [
 				{ name: 'host-rule', check: () => ({ action: 'refuse' as const, reason: 'not today' }) },
 			],
