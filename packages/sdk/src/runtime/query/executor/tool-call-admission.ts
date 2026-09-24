@@ -489,27 +489,41 @@ export function unreadableToolCallMessage(
 }
 
 /**
+ * The most characters a call cut off after `length` of them should be told to
+ * keep under: half of what arrived, rounded down to a figure that reads as a
+ * budget, and always less than what arrived. `undefined` when that leaves
+ * nothing to state.
+ *
+ * It used to be at least 100, whatever arrived, so a call the output limit cut
+ * after 29 characters was told to keep them under 100: more than it had
+ * already sent, which the limit had just refused.
+ */
+function ceilingBelow(length: number): number | undefined {
+	const half = Math.floor(length / 2)
+	const step = half >= 200 ? 100 : half >= 20 ? 10 : 1
+	const ceiling = Math.floor(half / step) * step
+	return ceiling >= 1 ? ceiling : undefined
+}
+
+/**
  * How much one call should carry, in the model's words, or `undefined` when
  * there is no number to give: a stream that ended, to a tool that declares no
  * large arguments.
  *
  * A tool that declares large arguments is given a budget for each of them.
  * After an output limit, any tool is told to keep its arguments under half of
- * what arrived: the whole of them for a tool that declares none, and each
- * declared budget lowered to that half when it is larger, since a budget the
- * response could not hold would send the model straight back into the cutoff.
- * How to carry less (in parts, in a file) is the tool's own
- * `truncatedInputHint`: splitting is right for a file body and wrong for a
+ * what arrived ({@link ceilingBelow}): the whole of them for a tool that
+ * declares none, and each declared budget lowered to that when it is larger,
+ * since a budget the response could not hold would send the model straight
+ * back into the cutoff. How to carry less (in parts, in a file) is the tool's
+ * own `truncatedInputHint`: splitting is right for a file body and wrong for a
  * delegated prompt.
  */
 function sizeAdvice(
 	largeStringArguments: ToolDefinition['largeStringArguments'],
 	error: ToolInputError,
 ): string | undefined {
-	const ceiling =
-		error.finishReason === 'length'
-			? Math.max(100, Math.floor(error.length / 2 / 100) * 100)
-			: undefined
+	const ceiling = error.finishReason === 'length' ? ceilingBelow(error.length) : undefined
 	const declared = Object.entries(largeStringArguments ?? {}).filter(
 		([, budget]) => Number.isFinite(budget) && budget > 0,
 	)
@@ -530,6 +544,45 @@ function sizeAdvice(
 }
 
 /**
+ * The most output tokens a character the stream carried can account for.
+ * Ordinary text runs well under one token per character; a rare CJK character
+ * or an emoji can take two. Output beyond this bound for everything that was
+ * streamed went somewhere the stream did not show.
+ */
+const MAX_TOKENS_PER_STREAMED_CHARACTER = 2
+
+/**
+ * Whether most of the response's output tokens went to output the stream did
+ * not carry as text or arguments, and what to say about it, or `undefined`
+ * when the usage says nothing of the kind (or there is none).
+ *
+ * A provider that streams no reasoning, or only an encrypted block or a
+ * summary of it, still counts that reasoning against the output limit. Judged
+ * by the characters that were streamed alone, a call the reasoning left no
+ * room for looked like the call that filled the response, and was told to
+ * shrink.
+ *
+ * The provider's own reasoning count decides when it gives one. Otherwise the
+ * streamed characters are given the most tokens they could have taken, and
+ * only output beyond that counts as unseen, so text that tokenizes densely is
+ * never mistaken for hidden reasoning.
+ */
+function unseenOutput(error: ToolInputError): string | undefined {
+	const total = error.outputTokens
+	if (total === undefined || total <= 0) return undefined
+	if (error.reasoningTokens !== undefined) {
+		return error.reasoningTokens * 2 >= total
+			? `${error.reasoningTokens} of the response's ${total} output tokens went to reasoning, so little of its limit was left for this call.`
+			: undefined
+	}
+	const streamed = error.precedingLength + error.length
+	const unseen = total - streamed * MAX_TOKENS_PER_STREAMED_CHARACTER
+	return unseen * 2 >= total
+		? `The response used ${total} output tokens, but only ${streamed} characters of text and tool arguments were streamed: most of its output went to reasoning or other output that is not shown, so little of its limit was left for this call.`
+		: undefined
+}
+
+/**
  * What to tell the model about a call whose arguments could not be read.
  *
  * Each part answers one question, and a part with no answer is left out:
@@ -543,12 +596,16 @@ function sizeAdvice(
  *   for a rejected call should not have to state it twice. Never size
  *   advice: size does not fix JSON.
  * - Cut off by the output limit: first, which part of the response filled it.
- *   A cut-off call is the last thing the response streamed, so the response
- *   is what came before it (`precedingLength`) and the call itself
- *   (`length`). A call that was less than half of that did not fill it; what
- *   came before it did, and the model is told to send less before it, with
- *   no advice about the call. Otherwise the call itself is to carry less:
- *   {@link sizeAdvice}, and the tool's `truncatedInputHint`.
+ *   When the provider's usage shows that most of the output went to
+ *   reasoning, or to anything else the stream did not carry
+ *   ({@link unseenOutput}), the model is told that, and to reason less or
+ *   split the work: the call did not fill the response. Otherwise the
+ *   response is what the stream carried: what came before the call
+ *   (`precedingLength`) and the call itself (`length`). A call that was less
+ *   than half of that did not fill it; what came before it did, and the model
+ *   is told to send less before it, with no advice about the call. Otherwise
+ *   the call itself is to carry less: {@link sizeAdvice}, and the tool's
+ *   `truncatedInputHint`.
  * - Cut off by the stream ending: the declared budgets, if any, or just to
  *   send the call again, and the tool's `truncatedInputHint`.
  * - Stopped by a content filter: no advice. Sending less does not get past a
@@ -594,9 +651,15 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
 		)
-		if (error.finishReason === 'length' && error.length < error.precedingLength) {
+		const unseen = error.finishReason === 'length' ? unseenOutput(error) : undefined
+		if (unseen) {
 			parts.push(
-				`${error.precedingLength} of the response's ${error.precedingLength + error.length} characters came before this call, so send the call again with less before it in the same response.`,
+				unseen,
+				'Send the call again after less reasoning, or split the work into smaller steps that each need less of it.',
+			)
+		} else if (error.finishReason === 'length' && error.length < error.precedingLength) {
+			parts.push(
+				`${error.precedingLength} of the ${error.precedingLength + error.length} characters the response streamed came before this call, so send the call again with less before it in the same response.`,
 			)
 		} else if (error.finishReason !== 'content_filter') {
 			parts.push(sizeAdvice(tool?.largeStringArguments, error) ?? 'Send the call again.')

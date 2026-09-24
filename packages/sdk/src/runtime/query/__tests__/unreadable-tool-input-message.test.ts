@@ -58,7 +58,7 @@ describe('unreadableToolInputMessage', () => {
 		const message = unreadableToolInputMessage('ask_user_question', cutOff(900, 'length', 29_100))
 
 		expect(message).toBe(
-			'Error: The call to "ask_user_question" was cut off: the response reached its output token limit after 900 characters of its arguments, before they were complete. The tool was NOT executed. 29100 of the response\'s 30000 characters came before this call, so send the call again with less before it in the same response.',
+			'Error: The call to "ask_user_question" was cut off: the response reached its output token limit after 900 characters of its arguments, before they were complete. The tool was NOT executed. 29100 of the 30000 characters the response streamed came before this call, so send the call again with less before it in the same response.',
 		)
 		expect(message).not.toMatch(FILE_ADVICE)
 	})
@@ -80,7 +80,9 @@ describe('unreadableToolInputMessage', () => {
 			truncatedInputHint: 'Write a long file in parts.',
 		}
 		const before = unreadableToolInputMessage('write', cutOff(40, 'length', 59_960), tool)
-		expect(before).toContain("59960 of the response's 60000 characters came before this call")
+		expect(before).toContain(
+			'59960 of the 60000 characters the response streamed came before this call',
+		)
 		// Nothing about the call's own size: 40 characters of it did not fill
 		// the response, and a budget cut to half of them would be nonsense.
 		expect(before).not.toMatch(/under \d+ characters|in parts/)
@@ -88,6 +90,65 @@ describe('unreadableToolInputMessage', () => {
 		const itself = unreadableToolInputMessage('write', cutOff(30_000, 'length', 30_000), tool)
 		expect(itself).toContain('keep `content` under 12000 characters.')
 		expect(itself).toMatch(/ Write a long file in parts\.$/)
+	})
+
+	it('never budgets a call at or above what already arrived', () => {
+		// The ceiling was at least 100 whatever arrived, so a call the limit
+		// cut after 29 characters was told to stay under 100.
+		expect(unreadableToolInputMessage('ask', cutOff(29, 'length'))).toContain(
+			'keep its arguments under 14 characters in all.',
+		)
+		for (let length = 2; length <= 5_000; length++) {
+			const message = unreadableToolInputMessage('ask', cutOff(length, 'length'))
+			const ceiling = Number(/under (\d+) characters/.exec(message)?.[1])
+			expect(ceiling).toBeGreaterThanOrEqual(1)
+			expect(ceiling).toBeLessThan(length)
+		}
+		// Nothing left to state for a call cut after one character.
+		expect(unreadableToolInputMessage('ask', cutOff(1, 'length'))).toMatch(/Send the call again\.$/)
+	})
+
+	it('says reasoning filled the response when the provider counts it, and does not blame the call', () => {
+		// An encrypted reasoning block streams no text, and still spends the
+		// output limit: judged by the characters alone, this call was the whole
+		// response and was told to shrink to 100 characters.
+		const error = { ...cutOff(300, 'length'), outputTokens: 8_000, reasoningTokens: 7_800 }
+		const message = unreadableToolInputMessage('write', error, WriteFileTool)
+		expect(message).toContain(
+			"7800 of the response's 8000 output tokens went to reasoning, so little of its limit was left for this call. Send the call again after less reasoning, or split the work into smaller steps that each need less of it.",
+		)
+		expect(message).not.toMatch(/under \d+ characters|marker/)
+	})
+
+	it('says output the stream did not carry filled the response when the usage shows it', () => {
+		// Summarised thinking: 1500 characters of summary, 32000 output tokens.
+		const error = { ...cutOff(2_030, 'length', 1_500), outputTokens: 32_000 }
+		const message = unreadableToolInputMessage('write', error, WriteFileTool)
+		expect(message).toContain(
+			'The response used 32000 output tokens, but only 3530 characters of text and tool arguments were streamed',
+		)
+		expect(message).not.toMatch(/under \d+ characters|came before this call/)
+	})
+
+	it('still blames the call when the usage is what its own text could have cost', () => {
+		// 30000 characters of dense text (CJK, say) can cost more tokens than
+		// characters; none of that is unseen output.
+		for (const outputTokens of [9_000, 45_000]) {
+			const message = unreadableToolInputMessage(
+				'write',
+				{ ...cutOff(30_000, 'length', 1_000), outputTokens },
+				{ largeStringArguments: { content: 12_000 } },
+			)
+			expect(message).toContain('keep `content` under 12000 characters')
+			expect(message).not.toContain('reasoning')
+		}
+		// A reported reasoning share under half leaves the characters to decide.
+		const before = unreadableToolInputMessage('ask', {
+			...cutOff(900, 'length', 29_100),
+			outputTokens: 10_000,
+			reasoningTokens: 3_000,
+		})
+		expect(before).toContain('came before this call')
 	})
 
 	it('names the JSON error for malformed arguments, and never calls them cut off', () => {

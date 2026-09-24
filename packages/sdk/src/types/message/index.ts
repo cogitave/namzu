@@ -213,12 +213,30 @@ export interface ToolInputError {
 	 * How many characters the response streamed before this call began: its
 	 * text, its visible reasoning and the arguments of earlier tool calls.
 	 * Text a driver adds of its own is not counted. For a `truncated` call,
-	 * which nothing followed, this plus {@link length} is the whole response,
-	 * and it decides the advice after an output limit: a call that was most
-	 * of the response is told to carry less, one that was not is told to send
-	 * less before it.
+	 * which nothing followed, this plus {@link length} is everything the
+	 * response streamed as text. It is not everything the response spent:
+	 * reasoning a provider does not stream (encrypted, summarised, or only
+	 * counted) uses the output limit too, and {@link outputTokens} and
+	 * {@link reasoningTokens} are what show it.
 	 */
 	readonly precedingLength: number
+	/**
+	 * The output tokens the whole response used, reasoning included, as the
+	 * provider reported them when it ended. Present on a `truncated` call when
+	 * the provider reported any.
+	 *
+	 * After an output limit it says whether the visible text accounts for the
+	 * limit: when most of the output went to reasoning, or to anything else
+	 * the stream did not carry, the call is not what filled the response, and
+	 * the model is told so rather than told to shrink the call.
+	 */
+	readonly outputTokens?: number
+	/**
+	 * Of {@link outputTokens}, the tokens the provider says went to reasoning.
+	 * Present only when the provider reports that split; absent means unknown,
+	 * not zero.
+	 */
+	readonly reasoningTokens?: number
 }
 
 export interface BaseMessage {

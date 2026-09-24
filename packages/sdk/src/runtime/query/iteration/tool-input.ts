@@ -237,16 +237,34 @@ export function classifyUnreadableToolInput(
 		readonly last: boolean
 	},
 	finishReason: ChatCompletionResponse['finishReason'] | undefined,
+	/**
+	 * The response's usage as the stream reported it, if it did. Recorded on
+	 * a truncated call only: after an output limit, it is what says whether
+	 * output the stream did not carry (reasoning) took the room.
+	 */
+	usage?: Pick<ChatCompletionResponse['usage'], 'completionTokens' | 'reasoningTokens'>,
 ): ToolInputError {
 	const stopped =
 		finishReason === undefined || finishReason === 'length' || finishReason === 'content_filter'
+	const truncated = call.last && stopped
+	const outputTokens = usage?.completionTokens
+	const spent =
+		truncated && outputTokens !== undefined && outputTokens > 0
+			? {
+					outputTokens,
+					...(usage?.reasoningTokens !== undefined
+						? { reasoningTokens: usage.reasoningTokens }
+						: {}),
+				}
+			: {}
 	return {
-		reason: call.last && stopped ? 'truncated' : 'malformed',
+		reason: truncated ? 'truncated' : 'malformed',
 		...(finishReason !== undefined ? { finishReason } : {}),
 		parseError: failure.parseError,
 		...(failure.offset !== undefined ? { offset: failure.offset } : {}),
 		length: call.length,
 		precedingLength: call.precedingLength,
+		...spent,
 	}
 }
 

@@ -751,6 +751,7 @@ export async function* streamProviderTurn(
 				last: bucket === lastOutputCall,
 			},
 			reportedFinishReason,
+			usage,
 		)
 		bucket.inputError = inputError
 		log.warn('tool input could not be read', {

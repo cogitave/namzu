@@ -80,8 +80,15 @@ send less. That does not fix malformed JSON.
   arrived. `precedingLength` counts the characters the response streamed
   before this call began: its text, its visible reasoning and the arguments
   of earlier calls, but not text a driver adds of its own. Nothing follows a
-  truncated call, so for it `precedingLength` plus `length` is the whole
-  response.
+  truncated call, so for it `precedingLength` plus `length` is everything
+  the response streamed as text. That is not everything it spent: reasoning
+  a provider does not stream, or streams only as an encrypted block or a
+  summary, counts against the output limit too.
+- `outputTokens` and `reasoningTokens`, on a truncated call: the output tokens
+  the whole response used, reasoning included, and of those the reasoning
+  tokens, as the provider reported them when the response ended. Each is
+  absent when the provider did not report it; an absent `reasoningTokens`
+  means unknown, not zero.
 - `partialArguments`: everything that arrived. A `repairToolCall` hook is given
   this text.
 
@@ -106,16 +113,29 @@ The message is assembled from the reason and from the tool:
   it already states for a call its schema rejects. It gives no size advice,
   because size does not fix malformed JSON.
 - **Truncated by the output limit.** What stopped the response, after how many
-  characters of arguments. Then it depends on what filled the response, which
-  is what came before the call (`precedingLength`) and the call itself
-  (`length`):
-  - The call was less than half of it: the model is told how many of the
-    response's characters came before the call, and to send the call again
-    with less before it. Nothing about the call's own size.
+  characters of arguments. Then it depends on what filled the response:
+  - Reasoning, or other output the stream did not carry. When the provider
+    reports reasoning tokens and they are at least half of `outputTokens`,
+    the model is told how many went to reasoning. When it reports only
+    `outputTokens`, the streamed characters are allowed up to two tokens
+    each, and output beyond that is what the stream did not show; when that
+    is at least half, the model is told the response used that many tokens
+    while only that many characters were streamed. Either way it is told to
+    send the call again after less reasoning, or to split the work into
+    smaller steps. Nothing about the call's own size: the call did not fill
+    the response, and shrinking it would not have made room.
+  - What came before the call. The streamed response is what came before the
+    call (`precedingLength`) and the call itself (`length`). When the call
+    was less than half of that, the model is told how many of those
+    characters came before the call, and to send the call again with less
+    before it. Nothing about the call's own size.
   - Otherwise the call itself has to carry less. A tool that declares large
     string arguments is given a budget for each; any other tool is told to
-    keep its arguments under half of what arrived, in all. Then the tool's own
-    `truncatedInputHint`, if it declares one.
+    keep its arguments under half of what arrived, in all. That half is
+    rounded down (to hundreds above 400 characters, to tens above 40), and it
+    is always less than what arrived; a call cut after one character is only
+    told to send the call again. Then the tool's own `truncatedInputHint`, if
+    it declares one.
 - **Truncated by the stream ending.** The declared budgets, if the tool has
   any, or just to send the call again. Then the tool's `truncatedInputHint`.
 - **Stopped by a content filter.** No advice and no hint: sending less does
@@ -159,7 +179,7 @@ export const saveNote = defineTool({
 ```
 
 After an output-limit cut, a declared budget larger than half of what arrived
-is lowered to that half. A budget the response could not hold would lead to the
+is lowered to that half, rounded down as above. A budget the response could not hold would lead to the
 same cut again. The budget sentence says how much, and the hint says how:
 splitting fits a file body and not a delegated prompt, so the kernel does not
 say to split.

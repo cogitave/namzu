@@ -112,6 +112,39 @@ function completed(events: SessionEvent[]) {
 }
 
 describe('unreadable tool input is classified from how the response ended', () => {
+	it("records the response's output tokens on a truncated call, so hidden reasoning can be told from the call", async () => {
+		const body = `{"path":"notes.md","content":"${'x'.repeat(270)}`
+		const { result } = await run([
+			{ id: 'c', delta: { reasoning: { index: 0, type: 'redacted_thinking', encrypted: 'ENC' } } },
+			open(1, 'call_w', 'write'),
+			args(1, body),
+			{
+				id: 'c',
+				delta: {},
+				finishReason: 'length',
+				usage: { ...USAGE, completionTokens: 8_000, reasoningTokens: 7_800 },
+			},
+		])
+		expect(result?.response.message.toolCalls?.[0]?.metadata?.inputError).toMatchObject({
+			reason: 'truncated',
+			length: body.length,
+			precedingLength: 0,
+			outputTokens: 8_000,
+			reasoningTokens: 7_800,
+		})
+
+		// Not on a malformed call, where it answers nothing.
+		const malformed = await run([
+			open(0, 'call_a', 'ask'),
+			args(0, '{"q": True}'),
+			close(0, 'call_a'),
+			finish('tool_calls'),
+		])
+		const error = malformed.result?.response.message.toolCalls?.[0]?.metadata?.inputError
+		expect(error?.reason).toBe('malformed')
+		expect(error).not.toHaveProperty('outputTokens')
+	})
+
 	it("reads MockLLMProvider's truncateArguments as truncated, even with a call scripted after it", async () => {
 		// Its documentation promised a `truncated` call. With a later call in
 		// the script, the mock streamed that call after the cut, and the cut
