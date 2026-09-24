@@ -683,13 +683,13 @@ describe('nested dispatch authority', () => {
 			pluginManager,
 		})
 		await entered
-		const safety = Symbol('nested hook remained live')
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 1_500)),
-		])
+		// No real 1500ms safety race: it competed with the same clock as the
+		// tool's own 250ms timeout it waited on, so a starved CI runner could
+		// make that real work outlast the guard with nothing actually broken.
+		// A regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		await pending
 
-		expect(result).not.toBe(safety)
 		expect(hookSignal?.aborted).toBe(true)
 		expect((hookSignal?.reason as Error | undefined)?.message).toMatch(/run_code.*exceeded 250ms/i)
 		expect(shellExecutions).toBe(0)
