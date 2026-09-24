@@ -132,6 +132,8 @@ export type FloorReason =
 	| 'opaque line mentions a protected name'
 	| 'unread text mentions a protected name'
 	| 'encoded command cannot be read at all'
+	| 'find -exec reaches a protected target'
+	| 'runs a file the script wrote earlier'
 	| 'too many spellings'
 
 /** Why the floor denied a call, and what in it matched. */
@@ -444,6 +446,17 @@ function runsUnreadText(command: ShellCommand): string | null {
 		const program = shown((words[i] as ShellWord).value)
 		if (INTERPRETERS.test(name)) return `${program} runs text as code`
 		if (i === head && name === '.') return '`.` runs a file as commands'
+		if (i === head && name === 'trap') {
+			// `trap [-lp] [action] [sigspec...]`: the action, when given, runs as
+			// a command line when the signal fires — read the same way a nested
+			// shell's `-c` payload is, just later. `-l`/`-p`/`--` alone print or
+			// reset and run nothing.
+			const action = words
+				.slice(i + 1)
+				.find((w) => w.expands || (w.value !== '-l' && w.value !== '-p' && w.value !== '--'))
+			if (action !== undefined)
+				return `${program} runs its action as a command when the signal fires`
+		}
 		if (SHELLS.has(name) && !(i >= head && i <= readTo))
 			return `${program} runs commands the floor does not read`
 	}
@@ -1004,8 +1017,30 @@ class Floor {
 			for (const command of reading.commands)
 				cwd.after(command, (target) => this.spell(target, variables, cwd.current()), this.userHome)
 		const seen = new Set<ShellRedirection>()
+		/** Files an earlier command in this line wrote, resolved and normalized; content unverifiable. */
+		const written = new Set<string>()
 		for (const command of reading.commands) {
 			const here = cwd.current()
+			const findExec = this.findExecFinding(command, variables, here)
+			if (findExec !== null) return findExec
+			const executed = executedPath(command)
+			if (executed !== null && !executed.expands) {
+				for (const base of isAbsolute(executed.value) ? [''] : here.dirs) {
+					const path = base === '' ? normalize(executed.value) : join(base, executed.value)
+					if (written.has(path)) {
+						return {
+							reason: 'runs a file the script wrote earlier',
+							detail: `${shown(command.text)} runs ${shown(executed.text)}, which an earlier command in this script wrote; its content cannot be verified, so it is refused rather than run unattended`,
+						}
+					}
+				}
+			}
+			for (const target of writeTargets(command)) {
+				if (target.expands) continue
+				for (const base of isAbsolute(target.value) ? [''] : here.dirs) {
+					written.add(base === '' ? normalize(target.value) : join(base, target.value))
+				}
+			}
 			const check = (word: ShellWord) => this.wordNames(word, variables, here, expands)
 			const standalone = command.words.length === command.assignments && !exported
 			for (const [i, word] of command.words.entries()) {
@@ -1321,6 +1356,149 @@ class Floor {
 		}
 		return false
 	}
+
+	/**
+	 * `find … -exec|-execdir|-ok|-okdir … ;|+`: the clause runs on every path
+	 * `find` matches, substituted for `{}` — a placeholder no static reading
+	 * can resolve. Refused when `{}` stands in that clause AND the search
+	 * could plausibly reach a protected target: the root is unknown or is
+	 * NAMZU_HOME itself or an ancestor of it (so `find` would recurse THROUGH
+	 * it), a `-name`/`-iname`/`-path`/`-ipath` pattern could match NAMZU_HOME's
+	 * own folder name, or the clause's own program is a tool that can stop or
+	 * remove a service (`{}` there could name the scheduler's unit without
+	 * ever spelling it in the line the floor can read).
+	 */
+	private findExecFinding(
+		command: ShellCommand,
+		variables: ReadonlyMap<string, Alternatives>,
+		cwd: Cwd,
+	): FloorFinding | null {
+		const words = command.words
+		const head = words[command.assignments]
+		if (!head || head.expands || commandName(head.value) !== 'find') return null
+		const rootWords: ShellWord[] = []
+		let i = command.assignments + 1
+		while (i < words.length) {
+			const w = words[i] as ShellWord
+			if (!w.expands && (w.value.startsWith('-') || w.value === '(' || w.value === '!')) break
+			rootWords.push(w)
+			i++
+		}
+		const roots: readonly ShellWord[] =
+			rootWords.length > 0 ? rootWords : [{ text: '.', value: '.', expands: false, quoted: false }]
+		const reachesHome = roots.some((root) => {
+			if (root.expands) return true
+			for (const spelling of this.spell(root, variables, cwd)) {
+				if (spelling.stop !== 'end') return true
+				const bases = isAbsolute(spelling.known) ? [''] : cwd.dirs.length > 0 ? cwd.dirs : ['']
+				for (const base of bases) {
+					const path = base === '' ? normalize(spelling.known) : join(base, spelling.known)
+					if (this.inside(path) || this.belowAncestor(path) !== null) return true
+				}
+			}
+			return false
+		})
+		let filterMatchesHome = false
+		for (let j = command.assignments; j < words.length; j++) {
+			const flag = words[j] as ShellWord
+			if (flag.expands || !/^-i?(?:name|path)$/.test(flag.value)) continue
+			const pattern = words[j + 1]
+			if (!pattern || pattern.expands) continue
+			if (this.homeSegments.some((seg) => mayBe(lower(pattern.value), seg.name))) {
+				filterMatchesHome = true
+				break
+			}
+		}
+		for (let j = command.assignments + 1; j < words.length; j++) {
+			const flag = words[j] as ShellWord
+			if (flag.expands || !/^-(?:exec|execdir|ok|okdir)$/.test(flag.value)) continue
+			let k = j + 1
+			let hasPlaceholder = false
+			let toolIsSchedulerTool = false
+			const clauseStart = k
+			while (k < words.length) {
+				const w = words[k] as ShellWord
+				if (!w.expands && (w.value === ';' || w.value === '+')) break
+				if (!w.expands) {
+					if (w.value.includes('{}')) hasPlaceholder = true
+					if (k === clauseStart && SCHEDULER_EXEC_TOOLS.has(commandName(w.value)))
+						toolIsSchedulerTool = true
+				}
+				k++
+			}
+			if (hasPlaceholder && (reachesHome || filterMatchesHome || toolIsSchedulerTool)) {
+				const clauseText = words
+					.slice(clauseStart, k)
+					.map((w) => w.text)
+					.join(' ')
+				const why = toolIsSchedulerTool
+					? "its clause's own program can stop or remove a service"
+					: filterMatchesHome
+						? 'a -name/-iname/-path/-ipath pattern could match NAMZU_HOME’s own folder name'
+						: 'its search root is unknown, is NAMZU_HOME, or is an ancestor of it'
+				return {
+					reason: 'find -exec reaches a protected target',
+					detail: `${shown(command.text)} runs \`${flag.value} ${clauseText}\` on whatever it finds, and ${why}; the floor cannot verify what {} will stand for`,
+				}
+			}
+			j = k
+		}
+		return null
+	}
+}
+
+/** Tools whose `find -exec`/`-execdir`/`-ok`/`-okdir` clause the floor refuses outright: each can stop or remove a service. */
+const SCHEDULER_EXEC_TOOLS = new Set([
+	'systemctl',
+	'launchctl',
+	'schtasks',
+	'pkill',
+	'killall',
+	'busctl',
+	'dbus-send',
+	'gdbus',
+])
+
+/** A write target this command names: `>`/`>>` redirections, `tee`'s arguments, `cp`/`mv`'s destination. */
+function writeTargets(command: ShellCommand): readonly ShellWord[] {
+	const targets: ShellWord[] = []
+	for (const r of command.redirections) {
+		if (r.operator === '>' || r.operator === '>>') targets.push(r.target)
+	}
+	const words = command.words
+	const head = words[command.assignments]
+	if (!head || head.expands) return targets
+	const name = commandName(head.value)
+	const rest = words
+		.slice(command.assignments + 1)
+		.filter((w) => w.expands || !w.value.startsWith('-'))
+	if (name === 'tee') targets.push(...rest)
+	else if (name === 'cp' || name === 'mv') {
+		const last = rest.at(-1)
+		if (last) targets.push(last)
+	}
+	return targets
+}
+
+/**
+ * The path this command executes as a FILE — `./x.sh`, `some/dir/x.sh`,
+ * `sh x.sh`, `bash x.sh`, `. x.sh`, `source x.sh` — or null. A bare name on
+ * `PATH` (`x.sh` alone, no `/`) is not: that resolves to whatever `PATH`
+ * finds, not a file this line can be shown to have written.
+ */
+function executedPath(command: ShellCommand): ShellWord | null {
+	const words = command.words
+	const head = words[command.assignments]
+	if (!head || head.expands) return null
+	const name = commandName(head.value)
+	if (name === 'sh' || name === 'bash' || name === '.' || name === 'source') {
+		const rest = words
+			.slice(command.assignments + 1)
+			.filter((w) => w.expands || !w.value.startsWith('-'))
+		return rest[0] ?? null
+	}
+	if (!head.expands && head.value.includes('/')) return head
+	return null
 }
 
 /** `NAME=value`, `NAME+=value` or `--opt=value`: the value as a word of its own. */

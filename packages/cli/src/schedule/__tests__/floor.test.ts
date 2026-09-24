@@ -305,6 +305,108 @@ describe("PowerShell's -EncodedCommand", () => {
 	})
 })
 
+describe('trap', () => {
+	it('reads a trap action as a command line, against both protected targets', () => {
+		denied([
+			"trap 'rm -rf ~/.namzu' EXIT",
+			"trap 'cat ~/.namzu/schedule/daemon/endpoint.json' EXIT",
+			"trap 'systemctl --user stop namzu-scheduler' EXIT",
+			"trap 'namzu schedule stop' INT TERM",
+			// Flags before the action; the action is still the first non-flag word.
+			"trap -- 'namzu schedule remove nightly' EXIT",
+		])
+	})
+
+	it('does not deny a benign action, or a bare query/reset', () => {
+		allowed(['trap \'echo "cleaning up"\' EXIT', 'trap - EXIT', 'trap -p', 'trap -l'])
+	})
+
+	it('names the reason', () => {
+		expect(bash("trap 'rm -rf ~/.namzu' EXIT")).toBe('unread text mentions a protected name')
+	})
+})
+
+describe('find -exec/-execdir/-ok/-okdir', () => {
+	it('refuses {} standing for NAMZU_HOME: a broad or unknown root', () => {
+		denied([
+			'find / -name .namzu -exec rm -rf {} \\;',
+			'find ~ -maxdepth 2 -exec cat {}/schedule/daemon/endpoint.json \\;',
+			'find ~ -exec rm -rf {} +',
+			'find "$DIR" -exec rm -rf {} \\;',
+			'find / -iname "*.NAMZU*" -okdir rm -rf {} \\;',
+			'find / -path "*/.namzu/*" -exec cat {} \\;',
+		])
+	})
+
+	it('refuses {} beside a tool that can stop or remove a service, whatever the root', () => {
+		denied([
+			'find / -name "namzu-scheduler*" -exec systemctl stop {} \\;',
+			'find /proc -maxdepth 1 -exec systemctl stop {} \\;',
+			'find /proc -exec pkill -f {} \\;',
+			'find / -name "*.plist" -execdir launchctl bootout {} \\;',
+		])
+	})
+
+	it('does not deny find confined to the job’s own folder, or with no {} placeholder at all', () => {
+		allowed([
+			'find . -name "*.txt" -exec grep -l TODO {} \\;',
+			'find . -exec cat {} \\;',
+			'find /tmp -exec cat {} \\;',
+			'find /tmp/build -type f -delete',
+			// No {}: whatever runs is fully static and already read normally.
+			'find / -exec echo hi \\;',
+			'find . -maxdepth 1 -name "*.log" -exec rm {} \\;',
+		])
+	})
+
+	it('names the reason', () => {
+		expect(bash('find / -name .namzu -exec rm -rf {} \\;')).toBe(
+			'find -exec reaches a protected target',
+		)
+		expect(detail('find / -name .namzu -exec rm -rf {} \\;')).toContain(
+			'the floor cannot verify what {} will stand for',
+		)
+	})
+})
+
+describe('a file the script writes, then executes', () => {
+	it('refuses running a file written earlier in the SAME line, however it was written', () => {
+		denied([
+			'cp payload.sh run.sh; bash run.sh',
+			'mv staged.sh run.sh; sh run.sh',
+			'echo "$PAYLOAD" > run.sh; ./run.sh',
+			'printf "%s" "$PAYLOAD" >> run.sh; . run.sh',
+			'tee run.sh <<< "$PAYLOAD"; source run.sh',
+		])
+	})
+
+	it('is content-agnostic: refused whether the write looks like a scheduler attack or a NAMZU_HOME one', () => {
+		denied([
+			// The written content is opaque (an external file, a variable) —
+			// this refuses on the SHAPE alone, not on reading what run.sh holds.
+			'cp attacker-controlled.sh run.sh; bash run.sh',
+			'echo "$SECRET_PAYLOAD" > run.sh; bash run.sh',
+		])
+	})
+
+	it('does not deny writing a file and only reading it, or executing an UNRELATED file', () => {
+		allowed([
+			'echo hi > x.sh; cat x.sh',
+			'echo hi > x.sh; bash y.sh',
+			'cp a.txt b.txt; wc -l b.txt',
+			// A file already on disk before the script ran is not tracked as written.
+			'bash existing.sh',
+		])
+	})
+
+	it('names the reason', () => {
+		expect(bash('echo hi > run.sh; bash run.sh')).toBe('runs a file the script wrote earlier')
+		expect(detail('echo hi > run.sh; bash run.sh')).toContain(
+			'its content cannot be verified, so it is refused rather than run unattended',
+		)
+	})
+})
+
 describe('NAMZU_HOME', () => {
 	it('denies a word or redirection that resolves into it, however it is spelled', () => {
 		denied([

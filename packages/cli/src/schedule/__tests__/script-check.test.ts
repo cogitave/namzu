@@ -130,6 +130,13 @@ describe('the scheduled-run floor, as a whole script body', () => {
 			'$(echo namzu) schedule stop',
 			'powershell.exe -NoProfile -Command "namzu schedule stop"',
 			"powershell -c 'namzu schedule stop'",
+			// The three floor bypasses closed alongside the permission-model fix
+			// (design.md §6 revision) protect a script the same way they now
+			// protect a live bash call.
+			"trap 'rm -rf ~/.namzu' EXIT",
+			'find / -name .namzu -exec rm -rf {} \\;',
+			'find / -name "namzu-scheduler*" -exec systemctl stop {} \\;',
+			'cp /tmp/payload.sh /tmp/run.sh; bash /tmp/run.sh',
 		]
 		for (const body of denied) expect(ok(body), body).toBe(false)
 	})

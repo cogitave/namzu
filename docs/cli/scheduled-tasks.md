@@ -308,11 +308,24 @@ The rules a run is gated by, in order (the first that matches decides):
    `AppData/Local/namzu` with either slash or through `%LOCALAPPDATA%`,
    `$env:LOCALAPPDATA` or `$LOCALAPPDATA`.
 
-   The floor reads a line, not the programs it starts: a script file, a
-   `Makefile` target, an npm script or a git hook the run wrote earlier is
-   not read, nor is a variable the environment already holds (`cd "$DIR"`
-   then a relative path), `CDPATH`, or a symbolic link. Those rest on the
-   folder rule and the hold above. The floor's reading was checked against
+   The floor reads a line, not the programs it starts: a `Makefile` target,
+   an npm script or a git hook is not read, nor is a variable the
+   environment already holds (`cd "$DIR"` then a relative path), `CDPATH`,
+   or a symbolic link. Those rest on the folder rule and the hold above.
+   Three constructs that run text the floor cannot see the content of are
+   refused outright rather than silently allowed: `trap 'ACTION' SIGNAL`
+   (the action runs as a command line when the signal fires, read the same
+   way a nested shell's `-c` payload is); `find … -exec|-execdir|-ok|-okdir
+   … ;|+` whose clause contains `{}` when the search root is unknown or
+   could reach NAMZU_HOME, a `-name`/`-iname`/`-path`/`-ipath` pattern could
+   match NAMZU_HOME's own folder name, or the clause's own program can stop
+   or remove a service — the floor cannot know what `{}` will stand for;
+   and running a file the SAME command line or script wrote earlier
+   (`>`, `>>`, `tee`, `cp`/`mv` into place, then `./x.sh`, `sh x.sh`,
+   `bash x.sh`, `. x.sh`, `source x.sh`) — its content was never
+   confirmed, whatever wrote it. A file already on disk before the run
+   started, or one a separate, earlier run wrote, is not tracked this way
+   and rests on the folder rule instead. The floor's reading was checked against
    bash 5.3: 75 000 generated lines mixing the scheduler's commands,
    `NAMZU_HOME` paths and look-alikes in every quoting form, nested
    `bash -c`, pipes into `sh`, here-documents, loops, `cd` and variables,
