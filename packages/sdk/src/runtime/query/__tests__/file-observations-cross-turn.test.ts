@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
@@ -18,18 +18,16 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-cross-turn-'))
 	try {
 		const path = join(cwd, 'doc.md')
-		const tools = new ToolRegistry()
-		for (const tool of [ReadFileTool, EditTool]) tools.register(tool)
 		// CLI checkpoint wrappers retain context but replace execute's function identity.
 		const wrappedWrite: typeof WriteFileTool = {
 			...WriteFileTool,
 			execute: async (input, context) => WriteFileTool.execute(input, context),
 		}
-		tools.register(wrappedWrite)
+		const tools = testToolset(ReadFileTool, EditTool, wrappedWrite)
 		const fileReadTracker = createFileReadTracker()
 		const requests: Message[][] = []
 		const base = {
-			tools,
+			toolsets: [tools],
 			fileReadTracker,
 			agentId: 'test',
 			agentName: 'test',
@@ -113,12 +111,11 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-cross-turn-chain-'))
 	try {
 		const path = join(cwd, 'doc.md')
-		const tools = new ToolRegistry()
-		for (const tool of [ReadFileTool, EditTool, WriteFileTool]) tools.register(tool)
+		const tools = testToolset(ReadFileTool, EditTool, WriteFileTool)
 		const fileReadTracker = createFileReadTracker()
 		const requests: Message[][] = []
 		const base = {
-			tools,
+			toolsets: [tools],
 			fileReadTracker,
 			agentId: 'test',
 			agentName: 'test',

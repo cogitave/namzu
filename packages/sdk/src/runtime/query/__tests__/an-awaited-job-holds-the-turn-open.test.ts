@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { WaitForJobTool } from '../../../tools/builtins/wait-for-job.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
@@ -51,11 +52,8 @@ const StartTool = defineTool({
 	},
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(StartTool)
-	registry.register(WaitForJobTool)
-	return registry
+function tools(): Toolset {
+	return testToolset(StartTool, WaitForJobTool)
 }
 
 const ids = () => ({
@@ -100,7 +98,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 
 		const run = await drainQuery({
 			provider,
-			tools: tools(),
+			toolsets: [tools()],
 			agentId: 'job-hold-fixture',
 			agentName: 'Job hold fixture',
 			messages: [createUserMessage('start the job and tell me when it ends')],
@@ -163,7 +161,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 
 		const run = await drainQuery({
 			provider,
-			tools: tools(),
+			toolsets: [tools()],
 			agentId: 'job-hold-fixture',
 			agentName: 'Job hold fixture',
 			messages: [createUserMessage('start both and tell me when the second ends')],
@@ -225,7 +223,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const run = await drainQuery(
 			{
 				provider,
-				tools: tools(),
+				toolsets: [tools()],
 				agentId: 'job-hold-fixture',
 				agentName: 'Job hold fixture',
 				messages: [createUserMessage('start the job and tell me when it ends')],
@@ -286,7 +284,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const startedAt = Date.now()
 		const run = await drainQuery({
 			provider,
-			tools: tools(),
+			toolsets: [tools()],
 			agentId: 'job-hold-fixture',
 			agentName: 'Job hold fixture',
 			messages: [createUserMessage('start the dev server')],
@@ -351,7 +349,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const startedAt = Date.now()
 		const run = await drainQuery({
 			provider,
-			tools: tools(),
+			toolsets: [tools()],
 			agentId: 'job-hold-fixture',
 			agentName: 'Job hold fixture',
 			messages: [createUserMessage('start the job')],

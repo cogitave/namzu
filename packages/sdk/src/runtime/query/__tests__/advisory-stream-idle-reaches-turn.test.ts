@@ -6,7 +6,8 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -55,15 +56,13 @@ class AbortAwareAdvisorProvider implements LLMProvider {
 	}
 }
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register({
+function tools(): Toolset {
+	return testToolset({
 		name: 'echo',
 		description: 'Return the supplied text.',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async ({ text }) => ({ success: true, output: text }),
 	})
-	return registry
 }
 
 function params(
@@ -75,7 +74,7 @@ function params(
 ) {
 	return {
 		provider: main,
-		tools: tools(),
+		toolsets: [tools()],
 		turnConfig: {
 			model: 'main-model',
 			timeoutMs: 5_000,
