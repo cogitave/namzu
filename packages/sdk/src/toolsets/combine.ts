@@ -118,7 +118,9 @@ function uniformAvailability(
 	combinedId: string,
 	toolsets: readonly Toolset[],
 ): ToolsetAvailability | undefined {
-	let agreed: { readonly availability: ToolsetAvailability; readonly source: ToolSource } | undefined
+	let agreed:
+		| { readonly availability: ToolsetAvailability; readonly source: ToolSource }
+		| undefined
 	for (const inner of toolsets) {
 		const availability = inner.availability ?? 'active'
 		if (!agreed) {
