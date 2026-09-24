@@ -210,29 +210,43 @@ export function jsonSyntaxErrorOffset(text: string): number | undefined {
 }
 
 /**
- * Classify arguments that did not parse, from how the response ended.
+ * Classify arguments that did not parse, from where the call stands in the
+ * response and how the response ended.
  *
- * Deliberately not from the text: a buffer that stops mid-string looks the
- * same whether the output limit cut it or the model closed its turn early,
- * and only the finish reason tells the two apart. `finishReason` is what the
- * stream reported, `undefined` when it reported nothing — a stream that died
- * or was dropped before its final frame, which is a cut-off too. `sizes`
- * are the characters of this call's arguments and of the whole response.
+ * An output limit, a content filter or a dropped stream stops a response
+ * wherever it is, so it can cut only the call the response was streaming at
+ * that moment: `call.last`, the call the model's last output went to. A call
+ * the model moved on from was complete; if it does not parse it is
+ * malformed, whatever the finish reason.
+ *
+ * For the last call, deliberately not from the text: a buffer that stops
+ * mid-string looks the same whether the output limit cut it or the model
+ * closed its turn early, and only the finish reason tells the two apart.
+ * `finishReason` is what the stream reported, `undefined` when it reported
+ * nothing — a stream that died or was dropped before its final frame, which
+ * is a cut-off too.
  */
 export function classifyUnreadableToolInput(
 	failure: { readonly parseError: string; readonly offset?: number },
-	sizes: { readonly length: number; readonly responseLength: number },
+	call: {
+		/** Characters of this call's arguments. */
+		readonly length: number
+		/** Characters the response streamed before this call began. */
+		readonly precedingLength: number
+		/** Nothing the model streamed came after this call. */
+		readonly last: boolean
+	},
 	finishReason: ChatCompletionResponse['finishReason'] | undefined,
 ): ToolInputError {
-	const cutOff =
+	const stopped =
 		finishReason === undefined || finishReason === 'length' || finishReason === 'content_filter'
 	return {
-		reason: cutOff ? 'truncated' : 'malformed',
+		reason: call.last && stopped ? 'truncated' : 'malformed',
 		...(finishReason !== undefined ? { finishReason } : {}),
 		parseError: failure.parseError,
 		...(failure.offset !== undefined ? { offset: failure.offset } : {}),
-		length: sizes.length,
-		responseLength: sizes.responseLength,
+		length: call.length,
+		precedingLength: call.precedingLength,
 	}
 }
 

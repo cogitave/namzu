@@ -177,7 +177,10 @@ export type ToolInputErrorReason = 'truncated' | 'malformed'
 /**
  * A tool call whose streamed arguments did not parse as JSON, and why.
  *
- * The distinction is made from how the response ended, never from the text:
+ * An output limit, a content filter or a dropped stream stops a response
+ * wherever it is, so only the call the response was streaming at that moment
+ * can have been cut off: the last one, with nothing the model streamed after
+ * it. For that call the finish reason decides, never the text:
  *
  * - `truncated` — the response stopped before the model closed the
  *   arguments. It reached its output limit (`finishReason: 'length'`), a
@@ -185,6 +188,10 @@ export type ToolInputErrorReason = 'truncated' | 'malformed'
  *   without reporting a finish reason at all.
  * - `malformed` — the response finished normally (`'stop'` or
  *   `'tool_calls'`) and the arguments still were not valid JSON.
+ *
+ * Every other unreadable call is `malformed`, whatever the finish reason:
+ * the model moved on to more text, reasoning or another call, so it had
+ * finished writing this one.
  */
 export interface ToolInputError {
 	readonly reason: ToolInputErrorReason
@@ -203,14 +210,15 @@ export interface ToolInputError {
 	/** How many characters of arguments arrived. */
 	readonly length: number
 	/**
-	 * How many characters the whole response streamed before it stopped: its
-	 * text, its visible reasoning and the arguments of every tool call, this
-	 * one's included. Beside {@link length} it says how much of the response
-	 * this call was, which is what decides the advice after an output limit:
-	 * a call that was most of the response is told to carry less, one that was
-	 * not is told to send less before it.
+	 * How many characters the response streamed before this call began: its
+	 * text, its visible reasoning and the arguments of earlier tool calls.
+	 * Text a driver adds of its own is not counted. For a `truncated` call,
+	 * which nothing followed, this plus {@link length} is the whole response,
+	 * and it decides the advice after an output limit: a call that was most
+	 * of the response is told to carry less, one that was not is told to send
+	 * less before it.
 	 */
-	readonly responseLength: number
+	readonly precedingLength: number
 }
 
 export interface BaseMessage {

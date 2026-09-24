@@ -72,6 +72,8 @@ interface ToolCallBucket {
 	 */
 	pendingFailure?: Extract<ParsedToolArguments, { ok: false }>
 	inputError?: ToolInputError
+	/** Characters the response streamed before this call began. */
+	precedingLength: number
 }
 
 /**
@@ -132,10 +134,12 @@ export interface StreamingTurnResult {
  *   classified `ProviderRequestError` naming the violation. The second
  *   call's arguments used to be appended to the first's, and the model was
  *   told its call had been cut off.
- * - Arguments that do not parse: classified once the stream has ended, from
- *   its finish reason, as `truncated` or `malformed` (`ToolInputError`). A
- *   failed parse at `toolCallEnd` defers its `tool_input_completed` to then,
- *   because the finish reason arrives after the block closes.
+ * - Arguments that do not parse: classified once the stream has ended, as
+ *   `truncated` or `malformed` (`ToolInputError`). Only the call the model's
+ *   last output went to can be `truncated`, and only when the stream reported
+ *   an output limit, a content filter or nothing at all. A failed parse at
+ *   `toolCallEnd` defers its `tool_input_completed` to then, because what
+ *   follows the call and the finish reason arrive after the block closes.
  * - `chunk.error`: when no tool input is recoverable, we surface as
  *   a thrown error after emitting the message_completed terminator so
  *   consumer cards still close. If a tool-use block was already open,
@@ -262,12 +266,18 @@ export async function* streamProviderTurn(
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
 	}
-	// Characters the response streamed: text, reasoning and every tool call's
-	// arguments. What an output limit ran out of, so an unreadable call's
-	// share of it says whether the call itself or what came before it filled
-	// the response.
+	// Characters the model streamed so far: text, reasoning and every tool
+	// call's arguments. Each call records it as it begins, so a cut-off call's
+	// share of the response says whether the call itself or what came before
+	// it filled the response.
 	let streamedLength = 0
 	const toolBuckets = new Map<number, ToolCallBucket>()
+	// The call the model's latest output went to, or `undefined` once text,
+	// reasoning or a hosted tool followed it. An output limit, a content
+	// filter or a dropped stream stops the response wherever it is, so this
+	// is the only call one of them can have cut off. Every other call was
+	// complete when the model moved on from it.
+	let lastOutputCall: ToolCallBucket | undefined
 	// Announce a call once its id and name are both known: `tool_input_started`,
 	// then, as one delta, whatever arguments arrived before that.
 	async function* announceToolCall(bucket: ToolCallBucket): AsyncGenerator<SessionEvent, void> {
@@ -439,6 +449,10 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.delta.hostedTool) {
+				// A hosted tool starting is the model moving on. Its later status
+				// changes are not new output: a driver may report the completion
+				// only once the response is over.
+				if (chunk.delta.hostedTool.status === 'running') lastOutputCall = undefined
 				await emitEvent({
 					type: 'hosted_tool',
 					turnId,
@@ -452,6 +466,9 @@ export async function* streamProviderTurn(
 			const reasoning = chunk.delta.reasoning
 			if (reasoning) {
 				let bucket = reasoningBuckets.get(reasoning.index)
+				// A new reasoning block, or more of its text, is the model moving
+				// on. A signature or a close is not: it ends a block already begun.
+				if (!bucket || reasoning.text) lastOutputCall = undefined
 				if (!bucket) {
 					bucket = { type: reasoning.type ?? 'thinking', text: '' }
 					reasoningBuckets.set(reasoning.index, bucket)
@@ -496,7 +513,13 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.delta.content) {
-				streamedLength += chunk.delta.content.length
+				// Text a driver adds of its own, such as a list of sources, comes
+				// after the model stopped. It is not the model moving on from a
+				// call, and not part of what came before one.
+				if (chunk.delta.contentOrigin !== 'driver') {
+					streamedLength += chunk.delta.content.length
+					lastOutputCall = undefined
+				}
 				await emitEvent({
 					type: 'text_delta',
 					turnId,
@@ -532,8 +555,10 @@ export async function* streamProviderTurn(
 						started: false,
 						completed: false,
 						parsed: null,
+						precedingLength: streamedLength,
 					}
 					toolBuckets.set(tc.index, bucket)
+					lastOutputCall = bucket
 				}
 				if (tc.id && !bucket.id) bucket.id = tc.id
 				if (tc.function?.name && !bucket.name) bucket.name = tc.function.name
@@ -546,6 +571,7 @@ export async function* streamProviderTurn(
 				if (fragment) {
 					bucket.argsBuf += fragment
 					streamedLength += fragment.length
+					lastOutputCall = bucket
 				}
 
 				if (!bucket.started) {
@@ -673,16 +699,17 @@ export async function* streamProviderTurn(
 	//
 	// An unreadable buffer becomes `parsed = {}` — the safe fallback, so the
 	// executor's `JSON.parse(arguments)` succeeds and nothing downstream
-	// crashes — plus `inputError`, classified from the finish reason the
-	// stream reported: `truncated` when the output limit or a content filter
-	// stopped the response, or it reported nothing at all; `malformed` when
-	// it finished normally and the JSON was still broken. The executor turns
+	// crashes — plus `inputError`. It is `truncated` only for the call the
+	// model's last output went to, when the output limit or a content filter
+	// stopped the response or it reported nothing at all: whatever stopped
+	// the response could cut no other call. Every other unreadable call is
+	// `malformed`: the response finished normally, or the model moved on to
+	// more output, so it had finished writing the call. The executor turns
 	// that into a message the model can act on. Without it the model got a
 	// generic "<field> is required" error for a call it did not know was
 	// broken, and a cut-off call came back with the same long input, into
-	// the same cutoff, in a loop. With only half of it — every failure called
-	// a cut-off, which is what this code did before the finish reason was
-	// read — a model whose JSON was malformed was told to send less.
+	// the same cutoff, in a loop. Calling a malformed call cut off tells the
+	// model to send less, which does not fix its JSON.
 	for (const bucket of toolBuckets.values()) {
 		let failure = bucket.pendingFailure
 		if (!failure) {
@@ -706,7 +733,11 @@ export async function* streamProviderTurn(
 		bucket.parsed = {}
 		const inputError = classifyUnreadableToolInput(
 			failure,
-			{ length: bucket.argsBuf.length, responseLength: streamedLength },
+			{
+				length: bucket.argsBuf.length,
+				precedingLength: bucket.precedingLength,
+				last: bucket === lastOutputCall,
+			},
 			reportedFinishReason,
 		)
 		bucket.inputError = inputError

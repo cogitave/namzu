@@ -537,10 +537,12 @@ function sizeAdvice(
  * - Malformed: send one valid JSON object, and the tool's own
  *   `malformedInputHint`. Never size advice: size does not fix JSON.
  * - Cut off by the output limit: first, which part of the response filled it.
- *   A call that was less than half of it (`length` against `responseLength`)
- *   did not; the text and calls before it did, and the model is told to send
- *   less before it, with no advice about the call. Otherwise the call itself
- *   is to carry less: {@link sizeAdvice}, and the tool's `truncatedInputHint`.
+ *   A cut-off call is the last thing the response streamed, so the response
+ *   is what came before it (`precedingLength`) and the call itself
+ *   (`length`). A call that was less than half of that did not fill it; what
+ *   came before it did, and the model is told to send less before it, with
+ *   no advice about the call. Otherwise the call itself is to carry less:
+ *   {@link sizeAdvice}, and the tool's `truncatedInputHint`.
  * - Cut off by the stream ending: the declared budgets, if any, or just to
  *   send the call again, and the tool's `truncatedInputHint`.
  * - Stopped by a content filter: no advice. Sending less does not get past a
@@ -583,9 +585,9 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
 		)
-		if (error.finishReason === 'length' && error.length * 2 < error.responseLength) {
+		if (error.finishReason === 'length' && error.length < error.precedingLength) {
 			parts.push(
-				`Most of the response (${error.responseLength} characters) went to what came before this call, so send the call again with less before it in the same response.`,
+				`${error.precedingLength} of the response's ${error.precedingLength + error.length} characters came before this call, so send the call again with less before it in the same response.`,
 			)
 		} else if (error.finishReason !== 'content_filter') {
 			parts.push(sizeAdvice(tool?.largeStringArguments, error) ?? 'Send the call again.')

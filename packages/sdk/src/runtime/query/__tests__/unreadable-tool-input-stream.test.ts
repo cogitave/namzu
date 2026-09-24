@@ -6,6 +6,7 @@ import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { SessionEventDraft } from '../events.js'
+import { unreadableToolInputMessage } from '../executor/tool-call-admission.js'
 import { streamProviderTurn } from '../iteration/stream-turn.js'
 import { PARTIAL_ARGUMENTS_EVENT_LIMIT } from '../iteration/tool-input.js'
 
@@ -27,17 +28,21 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-function providerOf(chunks: StreamChunk[]): LLMProvider {
+/** An `Error` in the list is thrown there, as a dropped connection is. */
+function providerOf(chunks: Array<StreamChunk | Error>): LLMProvider {
 	return {
 		id: 'fake',
 		name: 'Fake',
 		chatStream: async function* () {
-			for (const c of chunks) yield c
+			for (const c of chunks) {
+				if (c instanceof Error) throw c
+				yield c
+			}
 		},
 	} as unknown as LLMProvider
 }
 
-async function run(chunks: StreamChunk[]) {
+async function run(chunks: Array<StreamChunk | Error>) {
 	const events: SessionEvent[] = []
 	const pending: SessionEvent[] = []
 	const emitEvent = async (e: SessionEventDraft) => {
@@ -208,7 +213,7 @@ describe('unreadable tool input is classified from how the response ended', () =
 		})
 	})
 
-	it('measures the whole response beside the call: text, reasoning and every call', async () => {
+	it('measures what came before the call: text, reasoning and earlier calls', async () => {
 		// What decides whether the call itself or what came before it is to be
 		// shortened after an output limit.
 		const cut = '{"path":"a.md","content":"long'
@@ -226,8 +231,7 @@ describe('unreadable tool input is classified from how the response ended', () =
 		expect(completed(events).at(-1)?.inputError).toMatchObject({
 			reason: 'truncated',
 			length: cut.length,
-			responseLength:
-				'Planning the file.'.length + 'Here it is:'.length + '{"q":"fine"}'.length + cut.length,
+			precedingLength: 'Planning the file.'.length + 'Here it is:'.length + '{"q":"fine"}'.length,
 		})
 	})
 
@@ -261,6 +265,137 @@ describe('unreadable tool input is classified from how the response ended', () =
 		expect(first).not.toHaveProperty('inputError')
 		expect(second?.inputError?.reason).toBe('malformed')
 		expect(result?.response.message.toolCalls?.[0]?.metadata).toBeUndefined()
+	})
+})
+
+describe('only the call the response stopped on can have been cut off', () => {
+	// An output limit, a content filter or a dropped stream stops a response
+	// wherever it is, so it can cut only the call it was streaming then. Every
+	// unreadable call used to be classified from the finish reason alone: a
+	// closed call with a Python `True`, followed by a long call the limit cut,
+	// was told it had been cut off after 11 characters, and that most of the
+	// response had gone to what came before it. Nothing came before it; the
+	// 3000 characters came after, and the `True` was never mentioned.
+	const first = '{"q": True}'
+	const long = `{"path":"a.md","content":"${'x'.repeat(3000)}`
+
+	it('calls a closed call malformed when another call followed it and the limit cut that one', async () => {
+		const { result, events } = await run([
+			open(0, 'call_a'),
+			args(0, first),
+			close(0, 'call_a'),
+			open(1, 'call_b', 'write'),
+			args(1, long),
+			close(1, 'call_b'),
+			finish('length'),
+		])
+
+		const [a, b] = completed(events)
+		expect(a?.inputError).toMatchObject({
+			reason: 'malformed',
+			finishReason: 'length',
+			offset: first.indexOf('True'),
+			length: first.length,
+			precedingLength: 0,
+		})
+		expect(b?.inputError).toMatchObject({
+			reason: 'truncated',
+			finishReason: 'length',
+			length: long.length,
+			precedingLength: first.length,
+		})
+
+		const message = unreadableToolInputMessage(
+			'ask',
+			result?.response.message.toolCalls?.[0]?.metadata?.inputError,
+		)
+		expect(message).toContain('were not valid JSON')
+		expect(message).toContain(`at character ${first.indexOf('True')}`)
+		expect(message).not.toMatch(/cut off|came before/)
+	})
+
+	it.each([
+		['text', { id: 'c', delta: { content: `Now let me explain: ${'y'.repeat(500)}` } }],
+		['reasoning', { id: 'c', delta: { reasoning: { index: 0, text: 'Thinking it over.' } } }],
+		[
+			'a hosted search',
+			{
+				id: 'c',
+				delta: { hostedTool: { id: 'ws_1', name: 'web_search', status: 'running' } },
+			},
+		],
+	] as const)('calls a closed call malformed when %s followed it', async (_, later) => {
+		for (const finishReason of ['length', 'content_filter'] as const) {
+			const { events } = await run([
+				open(0, 'call_a'),
+				args(0, first),
+				close(0, 'call_a'),
+				later as StreamChunk,
+				finish(finishReason),
+			])
+			expect(completed(events)[0]?.inputError).toMatchObject({
+				reason: 'malformed',
+				finishReason,
+			})
+		}
+	})
+
+	it('calls a closed call malformed and the call the dropped stream was on truncated', async () => {
+		const { result, events } = await run([
+			open(0, 'call_a'),
+			args(0, '{"q": None}'),
+			close(0, 'call_a'),
+			open(1, 'call_b'),
+			args(1, '{"q": "par'),
+			new Error('socket hang up'),
+		])
+
+		const [a, b] = completed(events)
+		expect(a?.inputError).toMatchObject({ reason: 'malformed', offset: 6 })
+		expect(a?.inputError).not.toHaveProperty('finishReason')
+		expect(b?.inputError).toMatchObject({ reason: 'truncated', precedingLength: 11 })
+		expect(
+			unreadableToolInputMessage(
+				'ask',
+				result?.response.message.toolCalls?.[0]?.metadata?.inputError,
+			),
+		).toContain('were not valid JSON')
+	})
+
+	it("still calls the last call cut off when only the driver's own text followed it", async () => {
+		// A driver's sources appendix arrives after the model stopped. It is
+		// not the model moving on from the call.
+		const { events } = await run([
+			open(0, 'call_1', 'write'),
+			args(0, long),
+			close(0, 'call_1'),
+			{
+				id: 'c',
+				delta: { content: '\n\nSources:\n- https://example.com', contentOrigin: 'driver' },
+			},
+			finish('length'),
+		])
+
+		expect(completed(events)[0]?.inputError).toMatchObject({
+			reason: 'truncated',
+			finishReason: 'length',
+			precedingLength: 0,
+		})
+	})
+
+	it("does not count a call's name or id arriving late as output after the next call", async () => {
+		const { events } = await run([
+			open(0, 'call_a'),
+			args(0, '{"q":"fine"}'),
+			open(1, 'call_b'),
+			args(1, '{"q":"par'),
+			args(0, '', 'call_a'),
+			finish('length'),
+		])
+		expect(completed(events).at(-1)).toMatchObject({
+			toolUseId: 'call_b',
+			inputError: { reason: 'truncated' },
+		})
 	})
 })
 

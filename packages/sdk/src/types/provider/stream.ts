@@ -29,6 +29,16 @@ export interface StreamChunk {
 		}
 
 		content?: string
+		/**
+		 * Who wrote {@link content}. Absent means the model. `'driver'` marks
+		 * text a driver adds of its own after the model's output, such as a
+		 * list of the sources a hosted search used. It is shown and kept in
+		 * the message like any other text, but it is not output the model
+		 * produced: the turn loop does not read it as the model moving on from
+		 * its last tool call, which would turn a call the output limit cut
+		 * off into a malformed one.
+		 */
+		contentOrigin?: 'driver'
 		/** Identity and phase of this content fragment, when the provider supplies them. */
 		textPart?: Omit<import('../message/index.js').AssistantTextPart, 'text'>
 		/**

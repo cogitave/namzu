@@ -126,17 +126,30 @@ describe('jsonSyntaxErrorOffset', () => {
 describe('classifyUnreadableToolInput', () => {
 	const failure = { parseError: 'Unterminated string in JSON at position 5', offset: 5 }
 
+	const last = { length: 6, precedingLength: 0, last: true }
+
 	it.each([
 		['length', 'truncated'],
 		['content_filter', 'truncated'],
 		[undefined, 'truncated'],
 		['tool_calls', 'malformed'],
 		['stop', 'malformed'],
-	] as const)('reads finish reason %s as %s', (finishReason, reason) => {
-		expect(
-			classifyUnreadableToolInput(failure, { length: 6, responseLength: 6 }, finishReason).reason,
-		).toBe(reason)
+	] as const)('reads finish reason %s on the last call as %s', (finishReason, reason) => {
+		expect(classifyUnreadableToolInput(failure, last, finishReason).reason).toBe(reason)
 	})
+
+	it.each(['length', 'content_filter', undefined, 'tool_calls', 'stop'] as const)(
+		'reads a call the model moved on from as malformed, on finish reason %s',
+		(finishReason) => {
+			// Whatever stopped the response stopped it after this call was done.
+			const earlier = { length: 6, precedingLength: 0, last: false }
+			expect(classifyUnreadableToolInput(failure, earlier, finishReason)).toMatchObject({
+				reason: 'malformed',
+				length: 6,
+				precedingLength: 0,
+			})
+		},
+	)
 })
 
 describe('capPartialArguments', () => {

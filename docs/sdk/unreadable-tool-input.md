@@ -18,25 +18,45 @@ it can send the call again.
 
 ## Truncated or malformed
 
-The reason is decided by how the response ended, never by the text. A buffer
-that stops mid-string looks the same whether the output limit cut it off or
-the model closed its turn early. Only the finish reason tells them apart.
+An output limit, a content filter or a dropped stream stops a response
+wherever it is. It can cut off only the call the response was streaming at
+that moment: the last call, with nothing the model streamed after it. A call
+followed by more output (text, reasoning, another call, a hosted search) was
+complete when the model moved on from it. If its arguments do not parse, they
+are malformed, whatever the finish reason.
 
-| Finish reason the stream reported | `inputError.reason` |
-|---|---|
-| `length` (output limit) | `truncated` |
-| `content_filter` | `truncated` |
-| none: the stream ended or failed before its last frame | `truncated` |
-| `stop` or `tool_calls` (a normal finish) | `malformed` |
+For the last call the text cannot decide. A buffer that stops mid-string looks
+the same whether the output limit cut it off or the model closed its turn
+early. The finish reason tells them apart:
 
-A content-filter stop counts as `truncated` because the provider stopped the
-response before the model closed its arguments. The JSON was not the model's
-mistake.
+| The call | Finish reason the stream reported | `inputError.reason` |
+|---|---|---|
+| The last call | `length` (output limit) | `truncated` |
+| The last call | `content_filter` | `truncated` |
+| The last call | none: the stream ended or failed before its last frame | `truncated` |
+| The last call | `stop` or `tool_calls` (a normal finish) | `malformed` |
+| Any call more output followed | any | `malformed` |
 
-A driver may close a call's block before it reports the finish reason. The
-Messages API closes an open `tool_use` block and only then says `max_tokens`.
-So a call whose arguments fail to parse at the block close gets its
-`tool_input_completed` event when the stream ends, not at the block close.
+For the last call, a content-filter stop counts as `truncated` because the
+provider stopped the response before the model closed its arguments. The JSON
+was not the model's mistake.
+
+Only new output from the model counts as following a call: text, reasoning
+text or a new reasoning block, another call starting or sending arguments, or
+a hosted search starting. These do not:
+
+- The block close (`toolCallEnd`). A driver may close a call's block before
+  it reports the finish reason: the Messages API closes an open `tool_use`
+  block and only then says `max_tokens`. So a call whose arguments fail to
+  parse at the block close gets its `tool_input_completed` event when the
+  stream ends, not at the block close.
+- Text a driver adds of its own after the model stopped, such as the list of
+  sources after a hosted search. The driver marks it with
+  `contentOrigin: 'driver'` on the stream chunk's `delta`. A custom driver
+  that appends text of its own should mark it the same way, or a call the
+  output limit cut off before it reads as malformed.
+- A late id or name for an earlier call, a reasoning block's signature or
+  close, or a hosted search's result: each finishes something already begun.
 
 Before this distinction, every parse failure was reported as a cut-off. A model
 whose JSON was malformed, on a response that finished normally, was told to
@@ -51,15 +71,17 @@ send less. That does not fix malformed JSON.
   working.
 - `inputError`: a `ToolInputError`, with fields `reason`, `finishReason`
   (absent when the stream reported none), `parseError` (the JSON parser's
-  message), `offset`, `length` and `responseLength`. `offset` is where parsing
+  message), `offset`, `length` and `precedingLength`. `offset` is where parsing
   stopped: the first character that cannot continue valid JSON, or the whole
   length when the text simply ended. It is found by scanning the arguments,
   not read from the parser's message, which names no position for a bare
   token such as Python's `True` or `None` or JavaScript's `undefined` or
   `NaN`. `length` counts the characters of arguments that
-  arrived. `responseLength` counts the characters the whole response streamed
-  before it stopped: its text, its visible reasoning and every tool call's
-  arguments, this call's included.
+  arrived. `precedingLength` counts the characters the response streamed
+  before this call began: its text, its visible reasoning and the arguments
+  of earlier calls, but not text a driver adds of its own. Nothing follows a
+  truncated call, so for it `precedingLength` plus `length` is the whole
+  response.
 - `partialArguments`: everything that arrived. A `repairToolCall` hook is given
   this text.
 
@@ -83,11 +105,12 @@ The message is assembled from the reason and from the tool:
   if it declares one. It gives no size advice, because size does not fix
   malformed JSON.
 - **Truncated by the output limit.** What stopped the response, after how many
-  characters of arguments. Then it depends on what filled the response:
-  - The call was less than half of it (`length` against `responseLength`):
-    the model is told that most of the response went to what came before the
-    call, and to send the call again with less before it. Nothing about the
-    call's own size.
+  characters of arguments. Then it depends on what filled the response, which
+  is what came before the call (`precedingLength`) and the call itself
+  (`length`):
+  - The call was less than half of it: the model is told how many of the
+    response's characters came before the call, and to send the call again
+    with less before it. Nothing about the call's own size.
   - Otherwise the call itself has to carry less. A tool that declares large
     string arguments is given a budget for each; any other tool is told to
     keep its arguments under half of what arrived, in all. Then the tool's own
