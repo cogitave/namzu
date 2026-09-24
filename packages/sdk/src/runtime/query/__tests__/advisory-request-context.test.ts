@@ -7,12 +7,14 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { IterationOrchestrator } from '../iteration/index.js'
@@ -26,10 +28,12 @@ afterEach(async () => {
 async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-advisory-request-'))
 	roots.push(workingDirectory)
+	const toolsets: Toolset[] = []
 	return {
 		provider,
 		turnId: generateTurnId(),
-		tools: new ToolRegistry(),
+		toolsets,
+		addTool: (tool: ToolDefinition) => toolsets.push(testToolset(tool)),
 		agentId: 'advisory-request',
 		agentName: 'Advisory request',
 		workingDirectory,
@@ -87,7 +91,7 @@ it.each(['trigger', 'tool'] as const)(
 		const advisor = new MockLLMProvider({ turns: [{ text: 'Advice delivered.' }] })
 		const params = await fixture(main, advisor)
 		let reads = 0
-		params.tools.register({
+		params.addTool({
 			name: 'observe',
 			description: 'Observe.',
 			inputSchema: z.object({}),
@@ -176,7 +180,7 @@ it('includes prepared system/context additions and isolates them from driver mut
 	})
 	const advisor = new MockLLMProvider({ turns: [{ text: 'Advice.' }] })
 	const params = await fixture(main, advisor)
-	params.tools.register({
+	params.addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -225,7 +229,7 @@ it('captures the successful image-repaired request, not the rejected image paylo
 	}
 	const advisor = new MockLLMProvider({ turns: [{ text: 'Advice.' }] })
 	const params = await fixture(provider, advisor)
-	params.tools.register({
+	params.addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -261,7 +265,7 @@ it('rebuilds the snapshot on the next turn without persisting the earlier transi
 		turns: [{ toolCalls: [{ name: 'observe', args: {} }] }, { text: 'Needs review.' }],
 	})
 	const params = await fixture(main, advisor)
-	params.tools.register({
+	params.addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
@@ -310,7 +314,7 @@ it('releases the captured turn when cancelled during the advisory call', async (
 		turns: [{ error: { message: 'Advisor cancelled.' } }],
 	})
 	const params = await fixture(main, advisor)
-	params.tools.register({
+	params.addTool({
 		name: 'observe',
 		description: 'Observe.',
 		inputSchema: z.object({}),
