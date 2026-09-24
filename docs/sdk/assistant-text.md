@@ -29,6 +29,11 @@ tool use and completion.
 
 - `StreamChunk.delta.textPart` optionally identifies the item for that content
   fragment. Fragments for a contiguous item accumulate in order.
+- `StreamChunk.delta.contentOrigin: 'driver'` marks content a driver adds of
+  its own after the model's output, such as a hosted search's list of
+  sources. It accumulates like any other content. The turn loop does not
+  count it as output the model produced after a tool call (see
+  [Unreadable tool input](unreadable-tool-input.md#truncated-or-malformed)).
 - `StreamChunk.textParts` supplies the complete ordered snapshot at settlement,
   on a chunk without `delta.content`. It replaces accumulated text items,
   including when the provider supplies phase information only at completion.

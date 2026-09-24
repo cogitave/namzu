@@ -1,5 +1,10 @@
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
-import type { Message, MessageAttachment, ToolResultBlock } from '../types/message/index.js'
+import type {
+	Message,
+	MessageAttachment,
+	ToolCall,
+	ToolResultBlock,
+} from '../types/message/index.js'
 import type { AdvisoryTurnContext } from './executor.js'
 
 function attachmentSummary(attachment: MessageAttachment) {
@@ -13,6 +18,26 @@ function attachmentSummary(attachment: MessageAttachment) {
 
 function publicBlock(block: ToolResultBlock) {
 	return block.type === 'text' ? { type: 'text', text: block.text } : attachmentSummary(block)
+}
+
+/**
+ * What the advisor is told about a call whose arguments could not be read,
+ * whose `arguments` are then `"{}"`. `inputTruncated` is set for every such
+ * call, cut off or malformed alike, so it cannot say which: the advisor was
+ * told a malformed call's arguments were incomplete. `inputError` says which,
+ * and a call an older runtime recorded without it is called unreadable, which
+ * is all that is known.
+ */
+function unreadableArguments(call: ToolCall) {
+	if (!call.metadata?.inputTruncated) return {}
+	switch (call.metadata.inputError?.reason) {
+		case 'truncated':
+			return { argumentsIncomplete: true }
+		case 'malformed':
+			return { argumentsMalformed: true }
+		default:
+			return { argumentsUnreadable: true }
+	}
 }
 
 /** Text projection, not provider-native replay or independent verification. */
@@ -35,7 +60,7 @@ function renderRecord(message: Message, stage?: 'request' | 'subsequent'): strin
 				id: call.id,
 				name: call.function.name,
 				arguments: call.function.arguments,
-				...(call.metadata?.inputTruncated ? { argumentsIncomplete: true } : {}),
+				...unreadableArguments(call),
 			}))
 		}
 		if (message.textParts?.length) {

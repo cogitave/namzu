@@ -1192,7 +1192,16 @@ export class IterationOrchestrator {
 						//     never auto-continues — that path is invoked
 						//     specifically to extract a closing summary.
 						//   - max_iterations bounds the loop in any case.
-						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
+						//   - not after the context window: a response that filled
+						//     it has no room left to continue into, and the
+						//     continuation would only send a longer prompt into
+						//     the same full window. The reply stands as it is.
+						if (
+							!forceFinalize &&
+							response.finishReason === 'length' &&
+							response.finishDetail !== 'context_window' &&
+							hasContent
+						) {
 							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,

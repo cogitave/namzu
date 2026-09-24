@@ -1,12 +1,20 @@
 /**
  * Provider error taxonomy — LM Studio driver.
  *
- * `mapStopReason` folds `contextLengthReached` into `finishReason: 'length'`
- * unconditionally. When the prediction produced NO content, that is not a
- * truncated answer the runtime can auto-continue — the prompt itself did not
- * fit, and the turn failed. Today the caller receives a terminal chunk with
- * `finishReason: 'length'`, empty content, and no error at all: the run reads
- * as a successful (if empty) turn.
+ * `mapStopReason` used to fold `contextLengthReached` into plain
+ * `finishReason: 'length'` unconditionally, indistinguishable from
+ * `maxPredictedTokensReached`. When the prediction produced NO content, that
+ * is not a truncated answer the runtime can auto-continue — the prompt
+ * itself did not fit, and the turn failed; `chatStream` throws
+ * `context_overflow` for that case (below), never reaching `mapStopReason`.
+ * When it produced content, the fold was worse than merely imprecise: the
+ * runtime auto-continues a `'length'` finish, so a reply that had just
+ * filled the model's context window was sent straight back in, in a prompt
+ * even longer than the window that had just overflowed. `mapStopReason` now
+ * reports that case as `finishReason: 'length'` with
+ * `finishDetail: 'context_window'`, which the runtime reads as the
+ * conversation's own length rather than the response's, and does not
+ * auto-continue.
  *
  * Transport seam: `LMStudioConfig` exposes no injection point (the SDK owns a
  * websocket), so these tests substitute the driver's private `clientInstance`
@@ -118,7 +126,7 @@ describe('@namzu/lmstudio — context overflow is a failure, not a finish reason
 		})
 	})
 
-	it("`contextLengthReached` AFTER content stays a 'length' finish so the runtime can auto-continue", async () => {
+	it("`contextLengthReached` AFTER content is a 'length' finish marked 'context_window', so the runtime does not auto-continue it", async () => {
 		const provider = providerYielding(['Once upon a time'], {
 			stopReason: 'contextLengthReached',
 			promptTokensCount: 100,
@@ -128,6 +136,22 @@ describe('@namzu/lmstudio — context overflow is a failure, not a finish reason
 		const chunks = await collectChunks(provider)
 
 		expect(chunks.at(-1)?.finishReason).toBe('length')
+		expect(chunks.at(-1)?.finishDetail).toBe('context_window')
+	})
+
+	it("`maxPredictedTokensReached` stays a plain 'length' finish, with no context-window detail", async () => {
+		// The output-token budget ran out, not the conversation's length: the
+		// runtime's ordinary auto-continue is exactly right here.
+		const provider = providerYielding(['Once upon a time'], {
+			stopReason: 'maxPredictedTokensReached',
+			promptTokensCount: 100,
+			predictedTokensCount: 4,
+		})
+
+		const chunks = await collectChunks(provider)
+
+		expect(chunks.at(-1)?.finishReason).toBe('length')
+		expect(chunks.at(-1)?.finishDetail).toBeUndefined()
 	})
 })
 
