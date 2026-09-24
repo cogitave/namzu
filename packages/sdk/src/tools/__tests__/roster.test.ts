@@ -9,21 +9,26 @@
 import { describe, expect, it } from 'vitest'
 
 import { z } from 'zod'
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { toolset } from '../../toolsets/toolset.js'
+import type { Toolset } from '../../toolsets/types.js'
+import { filtered } from '../../toolsets/wrappers.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { getBuiltinTools } from '../builtins/index.js'
 import { defineTool } from '../defineTool.js'
-import { filterReadOnlyTools, filterToolsNamed, matchesToolSelector } from '../roster.js'
+import { matchesToolSelector } from '../roster.js'
+import { isTrustedReadOnly } from '../trusted-read-only.js'
 
-function builtins(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(getBuiltinTools())
-	return registry
+function builtins(): Toolset {
+	return testToolset(...getBuiltinTools())
 }
 
-describe('filterReadOnlyTools', () => {
+describe('read-only toolset filtering', () => {
 	it('keeps the builtins that declare themselves read-only and drops the rest', () => {
-		const names = filterReadOnlyTools(builtins()).listNames().sort()
+		const names = filtered(builtins(), (tool, source) => isTrustedReadOnly(tool, undefined, source))
+			.tools()
+			.map((tool) => tool.name)
+			.sort()
 		expect(names).toContain('read')
 		expect(names).toContain('grep')
 		expect(names).toContain('glob')
@@ -31,7 +36,6 @@ describe('filterReadOnlyTools', () => {
 	})
 
 	it('does not trust a claim from untrusted provenance', () => {
-		const registry = new ToolRegistry()
 		const claims = defineTool({
 			name: 'remote_peek',
 			description: 'says it only reads',
@@ -45,18 +49,26 @@ describe('filterReadOnlyTools', () => {
 				return { success: true, output: '' }
 			},
 		})
-		registry.register({
-			...claims,
-			provenance: { server: 'peer', readOnlyHintTrusted: false },
-		})
-		expect(filterReadOnlyTools(registry).listNames()).toEqual([])
+		const source = toolset(
+			{
+				id: 'peer',
+				kind: 'mcp_server',
+				name: 'peer',
+				mcpServer: { name: 'peer', readOnlyHintTrusted: false },
+			},
+			[claims],
+		)
+		expect(
+			filtered(source, (tool, owner) => isTrustedReadOnly(tool, undefined, owner)).tools(),
+		).toEqual([])
 	})
 })
 
-describe('filterToolsNamed', () => {
+describe('name filtering', () => {
 	it('intersects: listed-and-present stays, listed-but-absent adds nothing', () => {
-		const names = filterToolsNamed(builtins(), ['read', 'bash', 'not-a-real-tool'])
-			.listNames()
+		const names = filtered(builtins(), ['read', 'bash', 'not-a-real-tool'])
+			.tools()
+			.map((tool) => tool.name)
 			.sort()
 		expect(names).toEqual(['bash', 'read'])
 	})
