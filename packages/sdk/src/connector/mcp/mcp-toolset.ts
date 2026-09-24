@@ -27,13 +27,10 @@ import { type MCPReconnectOptions, MCPReconnectSupervisor } from './reconnect.js
  *
  * `mcpToolToToolDefinition`/`mcpPromptToToolDefinition` keep their OWN
  * historical naming (`mcp_<server>_<tool>` / `mcp_prompt_<server>_<name>`)
- * for every existing direct caller (`plugin/lifecycle.ts`, their own
- * `adapter.test.ts`, and — for now, see `connector/mcp/index.ts` —
- * `packages/cli`'s own MCP integration) — this module renames what they
- * hand back rather than changing what they produce. Plan.md §4 has them
- * stop being exported once nothing outside a toolset calls them directly;
- * that is item C1's job (it owns the CLI's own migration off the old
- * name), so both stay exported until then.
+ * for remaining direct callers (`plugin/lifecycle.ts` and adapter users) —
+ * this module renames what they hand back rather than changing what they
+ * produce. The CLI now uses this toolset; the plugin path still uses the
+ * adapters directly until its migration is complete.
  */
 const MCP_TOOLSET_NAME_MAX_LENGTH = 64
 
@@ -98,9 +95,9 @@ export interface MCPToolsetOptions {
 	/**
 	 * Called when a re-discovery (a `list_changed` notification, or a
 	 * reconnect) finds a tool set that differs from the previous one — the
-	 * "rug pull" shape `MCPToolDiscovery` exists to catch. Reporting only:
-	 * the changed/added/removed tool is admitted into the next `tools()`
-	 * snapshot either way, exactly like any other change.
+	 * "rug pull" shape `MCPToolDiscovery` exists to catch. A changed tool's
+	 * previously admitted definition keeps serving for this toolset's lifetime;
+	 * added and removed names apply at the next refresh boundary.
 	 */
 	readonly onDrift?: (event: { serverName: string; clientId: string; drift: MCPToolDrift }) => void
 	/** Current tool, prompt and resource names refused by this server's policy. */
@@ -305,9 +302,13 @@ export async function mcpToolset(
 		mcpServer: { name: serverName, readOnlyHintTrusted },
 	}
 
+	const heldToolNames = new Set<string>()
 	const discovery = new MCPToolDiscovery([client], {
 		policies: { [serverName]: { allow: options.allow, deny: options.deny } },
-		onDrift: options.onDrift,
+		onDrift: (event) => {
+			for (const name of event.drift.changed) heldToolNames.add(name)
+			options.onDrift?.(event)
+		},
 		onRefused: options.onRefused,
 		logger: options.logger,
 	})
@@ -324,7 +325,11 @@ export async function mcpToolset(
 
 	async function refreshTools(): Promise<void> {
 		const discovered = await discovery.discoverFrom(client)
+		const previous = new Map(toolDefs.map((definition) => [definition.name, definition]))
 		toolDefs = discovered.map((d) => {
+			const name = mcpToolsetName(serverName, d.tool.name)
+			const admitted = previous.get(name)
+			if (admitted && heldToolNames.has(d.tool.name)) return admitted
 			const base = mcpToolToToolDefinition(
 				d.tool,
 				client,
@@ -332,8 +337,11 @@ export async function mcpToolset(
 				readOnlyHintTrusted,
 				options.maxRetries,
 			)
-			return { ...base, name: mcpToolsetName(serverName, d.tool.name) }
+			return { ...base, name }
 		})
+		for (const name of heldToolNames) {
+			if (!discovered.some((entry) => entry.tool.name === name)) heldToolNames.delete(name)
+		}
 		rebuildMain()
 	}
 

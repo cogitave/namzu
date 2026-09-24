@@ -104,6 +104,47 @@ afterEach(() => {
 })
 
 describe('one terminal event per streamed run', () => {
+	it('reports MCP refusals before the turn and held drift before done', async () => {
+		let changed = false
+		vi.mocked(createAgentSession).mockResolvedValue(
+			fakeAgentSession({
+				mcpStatus: () => ({
+					connected: [
+						{
+							name: 'tickets',
+							toolCount: 1,
+							tools: ['mcp__tickets__create'],
+							refused: [{ kind: 'tools', name: 'delete', reason: 'denied' }],
+							drift: { added: [], removed: [], changed: changed ? ['create'] : [] },
+						},
+					],
+					failed: [],
+				}),
+				send: async function* () {
+					changed = true
+					yield { kind: 'done', stopReason: 'end_turn' }
+				},
+			}),
+		)
+		const { code, out } = await run(['hello'])
+		expect(code).toBe(0)
+		const events = out
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line))
+		expect(events.filter((event) => event.kind === 'notice')).toEqual([
+			{
+				kind: 'notice',
+				message: 'tool server "tickets": tools name refused by policy: delete (denied)',
+			},
+			{
+				kind: 'notice',
+				message: 'tool server "tickets": tool changed; earlier definition held: create',
+			},
+		])
+		expect(events.at(-1)?.kind).toBe('done')
+	})
+
 	it('publishes the settled result separately from streamed candidates, into the keyed conversation', async () => {
 		vi.mocked(createAgentSession).mockClear()
 		vi.mocked(createAgentSession).mockResolvedValue(

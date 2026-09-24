@@ -34,6 +34,7 @@
 
 import {
 	MCPClient,
+	type MCPToolDrift,
 	type MCPToolsetOptions,
 	type MCPTransportUnion,
 	type ToolDefinition,
@@ -156,6 +157,14 @@ export interface ConnectedMcpServer {
 	readonly tools: readonly string[]
 	/** The server's current initialize instructions, if it supplied any. */
 	readonly instructions?: string
+	/** Names changed since this connection's first listing; changed definitions remain held. */
+	readonly drift?: MCPToolDrift
+	/** Current allow/deny refusals, by server-reported name. */
+	readonly refused?: readonly {
+		kind: 'tools' | 'prompts' | 'resources'
+		name: string
+		reason: 'not_allowed' | 'denied'
+	}[]
 }
 
 export interface FailedMcpServer {
@@ -387,6 +396,15 @@ export async function connectMcpServers(
 		readonly client: MCPClient
 		readonly name: string
 		readonly toolsets: readonly Toolset[]
+		readonly discovery: {
+			readonly added: Set<string>
+			readonly removed: Set<string>
+			readonly changed: Set<string>
+			readonly refused: Map<
+				'tools' | 'prompts' | 'resources',
+				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+			>
+		}
 	}> = []
 
 	// Sequential, not parallel. Each server may spawn a process and each is
@@ -423,10 +441,27 @@ export async function connectMcpServers(
 			transport,
 			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
 		})
+		const discovery = {
+			added: new Set<string>(),
+			removed: new Set<string>(),
+			changed: new Set<string>(),
+			refused: new Map<
+				'tools' | 'prompts' | 'resources',
+				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+			>(),
+		}
 		try {
 			await withDeadline(client.connect(), deadline, `server "${name}"`)
 			const discovered = await withDeadline(
-				mcpToolset(client, toolsetOptions),
+				mcpToolset(client, {
+					...toolsetOptions,
+					onDrift: ({ drift }) => {
+						for (const item of drift.added) discovery.added.add(item)
+						for (const item of drift.removed) discovery.removed.add(item)
+						for (const item of drift.changed) discovery.changed.add(item)
+					},
+					onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
+				}),
 				deadline,
 				`server "${name}" discovering its tools`,
 			)
@@ -434,7 +469,7 @@ export async function connectMcpServers(
 				? discovered.map((entry) => requireApproval(entry))
 				: [...discovered]
 			toolsets.push(...mounted)
-			liveServers.push({ client, name, toolsets: mounted })
+			liveServers.push({ client, name, toolsets: mounted, discovery })
 			clients.push(client)
 		} catch (err) {
 			startupFailed.push({ name, reason: reasonOf(err) })
@@ -462,7 +497,7 @@ export async function connectMcpServers(
 	} => {
 		const connected: ConnectedMcpServer[] = []
 		const failed: FailedMcpServer[] = [...startupFailed]
-		for (const { client, name, toolsets: serverToolsets } of liveServers) {
+		for (const { client, name, toolsets: serverToolsets, discovery } of liveServers) {
 			const state = client.getState()
 			if (state.status === 'connected') {
 				const names = serverToolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
@@ -470,6 +505,14 @@ export async function connectMcpServers(
 					name,
 					toolCount: names.length,
 					tools: names,
+					drift: {
+						added: [...discovery.added],
+						removed: [...discovery.removed],
+						changed: [...discovery.changed],
+					},
+					refused: [...discovery.refused.entries()].flatMap(([kind, items]) =>
+						items.map((item) => ({ kind, ...item })),
+					),
 					...(state.serverInstructions !== undefined
 						? { instructions: state.serverInstructions }
 						: {}),

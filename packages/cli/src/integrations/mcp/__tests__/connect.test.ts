@@ -264,6 +264,8 @@ describe('a declared server', () => {
 					name: 'tickets',
 					toolCount: 2,
 					tools: ['mcp__tickets__create', 'mcp__tickets__close'],
+					drift: { added: [], removed: [], changed: [] },
+					refused: [],
 				},
 			])
 			// Prefixed with the server name so two servers offering `create` do
@@ -313,6 +315,9 @@ describe('a declared server', () => {
 		try {
 			expect(mcp.failed).toEqual([])
 			expect(mcp.connected[0]?.tools).toEqual(['mcp__tickets__create'])
+			expect(mcp.current().connected[0]?.refused).toEqual([
+				{ kind: 'tools', name: 'close', reason: 'denied' },
+			])
 			expect(mcp.toolsets).toHaveLength(2)
 			expect(mcp.toolsets[1]?.availability).toBe('deferred')
 			expect(mcp.toolsets[0]?.source.mcpServer?.readOnlyHintTrusted).toBe(true)

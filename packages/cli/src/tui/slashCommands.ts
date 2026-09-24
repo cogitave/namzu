@@ -308,6 +308,16 @@ export interface SlashContext {
 			readonly name: string
 			readonly tools: readonly string[]
 			readonly instructions?: string
+			readonly drift?: {
+				readonly added: readonly string[]
+				readonly removed: readonly string[]
+				readonly changed: readonly string[]
+			}
+			readonly refused?: readonly {
+				readonly kind: 'tools' | 'prompts' | 'resources'
+				readonly name: string
+				readonly reason: 'not_allowed' | 'denied'
+			}[]
 		}[]
 		readonly failed: readonly {
 			readonly name: string
@@ -1784,6 +1794,16 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 	]
 	for (const server of mcp.connected) {
 		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
+		const drift = server.drift
+		if (drift) {
+			for (const name of drift.added) lines.push(`  added: ${terminalDisplayText(name)}`)
+			for (const name of drift.removed) lines.push(`  removed: ${terminalDisplayText(name)}`)
+			for (const name of drift.changed)
+				lines.push(`  changed, earlier definition held: ${terminalDisplayText(name)}`)
+		}
+		for (const item of server.refused ?? []) {
+			lines.push(`  refused ${item.kind}: ${terminalDisplayText(item.name)} (${item.reason})`)
+		}
 		if (details) {
 			if (server.instructions) {
 				const safe = terminalDisplayText(server.instructions).replace(/\s+/g, ' ').trim()

@@ -57,6 +57,24 @@ describe('renderMcp', () => {
 		expect(renderMcp(mcp, false)).not.toContain('Use create.')
 	})
 
+	it('shows drift, held changes and policy refusals', () => {
+		const rendered = renderMcp({
+			connected: [
+				{
+					name: 'tickets',
+					tools: ['mcp__tickets__create'],
+					drift: { added: ['new'], removed: ['old'], changed: ['create'] },
+					refused: [{ kind: 'tools', name: 'delete', reason: 'denied' }],
+				},
+			],
+			failed: [],
+		})
+		expect(rendered).toContain('added: new')
+		expect(rendered).toContain('removed: old')
+		expect(rendered).toContain('changed, earlier definition held: create')
+		expect(rendered).toContain('refused tools: delete (denied)')
+	})
+
 	it('says nothing is configured only when nothing is', () => {
 		const rendered = renderMcp({ connected: [], failed: [] })
 		expect(rendered).toMatch(/No tool servers configured/)

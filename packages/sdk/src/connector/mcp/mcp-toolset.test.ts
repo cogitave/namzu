@@ -263,12 +263,19 @@ describe('mcpToolset', () => {
 			await changed
 
 			expect(drifts).toEqual([['echo']])
-			// The changed definition is admitted, not held back — a later item
-			// (the ToolManager, plan.md §2) is what holds a changed definition
-			// while the previously admitted one keeps serving; a toolset by
-			// itself only ever reports its current truth.
+			// The toolset holds the original definition. A new ToolManager built
+			// for the next turn must not admit the changed server description.
 			const tool = allTools(ts).find((t) => t.name === 'mcp__demo__echo')
-			expect(tool?.description).toContain('Echoes, loudly.')
+			expect(tool?.description).toContain('Echoes its input')
+			expect(new ToolManager({ toolsets: ts, messages: () => [] }).get('mcp__demo__echo')).toBe(
+				tool,
+			)
+
+			const changedAgain = waitForChange(ts[0].onChange)
+			server.setTools([{ ...echoTool, description: 'Echoes, even louder.' }])
+			server.fireListChanged('tools')
+			await changedAgain
+			expect(allTools(ts).find((t) => t.name === 'mcp__demo__echo')).toBe(tool)
 		})
 
 		it('ignores a list_changed notification the server never advertised', async () => {
