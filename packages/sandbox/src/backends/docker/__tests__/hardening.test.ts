@@ -358,7 +358,7 @@ describe('buildDockerRunArgs — the baseline', () => {
 	})
 
 	it('never renders a privilege grant, whatever the config carries', () => {
-		const rendered = argv(backendConfig({ labels: { 'vandal.task-id': 't1' }, cpuLimit: 2 }), {
+		const rendered = argv(backendConfig({ labels: { 'acme.task-id': 't1' }, cpuLimit: 2 }), {
 			workingDirectory: '/workspace',
 			memoryLimitMb: 512,
 			maxProcesses: 64,

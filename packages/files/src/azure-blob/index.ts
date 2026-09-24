@@ -12,7 +12,7 @@ const PROVIDER = 'azure-blob' as const
 export interface AzureBlobStoreOptions {
 	/** Azure Storage connection string. Required. */
 	readonly connectionString: string
-	/** Container name; created on first use if missing. Default: 'namzu-files'. Consumers (e.g. Vandal) override to brand their own deployments. */
+	/** Container name; created on first use if missing. Default: 'namzu-files'. Consumers override it to brand their own deployments. */
 	readonly container?: string
 	/** Optional key prefix (e.g. 'tenant-id/'); prepended to every key. */
 	readonly keyPrefix?: string

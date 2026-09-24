@@ -1,5 +1,30 @@
 # Changelog
 
+## 6.2.0
+
+### Minor Changes
+
+- 28102e1: A forced tool choice that the vendor always rejects is now refused before it is sent. This covers `toolChoice: 'required'` and a named function on Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1. It also covers a forced choice on any model when the request carries manual extended thinking (`thinking: { type: 'enabled' }` after the driver resolves it). These requests used to go to the API and fail there with a 400. On the three models the message is `tool_choice: type "tool" and "any" are not supported for this model.`
+
+  What changes for you:
+
+  - **The request still fails, but earlier.** You get a `ProviderRequestError` with `kind: 'bad_request'` and `providerCode: 'forced_tool_choice_unsupported'`. It has no HTTP `status`, because nothing was sent. The message tells you what to use instead: `toolChoice: 'auto'` with the tool named in the prompt, or `responseFormat` for a fixed JSON shape.
+  - **New export `acceptsForcedToolChoice(model, thinking?)`.** It says whether a forced choice will be taken, using the same resolution the request uses. Use it to decide whether a `prepareStep` stage can force a call on the model it is about to run.
+  - **No change** for `'auto'` or `'none'`, or for forced choices on models that accept them (`claude-opus-5`, `claude-fable-5`, `claude-sonnet-5` and earlier, with adaptive thinking or none).
+
+### Patch Changes
+
+- 28102e1: `claude-opus-5-5` can no longer be asked to turn thinking off. The driver treated it like `claude-opus-5`, which accepts `thinking: { type: 'disabled' }` at effort `high` or below. Opus 5.5 cannot stop thinking and answers `disabled` with a 400 at every effort level.
+
+  What changes for you:
+
+  - **A `thinking: { type: 'disabled' }` intent is left out of Opus 5.5 requests.** It used to be sent, and the request failed with `"thinking.type.disabled" is not supported for this model`. Now the model runs its default adaptive thinking, as it already did for the Fable and Mythos families. To spend less on thinking, lower `effort`. Note that Opus 5.5 defaults to effort `medium` when you leave `effort` unset.
+  - **`disabled` with effort `xhigh` or `max` is no longer refused on Opus 5.5.** It used to fail before sending with `effort "max" is not supported by model "claude-opus-5-5"`, although the model accepts all five levels.
+  - **`resolveThinkingCapability('claude-opus-5-5')`** returns `canDisable: false` and all five levels in both `effort` and `effortWhenDisabled`. `provider.effortLevelsFor('claude-opus-5-5', { type: 'disabled' })` returns all five levels.
+  - **A later Opus id** (`claude-opus-5-6`, `claude-opus-6`) resolves the same way.
+
+  `claude-opus-5` keeps accepting `disabled` at `high` or below.
+
 ## 6.1.0
 
 ### Minor Changes
@@ -1355,8 +1380,8 @@
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

@@ -786,7 +786,7 @@ fi
 # @namzu/sandbox public-surface fixture (ses_005-sandbox-multi-mount-layout).
 # ---------------------------------------------------------------------------
 #
-# Vandal Cowork imports `SANDBOX_DEFAULT_OUTPUTS_PATH` and the
+# A host imports `SANDBOX_DEFAULT_OUTPUTS_PATH` and the
 # `ContainerSandboxLayout` type by name from `@namzu/sandbox` (and via the
 # SDK root barrel). The package.json `exports` map only exposes `"."`;
 # subpath imports like `@namzu/sandbox/dist/index.js` would bypass the

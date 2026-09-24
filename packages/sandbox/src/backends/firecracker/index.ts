@@ -10,7 +10,7 @@
  *    host loopback port.
  *  - aci PUTs an ACI container group and reaches the same HTTP worker
  *    over the group's IP.
- *  - firecracker POSTs the owned Azure **orchestrator** to CoW-resume a
+ *  - firecracker POSTs a self-hosted **orchestrator** to CoW-resume a
  *    microVM off the golden snapshot, then reaches a **custom vsock
  *    agent** baked into the golden rootfs over the **vsock transport**
  *    (`transport.ts`). The wire FORMAT is identical (see `protocol.ts`);
@@ -23,8 +23,8 @@
  * A sibling process on the FC host cannot see the microVM's
  * filesystem, so — exactly like ACI — the workspace is seeded by
  * archive-sync over the control channel (tar.gz `writeFile` +
- * in-sandbox `tar -xzf` via `exec`), driven by the Vandal-side
- * lifecycle (`workspace-sync.ts`). This backend therefore exposes no
+ * in-sandbox `tar -xzf` via `exec`), driven by the host's sandbox
+ * lifecycle. This backend therefore exposes no
  * `layout` mount rendering; it only needs the `outputs` container path
  * as the workspace root, which the orchestrator returns as `rootDir`.
  *
@@ -99,7 +99,7 @@ function stripTrailingSlashes(value: string): string {
 export type OrchestratorTokenProvider = () => Promise<string>
 
 export interface FirecrackerBackendInternalConfig {
-	/** Base URL of the owned Azure control plane / orchestrator. */
+	/** Base URL of the self-hosted orchestrator's control plane. */
 	readonly orchestratorEndpoint: string
 	/** Bearer token provider for `orchestratorEndpoint`. */
 	readonly getToken: OrchestratorTokenProvider
@@ -121,7 +121,7 @@ export interface FirecrackerBackendInternalConfig {
 	/** Transport tuning forwarded to {@link VsockAgentTransport}. */
 	readonly transport?: VsockTransportOptions
 	/**
-	 * NETWORK-mode mTLS client material (ses_051 P4). When present AND the
+	 * NETWORK-mode mTLS client material. When present AND the
 	 * orchestrator returns an `mtls` agent handle, this CA/cert/key is MERGED
 	 * onto the handle's `tls` block before the transport dials the per-host
 	 * relay. The consumer's runtime injects it (mirrors `getToken`); this
@@ -135,8 +135,8 @@ export interface FirecrackerBackendInternalConfig {
 	 * `GET /capacity`) dial over mTLS — presenting this client cert and
 	 * verifying the orchestrator's server cert against this CA — INSTEAD of the
 	 * plain `fetch`. This secures the control plane when `orchestratorEndpoint`
-	 * is reached over the PUBLIC internet (the `ca-vandal-app` → FC-host hop is
-	 * not VNet-integrated), where the shared-secret bearer alone would be
+	 * is reached over the PUBLIC internet (the caller and the Firecracker host
+	 * share no private network), where the shared-secret bearer alone would be
 	 * exposed. The bearer is STILL sent (defense in depth on top of mTLS).
 	 *
 	 * Reuses the SAME `{ca,cert,key,servername}` shape as the relay's `mtls`
@@ -154,8 +154,8 @@ const DEFAULT_READY_POLL_MS = 250
 const RETIREMENT_TIMEOUT_MS = 5_000
 
 /**
- * Build a {@link SandboxBackend} backed by the owned Firecracker
- * platform. Construction is synchronous; the orchestrator POST happens
+ * Build a {@link SandboxBackend} backed by a self-hosted Firecracker
+ * orchestrator. Construction is synchronous; the orchestrator POST happens
  * on the first `create()`.
  */
 export function buildFirecrackerBackend(config: FirecrackerBackendInternalConfig): SandboxBackend {
@@ -203,7 +203,7 @@ interface OrchestratorCreateRequest {
 	readonly agentSnapshot?: AgentSnapshotRef
 }
 
-/** Network policy carried on the owned orchestrator create wire. */
+/** Network policy carried on the self-hosted orchestrator's create wire. */
 export type OrchestratorNetworkPolicy =
 	| { readonly mode: 'none' }
 	| { readonly mode: 'open' }
@@ -643,7 +643,7 @@ async function spawnFirecrackerSandbox(
 			await Promise.allSettled(activeTerminals.map((terminal) => terminal.exited))
 			terminals.clear()
 			// Let the orchestrator DELETE failure propagate — the
-			// Vandal-side lifecycle wraps this with logging, and a
+			// host's lifecycle wraps this with logging, and a
 			// swallowed error here means orphaned microVMs (and their
 			// netns / UFFD handlers) pile up with no observability handle.
 			await teardownSandbox(options?.signal)
@@ -715,7 +715,7 @@ export function normalizeHandle(
 		if (!mtls) {
 			throw new Error(
 				'firecracker: orchestrator returned an mtls agent handle but no client cert material was injected ' +
-					'(the Vandal host layer must supply VANDAL_SANDBOX_FC_TLS_CA/_CERT/_KEY in network mode)',
+					'(pass `mtls: { ca, cert, key }` in the backend config to reach a network-mode sandbox)',
 			)
 		}
 		return {

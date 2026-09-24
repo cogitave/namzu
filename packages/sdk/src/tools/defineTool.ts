@@ -27,6 +27,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	readOnly: boolean | ((input: z.infer<S>) => boolean)
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
+	/** Whether this exact call sends the screen to the provider; see {@link ToolDefinition.capturesScreen}. */
+	capturesScreen?: boolean | ((input: z.infer<S>) => boolean)
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
 	executionBarrier?: boolean
 	tier?: string
@@ -154,6 +156,14 @@ export function defineTool<S extends z.ZodType>(
 				? options.destructive
 				: constantDestructive(options.destructive as boolean),
 		isConcurrencySafe: () => options.concurrencySafe,
+		...(options.capturesScreen !== undefined
+			? {
+					capturesScreen:
+						typeof options.capturesScreen === 'function'
+							? options.capturesScreen
+							: () => options.capturesScreen as boolean,
+				}
+			: {}),
 
 		async execute(input: TInput, context: ToolContext): Promise<ToolResult> {
 			try {

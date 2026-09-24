@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.1.1
+
+### Patch Changes
+
+- 82769f1: The Codex (Responses) driver sends images returned by tools with `detail: "high"` instead of `"auto"`. With `auto` the backend could pick the 512-pixel `low` view of a screenshot, so a model answered in coordinates of an image the tool never produced. Images the user attaches still go with `auto`. No change is needed on your side.
+
 ## 4.1.0
 
 ### Minor Changes
@@ -695,8 +701,8 @@
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

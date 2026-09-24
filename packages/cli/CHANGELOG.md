@@ -1,5 +1,84 @@
 # @namzu/cli
 
+## 30.0.0
+
+### Major Changes
+
+- 82769f1: The interactive CLI now asks once per session before the model first sees your screen, and `strict` mode no longer lets a screenshot run on its own — that second part is why this is a major release for `@namzu/cli`. In `prompt`, `accept-edits` and `plan` mode the first `computer_use` call that would send the screen to the provider — a screenshot, a zoom, the list of open windows, a window's controls, or an action that returns a screenshot — opens a "Share your screen" box naming the provider; after a yes, later screenshots in that session run without asking, and clicks, typing and `ui_act` are still reviewed as before. A mode switch keeps the answer; a new session (`/new`, `/clear`, `/model`) asks again. `auto` never asks. **`strict` now refuses a screenshot unless a rule allows it**: to keep screenshots running in `strict`, add `permissions: { computer_use: 'allow' }` (which also allows clicks) or a narrower rule for the actions you want.
+
+  Approving a `ui_act` call shows the control by name (`Press Button "Beş" (e30)`), and `ui_snapshot` as the window it reads.
+
+  **`@namzu/sdk`**
+
+  - `ToolDefinition.capturesScreen?(input)` and `defineTool({ capturesScreen })` declare which calls send the operator's screen to the model provider. `computer_use` declares its observations and every action followed by a screenshot.
+  - **Breaking:** the authorization gate's `allow_read_only` rule (`allowReadOnlyTools: true`, in every shipped preset) no longer allows a call that declares `capturesScreen`; it goes to the review policy instead. With `createReviewHandler` and no `screenConsent` nothing changes (a screenshot is approved as a read); a custom `ResumeHandler` now sees `computer_use` screenshots, zooms, window lists and UI snapshots. To keep them out of review, add an explicit rule such as `{ type: 'allow_by_name', toolNames: ['computer_use'] }` (which allows clicks too).
+  - `createReviewHandler` / `createReviewPolicy` take `screenConsent: { sessions: Set<string> }` and an optional `capturesScreen(name, input)` predicate (default: the tool's declaration from `registry`). With them, the first such batch in a session is put to `prompt` with the new `ToolReviewRequest.screenConsent: true`; `strict` refuses it unless a rule allowed it, `auto` does not ask, and without a `prompt` it is refused with the new `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A no is `SCREEN_CONSENT_DECLINED_FEEDBACK`. New type `ScreenConsentRecord`. Without `screenConsent` nothing changes.
+
+### Minor Changes
+
+- 172fd9e: New `open_url` tool: in the interactive terminal and `namzu exec`, the model can open an http(s) page in your default browser (under WSL, the Windows browser) instead of guessing a shell command. It is a `network` tool, so `prompt` mode asks before it runs. Add a `[permissions]` rule for `open_url` to allow or deny it. `exec --json`, `drain`, ACP, scheduled runs and sub-agents do not have it. Each request in those two surfaces now carries about 120 more tokens of tool schema.
+- 28102e1: The model can change a scheduled job instead of deleting and recreating it. The `schedule` tool has a new action, `update`: `job` names the job, and only the fields the model sets change (`prompt`, `when`, `folder`, `tz`, `budget`, or `permissions` as the whole new set, under the same limits as `create`). Asked whether it could change a job, a model with no such action deleted the job and created it again, and the job's history was lost.
+
+  In the TUI the operator confirms every change on one screen: what changes first (the `-`/`+` lines `namzu schedule edit` shows), a `THE PERMISSIONS CHANGE` warning when a run's rules, `unmatched`, execution or browser grant change, then the job as it will run. `Cancel` is the default. `Save` writes the same job — its id, creation time and history kept — with the operator's new confirmation, keeps a paused job paused, and records `edited by tool` with the changes in its history. A change is refused if the job was changed while the operator was being asked. Like `create`, `update` is not preceded by the ordinary permission review in `prompt`, `accept-edits` and `auto`.
+
+  SDK: `ScheduleToolHost` gains three optional methods, `previewUpdate(job, changes)`, `confirmUpdate(request, signal?)` and `update(preview)`, and new types `ScheduleJobChanges`, `ScheduleJobUpdateProposal` and `ScheduleUpdateRequest`. A host without them keeps working: the tool refuses `update` there and tells the model not to delete and recreate the job.
+
+- 28102e1: A scheduled run that completed with refused tool calls now says so. A job whose only command was refused on every run was recorded `completed` each time, with a `finished` notification and nothing else to go on.
+
+  A run now records `refusedCalls` (calls that never ran: a permission rule, the scheduled-run floor, `unmatched: deny`, a tool its permissions withhold) and `failedCalls` (calls that ran and returned an error), each `{ count, first: { tool, reason } }`, in its result file and history record, and as counts in the job state's `lastRun`. `namzu schedule list` shows `last completed (1 call refused)`, `show` and `history` print the first reason under the run, `run-now` prints it, and so do `/schedule` and the model's `schedule` tool `list`. The finished notification reads `done at …, but 1 call was refused (bash); namzu schedule show <job> says why`; the reason itself appears in the notification only for a job created with `--notify-summary`, because it can quote the command the model wrote.
+
+  The run's status is unchanged: `completed` still means the turn ended normally, so failure counting, automatic pausing and which notification is sent behave as before. The new fields are additions to the `--json` output of `list`, `show` and `history`.
+
+### Patch Changes
+
+- 82769f1: Computer use no longer runs blind on a provider that cannot show the model an image in a tool result (OpenAI via API key, Bedrock, OpenRouter, LM Studio, Ollama, the generic HTTP driver). The `computer_use` tool is still listed, says why it cannot be used, and refuses every call; the desktop is never touched, and the session notices say `Computer use is unavailable in this session: …`. Use Anthropic, Codex or Google for computer use.
+
+  Approving a `computer_use` call now shows each desktop action on its own line, in the order it will run, with any text to be typed shown in full.
+
+- 28102e1: A scheduled run can no longer reach the scheduler through a shell the command-line reader does not follow. `powershell -c 'namzu schedule stop'`, `pwsh -command '…'`, `fish -c '…'`, `tcsh -c '…'` and `bash.exe -c '…'` were allowed whatever their text held: the scheduled-run floor took any shell at the head of a command with a `-c` option as read, but only the payloads of `sh`, `bash`, `dash`, `zsh`, `ksh`, `ash` and `mksh` (and `busybox` running one) are. Such text now goes through the floor's tripwire like any other text a program runs as code. A job whose commands use those shells without naming the scheduler, `NAMZU_HOME` or the browser profiles runs as before.
+
+  SDK: new exports `nestedShellCommand(words)`, `NESTED_SHELLS` and the type `NestedShellCommand`. `nestedShellCommand` says, for one simple command's words (without its leading assignments), which `-c` payload `lexShellCommandLine` reads as a command line of its own, why it made the line opaque instead, or `null` when it reads none. The lexer uses it itself, so its reading is unchanged.
+
+- 28102e1: A scheduled run may now run a command whose code merely mentions namzu. `powershell.exe -NoProfile -Command "[System.Windows.MessageBox]::Show('Namzu: scheduled job running','Namzu')"` was refused by the scheduled-run floor, because text passed to PowerShell, `cmd`, Python, Node or a shell reading its input was refused whenever it contained `namzu` or `schedul`. Such text is now refused only when it holds something that can reach the scheduler or `NAMZU_HOME`: a `schedule` subcommand other than `list`, `show`, `status`, `history` or `logs` with the CLI or an expansion in reach, the service's name (`namzu-scheduler…`, `com.namzu.…`), a service tool with a namzu name or a `*`, `pkill`/`killall`, `NAMZU_HOME` by name, `.namzu` as a path segment, a path into either protected folder, or `LOCALAPPDATA` with a `namzu` segment. A job that was refused for naming the product runs; nothing that reached the scheduler before is let through (checked against bash on 35 159 generated lines, and on 1 189 labelled lines of PowerShell, `cmd`, Python, Node and `sh` code).
+
+  The refusal now says which rule matched and where (`` the argument `~/.namzu/x` names NAMZU_HOME (/home/you/.namzu) ``, `` … it holds `schedule stop` (a `namzu schedule` subcommand other than …), in the argument `namzu schedule stop`  ``) instead of listing everything the floor protects.
+
+  SDK: a `predicate` authorization rule may carry `describe(call)`, asked after `decide` returned a decision; its answer is the gate's reason for that call instead of the rule's fixed `description` (a `null`, empty or thrown answer keeps `description`). `describeRule(rule, call?)` takes the call as an optional second argument. Both are additions; existing rules and callers are unchanged.
+
+- 28102e1: In the TUI, the model's `schedule` tool now lists every scheduled job, not only those of the session's folder. A model that created a job in a folder below the session's and then called `list` was told "No scheduled jobs." while `namzu schedule list` showed the job, because the TUI's host filtered by folder unless the model passed `allFolders: true`, which models do not. Jobs of the session's own folder are marked `(this folder)` and are still the only ones whose prompt the model sees.
+
+  SDK: `ScheduleJobSummary` gains an optional `inSessionFolder`, which the `schedule` tool prints as `(this folder)` on the job's `list` line. A host may use it to list every job regardless of `allFolders`. The tool still asks `host.list({ allFolders: false })` unless the model sets it, so a host that filters by folder behaves as before.
+
+- 28102e1: A skill the model loads now names the directory its files are in (#536), so a skill whose instructions say `scripts/…` or `references/…` can be followed. On the host it is the directory the skill was read from. With `sandbox.enabled`, a skill under the working directory or an added directory gets the same path, which the sandbox mounts; every other skill (the user and shared-user tiers, the built-ins, `.agents/skills` above the working directory, user plugins, and every skill under an `ephemeral` workspace) is reported as not reachable instead of being given a host path the sandbox refuses. Nothing to do on upgrade.
+- 28102e1: `namzu schedule status` on Windows and WSL now says what the Task Scheduler's last result means, keeping the number: `last result: running (267009, 0x41301)` instead of `last result 267009`. The result that appears every five minutes while the scheduler runs, `-2147020576` (0x800710E0), reads `an instance was already running, so a new one was not started; expected, since the task checks every five minutes`, so it is not mistaken for a failure. Task Scheduler's own codes, the common Windows errors and the scheduler's own exit codes are named; any other result shows its number and its hexadecimal form.
+- 172fd9e: Under WSL, the Claude, Codex, Gemini and OpenCode sessions you are signed in to on Windows are now found even when `/etc/wsl.conf` moves the Windows drives (`[automount] root`). The paired Windows home used to be looked up only under `/mnt/c`. A scheduled run's `PATH` now also drops the Windows drive entries under that root, instead of only those under `/mnt/`. On the default `/mnt/` nothing changes.
+- 172fd9e: Under WSL, several things now look for Windows programs under the drive mount root set in `/etc/wsl.conf` (`[automount] root`) rather than always under `/mnt/c`: the scheduler service's programs (`schtasks.exe`, `cmd.exe`, `powershell.exe`, …) and the directory they start in, Windows notifications, and the paths the model is told about. On a distro that moved the root, `namzu schedule install` used to refuse and notifications never appeared. On the default `/mnt/` nothing changes. A service installed while the root was elsewhere keeps the program paths recorded in its manifest. If you have since moved the root, reinstall it with `namzu schedule install`.
+- 172fd9e: Under WSL, `namzu login` now opens the sign-in page in the Windows browser. It launches Windows PowerShell by absolute path, under the drive mount root set in `/etc/wsl.conf` (`[automount] root`, `/mnt/` by default), and the address is passed as data, never as script text. It used to call `xdg-open`, which under WSL usually opened nothing, so you had to copy the URL. When interop is off or PowerShell is missing, it still falls back to `xdg-open`. Nothing to change on your side.
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [82769f1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [28102e1]
+- Updated dependencies [82769f1]
+- Updated dependencies [28102e1]
+  - @namzu/anthropic@6.2.0
+  - @namzu/sdk@46.0.0
+  - @namzu/openai@4.1.1
+  - @namzu/computer-use@2.0.0
+  - @namzu/browser@0.1.0
+  - @namzu/ollama@2.2.4
+  - @namzu/openrouter@3.0.1
+
 ## 29.1.0
 
 ### Minor Changes
@@ -6235,7 +6314,7 @@ redis"` passes through untouched; the extra words are what distinguish a request
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a

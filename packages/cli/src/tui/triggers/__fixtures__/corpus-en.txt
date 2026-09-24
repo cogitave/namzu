@@ -1,0 +1,39 @@
+# Ordinary English a person types into the composer. Not one line may ARM a
+# trigger (a suggestion is allowed). Talk about a trigger, questions about it,
+# quotations, code, paths and negations belong here.
+how does the hypermode keyword work?
+what is hypermode?
+why did hypermode pin the effort?
+is hypermode on?
+the hypermode mode is on, right
+explain the hypermode feature to me
+can you explain what hypermode does?
+rename `hypermode` to something shorter
+the log says "hypermode" twice
+see https://example.com/hypermode for details
+open src/hypermode/save-it-as-a-skill.ts
+> hypermode fix the flaky test
+@hypermode please look at this
+ultracode fix the flaky test
+fix the flaky test, ultracode
+use a workflow for this
+how do I fix this and save it as a skill?
+don't save it as a skill
+never turn this into a skill
+do not make it a skill
+I saved the skill file yesterday
+save it as a file
+turn it into a function
+make it a class
+skill olarak kaydet: what does this label do?
+the "save it as a skill" phrase is new
+write a backup script and schedule it
+add the cron entry, then run it every day
+schedule the meeting for monday
+please review the diff
+re-save it as a skill template in the docs folder
+e-mail the sub-agents their report
+the agents we delegate to are slow
+think about it
+think as hard as the problem needs
+refactor the save-skill flow and its tests

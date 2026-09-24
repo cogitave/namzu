@@ -131,9 +131,37 @@ const detected = [
 	},
 ] as unknown as DetectedProvider[]
 
-async function createSession(enableComputerUse = false) {
+const imagelessPrefs = {
+	version: 3,
+	providers: [{ id: 'openai' }],
+	subagents: { active: [] },
+} as Preferences
+
+const imagelessDetected = [
+	{
+		entry: {
+			id: 'openai',
+			label: 'OpenAI',
+			defaultModel: 'gpt-4o',
+			requiresApiKey: true,
+			envVars: ['OPENAI_API_KEY'],
+		},
+		source: { kind: 'env', envName: 'OPENAI_API_KEY' },
+		apiKey: 'not-a-real-key',
+		alternatives: [],
+	},
+] as unknown as DetectedProvider[]
+
+async function createSession(
+	enableComputerUse = false,
+	provider: 'anthropic' | 'openai' = 'anthropic',
+) {
 	const { createAgentSession } = await import('../agent.js')
-	const session = await createAgentSession(prefs, detected, { cwd: workDir, enableComputerUse })
+	const session = await createAgentSession(
+		provider === 'openai' ? imagelessPrefs : prefs,
+		provider === 'openai' ? imagelessDetected : detected,
+		{ cwd: workDir, enableComputerUse },
+	)
 	open.push(session)
 	return session
 }
@@ -203,6 +231,25 @@ describe('computer use session reachability', () => {
 			'Computer use is unavailable on this device: desktop bridge unavailable',
 		)
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not start the desktop for a provider that cannot show the model a screenshot', async () => {
+		// This driver declares supportsToolResultImages: false, so every
+		// screenshot would reach the model as a line of text.
+		const session = await createSession(true, 'openai')
+
+		expect(desktop.initialize).not.toHaveBeenCalled()
+		expect(session.toolNames()).toContain('computer_use')
+		expect(session.configNotices).toContain(
+			'Computer use is unavailable in this session: The openai provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can (for example Anthropic, Codex or Google) for computer use.',
+		)
+		for await (const _ of session.send([{ role: 'user', content: 'see the desktop' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function
+		expect(computerUse?.description).toContain('cannot return images in tool results')
+		expect(computerUse?.description).toContain('Do not retry; tell the user.')
+		expect(desktop.execute).not.toHaveBeenCalled()
 	})
 
 	it('does not expose host input to a surface that did not claim an interactive permission owner', async () => {

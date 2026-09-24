@@ -175,6 +175,17 @@ function replayItems(
 
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
+/**
+ * A tool-result image is a screenshot the model acts on by coordinate, and
+ * `auto` lets the backend pick `low` — a 512-pixel view whose coordinates
+ * are not the image's. `high` is accepted by every Responses model and keeps
+ * any image up to 2048 px and 2 500 patches at its own size, which is the
+ * budget `computer_use` fits its screenshots to. (`original` would also keep
+ * it, but only gpt-5.4 and later accept it, and this driver serves older
+ * models too.) User attachments keep `auto`.
+ */
+const TOOL_RESULT_IMAGE_DETAIL = 'high' as const
+
 function codexImage(
 	data: string,
 	mediaType: string,
@@ -187,7 +198,7 @@ function codexImage(
 	}
 	return {
 		type: 'input_image',
-		detail: 'auto',
+		detail: source === 'tool result' ? TOOL_RESULT_IMAGE_DETAIL : 'auto',
 		image_url: `data:${mediaType};base64,${data}`,
 	}
 }

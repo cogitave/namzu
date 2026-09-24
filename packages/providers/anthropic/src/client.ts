@@ -1380,7 +1380,7 @@ export class AnthropicProvider implements LLMProvider {
 							// Without this signal the executor sees an empty
 							// `arguments` string and rejects the call with
 							// `Error: Invalid JSON in tool arguments for "<tool>"`
-							// — exactly the failure the live cowork test
+							// — exactly the failure a live end-to-end run
 							// surfaced (Bash + Write both blank-input failed).
 							const idx = event.index ?? 0
 							if (activeReasoning.delete(idx)) {

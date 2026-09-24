@@ -44,6 +44,14 @@ export function evaluateRule(
 			const category = toolDef?.category
 			if (category && rule.excludeCategories?.includes(category)) return null
 
+			// A read that sends the operator's screen to the model provider is
+			// the one read a person may want to allow first
+			// (`ToolDefinition.capturesScreen`). It falls through to the review
+			// policy, which asks once per session when the host keeps a consent
+			// record and approves it as the read it is otherwise. An explicit
+			// allow rule for the tool still allows it here.
+			if (capturesScreen(toolDef, toolInput)) return null
+
 			return 'allow'
 		}
 
@@ -199,5 +207,15 @@ export function evaluateRule(
 			const _exhaustive: never = rule
 			throw new Error(`Unhandled verification rule type: ${(_exhaustive as { type: string }).type}`)
 		}
+	}
+}
+
+function capturesScreen(toolDef: ToolDefinition | undefined, toolInput: unknown): boolean {
+	if (!toolDef?.capturesScreen) return false
+	try {
+		return toolDef.capturesScreen(toolInput)
+	} catch {
+		// A declaration that cannot answer is not trusted to say "no".
+		return true
 	}
 }

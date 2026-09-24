@@ -19,7 +19,8 @@ The kernel.
 * [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
 * [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
 
-* [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.
+* [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.
+* [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
 * [Browser tools](browser-tools.md) - The browser and browser_act tools over a BrowserHost, canonical URLs and origins for site rules, snapshot framing and structural host errors.
 * [The browser host](browser-host.md) - @namzu/browser's PlaywrightBrowserHost: engine detection, profiles and leases, the site policy after every navigation, the human-handoff classifier and snapshot refs.
 
@@ -35,7 +36,7 @@ The kernel.
 * [Run the kernel](quick-start.md) - An offline SDK turn, real tool execution, conversation identity and where the session is recorded.
 * [AG-UI clients](ag-ui.md) - Explicit host admission, backend tool streaming, shared UI state and CopilotKit connection limits.
 * [Kubernetes sandboxes](kubernetes-sandbox.md) - Warm-pool claims on an agent-sandbox cluster, the pristine-claim rule, the per-instance agent credential, persistent block-disk workspaces and what is not built yet.
-* [Firecracker sandboxes](firecracker-sandbox.md) - The owned microvm tier, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
+* [Firecracker sandboxes](firecracker-sandbox.md) - The Firecracker microvm tier against a self-hosted orchestrator, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
 * [The container sandbox worker's credential](container-sandbox-worker.md) - The per-instance bearer token the container backend mints and the worker requires on every route but /healthz, the refusal that makes a routable bind without one impossible, the named escape and what it gives up, and the workers nobody can authenticate against.
 * [Sandbox egress profiles](sandbox-egress-profiles.md) - One named, validated host allowlist with optional ports for the docker, runsc, firecracker and kubernetes backends, the port union rule, and what each backend refuses at construction.
 * [Sandbox seeds](sandbox-seeds.md) - Git repositories prepared once by an idempotent ensureSandboxSeed step on storage that outlives the sandbox, where the root goes per backend, the untrusted marker, and the URL rules that keep credentials out of the guest.
@@ -45,6 +46,7 @@ The kernel.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
 * [Advisory context](advisory-context.md) - Public trajectory records, source attribution, bounded text and consultation limits.
 * [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.
+* [Asking the user a question](user-questions.md) - The `ask_user_question` tool: its input, the `recommended` flag on an option, how a recommendation marker written into a label is taken out in any language, what the host is handed and the answer the model reads back.
 * [Tool handoff](tool-handoff.md) - How a tool stops the turn for a person: `ToolResult.handoff`, the checkpoint and `turn_paused` after the batch is committed, resuming, and why a delegated child fails instead.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the turn's working memory by key, so it stays in front of the model across compaction.
 * [Structured memory](memory.md) - Typed records, one Markdown file per memory with a generated index, store isolation, cross-process coordination, lexical search, lifecycle tools and bounded optional recall.

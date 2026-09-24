@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Firecracker sandboxes
-description: The owned Firecracker microvm tier — the provider config that reaches it, the reserve-before-admission exec path over the framed guest-agent wire, the opt-in per-phase exec timing hook that attributes a call's wall clock to a named phase, the loopback numbers the suite measures, what the breakdown deliberately cannot attribute, and the half-close contract a host-owned relay in front of the guest has to honour.
+description: The Firecracker microvm tier against a self-hosted orchestrator — the provider config that reaches it, the reserve-before-admission exec path over the framed guest-agent wire, the opt-in per-phase exec timing hook that attributes a call's wall clock to a named phase, the loopback numbers the suite measures, what the breakdown deliberately cannot attribute, and the half-close contract a host-owned relay in front of the guest has to honour.
 resource: packages/sandbox/src/backends/firecracker/transport.ts
 tags: [sdk, sandbox, firecracker, microvm, timing]
 status: draft
@@ -10,13 +10,13 @@ generated: { by: process:claude-code, at: 2026-09-18T00:00:00Z }
 
 # Firecracker sandboxes
 
-`@namzu/sandbox`'s `microvm` tier, against namzu's own orchestrator: the control
-plane mints a guest per task and resumes it copy-on-write from a golden
-snapshot, so a cold start is a resume rather than a boot. The guest runs the
-same `agent/agent.cjs` the [Kubernetes tier](kubernetes-sandbox.md) bakes into
-its pod image, and speaks the same framed NDJSON protocol over it; the
-transport underneath is what differs, and it is the only part of the exec path
-this page is about.
+`@namzu/sandbox`'s `microvm` tier, against a self-hosted orchestrator the host
+runs: its control plane mints a guest per task and resumes it copy-on-write
+from a golden snapshot, so a cold start is a resume rather than a boot. The
+guest runs the same `agent/agent.cjs` the [Kubernetes tier](kubernetes-sandbox.md)
+bakes into its pod image, and speaks the same framed NDJSON protocol over it;
+the transport underneath is what differs, and it is the only part of the exec
+path this page is about.
 
 ## Configure a provider
 

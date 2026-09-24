@@ -1,5 +1,116 @@
 # Changelog
 
+## 46.0.0
+
+### Major Changes
+
+- 82769f1: `computer_use` now shows the model a screenshot sized for it and reads every coordinate as a pixel of that screenshot. On a display larger than 1568 px (or 1568 28-pixel patches) the coordinates a caller sends mean something different from before, so this is a major release.
+
+  **What changes for a caller of the tool**
+
+  - Each capture is fitted to `STANDARD_SCREENSHOT_LIMITS` (Anthropic's standard tier, within OpenAI's `detail: "high"` budget) and numbered `s1`, `s2`, …. `mouse_*`, `scroll` and `zoom` coordinates are pixels of the latest screenshot (or of `screenshot_id`) and are mapped onto the display; a coordinate outside the screenshot is refused. On a display that already fits, the mapping is the identity. To keep host pixels, pass `screenshotLimits` large enough that nothing is resized — but a model will then be sent an image its provider shrinks or rejects.
+  - Coordinate actions, `type_text` and `key` are refused until the tool instance has taken a screenshot. Call `screenshot` first.
+  - Results changed shape. An action returns `<label>: done` plus, by default, a new screenshot after 500 ms (`settleMs`, `screenshotAfterActions: false` to turn it off), in `content` with a text block first; `output` is no longer `"ok"`. `cursor_position` returns text in screenshot pixels, not JSON in host pixels. `data` carries `steps` and `screenshot` (`id`, `width`, `height`, `display`).
+  - `screenshot`, `zoom`, `cursor_position`, `wait` and `list_windows` are now read-only, so a review policy that exempts read-only calls no longer asks before them. Keep asking with an explicit `ask` rule for `computer_use`.
+  - `ActionInput` gains `zoom`, `wait`, `list_windows`, `focus_window` and `batch`, and an optional `screenshot_id`; code that switches exhaustively over `input.type` needs the new cases.
+
+  **New**
+
+  - `createComputerUseTool(host, options)` with `screenshotLimits`, `settleMs`, `screenshotAfterActions`, `maxBatchActions` (20), `maxWaitMs` (10 000) and `unavailableReason`.
+  - `{ type: "batch", actions: [...] }`: checked in full first, run in order, stopped at the first failure (which it names), one screenshot at the end.
+  - `zoom` (full-resolution crop, through `captureRegion` when the host declares `regionCapture`), `wait`, and `list_windows`/`focus_window` when the host declares `windows`.
+  - `computerUseUnavailableReason(provider)`: why a provider that cannot put an image in a tool result cannot drive the tool; pass it as `unavailableReason`.
+  - `screenshotTargetSize`, `STANDARD_SCREENSHOT_LIMITS`, `HIGH_RES_SCREENSHOT_LIMITS` and the types `ComputerUseToolOptions`, `ScreenshotLimits`, `ImageSize`.
+  - New dependencies `fast-png` and `pica` (pure JavaScript and WASM, MIT; no native build), loaded only when a capture has to be resized.
+
+- 82769f1: `computer_use` can read a window's controls and act on them by reference, on a host that declares `uiTree` — which the Windows backend of `@namzu/computer-use` now does.
+
+  **What changes for a caller of the tool**
+
+  - Two new actions when the host declares `uiTree` and implements `uiSnapshot` and `uiAct`: `ui_snapshot { window_id? }` returns the window's accessibility tree as text, each control that can be acted on with a ref such as `e12`; `ui_act { ref, action, value? }` performs `invoke`, `set_value`, `toggle`, `select`, `expand`, `collapse`, `focus` or `scroll_into_view` on it and returns a screenshot afterwards. `ui_act` may be in a batch; `ui_snapshot` may not. Refs count up across snapshots and only the latest snapshot's are accepted, so a stale ref is refused rather than acting on another control. `ActionInput` gains both, so code that switches exhaustively over `input.type` needs two more cases — that is why this is a major release for `@namzu/sdk`.
+  - `ui_snapshot` is read-only; `ui_act` is destructive.
+  - `list_windows` now returns its window lines inside an untrusted-content frame (`<namzu-untrusted kind="desktop-windows">`), since titles are whatever each application shows. The lines themselves are unchanged; code that parsed the whole output text needs to skip the frame's three header lines.
+  - `createComputerUseTool` returns a `ComputerUseTool`, a `ToolDefinition<ActionInput>` with `describeUiRef(ref)` (experimental), which names the control a ref points at for a review screen.
+  - `UiSnapshot` gains optional `title` and `app`; `UiElement.ref` is empty for an element nothing can be done with. Both types stay experimental.
+
+  **`@namzu/computer-use`**
+
+  On Windows and WSL with the cua-driver backend, `capabilities.uiTree` is `true` and `SubprocessComputerUseHost` offers `uiSnapshot(windowId?)` and `uiAct(ref, action, value?)`, read from cua-driver's UI Automation walk. A control is invoked in the background, without moving the pointer or bringing its window to the front; a field without a settable value is typed into when it is empty. An action whose driver died mid-request comes back as not done with an unknown outcome, never retried. The PowerShell fallback and the other platforms do not declare `uiTree`, so nothing changes there.
+
+- 82769f1: The interactive CLI now asks once per session before the model first sees your screen, and `strict` mode no longer lets a screenshot run on its own — that second part is why this is a major release for `@namzu/cli`. In `prompt`, `accept-edits` and `plan` mode the first `computer_use` call that would send the screen to the provider — a screenshot, a zoom, the list of open windows, a window's controls, or an action that returns a screenshot — opens a "Share your screen" box naming the provider; after a yes, later screenshots in that session run without asking, and clicks, typing and `ui_act` are still reviewed as before. A mode switch keeps the answer; a new session (`/new`, `/clear`, `/model`) asks again. `auto` never asks. **`strict` now refuses a screenshot unless a rule allows it**: to keep screenshots running in `strict`, add `permissions: { computer_use: 'allow' }` (which also allows clicks) or a narrower rule for the actions you want.
+
+  Approving a `ui_act` call shows the control by name (`Press Button "Beş" (e30)`), and `ui_snapshot` as the window it reads.
+
+  **`@namzu/sdk`**
+
+  - `ToolDefinition.capturesScreen?(input)` and `defineTool({ capturesScreen })` declare which calls send the operator's screen to the model provider. `computer_use` declares its observations and every action followed by a screenshot.
+  - **Breaking:** the authorization gate's `allow_read_only` rule (`allowReadOnlyTools: true`, in every shipped preset) no longer allows a call that declares `capturesScreen`; it goes to the review policy instead. With `createReviewHandler` and no `screenConsent` nothing changes (a screenshot is approved as a read); a custom `ResumeHandler` now sees `computer_use` screenshots, zooms, window lists and UI snapshots. To keep them out of review, add an explicit rule such as `{ type: 'allow_by_name', toolNames: ['computer_use'] }` (which allows clicks too).
+  - `createReviewHandler` / `createReviewPolicy` take `screenConsent: { sessions: Set<string> }` and an optional `capturesScreen(name, input)` predicate (default: the tool's declaration from `registry`). With them, the first such batch in a session is put to `prompt` with the new `ToolReviewRequest.screenConsent: true`; `strict` refuses it unless a rule allowed it, `auto` does not ask, and without a `prompt` it is refused with the new `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A no is `SCREEN_CONSENT_DECLINED_FEEDBACK`. New type `ScreenConsentRecord`. Without `screenConsent` nothing changes.
+
+### Minor Changes
+
+- 82769f1: `ComputerUseHost` can now describe the display it captured and offer window and region operations. Everything is additive and optional, so an existing host compiles and behaves as before.
+
+  - `ScreenshotResult.display` (`DisplayInfo`: `id`, `x`, `y`, `width`, `height`, `scaleFactor`, `primary`) says which display a capture shows. Set it in a host you maintain; without it the SDK assumes one display at the origin, the size of the capture, at scale factor 1.
+  - The contract is now written down as physical pixels everywhere: action points are relative to the display last captured, window bounds are virtual-desktop pixels. A host that clicks in logical units (points, or a DPI-unaware process) must convert at its own boundary.
+  - Optional methods `listWindows()`, `focusWindow(id)` and `captureRegion(rect)` are used only when the new capability flags `windows` and `regionCapture` are `true`. `uiSnapshot()`/`uiAct()` behind `uiTree` are experimental and may change in a minor release.
+  - New exported types: `DisplayInfo`, `Rect`, `WindowInfo`, `FocusWindowResult`, `UiElement`, `UiElementAction`, `UiSnapshot`, `UiActResult`.
+
+- 28102e1: A scheduled run can no longer reach the scheduler through a shell the command-line reader does not follow. `powershell -c 'namzu schedule stop'`, `pwsh -command '…'`, `fish -c '…'`, `tcsh -c '…'` and `bash.exe -c '…'` were allowed whatever their text held: the scheduled-run floor took any shell at the head of a command with a `-c` option as read, but only the payloads of `sh`, `bash`, `dash`, `zsh`, `ksh`, `ash` and `mksh` (and `busybox` running one) are. Such text now goes through the floor's tripwire like any other text a program runs as code. A job whose commands use those shells without naming the scheduler, `NAMZU_HOME` or the browser profiles runs as before.
+
+  SDK: new exports `nestedShellCommand(words)`, `NESTED_SHELLS` and the type `NestedShellCommand`. `nestedShellCommand` says, for one simple command's words (without its leading assignments), which `-c` payload `lexShellCommandLine` reads as a command line of its own, why it made the line opaque instead, or `null` when it reads none. The lexer uses it itself, so its reading is unchanged.
+
+- 28102e1: A scheduled run may now run a command whose code merely mentions namzu. `powershell.exe -NoProfile -Command "[System.Windows.MessageBox]::Show('Namzu: scheduled job running','Namzu')"` was refused by the scheduled-run floor, because text passed to PowerShell, `cmd`, Python, Node or a shell reading its input was refused whenever it contained `namzu` or `schedul`. Such text is now refused only when it holds something that can reach the scheduler or `NAMZU_HOME`: a `schedule` subcommand other than `list`, `show`, `status`, `history` or `logs` with the CLI or an expansion in reach, the service's name (`namzu-scheduler…`, `com.namzu.…`), a service tool with a namzu name or a `*`, `pkill`/`killall`, `NAMZU_HOME` by name, `.namzu` as a path segment, a path into either protected folder, or `LOCALAPPDATA` with a `namzu` segment. A job that was refused for naming the product runs; nothing that reached the scheduler before is let through (checked against bash on 35 159 generated lines, and on 1 189 labelled lines of PowerShell, `cmd`, Python, Node and `sh` code).
+
+  The refusal now says which rule matched and where (`` the argument `~/.namzu/x` names NAMZU_HOME (/home/you/.namzu) ``, `` … it holds `schedule stop` (a `namzu schedule` subcommand other than …), in the argument `namzu schedule stop`  ``) instead of listing everything the floor protects.
+
+  SDK: a `predicate` authorization rule may carry `describe(call)`, asked after `decide` returned a decision; its answer is the gate's reason for that call instead of the rule's fixed `description` (a `null`, empty or thrown answer keeps `description`). `describeRule(rule, call?)` takes the call as an optional second argument. Both are additions; existing rules and callers are unchanged.
+
+- 28102e1: In the TUI, the model's `schedule` tool now lists every scheduled job, not only those of the session's folder. A model that created a job in a folder below the session's and then called `list` was told "No scheduled jobs." while `namzu schedule list` showed the job, because the TUI's host filtered by folder unless the model passed `allFolders: true`, which models do not. Jobs of the session's own folder are marked `(this folder)` and are still the only ones whose prompt the model sees.
+
+  SDK: `ScheduleJobSummary` gains an optional `inSessionFolder`, which the `schedule` tool prints as `(this folder)` on the job's `list` line. A host may use it to list every job regardless of `allFolders`. The tool still asks `host.list({ allFolders: false })` unless the model sets it, so a host that filters by folder behaves as before.
+
+- 28102e1: The model can change a scheduled job instead of deleting and recreating it. The `schedule` tool has a new action, `update`: `job` names the job, and only the fields the model sets change (`prompt`, `when`, `folder`, `tz`, `budget`, or `permissions` as the whole new set, under the same limits as `create`). Asked whether it could change a job, a model with no such action deleted the job and created it again, and the job's history was lost.
+
+  In the TUI the operator confirms every change on one screen: what changes first (the `-`/`+` lines `namzu schedule edit` shows), a `THE PERMISSIONS CHANGE` warning when a run's rules, `unmatched`, execution or browser grant change, then the job as it will run. `Cancel` is the default. `Save` writes the same job — its id, creation time and history kept — with the operator's new confirmation, keeps a paused job paused, and records `edited by tool` with the changes in its history. A change is refused if the job was changed while the operator was being asked. Like `create`, `update` is not preceded by the ordinary permission review in `prompt`, `accept-edits` and `auto`.
+
+  SDK: `ScheduleToolHost` gains three optional methods, `previewUpdate(job, changes)`, `confirmUpdate(request, signal?)` and `update(preview)`, and new types `ScheduleJobChanges`, `ScheduleJobUpdateProposal` and `ScheduleUpdateRequest`. A host without them keeps working: the tool refuses `update` there and tells the model not to delete and recreate the job.
+
+- 28102e1: The `skill` tool can tell the model which directory a skill's files are in (#536).
+
+  New `createSkillTool({ resolveModelDirectory })`, with the types `SkillToolOptions`, `SkillDirectoryResolver`, `SkillDirectoryRequest` and `SkillDirectoryContext`. `resolveModelDirectory(skill, { sandbox })` receives the registered name and the directory the host reads the skill from, and returns the directory the model's tools can open, or `undefined` when they cannot reach one. With it:
+
+  - a load opens with `[Skill directory: <dir>. …]` on its first page and reports `data.directory`; when the resolver answers `undefined` it says instead that the skill's directory is not reachable in this session and not to search the filesystem for it;
+  - the listing (`skill` without a name) gives each skill's `directory` and no longer the registry's `location`, which is the host's path;
+  - `${CLAUDE_SKILL_DIR}` in `allowed-tools` expands to the resolver's directory, and an entry using it is ignored when there is none.
+
+  The skill is still loaded from the registry's own path. `SkillTool` is `createSkillTool()` and behaves exactly as before, so nothing changes unless you pass the option. `SkillRegistryRef.catalog()` entries may now carry an optional `directory`, and `SkillRegistry.catalog()` sets it to the skill's directory; a registry that omits it still satisfies the interface.
+
+### Patch Changes
+
+- 28102e1: The two errors that tell a model which tools it can use now give the same list: the tools the current step can call, meaning registered, active and allowed by `allowedTools` or `prepareStep`. Before, they could send a model back and forth between them until the run was stopped. A call refused as `Tool "X" is not available on this step` repeated the step's allow-list word for word. That list is taken when the request is built, so it could name a tool unregistered since (a connector that disconnected) or one that is deferred or suspended. A call to a name the registry does not hold listed the whole registry, including the tools the step refuses.
+
+  That second error now reads `Unknown tool "X". Available: …` instead of `Unknown or unavailable tool "X": Not found: "X". Available: …`. `(none)` means the step can call nothing. This applies to a model's direct call, to a batch run without review preparation, and to a call a tool makes through `ToolContext.dispatchTool` (such as `run_code`). `ToolCallRepairContext.message` for `unknown_tool` carries the new wording; `availableTools` still lists every registered tool. No exported types change. Code that parses the old `Not found` wording out of a tool result must look for the new wording instead.
+
+- 82769f1: `computer_use` clicks and drags with the left button when a call leaves `button` out, instead of refusing the call (a model asked to click the Start button sent no button and spent a round trip on the refusal). Its description now tells the model to batch the steps it can predict but to look before typing into a window a step should have opened, and, on Windows, that a shell command is the surest way to start a program (Start-menu search on a non-English Windows turned an English program name into a web search in the browser).
+
+  With a host that lists windows (the Windows cua-driver backend), `type_text` and `key` are refused while a terminal is in front: in a real session a key chord that did not open the Run dialog sent "notepad" and ENTER into the user's own terminal and submitted what they were typing. A call that types into a terminal on purpose now fails with that reason; bring the target window to the front first, or run the command through a shell tool. With a host that reads controls, the first screenshot says so. No change is needed on your side.
+
+- 28102e1: `claude-opus-5-5`, `claude-fable-5-1` and `claude-mythos-5-1` now have prices in the built-in catalogue. Before, their tokens were reported as unpriced. A turn that set `turnConfig.costLimitUsd` without its own `pricing` table was refused at the start on these models, or stopped with `cost_unmeasurable` when it reached one through a step or a fallback.
+
+  The rates are the vendor's list prices per million tokens:
+
+  | Model                                   | Input | Output | Cache read | Cache write (5 min) |
+  | --------------------------------------- | ----- | ------ | ---------- | ------------------- |
+  | `claude-opus-5-5`                       | $4    | $20    | $0.20      | $5                  |
+  | `claude-fable-5-1`, `claude-mythos-5-1` | $10   | $50    | $0.25      | $12.50              |
+
+  On these three models a cache read costs less than the usual 0.1x of input: 0.05x on Opus 5.5, 0.025x on the 5.1 pair. The catalogue has one write rate, the five-minute one the Anthropic driver requests, so the one-hour rates ($8 and $20) are not represented. Nothing to change on your side.
+
+- 28102e1: `claude-sonnet-5` is priced at $2 input and $10 output per million tokens, with $0.20 for a cache read and $2.50 for a five-minute cache write. The catalogue had $3 / $15 / $0.30 / $3.75. That was the increase the vendor scheduled for 2026-09-01 and then cancelled; $2 / $10 is now its standard price.
+
+  What changes for you: a Sonnet 5 turn reports two-thirds of the cost it reported before. A `turnConfig.costLimitUsd` set against Sonnet 5 now allows about 1.5 times as many tokens before it stops the turn. To keep the old ceiling, lower the limit to two-thirds of its value, or pass your own `pricing` table.
+
 ## 45.1.0
 
 ### Minor Changes
@@ -6766,7 +6877,7 @@ v2'` instead of a scatter of assertion failures whose common cause is not
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a
@@ -12511,7 +12622,7 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
 
 ### Patch Changes
 
-- 999e4be: Context-management correctness fixes (Vandal round-3 architecture audit).
+- 999e4be: Context-management correctness fixes (from a third-round architecture audit).
 
   - **Compaction no longer orphans tool pairs.** `runCompactionCheck` now snaps
     the recent-window boundary through `findSafeTrimIndex` (previously wired only
@@ -12660,13 +12771,13 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
       outputs: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/outputs",
+          hostPath: "/var/lib/<host>/sessions/<task>/outputs",
         },
       },
       uploads: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/uploads",
+          hostPath: "/var/lib/<host>/sessions/<task>/uploads",
         },
       },
       skills: [
@@ -12753,8 +12864,7 @@ b.cause = a`), and longer loops, replacing the offending node with
   - The docker backend no longer allocates host directories
     (`mkdtemp`) or removes them on `destroy()`. Every bind source is
     consumer-owned. This also fixes an `EACCES: permission denied,
-mkdir '/Users'` crash that hit sibling-container deployments
-    (Vandal Cowork).
+mkdir '/Users'` crash that hit sibling-container deployments.
   - The worker no longer reads `NAMZU_SANDBOX_LAYOUT` (it never
     branched on the env, only logged it; size grew with the skill
     list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
@@ -12982,8 +13092,8 @@ test:smoke`) runs an opt-in docker integration test exercising the
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

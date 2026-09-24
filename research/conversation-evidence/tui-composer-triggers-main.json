@@ -1,0 +1,217 @@
+{
+ "steps": [
+  {
+   "wait": 14
+  },
+  {
+   "type": "y"
+  },
+  {
+   "wait": 8
+  },
+  {
+   "type": "2"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "key": "enter"
+  },
+  {
+   "wait_for": "Type a message",
+   "timeout": 120
+  },
+  {
+   "wait": 22
+  },
+  {
+   "mark": "ready"
+  },
+  {
+   "type": "/model gpt-5.6-luna",
+   "submit": true
+  },
+  {
+   "wait_for": "Select Reasoning Level",
+   "timeout": 90
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "effort-after-model"
+  },
+  {
+   "key": "esc"
+  },
+  {
+   "wait": 4
+  },
+  {
+   "type": "/effort",
+   "submit": true
+  },
+  {
+   "wait": 5
+  },
+  {
+   "mark": "effort-picker"
+  },
+  {
+   "key": "esc"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "type": "/orchestrate on",
+   "submit": true
+  },
+  {
+   "wait": 5
+  },
+  {
+   "mark": "orchestrate-alias"
+  },
+  {
+   "type": "/hypermode off",
+   "submit": true
+  },
+  {
+   "wait": 4
+  },
+  {
+   "mark": "hypermode-off"
+  },
+  {
+   "type": "ultracode fix the flaky test"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "mark": "ultracode"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "paste": "hypermode ile şu repodaki TODO'ları iki agent'a bölerek say"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "pasted"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "burst": "hypermode ile şu repodaki TODO'ları iki agent'a bölerek say"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "burst"
+  },
+  {
+   "key": "ctrl-u"
+  },
+  {
+   "wait": 2
+  },
+  {
+   "type": "hypermode ile şu repodaki TODO'ları iki agent'a bölerek say"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "typed-armed"
+  },
+  {
+   "key": "alt-w"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "alt-w-dropped"
+  },
+  {
+   "key": "alt-w"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "alt-w-restored"
+  },
+  {
+   "key": "enter"
+  },
+  {
+   "wait": 8
+  },
+  {
+   "mark": "hypermode-turn-started"
+  },
+  {
+   "wait_for": "Worked for",
+   "timeout": 900
+  },
+  {
+   "wait": 6
+  },
+  {
+   "mark": "hypermode-turn-done"
+  },
+  {
+   "type": "bunu skill olarak kaydet"
+  },
+  {
+   "wait": 3
+  },
+  {
+   "mark": "save-tag"
+  },
+  {
+   "key": "enter"
+  },
+  {
+   "wait_for": "Save skill \"",
+   "timeout": 900
+  },
+  {
+   "wait": 4
+  },
+  {
+   "mark": "save-screen"
+  },
+  {
+   "key": "esc"
+  },
+  {
+   "wait": 20
+  },
+  {
+   "mark": "after-cancel"
+  },
+  {
+   "type": "/exit",
+   "submit": true
+  },
+  {
+   "wait": 6
+  }
+ ]
+}

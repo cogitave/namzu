@@ -133,7 +133,7 @@ import {
  *    framing + heartbeat + retry runs unchanged over the TLS socket
  *    (`tls.TLSSocket` is a `net.Socket`). The container-app NEVER sees
  *    a host-local `udsPath`; the cert material is injected by the
- *    Vandal host layer, never returned by the orchestrator.
+ *    host, never returned by the orchestrator.
  *  - `tcp`   — the guest agent listening directly on a routed pod
  *    network (the kubernetes backend). The dialer does a plain
  *    `net.connect({ host, port })` — no relay, no routing preamble, no
@@ -166,9 +166,9 @@ export type SandboxAgentHandle =
 
 /**
  * The mTLS cert material the consumer injects onto a wire `mtls` handle (the
- * `tls` block of the transport handle). Read from the consumer's runtime (the
- * Vandal host layer's `VANDAL_SANDBOX_FC_TLS_*`), NEVER returned by the
- * orchestrator — the leak-prevention boundary.
+ * `tls` block of the transport handle). Supplied by the consumer's runtime
+ * through the backend's `mtls` config, NEVER returned by the orchestrator —
+ * the leak-prevention boundary.
  */
 export interface MtlsClientMaterial {
 	readonly ca: string | Buffer
@@ -181,8 +181,8 @@ export interface MtlsClientMaterial {
  * The WIRE shape of an agent handle as the FIRECRACKER orchestrator
  * returns it. Identical to {@link SandboxAgentHandle} EXCEPT the `mtls`
  * arm omits the `tls` cert block: the orchestrator returns only
- * host/port/sandboxId, and the consumer (Vandal host layer) merges the
- * cert material in (see `normalizeHandle`) before constructing the
+ * host/port/sandboxId, and the cert material the consumer injects is merged
+ * in (see `normalizeHandle`) before constructing the
  * transport. The `unix`/`vsock` arms are unchanged (they carry no cert
  * material). There is deliberately no `tcp` arm here: that kind belongs
  * to the kubernetes backend, which builds its {@link SandboxAgentHandle}
