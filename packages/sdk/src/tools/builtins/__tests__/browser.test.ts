@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Validator } from 'jsonschema'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type {
 	BrowserActAction,
 	BrowserCapabilities,
@@ -91,14 +92,15 @@ function context(workingDirectory = '/tmp'): ToolContext {
 
 function tools(host: BrowserHost) {
 	const [browser, act] = createBrowserTools(host)
-	const registry = new ToolRegistry()
-	registry.register(browser as ToolDefinition)
-	registry.register(act as ToolDefinition)
+	const registry = new ToolManager({
+		toolsets: [testToolset(browser as ToolDefinition, act as ToolDefinition)],
+		messages: () => [],
+	})
 	return { browser, act, registry }
 }
 
 /** What the gate and the reviewer see: the registry's prepared value. */
-function prepared(registry: ToolRegistry, name: string, raw: unknown) {
+function prepared(registry: ToolManager, name: string, raw: unknown) {
 	const result = registry.prepareExecution(name, raw)
 	return result.success
 		? { ok: true as const, input: result.prepared.input as Record<string, unknown> }

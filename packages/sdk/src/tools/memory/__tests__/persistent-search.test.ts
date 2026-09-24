@@ -17,10 +17,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DiskMemoryStore } from '../../../store/memory/disk.js'
 import { InMemoryMemoryIndex } from '../../../store/memory/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MemoryId, SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildMemoryTools } from '../index.js'
@@ -42,10 +43,8 @@ function context(root: string): ToolContext {
 	}
 }
 
-function registry(tools: ReturnType<typeof buildMemoryTools>): ToolRegistry {
-	const result = new ToolRegistry()
-	result.register(tools)
-	return result
+function registry(tools: ReturnType<typeof buildMemoryTools>): ToolManager {
+	return new ToolManager({ toolsets: [testToolset(...tools)], messages: () => [] })
 }
 
 describe('persistent memory search composition', () => {

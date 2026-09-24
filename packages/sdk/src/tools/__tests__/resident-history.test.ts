@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import type { ResidentHistorySource } from '../../manager/resident/history.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { buildResidentHistoryTools } from '../resident-history.js'
@@ -18,8 +19,10 @@ function context(): ToolContext {
 
 it('rejects model-selected scope and malformed addresses before consulting the host', async () => {
 	const resolve = vi.fn<() => ResidentHistorySource>()
-	const registry = new ToolRegistry()
-	registry.register(buildResidentHistoryTools(resolve))
+	const registry = new ToolManager({
+		toolsets: [testToolset(...buildResidentHistoryTools(resolve))],
+		messages: () => [],
+	})
 	for (const input of [
 		{ query: 'DELTA', pursuitId: 'another' },
 		{ path: '/elsewhere' },
@@ -51,22 +54,26 @@ it('resolves ownership on every call and does not expose a rejected source or it
 		incomplete: true,
 	})
 	const read = vi.fn()
-	const registry = new ToolRegistry()
-	registry.register(
-		buildResidentHistoryTools((ctx) => {
-			if (ctx.turnId !== owner.turnId) throw new Error('secret host path or tenant detail')
-			return {
-				scope: {
-					tenantId: 'tenant',
-					agentKey: 'resident',
-					pursuitId: 'pursuit',
-					throughRevision: 2,
-				},
-				search,
-				read,
-			}
-		}),
-	)
+	const registry = new ToolManager({
+		toolsets: [
+			testToolset(
+				...buildResidentHistoryTools((ctx) => {
+					if (ctx.turnId !== owner.turnId) throw new Error('secret host path or tenant detail')
+					return {
+						scope: {
+							tenantId: 'tenant',
+							agentKey: 'resident',
+							pursuitId: 'pursuit',
+							throughRevision: 2,
+						},
+						search,
+						read,
+					}
+				}),
+			),
+		],
+		messages: () => [],
+	})
 	const [own, foreign] = await Promise.all([
 		registry.execute('search_resident_history', { query: 'DELTA' }, owner),
 		registry.execute('search_resident_history', { query: 'DELTA' }, context()),
@@ -94,14 +101,23 @@ it('forwards exact-page continuation and the invocation cancellation signal to t
 		scannedBytes: 1000,
 		unavailableRevisions: [],
 	})
-	const registry = new ToolRegistry()
-	registry.register(
-		buildResidentHistoryTools(() => ({
-			scope: { tenantId: 'tenant', agentKey: 'resident', pursuitId: 'pursuit', throughRevision: 9 },
-			search: vi.fn(),
-			read,
-		})),
-	)
+	const registry = new ToolManager({
+		toolsets: [
+			testToolset(
+				...buildResidentHistoryTools(() => ({
+					scope: {
+						tenantId: 'tenant',
+						agentKey: 'resident',
+						pursuitId: 'pursuit',
+						throughRevision: 9,
+					},
+					search: vi.fn(),
+					read,
+				})),
+			),
+		],
+		messages: () => [],
+	})
 	const result = await registry.execute(
 		'read_resident_history',
 		{ revision: 9, part: 1, offset: 6000 },
