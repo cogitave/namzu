@@ -419,6 +419,38 @@ A server that omits `protocolVersion` from its `initialize` result is
 tolerated exactly as before: it is treated as having accepted the offered
 version.
 
+## Server `instructions`: captured, never read as instructions
+
+The legacy `initialize` result may carry an `instructions` string — the
+server's own account of how to use it. `MCPClient` reads it off that
+response into `MCPInitializeResult.instructions` and
+`MCPClientState.serverInstructions`, alongside `serverInfo` and
+`serverCapabilities`.
+
+**The modern era has nothing to capture.** A 2026-07-28 connection has no
+`initialize` round trip at all — `server/discover` returns capabilities, not
+an instructions string — so `modernInitializeResult` leaves the field unset
+on every modern connection. This is not a gap to close later; there is
+nothing on the wire to read.
+
+This is observability, not steering. Nothing in the SDK folds
+`serverInstructions` into an agent's instruction set automatically — it is
+exposed exactly the way `getState()` already exposes `serverInfo`, for a
+host to display, log, or otherwise act on deliberately. That restraint is
+consistent with two decisions namzu already made about text a remote MCP
+server writes: an MCP *prompt* is never folded into the system prompt (see
+the module doc on `connector/mcp/prompt-adapter.ts` — "system position READS
+as instruction, which is the last thing text from a remote party should
+read as"), and an MCP tool *result* is always framed as untrusted content
+before a model sees it (`frameServerResult`,
+[MCP content blocks](mcp-content-blocks.md)). `initialize.instructions` is
+drafted by the same untrusted server author, and the protocol's stated
+purpose for the field — steering client and model behaviour — makes it, if
+anything, a more direct injection vector than either. A host that wants a
+server's instructions to actually reach the model has to route the text
+through the same untrusted-content framing every other server-authored text
+already goes through; there is no built-in path that does this for it.
+
 ## The supported set
 
 | version | offered by `connect()` | accepted as an `initialize` answer | `MCP-Protocol-Version` header on later requests |

@@ -68,6 +68,23 @@ The `resource` variant now accepts an optional `blob` (base64, for a binary embe
 
 The working-state pin path (`WORKING_STATE_MIME`) is unaffected by any of this — it is matched and consumed before the general `resource` branch runs, exactly as before.
 
+## Retry policy: `maxRetries`, and which failures are `retryable`
+
+`mcpToolToToolDefinition` takes an optional 5th parameter, `maxRetries?: number`, the in-loop retry budget the returned `ToolDefinition` carries for every call to that tool. Left unset — today's only behaviour — the field stays absent on the definition and the executor's own default (0) applies, byte-for-byte unchanged.
+
+Setting `maxRetries` is necessary but not sufficient: the executor only retries a failure that the tool's own `execute` also marked `ToolResult.retryable`. This adapter sets `retryable: true` on exactly two of its caught-error branches, and never on the others:
+
+| outcome | `data.code` | `retryable` | why |
+| --- | --- | --- | --- |
+| the server asked for input this client cannot supply (MRTR) | `mcp_tool_input_required` | `true` | the spec's model is that a call ending in `input_required` has not truly run — no side effect is known to have happened |
+| the server refused for a client capability this client never declared | `mcp_tool_missing_client_capability` | `true` | refused before running the tool; nothing ran |
+| an HTTP redirect made the remote outcome unknown | `mcp_tool_outcome_unknown` | never | whether the call landed is exactly what is not known — retrying risks duplicating a side effect never confirmed |
+| any other thrown error (raw transport failure) | — (rethrown, no `data.code`) | never | not classified here at all; this adapter does not guess whether an unclassified transport error reached the server |
+
+The two `retrySafety: 'safe'` outcomes were already computed before this — `data.retrySafety` has said `'safe'` or `'unsafe'` since MRTR landed — but nothing wired that judgment to the field the executor actually reads. This only connects an existing classification; it does not add a new one, and it does not touch `mcp_tool_outcome_unknown`'s classification or the generic rethrow path, both of which stay exactly as unclassified as before.
+
+There is no per-tool or per-server backoff override yet — `ToolExecutorConfig.toolRetryBackoff` is one process-wide `BackoffPolicy`; a caller that sets `maxRetries` gets that shared curve.
+
 ## Text vs. structured content
 
 Unchanged by this work, restated for completeness: when a server answers with `structuredContent` and no `text` block, the structured payload is serialized into `output` so the call does not look like it returned nothing. A `text` block, when present, always wins — it is what the server wrote for the model, and duplicating both would spend context saying the same thing twice.

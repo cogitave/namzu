@@ -409,6 +409,24 @@ export interface MCPInitializeResult {
 	protocolVersion: string
 	capabilities: MCPServerCapabilities
 	serverInfo: { name: string; version?: string }
+	/**
+	 * The server's own account of how to use it, read off the `initialize`
+	 * response verbatim. Only a legacy handshake carries one — the modern
+	 * era has no `initialize` round trip, so a modern connection's result
+	 * never populates this field (see `completeModernConnection` in
+	 * `client.ts`, which synthesises the rest of this shape from a discover
+	 * result that has no `instructions` concept at all).
+	 *
+	 * This is observability data, not steering: nothing in the SDK folds it
+	 * into an agent's instruction set automatically. It is server-authored,
+	 * remote-party text, and namzu already keeps that class of text out of
+	 * instruction/system position (see `connector/mcp/prompt-adapter.ts`
+	 * and `frameServerResult` in `connector/mcp/adapter.ts`, which frame
+	 * server-supplied prompts and tool results as untrusted data rather
+	 * than instructions). A host may display or log this field; it should
+	 * not read it into a prompt without the same untrusted framing.
+	 */
+	instructions?: string
 }
 
 export type MCPConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -461,6 +479,12 @@ export interface MCPClientState {
 	status: MCPConnectionStatus
 	serverInfo?: { name: string; version?: string }
 	serverCapabilities?: MCPServerCapabilities
+	/**
+	 * The server's `initialize` instructions, captured verbatim. See
+	 * {@link MCPInitializeResult.instructions} — legacy handshakes only,
+	 * observability only, never auto-folded into an agent's instructions.
+	 */
+	serverInstructions?: string
 	connectedAt?: number
 	error?: string
 }
