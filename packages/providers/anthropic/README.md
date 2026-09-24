@@ -122,3 +122,26 @@ model does not have instead of adjusting it:
 sent, or the request fails before it is sent. `provider.effortLevelsFor(model,
 thinking)` returns those levels. `resolveThinkingCapability(model)` also says
 whether thinking can be switched off at all (`canDisable`).
+
+## Forced tool choice
+
+`toolChoice: 'required'` and a named function force a tool call. The vendor
+rejects both on Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1, and on
+any model when the request carries manual extended thinking
+(`thinking: { type: 'enabled' }` as sent, after the resolution above). The
+driver refuses such a request before sending it, with a `bad_request`
+`ProviderRequestError` whose `providerCode` is `forced_tool_choice_unsupported`.
+Use `toolChoice: 'auto'` and say in the prompt which tool to call, or
+`responseFormat` for a fixed JSON shape. `'auto'` and `'none'` are accepted on
+every model.
+
+Ask before you force a step:
+
+```ts
+import { acceptsForcedToolChoice } from '@namzu/anthropic'
+
+const toolChoice = acceptsForcedToolChoice('claude-opus-5-5') ? 'required' : 'auto'
+```
+
+Pass the thinking configuration you will send as the second argument; the
+answer comes from the same resolution the request uses.
