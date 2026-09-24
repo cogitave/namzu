@@ -46,7 +46,6 @@ function backend(timeoutMs = 25) {
 
 function stubClaim(
 	options: {
-		deleteSafetyMs?: number
 		holdDelete?: boolean
 		holdIp?: boolean
 		ready?: boolean
@@ -90,18 +89,17 @@ function stubClaim(
 			deleteCalls += 1
 			deleteSignal = init?.signal ?? undefined
 			if (!options.holdDelete) return new Response(null, { status: 204 })
+			// No real safety timer: it used to race the same clock as the
+			// abort propagation a test waits on, so a starved CI runner
+			// could make that real work outlast the guard and reject with
+			// 'test safety release' instead of the caller's own reason —
+			// exactly the false failure this held response exists to avoid.
+			// A regression that never aborts this transport now hangs and
+			// fails on Vitest's own per-test timeout instead.
 			return await new Promise<Response>((_resolve, reject) => {
-				const safety = options.deleteSafetyMs
-					? setTimeout(() => reject(new Error('test safety release')), options.deleteSafetyMs)
-					: undefined
-				deleteSignal?.addEventListener(
-					'abort',
-					() => {
-						if (safety !== undefined) clearTimeout(safety)
-						reject(deleteSignal?.reason)
-					},
-					{ once: true },
-				)
+				deleteSignal?.addEventListener('abort', () => reject(deleteSignal?.reason), {
+					once: true,
+				})
 			})
 		}
 		return new Response('unexpected', { status: 500 })
@@ -283,7 +281,7 @@ describe('standby worker readiness deadline', () => {
 	})
 
 	it('passes teardown authority to a held ARM DELETE', async () => {
-		const observed = stubClaim({ ready: true, holdDelete: true, deleteSafetyMs: 100 })
+		const observed = stubClaim({ ready: true, holdDelete: true })
 		const sandbox = await backend().create({ workingDirectory: '/workspace' })
 		const owner = new AbortController()
 		const pending = Promise.all([
