@@ -902,7 +902,7 @@ function staleCachedHistoryError(
 			? `A cached message carries id ${id}, but its content no longer matches what this session's log recorded under that id. A message read from history must not be edited before it is sent back: ${guidance}`
 			: kind === 'foreign'
 				? `A cached message carries id ${id}, which this session's log never recorded. A host must not mint its own id for a message: pass only messages this session's log gave an id (unedited), or new messages with no id.`
-				: `A cached message with no id matches content this session's log already recorded, but not where a cache that is exactly the log's fold plus new messages appended after it would put it. The cache does not read as new input following the log's own history: ${guidance}`
+				: `A cached message with no id starts the same as this session's log, but the two diverge further in — this looks like an attempted full resend of the conversation, of a fold this log does not actually hold (edited, reordered, or from elsewhere). Nothing here can tell which of the cache's later messages, if any, are genuinely new: ${guidance}`
 	return new NamzuError({
 		code: 'stale_cached_history',
 		message: text,
@@ -934,44 +934,94 @@ function isKernelDerivedMessage(message: Message): boolean {
 }
 
 /**
- * The largest `k` such that `caller`'s first `k` messages equal, by
- * canonical value (ignoring `id`), `pool`'s LAST `k` messages, in the same
- * order.
+ * How a caller's no-id messages (`caller`, in order) relate to what remains
+ * of the log's own fold (`pool`, in order), once ids already claimed and the
+ * kernel-rebuilt kinds are set aside from both — never by searching for SOME
+ * aligned position, which cannot tell "the caller is echoing an old value"
+ * from "the caller wrote something new that happens to match" without a
+ * false positive or a false negative somewhere (an interrupted turn's own
+ * trailing no-id prompt, resent verbatim as the host's only next message,
+ * looks identical to a coincidental repeat of it as genuinely new content;
+ * a `k`-suffix search that tried to tell them apart swallowed the latter).
  *
- * A host's cache is presumed to end where the log's fold ends: whatever it
- * sends beyond an exact alignment of the fold's tail is new. Anchoring to
- * the tail, rather than walking a cursor that advances only on a match, is
- * what makes this immune to a stuck position — the defect a position-based
- * cursor had: one mismatch left the cursor behind forever, so everything
- * after it either duplicated (kept as "new" though already durable) or, the
- * opposite way, got silently matched against that same stale position and
- * dropped though it was genuinely new. Anchoring to the tail also means a
- * caller that repeats an earlier value as its OWN newest message (a user
- * saying "hello" again) still lines up correctly, because nothing folds it
- * back against an earlier occurrence — only a suffix of consecutive matches
- * ending the pool counts.
+ * There is exactly one shape this recognizes as "my cache, trimmed to a
+ * prefix of the fold": `caller`'s OWN first `pool.length` messages equal
+ * `pool` exactly, in order — the caller resent everything the fold
+ * currently holds. Then, and only then, that matched prefix is durable and
+ * dropped; what follows (if anything) is new. `caller` must be LONGER than
+ * `pool` for this UNLESS the call also has an id-carrying message
+ * elsewhere (`hasId`): only then can a length exactly matching the pool —
+ * "everything, nothing new yet" — be trusted, because something else in
+ * the same call already anchors it as part of a larger, structured resend.
+ * A caller with no id anywhere gets the strict inequality: its no-id
+ * segment IS its whole request, so an exact length match cannot be told
+ * apart from one message that happens to repeat the fold's own last value.
+ *
+ * Anything else is never matched by value, on purpose — a caller with no
+ * more messages than the fold has left, or one whose cache diverges from
+ * the fold's very first message, is `'new'`: every message it sent is kept,
+ * none dropped. This gives up detecting "a trimmed cache" without an id
+ * (session-log.md documents why: a host must send either everything or only
+ * new messages to reconcile by value at all) in exchange for never again
+ * confusing an echo with new content in either direction.
+ *
+ * The one case still refused rather than guessed at: `caller` is longer
+ * than `pool` and its first message matches `pool`'s first, but the two
+ * diverge somewhere after that — a cache that looks like an attempted full
+ * resend of a KNOWN fold, just not the fold this session's log actually
+ * holds. `'unaligned'` names that, rather than the alternative — duplicating
+ * or dropping content nobody can prove is redundant.
  */
-function largestSuffixAlignment(caller: readonly Message[], pool: readonly Message[]): number {
-	const max = Math.min(caller.length, pool.length)
-	for (let k = max; k > 0; k--) {
-		let aligned = true
-		for (let i = 0; i < k; i++) {
-			if (!sameMessageContent(caller[i] as Message, pool[pool.length - k + i] as Message)) {
-				aligned = false
+type NoIdReconciliation =
+	/** `caller`'s first `pool.length` messages ARE `pool`: drop that prefix. */
+	| 'trimmed'
+	/** Fails the turn: an attempted full resend of a fold this log does not hold. */
+	| 'unaligned'
+	/** No value matching at all: every one of `caller`'s messages is kept. */
+	| 'new'
+
+function reconcileNoIdAgainstFold(
+	caller: readonly Message[],
+	pool: readonly Message[],
+	// A wholly no-id caller (this call's `messages` carries no id anywhere)
+	// gets the strict `>`: its no-id segment IS its entire request, so a
+	// length exactly matching the pool is indistinguishable from "one
+	// message that happens to repeat the fold's own last value" (an
+	// interrupted turn's own trailing prompt, resent as a caller's ONLY
+	// next message — round-3's own probe1/probe3) — favoring "new" there
+	// is the whole point of this rule. A caller that ALSO sent at least one
+	// id-carrying message this same call is not that: its no-id segment is
+	// part of a larger, structured resend the id path already anchors, so
+	// an EXACT length match is trusted as "everything, nothing new" (`>=`)
+	// — the shape a wholesale history replacement (a compaction, or the
+	// provider-rejected-image repair, which records this way for the same
+	// reason: `TurnRecorder.replaceMessages`) produces on its very next
+	// turn, before any new message has been added at all.
+	hasId: boolean,
+): NoIdReconciliation {
+	if (hasId ? caller.length >= pool.length : caller.length > pool.length) {
+		let fullPrefix = true
+		for (let i = 0; i < pool.length; i++) {
+			if (!sameMessageContent(caller[i] as Message, pool[i] as Message)) {
+				fullPrefix = false
 				break
 			}
 		}
-		if (aligned) return k
+		if (fullPrefix) return 'trimmed'
+		if (pool.length > 0 && sameMessageContent(caller[0] as Message, pool[0] as Message)) {
+			return 'unaligned'
+		}
 	}
-	return 0
+	return 'new'
 }
 
 /**
  * `messages` reconciled against this session's log, by id where a message
- * carries one, and otherwise by a whole-cache alignment against the log's
- * own fold — never by walking the two positionally message by message,
- * which cannot tell "the caller dropped/edited something earlier" from
- * "everything after this is new" and so either duplicates or drops.
+ * carries one, and otherwise by the anchored, whole-cache rule
+ * {@link reconcileNoIdAgainstFold} implements — never by walking the two
+ * positionally message by message, and never by searching for some aligned
+ * position, either of which reads a genuine echo of old content and a
+ * coincidentally-identical new message as the same shape.
  *
  * A message carrying an id already durable under it (matching content) is
  * dropped — the fold supplies it, from wherever compaction has since put
@@ -982,26 +1032,25 @@ function largestSuffixAlignment(caller: readonly Message[], pool: readonly Messa
  *
  * A message with no id, once the kernel-derived kinds above are set aside
  * from both sides, joins its OWN sequence of no-id messages (in their
- * original relative order) and that sequence is aligned as a whole against
- * the fold's own remaining pool: every fold entry EXCEPT one whose id an
- * id-carrying caller message already claimed above (so nothing is offered
- * to both mechanisms) and a no-id one (a compaction summary, or a record
- * predating per-message ids). A caller using no ids at all thus reconciles
- * exactly as the value-based mechanism this replaced always did — its pool
- * is the whole fold, nothing claimed. A caller that CAN only ever id some
- * roles — a protocol adapter (AG-UI) that mints an id for an assistant/tool
- * message it produced but never for one its own client authored — still
- * reconciles its no-id messages correctly, against whatever the id path
- * left unclaimed, rather than an empty pool that would read every one of
- * them as new. The largest aligned suffix is dropped; what follows it is
- * new.
+ * original relative order), reconciled against the fold's own remaining
+ * pool: every fold entry EXCEPT one whose id an id-carrying caller message
+ * already claimed above (so nothing is offered to both mechanisms) and a
+ * no-id one (a compaction summary, or a record predating per-message ids).
+ * A caller using no ids at all thus reconciles exactly as
+ * {@link reconcileNoIdAgainstFold} describes, against the whole fold,
+ * nothing claimed. A caller that CAN only ever id some roles — a protocol
+ * adapter (AG-UI) that mints an id for an assistant/tool message it
+ * produced but never for one its own client authored — still reconciles
+ * its no-id messages correctly, against whatever the id path left
+ * unclaimed, rather than an empty pool that would read every one of them
+ * as new (which is harmless here — "new" is always a safe answer — but
+ * would duplicate needlessly).
  *
- * If nothing aligns at all (`k === 0`) while the pool is non-empty, and some
- * no-id message OTHER than the caller's last still matches pool content by
- * value, the cache is not a recognizable "fold plus new messages" shape —
- * refused as `stale_cached_history` (`'unaligned'`) rather than guessed at.
- * The last message is exempt because a host's newest addition legitimately
- * repeating older text (a second "hello") is ordinary, not a stale cache.
+ * See {@link reconcileNoIdAgainstFold} for exactly which shape is recognized
+ * as "my cache, trimmed to a prefix of the fold" (dropped), which is
+ * refused as `stale_cached_history` (`'unaligned'`) as an attempted resend
+ * of a fold this log does not hold, and — deliberately, the rest — which is
+ * never matched by value at all and so always kept as new.
  */
 async function reconcileCallerMessages(
 	messages: readonly Message[],
@@ -1056,18 +1105,14 @@ async function reconcileCallerMessages(
 		.map((entry) => entry.message)
 		.filter((message) => continuationMode || !isKernelDerivedMessage(message))
 
-	const k = largestSuffixAlignment(noIdMessages, pool)
-	if (k === 0 && pool.length > 0 && noIdMessages.length > 0) {
-		const last = noIdMessages.length - 1
-		for (let i = 0; i < last; i++) {
-			const candidate = noIdMessages[i] as Message
-			if (pool.some((entry) => sameMessageContent(entry, candidate))) {
-				throw staleCachedHistoryError('unaligned', candidate)
-			}
-		}
+	const reconciliation = reconcileNoIdAgainstFold(noIdMessages, pool, hasId)
+	if (reconciliation === 'unaligned') {
+		throw staleCachedHistoryError('unaligned', noIdMessages[0] as Message)
 	}
+	const keptNoIdIndices =
+		reconciliation === 'trimmed' ? noIdIndices.slice(pool.length) : noIdIndices
 
-	const newIndices = new Set(noIdIndices.slice(k))
+	const newIndices = new Set(keptNoIdIndices)
 	return messages.filter((_message, index) => newIndices.has(index))
 }
 
