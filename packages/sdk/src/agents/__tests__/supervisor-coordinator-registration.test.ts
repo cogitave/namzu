@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
 import { defineTool } from '../../tools/defineTool.js'
+import { ToolsetConflictError } from '../../toolsets/combine.js'
+import { toolset } from '../../toolsets/toolset.js'
+import type { Toolset } from '../../toolsets/types.js'
 import type { ResumeHandler } from '../../types/hitl/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
@@ -20,9 +22,13 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * unconditionally, so `{ create_task: 'disabled' }` was obeyed everywhere
  * except the one surface a host would most want to decline.
  *
- * The second case is the collision: `ManagedRegistry` warns and overwrites, so
- * a host tool sharing a coordinator name vanished into a log line and the
- * model kept a `create_task` whose behaviour depended on registration order.
+ * The second case is the collision: a host toolset contributing the same
+ * name as a coordinator tool used to vanish into a hand-written
+ * `ToolNameCollisionError` check this file alone ran. That check is gone —
+ * `drainQuery` now combines the caller's toolsets with the coordinator
+ * toolset through `combineToolsets` (plan.md v3 §2), the same mechanism any
+ * two colliding toolsets hit, so this asserts `ToolsetConflictError` rather
+ * than a bespoke one.
  */
 
 const HOST_TOOL_DESCRIPTION = 'a tool this host registered deliberately'
@@ -73,8 +79,10 @@ async function runWith(options: {
 
 	const provider = new MockLLMProvider({ turns: [{ text: 'nothing to delegate' }] })
 
-	const tools = new ToolRegistry()
-	for (const name of options.hostTools ?? []) tools.register(hostTool(name))
+	const toolsets: Toolset[] =
+		options.hostTools && options.hostTools.length > 0
+			? [toolset('host', options.hostTools.map(hostTool))]
+			: []
 
 	await agent.run(
 		{
@@ -91,7 +99,7 @@ async function runWith(options: {
 				? { allowDelegation: options.allowDelegation }
 				: {}),
 			agentManager: stubManager(),
-			tools,
+			toolsets,
 			systemPrompt: 'You coordinate.',
 			model: 'mock-model',
 			tokenBudget: 100_000,
@@ -135,13 +143,20 @@ describe('supervisor coordinator-tool registration', () => {
 	})
 
 	it('refuses to take a name the host already registered', async () => {
-		// Named and carrying the name, so a host can catch it narrowly rather
-		// than match on message text — the shape `DuplicateProviderError`
-		// already set in this repo.
-		await expect(runWith({ hostTools: ['create_task'] })).rejects.toThrow(ToolNameCollisionError)
-		await expect(runWith({ hostTools: ['create_task'] })).rejects.toThrow(
-			/runtimeToolOverrides: \{ "create_task": "disabled" \}/,
-		)
+		// Named and carrying both sources, so a host can catch it narrowly
+		// rather than match on message text — the same `ToolsetConflictError`
+		// any two colliding toolsets throw (`toolsets/combine.ts`), not a
+		// bespoke check this file used to run.
+		let caught: unknown
+		try {
+			await runWith({ hostTools: ['create_task'] })
+		} catch (err) {
+			caught = err
+		}
+		expect(caught).toBeInstanceOf(ToolsetConflictError)
+		const conflict = caught as ToolsetConflictError
+		expect(conflict.toolName).toBe('create_task')
+		expect([conflict.firstSource.id, conflict.secondSource.id]).toContain('host')
 	})
 
 	it('lets the host keep its own tool under that name by declining the coordinator one', async () => {

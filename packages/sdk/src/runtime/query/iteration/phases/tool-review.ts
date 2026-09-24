@@ -1,4 +1,5 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
+import type { ToolSourceRef } from '../../../../toolsets/types.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
@@ -66,6 +67,13 @@ export async function* runToolReview(
 			? { commandDialect: executor.commandDialect(toolName) }
 			: {}
 	}
+
+	// `allow_read_only` needs to know whether the tool's own `readOnlyHint`
+	// is one the operator trusts (an MCP server they configured that way), so
+	// it must not be told "host-defined" for a name the manager does not
+	// have. `sourceOf` throws for an unknown name, so this checks first.
+	const sourceFor = (toolName: string): { toolSource?: ToolSourceRef } =>
+		ctx.tools.has(toolName) ? { toolSource: ctx.tools.sourceOf(toolName) } : {}
 
 	const finish = (decision: ToolReviewDecision): ToolReviewOutcome => ({
 		decision,
@@ -274,6 +282,7 @@ export async function* runToolReview(
 				toolInput: tc.input,
 				toolDef: ctx.tools.get(tc.name),
 				...dialectFor(tc.name),
+				...sourceFor(tc.name),
 			}),
 		}))
 		for (const gr of gateResults) {
@@ -545,6 +554,7 @@ export async function* runToolReview(
 						toolInput: summary.input,
 						toolDef: ctx.tools.get(summary.name),
 						...dialectFor(summary.name),
+						...sourceFor(summary.name),
 					})
 					if (gateResult.decision === 'allow') continue
 					const reason =

@@ -4,11 +4,27 @@
  * `filterReadOnlyTools`/`filterToolsNamed` (a registry-shaped "copy the
  * matching subset into a new one") are gone (plan.md v3 §8, a break): a
  * toolset's own `filtered(ts, selector)` (`toolsets/wrappers.ts`) replaces
- * both — `filtered(ts, (tool) => isTrustedReadOnly(tool, undefined))` for
- * the read-only case, `filtered(ts, names)` for the name-list case — and,
- * unlike the old registry-level copy, it keeps the inner toolset's
+ * both — `filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined, source))`
+ * for the read-only case, `filtered(ts, names)` for the name-list case —
+ * and, unlike the old registry-level copy, it keeps the inner toolset's
  * `availability` and stays live over a live source instead of freezing a
  * snapshot at filter time.
+ *
+ * **Filter each contributing toolset, then combine — never the reverse.**
+ * `filtered`'s predicate reads `source` from the ONE toolset it is called
+ * on (`ToolPredicate`, `toolsets/types.ts`). Call it on a wide toolset
+ * `combineToolsets` already merged from several sources and `source` is
+ * the merge's own umbrella source, not any one contributor's — so a
+ * predicate built to keep only trusted-read-only tools would keep an
+ * untrusted MCP server's tool too, because it never sees that server's
+ * source. Filter each source's toolset on its own, THEN combine the
+ * filtered results:
+ *
+ *     const readOnlyOnly = parentToolsets.map((ts) =>
+ *       filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined, source)),
+ *     )
+ *     // readOnlyOnly: readonly Toolset[], hand it to a child ToolManager
+ *     // directly, or combineToolsets(...) it if the caller needs one Toolset.
  */
 
 import type { ToolDefinition } from '../types/tool/index.js'

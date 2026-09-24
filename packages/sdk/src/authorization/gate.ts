@@ -1,5 +1,6 @@
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import { GENAI } from '../constants/telemetry/index.js'
+import type { ToolSourceRef } from '../toolsets/types.js'
 import type {
 	AuthorizationGateConfig,
 	AuthorizationPredicateCall,
@@ -23,6 +24,13 @@ export interface ToolCallContext {
 	 * `sh` dialect, which holds whichever shell runs it.
 	 */
 	readonly commandDialect?: ShellDialect
+	/**
+	 * Where `toolName` came from (`ToolManager.sourceOf`), when the caller
+	 * has a manager to ask. `allow_read_only` needs this to tell an
+	 * operator-trusted MCP server's read-only claim from an untrusted one's;
+	 * omitted, it is read the same as a host-defined tool.
+	 */
+	readonly toolSource?: ToolSourceRef
 }
 
 /**
@@ -237,7 +245,10 @@ export class AuthorizationGate {
 				ctx.toolDef,
 				this.compiledPatterns.get(i),
 				this.nameSets.get(i),
-				ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {},
+				{
+					...(ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {}),
+					...(ctx.toolSource !== undefined ? { toolSource: ctx.toolSource } : {}),
+				},
 			)
 
 			if (decision !== null) {

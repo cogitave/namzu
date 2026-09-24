@@ -1070,6 +1070,16 @@ export interface LLMToolSchema {
 	}
 }
 
+/**
+ * `'suspended'` is reserved, not live: nothing in this package assigns or
+ * reads it since `ToolRegistry.suspendAll`/`.hasSuspended` were removed
+ * (plan.md v3 §2) — `ToolManager.availability` (and this file's
+ * `ToolsView.availability`) only ever returns `'deferred'` or `'active'`,
+ * derived rather than stored. Kept in the union rather than narrowed
+ * (a breaking change) pending a future session-level suspend mechanism;
+ * `RuntimeToolOverrides` still accepts it as a value with no observable
+ * effect.
+ */
 export type ToolAvailability = 'deferred' | 'active' | 'suspended'
 
 export type ZodToJsonSchema = (schema: z.ZodType) => Record<string, unknown>

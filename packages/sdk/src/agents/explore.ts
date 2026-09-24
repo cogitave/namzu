@@ -5,10 +5,12 @@
  * the delegations a parent makes most, and a child built from the parent's
  * whole working set answers them holding `write` and `bash` — so a lookup
  * needs the same approvals as a change. A host that offers this delegate
- * builds its roster with `filtered(ts, (tool) => isTrustedReadOnly(tool, undefined))`
- * (`toolsets/wrappers.ts`, `tools/trusted-read-only.ts`) and its prompt from
- * the text here; the two are exported separately because a host adds its
- * own doctrine and environment around the prompt.
+ * builds its roster by filtering EACH of the parent's contributing toolsets
+ * with `filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined, source))`
+ * (`toolsets/wrappers.ts`, `tools/trusted-read-only.ts`, `tools/roster.ts`
+ * for why this runs before any `combineToolsets`, not after) and its prompt
+ * from the text here; the two are exported separately because a host adds
+ * its own doctrine and environment around the prompt.
  */
 
 export const EXPLORE_AGENT_ID = 'explore'

@@ -16,6 +16,7 @@ import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolManager } from '../../toolsets/manager.js'
+import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { ToolCallEscalation } from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
@@ -806,6 +807,7 @@ export class ToolExecutor {
 			toolInput: input,
 			toolDef: this.config.tools.get(toolName),
 			commandDialect: this.commandDialect(toolName),
+			toolSource: this.toolSource(toolName),
 		})
 	}
 
@@ -817,6 +819,17 @@ export class ToolExecutor {
 	commandDialect(toolName: string): ShellDialect {
 		const tool = this.config.tools.get(toolName)
 		return tool?.commandDialect?.({ sandboxed: this.config.sandbox !== undefined }) ?? 'sh'
+	}
+
+	/**
+	 * Where `toolName` came from, for the gate's `allow_read_only` rule to
+	 * tell an operator-trusted MCP server's `readOnlyHint` from an untrusted
+	 * one's. `sourceOf` throws for a name the manager does not have, so this
+	 * checks first rather than let an unknown nested-call name throw here
+	 * instead of being refused by the gate itself.
+	 */
+	toolSource(toolName: string): ToolSourceRef | undefined {
+		return this.config.tools.has(toolName) ? this.config.tools.sourceOf(toolName) : undefined
 	}
 
 	/**
@@ -1270,6 +1283,7 @@ export class ToolExecutor {
 			toolInput: preparedInput,
 			toolDef: this.config.tools.get(name),
 			commandDialect: this.commandDialect(name),
+			toolSource: this.toolSource(name),
 		})
 		if (gateResult && gateResult.decision !== 'allow') {
 			const reason =

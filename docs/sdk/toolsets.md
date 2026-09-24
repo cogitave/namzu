@@ -56,7 +56,7 @@ the tool carried.
 - `renamed(toolset, names)` — renames the tools named as keys in `names` to
   their mapped value; a tool whose name is not a key keeps its name.
 - `filtered(toolset, selector)` — keeps only the tools a selector (or a
-  plain predicate function) admits. A selector is an array of tool names,
+  predicate function) admits. A selector is an array of tool names,
   `{ metadata }` (matched with `matchesToolSelector`, `tools/roster.ts`: a
   deep-match against `ToolDefinition.metadata` — every key in the pattern
   must be present and equal, or, for a nested plain object, recursively
@@ -65,6 +65,17 @@ the tool carried.
   all-or-nothing per toolset: it tests the *toolset's own* `source.id`
   against the pattern (see below), not a per-tool source, so it keeps
   every tool when the toolset's source matches and none when it does not.
+  A predicate function is `(tool, source) => boolean`: `source` is the ONE
+  toolset `filtered` runs on (`ts.source`, projected through
+  `toToolSourceRef`), the same reason the glob form is all-or-nothing — no
+  per-tool source exists yet. This is what a read-only-only roster reads
+  (`filtered(ts, (tool, source) => isTrustedReadOnly(tool, undefined,
+  source))`, `tools/roster.ts`), and why building one means filtering each
+  of a wider roster's contributing toolsets this way and THEN combining
+  them: call it on a toolset `combineToolsets` already merged from several
+  sources and `source` is the merge's own umbrella source, not any
+  contributor's, so an untrusted MCP server's tool would pass a check meant
+  to keep it out.
 - `deferred(toolset)` — sets `availability` to `'deferred'` without
   touching the tools themselves.
 - `requireApproval(toolset, selector?)` — sets
