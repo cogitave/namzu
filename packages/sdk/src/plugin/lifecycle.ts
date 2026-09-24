@@ -1,12 +1,11 @@
 import { pathToFileURL } from 'node:url'
 import type { ConfigRegistry } from '../config/registry.js'
-import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
 import { MCPToolDiscovery } from '../connector/mcp/discovery.js'
 import type { MCPToolDiscoveryOptions } from '../connector/mcp/discovery.js'
+import { mcpToolset } from '../connector/mcp/mcp-toolset.js'
 import type { MCPToolPolicy } from '../connector/mcp/policy.js'
-import { mcpPromptToToolDefinition } from '../connector/mcp/prompt-adapter.js'
-import { MCPReconnectOptionsSchema, MCPReconnectSupervisor } from '../connector/mcp/reconnect.js'
+import { MCPReconnectOptionsSchema } from '../connector/mcp/reconnect.js'
 import {
 	DEFAULT_HOOK_PRIORITY,
 	HOOK_TIMEOUT_MS,
@@ -18,7 +17,7 @@ import { loadSkill } from '../skills/loader.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import { resolveWithinReal } from '../tools/paths.js'
 import type { Toolset } from '../toolsets/types.js'
-import { deferred } from '../toolsets/wrappers.js'
+import { deferred, prefixed } from '../toolsets/wrappers.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginDefinition,
@@ -43,18 +42,11 @@ import { assertEnableable, loadPluginManifest } from './loader.js'
 interface PluginContributionRecord {
 	toolNames: string[]
 	mcpClients: MCPClient[]
+	mcpToolsets: Toolset[]
+	mcpUnsubscribers: Array<() => void>
+	mcpNamesBySource: Map<string, Set<string>>
 	/** Namespaced skill names, so rollback and disable can take them back. */
 	skillNames: string[]
-	/**
-	 * One per client, held so teardown can stop them.
-	 *
-	 * A supervisor still attached when `disconnect()` runs reads the teardown
-	 * as a fault and reconnects what was just closed — the lifecycle event
-	 * cannot tell a deliberate disconnect from a dropped transport. Keeping
-	 * them here is what makes the required stop-then-disconnect ordering
-	 * possible at all.
-	 */
-	mcpSupervisors: MCPReconnectSupervisor[]
 }
 
 interface PluginAdmission {
@@ -152,28 +144,11 @@ export interface PluginLifecycleManagerConfig {
 
 export class PluginLifecycleManager {
 	private pluginRegistry: PluginRegistry
-	/**
-	 * Tool contributions this manager owns, replacing the `ToolRegistryContract`
-	 * it used to register into and unregister from directly (plan.md v3 §2).
-	 *
-	 * Two fixed toolsets, built once, both deferred and both live
-	 * (`onChange` fires on every enable/disable/rollback): `pluginFileTools`
-	 * (kind `plugin`, host-authored — this process, code the operator
-	 * installed) and `pluginMcpTools` (kind `mcp_server` — a plugin's MCP
-	 * server and the prompts it publishes, the same untrusted-by-default
-	 * shape any other MCP source gets). A host reads {@link toolsets} once,
-	 * when it composes its own `ToolManager`, and that manager's `refresh()`
-	 * at its next iteration boundary is what picks up a later enable/disable.
-	 *
-	 * Splitting by real per-server trust (`plugin:<name>/mcp:<server>`, one
-	 * toolset each) is plan.md v3 §7's job ("plugins are bundles of
-	 * toolsets"); nothing in `PluginMCPServerConfig` lets an operator mark
-	 * one server trusted and not another yet, so every plugin MCP server is
-	 * untrusted here today regardless, and collapsing them costs no real
-	 * fidelity in the meantime.
-	 */
+	/** Each installed plugin owns its own file source and one source per MCP server. */
 	private readonly pluginFileTools = new Map<string, ToolDefinition>()
 	private readonly pluginMcpTools = new Map<string, ToolDefinition>()
+	private readonly mcpOwnerByName = new Map<string, string>()
+	private readonly toolsetsByPlugin = new Map<PluginId, readonly Toolset[]>()
 	private readonly toolsetChangeListeners = new Set<() => void>()
 	private listeners: PluginEventListener[] = []
 	private hookHandlers: Map<
@@ -207,6 +182,8 @@ export class PluginLifecycleManager {
 	 * reads.
 	 */
 	private mcpDiscovery: MCPToolDiscovery
+	private readonly mcpToolPolicies?: Readonly<Record<string, MCPToolPolicy>>
+	private readonly onMCPToolDrift?: MCPToolDiscoveryOptions['onDrift']
 
 	private readonly skillRegistry: SkillRegistry | undefined
 
@@ -216,6 +193,8 @@ export class PluginLifecycleManager {
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.configRegistry = config.configRegistry
+		this.mcpToolPolicies = config.mcpToolPolicies
+		this.onMCPToolDrift = config.onMCPToolDrift
 		this.log = config.log.child({ [SCOPE_ATTRIBUTE]: 'plugin/lifecycle' })
 		this.mcpDiscovery = new MCPToolDiscovery([], {
 			...(config.mcpToolPolicies ? { policies: config.mcpToolPolicies } : {}),
@@ -224,40 +203,44 @@ export class PluginLifecycleManager {
 		})
 	}
 
-	/**
-	 * The two toolsets this manager currently contributes — see the field
-	 * doc on {@link pluginFileTools}/{@link pluginMcpTools}. A host includes
-	 * both in its own `toolsets` array (`query()`/`ReactiveAgentConfig`/…)
-	 * alongside everything else it composes.
-	 */
+	/** Stable entries created at install, before a host composes its ToolManager. */
 	get toolsets(): readonly Toolset[] {
-		return [this.fileToolset, this.mcpToolset]
+		return [...this.toolsetsByPlugin.values()].flat()
 	}
 
-	private readonly fileToolset: Toolset = deferred({
-		source: { id: 'plugins', kind: 'plugin', name: 'plugins' },
-		tools: () => [...this.pluginFileTools.values()],
-		onChange: (listener) => {
+	private registerToolsets(admission: PluginAdmission): void {
+		if (this.toolsetsByPlugin.has(admission.id)) return
+		const pluginName = admission.manifest.name
+		const onChange = (listener: () => void) => {
 			this.toolsetChangeListeners.add(listener)
 			return () => this.toolsetChangeListeners.delete(listener)
-		},
-	})
-
-	private readonly mcpToolset: Toolset = deferred({
-		source: {
-			id: 'plugins/mcp',
-			kind: 'mcp_server',
-			name: 'plugin-mcp',
-			// See the field doc: no per-server trust config exists yet, so
-			// every plugin MCP server is untrusted, uniformly.
-			mcpServer: { name: 'plugin-mcp', readOnlyHintTrusted: false },
-		},
-		tools: () => [...this.pluginMcpTools.values()],
-		onChange: (listener) => {
-			this.toolsetChangeListeners.add(listener)
-			return () => this.toolsetChangeListeners.delete(listener)
-		},
-	})
+		}
+		const fileTools = deferred({
+			source: { id: `plugin:${pluginName}`, kind: 'plugin' as const, name: pluginName },
+			tools: () =>
+				[...this.pluginFileTools.values()].filter((tool) =>
+					tool.name.startsWith(`${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}`),
+				),
+			onChange,
+		})
+		const mcpTools = (admission.manifest.mcpServers ?? []).map((server) =>
+			deferred({
+				source: {
+					id: `plugin:${pluginName}/mcp:${server.name}`,
+					kind: 'mcp_server' as const,
+					name: server.name,
+					mcpServer: { name: server.name, readOnlyHintTrusted: false },
+				},
+				tools: () =>
+					[...this.pluginMcpTools.values()].filter(
+						(tool) =>
+							this.mcpOwnerByName.get(tool.name) === `plugin:${pluginName}/mcp:${server.name}`,
+					),
+				onChange,
+			}),
+		)
+		this.toolsetsByPlugin.set(admission.id, [fileTools, ...mcpTools])
+	}
 
 	private notifyToolsetChange(): void {
 		for (const listener of this.toolsetChangeListeners) listener()
@@ -270,14 +253,18 @@ export class PluginLifecycleManager {
 	}
 
 	/** An MCP-discovered tool or a prompt adapted to one. */
-	private addMcpTool(tool: ToolDefinition): void {
+	private addMcpTool(tool: ToolDefinition, sourceId: string): void {
 		this.pluginMcpTools.set(tool.name, tool)
+		this.mcpOwnerByName.set(tool.name, sourceId)
 		this.notifyToolsetChange()
 	}
 
 	/** Reverses whichever of the two maps above actually holds `name`; a name in neither is a no-op. */
 	private removeContributedTool(name: string): void {
-		if (this.pluginFileTools.delete(name) || this.pluginMcpTools.delete(name)) {
+		const removedFile = this.pluginFileTools.delete(name)
+		const removedMcp = this.pluginMcpTools.delete(name)
+		this.mcpOwnerByName.delete(name)
+		if (removedFile || removedMcp) {
 			this.notifyToolsetChange()
 		}
 	}
@@ -352,6 +339,7 @@ export class PluginLifecycleManager {
 
 		this.pluginRegistry.register(definition)
 		this.pluginAdmissions.set(pluginId, admission)
+		this.registerToolsets(admission)
 
 		this.emit({
 			type: 'plugin_installed',
@@ -434,6 +422,7 @@ export class PluginLifecycleManager {
 			try {
 				admission = await this.readLegacyAdmission(plugin)
 				this.pluginAdmissions.set(pluginId, admission)
+				this.registerToolsets(admission)
 			} catch (error) {
 				this.pluginRegistry.register({
 					...plugin,
@@ -466,8 +455,10 @@ export class PluginLifecycleManager {
 		const contributions: PluginContributionRecord = {
 			toolNames: [],
 			mcpClients: [],
+			mcpToolsets: [],
+			mcpUnsubscribers: [],
+			mcpNamesBySource: new Map(),
 			skillNames: [],
-			mcpSupervisors: [],
 		}
 
 		try {
@@ -568,7 +559,12 @@ export class PluginLifecycleManager {
 			// prose that is itself the debt.
 			'namzu.plugin.id': pluginId,
 			'namzu.plugin.name': manifest.name,
-			'namzu.plugin.tool_count': contributions.toolNames.length,
+			'namzu.plugin.tool_count':
+				contributions.toolNames.length +
+				[...contributions.mcpNamesBySource.values()].reduce(
+					(count, names) => count + names.size,
+					0,
+				),
 			'namzu.plugin.skill_count': contributions.skillNames.length,
 			'namzu.plugin.mcp_server_count': contributions.mcpClients.length,
 		})
@@ -593,64 +589,49 @@ export class PluginLifecycleManager {
 		await client.connect()
 		contributions.mcpClients.push(client)
 
-		// Watched from here on. `connect()` above is the only attempt anything
-		// made: `transport.onClose` marked the client disconnected and rejected
-		// its pending calls, and nothing scheduled another try — so one blip
-		// took this plugin's tools out for the life of the process while the
-		// plugin went on reporting as enabled.
-		// The policy is read from the registry on EVERY attempt, not captured
-		// here. That is what makes the seam live: raising `maxAttempts` during
-		// an outage takes effect on the retry that is already running, which is
-		// the moment an operator actually reaches for it.
-		//
-		// Namespaced per server rather than globally, because two plugins'
-		// servers fail differently — one behind a flaky proxy wants patience,
-		// one behind a crash loop wants to give up and say so.
+		// The toolset owns reconnection and reads this policy on each attempt.
 		const policyScope = this.configRegistry?.register(
 			`mcp.${config.name}`,
 			MCPReconnectOptionsSchema,
 		)
-		const supervisor = new MCPReconnectSupervisor(
-			client,
-			policyScope ? () => policyScope.get() : {},
+		// Preserve cross-disable drift detection. The live toolset below owns
+		// changes during this enablement; this manager-owned discovery remembers
+		// the server's earlier admission across clients and plugin lifetimes.
+		await this.mcpDiscovery.discoverFrom(client)
+		const sourceId = `plugin:${pluginName}/mcp:${config.name}`
+		const policy = this.mcpToolPolicies?.[config.name] ?? this.mcpToolPolicies?.['*']
+		const entries = await mcpToolset(client, {
+			id: sourceId,
+			availability: 'deferred',
+			allow: policy?.allow,
+			deny: policy?.deny,
+			reconnect: policyScope ? () => policyScope.get() : {},
+			onDrift: this.onMCPToolDrift,
+			logger: this.log,
+		})
+		contributions.mcpToolsets.push(...entries)
+		const wrapped = entries.map((entry) =>
+			prefixed(entry, `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}`),
 		)
-		supervisor.start()
-		contributions.mcpSupervisors.push(supervisor)
-
-		// Through the boundary, not around it. This used to call
-		// `client.listTools()` and register everything the server answered
-		// with, so the remote side decided what entered the agent's registry
-		// — least privilege inverted. `discoverFrom` applies the per-server
-		// allow/deny policy and reports a tool set that changed since the
-		// last discovery.
-		const discovered = await this.mcpDiscovery.discoverFrom(client)
-		const mcpTools = discovered.map((d) => d.tool)
-		for (const mcpTool of mcpTools) {
-			const baseDef = mcpToolToToolDefinition(mcpTool, client, config.name)
-			// Double-underscore between serverName and toolName so that e.g.
-			// (server="fs", tool="read_file") and (server="fs_read", tool="file")
-			// produce distinct final names.
-			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}mcp__${config.name}__${mcpTool.name}`
-			const namespacedTool: ToolDefinition = { ...baseDef, name: namespacedName }
-			this.addMcpTool(namespacedTool)
-			contributions.toolNames.push(namespacedName)
+		const sync = () => {
+			const previous = contributions.mcpNamesBySource.get(sourceId) ?? new Set<string>()
+			const nextTools = wrapped.flatMap((entry) => entry.tools())
+			const nextNames = new Set(nextTools.map((tool) => tool.name))
+			for (const name of previous) {
+				if (!nextNames.has(name)) this.removeContributedTool(name)
+			}
+			for (const tool of nextTools) this.addMcpTool(tool, sourceId)
+			contributions.mcpNamesBySource.set(sourceId, nextNames)
 		}
-
-		// Prompts, through the same gate. A server publishing one is the same
-		// trust question as a server publishing a tool.
-		const prompts = await this.mcpDiscovery.discoverPromptsFrom(client)
-		for (const prompt of prompts) {
-			const baseDef = mcpPromptToToolDefinition(prompt, client, config.name)
-			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}${baseDef.name}`
-			this.addMcpTool({ ...baseDef, name: namespacedName })
-			contributions.toolNames.push(namespacedName)
-		}
+		contributions.mcpUnsubscribers.push(entries[0].onChange?.(sync) ?? (() => {}))
+		sync()
 	}
 
 	private async rollbackContributions(
 		pluginId: PluginId,
 		contributions: PluginContributionRecord,
 	): Promise<void> {
+		await this.stopMcpContributions(contributions, 'rollback')
 		for (const name of contributions.toolNames) {
 			try {
 				this.removeContributedTool(name)
@@ -666,21 +647,6 @@ export class PluginLifecycleManager {
 			// Wrapping it would suggest a failure mode that does not exist.
 			this.skillRegistry?.unregister(name)
 		}
-		// Stop supervising BEFORE disconnecting. The lifecycle event a
-		// deliberate disconnect emits is the same one a dropped transport
-		// emits, so a still-attached supervisor would reconnect what this
-		// rollback just closed.
-		for (const supervisor of contributions.mcpSupervisors) supervisor.stop()
-		for (const client of contributions.mcpClients) {
-			try {
-				await client.disconnect()
-			} catch (discErr) {
-				this.log.warn('Rollback: MCP disconnect failed', {
-					'namzu.mcp.client_id': client.id,
-					'exception.message': toErrorMessage(discErr),
-				})
-			}
-		}
 		for (const [event, handlers] of this.hookHandlers) {
 			const filtered = handlers.filter((h) => h.pluginId !== pluginId)
 			if (filtered.length === 0) {
@@ -688,6 +654,27 @@ export class PluginLifecycleManager {
 			} else {
 				this.hookHandlers.set(event, filtered)
 			}
+		}
+	}
+
+	private async stopMcpContributions(
+		contributions: PluginContributionRecord,
+		operation: 'rollback' | 'disable',
+	): Promise<void> {
+		for (const unsubscribe of contributions.mcpUnsubscribers) unsubscribe()
+		for (const entry of contributions.mcpToolsets) await entry.close?.()
+		for (const client of contributions.mcpClients) {
+			try {
+				await client.disconnect()
+			} catch (error) {
+				this.log.warn(`MCP disconnect failed during ${operation}`, {
+					'namzu.mcp.client_id': client.id,
+					'exception.message': toErrorMessage(error),
+				})
+			}
+		}
+		for (const names of contributions.mcpNamesBySource.values()) {
+			for (const name of names) this.removeContributedTool(name)
 		}
 	}
 
@@ -702,22 +689,9 @@ export class PluginLifecycleManager {
 			)
 		}
 
-		// Stop supervising first, for the same reason as the rollback path: the
-		// disconnect below emits the event the supervisor treats as a fault.
-		for (const supervisor of contributions.mcpSupervisors) supervisor.stop()
-		// Disconnect MCP clients first so no new tool calls can reach them mid-teardown.
-		for (const client of contributions.mcpClients) {
-			try {
-				await client.disconnect()
-			} catch (err) {
-				this.log.warn('MCP client disconnect failed during disable', {
-					'namzu.mcp.client_id': client.id,
-					'exception.message': toErrorMessage(err),
-				})
-			}
-		}
+		await this.stopMcpContributions(contributions, 'disable')
 
-		// Unregister contributed tools (plugin tools + MCP-adapted tools)
+		// Unregister file-declared tools; MCP entries were removed above.
 		for (const name of contributions.toolNames) {
 			this.removeContributedTool(name)
 		}
@@ -770,6 +744,7 @@ export class PluginLifecycleManager {
 
 		this.pluginRegistry.unregister(pluginId)
 		this.pluginAdmissions.delete(pluginId)
+		this.toolsetsByPlugin.delete(pluginId)
 
 		this.emit({
 			type: 'plugin_uninstalled',

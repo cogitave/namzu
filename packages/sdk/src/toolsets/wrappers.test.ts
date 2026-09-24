@@ -35,6 +35,16 @@ describe('prefixed', () => {
 		expect(wrapped.permissions).toEqual(['file_read'])
 		expect(wrapped.name).toBe('demo__read')
 	})
+
+	it('keeps definition identity across unchanged live snapshots', () => {
+		const read = tool('read')
+		const live = liveToolset('mcp:demo', [read])
+		const wrapped = prefixed(live.toolset, 'demo__')
+		const admitted = wrapped.tools()[0]
+		expect(wrapped.tools()[0]).toBe(admitted)
+		live.setTools([read, tool('write')])
+		expect(wrapped.tools()[0]).toBe(admitted)
+	})
 })
 
 describe('renamed', () => {

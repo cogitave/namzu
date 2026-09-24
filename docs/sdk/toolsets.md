@@ -261,8 +261,9 @@ and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
 as a list of named toolsets rather than a registry: `builtin` (wrapped with
 `mapTools` for the checkpointed file tools), `memory`, one per connected MCP
 server (kind `mcp_server`, id `mcp:<server>` — `McpConnection.toolsets`,
-`integrations/mcp/servers.ts`), `plugins`/`plugins/mcp` (the two live
-toolsets `PluginLifecycleManager.toolsets` exposes), `computer-use`,
+`integrations/mcp/servers.ts`), one `plugin:<name>` file-tool source and one
+`plugin:<name>/mcp:<server>` source per plugin server (all live entries from
+`PluginLifecycleManager.toolsets`), `computer-use`,
 `browser`, `web-search`/`web-fetch`, `session-goals`, `resident-history`,
 `resident-tool-evidence`, `conversation-sessions`, `ask-user-question`,
 `extra` (host `extraTools`), a dynamic `skills` toolset (its `tools()`

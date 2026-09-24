@@ -16,7 +16,11 @@ import type { MCPClient } from './client.js'
 import { MCPToolDiscovery } from './discovery.js'
 import type { MCPToolDrift } from './policy.js'
 import { mcpPromptToToolDefinition } from './prompt-adapter.js'
-import { type MCPReconnectOptions, MCPReconnectSupervisor } from './reconnect.js'
+import {
+	type MCPReconnectOptions,
+	type MCPReconnectPolicySource,
+	MCPReconnectSupervisor,
+} from './reconnect.js'
 
 /**
  * `mcp__<server>__<rest>`, the one MCP naming convention (plan.md §4,
@@ -27,10 +31,9 @@ import { type MCPReconnectOptions, MCPReconnectSupervisor } from './reconnect.js
  *
  * `mcpToolToToolDefinition`/`mcpPromptToToolDefinition` keep their OWN
  * historical naming (`mcp_<server>_<tool>` / `mcp_prompt_<server>_<name>`)
- * for remaining direct callers (`plugin/lifecycle.ts` and adapter users) —
- * this module renames what they hand back rather than changing what they
- * produce. The CLI now uses this toolset; the plugin path still uses the
- * adapters directly until its migration is complete.
+ * for direct adapter users — this module renames what they hand back rather
+ * than changing what they produce. The CLI and plugin lifecycle both use
+ * this toolset.
  */
 const MCP_TOOLSET_NAME_MAX_LENGTH = 64
 
@@ -113,7 +116,7 @@ export interface MCPToolsetOptions {
 	 * `MCPReconnectSupervisor` against the same client and would otherwise
 	 * end up with two supervisors racing to reconnect it.
 	 */
-	readonly reconnect?: MCPReconnectOptions
+	readonly reconnect?: MCPReconnectOptions | MCPReconnectPolicySource
 	readonly logger?: Logger
 }
 
@@ -456,9 +459,12 @@ export async function mcpToolset(
 		}
 	})
 
-	const reconnectOptions = options.reconnect ?? {}
-	const supervisor = new MCPReconnectSupervisor(client, {
-		...reconnectOptions,
+	const readReconnectOptions: MCPReconnectPolicySource =
+		typeof options.reconnect === 'function'
+			? options.reconnect
+			: () => (options.reconnect as MCPReconnectOptions | undefined) ?? {}
+	const supervisor = new MCPReconnectSupervisor(client, () => ({
+		...readReconnectOptions(),
 		onReconnected: async () => {
 			if (closed) return
 			// The server may have come back with a different tool set entirely
@@ -473,9 +479,9 @@ export async function mcpToolset(
 			await Promise.all([refreshTools(), refreshPrompts(), syncResourceCapability()])
 			if (closed) return
 			notify()
-			await reconnectOptions.onReconnected?.()
+			await readReconnectOptions().onReconnected?.()
 		},
-	})
+	}))
 	supervisor.start()
 
 	const close = async (): Promise<void> => {

@@ -49,8 +49,8 @@ function message(error: unknown): string {
  * value. Callers invoke this only after project trust has pinned `cwd`.
  *
  * No longer takes a tool registry to register into (plan.md v3 §7):
- * `PluginLifecycleManager` owns its own two toolsets (`manager.toolsets`,
- * file-declared and MCP-discovered, both live) and a caller folds them into
+ * `PluginLifecycleManager` exposes one live file source per plugin and one
+ * live MCP source per plugin server (`manager.toolsets`); a caller folds them into
  * its own `toolsets` array. The `skill` tool itself is the CALLER's concern
  * now too — this runtime only reports `skills.size` so the caller can decide
  * live whether to offer it, rather than this module owning a "who registered

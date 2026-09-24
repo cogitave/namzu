@@ -56,7 +56,18 @@ export function mapTools(ts: Toolset, fn: (tool: ToolDefinition) => ToolDefiniti
 
 /** Prepend `prefix` to every tool's name. `execute` and every other field are untouched. */
 export function prefixed(ts: Toolset, prefix: string): Toolset {
-	return mapTools(ts, (tool) => ({ ...tool, name: `${prefix}${tool.name}` }))
+	const cache = new WeakMap<ToolDefinition, ToolDefinition>()
+	return deriveToolset(ts, {
+		tools: () =>
+			ts.tools().map((tool) => {
+				let renamed = cache.get(tool)
+				if (!renamed) {
+					renamed = { ...tool, name: `${prefix}${tool.name}` }
+					cache.set(tool, renamed)
+				}
+				return renamed
+			}),
+	})
 }
 
 /**

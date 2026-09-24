@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 
+import { ToolManager } from '../../toolsets/manager.js'
 import type { MCPToolDefinition } from '../../types/connector/index.js'
 
 /**
@@ -25,6 +26,7 @@ import type { MCPToolDefinition } from '../../types/connector/index.js'
 let advertised: MCPToolDefinition[] = []
 let advertisedPrompts: { name: string; description?: string }[] = []
 let clientCount = 0
+let notificationListeners: Array<(method: string) => void> = []
 
 vi.mock('../../connector/mcp/client.js', () => ({
 	MCPClient: class {
@@ -41,11 +43,23 @@ vi.mock('../../connector/mcp/client.js', () => ({
 		onLifecycle(): () => void {
 			return () => {}
 		}
+		onNotification(listener: (method: string) => void): () => void {
+			notificationListeners.push(listener)
+			return () => {
+				notificationListeners = notificationListeners.filter(
+					(registered) => registered !== listener,
+				)
+			}
+		}
 		isConnected(): boolean {
 			return true
 		}
 		getState() {
-			return { serverName: this.serverName }
+			return {
+				status: 'connected',
+				serverName: this.serverName,
+				serverCapabilities: { tools: { listChanged: true }, prompts: { listChanged: true } },
+			}
 		}
 		async listTools(): Promise<MCPToolDefinition[]> {
 			return advertised
@@ -80,23 +94,17 @@ async function harness(config: Record<string, unknown> = {}): Promise<Harness> {
 	const { PluginLifecycleManager } = await import('../lifecycle.js')
 	const { PluginRegistry } = await import('../../registry/plugin/index.js')
 
-	const registered: string[] = []
-	const toolRegistry = {
-		register: (definition: { name: string }) => registered.push(definition.name),
-		unregister: () => undefined,
-		get: () => undefined,
-	} as never
-
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: new PluginRegistry(),
-		toolRegistry,
 		scopeRoots: { project: root, user: root },
 		log,
 		...config,
 	} as never)
 
 	return {
-		registered,
+		get registered() {
+			return manager.toolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
+		},
 		manager,
 		enable: async (name: string) => {
 			const dir = join(root, name)
@@ -121,6 +129,7 @@ async function harness(config: Record<string, unknown> = {}): Promise<Harness> {
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), 'namzu-mcp-admit-'))
 	clientCount = 0
+	notificationListeners = []
 	advertised = [tool('read_file'), tool('write_file'), tool('delete_everything')]
 	advertisedPrompts = [{ name: 'safe_prompt' }, { name: 'sneaky_prompt' }]
 })
@@ -149,7 +158,9 @@ describe('what a plugin server advertises is not what the registry gets', () => 
 
 		// Counted over TOOLS specifically: prompts register through the same
 		// path and would otherwise make this assertion about both.
-		expect(h.registered.filter((n) => n.includes('mcp__files__'))).toHaveLength(2)
+		expect(
+			h.registered.filter((n) => n.includes('mcp__files__') && !n.includes('__prompt__')),
+		).toHaveLength(2)
 		expect(h.registered.some((n) => n.endsWith('delete_everything'))).toBe(false)
 	})
 
@@ -160,7 +171,9 @@ describe('what a plugin server advertises is not what the registry gets', () => 
 
 		await h.enable('srv')
 
-		expect(h.registered.filter((n) => n.includes('mcp__files__'))).toHaveLength(3)
+		expect(
+			h.registered.filter((n) => n.includes('mcp__files__') && !n.includes('__prompt__')),
+		).toHaveLength(3)
 	})
 
 	it('namespaces what it admits, exactly as before', async () => {
@@ -169,6 +182,28 @@ describe('what a plugin server advertises is not what the registry gets', () => 
 		await h.enable('srv')
 
 		expect(h.registered[0]).toContain('mcp__files__read_file')
+		const resolved = new ToolManager({ toolsets: h.manager.toolsets, messages: () => [] })
+		expect(resolved.sourceOf('srv__mcp__files__read_file').id).toBe('plugin:srv/mcp:files')
+		expect(resolved.sourceOf('srv__mcp__files__read_file').kind).toBe('mcp_server')
+	})
+
+	it('updates a plugin server source after tools/list_changed', async () => {
+		const h = await harness()
+		const id = await h.enable('srv')
+		const source = h.manager.toolsets.find((entry) => entry.source.id === 'plugin:srv/mcp:files')
+		if (!source?.onChange) throw new Error('plugin MCP source is not live')
+		const changed = new Promise<void>((resolve) => {
+			const unsubscribe = source.onChange?.(() => {
+				unsubscribe?.()
+				resolve()
+			})
+		})
+		advertised = [...advertised, tool('new_tool')]
+		for (const listener of notificationListeners) listener('notifications/tools/list_changed')
+		await changed
+		expect(h.registered).toContain('srv__mcp__files__new_tool')
+		await h.manager.disable(id)
+		expect(h.registered).toEqual([])
 	})
 })
 
@@ -261,7 +296,7 @@ describe('a prompt is admitted on the same terms as a tool', () => {
 
 		await h.enable('srv')
 
-		expect(h.registered.some((n) => n.includes('mcp_prompt_files_safe_prompt'))).toBe(true)
+		expect(h.registered.some((n) => n.includes('mcp__files__prompt__safe_prompt'))).toBe(true)
 	})
 
 	it('refuses a prompt the policy does not allow', async () => {
@@ -288,6 +323,6 @@ describe('a prompt is admitted on the same terms as a tool', () => {
 		// Both exist. Collapsing them would let whichever registered second
 		// silently replace the first.
 		expect(h.registered.some((n) => n.endsWith('mcp__files__read_file'))).toBe(true)
-		expect(h.registered.some((n) => n.endsWith('mcp_prompt_files_read_file'))).toBe(true)
+		expect(h.registered.some((n) => n.endsWith('mcp__files__prompt__read_file'))).toBe(true)
 	})
 })

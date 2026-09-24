@@ -6,4 +6,4 @@ New `mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/`): the path 
 
 `MCPClient.onNotification` now returns an unsubscribe function, mirroring `onLifecycle` — additive; any existing caller ignoring the return value is unaffected.
 
-Purely additive: no existing export changed or was removed. `mcpToolToToolDefinition`/`mcpPromptToToolDefinition` (the pieces `mcpToolset` wraps) remain exported for direct callers while the plugin path migrates. The CLI now uses `mcpToolset`, with its naming change covered by the separate CLI changeset. A caller building an MCP server's tools by hand can move to `mcpToolset` at its own pace.
+Purely additive: no existing export changed or was removed. `mcpToolToToolDefinition`/`mcpPromptToToolDefinition` (the pieces `mcpToolset` wraps) remain exported for direct SDK callers. The CLI and plugin lifecycle now use `mcpToolset`, with their naming changes covered by separate changesets. A caller building an MCP server's tools by hand can move to `mcpToolset` at its own pace.

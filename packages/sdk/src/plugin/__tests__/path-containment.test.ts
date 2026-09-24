@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { PluginRegistry } from '../../registry/plugin/index.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 import { discoverPlugins } from '../loader.js'
@@ -93,7 +92,6 @@ describe('plugin installation stays inside its declared authority root', () => {
 			const pluginRegistry = new PluginRegistry()
 			const manager = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry: new ToolRegistry(),
 				scopeRoots: { project: trusted, user: trusted },
 				log: NOOP_LOGGER,
 			})
@@ -136,7 +134,6 @@ describe('plugin installation stays inside its declared authority root', () => {
 			const pluginRegistry = new PluginRegistry()
 			const manager = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry: new ToolRegistry(),
 				scopeRoots: { project: trusted, user: trusted },
 				log: NOOP_LOGGER,
 			})
@@ -174,7 +171,6 @@ describe('plugin installation stays inside its declared authority root', () => {
 			})
 			const manager = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry: new ToolRegistry(),
 				scopeRoots: { project: trusted, user: trusted },
 				log: NOOP_LOGGER,
 			})
@@ -204,7 +200,6 @@ describe('plugin installation stays inside its declared authority root', () => {
 		const pluginRegistry = new PluginRegistry()
 		const manager = new PluginLifecycleManager({
 			pluginRegistry,
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: trusted, user: trusted },
 			log: NOOP_LOGGER,
 		})
@@ -239,7 +234,6 @@ function managerFor(def: unknown, authorityRoot: string): PluginLifecycleManager
 	pluginRegistry.register(def as never)
 	return new PluginLifecycleManager({
 		pluginRegistry,
-		toolRegistry: new ToolRegistry(),
 		scopeRoots: { project: authorityRoot, user: authorityRoot },
 		log: NOOP_LOGGER,
 	})
