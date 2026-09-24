@@ -3432,6 +3432,8 @@ export function App({
 				// question when a decision is genuinely theirs.
 				askUser: true,
 				allowModelSwitch: true,
+				// The user is at this desktop, so the model may open a page for them.
+				openUrl: true,
 			})
 			if (signal?.aborted) {
 				void s.close()

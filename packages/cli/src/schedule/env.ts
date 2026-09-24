@@ -11,6 +11,7 @@
  */
 
 import { readFileSync, statSync } from 'node:fs'
+import { readWslMountRoot } from '../context/environment.js'
 
 /** Variables a child inherits from the daemon. Nothing else. */
 export const CHILD_ENV_ALLOWLIST = [
@@ -38,22 +39,35 @@ export const CHILD_ENV_ALLOWLIST = [
 	'XAUTHORITY',
 ] as const
 
-/** `PATH` without Windows drive mounts: under WSL a failed lookup through `/mnt/c` costs seconds. */
-export function stripWindowsMounts(path: string | undefined): string {
+/**
+ * `PATH` without Windows drive mounts: under WSL a failed lookup through
+ * `/mnt/c` costs seconds. The drives are the one-letter directories under
+ * the mount root `/etc/wsl.conf` sets (`[automount] root`, `/mnt/` by default).
+ */
+export function stripWindowsMounts(
+	path: string | undefined,
+	mountRoot: string = readWslMountRoot(),
+): string {
+	const root = mountRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+	const drive = new RegExp(`^${root}[a-z](/|$)`, 'i')
 	return (path ?? '')
 		.split(':')
-		.filter((entry) => entry !== '' && !/^\/mnt\/[a-z](\/|$)/i.test(entry))
+		.filter((entry) => entry !== '' && !drive.test(entry))
 		.join(':')
 }
 
-/** The environment of a fire child. */
-export function childEnvironment(source: NodeJS.ProcessEnv, namzuHome: string): NodeJS.ProcessEnv {
+/** The environment of a fire child. `mountRoot` is for a test; absent reads `/etc/wsl.conf`. */
+export function childEnvironment(
+	source: NodeJS.ProcessEnv,
+	namzuHome: string,
+	mountRoot?: string,
+): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {}
 	for (const key of CHILD_ENV_ALLOWLIST) if (source[key] !== undefined) env[key] = source[key]
 	env.PATH =
 		process.platform === 'win32'
 			? (source.PATH ?? source.Path ?? '')
-			: stripWindowsMounts(source.PATH)
+			: stripWindowsMounts(source.PATH, mountRoot)
 	if (!env.PATH) env.PATH = '/usr/local/bin:/usr/bin:/bin'
 	env.NAMZU_HOME = namzuHome
 	return env

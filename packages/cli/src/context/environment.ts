@@ -33,7 +33,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -73,8 +73,13 @@ export interface WslFacts {
 	readonly distro: string | null
 	/** Windows executables can be started from the Linux side. */
 	readonly interop: boolean
-	/** Windows drives mounted under `/mnt`, as `/mnt/<letter>`. */
+	/** Windows drives mounted under the mount root, as `/mnt/<letter>` by default. */
 	readonly drives: readonly string[]
+	/**
+	 * Where the drives are mounted, with a trailing slash: `[automount] root`
+	 * in `/etc/wsl.conf`. Absent means `/mnt/`.
+	 */
+	readonly mountRoot?: string
 }
 
 /**
@@ -84,8 +89,9 @@ export interface WslFacts {
  * process it starts, and `WSL_INTEROP` names the interop socket when interop
  * is on. Interop also counts as on when its binfmt handler is registered
  * (`/proc/sys/fs/binfmt_misc/WSLInterop`), which survives a shell that
- * dropped the variable. Drives are the one-letter directories under `/mnt`
- * — `/mnt/wsl` and `/mnt/wslg` are WSL's own and are not drives.
+ * dropped the variable. Drives are the one-letter directories under the
+ * mount root (`/mnt/` unless `/etc/wsl.conf` moves it) — `/mnt/wsl` and
+ * `/mnt/wslg` are WSL's own and are not drives.
  *
  * Every probe is injectable so a test can describe a machine it is not
  * running on; the defaults read this one.
@@ -95,6 +101,8 @@ export function detectWsl(
 	probe: {
 		readonly exists?: (path: string) => boolean
 		readonly list?: (path: string) => readonly string[]
+		/** The mount root; absent reads `/etc/wsl.conf`. */
+		readonly mountRoot?: string
 	} = {},
 ): WslFacts | undefined {
 	const distro = env.WSL_DISTRO_NAME?.trim() || null
@@ -111,11 +119,66 @@ export function detectWsl(
 			}
 		})
 	const interop = socket !== null || exists('/proc/sys/fs/binfmt_misc/WSLInterop')
-	const drives = list('/mnt')
+	const mountRoot = probe.mountRoot ?? readWslMountRoot()
+	const drives = list(mountRoot === '/' ? '/' : mountRoot.slice(0, -1))
 		.filter((name) => /^[a-z]$/i.test(name))
 		.sort()
-		.map((name) => `/mnt/${name}`)
-	return { distro, interop, drives }
+		.map((name) => `${mountRoot}${name}`)
+	return { distro, interop, drives, mountRoot }
+}
+
+/** Where WSL mounts the Windows drives unless `/etc/wsl.conf` moves them. */
+export const DEFAULT_WSL_MOUNT_ROOT = '/mnt/'
+
+/**
+ * The `[automount] root` of a `wsl.conf`, with a trailing slash; `/mnt/` when
+ * the file, the section or the key is absent, or the value is not absolute.
+ *
+ * The same reading `@namzu/browser` makes (`parseWslMountRoot` there), kept
+ * here because the CLI's leaf packages do not import one another: sections
+ * and keys in any case, `#`/`;` comments, quotes around the value, a BOM.
+ */
+export function parseWslMountRoot(wslConf: string | undefined): string {
+	if (!wslConf) return DEFAULT_WSL_MOUNT_ROOT
+	let inAutomount = false
+	let root: string | undefined
+	for (const raw of wslConf.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+		const line = raw.trim()
+		if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
+		const section = /^\[([^\]]+)\]$/.exec(line)
+		if (section) {
+			inAutomount = (section[1] ?? '').trim().toLowerCase() === 'automount'
+			continue
+		}
+		const eq = line.indexOf('=')
+		if (!inAutomount || eq <= 0 || line.slice(0, eq).trim().toLowerCase() !== 'root') continue
+		let value = line
+			.slice(eq + 1)
+			.replace(/\s[#;].*$/, '')
+			.trim()
+		if (/^(["']).*\1$/.test(value)) value = value.slice(1, -1)
+		root = value
+	}
+	if (!root || !root.startsWith('/')) return DEFAULT_WSL_MOUNT_ROOT
+	return root.endsWith('/') ? root : `${root}/`
+}
+
+/** This machine's mount root, from `/etc/wsl.conf`; `/mnt/` when it cannot be read. */
+export function readWslMountRoot(
+	readFile: (path: string) => string | undefined = (path) => {
+		try {
+			return readFileSync(path, 'utf8')
+		} catch {
+			return undefined
+		}
+	},
+): string {
+	return parseWslMountRoot(readFile('/etc/wsl.conf'))
+}
+
+/** Windows' `System32` as WSL mounts it: `/mnt/c/Windows/System32` under the default root. */
+export function wslSystem32(mountRoot: string = DEFAULT_WSL_MOUNT_ROOT): string {
+	return `${mountRoot}c/Windows/System32`
 }
 
 export interface EnvironmentFacts {
@@ -253,15 +316,18 @@ function wslLines(wsl: WslFacts, boundary: ExecutionBoundary | undefined): strin
 			: boundary?.interactive === false
 				? 'a file tool reaching them is refused in this session, since nobody is here to approve it'
 				: 'a file tool reaching them asks for approval first, like any other outside path'
+	// The paths below are ones the model will type, so they follow the mount
+	// root; under the default one the text is what it always was.
+	const root = wsl.mountRoot ?? DEFAULT_WSL_MOUNT_ROOT
 	const drives =
 		wsl.drives.length > 0
-			? `Windows drives are mounted under ${wsl.drives.map((d) => `\`${d}\``).join(', ')} (\`C:\\Users\` is \`/mnt/c/Users\`; \`wslpath -w\` and \`wslpath -u\` convert).`
-			: 'No Windows drive is mounted under `/mnt` right now.'
+			? `Windows drives are mounted under ${wsl.drives.map((d) => `\`${d}\``).join(', ')} (\`C:\\Users\` is \`${root}c/Users\`; \`wslpath -w\` and \`wslpath -u\` convert).`
+			: `No Windows drive is mounted under \`${root === '/' ? '/' : root.slice(0, -1)}\` right now.`
 	const reach = sandboxed
 		? 'They are outside the sandbox, so a command there needs `/add-dir` or the sandbox escape.'
 		: `They are outside the working directory, so ${fileTools}.`
 	const interop = wsl.interop
-		? `Windows programs start from the shell through WSL interop, by their \`.exe\` name: \`powershell.exe -NoProfile -Command ...\`, \`cmd.exe /c ...\`, \`explorer.exe .\`. \`cmd.exe\` started from a Linux directory warns that UNC paths are unsupported and falls back to C:\\Windows, so \`cd\` under \`/mnt/c\` first or use \`powershell.exe\`. If a name is not found, the Windows side of \`PATH\` was not appended; \`cmd.exe\` is under \`/mnt/c/Windows/System32\` and \`powershell.exe\` under its \`WindowsPowerShell/v1.0\`.${sandboxed ? ' The sandbox does not mount the Windows drives those programs live on, so running one needs the sandbox escape.' : ''}`
+		? `Windows programs start from the shell through WSL interop, by their \`.exe\` name: \`powershell.exe -NoProfile -Command ...\`, \`cmd.exe /c ...\`, \`explorer.exe .\` (it exits 1 even when it succeeds). \`cmd.exe\` started from a Linux directory warns that UNC paths are unsupported and falls back to C:\\Windows, so \`cd\` under \`${root}c\` first or use \`powershell.exe\`. If a name is not found, the Windows side of \`PATH\` was not appended; \`cmd.exe\` is under \`${wslSystem32(root)}\` and \`powershell.exe\` under its \`WindowsPowerShell/v1.0\`.${sandboxed ? ' The sandbox does not mount the Windows drives those programs live on, so running one needs the sandbox escape.' : ''}`
 		: 'WSL interop is off here, so Windows `.exe` programs cannot be started from the shell.'
 	return [
 		`This machine is Windows Subsystem for Linux${wsl.distro ? ` (distro \`${wsl.distro}\`)` : ''}. ${drives} ${reach}`,

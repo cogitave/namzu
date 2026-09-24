@@ -52,7 +52,7 @@ export interface ServiceContext {
 	readonly run: CommandRunner
 	readonly env: NodeJS.ProcessEnv
 	readonly version: string
-	/** Windows tools under WSL; default the standard `/mnt/c` locations. */
+	/** Windows tools under WSL; default those under the drive mount root `/etc/wsl.conf` sets. */
 	readonly tools?: WindowsTools
 }
 
@@ -61,6 +61,16 @@ export interface InstallRequest {
 	readonly name: string
 	readonly program: ServiceProgram
 	readonly atBoot?: boolean
+}
+
+/**
+ * Where a Windows program a WSL-installed task needs is started: `C:` under
+ * this machine's drive mount root. Nothing for a supervisor that is not WSL's.
+ */
+function windowsCwd(ctx: ServiceContext, manifest: ServiceManifest): { cwd?: string } {
+	return manifest.platform === 'wsl-windows-task'
+		? { cwd: (ctx.tools ?? windowsTools()).drive }
+		: {}
 }
 
 export class ServiceRefusal extends Error {
@@ -221,12 +231,12 @@ export async function installService(
 			const path = taskPath(name)
 			// The XML goes where Windows can read it without a UNC path.
 			const localAppData = (
-				await run(tools.cmd, ['/d', '/c', 'echo', '%LOCALAPPDATA%'], { cwd: '/mnt/c' })
+				await run(tools.cmd, ['/d', '/c', 'echo', '%LOCALAPPDATA%'], { cwd: tools.drive })
 			).stdout.trim()
 			if (!/^[A-Za-z]:\\/.test(localAppData))
 				throw new ServiceRefusal('could not resolve %LOCALAPPDATA% through interop')
 			const linuxDir = (await run('wslpath', ['-u', `${localAppData}\\namzu`])).stdout.trim()
-			if (!linuxDir.startsWith('/mnt/'))
+			if (!linuxDir.startsWith(tools.mountRoot))
 				throw new ServiceRefusal(`could not map ${localAppData} into WSL`)
 			mkdirSync(linuxDir, { recursive: true })
 			const linuxFile = join(linuxDir, `${name}.xml`)
@@ -237,12 +247,12 @@ export async function installService(
 				const created = await run(
 					tools.schtasks,
 					['/Create', '/TN', path, '/XML', windowsFile, '/F'],
-					{ cwd: '/mnt/c' },
+					{ cwd: tools.drive },
 				)
 				if (created.code !== 0)
 					problems.push(`schtasks.exe /Create: ${created.stderr.trim() || created.stdout.trim()}`)
 				else {
-					const started = await run(tools.schtasks, ['/Run', '/TN', path], { cwd: '/mnt/c' })
+					const started = await run(tools.schtasks, ['/Run', '/TN', path], { cwd: tools.drive })
 					if (started.code !== 0)
 						problems.push(`schtasks.exe /Run: ${started.stderr.trim() || started.stdout.trim()}`)
 				}
@@ -298,7 +308,7 @@ async function removeArtifact(
 			})
 		case 'windows-task': {
 			const schtasks = manifest.windows?.schtasks ?? 'schtasks.exe'
-			const cwd = manifest.platform === 'wsl-windows-task' ? { cwd: '/mnt/c' } : {}
+			const cwd = windowsCwd(ctx, manifest)
 			await ctx.run(schtasks, ['/End', '/TN', artifact.taskPath], cwd)
 			await ctx.run(schtasks, ['/Delete', '/TN', artifact.taskPath, '/F'], cwd)
 			const queried = await ctx.run(schtasks, ['/Query', '/TN', artifact.taskPath], cwd)
@@ -307,7 +317,7 @@ async function removeArtifact(
 			const powershell =
 				manifest.windows?.powershell ??
 				(manifest.platform === 'wsl-windows-task'
-					? windowsTools().powershell
+					? (ctx.tools ?? windowsTools()).powershell
 					: `${ctx.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`)
 			const folder = await ctx.run(powershell, removeEmptyTaskFolderArguments(), cwd)
 			return folder.code === 0
@@ -356,7 +366,7 @@ export async function serviceState(
 		case 'windows-task':
 		case 'wsl-windows-task': {
 			const schtasks = manifest.windows?.schtasks ?? 'schtasks.exe'
-			const cwd = manifest.platform === 'wsl-windows-task' ? { cwd: '/mnt/c' } : {}
+			const cwd = windowsCwd(ctx, manifest)
 			const queried = await ctx.run(
 				schtasks,
 				['/Query', '/TN', manifest.windows?.taskPath ?? '', '/FO', 'LIST', '/V'],
@@ -394,7 +404,7 @@ export async function startService(
 		case 'windows-task':
 		case 'wsl-windows-task': {
 			const schtasks = manifest.windows?.schtasks ?? 'schtasks.exe'
-			const cwd = manifest.platform === 'wsl-windows-task' ? { cwd: '/mnt/c' } : {}
+			const cwd = windowsCwd(ctx, manifest)
 			const task = manifest.windows?.taskPath ?? ''
 			const enabled = await ctx.run(schtasks, ['/Change', '/TN', task, '/ENABLE'], cwd)
 			if (enabled.code !== 0) return [enabled.stderr.trim() || 'schtasks /Change /ENABLE failed']
@@ -430,7 +440,7 @@ export async function stopService(
 		case 'windows-task':
 		case 'wsl-windows-task': {
 			const schtasks = manifest.windows?.schtasks ?? 'schtasks.exe'
-			const cwd = manifest.platform === 'wsl-windows-task' ? { cwd: '/mnt/c' } : {}
+			const cwd = windowsCwd(ctx, manifest)
 			const task = manifest.windows?.taskPath ?? ''
 			const disabled = await ctx.run(schtasks, ['/Change', '/TN', task, '/DISABLE'], cwd)
 			await ctx.run(schtasks, ['/End', '/TN', task], cwd)
