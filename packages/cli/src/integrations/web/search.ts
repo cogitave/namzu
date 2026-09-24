@@ -1,4 +1,9 @@
-import { type ToolDefinition, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
+import {
+	type ToolDefinition,
+	defineTool,
+	mcpJsonSchemaToZod,
+	untrustedEnvelopeBody,
+} from '@namzu/sdk'
 import type { WebConfig } from '../../config/schema.js'
 import { searchExa } from './exa-search.js'
 
@@ -56,17 +61,15 @@ export function createWebSearchTool(): ToolDefinition {
 		presentCall: (input) => ({ kind: 'generic', label: String(input.query) }),
 		presentResult: (_input, result) => {
 			const raw = String(result.output ?? result.error ?? '')
-			const boundary = raw.indexOf('\n\n')
-			const wrapped =
-				raw.startsWith(
-					'<namzu-untrusted kind="connector-tool-result" server="exa" tool="web_search_exa">',
-				) && raw.endsWith('</namzu-untrusted>')
+			// The real envelope now binds its closing tag to a per-render nonce
+			// (`tools/untrusted-envelope.ts`), so this reads it back through the
+			// canonical reader instead of re-deriving the tag shape by hand — a
+			// hand-rolled literal prefix/suffix check drifts the moment the
+			// frame's own shape changes, which is exactly what happened here.
+			const body = untrustedEnvelopeBody(raw)
 			return {
 				kind: 'terminal',
-				output:
-					wrapped && boundary >= 0
-						? raw.slice(boundary + 2, -'</namzu-untrusted>'.length).trim()
-						: raw,
+				output: body ?? raw,
 			}
 		},
 		async execute(input, context) {
