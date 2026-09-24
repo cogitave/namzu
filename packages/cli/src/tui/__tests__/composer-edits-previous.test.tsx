@@ -106,7 +106,12 @@ describe('restoring a selected prompt', () => {
 		harness.stdin.write('\r')
 		await tick()
 
-		expect(harness.onSubmit).toHaveBeenCalledWith('original prompt revised', attachments)
+		expect(harness.onSubmit).toHaveBeenCalledWith(
+			'original prompt revised',
+			attachments,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
 	})
 })
 
@@ -137,7 +142,12 @@ describe('bounded recalled source display', () => {
 		harness.stdin.write('\r')
 		await tick()
 
-		expect(harness.onSubmit).toHaveBeenCalledWith(`${source}!`, undefined)
+		expect(harness.onSubmit).toHaveBeenCalledWith(
+			`${source}!`,
+			undefined,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
 	})
 
 	it('bounds short multiline history by logical lines independently of bytes', async () => {

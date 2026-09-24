@@ -1,0 +1,11 @@
+# Common Turkish words, written with their letters. The fold test checks that
+# no built-in phrase word folds onto a different word in this list.
+sık sik düş duş aşı ası şişe sise bol böl ısı işi iş is sunu şunu gün gün
+çevir dönüştür kaydet kayıt kaydı yap yapı oluştur çalıştır çalış dağıt dağ
+ekle ek düşün düş bunu bunları onu şu şimdi lütfen olarak skill beceri yetenek
+bir yeni da de ve sonra ardından ayrıca her sabah akşam saat hafta
+zamanlanmış görev ajan ajanlara alt ajanlarla bundan en yüksek efor çaba
+eforla çabayla ısıt iste istemek değil yok var
+çok az daha kadar için ile gibi ama fakat çünkü ancak eğer hem ya
+kaydedelim kaydedin kaydeder mısın misin musun müsün mi mı mu mü
+saç sac çam cam çok şu su şık sik kır kir kül kul göl gol

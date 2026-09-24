@@ -101,13 +101,17 @@ export type SlashAction =
 	/** Open the current model's finite reasoning-effort chooser. */
 	| { kind: 'reasoning-effort-picker' }
 	/**
-	 * Toggle or explicitly select the session's orchestrate mode.
+	 * Toggle or explicitly select the session's hypermode.
 	 *
 	 * A session setting, not a `ReasoningEffort` value — see the module doc on
 	 * `/effort` below. Named separately from `raw`'s identical toggle shape so
 	 * App's exhaustive switch cannot handle the two as one case by accident.
+	 * `via: 'orchestrate'` marks the deprecated alias, which App answers with a
+	 * deprecation line before doing exactly what `/hypermode` does.
 	 */
-	| { kind: 'orchestrate-mode'; enabled: boolean | 'toggle' }
+	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
+	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
+	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -699,21 +703,30 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config sources',
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
+				'/config triggers [on|off|list]',
+			],
+			details: [
+				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
 			],
 		},
-		action: (ctx, args) =>
-			args.length === 0
-				? { kind: 'settings-picker' }
-				: args[0] === 'limits'
-					? turnLimitsAction(args.slice(1))
-					: {
-							kind: 'message',
-							role: 'system',
-							content:
-								args.join(' ') === 'sources'
-									? renderConfigDebug(ctx.configDebug)
-									: 'Usage: /config [sources|limits]',
-						},
+		action: (ctx, args) => {
+			if (args.length === 0) return { kind: 'settings-picker' }
+			if (args[0] === 'limits') return turnLimitsAction(args.slice(1))
+			if (args[0] === 'triggers') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'composer-triggers', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config triggers [on|off|list]' }
+			}
+			return {
+				kind: 'message',
+				role: 'system',
+				content:
+					args.join(' ') === 'sources'
+						? renderConfigDebug(ctx.configDebug)
+						: 'Usage: /config [sources|limits|triggers]',
+			}
+		},
 	},
 	{
 		name: 'settings',
@@ -1388,25 +1401,27 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
+		name: 'hypermode',
+		help: {
+			usage: ['/hypermode [on|off]'],
+			details: [
+				'A session setting, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to xhigh (the highest level below it when this model or usable fallback publishes no xhigh) and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
+				'For one message only, start or end that message with the word hypermode: effort pinned the same way for that turn, then back.',
+			],
+		},
+		description: 'Toggle hypermode for this session: /hypermode [on|off].',
+		action: (_ctx, args) => hypermodeAction(args),
+	},
+	{
 		name: 'orchestrate',
 		help: {
 			usage: ['/orchestrate [on|off]'],
 			details: [
-				'A session setting, not a reasoning-effort level — see /effort. On, effort pins to the highest level this model or usable fallback publishes and delegation guidance strengthens toward delegating by default for this session; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
+				'Deprecated: the mode is now called hypermode. Does what /hypermode does, after saying so.',
 			],
 		},
-		description: 'Toggle orchestrate mode for this session: /orchestrate [on|off].',
-		action: (_ctx, args) => {
-			const choice = args.join(' ').trim().toLowerCase()
-			if (choice.length === 0) return { kind: 'orchestrate-mode', enabled: 'toggle' }
-			if (choice === 'on') return { kind: 'orchestrate-mode', enabled: true }
-			if (choice === 'off') return { kind: 'orchestrate-mode', enabled: false }
-			return {
-				kind: 'message',
-				role: 'system',
-				content: 'Usage: /orchestrate [on|off]',
-			}
-		},
+		description: 'Deprecated: use /hypermode.',
+		action: (_ctx, args) => hypermodeAction(args, 'orchestrate'),
 	},
 	{
 		name: 'init',
@@ -1482,6 +1497,20 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 }
 
 /** The session's shell hooks, by event, in the order the config file gave them. */
+/** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */
+function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAction {
+	const choice = args.join(' ').trim().toLowerCase()
+	const alias = via ? { via } : {}
+	if (choice.length === 0) return { kind: 'hypermode', enabled: 'toggle', ...alias }
+	if (choice === 'on') return { kind: 'hypermode', enabled: true, ...alias }
+	if (choice === 'off') return { kind: 'hypermode', enabled: false, ...alias }
+	return {
+		kind: 'message',
+		role: 'system',
+		content: `Usage: /${via ?? 'hypermode'} [on|off]`,
+	}
+}
+
 export function renderHooks(hooks: HooksConfig | undefined): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
 	if (events.length === 0) {

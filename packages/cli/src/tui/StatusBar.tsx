@@ -21,8 +21,8 @@ export interface StatusBarProps {
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
-	/** The session's orchestrate mode (`/orchestrate`) — a setting shown beside effort, never as a level of it. */
-	readonly orchestrate?: boolean
+	/** The session's hypermode (`/hypermode`) — a setting shown beside effort, never as a level of it. */
+	readonly hypermode?: boolean
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -60,7 +60,7 @@ export function StatusBar({
 	provider,
 	model,
 	effort,
-	orchestrate,
+	hypermode,
 	goal,
 	state,
 	hint,
@@ -79,7 +79,7 @@ export function StatusBar({
 		model,
 		provider,
 		effort: effort ?? null,
-		orchestrate: orchestrate ?? false,
+		hypermode: hypermode ?? false,
 		hint,
 		goal,
 		modeLabel: activeMode ? `${activeMode.icon} ${activeMode.label}` : QUIET_MODE_HINT,
@@ -97,10 +97,10 @@ export function StatusBar({
 					<Text color={theme.text.secondary}>{layout.effort}</Text>
 				</>
 			) : null}
-			{layout.orchestrate ? (
+			{layout.hypermode ? (
 				<>
 					<Text color={theme.text.muted}> · </Text>
-					<Text color={theme.accent.orchestrate}>{layout.orchestrate}</Text>
+					<Text color={theme.accent.hypermode}>{layout.hypermode}</Text>
 				</>
 			) : null}
 			{layout.cwd ? (
@@ -167,8 +167,8 @@ export interface StatusLineLayout {
 	readonly mode: string | null
 	readonly cycleSuffix: string | null
 	readonly effort: string | null
-	/** The orchestrate-mode marker, held apart from `effort` — see `fitStatusLine`'s doc for why. */
-	readonly orchestrate: string | null
+	/** The hypermode marker, held apart from `effort` — see `fitStatusLine`'s doc for why. */
+	readonly hypermode: string | null
 	readonly cwd: string | null
 	readonly gap: string
 	readonly right:
@@ -188,16 +188,16 @@ export interface StatusLineLayout {
  * and a deep worktree checkout should not be what costs the operator their
  * only advertisement of Shift+Tab — then the effort label, then the cycle
  * key reminder, then the model on the right is dropped entirely, then the
- * orchestrate marker, and only then does the badge itself truncate.
+ * hypermode marker, and only then does the badge itself truncate.
  *
- * Orchestrate sits second-to-last, not bundled with effort, on purpose: it is
+ * Hypermode sits second-to-last, not bundled with effort, on purpose: it is
  * a persistent, behavior-changing session setting (pins effort to the
  * model's highest level and strengthens delegation guidance for every later
  * turn) with no other on-screen indicator, so it earns the mode badge's own
  * survival priority rather than the effort label's — dropping effort for
- * room must never take orchestrate down with it. It still never forces the
- * badge itself to shrink to make room: if `orchestrate` does not fit beside
- * an already-fitted badge, the badge wins and it is orchestrate that goes,
+ * room must never take hypermode down with it. It still never forces the
+ * badge itself to shrink to make room: if `hypermode` does not fit beside
+ * an already-fitted badge, the badge wins and it is hypermode that goes,
  * whole, never truncated to a fragment of the word.
  */
 export function fitStatusLine(input: {
@@ -207,11 +207,11 @@ export function fitStatusLine(input: {
 	readonly model: string | null
 	readonly effort?: string | null
 	/**
-	 * Session orchestrate mode. Rendered as its own segment beside `effort`
+	 * Session hypermode. Rendered as its own segment beside `effort`
 	 * (never fabricating an effort value when there is nothing pinned), and
 	 * held to the mode badge's own drop priority — see `fitStatusLine`'s doc.
 	 */
-	readonly orchestrate?: boolean
+	readonly hypermode?: boolean
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
 	readonly modeLabel: string
@@ -237,15 +237,15 @@ export function fitStatusLine(input: {
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
 	// Its own segment, not a suffix riding on `effort`: an operator reading
-	// "effort orchestrate" would take it for a fabricated level, and bundling
+	// "effort hypermode" would take it for a fabricated level, and bundling
 	// it with effort would drop the two together the instant effort does —
-	// exactly the width-pressure case orchestrate has to survive.
-	let orchestrate: string | null = input.orchestrate ? 'orchestrate' : null
+	// exactly the width-pressure case hypermode has to survive.
+	let hypermode: string | null = input.hypermode ? 'hypermode' : null
 	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
 
 	const left = (): string => {
 		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
-		return [withMode, effort, orchestrate, cwd]
+		return [withMode, effort, hypermode, cwd]
 			.filter((value): value is string => Boolean(value))
 			.join(' · ')
 	}
@@ -265,10 +265,10 @@ export function fitStatusLine(input: {
 		gapWidth = 0
 		leftBudget = columns
 	}
-	// Orchestrate outranks nothing dropped above it (cwd, effort, the cycle
+	// Hypermode outranks nothing dropped above it (cwd, effort, the cycle
 	// reminder, the model) but does outrank the badge itself: it goes whole,
 	// never truncated, before the badge loses a single character.
-	if (left().length > leftBudget) orchestrate = null
+	if (left().length > leftBudget) hypermode = null
 	if (left().length > leftBudget && mode) {
 		mode = shortenRightToFit(mode, leftBudget)
 	}
@@ -283,7 +283,7 @@ export function fitStatusLine(input: {
 		mode,
 		cycleSuffix: mode ? cycleSuffix : null,
 		effort: mode ? effort : null,
-		orchestrate: mode ? orchestrate : null,
+		hypermode: mode ? hypermode : null,
 		cwd,
 		gap,
 		right:

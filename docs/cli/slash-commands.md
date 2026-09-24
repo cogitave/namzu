@@ -20,7 +20,7 @@ explain why they cannot run and are checked again when selected.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -51,7 +51,8 @@ explain why they cannot run and are checked again when selected.
 | `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future turns: /effort [level\|default]. |
-| `/orchestrate` | Toggle orchestrate mode for this session: /orchestrate [on\|off]. A session setting shown beside effort, not a level of it. |
+| `/hypermode` | Toggle hypermode for this session: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to `xhigh` (or the highest level below it the model publishes), and independent work delegated to parallel agents by default. |
+| `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
@@ -137,52 +138,72 @@ published menu, marking unsupported values unavailable. Preview is not applicati
 provider. See [OpenAI reasoning menus](../sdk/openai-reasoning.md) for Astra's
 different API and subscription menus.
 
-### Orchestrate mode
+### Hypermode
 
-`/orchestrate` (`/orchestrate on`, `/orchestrate off`, or no argument to toggle)
+`/hypermode` (`/hypermode on`, `/hypermode off`, or no argument to toggle)
 turns a session setting on or off, layered above effort rather than inside it —
-it is never a `ReasoningEffort` value, so `/effort orchestrate` reports
+it is never a `ReasoningEffort` value, so `/effort hypermode` reports
 `unavailable for this model`, the same refusal `ultracode` gets, because
 neither name is an effort level a provider publishes. When the `/effort`
 picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.
 
-On a terminal wide enough to hold every stop on one row (at least 60 columns),
-the picker is a left-to-right slider:
+For one message only, start or end that message with the word `hypermode`
+(`hypermode fix the flaky test`): that turn gets the hypermode effort and the
+delegation request, the next one neither, and the session setting is not
+touched. See [Composer triggers](composer-triggers.md).
+
+The mode was called orchestrate mode before; `/orchestrate` still works, prints
+`/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode;
+/orchestrate will be removed in a later major version.`, and then does exactly
+what `/hypermode` does. `/effort orchestrate` is refused as before.
+
+On a terminal wide enough to hold every stop on one row (at least 60 columns,
+and as wide as the labels need — about 70 for a four-level menu), the picker
+is a left-to-right slider:
 
 ```text
-  Faster                                              Smarter
-  ───▲──────────────────────────────────────────┆────────────
-  default   low   medium   high   xhigh   max   ┆ orchestrate
-                                                  max + delegate by default
+  Faster                                                          Smarter
+  ───▲────────────────────────────────────┆──────────────────────────────
+  default   low   medium   high   xhigh   ┆ xhigh + hypermode (workflows)
+                                   Off · delegates to parallel agents by default
 ```
 
 The stops are `default`, the model's published levels from low to high, and
-then `orchestrate` after a `┆`, in violet, with `<highest level> + delegate by
-default` beneath it, whole: on a terminal where it would run past the right
-edge it moves left to end inside it. The `▲` marks the stop Enter applies; the current setting's
+then the hypermode stop after a `┆`, in violet. Its label names the level the
+mode pins, then the mode — `xhigh + hypermode (workflows)` for a model that
+publishes `xhigh` (a menu that goes on to `max` included), and
+`high + hypermode (workflows)` for one whose menu stops at `high`
+— and beneath it, whole, its one-line description with whether it is on:
+`Off · delegates to parallel agents by default`. On a terminal where the
+description would run past the right edge it moves left to end inside it. The
+`▲` marks the stop Enter applies; the current setting's
 label is green. ←/→ move it and stop at the ends; ↑/↓ do the same; a digit
 selects a stop directly; Home and End jump to the ends; Enter applies; Esc goes
-back. On the highest level and on `orchestrate` a line says they spend the most
+back. On the highest level and on the hypermode stop a line says they spend the most
 tokens and time; it wraps rather than being cut, and its rows are kept blank on
 the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
-vertical list, with `orchestrate` as its own row below a rule. There is no
+vertical list, with the same label and description as its own row below a rule. There is no
 separate key for "this session only": the setting already lasts only for the
-session. Turning the mode on pins reasoning effort to the model's
-highest published level — the last entry of the menu, since every provider
-publishes low-to-high — and strengthens the delegation guidance for future
+session. Turning the mode on pins reasoning effort to `xhigh`, or, on a
+model that does not publish `xhigh`, to the highest level it publishes below
+`xhigh` — never to `max` or `ultra`, which cost more than delegating work
+needs (only a menu made entirely of levels above `xhigh` gets its lowest
+one) — and strengthens the delegation guidance for future
 turns in this session, from "delegate genuinely independent work" toward
 delegating by default; this widens prompt guidance only, and mounts no
-roster and starts no delegation by itself. When the current model or a usable
+roster and starts no delegation by itself. Turning it off puts back the effort
+that was in force before it was turned on (`Hypermode is off — effort back to
+low.`), unless you chose another level while it was on, which then stays. When the current model or a usable
 fallback publishes no exact effort menu, the mode still turns on and still
 strengthens delegation guidance, but pins nothing, and says so. The status
 line reads the level and the mode together, for example `effort high ·
-orchestrate`, and `orchestrate` alone when no level is pinned — never a
+hypermode`, and `hypermode` alone when no level is pinned — never a
 fabricated sixth effort value. Like effort, the mode is in-memory and
 per-session; it is not saved to preferences. A model switch resets an
 explicit effort override to the new model's default as it always has, but
-while the mode is on it re-pins to the *new* model's highest published level
-instead, and the interactive effort chooser that otherwise follows a
+while the mode is on it re-pins to the level the mode pins on the *new*
+model instead, and the interactive effort chooser that otherwise follows a
 standalone `/model` pick does not reopen on top of that automatic re-pin.
 
 You can also ask for a change within a larger conversation request, for example
@@ -319,6 +340,7 @@ terminals place descriptions below labels.
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
+- **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.
 
 ### Resuming a conversation
 

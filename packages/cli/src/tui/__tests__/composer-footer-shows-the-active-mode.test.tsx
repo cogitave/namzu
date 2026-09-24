@@ -15,8 +15,8 @@
  * Width-pressure drop order (`StatusBar.tsx`'s `fitStatusLine`), left to
  * right in survival priority — earliest dropped first: the working
  * directory (shrinks, then drops), the effort label, the cycle-key
- * reminder, the model on the right, `orchestrate`, and only as a last
- * resort the mode badge itself (truncates, then drops). `orchestrate` is
+ * reminder, the model on the right, `hypermode`, and only as a last
+ * resort the mode badge itself (truncates, then drops). `hypermode` is
  * deliberately NOT bundled with effort — it is a persistent,
  * behavior-changing session setting with no other on-screen indicator, so
  * it holds the badge's own priority tier and outlives effort, the cwd and
@@ -99,48 +99,48 @@ const planWithEffort = (
 		canCycleMode
 	/>
 )
-const planWithOrchestrate = (
+const planWithHypermode = (
 	<StatusBar
 		cwd={CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		effort="high"
-		orchestrate
+		hypermode
 		state="idle"
 		permissionMode="plan"
 		canCycleMode
 	/>
 )
-const orchestrateWithNoEffortMenu = (
+const hypermodeWithNoEffortMenu = (
 	<StatusBar
 		cwd={CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
-		orchestrate
+		hypermode
 		state="idle"
 		permissionMode="plan"
 		canCycleMode
 	/>
 )
-const orchestrateNoModeNoEffort = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" orchestrate state="idle" />
+const hypermodeNoModeNoEffort = (
+	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" hypermode state="idle" />
 )
-const orchestrateNoModeWithEffort = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" effort="high" orchestrate state="idle" />
+const hypermodeNoModeWithEffort = (
+	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" effort="high" hypermode state="idle" />
 )
-const orchestrateWithLongCwd = (
+const hypermodeWithLongCwd = (
 	<StatusBar
 		cwd={LONG_CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		effort="high"
-		orchestrate
+		hypermode
 		state="idle"
 		permissionMode="plan"
 		canCycleMode
 	/>
 )
-const noOrchestrateWithLongCwd = (
+const noHypermodeWithLongCwd = (
 	<StatusBar
 		cwd={LONG_CWD}
 		provider="a-provider"
@@ -151,7 +151,7 @@ const noOrchestrateWithLongCwd = (
 		canCycleMode
 	/>
 )
-const planNoOrchestrateNoEffort = (
+const planNoHypermodeNoEffort = (
 	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" state="idle" permissionMode="plan" canCycleMode />
 )
 
@@ -195,30 +195,30 @@ describe('the composer footer at 80 columns', () => {
 	})
 
 	it('reads the level and the mode side by side, not as a sixth level', async () => {
-		// A wider column than its neighbours above: "· effort high · orchestrate"
+		// A wider column than its neighbours above: "· effort high · hypermode"
 		// is exactly the longer string this test exists to check, and it needs
 		// the room those shorter fixtures did not.
-		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), {
+		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), {
 			cols: 100,
 			rows: ROWS,
 		})
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('· effort high · orchestrate')
+			expect(row).toContain('· effort high · hypermode')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('names orchestrate alone, never as a fabricated effort value, when no menu is pinned', async () => {
-		const screen = await renderToScreen(belowMessageFrame(orchestrateWithNoEffortMenu), {
+	it('names hypermode alone, never as a fabricated effort value, when no menu is pinned', async () => {
+		const screen = await renderToScreen(belowMessageFrame(hypermodeWithNoEffortMenu), {
 			cols: 80,
 			rows: ROWS,
 		})
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('· orchestrate')
-			expect(row).not.toContain('effort orchestrate')
+			expect(row).toContain('· hypermode')
+			expect(row).not.toContain('effort hypermode')
 		} finally {
 			await screen.unmount()
 		}
@@ -261,26 +261,26 @@ describe('the composer footer at 40 columns', () => {
 	})
 })
 
-describe('orchestrate holds the mode badge own priority under width pressure', () => {
+describe('hypermode holds the mode badge own priority under width pressure', () => {
 	it('at 100 columns: the whole line is unaffected, in the documented order', async () => {
-		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeWithEffort), {
+		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeWithEffort), {
 			cols: 100,
 			rows: ROWS,
 		})
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain(`shift+tab to cycle · effort high · orchestrate · ${CWD}`)
+			expect(row).toContain(`shift+tab to cycle · effort high · hypermode · ${CWD}`)
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('at 60 columns: sheds effort before orchestrate, and keeps the model', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 60, rows: ROWS })
+	it('at 60 columns: sheds effort before hypermode, and keeps the model', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), { cols: 60, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('‖ Plan (read-only) · orchestrate')
+			expect(row).toContain('‖ Plan (read-only) · hypermode')
 			expect(row).not.toContain('effort')
 			expect(row).toContain('gpt-5.6-terra')
 		} finally {
@@ -288,11 +288,11 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 		}
 	})
 
-	it('at 40 columns beside the mode badge: cwd, effort and the model are gone, orchestrate is not', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 40, rows: ROWS })
+	it('at 40 columns beside the mode badge: cwd, effort and the model are gone, hypermode is not', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ Plan (read-only) · orchestrate')
+			expect(row.trimEnd()).toBe('‖ Plan (read-only) · hypermode')
 			expect(row).not.toContain('effort')
 			expect(row).not.toContain(CWD)
 			expect(row).not.toContain('gpt-5.6-terra')
@@ -302,70 +302,70 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 	})
 
 	it('at 40 columns beside the quiet reminder (no active mode): same survival, with effort set', async () => {
-		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeWithEffort), { cols: 40, rows: ROWS })
+		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeWithEffort), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('shift+tab to cycle · orchestrate')
+			expect(row.trimEnd()).toBe('shift+tab to cycle · hypermode')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
 	it('at 40 columns beside the quiet reminder, with no effort menu pinned either', async () => {
-		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeNoEffort), { cols: 40, rows: ROWS })
+		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeNoEffort), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('shift+tab to cycle · orchestrate')
+			expect(row.trimEnd()).toBe('shift+tab to cycle · hypermode')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('at 40 columns, orchestrate off: the earlier drop order is unaffected', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planNoOrchestrateNoEffort), { cols: 40, rows: ROWS })
+	it('at 40 columns, hypermode off: the earlier drop order is unaffected', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planNoHypermodeNoEffort), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).not.toContain('orchestrate')
+			expect(row).not.toContain('hypermode')
 			expect(row).toContain('‖ Plan (read-only)')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('survives a long working directory: cwd is dropped, orchestrate is not', async () => {
-		const screen = await renderToScreen(belowMessageFrame(orchestrateWithLongCwd), { cols: 40, rows: ROWS })
+	it('survives a long working directory: cwd is dropped, hypermode is not', async () => {
+		const screen = await renderToScreen(belowMessageFrame(hypermodeWithLongCwd), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ Plan (read-only) · orchestrate')
+			expect(row.trimEnd()).toBe('‖ Plan (read-only) · hypermode')
 			expect(row).not.toContain('nested')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('a long cwd drops the same way whether or not orchestrate is on', async () => {
-		const screen = await renderToScreen(belowMessageFrame(noOrchestrateWithLongCwd), { cols: 40, rows: ROWS })
+	it('a long cwd drops the same way whether or not hypermode is on', async () => {
+		const screen = await renderToScreen(belowMessageFrame(noHypermodeWithLongCwd), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
 			expect(row).not.toContain('nested')
-			expect(row).not.toContain('orchestrate')
+			expect(row).not.toContain('hypermode')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('below the width where "orchestrate" fits whole beside an already-fitted badge, the badge wins', async () => {
+	it('below the width where "hypermode" fits whole beside an already-fitted badge, the badge wins', async () => {
 		// 24 columns: `fitStatusLine` sees 22 after StatusBar's own 2-cell
 		// padding — room for "‖ Plan (read-only)" (18) whole, but not for
-		// " · orchestrate" (14 more) beside it. Orchestrate is dropped
+		// " · hypermode" (12 more) beside it. Hypermode is dropped
 		// entirely rather than truncated to a fragment of the word, and the
 		// badge is not shortened to make room for it either.
-		const screen = await renderToScreen(belowMessageFrame(orchestrateWithNoEffortMenu), { cols: 24, rows: ROWS })
+		const screen = await renderToScreen(belowMessageFrame(hypermodeWithNoEffortMenu), { cols: 24, rows: ROWS })
 		try {
 			const row = footerRow(screen)
 			expect(row.trimEnd()).toBe('‖ Plan (read-only)')
-			expect(row).not.toContain('orchestrate')
-			expect(row).not.toContain('orchestra')
+			expect(row).not.toContain('hypermode')
+			expect(row).not.toContain('hypermod')
 		} finally {
 			await screen.unmount()
 		}
