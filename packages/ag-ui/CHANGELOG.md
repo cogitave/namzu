@@ -1,5 +1,26 @@
 # @namzu/ag-ui
 
+## 2.0.0
+
+### Major Changes
+
+- 73dee65: A paused turn now ends its AG-UI run as an interrupt the client can answer, and `RunAgentInput.resume` continues it.
+
+  **What breaks.**
+
+  - A native pause (`turn_paused`) used to end the run with a `CUSTOM` event named `namzu.turn.paused`, carrying the checkpoint id, followed by `RUN_ERROR` code `NAMZU_TURN_PAUSED`. It now ends with `RUN_FINISHED` whose `outcome` is `{ type: 'interrupt', interrupts }`, and the `CUSTOM` event is gone. A client that waited for `NAMZU_TURN_PAUSED` reads `outcome.type === 'interrupt'` instead; a host that resumed the checkpoint itself from the `CUSTOM` event's `checkpointId` sends the interrupt's answer in `resume` instead.
+  - `AGUIEventMapper.map` no longer emits anything for `turn_paused`: it sets `paused`, and the run ends with the new `interrupt(interrupts)`, or `finish()` reports `RUN_ERROR` code `NAMZU_TURN_PAUSED` as before, without the `CUSTOM` event.
+  - A request with `resume` is served instead of refused with HTTP 422 `UNSUPPORTED_RESUME`. A resume the adapter cannot apply (unknown, from another thread, already answered, expired, incomplete, malformed, stale, refused by the kernel) ends with `RUN_ERROR` and an `AGUI_*` code. New input on a thread with open interrupts runs nothing and ends with the same interrupts again, where a paused turn used to make it end with `NAMZU_TURN_IN_PROGRESS`.
+  - Peer dependencies: `@namzu/sdk` `>=45.1.0` (was `>=44.0.0`), for the `handoff` on `turn_paused`; and `zod` `^3.23.0`, already the SDK's peer, because the adapter now builds tool definitions.
+  - `context.signal` in `createQuery` is the signal of the turn the request starts. It still aborts when the request is cancelled while a run reads the turn; it no longer aborts when a request whose run ended with an interrupt closes afterwards.
+
+  **What is new.** `context.interrupts.resumeHandler` and `context.interrupts.prompt` send reviews, questions and plan approvals to the client: a tool review becomes `tool_call` interrupts (answered `{ approved, editedArgs?, reason? }`), `ask_user_question` and `ToolContext.requestPause` become `input_required` interrupts, `ToolResult.handoff` a `namzu:handoff` interrupt, and any other resumable pause `namzu:paused`. Interrupt ids are minted by the adapter and recorded against the native session, turn and checkpoint in an `AGUIInterruptStore` (`interrupts.store`, in memory by default; `interrupts.ttlMs`); an answer applies once. The `frontendTools` option admits tools a client declares in `RunAgentInput.tools` as `context.frontendTools`; a request declaring tools without it is still refused with 422. See the AG-UI guide for payloads, codes and the limits of a question's wait.
+
+### Minor Changes
+
+- 443094a: `fromNamzuMessages` now emits the source namzu message's own `id` (`@namzu/sdk`'s new `BaseMessage.id`) as the converted AG-UI message's id, when it has one — which a message read from a session's fold (`foldSessionMessages`, or `namzu history`'s own read of the log) always does. `options.idPrefix` (default unchanged, `namzu-message-`) now only names the fallback for a message with none. This is display-only: `toNamzuMessages` does not read an inbound AG-UI message's id back onto the converted message, because a live run's own streaming events give a client a different, unrelated correlation id for the same content, and resending it would fail `query()`'s reconciliation as an id its session log never recorded (`stale_cached_history`, `'foreign'`). A caller that compared a `fromNamzuMessages` result's ids against `${idPrefix}${index}` in a fixed sequence sees real ids instead; one that only checked they were present, unique and stable per history is unaffected.
+- 49491b9: `TOOL_CALL_END` for a call whose arguments could not be read now says why. `metadata.namzu.inputTruncated` is set for arguments that were cut off and for arguments that were malformed alike, so it was all a host had and it could not tell the two apart. When the runtime recorded the cause, the event also carries `metadata.namzu.inputError`, the `ToolInputError` from `tool_input_completed`: `reason` is `'truncated'` or `'malformed'`, with the rest of that error as the runtime recorded it (`finishReason`, `finishDetail`, `parseError`, `offset`, `length`, `precedingLength`, `outputTokens`, `reasoningTokens`). Nothing changes for a host that reads only `inputTruncated`. An `@namzu/sdk` that records no cause, and arguments only the adapter found unparsable, still carry `inputTruncated` alone.
+
 ## 1.0.0
 
 ### Major Changes
