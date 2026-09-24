@@ -507,6 +507,108 @@ describe('the CLI ACP runtime', () => {
 		expect(await prompt).toEqual({ stopReason: 'cancelled' })
 		await runtime.close()
 	})
+
+	it("presents an event with its OWN session's presenter, even while another session's prompt is also in flight", async () => {
+		// Each session's mock has a presenter that names itself, so a mixed-up
+		// delegation is visible in the label rather than needing a spy.
+		const starts = new Map([
+			['/canonical/a', deferred<void>()],
+			['/canonical/b', deferred<void>()],
+		])
+		const releases = new Map([
+			['/canonical/a', deferred<void>()],
+			['/canonical/b', deferred<void>()],
+		])
+		const optionsByCwd = new Map<string, AgentSessionOptions>()
+		const createSession = vi.fn(
+			async (_preferences: unknown, _detected: unknown, options: AgentSessionOptions) => {
+				const cwd = options.cwd as string
+				optionsByCwd.set(cwd, options)
+				return {
+					hasProvider: true,
+					errorHint: null,
+					mcpFailed: [],
+					close: async () => {},
+					presenter: {
+						presentCall: () => ({ kind: 'generic' as const, label: `${cwd}-CALL` }),
+						presentResult: () => ({ kind: 'generic' as const, label: `${cwd}-RESULT` }),
+					},
+					send: async function* () {
+						starts.get(cwd)?.resolve()
+						await releases.get(cwd)?.promise
+						yield { kind: 'done', stopReason: 'end_turn' } as const
+					},
+				}
+			},
+		)
+		const deps = {
+			probe: vi.fn(async () => ({
+				preferences: { version: 3, providers: [{ id: 'mock' }], subagents: { active: [] } },
+				needsRepickReason: null,
+				detected: [],
+			})),
+			createSession,
+			decideTrust: ({ cwd }: { cwd: string }) => ({ allowed: true as const, cwd }),
+			resolveProjectContext: (ctx: CommandContext) => ctx,
+			resolveSession: unclaimed,
+		} as unknown as AcpRuntimeDependencies
+		const runtime = createCliAcpRuntime(context(), deps)
+
+		// A real ACP server reads `runtime.presenter` synchronously, from
+		// inside `record.route(event)`, while building the update it emits
+		// (`toAcpSessionUpdate`) — never from outside that call. This `onEvent`
+		// does the same, so the test exercises the actual production path
+		// rather than polling `runtime.presenter` out of band.
+		const label = (view: ReturnType<typeof runtime.presenter.presentCall>): string =>
+			view.kind === 'generic' ? view.label : view.kind
+		const presentedByA: string[] = []
+		const presentedByB: string[] = []
+		const turnA = runtime.gateway.prompt({
+			sessionId: 'session-a',
+			prompt: 'a',
+			cwd: '/canonical/a',
+			onEvent: () => presentedByA.push(label(runtime.presenter.presentCall('any', {}))),
+			signal: new AbortController().signal,
+			ask: async () => ({ kind: 'approve' }),
+			filesystem: undefined,
+			history: [],
+		})
+		await starts.get('/canonical/a')?.promise
+
+		// Session A's own event, presented while A is the only turn running:
+		// correct under the old design too — the crosstalk needs a second
+		// turn to also be in flight.
+		optionsByCwd.get('/canonical/a')?.onSessionEvent?.(event('a-1'))
+
+		const turnB = runtime.gateway.prompt({
+			sessionId: 'session-b',
+			prompt: 'b',
+			cwd: '/canonical/b',
+			onEvent: () => presentedByB.push(label(runtime.presenter.presentCall('any', {}))),
+			signal: new AbortController().signal,
+			ask: async () => ({ kind: 'approve' }),
+			filesystem: undefined,
+			history: [],
+		})
+		await starts.get('/canonical/b')?.promise
+
+		// B's prompt is now also in flight, mid-turn on A (A's own send() is
+		// still parked on `releases`). A's OWN event still belongs to A: the
+		// bug under test read the connection-global "active" record instead
+		// of the record this event actually routed through, and answered
+		// with B's presenter here.
+		optionsByCwd.get('/canonical/a')?.onSessionEvent?.(event('a-2'))
+		optionsByCwd.get('/canonical/b')?.onSessionEvent?.(event('b-1'))
+
+		releases.get('/canonical/a')?.resolve()
+		releases.get('/canonical/b')?.resolve()
+		await Promise.all([turnA, turnB])
+
+		expect(presentedByA).toEqual(['/canonical/a-CALL', '/canonical/a-CALL'])
+		expect(presentedByB).toEqual(['/canonical/b-CALL'])
+
+		await runtime.close()
+	})
 })
 
 describe('mapping an ACP wire session id onto a namzu session', () => {

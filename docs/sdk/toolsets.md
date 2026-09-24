@@ -274,10 +274,16 @@ report (see the two bug fixes below). Its `ToolManager`, built once at
 session boot over this list, is re-`refresh()`ed before every host-facing
 read (`/tools`, `/permissions`, a review decision, the tool presenter) so a
 plugin enabled or disabled after boot is reflected live. The ACP bridge
-(`commands/acp.ts`) now delegates its presenter to whichever session is
-currently streaming (`AgentSession.presenter`) instead of a permanently
-empty registry, which used to fall every tool-call/result view back to the
-generic label for every session the server ever handled.
+(`commands/acp.ts`) now delegates its presenter to whichever session's own
+event is being presented (`AgentSession.presenter`) instead of a
+permanently empty registry, which used to fall every tool-call/result view
+back to the generic label for every session the server ever handled. That
+delegation is scoped to the synchronous span of one event, not a whole
+turn: two ACP sessions can have prompts in flight at once, and reading
+"whichever session is currently streaming" as one connection-global slot
+for the turn's whole duration let a later session's own event, presented
+while an earlier one was still mid-turn, misattribute to the wrong
+session's presenter.
 
 Two bugs in how `query()` and `SupervisorAgent` used `combineToolsets` were
 found and fixed while wiring the CLI onto this: both merged an eager and a
