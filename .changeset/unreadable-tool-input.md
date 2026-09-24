@@ -1,6 +1,15 @@
 ---
-'@namzu/sdk': minor
+'@namzu/sdk': major
 ---
+
+**Breaking, and what to do about each:**
+
+- **`MockLLMProvider`'s `truncateArguments`.** A scripted call with it now sends only the first half of its arguments, ends the response there (calls scripted after it in the same turn are not streamed), and the turn finishes with `length` unless the script sets `finishReason`. It used to send the whole JSON, go on to later calls, and finish with `tool_calls`, so the call ran. A test that relied on the call running: drop `truncateArguments`. One that scripts calls after it: move them to the next turn. One that relied on `tool_calls`: set `finishReason: 'tool_calls'` on the turn (the cut call is then `malformed`).
+- **A reused tool-call index is refused.** A stream that puts a second call id on an `index` another call holds now fails: the turn loop throws `ProviderRequestError` (`kind: 'server'`, so the turn pauses), and `collectChatCompletion` throws an `Error` naming the violation. Before, the second call's arguments were appended to the first call's and the stream went on. A custom driver that sends parallel calls must give each its own `index`, or leave `index` out entirely: a fragment with no index is placed by its id.
+- **The message for an unreadable tool call.** The tool result a model gets for a call whose arguments did not parse is no longer one fixed string ("…was cut off while the model was streaming JSON arguments… Retry with a much shorter input…"); it depends on the reason and the tool (below). A host or test that matches the old text must match the new one, or read `ToolCall.metadata.inputError` instead.
+- **Event order for a tool call.** `tool_input_delta` and `tool_input_completed` no longer come before the call's `tool_input_started`, and `tool_input_completed` carries the id the call was announced with, not the id on the driver's block close. A host that handled either early event must expect them after the start.
+- **Advisor records.** `argumentsIncomplete: true` now marks only a call the response was cut off inside (see below).
+- **One log record's text.** "Repaired a tool call whose input stream was truncated" is now "Repaired a tool call whose arguments could not be read" (see below).
 
 A tool call whose streamed arguments do not parse is now reported as **truncated** or **malformed**, and the model is told which, instead of always hearing that its call was cut off and it should send less.
 
