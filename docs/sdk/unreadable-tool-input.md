@@ -323,6 +323,11 @@ reasoning or what came before it, since neither is what ran out.
   reading as `stop`.
 - `@namzu/openai` Codex: `response.incomplete` is reported as `length`, or
   `content_filter` when that is the stated reason. It carries no replay state.
+- `@namzu/lmstudio`: `contextLengthReached` after content is reported as
+  `length` with `finishDetail: 'context_window'`; `maxPredictedTokensReached`
+  stays a plain `length`. `contextLengthReached` with no content still fails
+  the turn before either is reported: the prompt itself did not fit, not the
+  reply.
 - `MockLLMProvider`: a `truncateArguments` call sends half its arguments and
   the turn finishes with `length` unless the script sets `finishReason`. The
   response ends at that call, as an output limit ends it: calls scripted after

@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { LMStudioClient } from '@lmstudio/sdk'
 import type {
 	ChatCompletionParams,
-	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
@@ -28,15 +27,33 @@ type StopReason =
 	| 'contextLengthReached'
 	| 'toolCalls'
 
-function mapStopReason(reason: string | undefined): ChatCompletionResponse['finishReason'] {
+/**
+ * LM Studio's own stop reason as the finish fields of a stream chunk:
+ * `finishReason`, and `finishDetail: 'context_window'` when the limit
+ * reached was the model's context window rather than its output-token
+ * budget.
+ *
+ * `maxPredictedTokensReached` and `contextLengthReached` were both folded
+ * into plain `'length'`, so the runtime could not tell them apart and
+ * auto-continued a reply that had filled the context window into a prompt
+ * longer than the window it had just filled — exactly what `finishDetail:
+ * 'context_window'` exists to stop (see `ffa399a8`, and
+ * `docs/sdk/unreadable-tool-input.md`). `contextLengthReached` with content
+ * is the case this maps: with none, `chatStream` above already fails the
+ * turn as `context_overflow` before this ever runs.
+ */
+function mapStopReason(
+	reason: string | undefined,
+): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
 	switch (reason as StopReason) {
 		case 'maxPredictedTokensReached':
+			return { finishReason: 'length' }
 		case 'contextLengthReached':
-			return 'length'
+			return { finishReason: 'length', finishDetail: 'context_window' }
 		case 'toolCalls':
-			return 'tool_calls'
+			return { finishReason: 'tool_calls' }
 		default:
-			return 'stop'
+			return { finishReason: 'stop' }
 	}
 }
 
@@ -238,8 +255,10 @@ export class LMStudioProvider implements LLMProvider {
 			// runtime can auto-continue — the PROMPT did not fit, and the turn failed.
 			// Folding it into `finishReason: 'length'` presented it as a successful,
 			// empty turn with no error at all, so a caller parsed "" as the reply.
-			// Truncation AFTER content is genuinely 'length' and must stay that way:
-			// auto-continuation depends on it.
+			// `contextLengthReached` AFTER content is still reported below, but as
+			// `finishDetail: 'context_window'`: it is the conversation's length, not
+			// this response's, and the runtime must not auto-continue it either — see
+			// `mapStopReason`.
 			if (result.stats.stopReason === 'contextLengthReached' && !sawContent) {
 				throw new ProviderRequestError({
 					kind: 'context_overflow',
@@ -250,7 +269,7 @@ export class LMStudioProvider implements LLMProvider {
 			yield {
 				id,
 				delta: {},
-				finishReason: mapStopReason(result.stats.stopReason),
+				...mapStopReason(result.stats.stopReason),
 				usage: mapUsage(result.stats),
 			}
 		} catch (err) {
