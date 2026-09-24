@@ -127,6 +127,32 @@ describe('stateless Message[] parsing', () => {
 		expect(parsePriorMessages('  \n')).toEqual({ ok: true, messages: [] })
 	})
 
+	it('accepts and keeps a message id, so a host that read it from `namzu history` can feed it back', () => {
+		// A host does not mint this id itself — `query()` refuses one it never
+		// recorded (`stale_cached_history`, `'foreign'`) — but a host that
+		// read this exact history back from `namzu history --session <key>`
+		// (which carries the real durable `BaseMessage.id`) must be able to
+		// replay it into a stateless call unmodified.
+		const messages = [
+			{ id: '01a0d452-5af8-7583-8afe-ebfb4be78d7e', role: 'user', content: 'earlier question' },
+			{
+				id: '01a0d452-5af8-7583-8afe-ebfc201c235a',
+				role: 'assistant',
+				content: 'earlier answer',
+			},
+		]
+
+		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({ ok: true, messages })
+	})
+
+	it('refuses a non-string message id the same way it refuses a non-string tool-call id', () => {
+		const result = parsePriorMessages(
+			JSON.stringify([{ id: 12345, role: 'user', content: 'hello' }]),
+		)
+
+		expect(result).toEqual({ ok: false, error: 'messages[0].id must be a string' })
+	})
+
 	it('accepts canonical project-policy provenance and rejects traversal', () => {
 		const valid = {
 			role: 'user',

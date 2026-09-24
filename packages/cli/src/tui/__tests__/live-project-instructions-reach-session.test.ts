@@ -7,6 +7,10 @@ import {
 	ProviderRegistry,
 	type UserMessage,
 	createUserMessage,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -66,9 +70,21 @@ it('discovers nested policy in request two, publishes one snapshot, and rehydrat
 		.mockReturnValueOnce({ provider: firstProvider } as never)
 		.mockReturnValueOnce({ provider: secondProvider } as never)
 
+	// A resumed session is the SAME session picked back up, not a new one: its
+	// messages carry the ids `first`'s own log gave them, and only that same
+	// session's log recognises them. Explicit, matching scope on both calls
+	// is what a real `namzu resume <id>`/`exec --resume` gives — see
+	// `a-resumed-conversation-keeps-its-file-witnesses.test.ts`.
+	const scope = {
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		projectId: generateProjectId(),
+		tenantId: generateTenantId(),
+	}
 	const { createAgentSession } = await import('../agent.js')
 	const first = await createAgentSession(preferences, detected, {
 		cwd,
+		scope,
 		sandbox: { enabled: false },
 	})
 	let settled: readonly Message[] = []
@@ -102,6 +118,7 @@ it('discovers nested policy in request two, publishes one snapshot, and rehydrat
 	writeFileSync(join(cwd, 'packages', 'a', 'AGENTS.md'), 'Nested policy v2.')
 	const resumed = await createAgentSession(preferences, detected, {
 		cwd,
+		scope,
 		sandbox: { enabled: false },
 	})
 	try {

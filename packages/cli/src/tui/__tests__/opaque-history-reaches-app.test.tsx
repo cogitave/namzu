@@ -38,6 +38,18 @@ const HIDDEN_ENCRYPTED = 'opaque-encrypted-exact'
 let scope: SessionScope | undefined
 const sent: Message[][] = []
 
+/**
+ * `recordTurn` (the fixture below stands in for the kernel's own recorder)
+ * writes each message under a fresh id but does not stamp it back onto the
+ * caller's own object the way `TurnRecorder` does — so `durable`, read back
+ * from disk, carries ids that `sent`, built from the fixture's own
+ * `onConversationMessages` publication, never got stamped with. Comparing
+ * two durable reads of the SAME conversation needs no such stripping: both
+ * go through `loadConversation` and agree on the log's own ids.
+ */
+const withoutIds = (messages: readonly Message[]): Message[] =>
+	messages.map(({ id: _id, ...rest }) => rest as Message)
+
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
 	trustDir: () => {},
@@ -219,6 +231,9 @@ it('resumes public message parts without blank rows and sends the original tool/
 	expect(rendered).not.toContain(HIDDEN_ENCRYPTED)
 	await submit(harness, 'continue the saved conversation')
 	await until(() => sent.length === 1, 'the continuation did not reach the session')
+	// A resumed conversation's `modelHistoryRef` is a fresh disk read too, so
+	// it carries the same ids `durable` does — no stripping needed here,
+	// unlike the live-continuation case below.
 	expect(sent[0]?.slice(0, durable.length)).toEqual(durable)
 	// Wait for the actual publication before unmounting; a late write must not
 	// spill into the following test's store spies or race directory cleanup.
@@ -278,7 +293,7 @@ it('reopens the exact tool/reasoning history and sends it next turn', async () =
 
 	await submit(harness, 'second question')
 	await until(() => sent.length === 2, 'the second turn never reached the session')
-	expect(sent[1]?.slice(0, 4)).toEqual(durable)
+	expect(sent[1]?.slice(0, 4)).toEqual(withoutIds(durable))
 	await vi.waitFor(
 		async () => {
 			const continued = await loadConversation(sessions, sessionId)

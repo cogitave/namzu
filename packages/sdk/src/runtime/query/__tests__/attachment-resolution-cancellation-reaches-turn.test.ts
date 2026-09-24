@@ -37,6 +37,18 @@ import { TEST_SCOPE, records, sessionWithCheckpoint } from './support/session.js
 
 const dirs: string[] = []
 
+/**
+ * A message the kernel now stamps with the id its record was given, so a
+ * fixture built before that stamp no longer matches by full equality.
+ * `objectContaining` alone still misses: `createAssistantMessage` sets
+ * `toolCalls: undefined` explicitly when none are given, and matches an
+ * absent property differently than one round-tripped through JSON — which
+ * is what a real message went through to reach the log and come back.
+ */
+function matchingMessage(expected: Message): ReturnType<typeof expect.objectContaining> {
+	return expect.objectContaining(JSON.parse(JSON.stringify(expected)) as Record<string, unknown>)
+}
+
 function logger(): Logger {
 	const make = (): Logger =>
 		({
@@ -559,8 +571,8 @@ describe('stored attachment resolution belongs to the turn', () => {
 		if (!outcome.resumed) return
 		expect(provider.requests).toHaveLength(0)
 		expect(outcome.turn.status).toBe('cancelled')
-		expect(outcome.turn.messages).toContainEqual(priorUser)
-		expect(outcome.turn.messages).toContainEqual(priorAssistant)
+		expect(outcome.turn.messages).toContainEqual(matchingMessage(priorUser))
+		expect(outcome.turn.messages).toContainEqual(matchingMessage(priorAssistant))
 		expect(outcome.turn.messages).toContainEqual(queued)
 		expect(outcome.turn.tokenUsage).toEqual(tokenUsage)
 		const turnSpan = started.find((entry) => entry.name.startsWith('namzu.agent.turn '))
@@ -569,8 +581,8 @@ describe('stored attachment resolution belongs to the turn', () => {
 			spanId: traceContext.spanId,
 		})
 		const persisted = (await readFoldedHistory(session.log)).map((entry) => entry.message)
-		expect(persisted).toContainEqual(priorUser)
-		expect(persisted).toContainEqual(priorAssistant)
+		expect(persisted).toContainEqual(matchingMessage(priorUser))
+		expect(persisted).toContainEqual(matchingMessage(priorAssistant))
 		expect(persisted).toContainEqual(queued)
 	})
 
@@ -688,7 +700,7 @@ describe('stored attachment resolution belongs to the turn', () => {
 		expect(result.resumed).toBe(true)
 		if (!result.resumed) return
 		expect(result.turn.status).toBe('cancelled')
-		expect(result.turn.messages).toContainEqual(prior)
+		expect(result.turn.messages).toContainEqual(matchingMessage(prior))
 		expect(result.turn.messages).toContainEqual(queued)
 		expect(result.turn.tokenUsage).toEqual(tokenUsage)
 		expect(result.replay?.status).toBe('replayed')
@@ -809,13 +821,13 @@ describe('stored attachment resolution belongs to the turn', () => {
 		expect(result.turn.status).toBe('cancelled')
 		expect(result.turn.stopReason).toBe('cancelled')
 		expect(result.replay?.status).toBe('replayed')
-		expect(result.turn.messages).toContainEqual(checkpointUser)
-		expect(result.turn.messages).toContainEqual(checkpointAssistant)
+		expect(result.turn.messages).toContainEqual(matchingMessage(checkpointUser))
+		expect(result.turn.messages).toContainEqual(matchingMessage(checkpointAssistant))
 		expect(result.turn.messages).toContainEqual(queued)
 		expect(result.turn.tokenUsage).toEqual(checkpointUsage)
 		const persistedMessages = (await readFoldedHistory(session.log)).map((entry) => entry.message)
-		expect(persistedMessages).toContainEqual(checkpointUser)
-		expect(persistedMessages).toContainEqual(checkpointAssistant)
+		expect(persistedMessages).toContainEqual(matchingMessage(checkpointUser))
+		expect(persistedMessages).toContainEqual(matchingMessage(checkpointAssistant))
 		expect(persistedMessages).toContainEqual(queued)
 		const lifecycle = ['approval_policy_changed', 'turn_resuming', 'turn_completed']
 		expect(events.map((event) => event.type).filter((type) => lifecycle.includes(type))).toEqual(

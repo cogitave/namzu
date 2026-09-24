@@ -234,6 +234,14 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 			{
 				provider: next,
 				tools: new ToolRegistry(),
+				// Same session as `run`: `messages` below carries the ids that
+				// session's log gave them, and a fresh, unrelated session would
+				// not recognise them (`stale_cached_history`, correctly — see
+				// `a-completed-turns-checkpoint-cannot-be-resumed.test.ts` for
+				// that refusal's own coverage). What this case checks is that
+				// the durable marker survives a LATER turn of the same
+				// conversation without asking the repair to run twice.
+				sessionLog,
 				retry: { maxRetries: 0 },
 				turnConfig: {
 					model: 'vision-model',
@@ -246,10 +254,10 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 				agentName: 'Image Recovery',
 				messages: run.messages,
 				workingDirectory: await workingDirectory(),
-				sessionId: '9a101286-5be1-4edd-a06b-c9d21ebbc46c' as SessionId,
-				topicId: '30c569ec-4b2d-403d-933b-3bde1eeef523' as TopicId,
-				projectId: '00664a2a-1beb-410c-a2da-fbc40fea893c' as ProjectId,
-				tenantId: '41b4da1e-167a-49df-86da-ca47bc2464da' as TenantId,
+				sessionId: '8cc31c7e-5ab1-4dc8-a9aa-c74344665a48' as SessionId,
+				topicId: '5e295a1f-984e-48df-96f5-6810b8b67237' as TopicId,
+				projectId: 'edb43aa8-4dcc-4cd7-8ff1-29814922d3d8' as ProjectId,
+				tenantId: '694ebd50-4e52-4849-9eba-9e236502bfb5' as TenantId,
 			},
 			(event) => {
 				nextEvents.push(event)

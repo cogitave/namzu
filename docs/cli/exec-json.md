@@ -71,6 +71,15 @@ optional `offset`, `outputTokens` and `reasoningTokens` non-negative integers,
 `finishReason` one of the four and `finishDetail` `context_window`, since the
 model is told about that call from them.
 
+A message may carry `id` (`BaseMessage.id`, the durable record it came from —
+see [Session log](../sdk/session-log.md#a-hosts-cached-messages)); it is
+accepted and kept, never stripped or required. This stream's own events do
+not yet surface a message's `id` as it happens — a host rebuilding
+`Message[]` purely from this stream's `delta`/`tool-start`/`tool-end` events
+has none to attach — but a host that instead reads a prior turn back from
+`namzu history --session <key>` gets the real id on every message, and can
+feed that history into a later stateless call unmodified.
+
 **One turn at a time.** A session has at most one active turn. A call against
 a session whose last turn is still running, or is paused, does not start a
 second one: it writes an `error` event with `code: "turn_in_progress"` naming

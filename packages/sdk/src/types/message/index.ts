@@ -1,4 +1,4 @@
-import type { GoalId } from '../ids/index.js'
+import type { GoalId, MessageId } from '../ids/index.js'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -255,6 +255,22 @@ export interface BaseMessage {
 	content: string | null | readonly ToolResultBlock[]
 	timestamp?: number
 	cacheHint?: CacheHint
+	/**
+	 * The id of the durable `message` record this message was written as, or
+	 * a `message_replaced` record's `targetMessageId` when a guardrail,
+	 * review or structured-output override replaced its content in place.
+	 * Absent means the kernel has not recorded this exact message: a host
+	 * just constructed it, or it is a compaction's own summary (a bulk
+	 * spilled or inline array, which carries no per-message id — see
+	 * `docs/sdk/session-log.md`).
+	 *
+	 * Set by the kernel alone, never by a caller: `query()` stamps every
+	 * message it folds from the session log or records fresh, on `Turn.messages`,
+	 * on the messages `onConversationMessages` reports, and on a checkpoint's
+	 * restored messages. A caller that mints its own id here gets `conflict`
+	 * on the next turn — this log never recorded it under that name.
+	 */
+	readonly id?: MessageId
 	/**
 	 * Exempt this message from compaction and from tool-result clearing.
 	 *
