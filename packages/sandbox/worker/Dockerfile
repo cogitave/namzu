@@ -17,7 +17,7 @@
 #   - Debian Bookworm slim, not Alpine. python-docx / openpyxl /
 #     reportlab / pillow / weasyprint all have C extensions that
 #     prefer glibc; Alpine + musl produces hard-to-debug failures
-#     in the doc-gen pipeline (compass-platform hit this).
+#     in the doc-gen pipeline.
 #   - python3 + apt is the path with the broadest binary-wheel
 #     coverage (manylinux2014 on glibc).
 #
@@ -119,7 +119,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     scikit-learn==1.5.2 statsmodels==0.14.4 scipy==1.14.1 \
     # OCR + image
     pytesseract==0.3.13 Pillow==10.4.0 opencv-python-headless==4.10.0.84 \
-    # OR / planning / forecasting (compass parity)
+    # OR / planning / forecasting
     ortools==9.11.4210 pulp==2.9.0 simpy==4.1.1 networkx==3.4.2 workalendar==17.0.0 \
     # HTTP / API
     requests==2.32.3 httpx==0.27.2 aiohttp==3.10.10 \
@@ -136,8 +136,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
 # `markdown-it` binary at /usr/local/bin/markdown-it (corepack /
 # distro convenience pre-install), and `npm install -g` refuses to
 # overwrite a pre-existing bin without it. The collision was a
-# build-blocker on a clean rebuild — Vandal sandbox image build
-# surfaced it first.
+# build-blocker on a clean rebuild of this image.
 RUN npm install -g --force --omit=optional --no-audit --no-fund \
     @mermaid-js/mermaid-cli@11.4.0 \
     xlsx@0.18.5 \

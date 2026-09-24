@@ -466,7 +466,7 @@ export interface SandboxDestroyOptions {
  *  - `azureFileShare` — mount an Azure Files SMB share into the
  *    container. Used by managed Azure Container Instances (incl.
  *    Standby Pool) which have no host filesystem to bind from; the
- *    Vandal-side host provisions a per-task share before claim and
+ *    host provisions a per-task share before claim and
  *    the ACI backend translates this variant to ACI's `volume +
  *    azureFile` shape.
  */

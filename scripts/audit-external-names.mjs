@@ -2,6 +2,17 @@
 /**
  * Refuse a third-party product name in a comment or an identifier.
  *
+ * The file also holds a second, stricter rule: no DOWNSTREAM consumer's name
+ * anywhere in the tree, literals and changelogs included. It shares the
+ * inventory and the CI step, and nothing else; it is described where it is
+ * applied, under "Downstream names" at the end of this file, and its matcher
+ * is `scripts/downstream-names.mjs`. Its list is the `NAMZU_DOWNSTREAM_NAMES`
+ * environment variable, never a file, so a run without it fails with
+ * `NAMZU_DOWNSTREAM_NAMES is not set`; a contributor without access to the
+ * list runs everything else with
+ *
+ *     node scripts/audit-external-names.mjs --without-downstream-names
+ *
  * The rule namzu holds: nothing in this codebase takes its NAMING from
  * another system, and no brand appears in prose — not in a doc comment, not
  * in an inline one, not in a symbol. A design explained by reference to
@@ -125,11 +136,29 @@
  * is not a variation on this file — it is a hook plus a job that reads the
  * forge API. Recorded so the next reader inherits the measurement instead of
  * repeating it.
+ *
+ * That paragraph is about THIS rule, the product names. The downstream-name
+ * rule has no such conversation to exempt — nothing here ever needs to name a
+ * consumer — and its pull-request half now exists: `.github/workflows/pr-text.yml`
+ * runs `scripts/check-downstream-names.mjs` over a pull request's title, body,
+ * head branch name, and each of its commits' message, author, committer and
+ * added lines, again on every edit. Issue text is still read by nothing.
  */
 
 import { execFileSync } from 'node:child_process'
 import { lstat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { parseArgs } from 'node:util'
+import {
+	OPT_OUT_OPTION,
+	REMEDY,
+	excerpt,
+	findingsIn,
+	matcherSelfCheck,
+	namesIn,
+	printable,
+	resolveDownstreamNames,
+} from './downstream-names.mjs'
 
 const ROOT = process.cwd()
 
@@ -786,6 +815,7 @@ const TITLE_CASE_CASES = [
 	['strands', 'Strands'],
 ]
 
+/** What the product-name matcher gets wrong about its own cases; empty when nothing. */
 function selfCheck() {
 	const broken = []
 	for (const [input, expected] of TITLE_CASE_CASES) {
@@ -806,11 +836,7 @@ function selfCheck() {
 			broken.push(`[${name}] ${expected ? 'should flag' : 'should ignore'}: ${text}`)
 		}
 	}
-	if (broken.length === 0) return
-	console.error('the name matcher disagrees with its own cases:\n')
-	for (const line of broken) console.error(`  ${line}`)
-	console.error('\nThis is the discriminator being wrong, not the tree being dirty.')
-	process.exit(2)
+	return broken
 }
 
 function findings(source, path) {
@@ -888,43 +914,144 @@ function findings(source, path) {
 	return hits
 }
 
-// Before anything is scanned: the matcher has to agree with its own cases, or
-// its verdict about the tree means nothing.
-selfCheck()
+// ---------------------------------------------------------------------------
+// Downstream names
+// ---------------------------------------------------------------------------
+
+/**
+ * A downstream consumer's name, refused ANYWHERE in the tree (issue #530). The
+ * list is the environment variable `NAMZU_DOWNSTREAM_NAMES`, which CI fills
+ * from the repository secret of the same name; no file of this repository
+ * holds it in any form. `scripts/downstream-names.mjs` has the matcher, what an
+ * entry may say, and what happens without the list: a pull request from a fork
+ * in GitHub Actions skips this rule with a notice, a local run given
+ * `--without-downstream-names` skips it and says so, and every other run fails
+ * with `NAMZU_DOWNSTREAM_NAMES is not set`.
+ *
+ * This rule takes none of the licences the one above grants. A string literal
+ * is scanned — the runtime error that named one consumer's variables was one.
+ * So are code spans, fenced blocks, CHANGELOGs, changesets, sandbox backends,
+ * Dockerfiles and JSON: every inventoried text file, whatever its directory or
+ * extension, and every inventoried path.
+ *
+ * This reads the tree as it stands. A pull request that adds a name in one
+ * commit and removes it in the next leaves nothing here to find, yet a rebase
+ * merge lands both commits on `main` as they are, and `refs/pull/<n>/head`
+ * keeps them reachable whatever the merge. So
+ * `scripts/check-downstream-names.mjs` reads every commit of a pull request on
+ * its own, together with what the pull request carries outside the tree: its
+ * title, body, branch name, commit messages and identities.
+ *
+ * Everything this script prints goes through `say` or `complain`, which print
+ * each line only as `printable` allows: every listed name redacted, and a line
+ * that would still show any entry's text withheld. That includes the
+ * product-name rule's report, which quotes the line and the path it flagged: a
+ * line or a path can carry both a product name and a consumer's, and the log
+ * is public.
+ */
+let options
+try {
+	options = parseArgs({ options: { [OPT_OUT_OPTION]: { type: 'boolean' } } }).values
+} catch (error) {
+	console.error(`audit-external-names: ${error.message}`)
+	process.exit(2)
+}
+
+let resolved
+try {
+	resolved = resolveDownstreamNames({ optOut: options[OPT_OUT_OPTION] === true })
+} catch (error) {
+	console.error(`the downstream-name list could not be read: ${error.message}`)
+	process.exit(2)
+}
+if (resolved.fail !== undefined) {
+	console.error(resolved.fail)
+	process.exit(2)
+}
+const downstreamNames = resolved.list
+
+/** Every line printed from here on, to stdout and to stderr, redacted whole. */
+const say = (line = '') => console.log(printable(line, downstreamNames))
+const complain = (line = '') => console.error(printable(line, downstreamNames))
+
+if (resolved.skip !== undefined) say(resolved.skip)
+
+// Before anything is scanned: the matchers have to agree with their own cases,
+// or their verdict about the tree means nothing.
+const brokenProduct = selfCheck()
+if (brokenProduct.length > 0) {
+	complain('the name matcher disagrees with its own cases:\n')
+	for (const line of brokenProduct) complain(`  ${line}`)
+	complain('\nThis is the discriminator being wrong, not the tree being dirty.')
+	process.exit(2)
+}
+const brokenDownstream = matcherSelfCheck()
+if (brokenDownstream.length > 0) {
+	complain('the downstream-name matcher disagrees with its own cases:\n')
+	for (const line of brokenDownstream) complain(`  ${line}`)
+	complain('\nThis is the matcher being wrong, not the tree being dirty.')
+	process.exit(2)
+}
 
 const all = []
+const downstream = []
+const readsDownstream = downstreamNames.size > 0
 
 let inventory
 try {
 	inventory = inventoriedPaths()
 } catch (error) {
-	console.error(`the authored-file inventory could not be read: ${String(error)}`)
+	complain(`the authored-file inventory could not be read: ${String(error)}`)
 	process.exit(2)
 }
 
 for (const path of inventory) {
-	if (!shouldAuditPath(path)) continue
-	// This file lists the forbidden names in order to forbid them.
-	if (path.endsWith('audit-external-names.mjs')) continue
+	if (namesIn(path, downstreamNames)) {
+		downstream.push({ path, line: undefined, text: '(the path itself)' })
+	}
+	// This file lists the forbidden product names in order to forbid them.
+	const external = shouldAuditPath(path) && !path.endsWith('audit-external-names.mjs')
+	if (!external && !readsDownstream) continue
 	let source
 	try {
 		source = await readInventoriedFile(path)
 	} catch (error) {
-		console.error(`the authored file ${path} could not be read: ${String(error)}`)
+		// A submodule is inventoried as a directory and has no text of its own.
+		if (!external && isErrno(error, 'EISDIR')) continue
+		complain(`the authored file ${path} could not be read: ${String(error)}`)
 		process.exit(2)
 	}
 	if (source === undefined) continue
-	all.push(...findings(source, path))
+	if (external) all.push(...findings(source, path))
+	// A NUL byte means a binary file: an image has no prose to name anyone in.
+	if (readsDownstream && !source.includes('\0')) {
+		for (const hit of findingsIn(source, downstreamNames)) {
+			downstream.push({ path, ...hit })
+		}
+	}
 }
 
-if (all.length === 0) {
-	console.log('No third-party product name in a comment or identifier.')
+if (all.length === 0 && downstream.length === 0) {
+	say('No third-party product name in a comment or identifier.')
+	if (readsDownstream) say('No downstream consumer name anywhere in the tree.')
 	process.exit(0)
 }
 
-console.error(`${all.length} external-name reference(s):\n`)
-for (const hit of all) {
-	console.error(`  ${hit.path}:${hit.line}  [${hit.name}]`)
-	console.error(`    ${hit.text.slice(0, 140)}`)
+if (all.length > 0) {
+	complain(`${all.length} external-name reference(s):\n`)
+	for (const hit of all) {
+		complain(`  ${hit.path}:${hit.line}  [${hit.name}]`)
+		complain(`    ${excerpt(hit.text, downstreamNames)}`)
+	}
+}
+
+if (downstream.length > 0) {
+	if (all.length > 0) complain()
+	complain(`${downstream.length} downstream-name reference(s). ${REMEDY}:\n`)
+	for (const hit of downstream) {
+		const where = hit.line === undefined ? hit.path : `${hit.path}:${hit.line}`
+		complain(`  ${where}  [downstream name]`)
+		complain(`    ${hit.text}`)
+	}
 }
 process.exit(1)
