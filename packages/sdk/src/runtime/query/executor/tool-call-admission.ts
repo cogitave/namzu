@@ -1,4 +1,5 @@
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
+import { callableToolNames, formatToolNames } from '../../../registry/tool/callable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
@@ -25,16 +26,43 @@ import { skippedToolResultText } from '../plugin-hooks.js'
  * here dispatches a tool, and nothing here writes a result: that is the
  * executor's half.
  *
- * The family reads exactly three things off the executor it serves, and they
+ * The family reads exactly four things off the executor it serves, and they
  * arrive as one value rather than as a captured reference: the tool registry
- * config, the event sink and the logger. `config` in particular is read
- * per call and never held — `ToolExecutor.setSandbox` REPLACES it, so a host
- * captured once would hand the next admission a stale sandbox.
+ * config, the event sink, the logger and the current step's allow-list.
+ * `config` in particular is read per call and never held —
+ * `ToolExecutor.setSandbox` REPLACES it, so a host captured once would hand
+ * the next admission a stale sandbox.
  */
 export interface ToolAdmissionHost {
 	readonly config: ToolExecutorConfig
 	readonly emitEvent: EmitEvent
 	readonly log: Logger
+	/**
+	 * What the current step may call: the step's own list where
+	 * `prepareStep` gave one, the turn's `allowedTools` otherwise, absent
+	 * when nothing narrowed the turn. NOT `config.allowedTools`, which is
+	 * only the turn's; the step's list lives on the executor.
+	 *
+	 * Required, with `undefined` as a value, so that a host has to say.
+	 * Leaving it out would list the whole registry to a model on a narrowed
+	 * step, which is the answer that sent a model round in a circle.
+	 */
+	readonly allowedTools: readonly string[] | undefined
+}
+
+/**
+ * The answer to a call naming a tool the registry does not hold, without
+ * the `Error: ` a direct call's result carries.
+ *
+ * It lists what the current step can call — the same list a step refusal
+ * gives — rather than what the registry holds. The registry's own
+ * "Not found" lists every tool it has, and on a narrowed step that is
+ * mostly tools the next call would be refused.
+ */
+export function unknownToolMessage(host: ToolAdmissionHost, toolName: string): string {
+	return `Unknown tool "${toolName}". Available: ${formatToolNames(
+		callableToolNames(host.config.tools, host.allowedTools),
+	)}`
 }
 
 export async function runPreToolHook(
@@ -164,7 +192,11 @@ export async function prepareDirectCall(
 		try {
 			preparation = prepare.call(host.config.tools, toolName, parsed)
 		} catch (err) {
-			const message = `Error: Unknown or unavailable tool "${toolName}": ${toErrorMessage(err)}`
+			// A name the registry does not hold gets the step's list, not the
+			// registry's "Not found", which lists everything it holds.
+			const message = isUnregistered(host, toolName)
+				? `Error: ${unknownToolMessage(host, toolName)}`
+				: `Error: Unknown or unavailable tool "${toolName}": ${toErrorMessage(err)}`
 			const repair =
 				!repairUsed && host.config.repairToolCall
 					? await requestRepair(host, toolCall, toolName, {
@@ -296,13 +328,15 @@ function interpretPreToolResults(
  * broken will not do better on a second look, and an unbounded loop
  * here is a hang rather than a degradation.
  *
- * `invalid_json` is the ONLY failure that stops the call here, and it
- * stopped it before this function existed too. `unknown_tool` and
- * `schema_validation` merely OFFER the repair and otherwise fall
- * through to the registry, which reports both with better messages —
- * its schema error already ships a "Required: <field>: <type>" hint the
- * model can self-correct from. So with no repairer configured this is
- * behaviorally identical to the bare `JSON.parse` it replaced.
+ * `invalid_json` stops the call here, and it stopped it before this
+ * function existed too. So does an `unknown_tool` the registry confirms
+ * it does not hold: the registry's own answer to that is "Not found",
+ * listing every tool it has, where the model needs the ones this step can
+ * call — see `unknownToolMessage`. `schema_validation`, and an unknown
+ * tool on a registry that cannot say, merely OFFER the repair and
+ * otherwise fall through to the registry, whose schema error already
+ * ships a "Required: <field>: <type>" hint the model can self-correct
+ * from.
  */
 export async function resolveCall(
 	host: ToolAdmissionHost,
@@ -323,7 +357,10 @@ export async function resolveCall(
 				: null
 
 		if (!repair) {
-			if (failure.reason === 'invalid_json') {
+			if (
+				failure.reason === 'invalid_json' ||
+				(failure.reason === 'unknown_tool' && isUnregistered(host, toolName))
+			) {
 				return { ok: false, toolName, message: failure.message }
 			}
 			return { ok: true, toolName, input: parseArguments(raw) }
@@ -395,11 +432,13 @@ function inspectCall(
 	const tool = host.config.tools.get?.(toolName)
 	if (!tool) {
 		// Either the model named a tool that does not exist, or this
-		// registry does not implement `get`. Both are the registry's to
-		// answer; a repairer still gets offered the `unknown_tool` case.
+		// registry does not implement `get`. A repairer gets offered both;
+		// only the first is answered here, and with the step's list.
 		return {
 			reason: 'unknown_tool',
-			message: `Error: Unknown tool "${toolName}"`,
+			message: isUnregistered(host, toolName)
+				? `Error: ${unknownToolMessage(host, toolName)}`
+				: `Error: Unknown tool "${toolName}"`,
 		}
 	}
 
@@ -417,6 +456,11 @@ function inspectCall(
 	}
 
 	return null
+}
+
+/** The registry says it does not hold this name — not merely that it cannot look it up. */
+export function isUnregistered(host: ToolAdmissionHost, toolName: string): boolean {
+	return typeof host.config.tools.has === 'function' && !host.config.tools.has(toolName)
 }
 
 async function requestRepair(

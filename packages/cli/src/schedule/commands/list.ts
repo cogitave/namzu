@@ -7,6 +7,7 @@ import { describeSchedule, hostTimeZone } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
+import { callsCount, callsLine } from '../fire/calls.js'
 import { compileJobPolicy } from '../policy.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
 import { foldHistory, readHistory } from '../store/history.js'
@@ -106,7 +107,10 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 	const host = hostTimeZone()
 	const lines = rows.map((r) => {
 		const next = r.nextFireAt ? `next ${when(r.nextFireAt, r.tz)}` : ''
-		const last = r.lastRun ? `last ${r.lastRun.status} ${when(r.lastRun.endedAt, r.tz)}` : ''
+		const calls = r.lastRun ? callsCount(r.lastRun) : ''
+		const last = r.lastRun
+			? `last ${r.lastRun.status}${calls ? ` (${calls})` : ''} ${when(r.lastRun.endedAt, r.tz)}`
+			: ''
 		const active = r.activeRun
 			? r.activeRun.status === 'awaiting-approval'
 				? r.activeRun.handoff
@@ -135,7 +139,7 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 function describeRecord(r: ScheduleHistoryRecord, tz: string): string {
 	switch (r.kind) {
 		case 'run':
-			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${r.reason ? `: ${r.reason}` : ''}${r.summary ? ` — ${r.summary}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
+			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${r.reason ? `: ${r.reason}` : ''}${r.summary ? ` — ${r.summary}` : ''}${callsLine(r) ? `\n      ${callsLine(r)}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
 		case 'skip':
 			return `${when(r.at, tz)}  skipped ${r.count > 1 ? `${r.count} occurrences` : when(r.scheduledFor, tz)}: ${r.reason}`
 		case 'missed':

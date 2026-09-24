@@ -55,10 +55,12 @@ import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/
 import {
 	type ToolAdmissionHost,
 	formatFailedToolOutput,
+	isUnregistered,
 	prepareDirectCall,
 	repairTruncatedCall,
 	resolveCall,
 	runPreToolHook,
+	unknownToolMessage,
 	unreadableToolCallMessage,
 } from './executor/tool-call-admission.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
@@ -2202,10 +2204,12 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * The three things the admission family reads off this executor.
+	 * The four things the admission family reads off this executor.
 	 *
 	 * Built per call rather than held: `setSandbox` REPLACES `config`, so a
-	 * host captured once would hand the next admission a stale sandbox.
+	 * host captured once would hand the next admission a stale sandbox. The
+	 * allow-list is the step's, taken the same way and for a like reason:
+	 * `setStepAllowedTools` replaces it every step.
 	 *
 	 * The one way this differs from the inline code it replaced, which
 	 * re-read `this.config` at every use: an admission that spans a
@@ -2216,7 +2220,12 @@ export class ToolExecutor {
 	 * before the loop, so nothing in this tree can tell them apart.
 	 */
 	private admissionHost(): ToolAdmissionHost {
-		return { config: this.config, emitEvent: this.emitEvent, log: this.log }
+		return {
+			config: this.config,
+			emitEvent: this.emitEvent,
+			log: this.log,
+			allowedTools: this.effectiveAllowedTools(),
+		}
 	}
 
 	private async prepareNestedCall(
@@ -2251,10 +2260,16 @@ export class ToolExecutor {
 		try {
 			preparation = prepare.call(this.config.tools, toolName, input)
 		} catch (err) {
+			// A name the registry does not hold is answered with what this step
+			// can call, as a model's own call is; the registry's "Not found"
+			// lists everything it holds.
+			const host = this.admissionHost()
 			return {
 				kind: 'synthetic',
 				input,
-				message: `Tool "${toolName}" could not be prepared: ${toErrorMessage(err)}`,
+				message: isUnregistered(host, toolName)
+					? unknownToolMessage(host, toolName)
+					: `Tool "${toolName}" could not be prepared: ${toErrorMessage(err)}`,
 				isError: true,
 			}
 		}

@@ -1,6 +1,8 @@
 import { parseVersionedModelId } from '@namzu/sdk'
 import type { ModelIdGrammar, ReasoningEffort, ThinkingConfig } from '@namzu/sdk'
 
+import { type VersionFloor, reachesFloor } from './version-floor.js'
+
 /**
  * What a given model will actually accept for thinking.
  *
@@ -15,9 +17,11 @@ import type { ModelIdGrammar, ReasoningEffort, ThinkingConfig } from '@namzu/sdk
  *
  * The split, from the vendor's per-model table:
  *
- * - **Adaptive only** — Fable 5, Mythos 5, Opus 5, Sonnet 5, Opus 4.8, Opus
- *   4.7. These reject `enabled`. Fable 5 and Mythos 5 additionally reject
- *   `disabled` because they cannot stop thinking at all.
+ * - **Adaptive only** — Fable 5.1, Mythos 5.1, Fable 5, Mythos 5, Opus 5.5,
+ *   Opus 5, Sonnet 5, Opus 4.8, Opus 4.7. These reject `enabled`. The Fable
+ *   and Mythos families and Opus from 5.5 additionally reject `disabled`, at
+ *   every effort level, because they cannot stop thinking at all — see
+ *   `ALWAYS_ON_FROM`.
  * - **Both** — Opus 4.6, Sonnet 4.6 (manual mode deprecated but working), and
  *   Mythos Preview (which rejects `disabled`).
  * - **Manual only** — Opus 4.5, Sonnet 4.5, Haiku 4.5, Opus 4.1. These reject
@@ -60,9 +64,11 @@ export interface ThinkingCapability {
 	/**
 	 * The levels still accepted when thinking is switched off.
 	 *
-	 * Usually the same set. The Opus 5 family is the exception: it refuses
-	 * `xhigh` and `max` alongside `thinking: {type:"disabled"}` — *"effort 'max'
-	 * is not supported when thinking is disabled"* — while accepting `high`.
+	 * Usually the same set. Opus 5 is the exception: it refuses `xhigh` and
+	 * `max` alongside `thinking: {type:"disabled"}` — *"effort 'max' is not
+	 * supported when thinking is disabled"* — while accepting `high`. On a
+	 * model that cannot disable thinking this is the full `effort` set, since
+	 * a `disabled` intent is never sent there.
 	 *
 	 * This started as a blanket rule applied to every model that can disable
 	 * thinking, on the reasoning that the pairing is incoherent anyway. Measured,
@@ -81,6 +87,48 @@ const MANUAL_ONLY: ThinkingCapability = {
 	effort: NO_EFFORT,
 	effortWhenDisabled: NO_EFFORT,
 }
+
+/**
+ * Thinking is always on: adaptive only, never off, every effort level.
+ *
+ * `effortWhenDisabled` is the full set because nothing is ever sent disabled
+ * here — `resolveThinkingBody` omits that intent on these models — so a
+ * caller asking for the levels under a `disabled` intent gets the levels the
+ * request will actually carry.
+ */
+const ALWAYS_ON: ThinkingCapability = {
+	adaptive: true,
+	manual: false,
+	canDisable: false,
+	effort: FULL_EFFORT,
+	effortWhenDisabled: FULL_EFFORT,
+}
+
+/**
+ * Where thinking stops being optional, per family.
+ *
+ * Data rather than a branch per model. The vendor lists the models that answer
+ * `thinking: {type: "disabled"}` with a 400 — Fable 5.1, Mythos 5.1, Fable 5,
+ * Mythos 5, Opus 5.5 and Mythos Preview — and the list is two whole families
+ * plus Opus from 5.5. Opus crossed at a minor version: `claude-opus-5` takes
+ * `disabled` at effort `high` or below, `claude-opus-5-5` refuses it at every
+ * level.
+ *
+ * That crossing is why this is a table. The version fallback below reads every
+ * newer id in an adaptive family as able to switch thinking off, so the first
+ * always-on Opus resolved to `canDisable: true` and a shared `disabled` intent
+ * went out verbatim and came back 400 — on a config that worked on the model
+ * one minor below. The next family to cross is one row here, and a later
+ * version of a family that has crossed is covered without one.
+ *
+ * Mythos Preview is not a row: it carries no version to compare, and it keeps
+ * manual mode, so `resolveThinkingCapability` resolves it by name.
+ */
+const ALWAYS_ON_FROM: readonly VersionFloor[] = [
+	{ family: 'fable', major: 0, minor: 0 },
+	{ family: 'mythos', major: 0, minor: 0 },
+	{ family: 'opus', major: 5, minor: 5 },
+]
 
 /**
  * The vocabulary this driver's ids are spelled in.
@@ -142,25 +190,20 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 
 	const { family, major, minor } = parsed
 
-	// Always-on families: thinking cannot be disabled at any version.
-	if (family === 'fable' || family === 'mythos') {
-		return {
-			adaptive: true,
-			manual: false,
-			canDisable: false,
-			effort: FULL_EFFORT,
-			effortWhenDisabled: FULL_EFFORT,
-		}
-	}
+	// Thinking cannot be disabled from here on, whatever the effort level.
+	// Checked before the version fallback, which would otherwise read the id
+	// as a newer adaptive model that can switch thinking off.
+	if (reachesFloor(parsed, ALWAYS_ON_FROM)) return ALWAYS_ON
 
 	// 4.7 and later dropped manual mode outright.
 	if (major > 4 || (major === 4 && minor >= 7)) {
-		// The Opus 5 family alone caps effort while thinking is off. Measured,
-		// not inferred: `claude-opus-5` refuses `disabled` + `xhigh`/`max` and
+		// Opus 5 alone caps effort while thinking is off. Measured, not
+		// inferred: `claude-opus-5` refuses `disabled` + `xhigh`/`max` and
 		// accepts `disabled` + `high`, while `claude-sonnet-5` and
 		// `claude-opus-4-8` accept `disabled` + `max`. A version comparison of
 		// "5 and later" would have caught Sonnet 5 too and dropped an effort
-		// that wire honours.
+		// that wire honours. Opus from 5.5 never reaches this line: it cannot
+		// switch thinking off at all, and returned above.
 		const opus5Plus = family === 'opus' && major >= 5
 		return {
 			adaptive: true,

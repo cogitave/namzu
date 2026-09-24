@@ -195,6 +195,131 @@ describe('schedule tool', () => {
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
 	})
 
+	describe('update', () => {
+		const proposal = {
+			preview: PREVIEW,
+			changes: ['- When        every 2 minutes', '+ When        every 5 minutes'],
+			permissionsChange: false,
+		}
+		function updatingHost(confirmed: boolean | Error, over: Partial<ScheduleToolHost> = {}) {
+			return fakeHost('create', {
+				previewUpdate: vi.fn(async () => proposal),
+				confirmUpdate: vi.fn(async () => {
+					if (confirmed instanceof Error) throw confirmed
+					return confirmed
+				}),
+				update: vi.fn(async () => ({ name: 'host-name' })),
+				...over,
+			}).host
+		}
+
+		it('changes a job in place, only after the operator confirms, with what changes', async () => {
+			const host = updatingHost(true)
+			const result = await tool(host).execute(
+				{ action: 'update', job: 'nightly', when: 'every 5m' },
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(result.output).toBe(
+				'Job "host-name" was updated in place and keeps its history. It runs at 03:00 every day (UTC).',
+			)
+			// Only what the model set is passed on; the rest stays as the job has it.
+			expect(host.previewUpdate).toHaveBeenCalledWith('nightly', { when: 'every 5m' })
+			expect(host.confirmUpdate).toHaveBeenCalledWith(
+				{ ...proposal, promptFindings: [], proposedBy: 'model' },
+				undefined,
+			)
+			expect(host.update).toHaveBeenCalledWith(PREVIEW)
+		})
+
+		it.each([
+			[false, 'a no'],
+			[new Error('screen closed'), 'a thrown error'],
+		])('saves nothing on %s (%s)', async (answer, _how) => {
+			const host = updatingHost(answer)
+			const result = await tool(host).execute(
+				{ action: 'update', job: 'nightly', prompt: 'x' },
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.data).toEqual({ cancelled: true })
+			expect(host.update).not.toHaveBeenCalled()
+		})
+
+		it('saves nothing when the answer comes after the call was given up', async () => {
+			const abort = new AbortController()
+			const host = updatingHost(true, {
+				confirmUpdate: vi.fn(async () => {
+					abort.abort()
+					return true
+				}),
+			})
+			const result = await tool(host).execute({ action: 'update', job: 'nightly', prompt: 'x' }, {
+				abortSignal: abort.signal,
+			} as ToolContext)
+			expect(result.success).toBe(false)
+			expect(host.update).not.toHaveBeenCalled()
+		})
+
+		it('refuses what it cannot do, and says the host has no update rather than suggest deleting', async () => {
+			const run = (host: ScheduleToolHost, input: Record<string, unknown>) =>
+				tool(host).execute({ action: 'update', ...input }, context)
+			expect((await run(fakeHost('create').host, { job: 'nightly', prompt: 'x' })).error).toMatch(
+				/cannot change a scheduled job.*do not delete and create it again/,
+			)
+			const host = updatingHost(true)
+			expect((await run(host, { prompt: 'x' })).error).toMatch(/needs job/)
+			expect((await run(host, { job: 'nightly' })).error).toMatch(/at least one of prompt, when/)
+			expect((await run(host, { job: 'nightly', name: 'other', prompt: 'x' })).error).toMatch(
+				/cannot rename/,
+			)
+			expect(
+				(
+					await run(host, {
+						job: 'nightly',
+						permissions: { unmatched: 'park', rules: { web_fetch: 'allow', bash: 'allow' } },
+					})
+				).error,
+			).toMatch(/cannot combine web or browser access with a shell on the host/)
+			expect(
+				(await run(host, { job: 'nightly', permissions: { unmatched: 'park' } })).error,
+			).toMatch(/needs a preset, rules or a browser grant/)
+			expect(host.previewUpdate).not.toHaveBeenCalled()
+			const refusing = updatingHost(true, {
+				previewUpdate: vi.fn(async () => {
+					throw new Error('That changes nothing in "nightly".')
+				}),
+			})
+			expect((await run(refusing, { job: 'nightly', prompt: 'x' })).error).toBe(
+				'That changes nothing in "nightly".',
+			)
+		})
+
+		it('is named in words', () => {
+			expect(
+				JSON.stringify(
+					tool(fakeHost('create').host).presentCall?.({
+						action: 'update',
+						job: 'nightly',
+					} as never),
+				),
+			).toContain('Change scheduled job · nightly')
+		})
+	})
+
+	it('marks the jobs a host says run in the session’s folder', async () => {
+		const { host } = fakeHost('create', {
+			list: vi.fn(async () => [
+				{ name: 'here', folder: '/s', state: 'active', schedule: 'daily', inSessionFolder: true },
+				{ name: 'there', folder: '/t', state: 'active', schedule: 'daily' },
+			]),
+		})
+		const result = await tool(host).execute({ action: 'list' }, context)
+		expect(result.output).toBe(
+			'here · active · daily · /s (this folder)\nthere · active · daily · /t',
+		)
+	})
+
 	it('tells the model what the host says the job still needs', async () => {
 		const { host } = fakeHost('create', {
 			create: vi.fn(async (_d, p) => ({

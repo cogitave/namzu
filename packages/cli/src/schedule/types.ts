@@ -111,6 +111,17 @@ export type ScheduleRunStatus =
 
 export type ScheduleRunTrigger = 'scheduled' | 'late' | 'catch-up' | 'manual'
 
+/**
+ * Tool calls of one run that were refused (never ran) or failed (ran and
+ * returned an error): how many, and the first one's tool and reason, in one
+ * line. Written by the CLI, but a refusal's reason may quote the command the
+ * model wrote.
+ */
+export interface ScheduleCallTally {
+	readonly count: number
+	readonly first: { readonly tool: string; readonly reason: string }
+}
+
 export interface ActiveRun {
 	readonly runId: string
 	readonly key: string
@@ -155,6 +166,10 @@ export interface ScheduleJobState {
 		readonly status: ScheduleRunStatus
 		readonly endedAt: string
 		readonly sessionId?: string
+		/** How many of its calls were refused, when any were. */
+		readonly refusedCalls?: number
+		/** How many of its calls failed, when any did. */
+		readonly failedCalls?: number
 	}
 	readonly counters: {
 		readonly runs: number
@@ -190,6 +205,8 @@ export type ScheduleHistoryRecord =
 			readonly summary?: string
 			readonly usage?: { readonly totalTokens?: number; readonly costUsd?: number }
 			readonly warnings?: readonly string[]
+			readonly refusedCalls?: ScheduleCallTally
+			readonly failedCalls?: ScheduleCallTally
 	  }
 	| {
 			readonly v: 1
@@ -257,6 +274,14 @@ export interface ScheduleRunResult {
 	readonly handoff?: { readonly reason: string }
 	readonly credentialSource?: string
 	readonly warnings?: readonly string[]
+	/**
+	 * Calls the run's permissions refused. The status says how the turn
+	 * ended; a `completed` run with refused calls did not do all it was
+	 * asked, and says so wherever the run is shown.
+	 */
+	readonly refusedCalls?: ScheduleCallTally
+	/** Calls that ran and returned an error. */
+	readonly failedCalls?: ScheduleCallTally
 	readonly startedAt: string
 	readonly endedAt?: string
 }

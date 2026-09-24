@@ -17,6 +17,7 @@
  * match its declaration.
  */
 
+import { EXIT_STOP_REQUESTED } from '../daemon/exit.js'
 import { windowsArgument, xmlText } from './quote.js'
 
 export interface TaskDefinition {
@@ -128,6 +129,70 @@ export function removeEmptyTaskFolderArguments(): string[] {
 		'-EncodedCommand',
 		Buffer.from(REMOVE_EMPTY_TASK_FOLDER_SCRIPT, 'utf16le').toString('base64'),
 	]
+}
+
+/**
+ * Task Scheduler's own results, and the Windows errors a task of ours can
+ * end with, by their unsigned 32-bit value. `schtasks /Query /V` prints
+ * them as signed decimals (`267009`, `-2147020576`), which say nothing.
+ */
+const TASK_RESULTS: ReadonlyMap<number, string> = new Map([
+	[0x0, 'succeeded'],
+	[0x41300, 'ready to run'],
+	[0x41301, 'running'],
+	[0x41302, 'disabled'],
+	[0x41303, 'not run yet'],
+	[0x41304, 'no more runs scheduled'],
+	[0x41306, 'ended by a person or a stop'],
+	[0x41307, 'no trigger is enabled'],
+	[0x8004131f, 'an instance was already running, so a new one was not started'],
+	// IgnoreNew answers the five-minute re-check this way while the
+	// scheduler runs: the expected result, not a failure.
+	[
+		0x800710e0,
+		'an instance was already running, so a new one was not started; expected, since the task checks every five minutes',
+	],
+	[0x80041326, 'the task is disabled'],
+	[0x80070002, 'the program was not found'],
+	[0x80070005, 'access was denied'],
+	[0x8007010b, 'the start folder is not valid'],
+	[0x800704dd, 'the user was not logged on'],
+	[0xc000013a, 'ended when its console closed'],
+	[0x40010004, 'ended by a sign-out or shutdown'],
+])
+
+/**
+ * The daemon's own exit codes, which Task Scheduler reports as the last
+ * result once `wsl.exe` (or `node`) exits.
+ */
+const DAEMON_EXITS: ReadonlyMap<number, string> = new Map([
+	[1, 'the program exited with an error; see namzu schedule logs'],
+	[75, 'the scheduler exited: another one owns this NAMZU_HOME'],
+	[EXIT_STOP_REQUESTED, 'the scheduler exited: namzu schedule stop asked it to'],
+])
+
+/**
+ * A task's last result in words, the number kept in parentheses as
+ * `schtasks` printed it (and in hexadecimal when that is how Windows
+ * documents it): `running (267009, 0x41301)`. An unknown result is the
+ * number alone.
+ */
+export function describeTaskResult(raw: string): string {
+	const text = raw.trim()
+	let value: number
+	if (/^0x[0-9a-f]{1,8}$/i.test(text)) value = Number.parseInt(text.slice(2), 16)
+	else if (/^-?\d{1,10}$/.test(text)) value = Number(text)
+	else return text
+	const code = value >>> 0
+	const hex = `0x${code.toString(16).toUpperCase()}`
+	// A small exit code reads as itself; anything else in hexadecimal too.
+	const number = code < 256 || /^0x/i.test(text) ? text : `${text}, ${hex}`
+	const words =
+		TASK_RESULTS.get(code) ??
+		DAEMON_EXITS.get(code) ??
+		(code < 256 ? 'the program exited' : undefined)
+	if (words !== undefined) return `${words} (${number})`
+	return number === text ? text : `${text} (${hex})`
 }
 
 /** `schtasks /Query … /FO LIST /V` → the fields a status line needs. */

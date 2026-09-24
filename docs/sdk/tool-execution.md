@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Tool execution ordering
-description: Opt-in batch barriers, concurrency, cancellation and nested dispatch ordering.
+description: Opt-in batch barriers, concurrency, cancellation, nested dispatch ordering and what a narrowed step may call.
 resource: packages/sdk/src/runtime/query/executor.ts
 tags: [sdk, tools, execution]
 status: stable
@@ -55,6 +55,29 @@ admitted nested dispatches before reporting settlement. Mark the enclosing tool
 as a barrier to isolate it from direct siblings. Inside a program, explicitly
 `await` a mutation before dispatching dependent reads; a nested tool's barrier
 metadata does not turn `Promise.all` into a sequential program.
+
+## What a narrowed step may call
+
+`QueryParams.allowedTools` narrows a turn and `prepareStep`'s `activeTools`
+narrows one step; the step's list wins where it has one. The executor refuses a
+call outside it, including a call to a tool the model was not shown, with
+`Tool "X" is not available on this step. Available: …`. A call to a name the
+registry does not hold is answered `Unknown tool "X". Available: …`.
+
+Both lists name the same tools: the ones the current step can call, meaning
+registered now, `active`, and on the step's list when there is one, in
+registry order. `(none)` means the step can call nothing. The step's list is
+taken when the request is built. So a name on it may since have been
+unregistered (a connector that disconnected) or be deferred or suspended, and
+neither answer offers such a name. The unknown-tool answer does not list the
+whole registry, because on a narrowed step most of it would be refused. A model
+that called whatever it was told was available used to be sent back and forth
+between the two answers until the run was stopped.
+
+The same answer covers a batch run without review preparation and a call a tool
+makes through `ToolContext.dispatchTool`, such as a `run_code` program's. A
+`repairToolCall` hook sees the new wording in `ToolCallRepairContext.message`;
+its `availableTools` is still every registered name.
 
 ## Presenting observations
 

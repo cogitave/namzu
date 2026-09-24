@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { parseAllowedTools } from '../../authorization/skill-grant.js'
+import type { Sandbox } from '../../types/sandbox/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
 import { defineTool } from '../defineTool.js'
 
@@ -22,7 +23,62 @@ export { parseAllowedTools }
  * else, from the next batch — which inverted what skill authors mean by it
  * and left a model that loaded `allowed-tools: Read Grep` without `bash`.
  * See `authorization/skill-grant.ts` for what a grant can and cannot do.
+ *
+ * A skill's body often names files beside it (`scripts/`, `references/`,
+ * `assets/`), and the load result carried no directory to open them from. The
+ * listing reported the registry's `location`, which is where the HOST reads
+ * the skill — a path the model cannot open once its tools run in a sandbox or
+ * a remote workspace, so it hard-coded what the skill said to read, or went
+ * searching the filesystem. Only the host knows what its tools can reach, so
+ * the host says it: {@link SkillToolOptions.resolveModelDirectory}.
  */
+
+/** One skill, as the `skill` tool asks a host about it. */
+export interface SkillDirectoryRequest {
+	/** The name the registry accepts, namespaced for a plugin skill (`plugin__skill`). */
+	readonly name: string
+	/**
+	 * Where the host loads the skill from (`Skill.dirPath`, or the catalog
+	 * entry's `directory`); undefined when the registry does not say.
+	 */
+	readonly directory: string | undefined
+}
+
+/** What the call knows about where the model's tools run. */
+export interface SkillDirectoryContext {
+	/** The turn's sandbox, when its tools run in one. Absent on the host. */
+	readonly sandbox?: Sandbox
+}
+
+/**
+ * The directory the model's tools can open for a skill, or undefined when
+ * they cannot reach it.
+ *
+ * Asked per call, with the turn's sandbox, because the answer is a property
+ * of where the tools run and not of the skill: the same skill is at its own
+ * path on the host, somewhere else inside a container, and absent from a
+ * sandbox that does not mount it.
+ */
+export type SkillDirectoryResolver = (
+	skill: SkillDirectoryRequest,
+	context: SkillDirectoryContext,
+) => string | undefined | Promise<string | undefined>
+
+export interface SkillToolOptions {
+	/**
+	 * Say which directory the model can open for each skill.
+	 *
+	 * Absent, the tool behaves as it always has: the listing carries the
+	 * registry's `location` and a load names no directory. Present, a load
+	 * opens with the directory it returns, or with a line saying the skill's
+	 * files are not reachable when it returns undefined; the listing carries
+	 * that `directory` and never the registry's `location`, which is the
+	 * host's path; and `${CLAUDE_SKILL_DIR}` in `allowed-tools` expands to it,
+	 * since a command line the model writes names the path the model was
+	 * given. The skill is still LOADED from the registry's own path.
+	 */
+	readonly resolveModelDirectory?: SkillDirectoryResolver
+}
 
 const inputSchema = z.object({
 	name: z
@@ -53,6 +109,8 @@ interface SkillSnapshot {
 	readonly allowedTools: readonly string[] | undefined
 	/** Bound into the cursor because `${CLAUDE_SKILL_DIR}` in a grant expands to it. */
 	readonly skillDirectory: string | undefined
+	/** What the first page opens with: where the skill's files are, or that they are out of reach. */
+	readonly header: string
 	readonly invocation: ReturnType<typeof skillInvocation>
 }
 
@@ -64,7 +122,10 @@ interface SkillPage {
 interface ListedSkill {
 	readonly name: string
 	readonly description: string
-	readonly location: string
+	/** The registry's path to the SKILL.md; only when no host resolver is configured. */
+	readonly location?: string
+	/** The directory the model can open, from the host's resolver. */
+	readonly directory?: string
 	readonly allowedTools?: string
 }
 
@@ -85,6 +146,7 @@ function snapshotDigest(snapshot: SkillSnapshot): string {
 				...(snapshot.skillDirectory === undefined
 					? {}
 					: { skillDirectory: snapshot.skillDirectory }),
+				...(snapshot.header === '' ? {} : { header: snapshot.header }),
 				invocation: snapshot.invocation,
 			}),
 		)
@@ -218,7 +280,9 @@ function pageSkillBody(input: {
 	readonly maxChars: number | undefined
 }): SkillPage | undefined {
 	const { snapshot, digest, start, notice, maxChars } = input
-	const remaining = `${snapshot.body.slice(start)}${notice}`
+	// The first page only: a continuation is read after it, in the same history.
+	const header = start === 0 ? snapshot.header : ''
+	const remaining = `${header}${snapshot.body.slice(start)}${notice}`
 	if (maxChars === undefined || maxChars <= 0 || remaining.length <= maxChars) {
 		return { output: remaining }
 	}
@@ -229,7 +293,7 @@ function pageSkillBody(input: {
 	let end = boundaryAtOrBefore(snapshot.body, Math.min(snapshot.body.length - 1, start + maxChars))
 	while (end > start) {
 		const nextCursor = cursorFor(end, digest)
-		const output = `${snapshot.body.slice(start, end)}${continuationNotice(
+		const output = `${header}${snapshot.body.slice(start, end)}${continuationNotice(
 			snapshot.name,
 			nextCursor,
 		)}${notice}`
@@ -242,216 +306,282 @@ function pageSkillBody(input: {
 
 export const SKILL_TOOL_NAME = 'skill'
 
-export const SkillTool = defineTool({
-	name: SKILL_TOOL_NAME,
-	description:
-		'Lists model-invocable skills when called without a name, or loads one skill by its exact listed name. Long lists and bodies return an opaque continuation cursor; keep calling in the same mode with that cursor until no continuation remains. The manifest carries only names and descriptions.',
-	inputSchema,
-	category: 'analysis',
-	permissions: [],
-	// Reads instructions and changes nothing on disk. What it does change is
-	// the turn's approvals, through `grantSkillTools`, and only ever towards
-	// fewer prompts for calls the operator's policy already leaves to review.
-	readOnly: true,
-	destructive: false,
-	concurrencySafe: true,
+/**
+ * Build the `skill` tool, with what the host knows about where its model's
+ * tools run. {@link SkillTool} is this with no options.
+ */
+export function createSkillTool(options: SkillToolOptions = {}) {
+	const resolveModelDirectory = options.resolveModelDirectory
+	return defineTool({
+		name: SKILL_TOOL_NAME,
+		description:
+			'Lists model-invocable skills when called without a name, or loads one skill by its exact listed name. Long lists and bodies return an opaque continuation cursor; keep calling in the same mode with that cursor until no continuation remains. The manifest carries only names and descriptions.',
+		inputSchema,
+		category: 'analysis',
+		permissions: [],
+		// Reads instructions and changes nothing on disk. What it does change is
+		// the turn's approvals, through `grantSkillTools`, and only ever towards
+		// fewer prompts for calls the operator's policy already leaves to review.
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
 
-	// The body is instructions for the model, often a hundred lines; the
-	// person needs the row that says which skill was read, not the text.
-	presentCall(input: SkillInput) {
-		const name = typeof input?.name === 'string' ? input.name : undefined
-		return {
-			kind: 'generic',
-			presentation: 'activity',
-			label:
-				name === undefined
-					? input?.cursor === undefined
-						? 'List skills'
-						: 'List more skills'
-					: `Read skill ${name}${input.cursor === undefined ? '' : ' (continued)'}`,
-		}
-	},
-	presentResult: (_input: SkillInput, result) =>
-		result.success ? { kind: 'generic', label: 'read', visibility: 'hidden' } : undefined,
-
-	async execute(input: SkillInput, context) {
-		if (!context.skills) {
+		// The body is instructions for the model, often a hundred lines; the
+		// person needs the row that says which skill was read, not the text.
+		presentCall(input: SkillInput) {
+			const name = typeof input?.name === 'string' ? input.name : undefined
 			return {
-				success: false,
-				output: '',
-				error:
-					'This turn has no skills registry, so there is nothing to load. Proceed without the skill.',
+				kind: 'generic',
+				presentation: 'activity',
+				label:
+					name === undefined
+						? input?.cursor === undefined
+							? 'List skills'
+							: 'List more skills'
+						: `Read skill ${name}${input.cursor === undefined ? '' : ' (continued)'}`,
 			}
-		}
+		},
+		presentResult: (_input: SkillInput, result) =>
+			result.success ? { kind: 'generic', label: 'read', visibility: 'hidden' } : undefined,
 
-		if (input.name === undefined) {
-			if (!context.skills.catalog) {
+		async execute(input: SkillInput, context) {
+			if (!context.skills) {
 				return {
 					success: false,
 					output: '',
 					error:
-						'This skills registry cannot enumerate model-safe metadata. Use a skill name from the available-skills manifest.',
+						'This turn has no skills registry, so there is nothing to load. Proceed without the skill.',
 				}
 			}
-			const skills = (await context.skills.catalog())
-				.filter(
-					(entry) =>
-						entry.invocation === undefined ||
-						entry.invocation === 'model' ||
-						entry.invocation === 'both',
-				)
-				.map(
-					(entry): ListedSkill => ({
-						name: entry.registeredName,
-						description: entry.description,
-						location: entry.location,
-						...(entry.allowedTools === undefined ? {} : { allowedTools: entry.allowedTools }),
-					}),
-				)
-			const maxChars = activeOutputCap(context.maxToolOutputChars)
-			const digest = listDigest(skills, maxChars)
-			let start = 0
-			let warningAlreadyShown = false
-			if (input.cursor !== undefined) {
-				const parsed = parseListCursor(input.cursor)
-				if (!parsed || parsed.digest !== digest || parsed.offset >= skills.length) {
+
+			if (input.name === undefined) {
+				if (!context.skills.catalog) {
 					return {
 						success: false,
 						output: '',
 						error:
-							'The skill-list continuation cursor is stale or invalid. Call skill again without a cursor to read the current catalog.',
+							'This skills registry cannot enumerate model-safe metadata. Use a skill name from the available-skills manifest.',
+					}
+				}
+				const directoryContext = directoryContextOf(context.sandbox)
+				const skills = await Promise.all(
+					(await context.skills.catalog())
+						.filter(
+							(entry) =>
+								entry.invocation === undefined ||
+								entry.invocation === 'model' ||
+								entry.invocation === 'both',
+						)
+						.map(async (entry): Promise<ListedSkill> => {
+							// With a resolver the registry's `location` is left out, not
+							// shown beside the directory: it is the host's path, the one
+							// a sandboxed model cannot open.
+							let where: Pick<ListedSkill, 'location' | 'directory'>
+							if (resolveModelDirectory) {
+								const directory = nonEmpty(
+									await resolveModelDirectory(
+										{ name: entry.registeredName, directory: entry.directory },
+										directoryContext,
+									),
+								)
+								where = directory === undefined ? {} : { directory }
+							} else {
+								where = { location: entry.location }
+							}
+							return {
+								name: entry.registeredName,
+								description: entry.description,
+								...where,
+								...(entry.allowedTools === undefined ? {} : { allowedTools: entry.allowedTools }),
+							}
+						}),
+				)
+				const maxChars = activeOutputCap(context.maxToolOutputChars)
+				const digest = listDigest(skills, maxChars)
+				let start = 0
+				let warningAlreadyShown = false
+				if (input.cursor !== undefined) {
+					const parsed = parseListCursor(input.cursor)
+					if (!parsed || parsed.digest !== digest || parsed.offset >= skills.length) {
+						return {
+							success: false,
+							output: '',
+							error:
+								'The skill-list continuation cursor is stale or invalid. Call skill again without a cursor to read the current catalog.',
+						}
+					}
+					start = parsed.offset
+					warningAlreadyShown = parsed.warned
+				}
+
+				const page = pageSkillCatalog({
+					skills,
+					digest,
+					start,
+					warningAlreadyShown,
+					maxChars,
+				})
+				if (!page) {
+					return {
+						success: false,
+						output: '',
+						error:
+							'The model-visible tool-output budget is too small to list skill metadata safely. Increase maxToolOutputChars and retry.',
+					}
+				}
+
+				return {
+					success: true,
+					output: serializeListPage(page),
+					data: {
+						kind: 'list',
+						count: page.skills.length,
+						...(page.nextCursor === null ? {} : { nextCursor: page.nextCursor }),
+					},
+				}
+			}
+
+			// The registry answers with a load RESULT, not a skill — the shape
+			// mirrors the implementation rather than an adapter, so there is
+			// nothing between them to drift.
+			const loaded = await context.skills.load(input.name)
+			if (!loaded) {
+				// Named, with what IS available. A bare "not found" sends the model
+				// guessing at spellings, and the manifest it is guessing from is
+				// right there in its own prompt.
+				const available = context.skills.names()
+				return {
+					success: false,
+					output: '',
+					error: `No skill named "${input.name}". Available: ${available.length > 0 ? available.join(', ') : '(none)'}`,
+				}
+			}
+
+			const skill = loaded.skill
+			const invocation = skillInvocation(skill)
+			if (!isInvocableBy(skill, 'model')) {
+				// Reachable even though the manifest omits it: the model can name
+				// anything, and a check that only filtered the listing would be a
+				// menu restriction rather than a kitchen one — the exact defect
+				// `allowedTools` had before it was enforced at dispatch.
+				return {
+					success: false,
+					output: '',
+					error: `The skill "${input.name}" is ${skillInvocation(skill)}-invocable; it is not for you to run.`,
+				}
+			}
+
+			const allowed = parseAllowedTools(skill.metadata.allowedTools)
+			// Asked on every call, first page or continuation: the digest binds
+			// the answer, so a mount that changed between pages is a stale cursor
+			// rather than a second half written for a different directory.
+			const modelDirectory = resolveModelDirectory
+				? nonEmpty(
+						await resolveModelDirectory(
+							{ name: input.name, directory: skill.dirPath },
+							directoryContextOf(context.sandbox),
+						),
+					)
+				: undefined
+			const snapshot: SkillSnapshot = {
+				name: input.name,
+				body: skill.body ?? '(this skill has no body)',
+				allowedTools: allowed,
+				// The model's path when the host gave one: `${CLAUDE_SKILL_DIR}` in a
+				// pattern is matched against a command line the model writes, and it
+				// writes the path it was told.
+				skillDirectory: resolveModelDirectory ? modelDirectory : skill.dirPath,
+				header: resolveModelDirectory ? directoryHeader(modelDirectory) : '',
+				invocation,
+			}
+			const digest = snapshotDigest(snapshot)
+			let start = 0
+			if (input.cursor !== undefined) {
+				const parsed = parseCursor(input.cursor)
+				if (
+					!parsed ||
+					parsed.digest !== digest ||
+					parsed.offset >= snapshot.body.length ||
+					!isCodePointBoundary(snapshot.body, parsed.offset)
+				) {
+					return {
+						success: false,
+						output: '',
+						error: `The continuation cursor for "${input.name}" is stale or invalid. Call skill again without a cursor to read the current instructions.`,
 					}
 				}
 				start = parsed.offset
-				warningAlreadyShown = parsed.warned
 			}
 
-			const page = pageSkillCatalog({
-				skills,
+			// Compiled before paging so the notice can say what the grant is, and
+			// committed only after paging succeeded: a load that fails here gave
+			// the model no instructions, so it must not have approved anything.
+			// Idempotent: a continuation call grants the same entries again, and
+			// the turn's set keeps one copy.
+			let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
+			if (allowed !== undefined && allowed.length > 0 && context.grantSkillTools) {
+				grant = context.grantSkillTools({
+					skill: skill.metadata.name,
+					allowedTools: allowed,
+					...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
+				})
+			}
+			const notice = grantNotice(allowed, grant, context.grantSkillTools !== undefined)
+			const page = pageSkillBody({
+				snapshot,
 				digest,
 				start,
-				warningAlreadyShown,
-				maxChars,
+				notice,
+				maxChars: context.maxToolOutputChars,
 			})
 			if (!page) {
 				return {
 					success: false,
 					output: '',
-					error:
-						'The model-visible tool-output budget is too small to list skill metadata safely. Increase maxToolOutputChars and retry.',
+					error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
 				}
 			}
+			grant?.commit()
 
 			return {
 				success: true,
-				output: serializeListPage(page),
+				output: page.output,
 				data: {
-					kind: 'list',
-					count: page.skills.length,
-					...(page.nextCursor === null ? {} : { nextCursor: page.nextCursor }),
+					skill: skill.metadata.name,
+					...(modelDirectory === undefined ? {} : { directory: modelDirectory }),
+					...(allowed === undefined ? {} : { allowedTools: allowed }),
+					...(grant ? { granted: grant.granted, ignored: grant.ignored } : {}),
+					...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
 				},
 			}
-		}
+		},
+	})
+}
 
-		// The registry answers with a load RESULT, not a skill — the shape
-		// mirrors the implementation rather than an adapter, so there is
-		// nothing between them to drift.
-		const loaded = await context.skills.load(input.name)
-		if (!loaded) {
-			// Named, with what IS available. A bare "not found" sends the model
-			// guessing at spellings, and the manifest it is guessing from is
-			// right there in its own prompt.
-			const available = context.skills.names()
-			return {
-				success: false,
-				output: '',
-				error: `No skill named "${input.name}". Available: ${available.length > 0 ? available.join(', ') : '(none)'}`,
-			}
-		}
+/** The `skill` tool with no host options: the listing carries the registry's `location`. */
+export const SkillTool = createSkillTool()
 
-		const skill = loaded.skill
-		const invocation = skillInvocation(skill)
-		if (!isInvocableBy(skill, 'model')) {
-			// Reachable even though the manifest omits it: the model can name
-			// anything, and a check that only filtered the listing would be a
-			// menu restriction rather than a kitchen one — the exact defect
-			// `allowedTools` had before it was enforced at dispatch.
-			return {
-				success: false,
-				output: '',
-				error: `The skill "${input.name}" is ${skillInvocation(skill)}-invocable; it is not for you to run.`,
-			}
-		}
+function directoryContextOf(sandbox: Sandbox | undefined): SkillDirectoryContext {
+	return sandbox ? { sandbox } : {}
+}
 
-		const allowed = parseAllowedTools(skill.metadata.allowedTools)
-		const snapshot: SkillSnapshot = {
-			name: input.name,
-			body: skill.body ?? '(this skill has no body)',
-			allowedTools: allowed,
-			skillDirectory: skill.dirPath,
-			invocation,
-		}
-		const digest = snapshotDigest(snapshot)
-		let start = 0
-		if (input.cursor !== undefined) {
-			const parsed = parseCursor(input.cursor)
-			if (
-				!parsed ||
-				parsed.digest !== digest ||
-				parsed.offset >= snapshot.body.length ||
-				!isCodePointBoundary(snapshot.body, parsed.offset)
-			) {
-				return {
-					success: false,
-					output: '',
-					error: `The continuation cursor for "${input.name}" is stale or invalid. Call skill again without a cursor to read the current instructions.`,
-				}
-			}
-			start = parsed.offset
-		}
+/** An empty string names no directory; treated as the resolver saying none. */
+function nonEmpty(directory: string | undefined): string | undefined {
+	return directory === undefined || directory === '' ? undefined : directory
+}
 
-		// Compiled before paging so the notice can say what the grant is, and
-		// committed only after paging succeeded: a load that fails here gave
-		// the model no instructions, so it must not have approved anything.
-		// Idempotent: a continuation call grants the same entries again, and
-		// the turn's set keeps one copy.
-		let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
-		if (allowed !== undefined && allowed.length > 0 && context.grantSkillTools) {
-			grant = context.grantSkillTools({
-				skill: skill.metadata.name,
-				allowedTools: allowed,
-				...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
-			})
-		}
-		const notice = grantNotice(allowed, grant, context.grantSkillTools !== undefined)
-		const page = pageSkillBody({
-			snapshot,
-			digest,
-			start,
-			notice,
-			maxChars: context.maxToolOutputChars,
-		})
-		if (!page) {
-			return {
-				success: false,
-				output: '',
-				error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
-			}
-		}
-		grant?.commit()
-
-		return {
-			success: true,
-			output: page.output,
-			data: {
-				skill: skill.metadata.name,
-				...(allowed === undefined ? {} : { allowedTools: allowed }),
-				...(grant ? { granted: grant.granted, ignored: grant.ignored } : {}),
-				...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
-			},
-		}
-	},
-})
+/**
+ * The line a load opens with once a host has said where the skill's files are.
+ *
+ * The unreachable case is said out loud rather than left blank. A model given
+ * no directory for a skill that says "run scripts/render.sh" goes looking for
+ * it, and on a sandboxed turn that search can only fail.
+ */
+function directoryHeader(directory: string | undefined): string {
+	return directory === undefined
+		? "[This skill's directory is not reachable from your tools in this session, so a file these instructions name by a relative path (scripts/, references/, assets/) cannot be opened here. Do not search the filesystem for it; if the task needs one, say so.]\n\n"
+		: `[Skill directory: ${directory}. Relative paths in these instructions, such as scripts/, references/ or assets/, are inside it.]\n\n`
+}
 
 /**
  * What the model is told about `allowed-tools`.

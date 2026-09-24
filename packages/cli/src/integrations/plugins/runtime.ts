@@ -3,6 +3,7 @@ import {
 	PluginRegistry,
 	SkillRegistry,
 	SkillTool,
+	type ToolDefinition,
 	type ToolRegistry,
 	attachShellHooks,
 	discoverAllPluginDirs,
@@ -60,6 +61,12 @@ export async function createCliPluginRuntime(
 	 * installed, and `pluginCount` honestly 0.
 	 */
 	hooks?: HooksConfig,
+	/**
+	 * The `skill` tool to register when plugin skills arrive and the session
+	 * has none yet: the session's own, so a plugin skill is told the same
+	 * directory rules as a file skill. Defaults to the SDK's `SkillTool`.
+	 */
+	skillTool: ToolDefinition = SkillTool,
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
@@ -102,12 +109,12 @@ export async function createCliPluginRuntime(
 				if (enabled) await manager.enable(plugin.id)
 			}
 		}
-		if (skills.size > 0 && !tools.has(SkillTool.name)) {
-			tools.register(SkillTool)
+		if (skills.size > 0 && !tools.has(skillTool.name)) {
+			tools.register(skillTool)
 			ownsSkillTool = true
 		}
 	} catch (error) {
-		if (ownsSkillTool) tools.unregister(SkillTool.name)
+		if (ownsSkillTool) tools.unregister(skillTool.name)
 		const cleanupErrors: unknown[] = []
 		for (const plugin of [...installed].reverse()) {
 			try {
@@ -129,11 +136,11 @@ export async function createCliPluginRuntime(
 	let closed = false
 	let mutation: Promise<void> | undefined
 	const syncSkillTool = () => {
-		if (skills.size > 0 && !tools.has(SkillTool.name)) {
-			tools.register(SkillTool)
+		if (skills.size > 0 && !tools.has(skillTool.name)) {
+			tools.register(skillTool)
 			ownsSkillTool = true
 		} else if (skills.size === 0 && ownsSkillTool) {
-			tools.unregister(SkillTool.name)
+			tools.unregister(skillTool.name)
 			ownsSkillTool = false
 		}
 	}
@@ -212,7 +219,7 @@ export async function createCliPluginRuntime(
 				if (mutation) await mutation.catch(() => {})
 				const errors: unknown[] = []
 				if (ownsSkillTool) {
-					tools.unregister(SkillTool.name)
+					tools.unregister(skillTool.name)
 					ownsSkillTool = false
 				}
 				for (const plugin of [...installed].reverse()) {

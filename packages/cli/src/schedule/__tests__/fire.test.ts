@@ -186,13 +186,53 @@ describe('a scheduled run', () => {
 		expect(existsSync(join(sb.project, 'x.txt'))).toBe(false)
 	})
 
-	it('refuses a denied call and finishes the turn', async () => {
+	it('refuses a denied call and finishes the turn, and records the refusal beside completed', async () => {
 		const marker = join(sb.project, 'marker')
 		const job = confirmedJob(sb)
 		responses.push(() => completion({ name: 'bash', input: { command: `touch ${marker}` } }))
 		const { result } = await fire(job)
 		expect(result?.status).toBe('completed')
 		expect(existsSync(marker)).toBe(false)
+		expect(result?.refusedCalls).toMatchObject({ count: 1, first: { tool: 'bash' } })
+		expect(result?.failedCalls).toBeUndefined()
+	})
+
+	it('says a completed run’s only command was refused, and why', async () => {
+		// The operator's trial: a job allowed one PowerShell command, the floor
+		// refused it, and the run was recorded `completed` with nothing else said.
+		const job = confirmedJob(sb, {
+			permissions: {
+				preset: 'edit-in-folder',
+				rules: { bash: { 'powershell.exe -NoProfile -Command*': 'allow' } },
+				unmatched: 'deny',
+			},
+		})
+		responses.push(() =>
+			completion({
+				name: 'bash',
+				input: { command: 'powershell.exe -NoProfile -Command "namzu schedule stop"' },
+			}),
+		)
+		const { result } = await fire(job)
+		expect(result?.status).toBe('completed')
+		expect(result?.refusedCalls?.count).toBe(1)
+		expect(result?.refusedCalls?.first.tool).toBe('bash')
+		expect(result?.refusedCalls?.first.reason).toMatch(
+			/^the scheduled-run floor refused this call: `powershell\.exe` runs commands the floor does not read, and it holds `schedule stop`/,
+		)
+	})
+
+	it('counts a call that ran and failed apart from a refused one', async () => {
+		const job = confirmedJob(sb)
+		responses.push(() =>
+			completion({ name: 'read', input: { path: join(sb.project, 'missing.txt') }, id: 'c1' }),
+		)
+		responses.push(() => completion({ name: 'bash', input: { command: 'ls' }, id: 'c2' }))
+		const { result } = await fire(job)
+		expect(result?.status).toBe('completed')
+		expect(result?.failedCalls).toMatchObject({ count: 1, first: { tool: 'read' } })
+		expect(result?.failedCalls?.first.reason).not.toBe('')
+		expect(result?.refusedCalls).toMatchObject({ count: 1, first: { tool: 'bash' } })
 	})
 
 	it('refuses a dangerous command even under unmatched: allow, and never parks it', async () => {
@@ -224,6 +264,8 @@ describe('a scheduled run', () => {
 		const { result } = await fire(job)
 		expect(result?.status).toBe('completed')
 		expect(existsSync(target)).toBe(false)
+		expect(result?.refusedCalls?.count).toBe(2)
+		expect(result?.refusedCalls?.first.reason).toMatch(/names NAMZU_HOME/)
 	})
 })
 
