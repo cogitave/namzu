@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { jsonStringEscapes } from '../builtins/json-string-hint.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
@@ -106,6 +107,8 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		largeStringArguments: { prompt: 12_000 },
 		truncatedInputHint:
 			'Put long material in a file the subagent can read and name the file in the prompt instead of pasting its content.',
+		// A delegated prompt is long free text, copied into a JSON string.
+		malformedInputHint: jsonStringEscapes('"prompt"'),
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

@@ -535,7 +535,11 @@ function sizeAdvice(
  * what to do about it.
  *
  * - Malformed: send one valid JSON object, and the tool's own
- *   `malformedInputHint`. Never size advice: size does not fix JSON.
+ *   `malformedInputHint`, or its `validationErrorHint` when it declares no
+ *   `malformedInputHint`: the required shape is what a model that could not
+ *   write valid JSON for this tool needs to see, and a tool that states it
+ *   for a rejected call should not have to state it twice. Never size
+ *   advice: size does not fix JSON.
  * - Cut off by the output limit: first, which part of the response filled it.
  *   A cut-off call is the last thing the response streamed, so the response
  *   is what came before it (`precedingLength`) and the call itself
@@ -555,7 +559,10 @@ function sizeAdvice(
 export function unreadableToolInputMessage(
 	toolName: string,
 	error: ToolInputError | undefined,
-	tool?: Pick<ToolDefinition, 'truncatedInputHint' | 'malformedInputHint' | 'largeStringArguments'>,
+	tool?: Pick<
+		ToolDefinition,
+		'truncatedInputHint' | 'malformedInputHint' | 'validationErrorHint' | 'largeStringArguments'
+	>,
 ): string {
 	const parts: string[] = []
 	const hint = (text: string | undefined) => {
@@ -574,7 +581,7 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The arguments for "${toolName}" were not valid JSON (${error.parseError}${where}; ${error.length} characters in all). The tool was NOT executed. Send the call again with its arguments as one valid JSON object.`,
 		)
-		hint(tool?.malformedInputHint)
+		hint(tool?.malformedInputHint?.trim() ? tool.malformedInputHint : tool?.validationErrorHint)
 	} else {
 		const cause =
 			error.finishReason === 'length'

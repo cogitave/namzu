@@ -14,6 +14,7 @@ import {
 } from '../command-shell.js'
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
+import { jsonStringEscapes } from './json-string-hint.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS`.
 // The Vandal fallback (`VANDAL_NAMZU_TIMEOUT_MS`) lived here as a
@@ -310,6 +311,14 @@ export const BashTool = defineTool({
 	description:
 		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
+	// A command carries quotes and backslashes of its own, and a heredoc
+	// carries newlines: copied into the JSON string raw, they end it.
+	malformedInputHint: `Required shape: {"command":"..."}. ${jsonStringEscapes('"command"')}`,
+	// The same advice the description gives up front, for the call that did
+	// not take it: a heredoc is the long bash call, and a file tool writes the
+	// same content in parts.
+	truncatedInputHint:
+		'To create a long file, do not use a heredoc: write a short opening with the write tool, then add the rest in parts with edit and insertLine: "end".',
 	category: 'shell',
 	// This tool's own description tells the model to chain with `&&` and `;`,
 	// so a permission rule about it is a rule about several commands more often

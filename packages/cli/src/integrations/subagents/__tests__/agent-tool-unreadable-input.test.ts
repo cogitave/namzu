@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe('the Agent tool and unreadable input', () => {
-	it('declares its prompt as long text, with a hint for a cut-off call to name a file instead', async () => {
+	it('declares its prompt as long text, a hint for a cut-off call to name a file instead, and one for a malformed call', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-agent-unreadable-'))
 		dirs.push(cwd)
 		const parent = await subagentParentFixture(cwd)
@@ -35,7 +35,12 @@ describe('the Agent tool and unreadable input', () => {
 		try {
 			expect(runtime.agentTool.largeStringArguments).toEqual({ prompt: 12_000 })
 			expect(runtime.agentTool.truncatedInputHint).toMatch(/name the file in the prompt/)
-			expect(runtime.agentTool.malformedInputHint).toBeUndefined()
+			// A malformed call is told how to put the prompt in a JSON string,
+			// and nothing about files or size.
+			expect(runtime.agentTool.malformedInputHint).toBe(
+				'Every character of "prompt" goes inside a JSON string: write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
+			)
+			expect(runtime.agentTool.malformedInputHint).not.toMatch(/file|under \d+/)
 		} finally {
 			await runtime.close()
 		}

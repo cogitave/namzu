@@ -102,8 +102,9 @@ The message is assembled from the reason and from the tool:
 - **Malformed.** The parser's error, and the character where parsing stopped
   when the error does not already name it. Then: send the call again with the
   arguments as one valid JSON object, and the tool's own `malformedInputHint`
-  if it declares one. It gives no size advice, because size does not fix
-  malformed JSON.
+  if it declares one, or else its `validationErrorHint`, the required shape
+  it already states for a call its schema rejects. It gives no size advice,
+  because size does not fix malformed JSON.
 - **Truncated by the output limit.** What stopped the response, after how many
   characters of arguments. Then it depends on what filled the response, which
   is what came before the call (`precedingLength`) and the call itself
@@ -143,7 +144,8 @@ export const saveNote = defineTool({
 	largeStringArguments: { body: 8_000 },
 	// Appended when a cut-off call has to carry less.
 	truncatedInputHint: 'Save a long note as several notes with numbered titles.',
-	// Appended when the arguments were not valid JSON.
+	// Appended when the arguments were not valid JSON. Without it, the
+	// tool's validationErrorHint is appended instead, if it has one.
 	malformedInputHint: 'Pass "tags" as a JSON array of strings.',
 	category: 'custom',
 	permissions: [],
@@ -167,11 +169,23 @@ The built-in tools that take long text declare it: `write` (`content`), `edit`
 (`prompt`), and the CLI's `Agent` tool (`prompt`), each with a 12 000-character
 budget and a `truncatedInputHint`: for `write`, extend a short opening with
 `edit` calls; for `edit`, several smaller edits; for the `Agent` tools, name a
-file instead of pasting its content. None declares a `malformedInputHint`, so
-a malformed call to any of them, or one a content filter stopped, gets no
-advice about size or files. Any other tool, such as a question or plan tool,
-gets no file-writing advice, and a size budget only for its arguments as a
-whole, when they filled the response.
+file instead of pasting its content. `bash` declares no budget, and its
+`truncatedInputHint` says to build a long file with `write` and `edit`
+instead of a heredoc, as its description already does.
+
+The same tools, `bash` included, carry raw text inside a JSON string, and a
+raw newline, tab, double quote or backslash there is what usually makes their
+arguments malformed. Their `malformedInputHint` says how to write each of those
+in a JSON string; `write`, `edit` and `bash` add their required shape. None of
+it is about size or files, and a call a content filter stopped gets none of
+it.
+
+`ask_user_question`, `approve_plan`, `browser`, `browser_act` and `computer_use`
+declare no `malformedInputHint`. A malformed call to one of them gets its
+`validationErrorHint`: for the question tool, that `options` is a JSON array of
+two to four objects and never a string. Any other tool gets no file-writing
+advice, and a size budget only for its arguments as a whole, when they filled
+the response.
 
 ## Tool-call framing
 

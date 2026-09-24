@@ -772,6 +772,10 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * Concise, model-readable recovery guidance appended when inputSchema
 	 * rejects a call. Use for conditional schemas whose required shapes
 	 * cannot be reconstructed from JSON Schema's top-level `required` list.
+	 *
+	 * Also appended when a call's arguments were malformed, not valid JSON,
+	 * and the tool declares no {@link malformedInputHint}: a model that could
+	 * not write this tool's arguments as JSON needs the same shape.
 	 */
 	validationErrorHint?: string
 	/**
@@ -789,12 +793,21 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 */
 	truncatedInputHint?: string
 	/**
-	 * Concise, model-readable advice appended when this tool's arguments
-	 * arrived whole, on a response that finished normally, and were not valid
-	 * JSON, so the call never reached {@link inputSchema}: for example that an
-	 * argument is a JSON array, not a string. The counterpart of
-	 * {@link validationErrorHint}, which covers a call that parsed and was
-	 * then rejected.
+	 * Concise, model-readable advice appended when a call to this tool is
+	 * answered as malformed: its arguments were not valid JSON, so the call
+	 * never reached {@link inputSchema}. For example, how to escape a file
+	 * body inside a JSON string. When it is absent,
+	 * {@link validationErrorHint} is appended instead, so a tool that states
+	 * its required shape there need not state it twice; one that declares
+	 * both and wants the shape shown includes it here.
+	 *
+	 * Every unreadable call is malformed except the one the response stopped
+	 * on, when it stopped early: at the output limit (`finishReason:
+	 * 'length'`), at a content filter, or with no finish reason at all. That
+	 * call was cut off, and gets {@link truncatedInputHint} instead. A call
+	 * the model followed with more text, reasoning or another call is
+	 * malformed whatever the finish reason, the output limit included. See
+	 * `ToolInputError`.
 	 */
 	malformedInputHint?: string
 	/**

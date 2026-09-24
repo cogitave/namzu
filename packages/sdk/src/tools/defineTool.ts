@@ -17,7 +17,7 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	validationErrorHint?: string
 	/** Advice for a call cut off before its arguments closed; see {@link ToolDefinition.truncatedInputHint}. */
 	truncatedInputHint?: string
-	/** Advice for arguments that were not valid JSON; see {@link ToolDefinition.malformedInputHint}. */
+	/** Advice for a call whose arguments were not valid JSON, in place of `validationErrorHint`; see {@link ToolDefinition.malformedInputHint}. */
 	malformedInputHint?: string
 	/** Arguments carrying long text, with budgets; see {@link ToolDefinition.largeStringArguments}. */
 	largeStringArguments?: Readonly<Record<string, number>>

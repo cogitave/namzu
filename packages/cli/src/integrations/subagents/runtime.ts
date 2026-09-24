@@ -775,6 +775,11 @@ export async function createSubagentRuntime(
 		largeStringArguments: { prompt: 12_000 },
 		truncatedInputHint:
 			'Put long material in a file the sub-agent can read and name the file in the prompt instead of pasting its content.',
+		// The prompt is long free text copied into a JSON string, where a raw
+		// newline, quote or backslash is what makes a call unreadable. The same
+		// words as the SDK's own Agent and file tools.
+		malformedInputHint:
+			'Every character of "prompt" goes inside a JSON string: write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

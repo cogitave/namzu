@@ -8,6 +8,7 @@ import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
+import { jsonStringEscapes } from './json-string-hint.js'
 
 const inputSchema = z
 	.object({
@@ -76,6 +77,10 @@ export const WriteFileTool = defineTool({
 	enforceModelInput: true,
 	validationErrorHint:
 		'Required shape: {"path":"file.md","content":"complete file body"}. Pass the whole body, not a diff.',
+	// A file body is where arguments stop being JSON: a raw newline, quote or
+	// backslash copied into the string. The shape alone, which is what the
+	// validation hint would have given, does not say that.
+	malformedInputHint: `Required shape: {"path":"file.md","content":"complete file body"}. ${jsonStringEscapes('"content"')}`,
 	// What a cut-off `write` needs to hear, and only a cut-off one: the
 	// kernel's message for unreadable arguments used to carry this recipe for
 	// every tool and every failure, malformed JSON and a question tool's

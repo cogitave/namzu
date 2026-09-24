@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-24
+
+- **Update** [Unreadable tool input](sdk/unreadable-tool-input.md#what-the-model-is-told): a malformed call to a tool that declares no `malformedInputHint` is given the tool's `validationErrorHint`, so a malformed `ask_user_question` or `approve_plan` call is shown the shape it requires (`options` or `steps` as a JSON array, never a string). `write`, `edit`, `bash`, `create_task`, the coordinator `Agent` and the CLI's `Agent` declare a `malformedInputHint` that says how to write a newline, tab, double quote or backslash inside a JSON string (`write`, `edit` and `bash` with their shape), and `bash` a `truncatedInputHint`: build a long file with `write` and `edit`, not a heredoc. The `ToolDefinition.malformedInputHint` and `validationErrorHint` TSDoc say when each is appended (`executor/tool-call-admission.ts`, `types/tool/index.ts`, `tools/builtins/json-string-hint.ts`, `packages/cli/src/integrations/subagents/runtime.ts`). `.changeset/unreadable-tool-input.md`, **minor** for `@namzu/sdk`; `.changeset/cli-agent-unreadable-input.md`, **patch** for `@namzu/cli`.
+
 ## 2026-09-23
 
 - **Update** [Unreadable tool input](sdk/unreadable-tool-input.md#tool-call-framing): the turn loop completes a tool call under the id it was announced with, never the id on its block close, and only after announcing it. A close with an empty id (`StreamChunk.delta.toolCallEnd.id`, typed `string`) completed the call before its `tool_input_started`, under an id the call did not run with, and `@namzu/ag-ui` failed the run with `NAMZU_TOOL_LIFECYCLE`; such a call is now given an id and settled when the stream ends (`packages/sdk/src/runtime/query/iteration/stream-turn.ts`). `.changeset/unreadable-tool-input.md`, **minor** for `@namzu/sdk`.

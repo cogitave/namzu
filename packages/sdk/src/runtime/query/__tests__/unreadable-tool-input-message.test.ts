@@ -3,7 +3,10 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
+import { BashTool, EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
+import { buildAgentTool } from '../../../tools/coordinator/agent.js'
+import { buildAskUserQuestionTool } from '../../../tools/coordinator/ask-user-question.js'
+import { buildCoordinatorTools } from '../../../tools/coordinator/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
@@ -150,6 +153,36 @@ describe('unreadableToolInputMessage', () => {
 		expect(droppedMessage).toMatch(/ Write a long note as several notes\.$/)
 	})
 
+	it("falls back to the tool's validation hint for a malformed call that declares no malformed hint", () => {
+		// #533: the message bypassed `validationErrorHint`, the shape a tool
+		// already states for a call it rejects, which is what a model that
+		// could not write the arguments as JSON needs to see.
+		const shape = 'Required shape: {"tags":["a","b"]}.'
+		expect(unreadableToolInputMessage('note', malformed, { validationErrorHint: shape })).toMatch(
+			/ Send the call again with its arguments as one valid JSON object\. Required shape: \{"tags":\["a","b"\]\}\.$/,
+		)
+		// A declared malformed hint is the tool's whole answer for this case.
+		const own = unreadableToolInputMessage('note', malformed, {
+			validationErrorHint: shape,
+			malformedInputHint: 'Escape the quotes.',
+		})
+		expect(own).toMatch(/ Escape the quotes\.$/)
+		expect(own).not.toContain(shape)
+		// A blank one does not hide the shape.
+		expect(
+			unreadableToolInputMessage('note', malformed, {
+				validationErrorHint: shape,
+				malformedInputHint: '  ',
+			}),
+		).toMatch(/Required shape: \{"tags":\["a","b"\]\}\.$/)
+		// A cut-off call is not a shape problem, and gets no shape.
+		for (const error of [cutOff(10, 'length'), cutOff(10), cutOff(10, 'content_filter')]) {
+			expect(
+				unreadableToolInputMessage('note', error, { validationErrorHint: shape }),
+			).not.toContain(shape)
+		}
+	})
+
 	it('gives a content-filtered or unexplained call neither hint', () => {
 		const tool = { truncatedInputHint: 'Send less.', malformedInputHint: 'Fix the JSON.' }
 		for (const error of [cutOff(10, 'content_filter'), undefined]) {
@@ -187,6 +220,76 @@ describe('the built-in tools declare what they need', () => {
 		expect(WriteFileTool.truncatedInputHint).toMatch(/edit/)
 		expect(EditTool.largeStringArguments).toEqual({ old_string: 12_000, new_string: 12_000 })
 		expect(EditTool.truncatedInputHint).toBeTruthy()
+	})
+
+	it('the question and plan tools give a malformed call their required shape', () => {
+		// The case #533 names: `"options"` sent as a string, which does not
+		// parse, used to get no word about the array the tool wants.
+		const ask = buildAskUserQuestionTool({ resumeHandler: async () => ({ action: 'continue' }) })
+		const plan = buildCoordinatorTools({
+			gateway: {} as never,
+			workingDirectory: process.cwd(),
+			allowedAgentIds: ['worker'],
+			getPlanManager: () => undefined,
+		}).find((tool) => tool.name === 'approve_plan')
+		for (const [tool, shape] of [
+			[ask, '"options" must be a JSON array of 2-4 objects, never a string.'],
+			[plan, '"steps" must be a JSON array of objects'],
+		] as const) {
+			expect(tool).toBeDefined()
+			if (!tool) continue
+			const message = unreadableToolInputMessage(tool.name, malformed, tool)
+			expect(message).toContain('were not valid JSON')
+			expect(message).toContain(shape)
+			expect(message).not.toMatch(FILE_ADVICE)
+		}
+	})
+
+	it('write, edit, bash and the delegation tools tell a malformed call how to put raw text in a JSON string', () => {
+		const createTask = buildCoordinatorTools({
+			gateway: {} as never,
+			workingDirectory: process.cwd(),
+			allowedAgentIds: ['worker'],
+		}).find((tool) => tool.name === 'create_task')
+		const agent = buildAgentTool({
+			gateway: {} as never,
+			workingDirectory: process.cwd(),
+			allowedAgentIds: ['worker'],
+		})
+		if (!createTask) throw new Error('create_task missing from the coordinator tools')
+		for (const [tool, where] of [
+			[WriteFileTool, '"content"'],
+			[EditTool, '"old_string" and "new_string"'],
+			[BashTool, '"command"'],
+			[createTask, '"prompt"'],
+			[agent, '"prompt"'],
+		] as const) {
+			const message = unreadableToolInputMessage(tool.name, malformed, tool)
+			expect(message).toContain(`Every character of ${where}`)
+			expect(message).toContain(
+				'write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
+			)
+			expect(message).not.toMatch(/under \d+ characters/)
+		}
+		// Each still states its shape, which a malformed call may have got wrong too.
+		expect(unreadableToolInputMessage('write', malformed, WriteFileTool)).toContain(
+			'Required shape: {"path":"file.md","content":"complete file body"}.',
+		)
+		expect(unreadableToolInputMessage('edit', malformed, EditTool)).toContain(
+			EditTool.validationErrorHint,
+		)
+	})
+
+	it('bash tells a cut-off call to build a long file with the file tools, not a heredoc', () => {
+		const message = unreadableToolInputMessage('bash', cutOff(30_000, 'length', 1_000), BashTool)
+		expect(message).toMatch(
+			/keep its arguments under 15000 characters in all\. To create a long file, do not use a heredoc/,
+		)
+		expect(message).not.toContain('Every character of')
+		// A malformed bash call gets no file advice.
+		expect(unreadableToolInputMessage('bash', malformed, BashTool)).not.toMatch(
+			/heredoc|insertLine/,
+		)
 	})
 
 	it('a malformed write or edit, or one a content filter stopped, gets no advice about size or files', () => {
@@ -273,6 +376,21 @@ describe('the executor answers an unreadable call from its reason and its tool',
 		expect(batch.results[0]?.isError).toBe(true)
 		expect(output).toContain('were not valid JSON')
 		expect(output).toContain('Pass "options" as a JSON array of strings.')
+		expect(output).not.toMatch(FILE_ADVICE)
+	})
+
+	it('answers a malformed call to the real question tool with the shape it validates against', async () => {
+		const registry = new ToolRegistry()
+		registry.register(
+			buildAskUserQuestionTool({ resumeHandler: async () => ({ action: 'continue' }) }),
+		)
+		const batch = await makeExecutor(registry).executeBatch(
+			unreadable('ask_user_question', malformed, '{"question":"Which one?","options":"[a, b]"'),
+		)
+
+		const output = batch.results[0]?.output ?? ''
+		expect(output).toContain('were not valid JSON')
+		expect(output).toContain('"options" must be a JSON array of 2-4 objects, never a string.')
 		expect(output).not.toMatch(FILE_ADVICE)
 	})
 
