@@ -264,9 +264,17 @@ The rules a run is gated by, in order (the first that matches decides):
      used as a `<`/`>` redirection target (which can run twice for a
      `${var:-…}`-style default value that turns out ambiguous — quoting it
      rules this out), or another construct listed under [When a line is
-     opaque](../sdk/command-lines.md#when-a-line-is-opaque). A command also
-     escapes the reading when its name expands (`$S --user stop …`) or when it
-     runs text as code: a shell the lexer did not follow (`bash` reading its
+     opaque](../sdk/command-lines.md#when-a-line-is-opaque). A word that
+     expands in the position a command's own PROGRAM NAME would stand (the
+     head, or right after `sudo`/`env`/a similar one-level prefix) is read
+     as possibly being `systemctl`/`launchctl`/`schtasks`/`pkill`/`killall`/a
+     D-Bus tool, whatever its raw text actually is —
+     `$(echo pk)ill -f node` is checked the same as `pkill -f node`, since a
+     substring check on the unevaluated text (`$(echo pk)ill` never contains
+     `pkill` as one run of letters) is not a way to rule the tool out. A
+     command also escapes the reading when its name expands (`$S --user
+     stop …`) or when it runs text as code: a shell the lexer did not follow
+     (`bash` reading its
      input or a script, `sudo bash -c`, `env -S`, and any shell other than
      `sh`, `bash`, `dash`, `zsh`, `ksh`, `ash` and `mksh` even with `-c`:
      `powershell -c`, `pwsh -c`, `fish -c`, `tcsh -c`, `bash.exe -c`),

@@ -335,19 +335,59 @@ function wordsOf(command: ShellCommand, catalogue: boolean): Word[] {
 // Scheduler commands
 
 /**
+ * Utilities that re-exec their trailing argv unmodified, one level: for
+ * `sudo systemctl stop x`, the program name is not the head. Not chained
+ * (`sudo nice systemctl …` is not followed past one prefix) and not
+ * exhaustive — a prefix this does not name is read at the head only, same
+ * as before.
+ */
+const REEXEC_PREFIX = new Set([
+	'sudo',
+	'doas',
+	'pkexec',
+	'env',
+	'nice',
+	'ionice',
+	'nohup',
+	'timeout',
+	'setsid',
+	'stdbuf',
+	'chrt',
+])
+
+/**
  * Whether one command's words, in order, reach the scheduler, and if so what
  * they do, in words. Each role is taken at its first place after the one
  * before; for a question of "is there such a subsequence" that loses
  * nothing, and it is one pass.
  */
-function reachesScheduler(words: readonly Word[], daemonCommandLine: string): string | null {
+function reachesScheduler(
+	words: readonly Word[],
+	daemonCommandLine: string,
+	assignments: number,
+): string | null {
 	const n = words.length
-	const find = (from: number, test: (w: Word) => boolean): number => {
-		for (let i = from; i < n; i++) if (test(words[i] as Word)) return i
+	const find = (from: number, test: (w: Word, i: number) => boolean): number => {
+		for (let i = from; i < n; i++) if (test(words[i] as Word, i)) return i
 		return -1
 	}
-	const named = (name: string) => (w: Word) =>
-		w.wild ? w.text.includes(name) : commandName(w.text) === name
+	// Where a program name could stand: the head itself (after any leading
+	// `X=1` assignments), and the word right after a utility that re-execs
+	// its trailing argv unmodified.
+	const heads = new Set<number>([assignments])
+	const head = words[assignments]
+	if (head && !head.wild && REEXEC_PREFIX.has(commandName(head.text))) heads.add(assignments + 1)
+	// A wild (expanding) word in one of those positions cannot be read as
+	// NOT being the tool in question — a substring check on its raw,
+	// unevaluated text (`$(echo pk)ill`) is defeated by gluing a literal
+	// suffix onto the substitution, which never contains the tool's name as
+	// one contiguous run. Unknown never passes: such a word counts as being
+	// every name checked here, the same way `namesNamzu`/a verb check
+	// already treats a wild argument. A wild word elsewhere (an argument, a
+	// path — `find ~/.namzu -exec …`'s `~/.namzu`) is not a program name and
+	// is read as what it actually is, an argument, by the checks below.
+	const named = (name: string) => (w: Word, i: number) =>
+		(w.wild && heads.has(i)) || commandName(w.text) === name
 	const namesNamzu = (w: Word) => w.wild || w.text.includes('namzu')
 
 	// systemctl <verb> <unit>
@@ -377,7 +417,7 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): st
 	}
 
 	// pkill / killall: a pattern that could match the daemon's process.
-	const killer = find(0, (w) => named('pkill')(w) || named('killall')(w))
+	const killer = find(0, (w, i) => named('pkill')(w, i) || named('killall')(w, i))
 	if (killer >= 0) {
 		const kills = "has a pattern that could match the scheduler's process"
 		const full = words
@@ -394,7 +434,7 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): st
 	}
 
 	// A D-Bus call to systemd naming the unit.
-	const dbus = find(0, (w) => DBUS_TOOLS.has(commandName(w.text)))
+	const dbus = find(0, (w, i) => (w.wild && heads.has(i)) || DBUS_TOOLS.has(commandName(w.text)))
 	if (dbus >= 0 && find(dbus + 1, namesNamzu) >= 0) return 'calls systemd about a namzu unit'
 
 	// The CLI, by name (`namzu`, a path to it, `npx @namzu/cli`) or through
@@ -989,7 +1029,11 @@ class Floor {
 				}
 		}
 		for (const command of reading.commands) {
-			const does = reachesScheduler(wordsOf(command, catalogue), this.daemonCommandLine)
+			const does = reachesScheduler(
+				wordsOf(command, catalogue),
+				this.daemonCommandLine,
+				command.assignments,
+			)
 			if (does !== null)
 				return {
 					reason: 'scheduler command',

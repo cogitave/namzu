@@ -103,6 +103,60 @@ describe('the scheduler’s own commands', () => {
 			'echo namzu; ./schedule stop',
 		])
 	})
+
+	// A security review of the command-substitution fix (668557ae) found
+	// that `named()` read a wild (expanding) program-name word as NOT being
+	// `pkill`/`systemctl`/etc. unless its raw, unevaluated text happened to
+	// contain the tool's name as one contiguous run — `$(echo pk)ill` never
+	// does, since `)` sits between "pk" and "ill". The tripwire's own
+	// text-scan has the same gap for the same reason. A wild word in the
+	// program-name position (the head, or right after a `sudo`/`env`-style
+	// re-exec prefix) now counts as being every tool this checks for, never
+	// as being none of them.
+	it('reads a wild program name as possibly being the tool, however its raw text is split', () => {
+		denied([
+			'$(echo pk)ill -f node',
+			'$(echo pk)ill -f namzu',
+			'$(echo system)ctl stop namzu-scheduler.service',
+			'$(echo system)ctl stop $(echo namzu)-scheduler.service',
+			'`echo pk`ill -f node',
+			'sudo $(echo systemctl) stop namzu-scheduler',
+			'$(echo launch)ctl bootout gui/501/com.namzu.scheduler',
+			'$(echo sch)tasks -delete -tn namzu',
+			'$(echo bus)ctl call org.freedesktop.systemd1 /x y StopUnit ss namzu-scheduler.service fail',
+		])
+	})
+
+	it('does not read a wild word as a program name where it plainly is not one', () => {
+		// Negative controls: a literal program name with substitutions only
+		// in its arguments still behaves exactly as before (allowed, or
+		// denied, on its own established grounds), and an ordinary wild
+		// word (a glob, a tilde, an unrelated substitution) in a command
+		// unrelated to these tools is not, on its own, read as reaching
+		// them — a wild word only stands for "could be this tool" in the
+		// program-name position, not anywhere a wild word appears.
+		allowed([
+			'rm -rf /tmp/*.log',
+			'echo $(date) > /tmp/x',
+			'ls ~/documents',
+			'sudo systemctl stop unrelated-service',
+			'find . -name "*.tmp" -delete',
+		])
+		// A wild PATTERN argument to a literal pkill/systemctl is a
+		// different, already-established rule (any wild pattern/unit is
+		// unverifiable) and stays denied, unaffected by this fix.
+		denied(['pkill -f $(echo node)', 'systemctl stop $(echo unrelated).service'])
+	})
+
+	it('reads a variable in the program path as unknown too, since its value is unknown', () => {
+		// `"$HOME"/bin/systemctl` is `expands: true` (it holds `$HOME`) even
+		// though the literal suffix already unambiguously says `systemctl`:
+		// this errs toward the safe side (still denied) rather than trying
+		// to read a partially-known program-name word more precisely. An
+		// unrelated variable-headed command is unaffected.
+		denied(['"$HOME"/bin/systemctl stop namzu-scheduler'])
+		allowed(['$MYTOOL --version'])
+	})
 })
 
 describe('text that another program runs', () => {
@@ -217,11 +271,17 @@ describe('the tripwire, on text a program runs as code', () => {
 			/^`python3` runs text as code, and it holds `pkill` /,
 		)
 		// `$(echo namzu)` is now read as a nested command line, not opaque
-		// outright; the command it heads still cannot be verified (its own
-		// name expands at runtime), and that command's own text still holds
-		// `schedule stop`.
+		// outright. A wild head word is now read as being every program name
+		// this checks for (a security-review fix: it used to be read as
+		// definitely not being `pkill`/`killall`, missing a wild head glued
+		// to nothing — see the "reaches the scheduler" describe block
+		// below), so this is caught earlier and more broadly, by the
+		// pkill/killall check (any word holding `namzu` or `schedul`,
+		// `schedule` included, after a head that could be either), rather
+		// than needing the narrower "unread text" path this test exercised
+		// before that fix.
 		expect(detail('$(echo namzu) schedule stop')).toBe(
-			"the command's name `$(echo namzu)` expands at runtime, and it holds `schedule stop` (a `namzu schedule` subcommand other than list, show, status, history, logs)",
+			"`$(echo namzu) schedule stop` has a pattern that could match the scheduler's process",
 		)
 		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
 			"`systemctl --user stop namzu-scheduler` stops or disables the scheduler's service",
