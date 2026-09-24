@@ -17,12 +17,18 @@
  *   word; the English marker speaks only where the field is absent.
  * - On a recommended option, a trailing parenthesised group of one to three
  *   words, in ASCII or full-width parentheses, is the marker a model writes
- *   out of habit next to the flag, when no other option's label ends in such a
- *   group and removing it leaves a label no other option has. The model is
- *   told never to end a label in a parenthesised note, so on a compliant call
- *   that group is a marker; the two conditions keep a qualifier the options
- *   share ("Postgres (managed)" / "Postgres (self-hosted)") and one that is
- *   all that tells two options apart.
+ *   out of habit next to the flag, when every option whose label ends in a
+ *   group is recommended and ends in that same group. The model is told never
+ *   to end a label in a parenthesised note, so on a compliant call that group
+ *   is a marker, and a model writing one writes the same word on each option
+ *   it recommends. A group that differs between options, flagged or not, is
+ *   what tells them apart ("Tests (unit)" / "Tests (e2e)", "Postgres
+ *   (managed)" / "Postgres (self-hosted)"), and stays.
+ * - A marker stays, too, on an option whose label without it would be the
+ *   label of another option, as written or without its own marker: then the
+ *   marker is all that tells the two apart.
+ * - Which labels change is decided on the labels as written, before any
+ *   changes, so the outcome does not depend on the order of the options.
  * - Nothing else is a recommendation. Recommending is optional, so an option
  *   the model did not flag, first or not, keeps its trailing group
  *   ("Cloud (AWS)", "Tabs (current)") and is never marked recommended because
@@ -59,6 +65,23 @@ function trailingGroup(label: string): TrailingGroup | null {
 	return { base: (match[1] ?? '').trim(), text: (match[2] ?? match[3] ?? '').trim() }
 }
 
+/** A label or a group's text as two options are compared by. */
+function fold(text: string): string {
+	return text.normalize('NFC').replace(/\s+/gu, ' ').toLocaleLowerCase()
+}
+
+/**
+ * The options' trailing groups are one localised marker: every option that
+ * ends in a group is recommended, and all of them end in the same one-to-three
+ * word group.
+ */
+function isMarker(grouped: readonly { option: Working; group: TrailingGroup }[]): boolean {
+	const first = grouped[0]
+	if (!first || !MARKER_TEXT.test(first.group.text)) return false
+	const text = fold(first.group.text)
+	return grouped.every(({ option, group }) => option.recommended && fold(group.text) === text)
+}
+
 interface Working {
 	label: string
 	readonly recommended: boolean
@@ -87,21 +110,23 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 	// Only a recommended option can carry a localised marker. An unflagged
 	// one is left as written: its group is as likely "(AWS)" as "(Önerilen)",
 	// and guessing turned a qualifier into a recommendation.
-	const candidates = working.filter((option) => option.recommended)
-	const qualifiedElsewhere = working.some(
-		(option) => !candidates.includes(option) && trailingGroup(option.label) !== null,
-	)
-	if (!qualifiedElsewhere) {
-		for (const candidate of candidates) {
-			const group = trailingGroup(candidate.label)
-			if (!group || group.base === '' || !MARKER_TEXT.test(group.text)) continue
-			const base = group.base.toLocaleLowerCase()
-			const clashes = working.some(
-				(option) => option !== candidate && option.label.toLocaleLowerCase() === base,
+	const grouped = working.flatMap((option) => {
+		const group = trailingGroup(option.label)
+		return group ? [{ option, group }] : []
+	})
+	if (isMarker(grouped)) {
+		// Each option is judged against the others' labels as written and as
+		// they would read without the marker, and nothing is shortened until
+		// every option is judged: the order of the options changes nothing.
+		const bases = new Map(grouped.map(({ option, group }) => [option, fold(group.base)]))
+		const shortened = grouped.filter(({ option, group }) => {
+			if (group.base === '') return false
+			const base = fold(group.base)
+			return !working.some(
+				(other) => other !== option && (fold(other.label) === base || bases.get(other) === base),
 			)
-			if (clashes) continue
-			candidate.label = group.base
-		}
+		})
+		for (const { option, group } of shortened) option.label = group.base
 	}
 
 	return working.map((option, index) => ({

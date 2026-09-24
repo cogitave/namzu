@@ -82,11 +82,88 @@ describe('questionOptions', () => {
 	it('takes the marker off every flagged option of a multi-select', () => {
 		const options = questionOptions([
 			{ label: 'Lint (Empfohlen)', recommended: true },
-			{ label: 'Tests (Empfohlen)', recommended: true },
+			{ label: 'Tests (empfohlen)', recommended: true },
 			{ label: 'Benchmarks' },
 		])
 		expect(labels(options)).toEqual(['Lint', 'Tests', 'Benchmarks'])
 		expect(recommended(options)).toEqual(['opt_1', 'opt_2'])
+	})
+
+	it.each([
+		[['Tests (unit)', 'Tests (e2e)']],
+		[['Tests (e2e)', 'Tests (unit)']],
+		[['Postgres (managed)', 'Postgres (self-hosted)']],
+		[['Postgres (self-hosted)', 'Postgres (managed)']],
+		[['Cloud (AWS)', 'Cache (Redis)']],
+	])('keeps the groups two flagged options differ in, %j', (flagged) => {
+		// A marker is the same word on every option the model recommends; a
+		// group that differs between them is what the options are.
+		const options = questionOptions([
+			...flagged.map((label) => ({ label, recommended: true })),
+			{ label: 'Lint' },
+		])
+		expect(labels(options)).toEqual([...flagged, 'Lint'])
+		expect(recommended(options)).toEqual(['opt_1', 'opt_2'])
+	})
+
+	it('keeps two different localised markers that are all that tells two flagged options apart', () => {
+		for (const flagged of [
+			['Redis (Önerilen)', 'Redis (Empfohlen)'],
+			['Redis (Empfohlen)', 'Redis (Önerilen)'],
+		]) {
+			const options = questionOptions(flagged.map((label) => ({ label, recommended: true })))
+			expect(labels(options)).toEqual(flagged)
+		}
+	})
+
+	it('keeps the marker only where removing it would repeat another label', () => {
+		const options = questionOptions([
+			{ label: 'Redis (Empfohlen)', recommended: true },
+			{ label: 'Postgres (Empfohlen)', recommended: true },
+			{ label: 'Redis' },
+		])
+		expect(labels(options)).toEqual(['Redis (Empfohlen)', 'Postgres', 'Redis'])
+		expect(recommended(options)).toEqual(['opt_1', 'opt_2'])
+	})
+
+	it('gives every option the same label whatever order the options come in', () => {
+		const questions: Parameters<typeof questionOptions>[0][] = [
+			[
+				{ label: 'Tests (unit)', recommended: true },
+				{ label: 'Tests (e2e)', recommended: true },
+				{ label: 'Lint' },
+			],
+			[
+				{ label: 'Redis (Önerilen)', recommended: true },
+				{ label: 'Redis (Empfohlen)', recommended: true },
+				{ label: 'Postgres' },
+			],
+			[
+				{ label: 'Redis (Empfohlen)', recommended: true },
+				{ label: 'Postgres (Empfohlen)', recommended: true },
+				{ label: 'Redis' },
+			],
+			[
+				{ label: 'Lint (Empfohlen)', recommended: true },
+				{ label: 'Tests (Empfohlen)', recommended: true },
+				{ label: 'Tests' },
+				{ label: 'Benchmarks (Recommended)' },
+			],
+			[
+				{ label: 'Board (Önerilen)', recommended: true },
+				{ label: 'Board' },
+				{ label: 'Engineers (Önerilen)', recommended: true },
+			],
+		]
+		for (const question of questions) {
+			const expected = new Map(
+				question.map((option, index) => [option, questionOptions(question)[index]?.label]),
+			)
+			for (const order of permutations(question)) {
+				const shown = labels(questionOptions(order))
+				expect(shown).toEqual(order.map((option) => expected.get(option)))
+			}
+		}
 	})
 
 	it.each([
@@ -192,3 +269,13 @@ describe('questionOptions', () => {
 		expect(recommended(options)).toEqual([])
 	})
 })
+
+function permutations<T>(items: readonly T[]): T[][] {
+	if (items.length <= 1) return [[...items]]
+	return items.flatMap((item, index) =>
+		permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [
+			item,
+			...rest,
+		]),
+	)
+}

@@ -443,6 +443,28 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		)
 	})
 
+	it.each([[['Tests (unit)', 'Tests (e2e)']], [['Tests (e2e)', 'Tests (unit)']]])(
+		'shows and records the groups two flagged options of a multi-select differ in, %j',
+		async (flagged) => {
+			const { requests, result } = await executeAsk({
+				decision: { action: 'answer_question', selectedOptionIds: ['opt_1', 'opt_2'] },
+				input: {
+					question: 'Which checks should I run?',
+					options: [...flagged.map((label) => ({ label, recommended: true })), { label: 'Lint' }],
+					multiSelect: true,
+				},
+			})
+			const request = requests[0]
+			if (!request || request.type !== 'user_question') {
+				throw new Error('expected a user_question request')
+			}
+			expect(request.question.options.map((option) => option.label)).toEqual([...flagged, 'Lint'])
+			expect(result.output).toBe(
+				`User answered "Which checks should I run?": "${flagged[0]}", "${flagged[1]}"`,
+			)
+		},
+	)
+
 	it('renders a free-text-only answer "in their own words"', async () => {
 		const { result } = await executeAsk({
 			decision: {
