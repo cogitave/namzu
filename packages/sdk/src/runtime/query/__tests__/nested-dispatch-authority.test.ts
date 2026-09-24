@@ -5,13 +5,13 @@ import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { probe } from '../../../probe/registry.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
-import type { ToolContext } from '../../../types/tool/index.js'
+import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -40,10 +40,10 @@ const call = (id: string, name: string, args: Record<string, unknown>) => ({
 	args,
 })
 
-function params(provider: MockLLMProvider, tools: ToolRegistry) {
+function params(provider: MockLLMProvider, tools: ToolDefinition[]) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		agentId: 'nested-authority-agent',
 		agentName: 'Nested Authority Agent',
 		messages: [{ role: 'user' as const, content: 'run the requested tool' }],
@@ -101,8 +101,8 @@ describe('nested dispatch authority', () => {
 	it('does not inherit the model-direct sibling batch identity', async () => {
 		let directBatch: string | undefined
 		let nestedBatch: string | undefined
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(
 			parentTool(
 				'dispatch_child',
 				async (context) => {
@@ -117,7 +117,7 @@ describe('nested dispatch authority', () => {
 				1_000,
 			),
 		)
-		tools.register(
+		tools.push(
 			defineTool({
 				name: 'capture_nested_context',
 				description: 'capture nested tool context',
@@ -148,8 +148,8 @@ describe('nested dispatch authority', () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
 		const events: SessionEvent[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(
 			parentTool(
 				'capture_dispatch',
 				async (context) => {
@@ -161,7 +161,7 @@ describe('nested dispatch authority', () => {
 				0,
 			),
 		)
-		tools.register(lateTool(() => effects++))
+		tools.push(lateTool(() => effects++))
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [call('parent', 'capture_dispatch', {})] }, { text: 'done' }],
 		})
@@ -183,8 +183,8 @@ describe('nested dispatch authority', () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
 		const events: SessionEvent[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(
 			parentTool(
 				'capture_then_hang',
 				async (context) => {
@@ -195,7 +195,7 @@ describe('nested dispatch authority', () => {
 				20,
 			),
 		)
-		tools.register(lateTool(() => effects++))
+		tools.push(lateTool(() => effects++))
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [call('parent', 'capture_then_hang', {})] }, { text: 'recovered' }],
 		})
@@ -223,8 +223,8 @@ describe('nested dispatch authority', () => {
 			releaseChild = resolve
 		})
 		const events: SessionEvent[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(
 			parentTool(
 				'fire_and_forget',
 				async (context) => {
@@ -239,7 +239,7 @@ describe('nested dispatch authority', () => {
 				0,
 			),
 		)
-		tools.register(
+		tools.push(
 			defineTool({
 				name: 'held_child',
 				description: 'waits for its invocation to end',
@@ -306,9 +306,9 @@ describe('nested dispatch authority', () => {
 		let shellExecutions = 0
 		const events: SessionEvent[] = []
 		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
-		const tools = new ToolRegistry()
-		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(buildRunCodeTool({ timeoutMs: 2_000 }))
+		tools.push(
 			defineTool({
 				name: 'shell',
 				description: 'side-effecting shell fixture',
@@ -383,8 +383,8 @@ describe('nested dispatch authority', () => {
 	it('fails an undecided nested call closed instead of bypassing durable review', async () => {
 		let effects = 0
 		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(
 			parentTool(
 				'nested_parent',
 				async (context) => {
@@ -394,7 +394,7 @@ describe('nested dispatch authority', () => {
 				1_000,
 			),
 		)
-		tools.register(lateTool(() => effects++))
+		tools.push(lateTool(() => effects++))
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [call('parent', 'nested_parent', {})] },
@@ -428,9 +428,9 @@ describe('nested dispatch authority', () => {
 	it('applies pre-tool rewrites before authorizing a nested call', async () => {
 		let shellExecutions = 0
 		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
-		const tools = new ToolRegistry()
-		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(buildRunCodeTool({ timeoutMs: 2_000 }))
+		tools.push(
 			defineTool({
 				name: 'shell',
 				description: 'nested hook fixture',
@@ -503,8 +503,8 @@ describe('nested dispatch authority', () => {
 		async (maxToolCalls) => {
 			const executed: unknown[] = []
 			let nestedResult: unknown
-			const tools = new ToolRegistry()
-			tools.register(
+			const tools: ToolDefinition[] = []
+			tools.push(
 				parentTool(
 					'aliasing_parent',
 					async (context) => {
@@ -518,7 +518,7 @@ describe('nested dispatch authority', () => {
 					1_000,
 				),
 			)
-			tools.register(
+			tools.push(
 				defineTool({
 					name: 'shell',
 					description: 'nested alias fixture',
@@ -565,9 +565,9 @@ describe('nested dispatch authority', () => {
 	it('applies the probe veto to nested calls too', async () => {
 		let effects = 0
 		const events: SessionEvent[] = []
-		const tools = new ToolRegistry()
-		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
-		tools.register(
+		const tools: ToolDefinition[] = []
+		tools.push(buildRunCodeTool({ timeoutMs: 2_000 }))
+		tools.push(
 			defineTool({
 				name: 'nested_probe_effect',
 				description: 'nested probe fixture',
@@ -632,10 +632,10 @@ describe('nested dispatch authority', () => {
 		const entered = new Promise<void>((resolve) => {
 			enter = resolve
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		const runCode = buildRunCodeTool({ timeoutMs: 2_000 })
-		tools.register({ ...runCode, timeoutMs: 250 })
-		tools.register(
+		tools.push({ ...runCode, timeoutMs: 250 })
+		tools.push(
 			defineTool({
 				name: 'shell',
 				description: 'held nested hook fixture',
