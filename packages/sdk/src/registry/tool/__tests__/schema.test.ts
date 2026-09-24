@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { mcpJsonSchemaToZod } from '../../../connector/mcp/adapter.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MCPJsonSchema } from '../../../types/connector/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
-import { ToolRegistry } from '../execute.js'
 import { renderToolSchema } from '../schema.js'
 
 /**
@@ -82,8 +83,10 @@ describe('renderToolSchema', () => {
 	})
 
 	it('renders the same object through the registry, iteration after iteration', () => {
-		const registry = new ToolRegistry()
-		registry.register(tool('read_file', z.object({ path: z.string() })))
+		const registry = new ToolManager({
+			toolsets: [testToolset(tool('read_file', z.object({ path: z.string() })))],
+			messages: () => [],
+		})
 
 		const a = registry.toLLMTools()[0]?.function.parameters
 		const b = registry.toLLMTools()[0]?.function.parameters
@@ -95,10 +98,14 @@ describe('renderToolSchema', () => {
 		// `metadata` is for a host, capability or toolset wrapper to read
 		// back — never a classification the model sees, unlike `outputSchema`
 		// (shown in the description on purpose).
-		const registry = new ToolRegistry()
-		registry.register({
-			...tool('search_docs', z.object({ q: z.string() })),
-			metadata: { tag: 'experimental', internalOwner: 'search-team' },
+		const registry = new ToolManager({
+			toolsets: [
+				testToolset({
+					...tool('search_docs', z.object({ q: z.string() })),
+					metadata: { tag: 'experimental', internalOwner: 'search-team' },
+				}),
+			],
+			messages: () => [],
 		})
 
 		const rendered = registry.toLLMTools()[0]

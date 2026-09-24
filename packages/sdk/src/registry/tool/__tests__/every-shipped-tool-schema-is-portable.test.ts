@@ -280,12 +280,14 @@ function everyShippedTool(): ToolDefinition[] {
  * by hand.
  */
 function wireSchemas(): { name: string; parameters: Record<string, unknown> }[] {
-	const registry = new ToolManager({ toolsets: [testToolset(tool)], messages: () => [] })
 	const seen = new Set<string>()
+	const tools: ToolDefinition[] = []
 	for (const tool of everyShippedTool()) {
 		if (seen.has(tool.name)) continue
 		seen.add(tool.name)
+		tools.push(tool)
 	}
+	const registry = new ToolManager({ toolsets: [testToolset(...tools)], messages: () => [] })
 	return registry.toLLMTools().map((tool) => ({
 		name: tool.function.name,
 		parameters: (tool.function.parameters ?? {}) as Record<string, unknown>,
