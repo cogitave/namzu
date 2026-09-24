@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionTextEvidenceSearchResult } from '../../../store/evidence/types.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -40,10 +41,10 @@ it('captures the earlier turns of the session, not only the running one', async 
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 	}
-	const turn = (provider: MockLLMProvider, tools: ToolRegistry, content: string) =>
+	const turn = (provider: MockLLMProvider, tools: Toolset, content: string) =>
 		drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			agentId: 'capture-session',
 			agentName: 'Capture session',
 			messages: [{ role: 'user', content }],
@@ -60,14 +61,13 @@ it('captures the earlier turns of the session, not only the running one', async 
 
 	const first = await turn(
 		new MockLLMProvider({ turns: [{ text: 'The receipt number is ORCHID-4417.' }] }),
-		new ToolRegistry(),
+		testToolset(),
 		'What is the receipt number?',
 	)
 	expect(first.status).toBe('completed')
 
 	let found: SessionTextEvidenceSearchResult | undefined
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'look_back',
 		description: 'Search what this session recorded earlier.',
 		inputSchema: z.object({}),
