@@ -125,7 +125,7 @@ describe('a handoff inside a delegated child', () => {
 				provider,
 				agentIds: [],
 				agentManager: manager,
-				tools,
+				toolsets: [tools],
 				systemPrompt: 'Do the delegated work.',
 				model: 'mock-model',
 				tokenBudget: 100_000,

@@ -143,7 +143,7 @@ describe('a subagent cannot question the operator', () => {
 				provider,
 				agentIds: [],
 				agentManager: manager,
-				tools,
+				toolsets: [tools],
 				systemPrompt: 'Coordinate without asking the operator directly.',
 				model: 'mock-model',
 				tokenBudget: 100_000,
