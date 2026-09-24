@@ -18,6 +18,68 @@ import { attributionHeaders } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 /**
+ * The words a proxied backend's own `native_finish_reason` uses for "the
+ * model's context window, not its output-token budget, is what ran out" —
+ * the same vocabulary `@namzu/http`'s `mapOpenAIFinish` reads from an
+ * OpenAI-compatible dialect, since OpenRouter's backends speak in exactly
+ * those dialects underneath its own normalisation.
+ */
+const CONTEXT_WINDOW_NATIVE_REASONS = new Set([
+	'model_context_window_exceeded',
+	'model_length',
+	'context_length',
+	'context_length_exceeded',
+])
+
+/**
+ * OpenRouter's normalised `finish_reason`, as the finish fields of a stream
+ * chunk: `finishReason`, and `finishDetail: 'context_window'` when a
+ * `'length'` finish was the model's context window.
+ *
+ * `finish_reason` used to be cast straight through. `error` — the upstream
+ * failed mid-generation — then reached the runtime as a finish reason
+ * outside its union, and a tool call the failure cut off read as one the
+ * model had finished and got wrong. It is a failure, and is thrown as one.
+ *
+ * OpenRouter collapses every backend's own reason into one of five, so a
+ * proxied Anthropic model's context window and a proxied OpenAI model's
+ * output limit both arrive here as plain `'length'` — exactly the fold that
+ * made an lmstudio and http response cut off by its context window get
+ * auto-continued into a prompt longer than the window it had just filled.
+ * `native_finish_reason` carries the backend's own word for it verbatim
+ * (OpenRouter's API reference calls it "the raw finish_reason from the
+ * provider"), and is read here only to recover that one distinction.
+ */
+function mapFinishReason(
+	reason: string | null | undefined,
+	nativeReason: string | null | undefined,
+): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
+	switch (reason) {
+		case null:
+		case undefined:
+		case '':
+			return {}
+		case 'length':
+			return nativeReason && CONTEXT_WINDOW_NATIVE_REASONS.has(nativeReason)
+				? { finishReason: 'length', finishDetail: 'context_window' }
+				: { finishReason: 'length' }
+		case 'tool_calls':
+		case 'function_call':
+			return { finishReason: 'tool_calls' }
+		case 'content_filter':
+			return { finishReason: 'content_filter' }
+		case 'error':
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'openrouter',
+				detail: 'the upstream model failed while generating',
+			})
+		default:
+			return { finishReason: 'stop' }
+	}
+}
+
+/**
  * Models whose upstream caches only where the request places an explicit
  * `cache_control` breakpoint. OpenRouter's prompt-caching page
  * (openrouter.ai/docs/features/prompt-caching) lists Anthropic Claude, Google
@@ -485,7 +547,8 @@ export class OpenRouterProvider implements LLMProvider {
 										function?: { name?: string; arguments?: string }
 									}>
 								}
-								finish_reason?: string
+								finish_reason?: string | null
+								native_finish_reason?: string | null
 							}>
 							usage?: RawUsage
 						}
@@ -539,7 +602,7 @@ export class OpenRouterProvider implements LLMProvider {
 									content,
 									toolCalls,
 								},
-								finishReason: choice.finish_reason as StreamChunk['finishReason'],
+								...mapFinishReason(choice.finish_reason, choice.native_finish_reason),
 								usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
 							}
 						}

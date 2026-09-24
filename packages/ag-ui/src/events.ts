@@ -41,11 +41,19 @@ interface MessageState {
 	completed: boolean
 }
 
+/**
+ * Why the runtime could not read a call's arguments, as its
+ * `tool_input_completed` event says. Taken from the event rather than
+ * imported by name, so an older `@namzu/sdk` that sends none still compiles.
+ */
+type ToolInputError = Extract<SessionEvent, { type: 'tool_input_completed' }>['inputError']
+
 interface ToolState {
 	arguments: string
 	closed: boolean
 	resultSent: boolean
 	inputTruncated: boolean
+	inputError?: ToolInputError
 }
 
 const PUBLIC_EVENTS = new Set<SessionEvent['type']>([
@@ -231,7 +239,14 @@ export class AGUIEventMapper {
 						this.fail('Tool input completed before its call.', 'NAMZU_TOOL_LIFECYCLE'),
 					)
 				}
-				this.completeToolInput(event.toolUseId, tool, event.input, events, event.inputTruncated)
+				this.completeToolInput(
+					event.toolUseId,
+					tool,
+					event.input,
+					events,
+					event.inputTruncated,
+					event.inputTruncated ? event.inputError : undefined,
+				)
 				break
 			}
 			case 'tool_executing': {
@@ -454,9 +469,11 @@ export class AGUIEventMapper {
 		input: unknown,
 		events: BaseEvent[],
 		inputTruncated = false,
+		inputError?: ToolInputError,
 	): void {
 		if (tool.closed) return
 		tool.inputTruncated = inputTruncated
+		tool.inputError = inputError
 		if (tool.arguments) {
 			try {
 				JSON.parse(tool.arguments)
@@ -487,7 +504,18 @@ export class AGUIEventMapper {
 		events.push({
 			type: EventType.TOOL_CALL_END,
 			toolCallId,
-			...(tool.inputTruncated ? { metadata: { namzu: { inputTruncated: true } } } : {}),
+			// `inputTruncated` is set for arguments cut off and malformed alike;
+			// `inputError.reason` is what tells a host which.
+			...(tool.inputTruncated
+				? {
+						metadata: {
+							namzu: {
+								inputTruncated: true,
+								...(tool.inputError ? { inputError: tool.inputError } : {}),
+							},
+						},
+					}
+				: {}),
 		})
 	}
 

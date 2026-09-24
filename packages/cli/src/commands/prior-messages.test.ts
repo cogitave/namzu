@@ -195,6 +195,94 @@ describe('stateless Message[] parsing', () => {
 		})
 	})
 
+	it("admits a tool call's inputError and refuses one the executor could not word", () => {
+		const withError = (inputError: unknown) =>
+			parsePriorMessages(
+				JSON.stringify([
+					{ role: 'user', content: 'ask me' },
+					{
+						role: 'assistant',
+						content: null,
+						toolCalls: [
+							{
+								...call('call_a'),
+								metadata: { inputTruncated: true, partialArguments: '{"a" 1}', inputError },
+							},
+						],
+					},
+					{ role: 'tool', content: 'not run', toolCallId: 'call_a', isError: true },
+				]),
+			)
+		const valid = {
+			reason: 'malformed',
+			finishReason: 'tool_calls',
+			parseError: "Expected ':' after property name in JSON at position 4",
+			offset: 4,
+			length: 7,
+			precedingLength: 0,
+		}
+		const admitted = withError(valid)
+		expect(admitted.ok).toBe(true)
+		if (admitted.ok) {
+			const assistant = admitted.messages[1]
+			expect(
+				assistant?.role === 'assistant' && assistant.toolCalls?.[0]?.metadata?.inputError,
+			).toEqual(valid)
+		}
+		const { finishReason: _finish, offset: _offset, ...minimal } = valid
+		expect(withError(minimal).ok).toBe(true)
+
+		const path = 'messages[1].toolCalls[0].metadata.inputError'
+		expect(withError('malformed')).toEqual({ ok: false, error: `${path} must be an object` })
+		expect(withError({ ...valid, reason: 'cut' })).toEqual({
+			ok: false,
+			error: `${path}.reason must be "truncated" or "malformed"`,
+		})
+		expect(withError({ ...valid, finishReason: 'max_tokens' })).toEqual({
+			ok: false,
+			error: `${path}.finishReason must be "stop", "tool_calls", "length", or "content_filter"`,
+		})
+		expect(withError({ ...valid, parseError: 1 })).toEqual({
+			ok: false,
+			error: `${path}.parseError must be a string`,
+		})
+		expect(withError({ ...valid, offset: -1 })).toEqual({
+			ok: false,
+			error: `${path}.offset must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, length: '7' })).toEqual({
+			ok: false,
+			error: `${path}.length must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, precedingLength: undefined })).toEqual({
+			ok: false,
+			error: `${path}.precedingLength must be a non-negative safe integer`,
+		})
+		// The usage a truncated call records is read as counts too.
+		expect(
+			withError({
+				...valid,
+				reason: 'truncated',
+				finishReason: 'length',
+				finishDetail: 'context_window',
+				outputTokens: 8000,
+				reasoningTokens: 7800,
+			}).ok,
+		).toBe(true)
+		expect(withError({ ...valid, outputTokens: 'many' })).toEqual({
+			ok: false,
+			error: `${path}.outputTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, reasoningTokens: -1 })).toEqual({
+			ok: false,
+			error: `${path}.reasoningTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, finishDetail: 'output' })).toEqual({
+			ok: false,
+			error: `${path}.finishDetail must be "context_window"`,
+		})
+	})
+
 	it('names an invalid nested field by index', () => {
 		const result = parsePriorMessages(
 			JSON.stringify([

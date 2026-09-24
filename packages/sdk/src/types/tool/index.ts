@@ -779,8 +779,59 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * Concise, model-readable recovery guidance appended when inputSchema
 	 * rejects a call. Use for conditional schemas whose required shapes
 	 * cannot be reconstructed from JSON Schema's top-level `required` list.
+	 *
+	 * Also appended when a call's arguments were malformed, not valid JSON,
+	 * and the tool declares no {@link malformedInputHint}: a model that could
+	 * not write this tool's arguments as JSON needs the same shape.
 	 */
 	validationErrorHint?: string
+	/**
+	 * Concise, model-readable advice appended when a call to this tool was cut
+	 * off before its arguments closed and the call itself has to carry less:
+	 * how this tool takes long input in parts. It follows the size budget the
+	 * model is given (see {@link largeStringArguments}).
+	 *
+	 * That is a cut-off by the stream ending, or by the output limit when the
+	 * call was at least half of the response. When most of the response went
+	 * to what came before the call, the model is told to send less before it
+	 * instead, and this is not appended. Nor after a content filter's stop,
+	 * which sending less does not get past, nor for a malformed call, since
+	 * size does not fix JSON: that is {@link malformedInputHint}.
+	 */
+	truncatedInputHint?: string
+	/**
+	 * Concise, model-readable advice appended when a call to this tool is
+	 * answered as malformed: its arguments were not valid JSON, so the call
+	 * never reached {@link inputSchema}. For example, how to escape a file
+	 * body inside a JSON string. When it is absent,
+	 * {@link validationErrorHint} is appended instead, so a tool that states
+	 * its required shape there need not state it twice; one that declares
+	 * both and wants the shape shown includes it here.
+	 *
+	 * Every unreadable call is malformed except the one the response stopped
+	 * on, when it stopped early: at the output limit (`finishReason:
+	 * 'length'`), at a content filter, or with no finish reason at all. That
+	 * call was cut off, and gets {@link truncatedInputHint} instead. A call
+	 * the model followed with more text, reasoning or another call is
+	 * malformed whatever the finish reason, the output limit included. See
+	 * `ToolInputError`.
+	 */
+	malformedInputHint?: string
+	/**
+	 * The arguments that carry long free-form text — a file body, a
+	 * replacement, a delegated assignment — each with the number of characters
+	 * one call should keep it under, e.g. `{ content: 12_000 }`.
+	 *
+	 * Read only when a call to this tool is cut off before its arguments
+	 * close and the call itself has to carry less (see
+	 * {@link truncatedInputHint} for when that is): the model is told to keep
+	 * these arguments under their budgets, each lowered to half of what
+	 * arrived after an output limit. A tool that declares none is still told,
+	 * after an output limit, to keep its arguments as a whole under half of
+	 * what arrived. Declaring them names the arguments the model should
+	 * shorten, and gives a budget after a stream that ended as well.
+	 */
+	largeStringArguments?: Readonly<Record<string, number>>
 
 	/**
 	 * The shape this tool returns, as JSON Schema, appended to the

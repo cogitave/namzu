@@ -132,9 +132,72 @@ function mapAnthropicStopReason(reason?: string | null): NamzuFinishReason {
 		case 'tool_use':
 			return 'tool_calls'
 		case 'max_tokens':
+		case 'model_context_window_exceeded':
 			return 'length'
+		case 'refusal':
+			return 'content_filter'
 		default:
 			return 'stop'
+	}
+}
+
+/**
+ * An OpenAI-dialect `finish_reason` as the finish fields of a stream chunk:
+ * `finishReason`, and `finishDetail` when a `'length'` finish was the model's
+ * context window. Nothing for the `null` every frame but the last carries, or
+ * for a value this driver does not know.
+ *
+ * The value used to be cast straight through, and then was mapped with every
+ * unknown value read as `'stop'`: a normal finish. That is the one reading
+ * that cannot be right for a response stopped on something other than the
+ * model's own choice, and it turned a tool call such a stop cut off into one
+ * the model "finished" and got wrong. An unknown value now reports no finish
+ * reason, which the runtime treats as a stream that did not say how it ended.
+ *
+ * - `'error'` fails the stream, as OpenRouter's does: the server says the
+ *   model failed while generating, so what arrived is not a response.
+ * - The limits some servers name in their own words are `'length'`:
+ *   `max_tokens` and `max_output_tokens` the output limit, and
+ *   `model_length` (Mistral), `context_length`, `context_length_exceeded`
+ *   and `model_context_window_exceeded` the context window.
+ * - A stop the model chose, in any server's words, is `'stop'`.
+ */
+function mapOpenAIFinish(
+	reason?: string | null,
+): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
+	switch (reason) {
+		case null:
+		case undefined:
+		case '':
+			return {}
+		case 'length':
+		case 'max_tokens':
+		case 'max_output_tokens':
+			return { finishReason: 'length' }
+		case 'model_length':
+		case 'context_length':
+		case 'context_length_exceeded':
+		case 'model_context_window_exceeded':
+			return { finishReason: 'length', finishDetail: 'context_window' }
+		case 'tool_calls':
+		case 'function_call':
+			return { finishReason: 'tool_calls' }
+		case 'content_filter':
+			return { finishReason: 'content_filter' }
+		case 'stop':
+		case 'eos':
+		case 'eos_token':
+		case 'end_turn':
+		case 'stop_sequence':
+			return { finishReason: 'stop' }
+		case 'error':
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'http',
+				detail: 'the upstream model failed while generating',
+			})
+		default:
+			return {}
 	}
 }
 
@@ -597,7 +660,7 @@ export class HttpProvider implements LLMProvider {
 								function: tc.function,
 							})),
 						},
-						finishReason: choice.finish_reason as StreamChunk['finishReason'],
+						...mapOpenAIFinish(choice.finish_reason),
 						usage: obj.usage ? parseOpenAIUsage(obj.usage) : undefined,
 					}
 				}
@@ -695,8 +758,9 @@ export class HttpProvider implements LLMProvider {
 							const idx = event.index ?? 0
 							const block = event.content_block
 							if (block?.type === 'tool_use') {
+								const toolId = block.id ?? `tool-${Date.now()}`
 								activeTools.set(idx, {
-									id: block.id ?? `tool-${Date.now()}`,
+									id: toolId,
 									name: block.name ?? '',
 								})
 								yield {
@@ -705,7 +769,8 @@ export class HttpProvider implements LLMProvider {
 										toolCalls: [
 											{
 												index: idx,
-												id: block.id,
+												// Announce the id the deltas below will carry.
+												id: toolId,
 												type: 'function',
 												function: { name: block.name ?? '' },
 											},
@@ -746,6 +811,11 @@ export class HttpProvider implements LLMProvider {
 									id: messageId,
 									delta: {},
 									finishReason: mapAnthropicStopReason(event.delta.stop_reason),
+									// The context window rather than `max_tokens`: the turn loop
+									// does not continue a reply that filled it.
+									...(event.delta.stop_reason === 'model_context_window_exceeded'
+										? { finishDetail: 'context_window' as const }
+										: {}),
 									usage: event.usage ? parseAnthropicUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {

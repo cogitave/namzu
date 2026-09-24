@@ -1,8 +1,9 @@
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
 import { callableToolNames, formatToolNames } from '../../../registry/tool/callable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
-import type { ToolCall } from '../../../types/message/index.js'
+import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolCallRepair, ToolCallRepairReason } from '../../../types/tool/repair.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -100,7 +101,7 @@ export async function prepareDirectCall(
 			toolCall,
 			toolName,
 			input: {},
-			message: truncatedToolInputMessage(toolName),
+			message: unreadableToolCallMessage(host, toolCall, toolName),
 			isError: true,
 		}
 	}
@@ -392,13 +393,15 @@ export async function repairTruncatedCall(
 		host,
 		{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
 		toolName,
-		{ reason: 'invalid_json', message: truncatedToolInputMessage(toolName) },
+		{ reason: 'invalid_json', message: unreadableToolCallMessage(host, toolCall, toolName) },
 	)
 	if (repair) {
-		host.log.info('Repaired a tool call whose input stream was truncated', {
+		// Unreadable is not the same as cut off: the reason says which.
+		host.log.info('Repaired a tool call whose arguments could not be read', {
 			[NAMZU.TURN_ID]: host.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'namzu.runtime.partial_length': partial.length,
+			'namzu.runtime.input_error_reason': toolCall.metadata?.inputError?.reason ?? 'unknown',
 		})
 	}
 	return repair
@@ -513,6 +516,225 @@ export function formatFailedToolOutput(
 	return `${output}\n\n${errorText}`
 }
 
-export function truncatedToolInputMessage(toolName: string): string {
-	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. Self-budget content/new_string under 12000 characters before calling file tools. For long files, create a short opening with write and a deterministic marker, then advance that marker with bounded exact edit calls; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
+/**
+ * The message a call with unreadable arguments is answered with, built from
+ * why they could not be read and from the tool the call named.
+ */
+export function unreadableToolCallMessage(
+	host: ToolAdmissionHost,
+	toolCall: ToolCall,
+	toolName: string,
+): string {
+	return unreadableToolInputMessage(
+		toolName,
+		toolCall.metadata?.inputError,
+		host.config.tools.get?.(toolName),
+	)
+}
+
+/**
+ * The most characters a call cut off after `length` of them should be told to
+ * keep under: half of what arrived, rounded down to a figure that reads as a
+ * budget, and always less than what arrived. `undefined` when that leaves
+ * nothing to state.
+ *
+ * It used to be at least 100, whatever arrived, so a call the output limit cut
+ * after 29 characters was told to keep them under 100: more than it had
+ * already sent, which the limit had just refused.
+ */
+function ceilingBelow(length: number): number | undefined {
+	const half = Math.floor(length / 2)
+	const step = half >= 200 ? 100 : half >= 20 ? 10 : 1
+	const ceiling = Math.floor(half / step) * step
+	return ceiling >= 2 ? ceiling : undefined
+}
+
+/**
+ * How much one call should carry, in the model's words, or `undefined` when
+ * there is no number to give: a stream that ended, to a tool that declares no
+ * large arguments.
+ *
+ * A tool that declares large arguments is given a budget for each of them.
+ * After an output limit, any tool is told to keep its arguments under half of
+ * what arrived ({@link ceilingBelow}): the whole of them for a tool that
+ * declares none, and each declared budget lowered to that when it is larger,
+ * since a budget the response could not hold would send the model straight
+ * back into the cutoff. How to carry less (in parts, in a file) is the tool's
+ * own `truncatedInputHint`: splitting is right for a file body and wrong for a
+ * delegated prompt.
+ */
+function sizeAdvice(
+	largeStringArguments: ToolDefinition['largeStringArguments'],
+	error: ToolInputError,
+): string | undefined {
+	const lengthCutoff = error.finishReason === 'length'
+	const ceiling = lengthCutoff ? ceilingBelow(error.length) : undefined
+	// A length cutoff too short to leave any figure worth stating
+	// (`ceilingBelow` under 4 characters) gives no budget to any tool,
+	// declared or not. Falling through to a tool's full declared budget here
+	// would tell a call cut after three characters to keep `content` under
+	// 12000 of them: more than a budget, an invitation back into the same
+	// cutoff, and a broken invariant (a call is always told less than what
+	// arrived). Only a stream that ended for a reason other than the output
+	// limit — where no ceiling applies at all — still gets the plain
+	// declared budgets below.
+	if (lengthCutoff && ceiling === undefined) return undefined
+	const declared = Object.entries(largeStringArguments ?? {}).filter(
+		([, budget]) => Number.isFinite(budget) && budget > 0,
+	)
+	if (declared.length === 0) {
+		return ceiling === undefined
+			? undefined
+			: `Send it again with less in one call: keep its arguments under ${ceiling} characters in all.`
+	}
+	const budgets = declared.map(
+		([name, budget]) =>
+			`\`${name}\` under ${Math.floor(Math.min(budget, ceiling ?? Number.POSITIVE_INFINITY))} characters`,
+	)
+	const list =
+		budgets.length === 1
+			? budgets[0]
+			: `${budgets.slice(0, -1).join(', ')} and ${budgets[budgets.length - 1]}`
+	return `Send it again with less in one call: keep ${list}.`
+}
+
+/**
+ * The most output tokens a character the stream carried can account for.
+ * Ordinary text runs well under one token per character; a rare CJK character
+ * or an emoji can take two. Output beyond this bound for everything that was
+ * streamed went somewhere the stream did not show.
+ */
+const MAX_TOKENS_PER_STREAMED_CHARACTER = 2
+
+/**
+ * Whether most of the response's output tokens went to output the stream did
+ * not carry as text or arguments, and what to say about it, or `undefined`
+ * when the usage says nothing of the kind (or there is none).
+ *
+ * A provider that streams no reasoning, or only an encrypted block or a
+ * summary of it, still counts that reasoning against the output limit. Judged
+ * by the characters that were streamed alone, a call the reasoning left no
+ * room for looked like the call that filled the response, and was told to
+ * shrink.
+ *
+ * The provider's own reasoning count decides when it gives one. Otherwise the
+ * streamed characters are given the most tokens they could have taken, and
+ * only output beyond that counts as unseen, so text that tokenizes densely is
+ * never mistaken for hidden reasoning.
+ */
+function unseenOutput(error: ToolInputError): string | undefined {
+	const total = error.outputTokens
+	if (total === undefined || total <= 0) return undefined
+	if (error.reasoningTokens !== undefined) {
+		return error.reasoningTokens * 2 >= total
+			? `${error.reasoningTokens} of the response's ${total} output tokens went to reasoning, so little of its limit was left for this call.`
+			: undefined
+	}
+	const streamed = error.precedingLength + error.length
+	const unseen = total - streamed * MAX_TOKENS_PER_STREAMED_CHARACTER
+	return unseen * 2 >= total
+		? `The response used ${total} output tokens, but only ${streamed} characters of text and tool arguments were streamed: most of its output went to reasoning or other output that is not shown, so little of its limit was left for this call.`
+		: undefined
+}
+
+/**
+ * What to tell the model about a call whose arguments could not be read.
+ *
+ * Each part answers one question, and a part with no answer is left out:
+ * what happened (from `error`, which says cut off or malformed and why), and
+ * what to do about it.
+ *
+ * - Malformed: send one valid JSON object, and the tool's own
+ *   `malformedInputHint`, or its `validationErrorHint` when it declares no
+ *   `malformedInputHint`: the required shape is what a model that could not
+ *   write valid JSON for this tool needs to see, and a tool that states it
+ *   for a rejected call should not have to state it twice. Never size
+ *   advice: size does not fix JSON.
+ * - Cut off by the output limit: first, which part of the response filled it.
+ *   When the provider's usage shows that most of the output went to
+ *   reasoning, or to anything else the stream did not carry
+ *   ({@link unseenOutput}), the model is told that, and to reason less or
+ *   split the work: the call did not fill the response. Otherwise the
+ *   response is what the stream carried: what came before the call
+ *   (`precedingLength`) and the call itself (`length`). A call that was less
+ *   than half of that did not fill it; what came before it did, and the model
+ *   is told to send less before it, with no advice about the call. Otherwise
+ *   the call itself is to carry less: {@link sizeAdvice}, and the tool's
+ *   `truncatedInputHint`.
+ * - Cut off by the context window (`finishDetail: 'context_window'`): the
+ *   call is to carry less, {@link sizeAdvice} and the tool's
+ *   `truncatedInputHint`, with nothing about reasoning or what came before
+ *   it: the window is the conversation's length, not this response's.
+ * - Cut off by the stream ending: the declared budgets, if any, or just to
+ *   send the call again, and the tool's `truncatedInputHint`.
+ * - Stopped by a content filter: no advice. Sending less does not get past a
+ *   filter.
+ *
+ * A call recorded before the reason was kept has no `error` and gets the
+ * plain statement that its arguments were unreadable, and no hint, since
+ * which one applies is not known.
+ */
+export function unreadableToolInputMessage(
+	toolName: string,
+	error: ToolInputError | undefined,
+	tool?: Pick<
+		ToolDefinition,
+		'truncatedInputHint' | 'malformedInputHint' | 'validationErrorHint' | 'largeStringArguments'
+	>,
+): string {
+	const parts: string[] = []
+	const hint = (text: string | undefined) => {
+		const trimmed = text?.trim()
+		if (trimmed) parts.push(trimmed)
+	}
+	if (!error) {
+		parts.push(
+			`Error: The arguments for "${toolName}" could not be read as JSON. The tool was NOT executed. Send the call again with complete, valid JSON arguments.`,
+		)
+	} else if (error.reason === 'malformed') {
+		const where =
+			error.offset !== undefined && !/\bposition \d+/.test(error.parseError)
+				? ` at character ${error.offset}`
+				: ''
+		parts.push(
+			`Error: The arguments for "${toolName}" were not valid JSON (${error.parseError}${where}; ${error.length} characters in all). The tool was NOT executed. Send the call again with its arguments as one valid JSON object.`,
+		)
+		hint(tool?.malformedInputHint?.trim() ? tool.malformedInputHint : tool?.validationErrorHint)
+	} else {
+		const contextWindow = error.finishReason === 'length' && error.finishDetail === 'context_window'
+		const cause = contextWindow
+			? "the response filled the model's context window"
+			: error.finishReason === 'length'
+				? 'the response reached its output token limit'
+				: error.finishReason === 'content_filter'
+					? "the provider's content filter stopped the response"
+					: 'the response stream ended'
+		parts.push(
+			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
+		)
+		// Only the output limit is shared between reasoning, text and the
+		// call. A full context window is the conversation's length: what the
+		// response spent on what does not change it, and less in the call is
+		// the one thing that helps.
+		const unseen =
+			error.finishReason === 'length' && !contextWindow ? unseenOutput(error) : undefined
+		if (unseen) {
+			parts.push(
+				unseen,
+				'Send the call again after less reasoning, or split the work into smaller steps that each need less of it.',
+			)
+		} else if (
+			error.finishReason === 'length' &&
+			!contextWindow &&
+			error.length < error.precedingLength
+		) {
+			parts.push(
+				`${error.precedingLength} of the ${error.precedingLength + error.length} characters the response streamed came before this call, so send the call again with less before it in the same response.`,
+			)
+		} else if (error.finishReason !== 'content_filter') {
+			parts.push(sizeAdvice(tool?.largeStringArguments, error) ?? 'Send the call again.')
+			hint(tool?.truncatedInputHint)
+		}
+	}
+	return parts.join(' ')
 }

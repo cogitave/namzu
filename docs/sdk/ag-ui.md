@@ -518,9 +518,17 @@ Open text, tool-input, and iteration lifecycles close before terminal events.
 Unexpected EOF produces `NAMZU_STREAM_INCOMPLETE`. Repeated completed
 messages/results are not replayed as new content; a retained text prefix
 can be completed from its aggregate. A conflicting aggregate produces
-`NAMZU_MESSAGE_CONTENT_MISMATCH`. Truncated tool arguments retain their raw
-fragments and carry `metadata.namzu.inputTruncated` on `TOOL_CALL_END`;
-the normalized fallback object is not presented as the original call.
+`NAMZU_MESSAGE_CONTENT_MISMATCH`. Tool arguments that could not be read, cut
+off or malformed (see [Unreadable tool input](unreadable-tool-input.md)),
+retain their raw fragments and carry `metadata.namzu.inputTruncated` on
+`TOOL_CALL_END`; the normalized fallback object is not presented as the
+original call. `inputTruncated` is set for both causes. When the runtime
+recorded which, `TOOL_CALL_END` also carries it as `metadata.namzu.inputError`,
+the `ToolInputError` from `tool_input_completed`: `reason` is `truncated` or
+`malformed`, with `finishReason`, `finishDetail`, `parseError`, `offset`,
+`length`, `precedingLength`, `outputTokens` and `reasoningTokens` as the
+runtime recorded them. Arguments only the adapter found unparsable, and those from
+an `@namzu/sdk` that records no reason, carry `inputTruncated` alone.
 Backend tool failures carry `metadata.namzu.isError` on their result. A run
 that continues a turn does not announce again the calls an earlier run
 announced; their results arrive against the original ids.
