@@ -80,6 +80,16 @@ An old namzu refuses a job file a newer one wrote for `script`/`script+agent`
 `agent` job stays format `v: 1`, unchanged, and reads exactly as it always
 has on any namzu version.
 
+Creating a `script`/`script+agent` job is refused outright on native
+(non-WSL) Windows: its only shell there is a loose `cmd.exe` approximation
+the floor cannot fully verify (the "sh" dialect label it reports is shared
+with POSIX sh, so a dialect match alone does not mean the floor read what
+would actually run). The refusal also applies at run time, independent of
+creation, for a job confirmed on WSL or Linux whose daemon later finds
+itself running on native Windows (a moved `NAMZU_HOME`, a machine re-imaged
+from WSL to a native install) — use WSL, where a job's script runs on the
+Linux side, or an `agent` job.
+
 ## Creating a job
 
 `namzu schedule add <name>` needs a schedule and a permission set, plus a

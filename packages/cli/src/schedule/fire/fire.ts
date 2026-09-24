@@ -299,6 +299,19 @@ export async function runFire(
 	// exactly what an agent run checks before it opens a session. A script
 	// job stops here instead of going any further.
 	const runKind = job.runKind ?? 'agent'
+	// `build.ts` already refuses to CREATE a script/script+agent job on
+	// native (non-WSL) Windows, but a job confirmed on WSL or Linux can still
+	// be fired by a daemon that later finds itself running on native Windows
+	// (a moved NAMZU_HOME, a machine re-imaged from WSL to a native install).
+	// The `sh` dialect label `verifyScheduledScript` checked the job's script
+	// against is shared by POSIX sh AND cmd.exe, so a dialect match alone
+	// does not mean the floor actually read what would run; refuse here too,
+	// the same way the dialect-mismatch check below refuses a changed shell.
+	if (runKind !== 'agent' && process.platform === 'win32') {
+		return blocked(
+			`a ${runKind} job cannot run on native Windows: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+		)
+	}
 	if (runKind !== 'agent' && job.script) {
 		// The digest binds the script's own text and the job's OWN rules, but
 		// not a config file's `deny` rules — those can gain a new one after

@@ -142,4 +142,29 @@ describe('a script job, fired', () => {
 		expect(result?.status).toBe('blocked-config')
 		expect(result?.reason).toMatch(/confirmed for/)
 	})
+
+	it('refuses to run on native Windows at fire time, even though the job was confirmed elsewhere (WSL/Linux)', async () => {
+		// `hostCommandShell()` is resolved once per process and memoized (see
+		// `host` above), so spoofing `process.platform` here does not, on its
+		// own, change what dialect the existing mismatch check compares
+		// against — matching real life, where the `sh` dialect label is
+		// shared by POSIX sh AND cmd.exe, so a job confirmed with a dialect
+		// that still matches on native Windows would otherwise pass THAT
+		// check unchanged. Using the job's own confirmed (matching) dialect
+		// here isolates the new, platform-specific check this test is for.
+		// Job creation itself already refuses this on native Windows
+		// (`build.ts`); this proves `__fire` refuses it independently too,
+		// for a job that was already confirmed before the platform changed
+		// (a moved NAMZU_HOME, a machine re-imaged from WSL to native).
+		const job = scriptJob('echo hi', { shell: host.dialect })
+		const real = process.platform
+		Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+		try {
+			const { result } = await fire(job)
+			expect(result?.status).toBe('blocked-config')
+			expect(result?.reason).toMatch(/native Windows/)
+		} finally {
+			Object.defineProperty(process, 'platform', { value: real })
+		}
+	})
 })
