@@ -19,8 +19,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
@@ -55,10 +56,10 @@ function response(name: string, args: string): ChatCompletionResponse {
 	}
 }
 
-function makeExecutor(registry: ToolRegistry, extra: Partial<ToolExecutorConfig> = {}) {
+function makeExecutor(registry: ToolDefinition[], extra: Partial<ToolExecutorConfig> = {}) {
 	return new ToolExecutor(
 		{
-			tools: registry,
+			tools: new ToolManager({ toolsets: [testToolset(...registry)], messages: () => [] }),
 			turnId: TURN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
@@ -119,10 +120,10 @@ async function draining<T>(pending: Promise<T>, body: () => Promise<void>): Prom
 	}
 }
 
-let registry: ToolRegistry
+let registry: ToolDefinition[]
 
 beforeEach(() => {
-	registry = new ToolRegistry()
+	registry = []
 	vi.useFakeTimers()
 })
 
@@ -137,7 +138,7 @@ describe('a retried tool call waits before trying again', () => {
 		// asks for the whole curve — the shipped `initialDelayMs` of 500.
 		vi.spyOn(Math, 'random').mockReturnValue(1)
 		const { tool, attempts } = flakyTool({ failures: 1, maxRetries: 1 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const done = makeExecutor(registry).executeBatch(CALL())
 
@@ -164,7 +165,7 @@ describe('a retried tool call waits before trying again', () => {
 		// a thundering herd this loop assembles itself.
 		vi.spyOn(Math, 'random').mockReturnValue(0.25)
 		const { tool, attempts } = flakyTool({ failures: 1, maxRetries: 1 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const done = makeExecutor(registry, {
 			toolRetryBackoff: { initialDelayMs: 1_000 },
@@ -184,7 +185,7 @@ describe('a retried tool call waits before trying again', () => {
 	it('doubles the wait each attempt, up to the ceiling', async () => {
 		vi.spyOn(Math, 'random').mockReturnValue(1)
 		const { tool, attempts } = flakyTool({ failures: 2, maxRetries: 2 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const done = makeExecutor(registry, {
 			toolRetryBackoff: { initialDelayMs: 1_000, maxDelayMs: 1_500 },
@@ -209,7 +210,7 @@ describe('a retried tool call waits before trying again', () => {
 		// have acquired a delay it never had. Nothing here advances the
 		// clock: if the executor slept, this call would not settle.
 		const { tool, attempts } = flakyTool({ failures: 1, maxRetries: 0 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const batch = await makeExecutor(registry).executeBatch(CALL())
 
@@ -225,7 +226,7 @@ describe('a retried tool call waits before trying again', () => {
 		vi.spyOn(Math, 'random').mockReturnValue(1)
 		const controller = new AbortController()
 		const { tool, attempts } = flakyTool({ failures: 1, maxRetries: 1 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const done = makeExecutor(registry, { abortSignal: controller.signal }).executeBatch(CALL())
 

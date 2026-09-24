@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
@@ -48,12 +49,12 @@ function response(name: string, args: string): ChatCompletionResponse {
 }
 
 function makeExecutor(
-	registry: ToolRegistry,
+	registry: ToolDefinition[],
 	extra: Partial<ToolExecutorConfig> = {},
 ): { executor: ToolExecutor } {
 	const executor = new ToolExecutor(
 		{
-			tools: registry,
+			tools: new ToolManager({ toolsets: [testToolset(...registry)], messages: () => [] }),
 			turnId: TURN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
@@ -101,10 +102,10 @@ function flakyTool(opts: { failures: number; retryable: boolean; maxRetries?: nu
 	return { tool, attempts }
 }
 
-let registry: ToolRegistry
+let registry: ToolDefinition[]
 
 beforeEach(() => {
-	registry = new ToolRegistry()
+	registry = []
 })
 
 describe('repairToolCall', () => {
@@ -117,7 +118,7 @@ describe('repairToolCall', () => {
 	} as unknown as ToolDefinition
 
 	beforeEach(() => {
-		registry.register(readFile)
+		registry.push(readFile)
 	})
 
 	it('fixes unparseable arguments instead of spending a round trip on it', async () => {
@@ -157,7 +158,7 @@ describe('repairToolCall', () => {
 				return { success: true, output: 'ok' }
 			},
 		}
-		registry.register(connectorMethod)
+		registry.push(connectorMethod)
 		const seen = vi.fn<RepairToolCall>(() => null)
 		const { executor } = makeExecutor(registry, { repairToolCall: seen })
 
@@ -237,7 +238,7 @@ describe('repairToolCall', () => {
 describe('per-tool retry budget', () => {
 	it('retries a retryable failure in-loop and reports the success', async () => {
 		const { tool, attempts } = flakyTool({ failures: 2, retryable: true, maxRetries: 3 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const { executor } = makeExecutor(registry)
 		const batch = await executor.executeBatch(response('fetch_page', '{"url":"x"}'))
@@ -251,7 +252,7 @@ describe('per-tool retry budget', () => {
 		// The SDK cannot know a tool is idempotent. Silently re-running a
 		// write or a payment is worse than never retrying.
 		const { tool, attempts } = flakyTool({ failures: 1, retryable: true })
-		registry.register(tool)
+		registry.push(tool)
 
 		const { executor } = makeExecutor(registry)
 		const batch = await executor.executeBatch(response('fetch_page', '{"url":"x"}'))
@@ -264,7 +265,7 @@ describe('per-tool retry budget', () => {
 		// A missing file does not appear on the second attempt; retrying
 		// only delays the error the model needs to see.
 		const { tool, attempts } = flakyTool({ failures: 5, retryable: false, maxRetries: 3 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const { executor } = makeExecutor(registry)
 		await executor.executeBatch(response('fetch_page', '{"url":"x"}'))
@@ -274,7 +275,7 @@ describe('per-tool retry budget', () => {
 
 	it('gives up after the budget and hands the error to the model', async () => {
 		const { tool, attempts } = flakyTool({ failures: 99, retryable: true, maxRetries: 2 })
-		registry.register(tool)
+		registry.push(tool)
 
 		const { executor } = makeExecutor(registry)
 		const batch = await executor.executeBatch(response('fetch_page', '{"url":"x"}'))
