@@ -494,6 +494,15 @@ export interface ToolCallOutcome {
 	isError?: boolean
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
+	/**
+	 * Names this call actually revealed (`ToolResult.reveals`, filtered to
+	 * deferred names inside any active allow-list — see the `reveals`
+	 * handling in `executeSingle`). Carried onto the persisted tool message
+	 * (`ToolMessage.revealedTools`) so `ToolManager.availability`
+	 * (`toolsets/manager.ts`) can derive activation from history instead of
+	 * a mutable map.
+	 */
+	revealedTools?: readonly string[]
 }
 
 export interface ToolExecutionBatch {
@@ -1155,7 +1164,7 @@ export class ToolExecutor {
 		// so the failure signal and any image block were structurally lost at
 		// the last possible moment.
 		const messages: Message[] = results.map((r) =>
-			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError),
+			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError, r.revealedTools),
 		)
 
 		return { messages, results, observations }
@@ -1955,6 +1964,17 @@ export class ToolExecutor {
 		// host that suspended a tool on purpose is not overridden by a tool
 		// result. The `allowedTools` check keeps a narrowed turn narrowed: a
 		// name outside it is never made callable no matter what a result claims.
+		//
+		// `revealedTools` below carries the SAME filtered set onto the
+		// persisted tool message, for `ToolManager.availability`
+		// (`toolsets/manager.ts`) to derive from post-compaction history. The
+		// `registry.activate()` call stays: this runtime still runs on
+		// `ToolRegistry`, and `ToolManager` has no caller yet (plan.md v3
+		// Wave B, item B1b wires it in) — writing the field now means the
+		// derivation already has real history to read once that switch
+		// happens, instead of every session before the switch looking
+		// unrevealed forever.
+		let revealedTools: readonly string[] | undefined
 		if (!this.config.abortSignal.aborted && result.reveals && result.reveals.length > 0) {
 			const revealed = result.reveals.filter(
 				(name) =>
@@ -1963,6 +1983,7 @@ export class ToolExecutor {
 			)
 			if (revealed.length > 0) {
 				this.config.tools.activate(revealed)
+				revealedTools = revealed
 			}
 		}
 
@@ -2043,6 +2064,7 @@ export class ToolExecutor {
 			...(result.handoff !== undefined && !this.config.abortSignal.aborted
 				? { handoff: result.handoff }
 				: {}),
+			...(revealedTools !== undefined ? { revealedTools } : {}),
 		}
 	}
 

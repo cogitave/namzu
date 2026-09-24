@@ -8,6 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
+import type { Message } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -73,6 +74,34 @@ async function runOpenDoor(
 	return { provider, status: run.status }
 }
 
+async function runOpenDoorWithMessages(
+	tools: ToolRegistry,
+	turns: readonly MockTurn[],
+): Promise<{ status: string; messages: readonly Message[] }> {
+	const provider = new MockLLMProvider({ turns: [...turns] })
+	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-reveals-'))
+	const run = await drainQuery({
+		provider,
+		tools,
+		turnConfig: {
+			model: 'mock-model',
+			timeoutMs: 5_000,
+			tokenBudget: 100_000,
+			maxIterations: 5,
+			maxResponseTokens: 256,
+		},
+		agentId: 'agent_test',
+		agentName: 'Test Agent',
+		messages: [createUserMessage('open the door and use what is inside')],
+		workingDirectory,
+		sessionId: '9d9c6b0e-6f1a-4e0e-9f2d-6b0c1a2d3e4f' as SessionId,
+		topicId: 'c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f' as TopicId,
+		projectId: 'f1e2d3c4-b5a6-4978-8877-665544332211' as ProjectId,
+		tenantId: 'a1b2c3d4-e5f6-4708-9900-aabbccddeeff' as TenantId,
+	})
+	return { status: run.status, messages: run.messages }
+}
+
 describe('ToolResult.reveals activates a curated capability', () => {
 	let workdirs: string[] = []
 
@@ -99,6 +128,25 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		// some later pass.
 		const secondRequestTools = provider.requests[1]?.tools?.map((t) => t.function.name) ?? []
 		expect(secondRequestTools).toContain('room_tool')
+	})
+
+	it('also persists the revealed name on the tool message, for ToolManager.availability to derive from', async () => {
+		const tools = new ToolRegistry()
+		registerOpenDoorTool(tools, ['room_tool'])
+		registerDeferredRoomTool(tools)
+
+		const { status, messages } = await runOpenDoorWithMessages(tools, [
+			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
+			{ toolCalls: [{ id: 'b', name: 'room_tool', args: {} }] },
+			{ text: 'done' },
+		])
+
+		expect(status).toBe('completed')
+		const openDoorResult = messages.find((m) => m.role === 'tool' && m.toolCallId === 'a')
+		expect(openDoorResult?.role).toBe('tool')
+		expect(openDoorResult && 'revealedTools' in openDoorResult ? openDoorResult.revealedTools : undefined).toEqual([
+			'room_tool',
+		])
 	})
 
 	it('does not activate a revealed name outside a narrowed allowedTools', async () => {

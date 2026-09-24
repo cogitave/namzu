@@ -12,9 +12,9 @@ status: stable
 A `Toolset` is a value, not a registration: `toolset()`, every wrapper in
 this module, and `combineToolsets` each build one without touching any
 shared state. Nothing "is registered" until a runtime component — today
-`ToolRegistry`, later the `ToolManager` a separate plan describes — is
-handed one. Building a toolset never runs a tool and never talks to a
-server; it only describes where tools come from and what they are.
+`ToolRegistry` or the newer `ToolManager` (below) — is handed one. Building
+a toolset never runs a tool and never talks to a server; it only describes
+where tools come from and what they are.
 
 ## The shape
 
@@ -130,13 +130,95 @@ those subscriptions, so a change three layers down still reaches a
 listener on the outermost combined toolset, and cleanup at that outer
 layer reaches all the way in.
 
+## `ToolManager`: the runtime-owned resolver of toolsets
+
+`ToolManager` (`packages/sdk/src/toolsets/manager.ts`) is built once from a
+fixed list of toolsets — `new ToolManager({ toolsets, resultGuardrails?,
+tierConfig?, messages })`, where `messages` is an accessor for the turn's
+own message history — and resolves them in toolset order, then tool order,
+the same rule `combineToolsets` follows. A name two toolsets both contribute
+throws `ToolsetConflictError` at construction, naming both sources.
+
+Unlike `ToolRegistry`, a `ToolManager` never mutates its own membership on
+its own: a live toolset's `onChange` only marks the manager dirty, and a
+caller adopts the change by calling `refresh()` — at an iteration boundary
+it chooses, never mid-call. `refresh()` returns `undefined` when nothing
+was signalled (the common case, so refreshing every iteration boundary
+costs nothing when idle), or a `ToolsetChangeReport`:
+
+- `added` — a name only one currently-offered toolset contributes, that
+  nobody served before.
+- `removed` — a name whose owning toolset stopped contributing it, with no
+  other toolset picking it up.
+- `drifted` — a name its ORIGINAL owning toolset still contributes, but as
+  a different `ToolDefinition` object than before. The manager holds the
+  previously admitted object rather than adopting the new one, so a live
+  toolset's own internal change never busts the `toolWireSchema` cache
+  (keyed by `inputSchema` object identity) or invalidates a preparation
+  already in flight for that name.
+- `refused` — a newcomer that collides with a name its incumbent still
+  serves. The incumbent wins regardless of toolset order; the newcomer
+  never reaches the manager.
+
+### Availability is derived, not stored
+
+`ToolManager.availability(name)` returns `'active'` or `'deferred'` —
+there is no `'suspended'` state and no mutable map. A tool is `'deferred'`
+iff its owning toolset declared `'deferred'` (`deferred(toolset)`, above)
+AND no tool message in the turn's history, after the last compaction
+summary, has revealed it. "After the last compaction summary" is namzu's
+`post_compaction_window`: `compaction/summary.ts`'s `isCompactionMessage`
+marks the one message a compacted history carries (a system message whose
+content starts with `COMPACTION_HEADER`); everything after it — or the
+whole history, if compaction never ran — is the window `availability`
+scans.
+
+A tool message reveals a name through `ToolMessage.revealedTools` — the
+persisted form of `ToolResult.reveals` (see [Tool result reveals a
+capability](tool-discovery.md)), written by the executor onto the tool
+message it builds from that result, exactly like `isError` or any other
+message field. Nothing is stored separately: resuming a session, forking
+it, or replaying it for an eval reproduces the same reveal set for free as
+long as the history up to the last compaction is intact, because the set is
+a pure read of that history rather than a registry instance's private
+state.
+
+`toLLMTools`, `toPromptSection`, `toTierGuidance` and `searchDeferred(query,
+limit?)` mirror `ToolRegistry`'s equivalents, reading `availability` instead
+of a stored map. `sourceOf(name)` returns the owning toolset's
+`ToolSourceRef` — the source `ToolDefinition.provenance` is retired in
+favour of, once a later item finishes that wiring. `view()` returns the
+narrow, read-only `{ has, availability, searchDeferred }` slice a running
+tool's own `ToolContext` is given — the manager equivalent of today's
+`ToolRegistryRef`.
+
+### The execution pipeline
+
+`prepareExecution` / `executePrepared` / `execute` are copied from
+`ToolRegistry`'s (`registry/tool/execute.ts`) pipeline: the same
+decode-once preparation with a frozen review projection and a retained
+execution value in a `WeakMap`, the same ordered checks (availability →
+`allowedTools` → plan-mode read-only gate → execute + guardrail screening,
+with the halt/fail distinction and the explicit parent span for
+async-generator tracing), and the same messages. The only differences are
+reading `availability` from the derivation above instead of a stored map,
+and reading the source from `sourceOf(name)` instead of
+`ToolDefinition.provenance` for the plan-mode read-only gate and the result
+screen's `provenance` context.
+
+`ToolManager` is exported as an advanced API; `ToolRegistry` is unaffected
+by this and keeps its current behaviour. Wiring `query()` and the rest of
+the runtime onto `ToolManager` — and removing `ToolRegistry` — is a
+separate, later change: see [Tool discovery](tool-discovery.md) for how
+`ToolRegistry`'s activation currently works in production.
+
 ## Not yet built
 
-`ToolRegistry` (`packages/sdk/src/registry/tool/execute.ts`) does not yet
-take a `Toolset`; a toolset built with this module is a value a caller
-holds until a later item wires it in. `requiresApproval` (a predicate of
-the tool's input, set by `requireApproval` as always-`true`) and
-`metadata` on `ToolDefinition` are enforced and matched outside this
-module — see [The review policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
+`requiresApproval` (a predicate of the tool's input, set by
+`requireApproval` as always-`true`) and `metadata` on `ToolDefinition` are
+enforced and matched outside this module — see [The review
+policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
 and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
-`filtered`'s `{ metadata }` selector defers to.
+`filtered`'s `{ metadata }` selector defers to. `query()`, the CLI's
+session and every other current caller of `ToolRegistryContract` still
+take a `ToolRegistry`, not a `ToolManager`.

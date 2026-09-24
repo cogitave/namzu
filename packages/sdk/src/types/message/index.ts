@@ -460,6 +460,19 @@ export interface ToolMessage extends BaseMessage {
 	 * fired and namzu relied on prose formatting to convey failure.
 	 */
 	isError?: boolean
+	/**
+	 * Names this result made callable for the rest of the turn — the
+	 * persisted form of {@link ToolResult.reveals} (`types/tool/index.ts`),
+	 * written by the executor onto the message it built from that result.
+	 *
+	 * This is what `ToolManager.availability` (`toolsets/manager.ts`) scans
+	 * the post-compaction history for, instead of a mutable activation map:
+	 * a deferred tool is active once a tool message revealing it appears
+	 * after the last compaction summary. Persisted like any other message
+	 * field — a session log or checkpoint that already carries this message
+	 * carries this too, with nothing extra to serialize.
+	 */
+	revealedTools?: readonly string[]
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
@@ -539,12 +552,14 @@ export function createToolMessage(
 	content: ToolResultContent,
 	toolCallId: string,
 	isError?: boolean,
+	revealedTools?: readonly string[],
 ): ToolMessage {
 	return {
 		role: 'tool',
 		content,
 		toolCallId,
 		...(isError !== undefined ? { isError } : {}),
+		...(revealedTools && revealedTools.length > 0 ? { revealedTools } : {}),
 		timestamp: Date.now(),
 	}
 }
