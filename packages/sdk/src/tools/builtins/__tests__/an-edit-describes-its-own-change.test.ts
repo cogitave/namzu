@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import { EditTool } from '../edit.js'
 
 /**
@@ -14,7 +15,7 @@ import { EditTool } from '../edit.js'
  */
 
 function presenter() {
-	const registry = testToolset(EditTool)
+	const registry = new ToolManager({ toolsets: [testToolset(EditTool)], messages: () => [] })
 	return createToolPresenter(registry)
 }
 

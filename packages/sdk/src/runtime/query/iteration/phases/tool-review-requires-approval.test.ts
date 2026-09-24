@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { AuthorizationGate } from '../../../../authorization/gate.js'
 import { SkillGrantSet } from '../../../../authorization/skill-grant.js'
 import { ActivityStore } from '../../../../store/activity/memory.js'
+import type { ToolManager } from '../../../../toolsets/manager.js'
 import type { AuthorizationGateConfig } from '../../../../types/authorization/index.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../../../../types/hitl/index.js'
 import type { TurnId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
-import type { ToolDefinition, ToolRegistryContract } from '../../../../types/tool/index.js'
+import type { ToolDefinition } from '../../../../types/tool/index.js'
 import { generateSessionId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { ToolExecutor } from '../../executor.js'
@@ -95,10 +96,8 @@ function turn(opts: {
 		has: vi.fn((name: string) => name in DEFINITIONS),
 		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => Object.keys(DEFINITIONS)),
-		getAvailability: vi.fn(() => 'active'),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 
 	const toolExecutor = new ToolExecutor(
 		{
@@ -175,7 +174,10 @@ describe('an `allow` rule cannot let a requiresApproval call skip review', () =>
 		const handler = createReviewHandler({
 			mode: 'prompt',
 			prompt,
-			registry: { get: (name: string) => DEFINITIONS[name] },
+			registry: {
+				get: (name: string) => DEFINITIONS[name],
+				sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
+			},
 		})
 		const t = turn({
 			gate: gateConfig({ rules: [{ type: 'allow_by_name', toolNames: ['pay'] }] }),
@@ -214,7 +216,10 @@ describe('nothing recorded earlier in the turn stands in for the person requires
 		const handler = createReviewHandler({
 			mode: 'prompt',
 			prompt,
-			registry: { get: (name: string) => DEFINITIONS[name] },
+			registry: {
+				get: (name: string) => DEFINITIONS[name],
+				sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
+			},
 		})
 		const grants = new SkillGrantSet()
 		grants.grant('money-skill', { entries: [{ tool: 'pay', declared: 'pay' }], ignored: [] })

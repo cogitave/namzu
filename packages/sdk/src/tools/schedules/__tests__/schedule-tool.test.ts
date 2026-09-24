@@ -390,7 +390,10 @@ describe('session_loop tool', () => {
 	it('create is reviewed like any other call; list and delete are not', () => {
 		const [t] = buildSessionLoopTools(loopHost())
 		if (!t) throw new Error('no tool')
-		const registry = { get: (name: string) => (name === t.name ? t : undefined) }
+		const registry = {
+			get: (name: string) => (name === t.name ? t : undefined),
+			sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
+		}
 		expect(isReviewExempt(registry, 'session_loop', { action: 'create' })).toBe(false)
 		expect(isReviewExempt(registry, 'session_loop', { action: 'list' })).toBe(true)
 	})

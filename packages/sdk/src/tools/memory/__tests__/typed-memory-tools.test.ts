@@ -34,7 +34,7 @@ async function fixture() {
 	roots.push(directory)
 	const store = new MarkdownMemoryStore({ directory })
 	const registry = new ToolManager({
-		toolsets: [testToolset(buildMemoryTools(store))],
+		toolsets: [testToolset(...buildMemoryTools(store))],
 		messages: () => [],
 	})
 	return { store, registry }

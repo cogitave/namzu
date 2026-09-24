@@ -292,7 +292,7 @@ describe('a host command never becomes a model-visible tool', () => {
 		const tools = testToolset()
 		const commands = registryWith(kernelHostCommands({ allowedAgentIds: ['a'] }))
 
-		const toolNames = tools.listNames()
+		const toolNames = tools.tools().map((tool) => tool.name)
 
 		for (const command of commands.describe()) {
 			expect(toolNames).not.toContain(command.name)

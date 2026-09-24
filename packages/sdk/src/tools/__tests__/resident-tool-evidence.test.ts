@@ -9,7 +9,7 @@ import { buildResidentToolEvidenceTools } from '../resident-tool-evidence.js'
 it('rejects model-selected authority and malformed pointers before resolving the host', async () => {
 	const resolve = vi.fn<() => ResidentToolEvidenceSource>()
 	const registry = new ToolManager({
-		toolsets: [testToolset(buildResidentToolEvidenceTools(resolve))],
+		toolsets: [testToolset(...buildResidentToolEvidenceTools(resolve))],
 		messages: () => [],
 	})
 	const context: ToolContext = {
