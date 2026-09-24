@@ -515,6 +515,11 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		if (summary) return summary
 	}
 
+	if (name === 'computer_use' && isRecord(input)) {
+		const summary = summarizeComputerUse(input)
+		if (summary) return summary
+	}
+
 	if (FORMATTED_TOOLS.has(name)) {
 		// A shape this file formats, in a form it does not know: the formatter
 		// is stale. Exact-first, so nobody reads a projection that merely
@@ -576,10 +581,144 @@ function summarizeBrowserOpen(input: Record<string, unknown>): ReadableCallSumma
 	}
 }
 
+/**
+ * A desktop action, or a batch of them, one numbered line per action in the
+ * order they will run: `3 desktop actions, in order` over `1. Click left at
+ * (812, 403)`, `2. Type "Bahadır Arda"`, `3. Press ENTER`. Text to be typed is
+ * shown whole — it is what lands in whichever window has focus — and the
+ * screenshot the coordinates belong to is named, since they are its pixels,
+ * not the screen's. An action or field this does not know returns null and
+ * the call opens exact-first.
+ */
+function summarizeComputerUse(input: Record<string, unknown>): ReadableCallSummary | null {
+	if (input.screenshot_id !== undefined && typeof input.screenshot_id !== 'string') return null
+	const space =
+		typeof input.screenshot_id === 'string'
+			? `Coordinates: pixels of screenshot ${input.screenshot_id}`
+			: 'Coordinates: pixels of the latest screenshot'
+	if (input.type === 'batch') {
+		if (!Object.keys(input).every((key) => ['type', 'actions', 'screenshot_id'].includes(key)))
+			return null
+		if (!Array.isArray(input.actions) || input.actions.length === 0) return null
+		const lines: string[] = []
+		let coordinates = false
+		for (const [index, item] of input.actions.entries()) {
+			if (!isRecord(item) || item.type === 'batch' || Object.hasOwn(item, 'screenshot_id'))
+				return null
+			const action = computerUseAction(item)
+			if (!action) return null
+			coordinates ||= action.coordinates
+			lines.push(`${index + 1}. ${action.line}`)
+		}
+		const count = input.actions.length
+		return {
+			lines: [
+				`${count} desktop action${count === 1 ? '' : 's'}, in order; stops at the first that fails`,
+				...lines,
+				...(coordinates ? [space] : []),
+			],
+			complete: true,
+		}
+	}
+	if (input.actions !== undefined) return null
+	const action = computerUseAction(input, ['screenshot_id'])
+	if (!action) return null
+	return { lines: [action.line, ...(action.coordinates ? [space] : [])], complete: true }
+}
+
+function computerUseAction(
+	item: Record<string, unknown>,
+	extra: readonly string[] = [],
+): { readonly line: string; readonly coordinates: boolean } | null {
+	const point = (value: unknown): string | null =>
+		isRecord(value) &&
+		Object.keys(value).every((key) => key === 'x' || key === 'y') &&
+		Number.isInteger(value.x) &&
+		Number.isInteger(value.y)
+			? `(${value.x as number}, ${value.y as number})`
+			: null
+	const fields = (...names: string[]): boolean =>
+		Object.keys(item).every((key) => key === 'type' || names.includes(key) || extra.includes(key))
+	const text = (value: unknown): value is string => typeof value === 'string'
+	switch (item.type) {
+		case 'screenshot':
+			return fields() ? { line: 'Take a screenshot', coordinates: false } : null
+		case 'cursor_position':
+			return fields() ? { line: 'Read the cursor position', coordinates: false } : null
+		case 'list_windows':
+			return fields() ? { line: 'List the open windows', coordinates: false } : null
+		case 'wait':
+			return fields('ms') && Number.isInteger(item.ms)
+				? { line: `Wait ${item.ms as number} ms`, coordinates: false }
+				: null
+		case 'focus_window':
+			return fields('window_id') && text(item.window_id)
+				? {
+						line: `Bring window ${JSON.stringify(item.window_id)} to the front`,
+						coordinates: false,
+					}
+				: null
+		case 'type_text':
+			return fields('text') && text(item.text)
+				? { line: `Type ${JSON.stringify(item.text)}`, coordinates: false }
+				: null
+		case 'key':
+			return fields('keys') && text(item.keys)
+				? { line: `Press ${JSON.stringify(item.keys)}`, coordinates: false }
+				: null
+		case 'mouse_move': {
+			const to = point(item.to)
+			return fields('to') && to ? { line: `Move the pointer to ${to}`, coordinates: true } : null
+		}
+		case 'mouse_click': {
+			const at = point(item.at)
+			return fields('at', 'button') && at && text(item.button)
+				? { line: `Click ${item.button} at ${at}`, coordinates: true }
+				: null
+		}
+		case 'mouse_drag': {
+			const from = point(item.from)
+			const to = point(item.to)
+			return fields('from', 'to', 'button') && from && to && text(item.button)
+				? { line: `Drag ${item.button} from ${from} to ${to}`, coordinates: true }
+				: null
+		}
+		case 'scroll': {
+			const at = point(item.at)
+			return fields('at', 'direction', 'amount') &&
+				at &&
+				text(item.direction) &&
+				Number.isInteger(item.amount)
+				? { line: `Scroll ${item.direction} ${item.amount as number} at ${at}`, coordinates: true }
+				: null
+		}
+		case 'zoom': {
+			const region = item.region
+			return fields('region') &&
+				isRecord(region) &&
+				Object.keys(region).every((key) => ['x', 'y', 'width', 'height'].includes(key)) &&
+				['x', 'y', 'width', 'height'].every((key) => Number.isInteger(region[key]))
+				? {
+						line: `Zoom into ${region.width as number}x${region.height as number} at (${region.x as number}, ${region.y as number})`,
+						coordinates: true,
+					}
+				: null
+		}
+		default:
+			return null
+	}
+}
+
 const PLAIN_TOOL_NAME = /^[\w.:-]+$/u
 
 /** The tools with a formatter above; an evolved shape of one opens exact-first. */
-const FORMATTED_TOOLS: ReadonlySet<string> = new Set(['bash', 'edit', 'write', 'Agent'])
+const FORMATTED_TOOLS: ReadonlySet<string> = new Set([
+	'bash',
+	'edit',
+	'write',
+	'Agent',
+	'computer_use',
+])
 
 /** Labels group only the calls in this approval; they never invent execution phases. */
 function compactAgentPlan(calls: readonly { input: unknown; isDestructive: boolean }[]): string {

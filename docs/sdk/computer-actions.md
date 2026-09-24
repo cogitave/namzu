@@ -164,6 +164,19 @@ view. `high` is accepted by every Responses model and keeps an image within
 2048 px and 2 500 patches at its own size; `original` would too, but only
 gpt-5.4 and later accept it. User attachments keep `auto`.
 
+## In the namzu CLI
+
+The interactive session checks its provider before it starts the desktop
+host. With a provider that cannot carry tool-result images, `computer_use` is
+mounted unavailable, the host is never initialised, and the session notices
+say `Computer use is unavailable in this session: …`. The check reads the
+first provider of the chain.
+
+A reviewed `computer_use` call lists its actions one per line, in order, with
+the text to be typed shown whole and the screenshot the coordinates belong
+to; an action or field the formatter does not know opens the exact view
+first.
+
 ## Host action declarations
 
 `ComputerUseCapabilities.supportedActions` optionally declares an exact action

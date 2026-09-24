@@ -120,6 +120,7 @@ import {
 	buildSessionGoalTools,
 	compactNow,
 	compactSession,
+	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
 	createFileReadTracker,
@@ -2338,7 +2339,22 @@ export async function createAgentSession(
 	const computerUsePackage = capabilities.find((probe) => probe.specifier === '@namzu/computer-use')
 	let computerUseHost: SubprocessComputerUseHost | undefined
 	let computerUseError: Error | undefined
-	if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
+	// The model sees the desktop only as an image in a tool result. A driver
+	// that declares it cannot carry one would hand the model a line of text
+	// for every screenshot while each click reported success — the model
+	// acting on a screen it never saw. Mounted as a diagnostic that says so,
+	// without starting the desktop host at all.
+	const computerUseProviderRefusal =
+		options.enableComputerUse === true && computerUsePackage?.state === 'present'
+			? computerUseUnavailableReason(provider)
+			: undefined
+	if (computerUseProviderRefusal !== undefined) {
+		registry.register(
+			createComputerUseTool(new SubprocessComputerUseHost(), {
+				unavailableReason: computerUseProviderRefusal,
+			}),
+		)
+	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost()
 		try {
 			await candidate.initialize()
@@ -3615,6 +3631,9 @@ export async function createAgentSession(
 			...(passthroughNotice ? [passthroughNotice] : []),
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
+				: []),
+			...(computerUseProviderRefusal !== undefined
+				? [`Computer use is unavailable in this session: ${computerUseProviderRefusal}`]
 				: []),
 			...(browserUnavailable !== undefined
 				? [`The browser is unavailable: ${browserUnavailable}`]

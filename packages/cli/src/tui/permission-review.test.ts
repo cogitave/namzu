@@ -350,6 +350,70 @@ describe('buildPermissionSummary', () => {
 	})
 })
 
+describe('buildPermissionSummary — desktop actions', () => {
+	const summarize = (input: unknown) => {
+		const review = buildPermissionReview([
+			{ id: 'call_1', name: 'computer_use', input, isDestructive: true },
+		])
+		expect(review.ok).toBe(true)
+		if (!review.ok) throw new Error('unreachable')
+		return buildPermissionSummary(review.text)
+	}
+
+	it('lists every action of a batch in the order it runs, with the text typed in full', () => {
+		const summary = summarize({
+			type: 'batch',
+			actions: [
+				{ type: 'focus_window', window_id: '0x1a2b' },
+				{ type: 'mouse_click', at: { x: 812, y: 403 }, button: 'left' },
+				{ type: 'type_text', text: 'Bahadır Arda\nsecond line' },
+				{ type: 'key', keys: 'ENTER' },
+				{ type: 'wait', ms: 500 },
+			],
+		})
+		expect(summary.complete).toBe(true)
+		expect(summary.text.split('\n')).toEqual([
+			'1. computer_use · destructive',
+			'   5 desktop actions, in order; stops at the first that fails',
+			'   1. Bring window "0x1a2b" to the front',
+			'   2. Click left at (812, 403)',
+			'   3. Type "Bahadır Arda\\nsecond line"',
+			'   4. Press "ENTER"',
+			'   5. Wait 500 ms',
+			'   Coordinates: pixels of the latest screenshot',
+		])
+	})
+
+	it('names the screenshot a single action is aimed at', () => {
+		const summary = summarize({
+			type: 'mouse_drag',
+			from: { x: 1, y: 2 },
+			to: { x: 3, y: 4 },
+			button: 'left',
+			screenshot_id: 's4',
+		})
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain(
+			'   Drag left from (1, 2) to (3, 4)\n   Coordinates: pixels of screenshot s4',
+		)
+		expect(summarize({ type: 'key', keys: 'CTRL+R' }).text).not.toContain('Coordinates')
+	})
+
+	it('opens exact-first for a desktop action or field it does not know', () => {
+		for (const input of [
+			{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'left', hidden: true },
+			{ type: 'teleport' },
+			{
+				type: 'batch',
+				actions: [{ type: 'mouse_click', at: { x: 1, y: 2, z: 3 }, button: 'left' }],
+			},
+			{ type: 'batch', actions: [{ type: 'batch', actions: [] }] },
+			{ type: 'batch', actions: [] },
+		])
+			expect(summarize(input).complete, JSON.stringify(input)).toBe(false)
+	})
+})
+
 describe('permissionReviewRows', () => {
 	it('pages one long JSON string by physical terminal rows so its suffix stays reachable', () => {
 		const suffix = 'UNIQUE_DESTRUCTIVE_SUFFIX'
