@@ -276,11 +276,12 @@ describe('nested dispatch authority', () => {
 		})
 
 		try {
-			const startedAt = Date.now()
 			await drainQuery(params(provider, tools), (event) => {
 				events.push(event)
 			})
-			expect(Date.now() - startedAt).toBeLessThan(500)
+			// The child was ended by its parent settling, not by its own 2 s
+			// timeout: the abort reason says which, so no wall-clock bound is
+			// needed (one flaked on a loaded CI runner).
 			expect(childSignal?.aborted).toBe(true)
 			expect((childSignal?.reason as Error | undefined)?.message).toMatch(
 				/fire_and_forget.*invocation has settled/i,
