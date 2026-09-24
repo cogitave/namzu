@@ -34,6 +34,7 @@ import {
 	resolveThinkingBody,
 	resolveThinkingCapability,
 } from './thinking-capability.js'
+import { assertForcedToolChoiceAccepted } from './tool-choice.js'
 import type { AnthropicConfig } from './types.js'
 
 // Floor for `max_tokens` when neither the request nor the provider
@@ -1028,6 +1029,12 @@ export class AnthropicProvider implements LLMProvider {
 		const capability = resolveThinkingCapability(model)
 		const thinkingBody = resolveThinkingBody(params.thinking, capability)
 		if (thinkingBody) body.thinking = thinkingBody
+		// Checked against the thinking body actually going out, and only when
+		// a tool_choice does: some models refuse a forced choice outright, and
+		// manual thinking refuses it on every model that has it.
+		if (body.tool_choice !== undefined) {
+			assertForcedToolChoiceAccepted(params.toolChoice, thinkingBody, model)
+		}
 
 		// A sibling of `thinking`, not a field inside it — and gated on the
 		// model, since only some accept it at all.

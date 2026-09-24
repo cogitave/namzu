@@ -15,6 +15,7 @@ import type { NamzuCliConfig } from '../../config/schema.js'
 import { JobRequestError, buildJob, confirmJob, previewLines } from '../../schedule/build.js'
 import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
+import { callsCount } from '../../schedule/fire/calls.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy, isPresetName } from '../../schedule/policy.js'
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
@@ -94,7 +95,7 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 							? ' ● running'
 							: ''
 		lines.push(
-			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			const command = resumeCommand(job, state.activeRun.sessionId)

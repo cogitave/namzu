@@ -1,16 +1,49 @@
 ---
 type: Reference
 title: Skills and allowed-tools
-description: How the skill tool loads a SKILL.md, and what its allowed-tools grants for the rest of the turn.
+description: How the skill tool loads a SKILL.md, which directory it tells the model the skill's files are in, and what its allowed-tools grants for the rest of the turn.
 resource: packages/sdk/src/authorization/skill-grant.ts
 tags: [sdk, skills, permissions, hitl]
 status: stable
-generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 ---
 
 # Skills and allowed-tools
 
 A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description`, optional `allowed-tools`, `invocation`, `license`, `compatibility`, `metadata`) and a markdown body. The system prompt lists the skills the model may use. The body reaches the model when it calls the `skill` tool (`SkillTool`, `packages/sdk/src/tools/builtins/skill.ts`) with the skill's listed name. A host registers that tool next to a `SkillRegistry` and passes the registry to `query()` as `skillRegistry`. The tool presents a call as `Read skill <name>` (`List skills` without a name) and hides a successful result (`presentResult` with `visibility: 'hidden'`), so a host draws one row for it and does not print the body, which is written for the model.
+
+# The skill's directory
+
+A skill's body often names files beside its `SKILL.md` (`scripts/render.sh`, `references/api.md`, `assets/`). The registry reads the skill from a directory on the host, and that path is not always one the model's tools can open: under a sandbox or a remote workspace they see a different filesystem. Only the host knows what they can reach, so the host says it, per skill:
+
+```ts
+import { ToolRegistry, createSkillTool } from '@namzu/sdk'
+
+// This host mounts its skills directory at /skills inside the sandbox.
+const HOST_SKILLS = '/srv/agent/skills/'
+
+const tools = new ToolRegistry()
+tools.register(
+  createSkillTool({
+    // `skill.directory` is where the host reads the skill; `context.sandbox`
+    // is the turn's sandbox, absent when the tools run on the host.
+    resolveModelDirectory: (skill, context) => {
+      if (!context.sandbox) return skill.directory
+      if (!skill.directory?.startsWith(HOST_SKILLS)) return undefined
+      return `/skills/${skill.directory.slice(HOST_SKILLS.length)}`
+    },
+  }),
+)
+```
+
+`resolveModelDirectory(skill, context)` (`SkillDirectoryResolver`) is called with `{ name, directory }` (`SkillDirectoryRequest`: the registered name and the host's directory, `undefined` when the registry does not say) and `{ sandbox? }` (`SkillDirectoryContext`), and returns the directory the model can open, `undefined` (or `''`) when it cannot reach one, or a promise of either. With it:
+
+- **A load** opens with `[Skill directory: <dir>. Relative paths in these instructions, such as scripts/, references/ or assets/, are inside it.]`, on the first page only, and the result's `data.directory` is `<dir>`. When the resolver answers `undefined` it opens instead with a line saying the skill's directory is not reachable from the model's tools in this session, that a file the instructions name by a relative path cannot be opened here, and not to search the filesystem for it.
+- **The listing** (`skill` called without a name) gives each skill's `directory` when the resolver returns one, and never the registry's `location`, which is the host's path.
+- **`${CLAUDE_SKILL_DIR}`** in `allowed-tools` expands to the resolver's directory, because a command line the model writes names the path it was given; when the resolver answers `undefined` such an entry is ignored ("the skill's directory is not known in this turn").
+- The skill is still **loaded** from the registry's own path. The answer is bound into the continuation cursor, so a directory that changes between pages makes the cursor stale.
+
+Without the option (`SkillTool` is `createSkillTool()`), nothing changes: a load names no directory, the listing carries the registry's `location`, and `${CLAUDE_SKILL_DIR}` expands to the registry's directory. A `SkillRegistryRef.catalog()` entry may carry `directory`, the host's directory the resolver is asked about; `SkillRegistry.catalog()` always sets it to `Skill.dirPath`. The system prompt's manifest still shows `<location>` as the registry's path.
 
 # What allowed-tools means
 
@@ -76,7 +109,7 @@ Any other name is looked up as written, without regard to case, so `mcp` tool na
 
 **Patterns.** `Bash(<pattern>)` grants only command lines that match. The glob is the one the CLI's `[permissions]` table uses (`permissionPatternToRegExpSource`): `*` is any run of characters and `?` is one character, and a trailing ` *` also matches the bare command. `Bash(git status *)` therefore covers `git status` and `git status -s` but not `git statusx` or `git push`. A line is read as the commands it runs ([How command lines are read](command-lines.md)), and every one of them must match, so `git status && git push` is not covered. A line the reader calls opaque, such as one with a command substitution, `eval` or a syntax error, is not covered either. ANSI-C quotes are decoded, so `git status $'-s'` is `git status -s` and is covered, and a here-document body is data, so `cat <<EOF` is read as `cat`. A pattern also never covers a line that redirects output into a file (`>`, `>>`, `>|`, `&>`, `&>>`, `<>`, `>&file`): `Bash(git status *)` covers `git status -s` and does not cover `git status > ~/.bashrc`, `git status -s >> /etc/passwd` or `git status > src/index.ts`. A pattern names a command, and where its output lands is not part of that command. The operator's `[permissions]` allow patterns come from the operator and do not make this exception, while a skill comes from the repository. `/dev/null` (`2>/dev/null`) and descriptor duplication (`2>&1`, `>&2`) write nothing and stay covered. A target that expands at runtime, such as `> "$OUT"` or `> ~/x`, counts as a write, and so does a line that does not parse. The legacy form `Bash(npm run test:*)` means `npm run test *`. `Bash(*)` and `Bash` both grant the whole tool.
 
-`${CLAUDE_SKILL_DIR}` and `${NAMZU_SKILL_DIR}` in a pattern expand to the skill's directory, for example `Bash(${CLAUDE_SKILL_DIR}/scripts/render.sh *)`. If the registry does not say where the skill lives, the entry is ignored.
+`${CLAUDE_SKILL_DIR}` and `${NAMZU_SKILL_DIR}` in a pattern expand to the skill's directory, for example `Bash(${CLAUDE_SKILL_DIR}/scripts/render.sh *)`: the directory the host's `resolveModelDirectory` gives when the tool has one ([The skill's directory](#the-skills-directory)), otherwise the registry's. If there is none, the entry is ignored.
 
 A pattern is honoured only for a tool that declares a command argument (`commandArgument`, which `bash` does). `Read(./src/**)`, `WebFetch(domain:…)` and similar entries are ignored with a reason rather than approximated, because the only safe approximation of a permission is a narrower one.
 
@@ -88,6 +121,7 @@ The `skill` tool appends one notice to the body. It lists what is pre-approved (
 
 | Symbol | Role |
 | --- | --- |
+| `createSkillTool({ resolveModelDirectory })` | Build the `skill` tool with the host's answer to which directory the model can open for each skill (`SkillToolOptions`, `SkillDirectoryResolver`, `SkillDirectoryRequest`, `SkillDirectoryContext`). `SkillTool` is `createSkillTool()`. |
 | `parseAllowedTools(value)` | Split the frontmatter value into entries. |
 | `compileSkillGrant(entries, { resolveTool, skillDirectory })` | Resolve names and compile patterns against a registry. Returns `{ entries, ignored }`. |
 | `SkillGrantSet` | The per-turn set: `grant(skill, compiled)`, `coveringSkill(call, toolDef)`, `clear()`, `list()`, `size`. |

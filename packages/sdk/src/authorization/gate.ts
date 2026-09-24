@@ -2,6 +2,7 @@ import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import { GENAI } from '../constants/telemetry/index.js'
 import type {
 	AuthorizationGateConfig,
+	AuthorizationPredicateCall,
 	AuthorizationRule,
 	GateEvaluationResult,
 } from '../types/authorization/index.js'
@@ -38,8 +39,11 @@ export interface ToolCallContext {
  * `git push*`, it can stop, say so, and do something else. A refusal that
  * cannot be reasoned about produces thrashing; one that can produces a route
  * around it.
+ *
+ * `call`, when given, is the call the rule decided: a `predicate` rule with a
+ * `describe` says what in it matched, instead of its fixed `description`.
  */
-export function describeRule(rule: AuthorizationRule): string {
+export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredicateCall): string {
 	switch (rule.type) {
 		case 'deny_dangerous_patterns':
 			return 'this matches a pattern the operator refuses outright; rewording it will not help'
@@ -76,8 +80,16 @@ export function describeRule(rule: AuthorizationRule): string {
 						: 'allowed'
 			return `${verb} by a pattern rule matching the ${where}: ${rule.pattern}`
 		}
-		case 'predicate':
-			return rule.description
+		case 'predicate': {
+			if (call === undefined || rule.describe === undefined) return rule.description
+			// A reason that cannot be computed is no reason to lose the
+			// refusal: the fixed one still says what the rule is.
+			try {
+				return rule.describe(call) || rule.description
+			} catch {
+				return rule.description
+			}
+		}
 		default: {
 			const exhaustive: never = rule
 			return `matched an unrecognised rule: ${JSON.stringify(exhaustive)}`
@@ -232,7 +244,16 @@ export class AuthorizationGate {
 				const result: GateEvaluationResult = {
 					decision,
 					matchedRule: rule,
-					reason: describeRule(rule),
+					reason:
+						rule.type === 'predicate'
+							? describeRule(rule, {
+									toolName: ctx.toolName,
+									toolInput: ctx.toolInput,
+									toolDef: ctx.toolDef,
+									// What `evaluateRule` told `decide`.
+									commandDialect: ctx.commandDialect ?? 'sh',
+								})
+							: describeRule(rule),
 				}
 
 				if (this.logDecisions) {

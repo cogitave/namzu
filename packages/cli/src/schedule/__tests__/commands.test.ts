@@ -89,6 +89,46 @@ describe('reading and changing jobs', () => {
 		})
 	})
 
+	it('list, show and history say when a completed run had calls refused', async () => {
+		const job = confirmedJob(sb)
+		const { appendHistory } = await import('../store/history.js')
+		const { writeState, readState } = await import('../store/state.js')
+		const refusedCalls = {
+			count: 1,
+			first: { tool: 'bash', reason: 'the scheduled-run floor refused this call: x' },
+		}
+		appendHistory(sb.paths, job.id, {
+			v: 1,
+			kind: 'run',
+			at: '2026-09-24T08:03:15.000Z',
+			runId: 'r1',
+			key: '1',
+			trigger: 'scheduled',
+			startedAt: '2026-09-24T08:03:00.000Z',
+			endedAt: '2026-09-24T08:03:15.000Z',
+			status: 'completed',
+			exitCode: 0,
+			refusedCalls,
+		})
+		writeState(sb.paths, {
+			...readState(sb.paths, job.id),
+			lastRun: {
+				runId: 'r1',
+				status: 'completed',
+				endedAt: '2026-09-24T08:03:15.000Z',
+				refusedCalls: 1,
+			},
+		})
+		const list = recordingContext()
+		await listCommand(list, ['--home', sb.home])
+		expect(String(list.out.printed[0])).toMatch(/last completed \(1 call refused\) /)
+		const history = recordingContext()
+		await historyCommand(history, ['nightly', '--home', sb.home])
+		expect(String(history.out.printed[0])).toMatch(
+			/run completed\n {6}1 call was refused \(bash: the scheduled-run floor refused this call: x\)/,
+		)
+	})
+
 	it('pause and resume go through the CLI path and keep the confirmation', async () => {
 		const job = confirmedJob(sb)
 		expect(await pauseCommand(recordingContext(), ['nightly', '--home', sb.home])).toBe(0)

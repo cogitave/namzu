@@ -79,6 +79,21 @@ describe('the answer depends on the thinking configuration you will send', () =>
 		const p = provider()
 		expect(p.effortLevelsFor('claude-sonnet-5', { type: 'disabled' })).toContain('max')
 	})
+
+	it('does not narrow on a model that never turns thinking off', () => {
+		// Opus 5.5 cannot stop thinking, so a `disabled` intent is dropped
+		// and the request carries whatever level was picked. A picker built on
+		// the narrowed set hid `xhigh` and `max` under "thinking off" — levels
+		// the model accepts — while the setting itself was one it rejects.
+		const p = provider()
+		expect(p.effortLevelsFor('claude-opus-5-5', { type: 'disabled' })).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+		])
+	})
 })
 
 describe('the resolver is reachable for the fuller picture', () => {

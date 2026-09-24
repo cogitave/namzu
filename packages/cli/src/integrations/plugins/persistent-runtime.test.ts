@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolRegistry } from '@namzu/sdk'
+import { ToolRegistry, createSkillTool } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -122,4 +122,45 @@ it('keeps disabled hooks and MCP servers dormant while retaining manifest valida
 	await expect(
 		createCliPluginRuntime({ enabled: true, allowedScopes: ['user'] }, new ToolRegistry(), home),
 	).rejects.toThrow('Plugin runtime could not start')
+})
+
+it("registers the session's own skill tool for plugin skills, not a bare one", async () => {
+	// The session's tool knows which directory the model can open for a skill
+	// (#536); a plugin runtime registering the SDK's default in its place would
+	// hand plugin skills the host path again.
+	const home = await mkdtemp(join(tmpdir(), 'namzu-plugin-skill-tool-'))
+	roots.push(home)
+	vi.stubEnv('NAMZU_HOME', home)
+	const cwd = join(home, 'project')
+	const root = join(cwd, '.namzu/plugins/ledger')
+	await mkdir(join(root, 'skills', 'reconcile'), { recursive: true })
+	await writeFile(
+		join(root, 'plugin.json'),
+		JSON.stringify({
+			name: 'ledger',
+			version: '1.0.0',
+			description: 'skill fixture',
+			skills: ['skills/reconcile'],
+		}),
+	)
+	await writeFile(
+		join(root, 'skills', 'reconcile', 'SKILL.md'),
+		'---\nname: reconcile\ndescription: Reconcile ledger\n---\n\nRead ledger.\n',
+	)
+	const skillTool = createSkillTool({ resolveModelDirectory: () => undefined })
+	const tools = new ToolRegistry()
+	const runtime = (await createCliPluginRuntime(
+		{ enabled: true, allowedScopes: ['project'] },
+		tools,
+		cwd,
+		undefined,
+		skillTool,
+	))!
+	runtimes.push(runtime)
+
+	expect(tools.get('skill')).toBe(skillTool)
+	await runtime.setEnabled('ledger', false)
+	expect(tools.has('skill')).toBe(false)
+	await runtime.setEnabled('ledger', true)
+	expect(tools.get('skill')).toBe(skillTool)
 })

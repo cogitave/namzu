@@ -9,7 +9,7 @@
  * manifest, the tool and the event stream in one road rather than three units.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -84,12 +84,22 @@ function systemText(params: ChatCompletionParams): string {
 		.join('\n')
 }
 
-async function execJson(prompt: string, config: Record<string, unknown> = {}) {
+async function execJson(
+	prompt: string,
+	config: Record<string, unknown> = {},
+	load: readonly string[] = ['release-notes'],
+) {
 	const provider = new MockLLMProvider({
 		nextTurn: (params, index) => {
 			if (index === 0) {
 				return systemText(params).includes('<name>release-notes</name>')
-					? { toolCalls: [{ id: 'load', name: 'skill', args: { name: 'release-notes' } }] }
+					? {
+							toolCalls: load.map((name) => ({
+								id: `load-${name}`,
+								name: 'skill',
+								args: { name },
+							})),
+						}
 					: { text: 'No skill matched.' }
 			}
 			return { text: 'RELEASE-NOTES-SKILL-WAS-HERE\n- fixed things' }
@@ -158,5 +168,71 @@ describe('a file skill', () => {
 		const first = provider.requests[0]
 		expect(systemText(first!)).not.toContain('release-notes')
 		expect(first!.tools?.map((tool) => tool.function.name) ?? []).not.toContain('skill')
+	})
+})
+
+/** What each `skill` call returned to the model, by the skill it loaded. */
+function skillResults(provider: MockLLMProvider): Record<string, string> {
+	const out: Record<string, string> = {}
+	for (const message of provider.requests[1]?.messages ?? []) {
+		if (message.role !== 'tool') continue
+		const id = (message as { toolCallId?: string }).toolCallId ?? ''
+		const content = (message as { content?: unknown }).content
+		out[id.replace(/^load-/, '')] = typeof content === 'string' ? content : JSON.stringify(content)
+	}
+	return out
+}
+
+describe('the directory a loaded skill names (#536)', () => {
+	const projectSkill = () => join(cwd, '.agents', 'skills', 'release-notes')
+	// The suite's own application home (test-setup), never the operator's.
+	const userSkillDir = () => join(process.env.NAMZU_HOME as string, 'skills', 'house-style')
+
+	beforeEach(() => {
+		mkdirSync(userSkillDir(), { recursive: true })
+		writeFileSync(
+			join(userSkillDir(), 'SKILL.md'),
+			[
+				'---',
+				'name: house-style',
+				'description: The house style. Use when writing anything user-facing.',
+				'---',
+				'Read references/style.md before writing.',
+			].join('\n'),
+		)
+	})
+
+	afterEach(() => {
+		rmSync(userSkillDir(), { recursive: true, force: true })
+	})
+
+	it('is the directory the skill was read from, on the host', async () => {
+		const { provider } = await execJson('Write the release notes for 1.2.0', {}, [
+			'release-notes',
+			'house-style',
+		])
+
+		const results = skillResults(provider)
+		expect(results['release-notes']).toContain(`[Skill directory: ${projectSkill()}.`)
+		expect(results['house-style']).toContain(`[Skill directory: ${userSkillDir()}.`)
+	})
+
+	it('is the mounted path inside the sandbox, and none for a skill the sandbox does not mount', async () => {
+		const { events, provider } = await execJson(
+			'Write the release notes for 1.2.0',
+			{ sandbox: { enabled: true } },
+			['release-notes', 'house-style'],
+		)
+
+		expect(events.filter((event) => event.kind === 'error')).toEqual([])
+		const results = skillResults(provider)
+		// The working directory is the sandbox's root, mounted at its own path.
+		expect(results['release-notes']).toContain(`[Skill directory: ${projectSkill()}.`)
+		// The user tier is not mounted: no host path the sandbox would refuse.
+		expect(results['house-style']).toContain(
+			"[This skill's directory is not reachable from your tools in this session",
+		)
+		expect(results['house-style']).not.toContain(userSkillDir())
+		expect(results['house-style']).toContain('Read references/style.md before writing.')
 	})
 })

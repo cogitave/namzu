@@ -42,6 +42,12 @@ export interface SkillRegistryRef {
 				registeredName: string
 				description: string
 				location: string
+				/**
+				 * The skill's directory as the host reads it. Optional so a registry
+				 * written before it existed still satisfies this interface; what the
+				 * `skill` tool hands a host's `resolveModelDirectory` to map.
+				 */
+				directory?: string
 				allowedTools?: string
 				invocation?: 'model' | 'operator' | 'both'
 		  }[]
@@ -50,6 +56,7 @@ export interface SkillRegistryRef {
 					registeredName: string
 					description: string
 					location: string
+					directory?: string
 					allowedTools?: string
 					invocation?: 'model' | 'operator' | 'both'
 				}[]
