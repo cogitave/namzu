@@ -145,7 +145,7 @@ describe('query stream recovery', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
@@ -207,8 +207,7 @@ describe('query stream recovery', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-framing-'))
 		workdirs.push(workingDirectory)
 		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'write_file',
 			description: 'write a file',
 			inputSchema: z.object({ path: z.string() }),
@@ -219,7 +218,7 @@ describe('query stream recovery', () => {
 			{
 				provider: new IndexReusingProvider(),
 				retry: { maxRetries: 0 },
-				tools,
+				toolsets: [tools],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
@@ -261,7 +260,7 @@ describe('query stream recovery', () => {
 				// whole timeout backing off and settle it as a timeout instead,
 				// testing the retry policy rather than the thing named here.
 				retry: { maxRetries: 0 },
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
