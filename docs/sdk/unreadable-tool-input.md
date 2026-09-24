@@ -318,7 +318,13 @@ reasoning or what came before it, since neither is what ran out.
   the model finished.
 - `@namzu/openrouter`: `finish_reason` is mapped instead of cast.
   `function_call` becomes `tool_calls`, an unknown value becomes `stop`, and
-  `error` fails the stream.
+  `error` fails the stream. OpenRouter normalises every backend's own reason
+  to one of five, so a proxied Anthropic model's context window and a
+  proxied OpenAI model's output limit both arrive as plain `length`;
+  `native_finish_reason`, the backend's own word for it, is read to recover
+  `finishDetail: 'context_window'` when it names one
+  (`model_context_window_exceeded`, `model_length`, `context_length`,
+  `context_length_exceeded`).
 - `@namzu/deepseek`: `insufficient_system_resource` fails the stream instead of
   reading as `stop`.
 - `@namzu/openai` Codex: `response.incomplete` is reported as `length`, or
@@ -328,6 +334,12 @@ reasoning or what came before it, since neither is what ran out.
   stays a plain `length`. `contextLengthReached` with no content still fails
   the turn before either is reported: the prompt itself did not fit, not the
   reply.
+- `@namzu/zen`: for an Anthropic-backed model, `@ai-sdk/anthropic` folds both
+  `max_tokens` and `model_context_window_exceeded` into a unified `length`,
+  keeping the original word only on the finish reason's `raw` field; a
+  `length` finish whose `raw` names the context window carries
+  `finishDetail: 'context_window'`. OpenAI- and Google-backed models have no
+  separate wire value for it, so theirs is always a plain `length`.
 - `MockLLMProvider`: a `truncateArguments` call sends half its arguments and
   the turn finishes with `length` unless the script sets `finishReason`. The
   response ends at that call, as an output limit ends it: calls scripted after

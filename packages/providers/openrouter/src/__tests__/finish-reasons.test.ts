@@ -14,10 +14,17 @@ afterEach(() => {
 	vi.unstubAllGlobals()
 })
 
-function frame(finishReason: string | null): string {
+function frame(finishReason: string | null, nativeFinishReason?: string | null): string {
 	return JSON.stringify({
 		id: 'gen-test',
-		choices: [{ index: 0, delta: { content: 'x' }, finish_reason: finishReason }],
+		choices: [
+			{
+				index: 0,
+				delta: { content: 'x' },
+				finish_reason: finishReason,
+				...(nativeFinishReason !== undefined ? { native_finish_reason: nativeFinishReason } : {}),
+			},
+		],
 	})
 }
 
@@ -64,5 +71,41 @@ describe('OpenRouter finish reasons', () => {
 		)
 		expect(isProviderRequestError(error)).toBe(true)
 		expect(error).toMatchObject({ kind: 'server', providerId: 'openrouter' })
+	})
+
+	describe('a proxied backend context-window stop', () => {
+		// OpenRouter normalises every backend to one of five reasons, so a
+		// proxied Anthropic model's context window and a proxied OpenAI
+		// model's output limit both arrive as plain `finish_reason: 'length'`.
+		// `native_finish_reason` carries the backend's own word for it
+		// verbatim, and is the only way left to tell them apart.
+		it.each([
+			'model_context_window_exceeded',
+			'model_length',
+			'context_length',
+			'context_length_exceeded',
+		])('marks finishDetail: context_window when native_finish_reason is %s', async (native) => {
+			const chunks = await chunksOf([frame(null), frame('length', native)])
+			const last = chunks.at(-1)
+			expect(last?.finishReason).toBe('length')
+			expect(last?.finishDetail).toBe('context_window')
+		})
+
+		it('gives no finishDetail for a plain output-limit length, with or without a native reason', async () => {
+			for (const native of [undefined, null, 'length', 'max_tokens']) {
+				const chunks = await chunksOf([frame(null), frame('length', native)])
+				const last = chunks.at(-1)
+				expect(last?.finishReason).toBe('length')
+				expect(last?.finishDetail).toBeUndefined()
+			}
+		})
+
+		it('gives no finishDetail to a non-length finish, even with a context-window native reason', async () => {
+			// The distinction only means anything for 'length': a normal stop
+			// or a tool call is not cut off by anything.
+			const chunks = await chunksOf([frame(null), frame('stop', 'model_context_window_exceeded')])
+			expect(chunks.at(-1)?.finishReason).toBe('stop')
+			expect(chunks.at(-1)?.finishDetail).toBeUndefined()
+		})
 	})
 })
