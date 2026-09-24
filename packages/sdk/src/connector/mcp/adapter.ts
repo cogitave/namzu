@@ -506,8 +506,7 @@ export function mcpToolToToolDefinition(
 	// Advisory only, NOT a security boundary: the gate that actually decides
 	// (`isTrustedReadOnly`, `tools/trusted-read-only.ts`) reads the OWNING
 	// TOOLSET's source (`ToolManager.sourceOf`), which whoever wraps this
-	// definition sets — `plugin/lifecycle.ts` today, `mcpToolset` (plan.md
-	// v3 §4) once it lands. Kept here too so a definition inspected on its
+	// definition sets — `plugin/lifecycle.ts` or `mcpToolset`. Kept here too so a definition inspected on its
 	// own (a probe, a test, `matchesToolSelector`) can still see what the
 	// caller passed, now that `ToolDefinition.provenance` is gone.
 	mcpMetadata.readOnlyHintTrusted = readOnlyHintTrusted
@@ -533,9 +532,9 @@ export function mcpToolToToolDefinition(
 		// own answer; whether a gate may act on it is decided separately,
 		// from the OWNING TOOLSET's source (`ToolManager.sourceOf`,
 		// `toolsets/manager.ts`) — a definition cannot claim its own source,
-		// so `readOnlyHintTrusted` is not carried here. See
-		// `tools/trusted-read-only.ts`. Whoever wraps this definition into a
-		// toolset (`plugin/lifecycle.ts`, and `mcpToolset` once it lands)
+		// so `readOnlyHintTrusted` is carried only as advisory metadata here.
+		// See `tools/trusted-read-only.ts`. Whoever wraps this definition into a
+		// toolset (`plugin/lifecycle.ts` or `mcpToolset`)
 		// gives it `source.kind: 'mcp_server'`, `source.mcpServer.name:
 		// serverName` and this same `readOnlyHintTrusted`.
 		isReadOnly: () => tool.annotations?.readOnlyHint ?? false,

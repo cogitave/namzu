@@ -110,7 +110,7 @@ description is demanded.
 `every-shipped-tool-schema-is-described.test.ts` sweeps the same shipped
 surface `every-shipped-tool-schema-is-portable.test.ts` does and asserts
 zero violations, printing the offending paths on failure. This is a test-time
-gate, not a registration-time throw: wiring it into `ToolRegistry.registerOne`
+gate, not a toolset admission-time throw: wiring it into `ToolManager.resolveInitial`
 or `defineTool` as a hard default would break any existing tool — first-party
 or a consumer's — that already ships an undescribed field today.
 

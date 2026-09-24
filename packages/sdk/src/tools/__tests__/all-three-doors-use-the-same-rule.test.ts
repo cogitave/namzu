@@ -17,12 +17,20 @@ import type { ToolDefinition } from '../../types/tool/index.js'
  * process or a registry. The other two are covered where they live.
  */
 
-function serverTool(readOnly: boolean, trusted: boolean): ToolDefinition {
+function serverTool(readOnly: boolean): ToolDefinition {
 	return {
 		name: 'mcp_thing_read',
 		isReadOnly: () => readOnly,
-		provenance: { server: 'thing', readOnlyHintTrusted: trusted },
 	} as unknown as ToolDefinition
+}
+
+function serverSource(trusted: boolean) {
+	return {
+		id: 'mcp:thing',
+		kind: 'mcp_server' as const,
+		server: 'thing',
+		readOnlyHintTrusted: trusted,
+	}
 }
 
 describe('the allow_read_only rule', () => {
@@ -34,7 +42,10 @@ describe('the allow_read_only rule', () => {
 			{ type: 'allow_read_only' },
 			'mcp_thing_read',
 			{},
-			serverTool(true, false),
+			serverTool(true),
+			undefined,
+			undefined,
+			{ toolSource: serverSource(false) },
 		)
 
 		expect(decision).toBeNull()
@@ -45,7 +56,10 @@ describe('the allow_read_only rule', () => {
 			{ type: 'allow_read_only' },
 			'mcp_thing_read',
 			{},
-			serverTool(true, true),
+			serverTool(true),
+			undefined,
+			undefined,
+			{ toolSource: serverSource(true) },
 		)
 
 		expect(decision).toBe('allow')

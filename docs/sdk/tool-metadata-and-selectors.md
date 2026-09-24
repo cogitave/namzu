@@ -14,7 +14,7 @@ generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 
 # Never on the wire
 
-Unlike `outputSchema`, which is shown in a tool's description precisely so the model can act on it, `metadata` is not sent at all. `ToolRegistry.toLLMTools()` and the toolset catalog build a call's wire shape from `name`, `description` and `parameters` only; neither reads `metadata`. A host, a capability or a toolset wrapper reads it back — with `matchesToolSelector` or by hand — after the registry, never before the model.
+Unlike `outputSchema`, which is shown in a tool's description precisely so the model can act on it, `metadata` is not sent at all. `ToolManager.toLLMTools()` builds a call's wire shape from `name`, `description` and `parameters` only; it does not read `metadata`. A host, a capability or a toolset wrapper can read it with `matchesToolSelector` or by hand.
 
 # `matchesToolSelector`
 
@@ -37,7 +37,7 @@ A `ToolSelector` is one of three shapes, so a capability or a toolset wrapper ca
 
 # What an MCP server's annotations become
 
-`mcpToolToToolDefinition` (`packages/sdk/src/connector/mcp/adapter.ts`) already turns a server's `readOnlyHint`/`destructiveHint` into `isReadOnly`/`isDestructive`, both trust-gated by `provenance.readOnlyHintTrusted` because a server can only ever claim, never bind, those two. Everything else the server's own tool listing carries — `title`, `idempotentHint`, `openWorldHint`, and any `_meta` on the entry — lands in `metadata` instead of being dropped:
+`mcpToolToToolDefinition` (`packages/sdk/src/connector/mcp/adapter.ts`) turns a server's `readOnlyHint`/`destructiveHint` into `isReadOnly`/`isDestructive`. The authorization gate decides whether to trust the read-only claim from the owning toolset's `ToolSource.mcpServer.readOnlyHintTrusted`, never from tool metadata. The server's `title`, `idempotentHint`, `openWorldHint`, and any `_meta` on the entry land in `metadata` instead of being dropped:
 
 ```json
 {
@@ -48,4 +48,4 @@ A `ToolSelector` is one of three shapes, so a capability or a toolset wrapper ca
 }
 ```
 
-`metadata` is omitted entirely when the server sent neither annotations nor `_meta`. Because `metadata` is host/plugin-trust-boundary data — never on the wire, never read by the authorization gate — a server carrying this over MCP cannot use it to grant, waive or claim anything the gate acts on; see [The review policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval) for the same trust boundary applied to `requiresApproval`, which `mcpToolToToolDefinition` deliberately never populates from a server's claims.
+The adapter also records the operator's `readOnlyHintTrusted` setting in `metadata` as advisory data, so the field is present even when the server sent no annotations or `_meta`. The gate reads the owning toolset's source instead. Server-authored metadata cannot grant or waive anything the gate acts on; see [The review policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval) for the same trust boundary applied to `requiresApproval`, which `mcpToolToToolDefinition` deliberately never populates from a server's claims.

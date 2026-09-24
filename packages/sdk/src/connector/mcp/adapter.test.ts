@@ -199,18 +199,19 @@ describe('mcpToolToToolDefinition', () => {
 			idempotentHint: true,
 			openWorldHint: false,
 			_meta: { 'vendor.example/rateLimit': 5 },
+			readOnlyHintTrusted: false,
 		})
 		// readOnlyHint/destructiveHint already have a typed home; not duplicated.
 		expect(tool.metadata).not.toHaveProperty('readOnlyHint')
 	})
 
-	it('carries no metadata when the server sent no annotations and no _meta', () => {
+	it('keeps only advisory trust metadata when the server sent no annotations and no _meta', () => {
 		const tool = mcpToolToToolDefinition(
 			{ name: 't', inputSchema: { type: 'object' } as MCPJsonSchema },
 			mockClient({ content: [], isError: false }),
 			's',
 		)
-		expect(tool.metadata).toBeUndefined()
+		expect(tool.metadata).toEqual({ readOnlyHintTrusted: false })
 	})
 
 	it('never populates requiresApproval: a connected server cannot demand its own review', () => {
