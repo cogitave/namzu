@@ -30,6 +30,8 @@ import {
 	describeSchedule,
 	hostTimeZone,
 	releaseHeldSessionLeases,
+	revealHiddenCharacters,
+	scanSchedulePrompt,
 } from '@namzu/sdk'
 import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
@@ -46,6 +48,7 @@ import {
 import { cliLogger, createStderrSink, installCliLogging } from '../../logging.js'
 import type { AgentEvent } from '../../tui/agent.js'
 import { describeTurnInterruption, retryAfterMs } from '../../tui/turn-interruption.js'
+import { DEFAULT_WAKE_GATE_CONTEXT_CHARS } from '../build.js'
 import { readDaemonEnv } from '../env.js'
 import { checkJobFolder, folderReadable } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
@@ -64,6 +67,7 @@ import { CallTally } from './calls.js'
 import { writeRunResult } from './result.js'
 import { capOutput, runScript } from './run-script.js'
 import { unattendedNote } from './unattended-note.js'
+import { parseWakeGateOutput } from './wake-gate.js'
 
 export const HOLD_REASON = 'Scheduled run: waiting for the operator to approve'
 /** How long past the turn's own timeout the child waits before it stops itself. */
@@ -174,6 +178,11 @@ export async function runFire(
 	const warnings: string[] = []
 	const found: { credential?: string } = {}
 	let calls = new CallTally()
+	// `script+agent` only: set once its gate has run, so every finish() from
+	// here on — whichever status the rest of this function reaches — carries
+	// it, the same way sessionId/turnId are threaded through `base()`.
+	let gateResult: { wake: boolean; contextChars: number } | undefined
+	let scriptOutput: { stdout: string; stderr: string } | undefined
 	const base = (): Omit<ScheduleRunResult, 'status' | 'exitCode'> => ({
 		v: 1,
 		kind: 'schedule-run-result',
@@ -185,6 +194,8 @@ export async function runFire(
 		...(turnId ? { turnId } : {}),
 		...(found.credential ? { credentialSource: found.credential } : {}),
 		...(warnings.length > 0 ? { warnings: [...warnings] } : {}),
+		...(gateResult ? { gateResult } : {}),
+		...(scriptOutput ? { scriptOutput } : {}),
 		...calls.tallies(),
 	})
 	// Once the watchdog has recorded the wall clock, nothing after it rewrites the result.
@@ -289,6 +300,49 @@ export async function runFire(
 	const runKind = job.runKind ?? 'agent'
 	if (runKind === 'script') {
 		return runScriptJob(job, folder.canonical, paths, deps, finish, blocked)
+	}
+
+	// ── script+agent's wake-gate: a cheap script decides whether the
+	// (expensive) agent phase is worth running at all ─────────────────────
+	let wakeGateContext: string | undefined
+	if (runKind === 'script+agent') {
+		const script = job.script
+		if (!script) return blocked(`${job.name} is a script+agent job with no wake-gate recorded`)
+		const gateEnv = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+		const gate = await runScript(script.body, script.shell, {
+			cwd: folder.canonical,
+			env: gateEnv,
+			timeoutMs: script.timeoutMs,
+		})
+		if (gate.dialectMismatch) {
+			return blocked(
+				`the wake-gate script was confirmed for ${gate.dialectMismatch.expected}, but this host now runs commands as ${gate.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
+			)
+		}
+		scriptOutput = { stdout: capOutput(gate.stdout), stderr: capOutput(gate.stderr) }
+		if (gate.timedOut) {
+			return finish('check-failed', 1, {
+				reason: `the wake-gate script exceeded its ${script.timeoutMs} ms timeout`,
+			})
+		}
+		if (gate.exitCode !== 0) {
+			return finish('check-failed', 1, {
+				reason: `the wake-gate script exited ${gate.exitCode ?? 'without a code'}`,
+			})
+		}
+		const parsed = parseWakeGateOutput(
+			gate.stdout,
+			job.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
+		)
+		if (!parsed.ok) return finish('check-failed', 1, { reason: parsed.reason })
+		gateResult = { wake: parsed.result.wake, contextChars: parsed.result.context.length }
+		if (!parsed.result.wake) return finish('completed', 0, {})
+		// A warning only: runtime output is not something anyone confirms in
+		// advance, so this never blocks the way the same scan can gate a
+		// proposed prompt.
+		const findings = scanSchedulePrompt(parsed.result.context)
+		if (findings.length > 0) warnings.push(...findings.map((f) => `wake-gate context: ${f}`))
+		wakeGateContext = revealHiddenCharacters(parsed.result.context)
 	}
 
 	// ── the browser, when the job has one ─────────────────────────────────
@@ -492,6 +546,7 @@ export async function runFire(
 					browser: grant !== undefined,
 					now: now(),
 					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
+					...(wakeGateContext !== undefined ? { wakeGateContext } : {}),
 				}),
 				...(job.model.effort ? { effort: job.model.effort as never } : {}),
 			}),
