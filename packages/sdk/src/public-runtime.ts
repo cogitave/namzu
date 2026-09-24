@@ -802,6 +802,8 @@ export {
 	renderPromptMessages,
 	mcpJsonSchemaToZod,
 	mcpToolResultToToolResult,
+	mcpToolset,
+	mcpToolsetName,
 	mcpToolToToolDefinition,
 	RemoteExecutionContext,
 	RemoteExecutionBusyError,
@@ -835,6 +837,7 @@ export type {
 	MCPToolDrift,
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
+	MCPToolsetOptions,
 } from './connector/index.js'
 
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────
