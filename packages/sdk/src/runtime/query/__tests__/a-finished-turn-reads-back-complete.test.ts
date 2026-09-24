@@ -6,9 +6,10 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { foldSessionMessages } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { SessionEvent, SessionRecord, Turn } from '../../../types/session/index.js'
 import { type QueryParams, drainQuery } from '../index.js'
@@ -31,9 +32,8 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -46,7 +46,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 async function dirWith(prefix: string): Promise<string> {
@@ -74,7 +73,7 @@ async function runToCompletion(): Promise<{
 					{ text: ANSWER, usage: { promptTokens: 12, completionTokens: 7, totalTokens: 19 } },
 				],
 			}),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			...session,
 			agentId: 'agent_readback',
 			agentName: 'Readback agent',

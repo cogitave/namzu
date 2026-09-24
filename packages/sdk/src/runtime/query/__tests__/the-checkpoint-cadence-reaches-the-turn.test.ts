@@ -6,14 +6,15 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	type CheckpointScope,
 	type CheckpointWriteReceipt,
 	InMemorySessionCheckpointStore,
 } from '../../../store/checkpoint/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, SessionId } from '../../../types/ids/index.js'
 import type { Checkpoint } from '../../../types/session/checkpoint.js'
@@ -86,9 +87,8 @@ afterEach(async () => {
 })
 
 /** A read-only tool the gate approves, so no review park is recorded. */
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -101,7 +101,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 /** Three tool-call iterations, then a closing text turn. */
@@ -130,7 +129,7 @@ async function runThreeIterations(turnConfig: Record<string, unknown>): Promise<
 	await drainQuery(
 		{
 			provider: threeToolTurns(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			sessionLog,
 			checkpointStore: store,
 			agentId: 'agent_cadence',
@@ -223,7 +222,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 
 		await drainQuery({
 			provider: threeToolTurns(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			sessionLog,
 			checkpointStore: store,
 			agentId: 'agent_cadence',
