@@ -68,7 +68,7 @@ export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredic
 					: rule.decision === 'review'
 						? 'sent for review'
 						: 'allowed'
-			return `${verb} by source (${rule.sourceIdGlob})`
+			return `${verb} by source (${rule.sources.join(', ')})`
 		}
 		case 'allow_by_category':
 			return `allowed by category (${rule.categories.join(', ')})`

@@ -30,7 +30,7 @@ export type AuthorizationRule =
 	| {
 			/** Match the owning toolset's host-assigned source id, never tool input or MCP metadata. */
 			type: 'by_source'
-			sourceIdGlob: string
+			sources: string[]
 			decision: GateDecision
 	  }
 	| {
@@ -177,7 +177,7 @@ const DenyByNameSchema = z.object({
 })
 const BySourceSchema = z.object({
 	type: z.literal('by_source'),
-	sourceIdGlob: z.string().min(1),
+	sources: z.array(z.string().min(1)).min(1),
 	decision: z.enum(['allow', 'deny', 'review']),
 })
 const CustomPatternSchema = z.object({

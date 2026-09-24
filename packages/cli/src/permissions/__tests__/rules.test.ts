@@ -77,6 +77,82 @@ describe('specificity ordering', () => {
 })
 
 describe('compiling a permissions table', () => {
+	it('compiles source policy and keeps source denials ahead of name allowances', () => {
+		const { rules, diagnostics } = compilePermissions({
+			bash: 'allow',
+			sources: { 'mcp:*': 'allow', 'mcp:github': 'deny', 'plugin:*/mcp:*': 'ask' },
+		})
+		expect(diagnostics).toEqual([])
+		expect(rules.map((rule) => ('decision' in rule ? rule.decision : rule.type))).toEqual([
+			'deny',
+			'predicate',
+			'review',
+			'allow_by_name',
+			'allow',
+		])
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		const check = (id: string, toolName = 'bash') =>
+			gate.evaluate({
+				toolName,
+				toolInput: {},
+				toolDef: undefined,
+				toolSource: { id, kind: 'mcp_server', server: 'test' },
+			}).decision
+		expect(check('mcp:github')).toBe('deny')
+		expect(check('plugin:acme/mcp:db')).toBe('review')
+		expect(check('mcp:other', 'other')).toBe('allow')
+	})
+
+	it('keeps tool denials ahead of a source review without losing tool-pattern specificity', () => {
+		const { rules } = compilePermissions({
+			sources: { 'mcp:*': 'ask' },
+			bash: { 'git status*': 'allow', '*': 'deny' },
+			edit: 'deny',
+		})
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		const check = (toolName: string, command?: string) =>
+			gate.evaluate({
+				toolName,
+				toolInput: command ? { command } : {},
+				toolDef: undefined,
+				toolSource: { id: 'mcp:github', kind: 'mcp_server', server: 'github' },
+			})
+		expect(check('edit').decision).toBe('deny')
+		expect(check('bash', 'git push').decision).toBe('deny')
+		expect(check('bash', 'git status').decision).toBe('review')
+	})
+
+	it('reports malformed source policies instead of silently dropping them', () => {
+		const malformed = compilePermissions({ sources: 'allow', read: 'allow' })
+		expect(malformed.rules).toEqual([{ type: 'allow_by_name', toolNames: ['read'] }])
+		expect(malformed.diagnostics).toMatchObject([{ tool: 'sources' }])
+		const entries = compilePermissions({
+			sources: { '': 'allow', 'mcp:github': 'maybe', 'mcp:calendar': 'deny' } as never,
+		})
+		expect(entries.rules).toEqual([
+			{ type: 'by_source', sources: ['mcp:calendar'], decision: 'deny' },
+		])
+		expect(entries.diagnostics).toHaveLength(2)
+	})
+
 	it('turns a bare allow and deny into by-name rules', () => {
 		const { rules } = compilePermissions({ read: 'allow', bash: 'deny' })
 

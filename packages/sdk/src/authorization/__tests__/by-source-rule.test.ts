@@ -41,7 +41,7 @@ function evaluate(g: AuthorizationGate, toolSource?: ToolSourceRef, toolDef?: To
 
 describe('by_source authorization rules', () => {
 	it.each(['allow', 'deny', 'review'] as const)('%s applies to an owning source id', (decision) => {
-		const rule: AuthorizationRule = { type: 'by_source', sourceIdGlob: 'mcp:git*', decision }
+		const rule: AuthorizationRule = { type: 'by_source', sources: ['mcp:git*'], decision }
 		const g = gate([rule])
 		const matched = evaluate(g, server)
 		expect(matched.decision).toBe(decision)
@@ -52,7 +52,9 @@ describe('by_source authorization rules', () => {
 	})
 
 	it('matches the whole source id, including a plugin-owned MCP server', () => {
-		const g = gate([{ type: 'by_source', sourceIdGlob: 'plugin:acme/mcp:*', decision: 'deny' }])
+		const g = gate([
+			{ type: 'by_source', sources: ['mcp:db', 'plugin:acme/mcp:*'], decision: 'deny' },
+		])
 		expect(
 			evaluate(g, { id: 'plugin:acme/mcp:db', kind: 'mcp_server', server: 'db' }).decision,
 		).toBe('deny')
@@ -60,7 +62,7 @@ describe('by_source authorization rules', () => {
 	})
 
 	it('an explicit source review runs before the default read-only allowance', () => {
-		const g = gate([{ type: 'by_source', sourceIdGlob: 'mcp:github', decision: 'review' }], true)
+		const g = gate([{ type: 'by_source', sources: ['mcp:github'], decision: 'review' }], true)
 		const readOnly = {
 			name: 'mcp__github__read',
 			isReadOnly: () => true,
@@ -73,7 +75,7 @@ describe('by_source authorization rules', () => {
 	it('keeps first-match rule order', () => {
 		const sourceRule: AuthorizationRule = {
 			type: 'by_source',
-			sourceIdGlob: 'mcp:github',
+			sources: ['mcp:github'],
 			decision: 'review',
 		}
 		const nameRule: AuthorizationRule = { type: 'deny_by_name', toolNames: ['mcp__github__read'] }
@@ -84,13 +86,19 @@ describe('by_source authorization rules', () => {
 	it('rejects an empty source pattern or an unrecognised decision', () => {
 		const config = {
 			enabled: true,
-			rules: [{ type: 'by_source', sourceIdGlob: '', decision: 'allow' }],
+			rules: [{ type: 'by_source', sources: [''], decision: 'allow' }],
 		}
 		expect(AuthorizationGateConfigSchema.safeParse(config).success).toBe(false)
 		expect(
 			AuthorizationGateConfigSchema.safeParse({
 				...config,
-				rules: [{ type: 'by_source', sourceIdGlob: 'mcp:*', decision: 'approve' }],
+				rules: [{ type: 'by_source', sources: ['mcp:*'], decision: 'approve' }],
+			}).success,
+		).toBe(false)
+		expect(
+			AuthorizationGateConfigSchema.safeParse({
+				...config,
+				rules: [{ type: 'by_source', sources: [], decision: 'deny' }],
 			}).success,
 		).toBe(false)
 	})

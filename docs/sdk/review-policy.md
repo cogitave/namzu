@@ -85,7 +85,7 @@ A `review` rule matches the way a `deny` does. The whole value is tested, then e
 
 A tool whose input schema canonicalises an argument to a URL declares it with `ToolDefinition.urlArgument` (`defineTool({ urlArgument })`). A rule on that argument tests the value whole, never as a command line. Without the declaration, `&`, `;` and `|` in a query string cut the value into segments, and an `allow` for a site declined every address with a query string. The `browser` tool declares `url`. See [Browser tools](browser-tools.md#one-spelling-per-address).
 
-`by_source` decides from the owning toolset's host-assigned source id. For example, `{ type: 'by_source', sourceIdGlob: 'mcp:github', decision: 'review' }` asks about every tool from that MCP server, including its prompts and resource tools. `*` matches any characters, including `/`, so `plugin:acme/mcp:*` covers plugin-owned MCP servers. The source is supplied by `ToolManager.sourceOf`; a tool's input or self-declared metadata cannot set it. If a caller has no source to supply, the rule does not match. Rules still run in order, before the default read-only allowance.
+`by_source` decides from the owning toolset's host-assigned source id. For example, `{ type: 'by_source', sources: ['mcp:github'], decision: 'review' }` asks about every tool from that MCP server, including its prompts and resource tools. Any id or glob in `sources` may match. `*` matches any characters, including `/`, so `plugin:acme/mcp:*` covers plugin-owned MCP servers. The source is supplied by `ToolManager.sourceOf`; a tool's input or self-declared metadata cannot set it. If a caller has no source to supply, the rule does not match. Rules still run in order, before the default read-only allowance.
 
 # Calls a skill pre-approved
 

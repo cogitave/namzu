@@ -12,7 +12,10 @@
  */
 
 import {
+	AuthorizationGate,
+	type AuthorizationPredicateCall,
 	type AuthorizationRule,
+	NOOP_LOGGER,
 	builtinCommandArguments,
 	permissionPatternToRegExpSource,
 } from '@namzu/sdk'
@@ -245,6 +248,9 @@ export function compilePermissions(
 	checks?: PermissionChecksConfig,
 ): CompiledPermissions {
 	const rules: AuthorizationRule[] = []
+	const sourceDenials: AuthorizationRule[] = []
+	const sourceReviews: AuthorizationRule[] = []
+	const sourceAllowances: AuthorizationRule[] = []
 	const diagnostics: CompileDiagnostic[] = []
 	// Checks still run against an empty table. "This command is asked about"
 	// is a claim worth holding when there is no config at all, and returning
@@ -257,6 +263,36 @@ export function compilePermissions(
 	const commandArguments = builtinCommandArguments()
 
 	for (const [tool, permission] of Object.entries(config)) {
+		if (tool === 'sources') {
+			if (typeof permission !== 'object' || permission === null || Array.isArray(permission)) {
+				diagnostics.push({ tool, message: 'expected a table of source id globs and effects' })
+				continue
+			}
+			for (const source of Object.keys(permission).sort(bySpecificity)) {
+				const effect = permission[source]
+				if (!source) {
+					diagnostics.push({ tool, pattern: source, message: 'source id glob must not be empty' })
+					continue
+				}
+				if (!isPermissionEffect(effect)) {
+					diagnostics.push({
+						tool,
+						pattern: source,
+						message: `expected "allow", "ask" or "deny"; got ${JSON.stringify(effect)}`,
+					})
+					continue
+				}
+				const rule: AuthorizationRule = {
+					type: 'by_source',
+					sources: [source],
+					decision: effect === 'ask' ? 'review' : effect,
+				}
+				if (effect === 'allow') sourceAllowances.push(rule)
+				else if (effect === 'deny') sourceDenials.push(rule)
+				else sourceReviews.push(rule)
+			}
+			continue
+		}
 		if (isPermissionEffect(permission)) {
 			if (permission === 'allow') rules.push({ type: 'allow_by_name', toolNames: [tool] })
 			if (permission === 'deny') rules.push({ type: 'deny_by_name', toolNames: [tool] })
@@ -326,6 +362,38 @@ export function compilePermissions(
 	// After compiling, never during: a check is a claim about the FINISHED
 	// table, and evaluating one against a half-built rule list would answer
 	// with whatever order the config happened to be written in.
-	diagnostics.push(...verifyPermissionChecks(rules, checks))
-	return { rules, diagnostics }
+	// A source question must not turn a tool-specific refusal into an approvable
+	// call. Check the tool table in its own specificity order before asking by
+	// source; only a tool-table denial is lifted ahead of source review. A
+	// specific tool allowance can still outrank a broader tool-table denial,
+	// but the source review will ask about that call as the operator requested.
+	const toolDenialBeforeSourceReview: AuthorizationRule[] = []
+	if (sourceReviews.length > 0 && rules.length > 0) {
+		const toolGate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		const toolDecision = (call: AuthorizationPredicateCall) => toolGate.evaluate(call)
+		toolDenialBeforeSourceReview.push({
+			type: 'predicate',
+			description: 'denied by a tool-specific permission rule',
+			decide: (call) => (toolDecision(call).decision === 'deny' ? 'deny' : null),
+			describe: (call) => toolDecision(call).reason,
+		})
+	}
+	const orderedRules = [
+		...sourceDenials,
+		...toolDenialBeforeSourceReview,
+		...sourceReviews,
+		...rules,
+		...sourceAllowances,
+	]
+	diagnostics.push(...verifyPermissionChecks(orderedRules, checks))
+	return { rules: orderedRules, diagnostics }
 }

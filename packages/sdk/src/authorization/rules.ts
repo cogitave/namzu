@@ -92,7 +92,7 @@ export function evaluateRule(
 
 		case 'by_source': {
 			const source = options.toolSource
-			return source !== undefined && matchesSourceIdGlob(source.id, rule.sourceIdGlob)
+			return source !== undefined && rule.sources.some((id) => matchesSourceIdGlob(source.id, id))
 				? rule.decision
 				: null
 		}

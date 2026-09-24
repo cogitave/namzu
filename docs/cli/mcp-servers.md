@@ -49,6 +49,23 @@ An external tool server is declared under `mcpServers` in `namzu.config.json`, o
 
 An entry names a command or a URL, never both. One that names both is refused rather than guessed at, because picking either would run something the operator did not mean to run.
 
+## Permissions by server source
+
+The CLI assigns every server a source id, `mcp:<name>`. A `[permissions.sources]` table can decide all calls from a server, including its tools, prompts and resource tools, without following individual tool names:
+
+```json
+{
+  "permissions": {
+    "sources": {
+      "mcp:github": "ask",
+      "mcp:untrusted-*": "deny"
+    }
+  }
+}
+```
+
+Each value is `allow`, `ask` or `deny`. `*` matches any characters in a source id, including `/` for plugin-owned servers such as `plugin:acme/mcp:db`. Source denials run first. A tool-specific denial still wins over a source `ask`; otherwise `ask` runs before tool-name allowances. Source allowances run after tool-name rules. An unreadable source entry is reported as a permission diagnostic. The source id comes from the host's toolset, not from server-authored metadata.
+
 ## `${VAR}` in `env` and `headers` values
 
 An `env` or `headers` value may reference the operator's own environment with a bare `${VAR_NAME}`:
