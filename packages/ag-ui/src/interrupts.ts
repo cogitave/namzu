@@ -75,6 +75,8 @@ export interface AGUIInterruptRecord {
 	readonly createdAt: number
 	/** Epoch ms after which the interrupt can no longer be answered, only cancelled. */
 	readonly expiresAt?: number
+	/** What the client was sent, so it can be sent again. Absent for a frontend call. */
+	readonly interrupt?: Interrupt
 }
 
 /**
@@ -95,10 +97,19 @@ export interface AGUIInterruptStore {
 	 * resume of the same interrupt loses the race to the first.
 	 */
 	settle(ids: readonly string[], status: 'resolved' | 'expired'): Promise<boolean>
+	/**
+	 * Return records a resume settled `resolved` to `open`, because the
+	 * native turn refused the answer before acting on it: the client can
+	 * answer the same interrupts again.
+	 */
+	reopen(ids: readonly string[]): Promise<void>
 }
 
 export interface InMemoryAGUIInterruptStoreOptions {
-	/** Records kept, settled ones first to go. Defaults to 10,000. */
+	/**
+	 * Settled records kept, oldest dropped first. Defaults to 10,000. Open
+	 * records are never dropped: each is a turn still waiting for its client.
+	 */
 	readonly maxRecords?: number
 }
 
@@ -139,20 +150,28 @@ export class InMemoryAGUIInterruptStore implements AGUIInterruptStore {
 		for (const record of found as AGUIInterruptRecord[]) {
 			this.records.set(record.id, { ...record, status })
 		}
+		this.evict()
 		return true
 	}
 
-	private evict(): void {
-		if (this.records.size <= this.maxRecords) return
-		// Settled records exist only to tell a late duplicate apart from an
-		// unknown id; an open one is somebody's pending question.
-		for (const [id, record] of this.records) {
-			if (this.records.size <= this.maxRecords) return
-			if (record.status !== 'open') this.records.delete(id)
+	async reopen(ids: readonly string[]): Promise<void> {
+		for (const id of ids) {
+			const record = this.records.get(id)
+			if (record?.status === 'resolved') this.records.set(id, { ...record, status: 'open' })
 		}
-		for (const id of this.records.keys()) {
-			if (this.records.size <= this.maxRecords) return
+	}
+
+	private evict(): void {
+		// Settled records exist only to tell a late duplicate apart from an
+		// unknown id; an open one is a turn waiting for its client, and
+		// dropping it would leave that turn unanswerable.
+		let settled = 0
+		for (const record of this.records.values()) if (record.status !== 'open') settled++
+		for (const [id, record] of this.records) {
+			if (settled <= this.maxRecords) return
+			if (record.status === 'open') continue
 			this.records.delete(id)
+			settled--
 		}
 	}
 }
@@ -242,13 +261,17 @@ export function questionInterrupt(
 		responseSchema: {
 			type: 'object',
 			properties: {
-				selected: {
-					type: 'array',
-					items: { type: 'string', enum: ids },
-					uniqueItems: true,
-					maxItems: question.multiSelect ? Math.max(ids.length, 1) : 1,
-					description: 'The ids of the options chosen.',
-				},
+				...(ids.length > 0
+					? {
+							selected: {
+								type: 'array',
+								items: { type: 'string', enum: ids },
+								uniqueItems: true,
+								maxItems: question.multiSelect ? ids.length : 1,
+								description: 'The ids of the options chosen.',
+							},
+						}
+					: {}),
 				...(question.allowFreeText
 					? { text: { type: 'string', description: 'An answer in the user’s own words.' } }
 					: {}),

@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +12,7 @@ import {
 } from '@ag-ui/client'
 import {
 	type ChatCompletionParams,
+	InMemorySessionCheckpointStore,
 	InMemorySessionLog,
 	type LLMProvider,
 	MOCK_CAPABILITIES,
@@ -38,6 +40,7 @@ import {
 	type AGUITurnContext,
 	InMemoryAGUIInterruptStore,
 } from '../index.js'
+import { questionInterrupt } from '../interrupts.js'
 
 const directories: string[] = []
 
@@ -60,6 +63,7 @@ interface Harness {
 	readonly adapter: AGUIAdapter
 	readonly provider: MockLLMProvider
 	readonly contexts: AGUITurnContext[]
+	readonly threads: Map<string, Thread>
 	thread(threadId: string): Thread
 	client(threadId?: string): HttpAgent
 }
@@ -73,6 +77,8 @@ interface HarnessOptions {
 	readonly withoutLog?: boolean
 	readonly params?: (context: AGUITurnContext) => Partial<QueryParams>
 	readonly adapter?: Partial<AGUIAdapterOptions>
+	/** The host's thread state, shared with another harness: the same host, another process. */
+	readonly threads?: Map<string, Thread>
 }
 
 /**
@@ -83,7 +89,7 @@ interface HarnessOptions {
 function harness(options: HarnessOptions): Harness {
 	const provider = new MockLLMProvider({ turns: options.turns })
 	const serving = options.provider?.(provider) ?? provider
-	const threads = new Map<string, Thread>()
+	const threads = options.threads ?? new Map<string, Thread>()
 	const contexts: AGUITurnContext[] = []
 	const thread = (threadId: string): Thread => {
 		let found = threads.get(threadId)
@@ -140,6 +146,7 @@ function harness(options: HarnessOptions): Harness {
 		adapter,
 		provider,
 		contexts,
+		threads,
 		thread,
 		client: (threadId = 'thread-1') =>
 			new HttpAgent({
@@ -577,15 +584,164 @@ describe('what a resume may not do', () => {
 		expect(executed).toEqual([{ target: 'a' }])
 	})
 
-	it('refuses new input while the thread has open interrupts', async () => {
-		const { h, executed } = await interrupted()
+	it('sends the open interrupts again when new input arrives instead of an answer', async () => {
+		const { h, client, executed, interrupts } = await interrupted()
+		// A client that lost them — a reload, a dropped connection — gets the
+		// same interrupts under the same ids, and nothing runs.
 		const events = await runRaw(h.adapter, { threadId: 'thread-1' })
+		expect(events.map((event) => event.type)).toEqual([
+			EventType.RUN_STARTED,
+			EventType.RUN_FINISHED,
+		])
 		expect(events.at(-1)).toMatchObject({
-			type: EventType.RUN_ERROR,
-			code: 'AGUI_INTERRUPT_PENDING',
+			outcome: {
+				type: 'interrupt',
+				interrupts: [expect.objectContaining({ id: interrupts[0]?.id })],
+			},
 		})
 		expect(executed).toEqual([])
-		expect(h.contexts).toHaveLength(1)
+		expect(h.provider.requests).toHaveLength(1)
+		// The host still authenticated the request.
+		expect(h.contexts).toHaveLength(2)
+		const answered = await runClient(client, {
+			resume: [
+				{
+					interruptId: (interrupts[0] as Interrupt).id,
+					status: 'resolved',
+					payload: { approved: true },
+				},
+			],
+		})
+		expect(answered.failed).toBeUndefined()
+		expect(executed).toHaveLength(1)
+	})
+
+	it('keeps one session’s interrupts from another session that reuses the thread id', async () => {
+		const store = new InMemoryAGUIInterruptStore()
+		const executed: unknown[] = []
+		const tenantA = harness({
+			turns: [deployCall(), { text: 'A done.' }],
+			tools: (_context, tools) => tools.register(deployTool(executed)),
+			adapter: { interrupts: { store } },
+		})
+		expect((await runClient(tenantA.client('shared'))).interrupts).toHaveLength(1)
+		// Another tenant's host resolves the same client string to its own
+		// session: A's open interrupt is neither shown to it nor in its way.
+		const tenantB = harness({
+			turns: [{ text: 'B answered.' }],
+			adapter: { interrupts: { store } },
+		})
+		const events = await runRaw(tenantB.adapter, { threadId: 'shared' })
+		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED, result: 'B answered.' })
+		expect(JSON.stringify(events)).not.toContain('deploy')
+		expect(executed).toEqual([])
+	})
+
+	it('reopens the interrupts when the kernel refuses the answer for a reason that can pass', async () => {
+		const executed: unknown[] = []
+		const h = harness({
+			turns: [deployCall(), { text: 'Deployed after all.' }],
+			tools: (_context, tools) => tools.register(deployTool(executed)),
+		})
+		const [interrupt] = (await runClient(h.client())).interrupts as [Interrupt]
+		// Another worker holds the session: the kernel refuses to resume it.
+		const log = h.thread('thread-1').log
+		const lease = await log.claim({ holder: 'another-worker', ttlMs: 60_000 })
+		const resume = [
+			{ interruptId: interrupt.id, status: 'resolved' as const, payload: { approved: true } },
+		]
+		const refused = await runRaw(h.adapter, { threadId: 'thread-1', resume })
+		expect(refused.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'AGUI_RESUME_FAILED' })
+		expect(executed).toEqual([])
+		if (lease) await log.release(lease)
+		const again = await runRaw(h.adapter, { threadId: 'thread-1', resume })
+		expect(again.at(-1)).toMatchObject({
+			type: EventType.RUN_FINISHED,
+			result: 'Deployed after all.',
+		})
+		expect(executed).toHaveLength(1)
+	})
+
+	it('closes a paused turn whose checkpoint is gone, and frees the thread', async () => {
+		const executed: unknown[] = []
+		const h = harness({
+			turns: [deployCall(), { text: 'Fresh.' }],
+			tools: (_context, tools) => tools.register(deployTool(executed)),
+			params: (context) =>
+				context.continuation
+					? {
+							// A store that never saw this turn's checkpoints.
+							checkpointStore: new InMemorySessionCheckpointStore({
+								log: h.thread('thread-1').log as unknown as ConstructorParameters<
+									typeof InMemorySessionCheckpointStore
+								>[0]['log'],
+							}),
+						}
+					: {},
+		})
+		const [interrupt] = (await runClient(h.client())).interrupts as [Interrupt]
+		const events = await runRaw(h.adapter, {
+			threadId: 'thread-1',
+			resume: [{ interruptId: interrupt.id, status: 'resolved', payload: { approved: true } }],
+		})
+		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'AGUI_INTERRUPT_STALE' })
+		expect(executed).toEqual([])
+		const next = await runRaw(h.adapter, { threadId: 'thread-1' })
+		expect(next.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED, result: 'Fresh.' })
+	})
+
+	it('puts every call of a batch to the client when the host’s own policy paused it', async () => {
+		const executed: unknown[] = []
+		const reads: string[] = []
+		const h = harness({
+			turns: [
+				{
+					toolCalls: [
+						{ id: 'call_read', name: 'read_status', args: {} },
+						{ id: 'call_deploy', name: 'deploy', args: { target: 'production' } },
+					],
+					finishReason: 'tool_calls',
+				},
+				{ text: 'Only the read ran.' },
+			],
+			tools: (_context, tools) => {
+				tools.register(readTool(reads))
+				tools.register(deployTool(executed))
+			},
+			resumeHandler: () => async (request) =>
+				request.type === 'tool_review'
+					? { action: 'pause', reason: 'The operator reviews every call.' }
+					: { action: 'continue' },
+		})
+		const client = h.client()
+		const first = await runClient(client)
+		expect(first.interrupts.map((interrupt) => interrupt.toolCallId)).toEqual([
+			'call_read',
+			'call_deploy',
+		])
+		const [read, deploy] = first.interrupts as [Interrupt, Interrupt]
+		const second = await runClient(client, {
+			resume: [
+				{ interruptId: read.id, status: 'resolved', payload: { approved: true } },
+				{ interruptId: deploy.id, status: 'resolved', payload: { approved: false } },
+			],
+		})
+		expect(second.failed).toBeUndefined()
+		expect(reads).toEqual(['status'])
+		expect(executed).toEqual([])
+	})
+
+	it('lets go of a long-lived host signal when the turn ends', async () => {
+		const shutdown = new AbortController()
+		const h = harness({
+			turns: [{ text: 'One.' }],
+			params: () => ({ signal: shutdown.signal }),
+		})
+		for (const thread of ['a', 'b', 'c']) {
+			const events = await runRaw(h.adapter, { threadId: thread })
+			expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
+		}
+		expect(getEventListeners(shutdown.signal, 'abort')).toHaveLength(0)
 	})
 
 	it('refuses to resume a paused turn without the session log it lives in', async () => {
@@ -649,10 +805,15 @@ describe('a question the model asks the user', () => {
 		finishReason: 'tool_calls',
 	}
 
-	function questionHarness(turns: MockTurn[], adapter?: Partial<AGUIAdapterOptions>) {
+	function questionHarness(
+		turns: MockTurn[],
+		adapter?: Partial<AGUIAdapterOptions>,
+		threads?: Map<string, Thread>,
+	) {
 		return harness({
 			turns,
 			adapter,
+			...(threads ? { threads } : {}),
 			tools: (context, tools) =>
 				tools.register(
 					buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
@@ -730,6 +891,31 @@ describe('a question the model asks the user', () => {
 		expect(toolResult).not.toContain('Staging (Recommended)"')
 	})
 
+	it('offers no option list for a question without options', () => {
+		const record = {
+			id: 'int',
+			kind: 'question' as const,
+			status: 'open' as const,
+			delivery: 'live' as const,
+			threadId: 't',
+			runId: 'r',
+			group: 'g',
+			sessionId: 's',
+			turnId: 'u',
+			checkpointId: 'c',
+			createdAt: 0,
+		}
+		const interrupt = questionInterrupt(
+			record,
+			{ questionId: 'q', question: 'Why?', options: [], multiSelect: false, allowFreeText: true },
+			undefined,
+		)
+		expect(interrupt.responseSchema).toEqual({
+			type: 'object',
+			properties: { text: expect.objectContaining({ type: 'string' }) },
+		})
+	})
+
 	it('refuses an option the question did not offer', async () => {
 		const h = questionHarness([askTurn, { text: 'x' }])
 		const [interrupt] = (await runClient(h.client())).interrupts as [Interrupt]
@@ -797,7 +983,8 @@ describe('a question the model asks the user', () => {
 		const store = new InMemoryAGUIInterruptStore()
 		const first = questionHarness([askTurn, { text: 'x' }], { interrupts: { store } })
 		const [interrupt] = (await runClient(first.client())).interrupts as [Interrupt]
-		const restarted = questionHarness([{ text: 'x' }], { interrupts: { store } })
+		// The same host, restarted: its sessions survive, the waiting turn did not.
+		const restarted = questionHarness([{ text: 'x' }], { interrupts: { store } }, first.threads)
 		const events = await runRaw(restarted.adapter, {
 			threadId: 'thread-1',
 			resume: [{ interruptId: interrupt.id, status: 'resolved', payload: { selected: ['opt_1'] } }],
@@ -805,6 +992,30 @@ describe('a question the model asks the user', () => {
 		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'AGUI_INTERRUPT_STALE' })
 		// A stale interrupt no longer blocks the thread's store.
 		expect(await store.listOpen('thread-1')).toEqual([])
+	})
+
+	it('expires with the turn’s own time limit', async () => {
+		const h = harness({
+			turns: [askTurn, { text: 'x' }],
+			tools: (context, tools) =>
+				tools.register(
+					buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
+				),
+			params: () => ({
+				turnConfig: {
+					model: 'mock-model',
+					maxIterations: 4,
+					timeoutMs: 3_000,
+					tokenBudget: 100_000,
+					maxResponseTokens: 256,
+				},
+			}),
+		})
+		const started = Date.now()
+		const [interrupt] = (await runClient(h.client())).interrupts as [Interrupt]
+		// Past the limit the kernel stops the turn before the model reads the
+		// answer, so the interrupt does not outlive it.
+		expect(Date.parse(interrupt.expiresAt as string) - started).toBeLessThanOrEqual(3_000)
 	})
 })
 
@@ -971,6 +1182,21 @@ describe('a tool the client declares', () => {
 		expect(second.failed).toBeUndefined()
 		const sent = h.provider.requests[1]?.messages.find((message) => message.role === 'tool')
 		expect(sent).toMatchObject({ isError: true })
+	})
+
+	it('frees the thread when a pending call lapses, even before its timer runs', async () => {
+		const h = frontendHarness([pickTurn, { text: 'Moved on.' }], { interrupts: { ttlMs: 50 } })
+		await runClient(h.client(), { tools: [pickColor] })
+		// Hold the event loop past the deadline, so new input notices the lapse
+		// before the expiry timer can.
+		const until = Date.now() + 120
+		while (Date.now() < until) {
+			/* busy */
+		}
+		const events = await runRaw(h.adapter, { threadId: 'thread-1', tools: [pickColor] })
+		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED, result: 'Moved on.' })
+		const later = await runRaw(h.adapter, { threadId: 'thread-1', tools: [pickColor] })
+		expect(later.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
 	})
 
 	it('refuses new input that does not carry the pending result', async () => {

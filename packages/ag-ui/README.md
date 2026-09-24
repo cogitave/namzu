@@ -151,7 +151,7 @@ client's `tool` message on the next run is its result.
 | State and application events | Snapshots, validated JSON patches, and named custom events |
 | Frontend tools | Admitted by `frontendTools`; otherwise request `tools` is rejected with HTTP 422 |
 | Interrupts and resume | Reviews, questions, handoffs and resumable pauses end the run with `outcome.type: "interrupt"`; `resume` continues the same native turn |
-| New input with open interrupts | `RUN_ERROR` code `AGUI_INTERRUPT_PENDING` |
+| New input with open interrupts | Nothing runs; the run ends with the same interrupts again |
 | Concurrent runs on a thread | `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS`; the active turn is untouched |
 | Transport | POST with JSON input and SSE output; no protobuf, SSE replay, or AG-UI reconnect endpoint |
 | Internal events | Child sessions, prompts, raw events, reasoning, and provider signatures are not forwarded |

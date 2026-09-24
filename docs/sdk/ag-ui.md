@@ -85,12 +85,12 @@ id verbatim on every `RUN_*` event. The endpoint requires nonempty external
 IDs without requiring UUID syntax.
 
 A session has one active turn at a time. New input on a thread with open
-interrupts ends with `RUN_ERROR` code `AGUI_INTERRUPT_PENDING` before the host
-is asked for anything (see [Interrupts](#interrupts)). Any other second
-request on a thread whose session still has a turn running or paused ends
-with `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS` and leaves the active turn
-untouched; the kernel refuses it with `TurnInProgressError`, which
-`isTurnInProgressError` recognises. Never cast external IDs to Namzu ID types, use them
+interrupts runs nothing and ends with the same interrupts again (see
+[Interrupts](#interrupts)). Any other second request on a thread whose session
+still has a turn running or paused ends with `RUN_ERROR` code
+`NAMZU_TURN_IN_PROGRESS` and leaves the active turn untouched; the kernel
+refuses it with `TurnInProgressError`, which `isTurnInProgressError`
+recognises. Never cast external IDs to Namzu ID types, use them
 directly as filesystem paths, or turn `forwardedProps` into authorization.
 
 All request fields remain untrusted after schema validation, including
@@ -277,7 +277,9 @@ on `context.interrupts`:
 A host's own handler that answers `pause` for a review, a plan or a
 checkpoint gets the same interrupts; the adapter reads the parked request
 from the turn, or from the session log when the handler was swapped
-mid-turn.
+mid-turn. A review the host's own handler paused is put to the client call
+by call, every call the authorization gate did not refuse: the adapter does
+not know which of them that handler meant to ask about.
 
 ```ts
 import {
@@ -345,6 +347,14 @@ that has no calls to refuse — a cancelled handoff, a rejected plan — closes
 the turn with `abandonTurn` and ends the run with `RUN_ERROR` code
 `NAMZU_TURN_ABANDONED`; the thread then takes new input.
 
+When the kernel refuses a resume before acting on the answer, the thread is
+not left owing answers nobody can give. A checkpoint that still waits on a
+decision the answer did not carry is put to the client as fresh interrupts.
+A checkpoint that is gone is closed (`AGUI_INTERRUPT_STALE`) and the thread
+takes new input. Any other refusal — another worker holds the session's
+lease, a store failed — ends with `AGUI_RESUME_FAILED` and reopens the
+interrupts, so the same answer can be sent again.
+
 A question, and a frontend tool's result, **wait inside a tool**. The tool's
 park is recorded against a checkpoint, but the turn is not paused: it keeps
 running in the process that raised the interrupt, and the answer is handed to
@@ -352,7 +362,10 @@ the waiting tool. That process must serve the answer, which the default
 in-memory store already implies. The wait lasts `interrupts.ttlMs` (10 minutes
 when unset), never longer than 5 seconds before the asking tool's own
 deadline (`ToolDefinition.timeoutMs`, else `QueryParams.toolTimeoutMs`, else
-the SDK's 2 minutes). When it expires, or the tool stops waiting on its own,
+the SDK's 2 minutes), and never past the turn's own time limit
+(`turnConfig.timeoutMs`), which keeps running while the tool waits: an answer
+that arrives after it is never read, because the kernel stops the turn at
+its next step. When the wait expires, or the tool stops waiting on its own,
 the interrupt expires, the turn is cancelled and the thread takes new input.
 An interrupt whose turn is not held by this process — after a restart, or on
 another replica — is refused as `AGUI_INTERRUPT_STALE` and closed, so it no
@@ -374,16 +387,29 @@ refused before the host is asked for anything, as a stream that opens with
 | `AGUI_RESUME_INCOMPLETE` | The run's other interrupts are not answered. They stay open. |
 | `AGUI_RESUME_INVALID` | An interrupt is answered twice in one resume, or answers span runs. |
 | `AGUI_RESUME_PAYLOAD_INVALID` | The payload is not the shape the interrupt asked for. The interrupt stays open. |
-| `AGUI_INTERRUPT_PENDING` | New input without `resume` on a thread with open interrupts. |
 | `AGUI_INTERRUPT_STALE` | The turn is no longer waiting for the answer. |
+| `AGUI_RESUME_FAILED` | The kernel refused to resume the paused turn for a reason that can pass; the interrupts are open again. |
 | `AGUI_THREAD_MISMATCH` | The host resolved the thread to another session. |
 | `AGUI_RESUME_UNAVAILABLE` | A paused turn cannot be resumed without its session log. |
 
+New input without `resume` on a thread with open interrupts runs nothing: the
+run ends with the same interrupts, under the same ids, so a client that lost
+them (a reload, a dropped connection) can still answer. This is decided after
+`createQuery`, and only the records of the session the host resolved the
+thread to count. The thread id is the client's string, so what one session
+is waiting for is neither shown to nor in the way of another that reuses it.
+The only refusals made before the host has authenticated the request are
+about interrupt ids the client itself sent.
+
 Interrupt records live in an `AGUIInterruptStore`
 (`interrupts.store`). The default, `InMemoryAGUIInterruptStore`, keeps up to
-10,000 records in this adapter. A host whose threads must survive a restart,
+10,000 settled records in this adapter, and every open one: an open record is
+a turn waiting for its client. A host whose threads must survive a restart,
 or that runs several replicas, supplies a store in its own database;
-`settle` has to be atomic, because it is what makes an answer apply once.
+`settle` has to be atomic, because it is what makes an answer apply once, and
+`reopen` returns records a refused resume had settled. Keep each record
+whole: without its `interrupt`, new input on the thread cannot be answered
+with the interrupts again and is refused with `AGUI_INTERRUPT_PENDING`.
 
 At the boundary the adapter sends `STATE_SNAPSHOT` of the turn's state, when
 it has one, before `RUN_FINISHED`. It sends no `MESSAGES_SNAPSHOT`: display history belongs to

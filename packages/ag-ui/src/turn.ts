@@ -41,6 +41,17 @@ export class LiveTurn {
 	openRecords: readonly string[] = []
 	/** When the soonest of those records expires, epoch ms. */
 	expiresAt = Number.POSITIVE_INFINITY
+	/**
+	 * Set once a resume has taken this turn's records: from then the answer is
+	 * the resume's to deliver, and an expiry that races it leaves the turn alone.
+	 */
+	claimed = false
+	/**
+	 * When the turn's own time limit runs out, epoch ms: the kernel stops the
+	 * turn at its next step after that, so an answer that arrives later is
+	 * never read. Counted from when this process started reading the turn.
+	 */
+	deadline = Number.POSITIVE_INFINITY
 	/** The host's query configuration, once `createQuery` returned it. */
 	params: QueryParams | undefined
 	/** The UI capability the turn's tools were built with. */
@@ -64,6 +75,7 @@ export class LiveTurn {
 	private unlink: (() => void) | undefined
 	private expiry: ReturnType<typeof setTimeout> | undefined
 	private detachedProgress: (() => void) | undefined
+	private unfollow: (() => void) | undefined
 
 	constructor() {
 		this.signal.addEventListener('abort', () => this.releaseParks(), { once: true })
@@ -74,7 +86,12 @@ export class LiveTurn {
 		if (!hostSignal) return
 		const abort = () => this.controller.abort(hostSignal.reason)
 		if (hostSignal.aborted) abort()
-		else hostSignal.addEventListener('abort', abort, { once: true })
+		else {
+			// A host may pass one long-lived signal (a shutdown signal) to every
+			// turn; the listener goes with the turn, not with the signal.
+			hostSignal.addEventListener('abort', abort, { once: true })
+			this.unfollow = () => hostSignal.removeEventListener('abort', abort)
+		}
 	}
 
 	get started(): boolean {
@@ -266,6 +283,8 @@ export class LiveTurn {
 		this.clearExpiry()
 		this.unlink?.()
 		this.unlink = undefined
+		this.unfollow?.()
+		this.unfollow = undefined
 		for (const ui of [...this.listeners.keys()]) this.unwatch(ui)
 		this.releaseParks()
 	}

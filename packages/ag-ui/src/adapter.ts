@@ -13,6 +13,7 @@ import {
 	type Origin,
 	type QueryParams,
 	type ResumeHandler,
+	type ResumeOutcome,
 	type SessionEvent,
 	type SessionId,
 	type SessionIndex,
@@ -32,7 +33,7 @@ import {
 	resumeSession,
 } from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
-import { AGUIEventMapper } from './events.js'
+import { AGUIEventMapper, type AGUIPause } from './events.js'
 import {
 	type AGUIFrontendToolOptions,
 	FRONTEND_RESULT_PAUSE,
@@ -189,10 +190,15 @@ export interface AGUITurnOptions {
 	readonly signal?: AbortSignal
 }
 
-/** What a request does, decided from the thread's open records before the host is asked. */
+/** What a request does. */
 type Plan =
 	| { readonly kind: 'refuse'; readonly error: AGUIResumeError }
 	| { readonly kind: 'start' }
+	| {
+			/** New input on a thread that owes answers: the same interrupts, again. */
+			readonly kind: 'reannounce'
+			readonly records: readonly AGUIInterruptRecord[]
+	  }
 	| {
 			readonly kind: 'resume'
 			readonly records: readonly AGUIInterruptRecord[]
@@ -228,11 +234,25 @@ class ClientReview extends Error {
 	}
 }
 
+/**
+ * A paused turn's resume that ended before the kernel emitted anything: the
+ * answer was not acted on, so the interrupts it answered are not settled.
+ */
+class ResumeNotStarted extends Error {
+	constructor(
+		readonly outcome: Extract<ResumeOutcome, { resumed: false }> | undefined,
+		readonly failure: unknown,
+	) {
+		super('The paused turn was not resumed.')
+		this.name = 'ResumeNotStarted'
+	}
+}
+
 const DEFAULT_LIVE_TTL_MS = 10 * 60_000
 /** `@namzu/sdk`'s `DEFAULT_TOOL_TIMEOUT_MS`, which it does not export. */
 const SDK_DEFAULT_TOOL_TIMEOUT_MS = 120_000
-/** How long before a tool's own deadline its interrupt expires. */
-const TOOL_DEADLINE_MARGIN_MS = 5_000
+/** How long before a deadline (the asking tool's, the turn's) its interrupt expires. */
+const DEADLINE_MARGIN_MS = 5_000
 
 /** AG-UI on top of the Namzu kernel, usable in any Fetch-compatible HTTP framework. */
 export class AGUIAdapter {
@@ -338,53 +358,47 @@ export class AGUIAdapter {
 		const signal = externalSignal
 			? AbortSignal.any([externalSignal, controller.signal])
 			: controller.signal
-		const plan = await abortable(this.plan(input), signal)
-		const continued =
-			plan.kind === 'resume' || plan.kind === 'tool-results' ? plan.records[0] : undefined
-		// A turn waiting inside a tool is continued in place; everything else
-		// runs a native source this request starts.
-		const turn = continued?.delivery === 'live' ? this.live.get(continued.turnId) : new LiveTurn()
-		if (!turn) {
-			// Held by a process that is gone, or by another replica: either way
-			// not answerable here, and left open it would block the thread.
-			const records = (plan as Extract<Plan, { records: unknown }>).records
-			await this.store
-				.settle(
-					records.map((record) => record.id),
-					'expired',
-				)
-				.catch((error) => this.report(error))
-			const stale = new AGUIResumeError(
-				'AGUI_INTERRUPT_STALE',
-				'The turn these answers were for is no longer waiting for them.',
-			)
-			return this.refusal(input, stale, controller, signal)
-		}
+		// Before the host has authenticated anything, the only records read are
+		// the ones the client itself named by id: an answer to interrupts it was
+		// sent. What the thread is waiting for is not told to a caller the host
+		// has not let in, and is decided per session once it has.
+		const resume = input.resume?.length
+			? await abortable(this.readResumePlan(input), signal)
+			: undefined
+		if (resume?.kind === 'refuse') return this.refusal(input, resume.error, controller, signal)
+		const hint = resume ? undefined : await abortable(this.toolResultsHint(input), signal)
+		const continued = resume?.records[0] ?? hint?.records[0]
+		// The turn the host's handlers act for. A request that answers a turn
+		// waiting in this process drives that turn instead, and this one closes.
+		const fresh = new LiveTurn()
 		const frontendTools = admitFrontendTools(input.tools, this.options.frontendTools, {
-			timeoutMs: this.liveTtl() + 30_000,
+			timeoutMs: (this.ttlMs ?? DEFAULT_LIVE_TTL_MS) + 30_000,
 			observe: (call) =>
-				turn.frontendCalls.set(call.toolCallId, { toolName: call.toolName, input: call.input }),
+				fresh.frontendCalls.set(call.toolCallId, { toolName: call.toolName, input: call.input }),
 		})
-		if (plan.kind === 'refuse') return this.refusal(input, plan.error, controller, signal)
-		// A turn this request starts lives as long as the turn does, which can
-		// be longer than the request: it follows the request's cancellation only
-		// while a run is reading it. The host is handed that turn-scoped signal,
-		// so passing it on as `params.signal` cannot end a turn that is waiting
-		// for its client just because the request that started it has closed.
-		const owned = continued?.delivery !== 'live'
-		if (owned) turn.attach(signal)
-		const hostSignal = owned ? turn.signal : signal
 		let ui: AGUITurnUI
 		try {
 			ui = new AGUITurnUI(input.state, this.options)
 		} catch {
 			throw new AGUIRequestError('Initial state must be JSON within maxEventBytes.', 422)
 		}
+		// A turn this request starts lives as long as the turn does, which can
+		// be longer than the request: it follows the request's cancellation only
+		// while a run is reading it. The host is handed that turn-scoped signal,
+		// so passing it on as `params.signal` cannot end a turn that is waiting
+		// for its client just because the request that started it has closed.
+		fresh.attach(signal)
 		// Request-scoped until a run starts streaming: a request abandoned
 		// before its body is read revokes the capability it handed out.
 		const closeUI = () => ui.close()
 		signal.addEventListener('abort', closeUI, { once: true })
 		const adopt = () => signal.removeEventListener('abort', closeUI)
+		const refuse = (error: AGUIResumeError): PreparedRequest => {
+			ui.close()
+			adopt()
+			fresh.close()
+			return this.refusal(input, error, controller, signal)
+		}
 		try {
 			const session = continued
 				? { sessionId: continued.sessionId as SessionId, created: false }
@@ -395,16 +409,16 @@ export class AGUIAdapter {
 				Promise.resolve(
 					this.options.createQuery({
 						input,
-						signal: hostSignal,
+						signal: fresh.signal,
 						ui,
-						interrupts: this.interruptsFor(turn),
+						interrupts: this.interruptsFor(fresh),
 						frontendTools,
 						...(request ? { request } : {}),
 						...(session ? { session } : {}),
 						...(continued
 							? {
 									continuation: {
-										kind: plan.kind === 'resume' ? 'resume' : 'tool-results',
+										kind: resume ? 'resume' : 'tool-results',
 										sessionId: continued.sessionId as SessionId,
 										turnId: continued.turnId as TurnId,
 									},
@@ -416,32 +430,48 @@ export class AGUIAdapter {
 			)
 			signal.throwIfAborted()
 			ui.sealInitialMessages()
-			if (continued && params.sessionId !== continued.sessionId) {
-				ui.close()
-				adopt()
-				return this.refusal(
-					input,
+			if (resume && params.sessionId !== resume.records[0]?.sessionId)
+				return refuse(
 					new AGUIResumeError(
 						'AGUI_THREAD_MISMATCH',
 						'The host resolved this thread to a different session than the one the turn belongs to.',
 					),
-					controller,
-					signal,
 				)
+			const plan = resume ?? (await abortable(this.threadState(input, params.sessionId), signal))
+			if (plan.kind === 'refuse') return refuse(plan.error)
+			const first =
+				plan.kind === 'resume' || plan.kind === 'tool-results' ? plan.records[0] : undefined
+			let turn = fresh
+			if (first?.delivery === 'live') {
+				const waiting = this.live.get(first.turnId)
+				if (!waiting) {
+					// Held by a process that is gone, or by another replica: not
+					// answerable here, and left open it would block the thread.
+					await this.store
+						.settle(
+							plan.kind === 'resume' || plan.kind === 'tool-results'
+								? plan.records.map((record) => record.id)
+								: [],
+							'expired',
+						)
+						.catch((error) => this.report(error))
+					return refuse(
+						new AGUIResumeError(
+							'AGUI_INTERRUPT_STALE',
+							'The turn these answers were for is no longer waiting for them.',
+						),
+					)
+				}
+				turn = waiting
+				fresh.close()
 			}
-			if (continued?.delivery === 'checkpoint' && !params.sessionLog) {
-				ui.close()
-				adopt()
-				return this.refusal(
-					input,
+			if (first?.delivery === 'checkpoint' && !params.sessionLog)
+				return refuse(
 					new AGUIResumeError(
 						'AGUI_RESUME_UNAVAILABLE',
 						'Resuming a paused turn needs the session log in the query parameters.',
 					),
-					controller,
-					signal,
 				)
-			}
 			// Wire IDs are correlation strings, never filesystem keys or trusted
 			// kernel scope. They reach the kernel only as the turn's origin: the
 			// client's thread and run, recorded verbatim so the index can map a
@@ -449,9 +479,9 @@ export class AGUIAdapter {
 			// is minted by the kernel when the turn begins.
 			const turnParams: TurnQueryParams = {
 				...params,
-				resumeHandler: this.clientAware(turn, params.resumeHandler),
-				signal: turn.signal,
-				...(continued
+				resumeHandler: this.clientAware(fresh, params.resumeHandler),
+				signal: fresh.signal,
+				...(first
 					? {}
 					: {
 							origin: {
@@ -462,16 +492,17 @@ export class AGUIAdapter {
 							},
 						}),
 			}
-			if (owned) {
-				turn.params = turnParams
-				turn.ui = ui
-				if (params.signal !== turn.signal) turn.follow(params.signal)
+			if (turn === fresh) {
+				fresh.params = turnParams
+				fresh.ui = ui
+				if (params.signal !== fresh.signal) fresh.follow(params.signal)
 			}
 			return { input, plan, turn, params: turnParams, ui, controller, signal, adopt }
 		} catch (error) {
 			controller.abort(error)
 			ui.close()
 			adopt()
+			fresh.close()
 			throw error
 		}
 	}
@@ -482,84 +513,127 @@ export class AGUIAdapter {
 		controller: AbortController,
 		signal: AbortSignal,
 	): PreparedRequest {
-		const ui = new AGUITurnUI(undefined, this.options)
 		return {
 			input,
 			plan: { kind: 'refuse', error },
 			turn: new LiveTurn(),
 			params: undefined,
-			ui,
+			ui: new AGUITurnUI(undefined, this.options),
 			controller,
 			signal,
 			adopt: () => {},
 		}
 	}
 
-	/**
-	 * What the request does: answer the thread's interrupts, answer its
-	 * pending frontend calls, or start a turn — checked against the thread's
-	 * open records before the host is asked for anything.
-	 */
-	private async plan(input: RunAgentInput): Promise<Plan> {
+	/** The interrupts a resume answers, and the answers, or why it cannot. */
+	private async readResumePlan(
+		input: RunAgentInput,
+	): Promise<Extract<Plan, { kind: 'resume' | 'refuse' }>> {
 		try {
-			if (input.resume?.length) {
-				const { records, answers } = await readResume(
-					this.store,
-					input.threadId,
-					input.resume,
-					Date.now(),
-				)
-				return { kind: 'resume', records, answers }
-			}
-			const now = Date.now()
-			const listed = await this.store.listOpen(input.threadId)
-			// A frontend call nobody answered in time is not waited for any more;
-			// the turn that made it was closed when it expired.
-			const lapsed = listed.filter(
-				(record) =>
-					record.kind === 'frontend_tool' &&
-					record.expiresAt !== undefined &&
-					now >= record.expiresAt,
+			const { records, answers } = await readResume(
+				this.store,
+				input.threadId,
+				input.resume ?? [],
+				Date.now(),
 			)
-			if (lapsed.length > 0)
-				await this.store.settle(
-					lapsed.map((record) => record.id),
-					'expired',
-				)
-			const open = listed.filter((record) => !lapsed.includes(record))
-			if (open.some((record) => record.kind !== 'frontend_tool'))
-				throw new AGUIResumeError(
-					'AGUI_INTERRUPT_PENDING',
-					'This thread has open interrupts; answer them in `resume` before sending new input.',
-				)
-			if (open.length === 0) return { kind: 'start' }
-			const results = new Map<string, FrontendToolResult>()
-			for (const message of input.messages) {
-				if (message.role !== 'tool') continue
-				results.set(message.toolCallId, {
-					content: message.content,
-					isError: message.error !== undefined || hasErrorMetadata(message.metadata),
-				})
-			}
-			const missing = open.filter((record) => !results.has(record.toolCallId as string))
-			if (missing.length > 0)
-				throw new AGUIResumeError(
-					'AGUI_TOOL_RESULT_REQUIRED',
-					`This thread is waiting for the result of ${missing
-						.map((record) => record.toolName ?? 'a frontend tool')
-						.join(', ')}; send it as a \`tool\` message.`,
-				)
-			const groups = new Set(open.map((record) => record.group))
-			if (groups.size > 1)
-				throw new AGUIResumeError(
-					'AGUI_RESUME_INVALID',
-					'The pending tool calls belong to more than one run.',
-				)
-			return { kind: 'tool-results', records: open, results }
+			return { kind: 'resume', records, answers }
 		} catch (error) {
 			if (error instanceof AGUIResumeError) return { kind: 'refuse', error }
 			throw error
 		}
+	}
+
+	/**
+	 * Whether the input answers frontend calls the thread is waiting on, so the
+	 * host can be told it is continuing a turn. A hint only: nothing is refused
+	 * or revealed here, and the session the host resolves decides.
+	 */
+	private async toolResultsHint(
+		input: RunAgentInput,
+	): Promise<{ readonly records: readonly AGUIInterruptRecord[] } | undefined> {
+		const answered = new Set(
+			input.messages.flatMap((message) => (message.role === 'tool' ? [message.toolCallId] : [])),
+		)
+		const records = (await this.store.listOpen(input.threadId)).filter(
+			(record) => record.kind === 'frontend_tool' && answered.has(record.toolCallId as string),
+		)
+		return records.length > 0 ? { records } : undefined
+	}
+
+	/**
+	 * What new input on the thread does, once the host has resolved it to a
+	 * session: start a turn, hand pending frontend calls their results, or,
+	 * when interrupts are open, send them again. Only this session's records
+	 * count; the thread id is the client's string, and another tenant's thread
+	 * may carry the same one.
+	 */
+	private async threadState(input: RunAgentInput, sessionId: string): Promise<Plan> {
+		const now = Date.now()
+		const listed = (await this.store.listOpen(input.threadId)).filter(
+			(record) => record.sessionId === sessionId,
+		)
+		// A frontend call nobody answered in time is not waited for any more.
+		// Its turn is closed now rather than when a timer gets round to it.
+		const lapsed = listed.filter(
+			(record) =>
+				record.kind === 'frontend_tool' &&
+				record.expiresAt !== undefined &&
+				now >= record.expiresAt,
+		)
+		for (const turnId of new Set(lapsed.map((record) => record.turnId))) {
+			const waiting = this.live.get(turnId)
+			if (waiting) await this.expire(waiting)
+			else
+				await this.store.settle(
+					lapsed.filter((record) => record.turnId === turnId).map((record) => record.id),
+					'expired',
+				)
+		}
+		const open = listed.filter((record) => !lapsed.includes(record))
+		const interrupts = open
+			.filter((record) => record.kind !== 'frontend_tool')
+			.sort((a, b) => a.createdAt - b.createdAt)
+		if (interrupts.length > 0) {
+			const group = interrupts.filter((record) => record.group === interrupts[0]?.group)
+			if (group.every((record) => record.interrupt !== undefined))
+				return { kind: 'reannounce', records: group }
+			return {
+				kind: 'refuse',
+				error: new AGUIResumeError(
+					'AGUI_INTERRUPT_PENDING',
+					'This thread has open interrupts; answer them in `resume` before sending new input.',
+				),
+			}
+		}
+		if (open.length === 0) return { kind: 'start' }
+		const results = new Map<string, FrontendToolResult>()
+		for (const message of input.messages) {
+			if (message.role !== 'tool') continue
+			results.set(message.toolCallId, {
+				content: message.content,
+				isError: message.error !== undefined || hasErrorMetadata(message.metadata),
+			})
+		}
+		const missing = open.filter((record) => !results.has(record.toolCallId as string))
+		if (missing.length > 0)
+			return {
+				kind: 'refuse',
+				error: new AGUIResumeError(
+					'AGUI_TOOL_RESULT_REQUIRED',
+					`This thread is waiting for the result of ${missing
+						.map((record) => record.toolName ?? 'a frontend tool')
+						.join(', ')}; send it as a \`tool\` message.`,
+				),
+			}
+		if (new Set(open.map((record) => record.group)).size > 1)
+			return {
+				kind: 'refuse',
+				error: new AGUIResumeError(
+					'AGUI_RESUME_INVALID',
+					'The pending tool calls belong to more than one run.',
+				),
+			}
+		return { kind: 'tool-results', records: open, results }
 	}
 
 	private async *events(prepared: PreparedRequest): AsyncGenerator<BaseEvent> {
@@ -569,49 +643,67 @@ export class AGUIAdapter {
 			{ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId },
 			{ type: EventType.RUN_ERROR, message: error.message, code: error.code },
 		]
-		if (plan.kind === 'refuse') {
+		const refusing = function* (this: AGUIAdapter, error: AGUIResumeError): Generator<BaseEvent> {
 			prepared.ui.close()
-			for (const event of refuse(plan.error)) yield this.checked(event)
+			for (const event of refuse(error)) yield this.checked(event)
+		}.bind(this)
+		if (plan.kind === 'refuse') {
+			yield* refusing(plan.error)
 			return
 		}
 		const params = prepared.params as TurnQueryParams
+		if (plan.kind === 'reannounce') {
+			// Nothing runs: the client lost the interrupts (a reload, a dropped
+			// connection) or ignored them, and gets them again under the same ids.
+			prepared.ui.close()
+			turn.close()
+			const mapper = new AGUIEventMapper(this.identity(input, params))
+			const interrupts = plan.records.map((record) => record.interrupt as Interrupt)
+			for (const event of [...mapper.start(), ...mapper.interrupt(interrupts)])
+				yield this.checked(event)
+			return
+		}
 		if (plan.kind === 'start') {
+			turn.deadline = this.turnDeadline(params)
 			turn.start(query(params))
 			yield* this.drive(prepared, new AGUIEventMapper(this.identity(input, params)))
 			return
 		}
 		const first = plan.records[0] as AGUIInterruptRecord
 		const ids = plan.records.map((record) => record.id)
-		if (first.delivery === 'live') {
-			if (
-				turn.settled ||
+		if (
+			first.delivery === 'live' &&
+			(turn.settled ||
 				turn.progressed ||
-				!plan.records.every((r) => turn.parks.has(r.questionId as string))
-			) {
-				await this.store.settle(ids, 'expired').catch((error) => this.report(error))
-				prepared.ui.close()
-				for (const event of refuse(
-					new AGUIResumeError(
-						'AGUI_INTERRUPT_STALE',
-						'The turn these answers were for is no longer waiting for them.',
-					),
-				))
-					yield this.checked(event)
-				return
-			}
+				!plan.records.every((record) => turn.parks.has(record.questionId as string)))
+		) {
+			// The turn stopped waiting (its tool gave up) and nobody noticed yet.
+			await this.expire(turn)
+			yield* refusing(
+				new AGUIResumeError(
+					'AGUI_INTERRUPT_STALE',
+					'The turn these answers were for is no longer waiting for them.',
+				),
+			)
+			return
 		}
 		if (!(await this.store.settle(ids, 'resolved'))) {
-			prepared.ui.close()
-			for (const event of refuse(
-				new AGUIResumeError(
-					'AGUI_INTERRUPT_RESOLVED',
-					'These interrupts have already been answered.',
-				),
-			))
-				yield this.checked(event)
+			const current = await Promise.all(ids.map((id) => this.store.get(id)))
+			yield* refusing(
+				current.some((record) => record?.status === 'expired')
+					? new AGUIResumeError(
+							'AGUI_INTERRUPT_EXPIRED',
+							'These interrupts expired before the answer arrived; they can only be cancelled.',
+						)
+					: new AGUIResumeError(
+							'AGUI_INTERRUPT_RESOLVED',
+							'These interrupts have already been answered.',
+						),
+			)
 			return
 		}
 		if (first.delivery === 'live') {
+			turn.claimed = true
 			this.live.delete(first.turnId)
 			const frontend = plan.records
 				.filter((record) => record.kind === 'frontend_tool')
@@ -639,30 +731,31 @@ export class AGUIAdapter {
 			carriedToolCalls: first.batch ?? [],
 		})
 		if (decision.kind === 'abandon') {
+			prepared.ui.close()
+			turn.close()
+			let closing: BaseEvent[]
 			try {
 				await abandonTurn(first.sessionId as SessionId, first.turnId as TurnId, decision.reason, {
 					...(params.sessionLog ? { log: params.sessionLog } : {}),
 				})
+				closing = mapper.fail('The turn was closed without continuing it.', 'NAMZU_TURN_ABANDONED')
 			} catch (error) {
+				// Not closed, so still waiting: the answer can be sent again.
 				this.report(error)
-				prepared.ui.close()
-				for (const event of [
-					...mapper.start(),
-					...mapper.fail('The paused turn could not be closed.', 'NAMZU_TURN_ERROR'),
-				])
-					yield this.checked(event)
-				return
+				await this.store.reopen(ids).catch((reopenError) => this.report(reopenError))
+				closing = mapper.fail(
+					'The paused turn could not be closed; its interrupts are still open.',
+					'AGUI_RESUME_FAILED',
+				)
 			}
-			prepared.ui.close()
-			for (const event of [
-				...mapper.start(),
-				...mapper.fail('The turn was closed without continuing it.', 'NAMZU_TURN_ABANDONED'),
-			])
-				yield this.checked(event)
+			for (const event of [...mapper.start(), ...closing]) yield this.checked(event)
 			return
 		}
+		turn.deadline = this.turnDeadline(params)
 		turn.start(this.resume(params, first, decision.pendingDecision))
-		yield* this.drive(prepared, mapper)
+		yield* this.drive(prepared, mapper, undefined, (failure) =>
+			this.unresumed(prepared, mapper, plan.records, failure),
+		)
 	}
 
 	/** Read one native source for one AG-UI run. */
@@ -670,6 +763,7 @@ export class AGUIAdapter {
 		prepared: PreparedRequest,
 		mapper: AGUIEventMapper,
 		onAttached?: () => void,
+		onUnresumed?: (failure: ResumeNotStarted) => Promise<BaseEvent[]>,
 	): AsyncGenerator<BaseEvent> {
 		const { turn, signal: requestSignal } = prepared
 		const uis = [...new Set([turn.ui, prepared.ui])].filter(
@@ -743,29 +837,32 @@ export class AGUIAdapter {
 				this.report(error)
 				return
 			}
+			if (error instanceof ResumeNotStarted && onUnresumed && !terminalDelivered) {
+				try {
+					yield* deliver(await onUnresumed(error))
+					return
+				} catch (recoveryError) {
+					this.report(recoveryError)
+				}
+			}
 			const canceled = turn.signal.aborted
 			// One active turn per session: a second run on a thread whose turn
 			// is running, parked or interrupted is refused by the kernel. That
 			// is the client's conflict to resolve, not a host failure to report.
 			const inProgress = !canceled && isTurnInProgressError(error)
-			const refused = !canceled && error instanceof AGUIResumeError
-			if (!canceled && !inProgress && !refused) this.report(error)
+			if (!canceled && !inProgress) this.report(error)
 			turn.abort(error)
 			if (!terminalDelivered) {
 				const message = canceled
 					? 'Namzu turn canceled.'
-					: refused
-						? error.message
-						: inProgress
-							? 'This thread already has an active turn. Wait for it to finish, or resume or abandon it.'
-							: 'Namzu turn failed.'
+					: inProgress
+						? 'This thread already has an active turn. Wait for it to finish, or resume or abandon it.'
+						: 'Namzu turn failed.'
 				const code = canceled
 					? 'NAMZU_TURN_CANCELED'
-					: refused
-						? error.code
-						: inProgress
-							? 'NAMZU_TURN_IN_PROGRESS'
-							: 'NAMZU_TURN_ERROR'
+					: inProgress
+						? 'NAMZU_TURN_IN_PROGRESS'
+						: 'NAMZU_TURN_ERROR'
 				// A mapper can already be terminal when encoding its final payload fails.
 				// Complete the parts whose starts reached the client, then send one error.
 				const failure = mapper.fail(message, code)
@@ -780,9 +877,7 @@ export class AGUIAdapter {
 				}
 			}
 		} finally {
-			for (const [id, name] of mapper.toolCalls) {
-				if (!turn.announcedToolCalls.has(id)) turn.announcedToolCalls.set(id, name ?? '')
-			}
+			this.remember(turn, mapper)
 			if (prepared.ui !== turn.ui) {
 				turn.unwatch(prepared.ui)
 				prepared.ui.close()
@@ -800,6 +895,13 @@ export class AGUIAdapter {
 					this.report(error)
 				}
 			}
+		}
+	}
+
+	/** Tool calls this run announced, so a later run of the turn does not announce them again. */
+	private remember(turn: LiveTurn, mapper: AGUIEventMapper): void {
+		for (const [id, name] of mapper.toolCalls) {
+			if (!turn.announcedToolCalls.has(id)) turn.announcedToolCalls.set(id, name ?? '')
 		}
 	}
 
@@ -834,7 +936,7 @@ export class AGUIAdapter {
 					toolCallId,
 					...(call ? { toolName: call.toolName } : {}),
 					questionId: park.questionId,
-					expiresAt: now + this.liveTtl(),
+					expiresAt: now + this.liveTtl(turn),
 				})
 				continue
 			}
@@ -851,14 +953,17 @@ export class AGUIAdapter {
 				options: question.options.map((option) => option.id),
 				multiSelect: question.multiSelect,
 				allowFreeText: question.allowFreeText,
-				expiresAt: now + this.liveTtl(this.toolDeadline(turn, toolCallId && known.get(toolCallId))),
+				expiresAt:
+					now + this.liveTtl(turn, this.toolDeadline(turn, toolCallId && known.get(toolCallId))),
 			}
-			records.push(record)
-			interrupts.push(questionInterrupt(record, question, toolCallId))
+			const interrupt = questionInterrupt(record, question, toolCallId)
+			records.push({ ...record, interrupt })
+			interrupts.push(interrupt)
 		}
 		events.push(...this.stateSnapshot(turn))
 		events.push(...(interrupts.length > 0 ? mapper.interrupt(interrupts) : mapper.yieldToClient()))
 		for (const event of events) this.checked(event)
+		this.remember(turn, mapper)
 		await this.store.put(records)
 		for (const park of announced) park.announced = true
 		turn.openRecords = records.map((record) => record.id)
@@ -876,21 +981,43 @@ export class AGUIAdapter {
 		const turnId = (mapper.turn ?? turn.turnId) as string
 		const request =
 			turn.paused.get(pause.checkpointId) ?? (await this.parked(params, turnId, pause.checkpointId))
-		const base = this.record(prepared, mapper, randomUUID(), pause.checkpointId, 'checkpoint')
+		return this.interruptAt(prepared, mapper, pause.checkpointId, request, pause)
+	}
+
+	/** The interrupts that answer a paused checkpoint, and the events that end the run with them. */
+	private async interruptAt(
+		prepared: PreparedRequest,
+		mapper: AGUIEventMapper,
+		checkpointId: string,
+		request: HITLDecisionRequest | undefined,
+		pause: Pick<AGUIPause, 'reason' | 'handoff' | 'retryable'>,
+	): Promise<BaseEvent[]> {
+		const { turn } = prepared
+		const base = this.record(prepared, mapper, randomUUID(), checkpointId, 'checkpoint')
 		const expiresAt = this.ttlMs === undefined ? undefined : Date.now() + this.ttlMs
 		const records: AGUIInterruptRecord[] = []
 		const interrupts: Interrupt[] = []
 		const events: BaseEvent[] = []
 		const add = (record: AGUIInterruptRecord, interrupt: Interrupt) => {
-			records.push(record)
+			records.push({ ...record, interrupt })
 			interrupts.push(interrupt)
 		}
 		if (request?.type === 'tool_review') {
 			const batch = request.toolCalls.map((call) => call.id)
-			const calls =
-				turn.reviewCalls.get(pause.checkpointId) ?? needsPerson(request.toolCalls, params)
-			for (const call of calls) {
+			const gateDenied = request.toolCalls
+				.filter((summary) => summary.authorization?.decision === 'deny')
+				.map((summary) => summary.id)
+			// Every call of the batch is on the wire before the run ends, so the
+			// results a resume sends all have a call to belong to.
+			for (const call of request.toolCalls)
 				events.push(...mapper.announceTool(call.id, call.name, call.input))
+			// Which calls a person decides is the policy's to say when the policy
+			// was ours; a host's own handler that paused did not say, so every
+			// call the gate did not refuse is put to the client.
+			const asked =
+				turn.reviewCalls.get(checkpointId) ??
+				request.toolCalls.filter((call) => call.authorization?.decision !== 'deny')
+			for (const call of asked) {
 				const record: AGUIInterruptRecord = {
 					...base,
 					id: randomUUID(),
@@ -899,9 +1026,7 @@ export class AGUIAdapter {
 					toolName: call.name,
 					...(call.escalation?.sandboxEscape ? { sandboxEscape: true } : {}),
 					batch,
-					gateDenied: request.toolCalls
-						.filter((summary) => summary.authorization?.decision === 'deny')
-						.map((summary) => summary.id),
+					gateDenied,
 					...(expiresAt !== undefined ? { expiresAt } : {}),
 				}
 				add(record, approvalInterrupt(record, call))
@@ -931,8 +1056,56 @@ export class AGUIAdapter {
 		}
 		events.push(...this.stateSnapshot(turn), ...mapper.interrupt(interrupts))
 		for (const event of events) this.checked(event)
+		this.remember(turn, mapper)
 		await this.store.put(records)
 		return events
+	}
+
+	/**
+	 * A paused turn's resume that the kernel refused before acting on the
+	 * answer. The thread must not be left owing answers nobody can give.
+	 */
+	private async unresumed(
+		prepared: PreparedRequest,
+		mapper: AGUIEventMapper,
+		answered: readonly AGUIInterruptRecord[],
+		failure: ResumeNotStarted,
+	): Promise<BaseEvent[]> {
+		const first = answered[0] as AGUIInterruptRecord
+		const params = prepared.params as TurnQueryParams
+		const outcome = failure.outcome
+		// The checkpoint still waits on a decision this resume did not carry:
+		// put that decision to the client.
+		if (outcome?.reason === 'awaiting-decision' && outcome.pending.request.type !== 'user_question')
+			return this.interruptAt(prepared, mapper, first.checkpointId, outcome.pending.request, {
+				reason: 'The paused turn is waiting for a decision.',
+			})
+		// Nothing left to resume from: close the turn so the thread can go on.
+		if (outcome) {
+			try {
+				await abandonTurn(
+					first.sessionId as SessionId,
+					first.turnId as TurnId,
+					'The paused turn could not be resumed from its checkpoint.',
+					{ ...(params.sessionLog ? { log: params.sessionLog } : {}) },
+				)
+			} catch (error) {
+				this.report(error)
+			}
+			return mapper.fail(
+				'The paused turn these answers were for can no longer be resumed; it was closed.',
+				'AGUI_INTERRUPT_STALE',
+			)
+		}
+		// Refused for a reason that can pass (a lease another worker holds, a
+		// store that failed, a scope the host resolved differently): the same
+		// answer can be sent again.
+		this.report(failure.failure)
+		await this.store.reopen(answered.map((record) => record.id))
+		return mapper.fail(
+			'The paused turn could not be resumed; its interrupts are still open.',
+			'AGUI_RESUME_FAILED',
+		)
 	}
 
 	private record(
@@ -965,19 +1138,31 @@ export class AGUIAdapter {
 	 */
 	private keep(turn: LiveTurn): void {
 		const turnId = turn.turnId as string
+		turn.claimed = false
 		this.live.set(turnId, turn)
 		turn.detach(turn.expiresAt - Date.now(), () => {
 			void this.expire(turn)
 		})
 	}
 
-	/** Nobody answered in time, or the waiting tool gave up: close the turn. */
+	/**
+	 * Nobody answered in time, or the waiting tool gave up: close the turn.
+	 * Left alone only when a resume has taken its records.
+	 */
 	private async expire(turn: LiveTurn): Promise<void> {
+		if (turn.claimed) return
 		try {
-			if (!(await this.store.settle(turn.openRecords, 'expired'))) return
+			if (!(await this.store.settle(turn.openRecords, 'expired'))) {
+				// Somebody settled them first. A resume that did owns the turn now;
+				// anything else (an expiry noticed on new input, a stale answer, a
+				// record the store dropped) leaves the turn to be closed here.
+				const records = await Promise.all(turn.openRecords.map((id) => this.store.get(id)))
+				if (records.some((record) => record?.status === 'resolved')) return
+			}
 		} catch (error) {
 			this.report(error)
 		}
+		if (turn.claimed) return
 		if (turn.turnId && this.live.get(turn.turnId) === turn) this.live.delete(turn.turnId)
 		turn.abort(new Error('The client did not answer in time.'))
 		turn.close()
@@ -1042,7 +1227,10 @@ export class AGUIAdapter {
 		}
 	}
 
-	/** A paused turn's continuation, as a native source. */
+	/**
+	 * A paused turn's continuation, as a native source. A resume the kernel
+	 * refuses before emitting anything surfaces as {@link ResumeNotStarted}.
+	 */
 	private resume(
 		params: TurnQueryParams,
 		record: AGUIInterruptRecord,
@@ -1057,28 +1245,34 @@ export class AGUIAdapter {
 			...rest
 		} = params
 		return fromListener<SessionEvent, Turn>(async (emit) => {
-			const outcome = await resumeSession({
-				...rest,
-				sessionLog: params.sessionLog as NonNullable<QueryParams['sessionLog']>,
-				scope: {
-					tenantId: params.tenantId,
-					projectId: params.projectId,
-					topicId: params.topicId,
-					sessionId: params.sessionId,
-					turnId: record.turnId as TurnId,
-					...(params.parentSessionId !== undefined
-						? { parentSessionId: params.parentSessionId }
-						: {}),
-				},
-				checkpointId: record.checkpointId as NonNullable<QueryParams['resumeFromCheckpoint']>,
-				...(pendingDecision ? { pendingDecision } : {}),
-				listener: emit,
-			})
-			if (!outcome.resumed)
-				throw new AGUIResumeError(
-					'AGUI_INTERRUPT_STALE',
-					'The paused turn these answers were for can no longer be resumed.',
-				)
+			let started = false
+			let outcome: ResumeOutcome
+			try {
+				outcome = await resumeSession({
+					...rest,
+					sessionLog: params.sessionLog as NonNullable<QueryParams['sessionLog']>,
+					scope: {
+						tenantId: params.tenantId,
+						projectId: params.projectId,
+						topicId: params.topicId,
+						sessionId: params.sessionId,
+						turnId: record.turnId as TurnId,
+						...(params.parentSessionId !== undefined
+							? { parentSessionId: params.parentSessionId }
+							: {}),
+					},
+					checkpointId: record.checkpointId as NonNullable<QueryParams['resumeFromCheckpoint']>,
+					...(pendingDecision ? { pendingDecision } : {}),
+					listener: async (event) => {
+						started = true
+						await emit(event)
+					},
+				})
+			} catch (error) {
+				if (!started) throw new ResumeNotStarted(undefined, error)
+				throw error
+			}
+			if (!outcome.resumed) throw new ResumeNotStarted(outcome, undefined)
 			return outcome.turn
 		})
 	}
@@ -1171,11 +1365,29 @@ export class AGUIAdapter {
 			: [{ type: EventType.STATE_SNAPSHOT, snapshot: state }]
 	}
 
-	private liveTtl(toolDeadline?: number): number {
-		const ttl = this.ttlMs ?? DEFAULT_LIVE_TTL_MS
-		return toolDeadline === undefined
-			? ttl
-			: Math.min(ttl, Math.max(1_000, toolDeadline - TOOL_DEADLINE_MARGIN_MS))
+	/**
+	 * How long a turn waiting inside a tool waits for its client: `ttlMs`,
+	 * but never past the asking tool's deadline or the turn's own time limit,
+	 * after either of which an answer would arrive to nobody.
+	 */
+	private liveTtl(turn: LiveTurn, toolDeadline?: number): number {
+		let ttl = this.ttlMs ?? DEFAULT_LIVE_TTL_MS
+		if (toolDeadline !== undefined)
+			ttl = Math.min(ttl, Math.max(1_000, toolDeadline - DEADLINE_MARGIN_MS))
+		// Past the turn's limit the kernel stops at its next step and the answer
+		// is never read: such an interrupt can only be cancelled, so it expires
+		// as the limit nears, however soon that is.
+		const remaining = turn.deadline - Date.now()
+		if (Number.isFinite(remaining)) ttl = Math.min(ttl, Math.max(0, remaining - DEADLINE_MARGIN_MS))
+		return ttl
+	}
+
+	/** When the turn's time limit runs out, counted from now. */
+	private turnDeadline(params: QueryParams): number {
+		const limit = params.turnConfig?.timeoutMs
+		return typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+			? Date.now() + limit
+			: Number.POSITIVE_INFINITY
 	}
 
 	/** How long the asking tool waits before the executor gives up on it. */
