@@ -86,7 +86,7 @@ import {
 import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
-import { compilePermissions } from '../permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import type { TerminationHandling } from '../termination.js'
 import type { AgentEvent } from '../tui/agent.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
@@ -302,6 +302,7 @@ export async function execJson(
 	})
 	if ('error' in modeResult) return fail(modeResult.error)
 
+	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 	for (const d of permissions.diagnostics) {
 		const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`

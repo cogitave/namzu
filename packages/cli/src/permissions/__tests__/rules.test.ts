@@ -8,13 +8,15 @@
  */
 
 import { AuthorizationGate, JobTool, NOOP_LOGGER } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	bySpecificity,
 	compilePermissions,
+	legacyMcpPermissionNames,
 	matchesPattern,
 	patternToRegExpSource,
+	warnLegacyMcpPermissionNames,
 } from '../rules.js'
 
 describe('pattern matching', () => {
@@ -77,6 +79,25 @@ describe('specificity ordering', () => {
 })
 
 describe('compiling a permissions table', () => {
+	it('warns once for each configured former MCP tool name', () => {
+		const config = {
+			mcp_legacyfixture_create: 'allow',
+			mcp__legacyfixture__create: 'ask',
+			sources: { 'mcp:legacyfixture': 'deny' },
+		} as const
+		expect(legacyMcpPermissionNames(config)).toEqual(['mcp_legacyfixture_create'])
+		const output = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+		try {
+			warnLegacyMcpPermissionNames(config)
+			warnLegacyMcpPermissionNames(config)
+			expect(output).toHaveBeenCalledTimes(1)
+			expect(output.mock.calls[0]?.[0]).toContain('mcp_legacyfixture_create')
+			expect(output.mock.calls[0]?.[0]).toContain('mcp__<server>__<tool>')
+		} finally {
+			output.mockRestore()
+		}
+	})
+
 	it('compiles source policy and keeps source denials ahead of name allowances', () => {
 		const { rules, diagnostics } = compilePermissions({
 			bash: 'allow',

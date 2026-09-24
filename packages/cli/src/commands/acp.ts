@@ -24,7 +24,7 @@ import { resolveTrustedProjectContext } from '../config/trusted-project-context.
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { cliLogger } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
-import { compilePermissions } from '../permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import { type AgentSession, createAgentSession, probeAgentSession } from '../tui/agent.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -281,6 +281,7 @@ export function createCliAcpRuntime(
 			}
 			try {
 				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
+				warnLegacyMcpPermissionNames(projectCtx.config.permissions)
 				const permissions = compilePermissions(
 					projectCtx.config.permissions,
 					projectCtx.config.permissionChecks,

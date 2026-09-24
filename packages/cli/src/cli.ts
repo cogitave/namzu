@@ -64,7 +64,7 @@ import {
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
-import { compilePermissions } from './permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from './permissions/rules.js'
 import { CLI_VERSION } from './version.js'
 
 /** sysexits EX_USAGE — command-line argument error. */
@@ -392,6 +392,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const commandCtx = getBootstrapContext()
 			beginCatalogueRefresh(commandCtx.config)
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
+				warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
 				const permissions = compilePermissions(
 					resolvedCtx.config.permissions,
 					resolvedCtx.config.permissionChecks,

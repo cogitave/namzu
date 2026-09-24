@@ -37,7 +37,7 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { loadOutputSchema } from '../output-schema.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
-import { compilePermissions } from '../permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import {
 	type TerminationHandling,
 	type TerminationSignal,
@@ -259,6 +259,7 @@ async function execPrint(
 		return EXIT_USAGE
 	}
 
+	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 	for (const d of permissions.diagnostics) {
 		const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`

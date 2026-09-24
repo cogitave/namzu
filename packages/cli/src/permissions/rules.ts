@@ -43,6 +43,24 @@ export type ToolPermission = PermissionEffect | Readonly<Record<string, Permissi
 
 export type PermissionsConfig = Readonly<Record<string, ToolPermission>>
 
+/** Exact tool rules written for the CLI's former MCP naming scheme. */
+export function legacyMcpPermissionNames(config: PermissionsConfig | undefined): readonly string[] {
+	return Object.keys(config ?? {}).filter((name) => /^mcp_(?!_)[^_]+_.+/.test(name))
+}
+
+const warnedLegacyMcpNames = new Set<string>()
+
+/** Say the migration warning once per name and process, including resident steps. */
+export function warnLegacyMcpPermissionNames(config: PermissionsConfig | undefined): void {
+	for (const name of legacyMcpPermissionNames(config)) {
+		if (warnedLegacyMcpNames.has(name)) continue
+		warnedLegacyMcpNames.add(name)
+		process.stderr.write(
+			`Warning: permissions.${JSON.stringify(name)} uses the former MCP tool naming scheme. Update it to the corresponding mcp__<server>__<tool> name; this rule will not match the new name.\n`,
+		)
+	}
+}
+
 export interface CompileDiagnostic {
 	readonly tool: string
 	readonly pattern?: string
