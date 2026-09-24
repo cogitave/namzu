@@ -519,6 +519,53 @@ describe('tool-call framing', () => {
 		expect(completed(events).map((e) => e.toolUseId)).toEqual(['call_a', 'call_b'])
 	})
 
+	it('reports both calls unreadable, not the turn refused, when a second opens with no index before the first is complete', async () => {
+		// Real LLM decoding is linear, so a compliant server never interleaves
+		// two calls it also leaves without an index; shared code must not
+		// guess anyway. Unlike a reused index, this does not refuse the
+		// stream: both calls are still answered, just as unreadable.
+		//
+		// Chosen so the OLD routing (an id-less fragment always continues
+		// whichever call is "latest") does not merely produce garbage for
+		// "call_b": `'{"path":"b.md","content":"' + 'oops"}'` is syntactically
+		// COMPLETE, valid JSON. Before this fix that call was never reported
+		// unreadable at all — it parsed, and would have been executed with
+		// `content: "oops"`, text with no way to know it truly belonged to
+		// "call_b" rather than to "call_a", still open when "call_b" started.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result, events } = await run([
+			unindexed({ id: 'call_a', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":"a.md","content":"' } }), // arg(A partial)
+			unindexed({ id: 'call_b', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":"b.md","content":"' } }), // arg
+			unindexed({ function: { arguments: 'oops"}' } }), // arg
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		const calls = result?.response.message.toolCalls ?? []
+		expect(calls.map((call) => call.id)).toEqual(['call_a', 'call_b'])
+		for (const call of calls) {
+			// Never executed with content spliced from — or merely guessed
+			// to belong to — the other call: arguments are normalized to
+			// '{}', exactly like any other unreadable call, even though
+			// "call_b"'s buffer alone reads as perfectly valid JSON.
+			expect(call.function.arguments).toBe('{}')
+			expect(call.metadata?.inputError?.reason).toBe('malformed')
+		}
+		const done = completed(events)
+		expect(done.map((e) => [e.toolUseId, e.inputTruncated, e.inputError?.reason])).toEqual([
+			['call_a', true, 'malformed'],
+			['call_b', true, 'malformed'],
+		])
+		// "call_b" was never quietly completed with the ambiguous "oops" text:
+		// `input` is the sanitized `{}` every unreadable call gets, not
+		// `{ path: 'b.md', content: 'oops' }`, which is what its buffer alone
+		// would have parsed to.
+		expect(done.find((e) => e.toolUseId === 'call_b')?.input).toEqual({})
+	})
+
 	it('refuses a second call id on an index another call holds, instead of joining their arguments', async () => {
 		const { error, events } = await run([
 			open(0, 'call_a'),

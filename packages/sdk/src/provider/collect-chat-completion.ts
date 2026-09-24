@@ -1,13 +1,32 @@
 import { mergeTokenUsage } from '../types/common/index.js'
-import type { ReasoningBlock } from '../types/message/index.js'
+import type { ReasoningBlock, ToolInputError } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 import { StreamTextAccumulator } from './stream-text.js'
 import {
+	INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
 	ToolCallIndexer,
 	describeToolCallFramingViolation,
 	toolCallFramingViolation,
 } from './tool-call-framing.js'
+
+/**
+ * Whether a streamed argument buffer is, so far, a complete JSON value: none
+ * (a call with no arguments arrives empty) or text `JSON.parse` accepts.
+ * Used only to tell whether a call could still have more coming — see
+ * `ToolCallIndexer.interleaving` — not to validate a finished call, so it
+ * does not need the offset-finding `parseToolArguments` the turn loop uses
+ * for the message a model is shown.
+ */
+function isCompleteJsonValue(buffer: string): boolean {
+	if (!buffer) return true
+	try {
+		JSON.parse(buffer)
+		return true
+	} catch {
+		return false
+	}
+}
 
 /**
  * Drains a {@link StreamChunk} async iterable into the equivalent
@@ -60,7 +79,10 @@ export async function collectChatCompletion(
 		cacheWriteTokens: 0,
 	}
 
-	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
+	const toolBuckets = new Map<
+		number,
+		{ id: string; name: string; argsBuf: string; unreadable?: boolean }
+	>()
 	// Places a fragment that came without an index; see `ToolCallIndexer`.
 	const toolIndexer = new ToolCallIndexer()
 	// Same bucketing rule the turn loop uses (`runtime/query/iteration/
@@ -94,16 +116,30 @@ export async function collectChatCompletion(
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
+			// Checked BEFORE `indexOf`, which moves "most recently active" onto
+			// this fragment: the call it would leave incomplete is only
+			// readable before that happens.
+			const interleaving = toolIndexer.interleaving(tc, (i) =>
+				isCompleteJsonValue(toolBuckets.get(i)?.argsBuf ?? ''),
+			)
 			const index = toolIndexer.indexOf(tc)
 			const open = toolBuckets.get(index)
 			const violation = toolCallFramingViolation(open, tc, index)
 			if (violation) {
 				throw new Error(`Provider stream error: ${describeToolCallFramingViolation(violation)}`)
 			}
+			if (interleaving) {
+				// The call that was still open when this one started: with no
+				// index to tell a later id-less fragment's owner apart, it can
+				// no longer be trusted either, whatever its buffer holds.
+				const stuck = toolBuckets.get(interleaving.openIndex)
+				if (stuck) stuck.unreadable = true
+			}
 			const bucket = open ?? {
 				id: '',
 				name: '',
 				argsBuf: '',
+				...(interleaving ? { unreadable: true } : {}),
 			}
 			if (tc.id && !bucket.id) bucket.id = tc.id
 			if (tc.function?.name) bucket.name = tc.function.name
@@ -125,7 +161,26 @@ export async function collectChatCompletion(
 		.map(([, b]) => ({
 			id: b.id,
 			type: 'function' as const,
-			function: { name: b.name, arguments: b.argsBuf },
+			// An interleaved call is never returned with the buffer it
+			// accumulated: that buffer may hold another call's spliced-in
+			// fragments, or may simply be missing whatever an id-less
+			// fragment carried elsewhere instead. Normalized to `{}`, exactly
+			// as the turn loop normalizes any other unreadable call.
+			function: { name: b.name, arguments: b.unreadable ? '{}' : b.argsBuf },
+			...(b.unreadable
+				? {
+						metadata: {
+							inputTruncated: true,
+							partialArguments: b.argsBuf,
+							inputError: {
+								reason: 'malformed',
+								parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
+								length: b.argsBuf.length,
+								precedingLength: 0,
+							} satisfies ToolInputError,
+						},
+					}
+				: {}),
 		}))
 
 	const reasoningBlocks: ReasoningBlock[] = [...reasoningBuckets.entries()]

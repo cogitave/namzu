@@ -233,6 +233,23 @@ A stream groups a call's fragments by `index`. The turn loop and
   closes the call its id names. Such fragments all landed on one missing
   index before, so two parallel calls were refused as the violation below and
   the turn paused. A fragment that carries an index keeps it.
+- That last rule assumes only one call, of those sent with no index, is ever
+  open at a time — true for a compliant server, since a real model decodes
+  its own output linearly. If a new id opens one of these calls while the
+  call most recently active is not yet a complete JSON value (an empty
+  buffer counts as complete: no arguments), a later fragment with no id of
+  its own could belong to either, and there is no field that says which.
+  Guessing, as the rule above alone would, can splice one call's JSON into
+  the other's buffer — silently: the spliced buffer can still happen to
+  parse as valid JSON, so the wrong call runs with no error at all. Detected
+  the moment the second call opens, not only once an ambiguous fragment
+  actually arrives to prove it: whether one follows is exactly what cannot
+  be known in advance. Both calls are then reported unreadable —
+  `reason: 'malformed'`, since nothing here says the response was cut off,
+  and "the model moved on to another call" is what opening a second call
+  means — rather than executed with spliced or merely guessed-at arguments.
+  This does not refuse the stream: unlike a reused index, both calls are
+  still answered, just as unreadable, and every other call keeps running.
 - A second call id on an index another call holds is refused. The second
   call's arguments used to be appended to the first call's, which left one
   call that no tool could run. The turn loop throws a `ProviderRequestError`

@@ -6,8 +6,10 @@ import {
 import { ProviderRequestError, isProviderRequestError } from '../../../provider/errors.js'
 import { StreamTextAccumulator } from '../../../provider/stream-text.js'
 import {
+	INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
 	ToolCallIndexer,
 	describeToolCallFramingViolation,
+	describeToolCallInterleaving,
 	toolCallFramingViolation,
 } from '../../../provider/tool-call-framing.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
@@ -75,6 +77,15 @@ interface ToolCallBucket {
 	inputError?: ToolInputError
 	/** Characters the response streamed before this call began. */
 	precedingLength: number
+	/**
+	 * A later id-less fragment could not have been told apart between this
+	 * call and another (see `ToolCallIndexer.interleaving`). Reported
+	 * `malformed` regardless of what its buffer parses to: it may hold
+	 * another call's spliced-in fragments, or simply be missing whatever an
+	 * id-less fragment carried elsewhere instead, and either way it is not
+	 * what the model sent for this call alone.
+	 */
+	interleaved?: boolean
 }
 
 /**
@@ -539,6 +550,12 @@ export async function* streamProviderTurn(
 			}
 
 			for (const tc of chunk.delta.toolCalls ?? []) {
+				// Checked BEFORE `indexOf`, which moves "most recently active"
+				// onto this fragment: the call it would leave incomplete is only
+				// readable before that happens.
+				const interleaving = toolIndexer.interleaving(tc, (i) =>
+					parseToolArguments(toolBuckets.get(i)?.argsBuf ?? '').ok,
+				)
 				const index = toolIndexer.indexOf(tc)
 				let bucket = toolBuckets.get(index)
 				const violation = toolCallFramingViolation(bucket, tc, index)
@@ -555,6 +572,19 @@ export async function* streamProviderTurn(
 						detail: describeToolCallFramingViolation(violation),
 					})
 				}
+				if (interleaving) {
+					// The call that was still open when this one started: with no
+					// index to tell a later id-less fragment's owner apart from
+					// this one, it can no longer be trusted either, whatever its
+					// buffer holds.
+					const stuck = toolBuckets.get(interleaving.openIndex)
+					if (stuck) stuck.interleaved = true
+					log.warn('tool-call fragments arrived interleaved with no index', {
+						[NAMZU.TURN_ID]: turnId,
+						[NAMZU.ITERATION]: iteration,
+						'exception.message': describeToolCallInterleaving(interleaving),
+					})
+				}
 				if (!bucket) {
 					bucket = {
 						id: tc.id ?? '',
@@ -564,6 +594,7 @@ export async function* streamProviderTurn(
 						completed: false,
 						parsed: null,
 						precedingLength: streamedLength,
+						...(interleaving ? { interleaved: true } : {}),
 					}
 					toolBuckets.set(index, bucket)
 					lastOutputCall = bucket
@@ -614,7 +645,12 @@ export async function* streamProviderTurn(
 				// announced, under an id no other event of the call carried.
 				if (bucket?.started && !bucket.completed) {
 					bucket.completed = true
-					const parsed = parseToolArguments(bucket.argsBuf)
+					// An interleaved call is never taken at its buffer's word: it
+					// may hold another call's spliced-in fragments, or be missing
+					// whatever an id-less fragment carried elsewhere instead.
+					const parsed = bucket.interleaved
+						? { ok: false as const, parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR }
+						: parseToolArguments(bucket.argsBuf)
 					if (parsed.ok) {
 						bucket.parsed = parsed.value
 						await emitEvent({
@@ -735,7 +771,9 @@ export async function* streamProviderTurn(
 		if (!failure) {
 			if (!bucket.started || bucket.completed) continue
 			bucket.completed = true
-			const parsed = parseToolArguments(bucket.argsBuf)
+			const parsed = bucket.interleaved
+				? { ok: false as const, parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR }
+				: parseToolArguments(bucket.argsBuf)
 			if (parsed.ok) {
 				bucket.parsed = parsed.value
 				await emitEvent({
@@ -751,17 +789,28 @@ export async function* streamProviderTurn(
 		}
 		bucket.pendingFailure = undefined
 		bucket.parsed = {}
-		const inputError = classifyUnreadableToolInput(
-			failure,
-			{
-				length: bucket.argsBuf.length,
-				precedingLength: bucket.precedingLength,
-				last: bucket === lastOutputCall,
-			},
-			reportedFinishReason,
-			usage,
-			finishDetail,
-		)
+		// An interleaved call is always `malformed`, never `classifyUnreadableToolInput`'s
+		// call: whether it happens to be this response's last output and
+		// whether the response was cut off are both beside the point here —
+		// the buffer it would be judged by cannot be trusted either way.
+		const inputError: ToolInputError = bucket.interleaved
+			? {
+					reason: 'malformed',
+					parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
+					length: bucket.argsBuf.length,
+					precedingLength: bucket.precedingLength,
+				}
+			: classifyUnreadableToolInput(
+					failure,
+					{
+						length: bucket.argsBuf.length,
+						precedingLength: bucket.precedingLength,
+						last: bucket === lastOutputCall,
+					},
+					reportedFinishReason,
+					usage,
+					finishDetail,
+				)
 		bucket.inputError = inputError
 		log.warn('tool input could not be read', {
 			[NAMZU.TURN_ID]: turnId,
