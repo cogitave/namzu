@@ -236,6 +236,53 @@ behaves across sends, resume and children under this model.
 enforced and matched outside this module — see [The review
 policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
 and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
-`filtered`'s `{ metadata }` selector defers to. The CLI's session still
-builds a registry-shaped roster of its own; wiring it onto `toolsets` and a
-`ToolManager` is a separate, later change.
+`filtered`'s `{ metadata }` selector defers to.
+
+## The CLI's own composition
+
+`@namzu/cli`'s session (`packages/cli/src/tui/agent.ts`) builds its roster
+as a list of named toolsets rather than a registry: `builtin` (wrapped with
+`mapTools` for the checkpointed file tools), `memory`, one per connected MCP
+server (kind `mcp_server`, id `mcp:<server>` — `McpConnection.toolsets`,
+`integrations/mcp/servers.ts`), `plugins`/`plugins/mcp` (the two live
+toolsets `PluginLifecycleManager.toolsets` exposes), `computer-use`,
+`browser`, `web-search`/`web-fetch`, `session-goals`, `resident-history`,
+`resident-tool-evidence`, `conversation-sessions`, `ask-user-question`,
+`extra` (host `extraTools`), a dynamic `skills` toolset (its `tools()`
+closure reads live plugin-skill counts, so an enable/disable is picked up
+the next time `ToolManager.refresh()` is asked, with nothing to register or
+unregister), and `agents`/`agents:*` (the coordinator tools — parent-only: a
+sub-agent's own roster reuses the SAME `builtin`/`memory` `Toolset` objects
+directly, never these). A withheld-tools denylist and
+`toolLoading: 'deferred'` are both `filtered`/`deferred` wrappers applied
+per named toolset — never to one toolset collapsed from the others first,
+since `ToolManager` reads a derived tool's default availability off
+whichever ARRAY ENTRY served its name, and a toolset combined from an
+active half and a deferred half has no one availability of its own to
+report (see the two bug fixes below). Its `ToolManager`, built once at
+session boot over this list, is re-`refresh()`ed before every host-facing
+read (`/tools`, `/permissions`, a review decision, the tool presenter) so a
+plugin enabled or disabled after boot is reflected live. The ACP bridge
+(`commands/acp.ts`) now delegates its presenter to whichever session is
+currently streaming (`AgentSession.presenter`) instead of a permanently
+empty registry, which used to fall every tool-call/result view back to the
+generic label for every session the server ever handled.
+
+Two bugs in how `query()` and `SupervisorAgent` used `combineToolsets` were
+found and fixed while wiring the CLI onto this: both merged an eager and a
+deferred half into ONE outer toolset before handing it to `ToolManager`,
+which reads a tool's default availability off `toolset.availability` on
+whichever array entry served it — a merged toolset carries no single
+`availability` of its own, so `defaultAvailabilityByName` fell back to
+`'active'` for every tool inside it, both halves, silently dropping every
+`runtimeToolOverrides: { name: 'deferred' }` override the caller asked for
+(task tools, the coordinator tools). Fixed by passing the two halves as
+separate array entries instead. Separately, `query()` always added its own
+`search_tools` once anything was deferred, even when the caller's own
+`toolsets` already contributed a tool under that name (a connector
+literally named `search_tools`) — the pre-toolsets registry checked
+`!registry.has('search_tools')` first; the toolsets rewrite had dropped
+that check, so such a caller hit `ToolsetConflictError` at construction.
+Both are `packages/sdk/src/runtime/query/index.ts` and
+`packages/sdk/src/agents/SupervisorAgent.ts`, `.changeset/toolsets-cli.md`,
+**patch** for `@namzu/sdk`.

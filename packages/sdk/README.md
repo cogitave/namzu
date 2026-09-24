@@ -93,11 +93,10 @@ This complete example scripts two model turns and executes a real local tool.
 The mock requests `add`, then supplies the final answer; it does no inference.
 
 ```ts
-import { defineTool, MockLLMProvider, runAgent, ToolRegistry } from '@namzu/sdk'
+import { defineTool, MockLLMProvider, runAgent, toolset } from '@namzu/sdk'
 import { z } from 'zod'
 
-const tools = new ToolRegistry()
-tools.register(defineTool({
+const toolsets = [toolset('math', [defineTool({
   name: 'add',
   description: 'Add two numbers.',
   inputSchema: z.object({ a: z.number().finite(), b: z.number().finite() }),
@@ -107,7 +106,7 @@ tools.register(defineTool({
   destructive: false,
   concurrencySafe: true,
   execute: async ({ a, b }) => ({ success: true, output: String(a + b) }),
-}))
+})])]
 
 const provider = new MockLLMProvider({
   turns: [
@@ -119,7 +118,7 @@ const provider = new MockLLMProvider({
 const { output, turn } = await runAgent({
   provider,
   model: 'mock-model',
-  tools,
+  toolsets,
   prompt: 'Add 20 and 22.',
   maxIterations: 4,
   tokenBudget: 8192,

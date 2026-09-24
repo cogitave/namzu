@@ -15,9 +15,9 @@ An authorization rule says what a tool may do. A review policy resolves calls th
 # Build one
 
 ```ts
-import { createReviewPolicy, ToolRegistry, type ToolReviewPrompt } from '@namzu/sdk'
+import { createReviewPolicy, ToolManager, type ToolReviewPrompt } from '@namzu/sdk'
 
-const registry = new ToolRegistry()
+const registry = new ToolManager({ toolsets: [], messages: () => [] })
 const prompt: ToolReviewPrompt = async ({ toolCalls }) => {
   // Show the calls to the person; return what they decided.
   return toolCalls.length > 0 ? { kind: 'approve' } : { kind: 'reject', feedback: 'nothing to run' }

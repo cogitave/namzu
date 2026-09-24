@@ -52,7 +52,7 @@ pin is what keeps them working.
 
 ```ts
 import { PlaywrightBrowserHost } from '@namzu/browser'
-import { ToolRegistry, createBrowserTools } from '@namzu/sdk'
+import { toolset, createBrowserTools } from '@namzu/sdk'
 
 const host = new PlaywrightBrowserHost({
   profile: 'work',
@@ -64,8 +64,7 @@ const host = new PlaywrightBrowserHost({
 })
 for (const warning of host.warnings) console.warn(warning)
 
-const registry = new ToolRegistry()
-for (const tool of createBrowserTools(host)) registry.register(tool)
+const tools = toolset('browser', createBrowserTools(host))
 
 async function shutdown(): Promise<void> {
   await host.dispose()

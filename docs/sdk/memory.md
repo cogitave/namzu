@@ -259,8 +259,9 @@ own its freshness and search semantics.
 
 ## Model tools and lifecycle
 
-`buildMemoryTools` returns five tools. Register them in the host's `ToolRegistry`
-to make these operations available to the model.
+`buildMemoryTools` returns five tools. Fold them into one of the host's
+`toolsets` (`toolset('memory', buildMemoryTools(store))`) to make these
+operations available to the model.
 
 | Tool | Contract |
 | --- | --- |

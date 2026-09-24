@@ -52,7 +52,7 @@ import {
   SubprocessComputerUseHost,
   type SubprocessComputerUseHostOptions,
 } from '@namzu/computer-use'
-import { createComputerUseTool, ToolRegistry } from '@namzu/sdk'
+import { createComputerUseTool, toolset } from '@namzu/sdk'
 
 const options: SubprocessComputerUseHostOptions = {
   env: process.env,
@@ -71,8 +71,7 @@ console.log(host.capabilities)
 //   clipboard: true,
 // }
 
-const registry = new ToolRegistry()
-registry.register(createComputerUseTool(host))
+const tools = toolset('computer-use', [createComputerUseTool(host)])
 ```
 
 If a click, drag, scroll, text entry or key subprocess starts but does not
