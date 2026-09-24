@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-09-24
+
+- **Creation** [Opening a page in your browser](cli/open-url.md): the model can open an http(s) page in the user's default browser with the new `open_url` tool, in the interactive terminal and `namzu exec` only (`AgentSessionOptions.openUrl`). It is a `network` tool and is reviewed in `prompt` mode. Its result says the launcher started, not that a tab appeared. Under WSL a model had run `explorer.exe "https://…"`, which opened the tab and exited 1, and then reported that it had failed (`packages/cli/src/integrations/web/open-url.ts`, `tui/agent.ts`, `tui/App.tsx`, `commands/exec.ts`). `.changeset/open-url-tool.md`, **minor** for `@namzu/cli`.
+- **Update** [Opening a page in your browser](cli/open-url.md#how-it-opens-the-page): under WSL with interop, the browser opener used by `namzu login` and `open_url` goes through Windows PowerShell by absolute path. It runs a fixed `Start-Process` script, and the address reaches it only through `NAMZU_OPEN_URL`/`WSLENV`. Before this it used `xdg-open`, which under WSL reached no browser, so the sign-in page did not open (`packages/cli/src/tui/open-browser.ts`). The WSL environment note says `explorer.exe` exits 1 even when it succeeds (`context/environment.ts`, about 10 tokens more in the cached prefix). `.changeset/wsl-opens-windows-browser.md`, **patch** for `@namzu/cli`.
+
 ## 2026-09-23
 
 - **Update** [Tool execution](sdk/tool-execution.md): `ToolCallView` (generic) gains `outcome: 'cancelled'` for a result the person declined on the tool's own screen; `save_skill` and the `schedule` tool use it, and the CLI shows `○ … ⎿ Cancelled — nothing was saved` instead of `✗ … failed: Error: The operator cancelled`; the CLI's `tool-end` event carries `cancelled: true`

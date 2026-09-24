@@ -116,6 +116,10 @@ describe('WSL', () => {
 		).toBe(false)
 	})
 
+	it('says nothing about Windows programs outside WSL', () => {
+		expect(promptFor({ escape: 'ask', interactive: true })).not.toMatch(/explorer\.exe|powershell/)
+	})
+
 	it('is absent on a Linux that is not WSL', () => {
 		expect(detectWsl({ HOME: '/home/me' }, { exists: () => true, list: () => ['c'] })).toBe(
 			undefined,
@@ -132,6 +136,9 @@ describe('WSL', () => {
 		expect(text).toMatch(/asks for approval first/)
 		expect(text).toContain('powershell.exe -NoProfile -Command')
 		expect(text).toContain('cmd.exe /c')
+		// Observed: explorer.exe opened the page, exited 1, and the model
+		// reported failure.
+		expect(text).toContain('`explorer.exe .` (it exits 1 even when it succeeds)')
 	})
 
 	it('tells a sandboxed session the drives and Windows programs need the escape', () => {
@@ -178,5 +185,6 @@ describe('WSL', () => {
 		)
 		expect(text).toMatch(/interop is off here/)
 		expect(text).not.toContain('powershell.exe')
+		expect(text).not.toContain('explorer.exe')
 	})
 })
