@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -73,7 +73,7 @@ async function runUntilRefused() {
 	const run = await drainQuery(
 		{
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			...session,
 			agentId: 'agent_first_refusal',
 			agentName: 'First refusal agent',
@@ -126,7 +126,7 @@ describe('a retryable refusal on the turn’s first request', () => {
 			projectId: scope.projectId,
 			tenantId: scope.tenantId,
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'agent_first_refusal',
 			agentName: 'First refusal agent',
 			workingDirectory: process.cwd(),
@@ -158,13 +158,12 @@ describe('a retryable refusal on the turn’s first request', () => {
 			sessionId: session.sessionId,
 			topicId: session.topicId,
 		}
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'fetch_page',
 			description: 'Fetch a page',
 			inputSchema: z.object({ url: z.string() }),
 			execute: async () => ({ success: true, output: 'ok' }),
-		} as unknown as Parameters<ToolRegistry['register']>[0])
+		})
 		const answers = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'fetch_page', args: { url: 'x' } }] }, { text: 'done' }],
 		})
@@ -188,7 +187,7 @@ describe('a retryable refusal on the turn’s first request', () => {
 		} as LLMProvider
 		const common = {
 			provider,
-			tools,
+			toolsets: [tools],
 			agentId: 'agent_first_refusal',
 			agentName: 'First refusal agent',
 			workingDirectory: process.cwd(),
@@ -250,7 +249,7 @@ describe('a retryable refusal on the turn’s first request', () => {
 						})
 					},
 				},
-				tools: new ToolRegistry(),
+				toolsets: [],
 				...session,
 				agentId: 'agent_first_refusal',
 				agentName: 'First refusal agent',
