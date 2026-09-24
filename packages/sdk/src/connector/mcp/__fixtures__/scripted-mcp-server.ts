@@ -55,6 +55,14 @@ export interface ScriptedMcpServer {
 	setTools(tools: readonly MCPToolDefinition[]): void
 	setPrompts(prompts: readonly MCPPromptDefinition[]): void
 	setResources(resources: readonly MCPResource[]): void
+	/**
+	 * Change what the NEXT `initialize` answers with — a real server
+	 * renegotiating capabilities across a reconnect, not a `list_changed`
+	 * notification on the current connection (which only ever concerns a
+	 * capability's own `listChanged` flag, not whether the capability itself
+	 * is present at all).
+	 */
+	setCapabilities(next: MCPServerCapabilities): void
 	/** Push `notifications/<kind>/list_changed`, independent of the list itself. */
 	fireListChanged(kind: 'tools' | 'prompts' | 'resources'): void
 	/** Simulate the transport dying — `client`'s own `onClose` fires. */
@@ -77,7 +85,7 @@ export function scriptedMcpServer(config: ScriptedMcpServerConfig = {}): Scripte
 	let resources = [...(config.resources ?? [])]
 	const toolCalls: { name: string; args: Record<string, unknown> }[] = []
 	const resourceReads: string[] = []
-	const capabilities = config.capabilities ?? impliedCapabilities(config)
+	let capabilities = config.capabilities ?? impliedCapabilities(config)
 
 	let onMessage: ((m: MCPJsonRpcMessage) => void) | undefined
 	let onClose: (() => void) | undefined
@@ -235,6 +243,9 @@ export function scriptedMcpServer(config: ScriptedMcpServerConfig = {}): Scripte
 		},
 		setResources: (next) => {
 			resources = [...next]
+		},
+		setCapabilities: (next) => {
+			capabilities = next
 		},
 		fireListChanged: (kind) =>
 			send({ jsonrpc: '2.0', method: `notifications/${kind}/list_changed` }),

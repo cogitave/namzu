@@ -1,14 +1,16 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
+import { NAMZU } from '../../constants/telemetry/index.js'
 import { combineToolsets } from '../../toolsets/combine.js'
 import type { Toolset, ToolsetAvailability } from '../../toolsets/types.js'
 import { deferred } from '../../toolsets/wrappers.js'
-import type { MCPServerCapabilities } from '../../types/connector/index.js'
+import type { MCPResource, MCPServerCapabilities } from '../../types/connector/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { ToolSource } from '../../types/toolset/index.js'
 import { toErrorMessage } from '../../utils/error.js'
-import type { Logger } from '../../utils/logger.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { frameServerResult, mcpToolResultToToolResult, mcpToolToToolDefinition } from './adapter.js'
 import type { MCPClient } from './client.js'
 import { MCPToolDiscovery } from './discovery.js'
@@ -119,7 +121,31 @@ interface ResourceToolsState {
 	admittedUris: ReadonlySet<string>
 }
 
-function buildResourceTools(state: ResourceToolsState): ToolDefinition[] {
+/**
+ * Fetch and admit this server's resources, and refresh `state.admittedUris`
+ * from the result — the ONLY place that set is ever written, so it can only
+ * ever hold a post-policy URI. `list_resources`'s own `execute` below and
+ * `mcpToolset`'s `refreshResourceUris` (construction, `resources/list_changed`,
+ * reconnection) both call this rather than `client.listResources` directly,
+ * which is what used to let a denied resource stay listed and readable: the
+ * two callers fetched raw and set `admittedUris` from it with no policy gate
+ * at all, unlike `discovery.discoverFrom`/`discoverPromptsFrom`, which both
+ * already run everything through `applyNamePolicy`.
+ */
+async function refreshAdmittedResources(
+	discovery: MCPToolDiscovery,
+	state: ResourceToolsState,
+	options?: { signal?: AbortSignal },
+): Promise<MCPResource[]> {
+	const resources = await discovery.discoverResourcesFrom(state.client, options)
+	state.admittedUris = new Set(resources.map((r) => r.uri))
+	return resources
+}
+
+function buildResourceTools(
+	discovery: MCPToolDiscovery,
+	state: ResourceToolsState,
+): ToolDefinition[] {
 	const { client, serverName, readOnlyHintTrusted } = state
 
 	const listResources: ToolDefinition = {
@@ -134,8 +160,9 @@ function buildResourceTools(state: ResourceToolsState): ToolDefinition[] {
 		provenance: { server: serverName, readOnlyHintTrusted },
 		async execute(_input: unknown, context: ToolContext): Promise<ToolResult> {
 			try {
-				const resources = await client.listResources({ signal: context.abortSignal })
-				state.admittedUris = new Set(resources.map((r) => r.uri))
+				const resources = await refreshAdmittedResources(discovery, state, {
+					signal: context.abortSignal,
+				})
 				const listing = resources.map((r) => ({
 					uri: r.uri,
 					name: r.name,
@@ -208,6 +235,13 @@ function buildResourceTools(state: ResourceToolsState): ToolDefinition[] {
  * their server toolsets this way (plan.md §4). `client` must already be
  * connected; this function only discovers and wraps, it never dials.
  *
+ * `options.allow`/`options.deny` govern all three surfaces a server can
+ * contribute by name — tools, prompts AND resources — through
+ * `MCPToolDiscovery`'s `discoverFrom`/`discoverPromptsFrom`/
+ * `discoverResourcesFrom`. A denied resource is never listed and never
+ * admitted into `read_resource`'s URI set, the same as a denied tool never
+ * reaching `tools()`.
+ *
  * ## Resource tools are always deferred
  *
  * `mcp__<server>__list_resources` and `mcp__<server>__read_resource` are
@@ -215,18 +249,17 @@ function buildResourceTools(state: ResourceToolsState): ToolDefinition[] {
  * server's resource catalogue is usually not worth showing up front the way
  * its tools are. `Toolset.availability` is a whole-toolset default, though,
  * not a per-tool one, so this is implemented as an inner toolset (the
- * resource pair) combined with the main one via `combineToolsets` — which
+ * resource pair) combined with the main one via `combineToolsets`, which
  * also gives the combination `combineToolsets`'s atomic same-source
  * collision check (`ToolsetConflictError`) for free, covering a tool,
  * prompt or resource-tool name landing on the same `mcp__…` string as
- * another. **Known limitation:** `combineToolsets`'s own return carries no
- * single `.availability` (a combination is heterogeneous by nature), so
- * when a server DOES publish resources, the toolset this function returns
- * has no top-level `availability` of its own — only the two resource tools'
- * inner toolset does. A server with no resources returns the plain toolset
- * directly, and `options.availability` applies to it as expected. Revisit
- * once a later item gives `Toolset` (or its consumer) a per-tool
- * availability override.
+ * another. `combineToolsets`'s own return carries no single `.availability`
+ * (a combination is heterogeneous by nature), so this function sets
+ * `options.availability` on the returned toolset itself rather than leaving
+ * that to `combineToolsets` — the two resource tools stay independently
+ * `deferred` on their own inner toolset either way, this only decides what a
+ * caller reading `.availability` off the toolset this function hands back
+ * sees.
  *
  * ## Change and reconnection
  *
@@ -236,10 +269,14 @@ function buildResourceTools(state: ResourceToolsState): ToolDefinition[] {
  * that never declared it cannot make this toolset re-fetch by sending the
  * notification anyway — and after every successful reconnection (the
  * server may have restarted with a different tool set, which is not a
- * notification at all). `close()` stops the reconnect supervisor this
- * function owns; pass `reconnect: { enabled: false }` when the caller runs
- * its own supervisor against the same client, to avoid two supervisors
- * racing to reconnect it.
+ * notification at all, and may have negotiated different capabilities
+ * entirely — including resources, which is why whether the two resource
+ * tools are currently present is re-checked on every reconnect rather than
+ * decided once at construction). `close()` stops the reconnect supervisor
+ * this function owns and releases the `onNotification` subscription it
+ * registered; pass `reconnect: { enabled: false }` when the caller runs its
+ * own supervisor against the same client, to avoid two supervisors racing to
+ * reconnect it.
  */
 export async function mcpToolset(
 	client: MCPClient,
@@ -253,6 +290,9 @@ export async function mcpToolset(
 	}
 	const serverName = initial.serverName
 	const readOnlyHintTrusted = options.readOnlyHintTrusted ?? false
+	const log = resolveLogger(options.logger).child({
+		[SCOPE_ATTRIBUTE]: 'connector/mcp/mcp-toolset',
+	})
 	const source: ToolSource = {
 		id: options.id ?? `mcp:${serverName}`,
 		kind: 'mcp_server',
@@ -318,12 +358,36 @@ export async function mcpToolset(
 	}
 
 	async function refreshResourceUris(): Promise<void> {
-		const resources = await client.listResources()
-		resourceState.admittedUris = new Set(resources.map((r) => r.uri))
+		await refreshAdmittedResources(discovery, resourceState)
 	}
 
-	const supportsResources = initial.serverCapabilities?.resources !== undefined
-	const resourceTools = supportsResources ? buildResourceTools(resourceState) : []
+	// The two resource tool DEFINITIONS are built once, unconditionally — they
+	// are inert until `resourceTools` (below) actually includes them. Building
+	// them up front, rather than only when the server first supports
+	// resources, is what lets a reconnect that negotiates the capability for
+	// the FIRST time (see `syncResourceCapability`) expose them without
+	// rebuilding the toolset this function returns.
+	const resourceToolDefs = buildResourceTools(discovery, resourceState)
+	let supportsResources = initial.serverCapabilities?.resources !== undefined
+	let resourceTools: ToolDefinition[] = supportsResources ? resourceToolDefs : []
+
+	/**
+	 * Re-read whether the server currently supports resources and bring
+	 * `resourceTools`/`admittedUris` into line with that — called at
+	 * construction and after every reconnect, never relying on a value
+	 * captured once. A server that stops advertising the capability loses its
+	 * resource tools from the next `tools()` snapshot; one that gains it for
+	 * the first time (a restart with a newer build, say) gets them added.
+	 */
+	async function syncResourceCapability(): Promise<void> {
+		supportsResources = client.getState().serverCapabilities?.resources !== undefined
+		resourceTools = supportsResources ? resourceToolDefs : []
+		if (supportsResources) {
+			await refreshResourceUris()
+		} else {
+			resourceState.admittedUris = new Set()
+		}
+	}
 
 	await Promise.all([
 		refreshTools(),
@@ -345,17 +409,32 @@ export async function mcpToolset(
 	const currentCapabilities = (): MCPServerCapabilities | undefined =>
 		client.getState().serverCapabilities
 
-	client.onNotification((method) => {
+	// A rejection here would otherwise be a genuine unhandled promise
+	// rejection: it happens inside a fire-and-forget notification callback,
+	// not inside anything a caller of `mcpToolset` is awaiting, so nothing
+	// upstream ever gets a chance to catch it. A transient failure on the
+	// re-fetch a notification triggers (a network blip, or the connection
+	// dropping around the same moment the server notified) is exactly the
+	// kind of thing that must be logged, not left to crash the process.
+	const onRefreshFailure = (which: string) => (err: unknown) => {
+		log.error('Failed to refresh MCP tools after a server notification', {
+			[NAMZU.SERVER_NAME]: serverName,
+			'namzu.connector.refresh': which,
+			'exception.message': toErrorMessage(err),
+		})
+	}
+
+	const unsubscribeNotifications = client.onNotification((method) => {
 		if (closed) return
 		if (method === 'notifications/tools/list_changed') {
 			if (!currentCapabilities()?.tools?.listChanged) return
-			void refreshTools().then(notify)
+			void refreshTools().then(notify).catch(onRefreshFailure('tools'))
 		} else if (method === 'notifications/prompts/list_changed') {
 			if (!currentCapabilities()?.prompts?.listChanged) return
-			void refreshPrompts().then(notify)
+			void refreshPrompts().then(notify).catch(onRefreshFailure('prompts'))
 		} else if (method === 'notifications/resources/list_changed') {
 			if (!currentCapabilities()?.resources?.listChanged) return
-			void refreshResourceUris().then(notify)
+			void refreshResourceUris().then(notify).catch(onRefreshFailure('resources'))
 		}
 	})
 
@@ -367,12 +446,13 @@ export async function mcpToolset(
 			// The server may have come back with a different tool set entirely
 			// — not a `list_changed` notification, which this reconnected
 			// client has not even finished re-subscribing to yet. Re-run every
-			// discovery unconditionally, the same as first construction.
-			await Promise.all([
-				refreshTools(),
-				refreshPrompts(),
-				supportsResources ? refreshResourceUris() : Promise.resolve(),
-			])
+			// discovery unconditionally, the same as first construction, and
+			// re-derive `supportsResources` rather than reuse the value from
+			// the FIRST connection: a reconnect can renegotiate capabilities,
+			// and a stale copy would keep acting on what the previous
+			// connection advertised, the same reasoning `currentCapabilities`
+			// above already applies to the `list_changed` gates.
+			await Promise.all([refreshTools(), refreshPrompts(), syncResourceCapability()])
 			if (closed) return
 			notify()
 			await reconnectOptions.onReconnected?.()
@@ -383,6 +463,7 @@ export async function mcpToolset(
 	const close = async (): Promise<void> => {
 		if (closed) return
 		closed = true
+		unsubscribeNotifications()
 		supervisor.stop()
 	}
 
@@ -394,14 +475,28 @@ export async function mcpToolset(
 		close,
 	}
 
-	if (!supportsResources) return mainToolset
-
 	const resourceToolset: Toolset = {
 		source,
+		// A `let`, not a snapshot: `syncResourceCapability` reassigns this on
+		// every reconnect, and `combineToolsets` calls `tools()` fresh on every
+		// one of ITS OWN `tools()` calls (see combine.ts), so a capability that
+		// appears or disappears between two calls is visible without rebuilding
+		// anything this function returns.
 		tools: () => resourceTools,
 		onChange,
 		close,
 	}
 
-	return combineToolsets(source, [mainToolset, deferred(resourceToolset)])
+	// `combineToolsets` itself sets no `.availability` on what it returns (a
+	// combination is heterogeneous by nature: the resource pair stays
+	// `deferred` on its own inner toolset regardless). Setting it here, always,
+	// is what lets `options.availability` reach a caller reading `.availability`
+	// off this function's return value whether or not the server happens to
+	// have resources today — including a server that gains or loses them on a
+	// later reconnect, which is exactly why this is unconditional rather than
+	// branching on `supportsResources` the way this function used to.
+	return {
+		...combineToolsets(source, [mainToolset, deferred(resourceToolset)]),
+		availability: options.availability,
+	}
 }

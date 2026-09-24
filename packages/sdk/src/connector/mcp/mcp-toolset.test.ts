@@ -2,8 +2,22 @@ import { describe, expect, it } from 'vitest'
 
 import type { MCPToolDefinition } from '../../types/connector/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
+import type { Logger } from '../../utils/logger.js'
 import { scriptedMcpServer } from './__fixtures__/scripted-mcp-server.js'
 import { mcpToolset, mcpToolsetName } from './mcp-toolset.js'
+
+function stubLogger(): Logger & { errors: unknown[][] } {
+	const errors: unknown[][] = []
+	const logger: Logger & { errors: unknown[][] } = {
+		errors,
+		debug: () => undefined,
+		info: () => undefined,
+		warn: () => undefined,
+		error: (...args) => errors.push(args),
+		child: () => logger,
+	}
+	return logger
+}
 
 function waitForChange(
 	onChange: ((listener: () => void) => () => void) | undefined,
@@ -84,6 +98,59 @@ describe('mcpToolset', () => {
 			const names = ts.tools().map((t) => t.name)
 			expect(names).toContain('mcp__demo__echo')
 			expect(names).not.toContain('mcp__demo__dangerous')
+		})
+
+		it('never lists or admits a denied resource, on first discovery or after list_changed', async () => {
+			const server = scriptedMcpServer({
+				serverName: 'demo',
+				resources: [
+					{ uri: 'file:///a.txt', name: 'a' },
+					{ uri: 'file:///secret.txt', name: 'secret' },
+				],
+			})
+			await server.client.connect()
+
+			const ts = await mcpToolset(server.client, { deny: ['secret'] })
+			const listResources = ts.tools().find((t) => t.name === 'mcp__demo__list_resources')
+			const readResource = ts.tools().find((t) => t.name === 'mcp__demo__read_resource')
+			if (!listResources || !readResource) throw new Error('resource tools missing')
+
+			const listed = await listResources.execute({}, {
+				abortSignal: new AbortController().signal,
+			} as ToolContext)
+			expect(listed.success).toBe(true)
+			expect(listed.output).toContain('file:///a.txt')
+			expect(listed.output).not.toContain('secret')
+
+			const deniedRead = await readResource.execute({ uri: 'file:///secret.txt' }, {
+				abortSignal: new AbortController().signal,
+			} as ToolContext)
+			expect(deniedRead.success).toBe(false)
+			expect(deniedRead.error).toContain('is not a resource')
+			// Never even reached the server — refused on admission, same as an
+			// unknown uri, not merely refused after a round trip.
+			expect(server.resourceReads).toEqual([])
+
+			// A re-discovery (`resources/list_changed`) re-applies the same
+			// policy — a resource added later cannot bypass `deny` either.
+			const changed = waitForChange(ts.onChange)
+			server.setResources([
+				{ uri: 'file:///a.txt', name: 'a' },
+				{ uri: 'file:///secret.txt', name: 'secret' },
+				{ uri: 'file:///b.txt', name: 'b' },
+			])
+			server.fireListChanged('resources')
+			await changed
+
+			const stillDenied = await readResource.execute({ uri: 'file:///secret.txt' }, {
+				abortSignal: new AbortController().signal,
+			} as ToolContext)
+			expect(stillDenied.success).toBe(false)
+
+			const newlyAdmitted = await readResource.execute({ uri: 'file:///b.txt' }, {
+				abortSignal: new AbortController().signal,
+			} as ToolContext)
+			expect(newlyAdmitted.success).toBe(true)
 		})
 	})
 
@@ -184,6 +251,62 @@ describe('mcpToolset', () => {
 			expect(ts.tools().map((t) => t.name)).toEqual(['mcp__demo__reconnected'])
 			await ts.close?.()
 		})
+
+		it('gains resource tools after a reconnect negotiates the capability for the first time', async () => {
+			const server = scriptedMcpServer({
+				serverName: 'demo',
+				tools: [echoTool],
+				capabilities: {}, // no `resources` at all on the first connection
+			})
+			await server.client.connect()
+			const ts = await mcpToolset(server.client, {
+				reconnect: { initialDelayMs: 1, maxDelayMs: 5, maxAttempts: 5 },
+			})
+			expect(ts.tools().map((t) => t.name)).not.toContain('mcp__demo__list_resources')
+
+			// The server comes back from the reconnect with resources it never
+			// advertised before — a restart with a newer build, not a
+			// `resources/list_changed` notification (nobody was connected to
+			// send or receive one).
+			server.setCapabilities({ resources: { listChanged: true } })
+			server.setResources([{ uri: 'file:///a.txt', name: 'a' }])
+			const changed = waitForChange(ts.onChange)
+			server.dropConnection()
+			await changed
+
+			const names = ts.tools().map((t) => t.name)
+			expect(names).toContain('mcp__demo__list_resources')
+			expect(names).toContain('mcp__demo__read_resource')
+
+			const readResource = ts.tools().find((t) => t.name === 'mcp__demo__read_resource')
+			if (!readResource) throw new Error('read_resource missing')
+			const result = await readResource.execute({ uri: 'file:///a.txt' }, {
+				abortSignal: new AbortController().signal,
+			} as ToolContext)
+			expect(result.success).toBe(true)
+			await ts.close?.()
+		})
+
+		it('loses resource tools after a reconnect drops the capability', async () => {
+			const server = scriptedMcpServer({
+				serverName: 'demo',
+				tools: [echoTool],
+				resources: [{ uri: 'file:///a.txt', name: 'a' }],
+			})
+			await server.client.connect()
+			const ts = await mcpToolset(server.client, {
+				reconnect: { initialDelayMs: 1, maxDelayMs: 5, maxAttempts: 5 },
+			})
+			expect(ts.tools().map((t) => t.name)).toContain('mcp__demo__list_resources')
+
+			server.setCapabilities({}) // the reconnected server no longer serves resources
+			const changed = waitForChange(ts.onChange)
+			server.dropConnection()
+			await changed
+
+			expect(ts.tools().map((t) => t.name)).not.toContain('mcp__demo__list_resources')
+			await ts.close?.()
+		})
 	})
 
 	describe('resources', () => {
@@ -249,6 +372,54 @@ describe('mcpToolset', () => {
 
 			expect(ts.tools().some((t) => t.name.includes('list_resources'))).toBe(false)
 			expect(ts.availability).toBe('deferred')
+		})
+	})
+
+	describe('notification handler', () => {
+		it('logs rather than leaves an unhandled rejection when a list_changed refresh fails', async () => {
+			const server = scriptedMcpServer({ serverName: 'demo', tools: [echoTool] })
+			await server.client.connect()
+			const logger = stubLogger()
+			const ts = await mcpToolset(server.client, { logger })
+
+			const unhandled: unknown[] = []
+			const onUnhandledRejection = (reason: unknown) => unhandled.push(reason)
+			process.on('unhandledRejection', onUnhandledRejection)
+			try {
+				// The notification arrives and is queued for delivery, then the
+				// connection drops before that delivery runs — so the `tools/list`
+				// call the notification triggers hits an already-disconnected
+				// client. Both calls are synchronous; the race is in the
+				// microtask the notification itself is delivered on.
+				server.fireListChanged('tools')
+				server.dropConnection()
+				await flush()
+			} finally {
+				process.off('unhandledRejection', onUnhandledRejection)
+			}
+
+			expect(unhandled).toEqual([])
+			expect(logger.errors.length).toBeGreaterThan(0)
+			expect(String(logger.errors[0]?.[0])).toContain('Failed to refresh MCP tools')
+			await ts.close?.()
+		})
+	})
+
+	describe('close', () => {
+		it('releases the onNotification subscription it registered', async () => {
+			const server = scriptedMcpServer({ serverName: 'demo', tools: [echoTool] })
+			await server.client.connect()
+			const ts = await mcpToolset(server.client)
+
+			const client = server.client as unknown as {
+				notificationHandlers: unknown[]
+			}
+			expect(client.notificationHandlers.length).toBeGreaterThan(0)
+			const before = client.notificationHandlers.length
+
+			await ts.close?.()
+
+			expect(client.notificationHandlers.length).toBe(before - 1)
 		})
 	})
 
