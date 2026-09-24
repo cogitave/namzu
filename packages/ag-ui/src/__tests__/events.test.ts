@@ -590,6 +590,43 @@ describe('AGUIEventMapper', () => {
 		})
 	})
 
+	it('says why the arguments could not be read, so a cut-off call can be told from a malformed one', () => {
+		// `inputTruncated` alone is set for both, and was all TOOL_CALL_END
+		// carried: a host could not tell a length cut from malformed JSON.
+		const malformed = {
+			reason: 'malformed' as const,
+			finishReason: 'tool_calls' as const,
+			parseError: "Expected ',' or '}' after property value in JSON at position 20",
+			offset: 20,
+			length: 26,
+			precedingLength: 0,
+		}
+		const truncated = {
+			reason: 'truncated' as const,
+			finishReason: 'length' as const,
+			parseError: 'Unterminated string in JSON at position 17',
+			offset: 17,
+			length: 17,
+			precedingLength: 40,
+		}
+		for (const inputError of [malformed, truncated]) {
+			const events = mapAll([
+				toolStarted(),
+				native('tool_input_delta', { toolUseId: TOOL, partialJson: '{"text":"cut off' }),
+				native('tool_input_completed', {
+					toolUseId: TOOL,
+					input: {},
+					inputTruncated: true,
+					inputError,
+				}),
+				turnCompleted(),
+			])
+			expect(ofType(events, EventType.TOOL_CALL_END)[0]?.metadata).toEqual({
+				namzu: { inputTruncated: true, inputError },
+			})
+		}
+	})
+
 	it('does not invent arguments when a truncated call has no retained deltas', () => {
 		const events = mapAll([
 			toolStarted(),

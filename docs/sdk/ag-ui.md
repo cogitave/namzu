@@ -278,7 +278,12 @@ can be completed from its aggregate. A conflicting aggregate produces
 off or malformed (see [Unreadable tool input](unreadable-tool-input.md)),
 retain their raw fragments and carry `metadata.namzu.inputTruncated` on
 `TOOL_CALL_END`; the normalized fallback object is not presented as the
-original call.
+original call. `inputTruncated` is set for both causes. When the runtime
+recorded which, `TOOL_CALL_END` also carries it as `metadata.namzu.inputError`,
+the `ToolInputError` from `tool_input_completed`: `reason` is `truncated` or
+`malformed`, with `finishReason`, `parseError`, `offset`, `length` and
+`precedingLength`. Arguments only the adapter found unparsable, and those from
+an `@namzu/sdk` that records no reason, carry `inputTruncated` alone.
 Backend tool failures carry `metadata.namzu.isError` on their result.
 
 `AGUIEventMapper` exposes `start`, `map`, `finish`, `fail`, and `ended` for
