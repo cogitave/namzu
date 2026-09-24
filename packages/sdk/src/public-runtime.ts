@@ -945,6 +945,7 @@ export {
 	poisonsLaterCommands,
 	programPositions,
 	resolveScriptPrograms,
+	unknownProgramInLine,
 } from './authorization/program.js'
 export type { CommandProgramPositions, ProgramPosition } from './authorization/program.js'
 

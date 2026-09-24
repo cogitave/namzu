@@ -5,24 +5,19 @@ import {
 	hasPoisoningPrefix,
 	poisonsLaterCommands,
 	programPositions,
-	resolveScriptPrograms,
+	unknownProgramInLine,
 } from '../program.js'
 import { lexShellCommandLine } from '../shell-lexer.js'
 
 /**
- * Whether `line` holds a position `resolveScriptPrograms` could not resolve
- * to a program name — the same walk `executor.ts`'s `unknownProgramOf`,
- * `script-check.ts`'s `verifyScheduledScript` and the scheduled-run floor's
- * `reachesScheduler` each do over a whole script, in one place, so a test
- * against this module is a test against what all three consumers actually
- * see.
+ * Whether `line` holds a position `unknownProgramInLine` could not resolve
+ * to a program name. Calls the SAME exported function `executor.ts`'s
+ * `unknownProgramOf` delegates to, rather than re-implementing its
+ * opaque-check-then-walk — an independent mirror is exactly what let a
+ * previous round's `bash -c "$X"` gap go unnoticed by this suite.
  */
 function isUnknown(line: string, dialect: 'bash' | 'sh' = 'bash'): boolean {
-	const reading = lexShellCommandLine(line, { dialect })
-	if (reading.opaque) return true
-	return resolveScriptPrograms(reading.commands, dialect).some(({ positions }) =>
-		positions.some((p) => p.unknown !== undefined),
-	)
+	return unknownProgramInLine(line, dialect) !== undefined
 }
 
 describe('a re-exec wrapper does not move the program out of reach', () => {
@@ -59,6 +54,175 @@ describe('a re-exec wrapper does not move the program out of reach', () => {
 
 	it('still reads a plain, unwrapped expanding head the same way as before', () => {
 		expect(isUnknown('$(echo git) push')).toBe(true)
+	})
+})
+
+describe('a final review of program.ts: assignments through a wrapper, applet dispatch, export attributes, nested-shell wrappers, explicit shell/editor modes', () => {
+	// CRITICAL: `sudo`'s own case never skipped a `NAME=value` pair the way
+	// `env`'s already did, so the assignment word itself was reported as the
+	// program and the real program after it was never examined at all —
+	// worse than merely missing the poisoning, `sudo VAR=value $(echo ls)`
+	// read as `VAR=value` being known and `$(echo ls)` never looked at.
+	it('sudo skips a NAME=value pair to find the real program, the same way env does', () => {
+		expect(isUnknown('sudo VAR=value $(echo ls)')).toBe(true) // the real, wild program
+		expect(isUnknown('sudo FOO=x cmd')).toBe(false) // an ordinary assignment, cmd is known
+		expect(isUnknown('sudo -u root FOO=x cmd')).toBe(false) // options, then assignment, then cmd
+	})
+
+	it('a wrapper NAME=value pair that names a poisoning variable is fed into the poisoning model', () => {
+		expect(isUnknown('sudo PATH=/evil cmd')).toBe(true)
+		expect(isUnknown('sudo LD_PRELOAD=/evil.so cmd')).toBe(true)
+		expect(isUnknown('env PATH=/evil cmd')).toBe(true)
+		expect(isUnknown('env LD_PRELOAD=/evil.so cmd')).toBe(true)
+		// A non-poisoning name is unaffected either way.
+		expect(isUnknown('sudo FOO=bar cmd')).toBe(false)
+		expect(isUnknown('env FOO=bar cmd')).toBe(false)
+	})
+
+	// CRITICAL: `executor.ts`'s `unknownProgramOf` ignored `reading.opaque`/
+	// `!reading.complete` — `bash -c "$X"` never read into the payload (the
+	// lexer cannot, since it expands) and marks the WHOLE line opaque, but
+	// nothing here noticed: the position-walk over `reading.commands` found
+	// only the literal, ordinary word `bash` and called it known. Covered
+	// through `unknownProgramInLine`, the exact function `executor.ts` now
+	// calls, so this test and that code cannot drift apart again.
+	it('an opaque or incomplete reading is itself unknown, not just its resolved positions', () => {
+		expect(isUnknown('bash -c "$X"')).toBe(true)
+		expect(isUnknown('sh -c "$X"')).toBe(true)
+		// Sanity: a LITERAL bash -c payload is still read fine (the lexer
+		// splits it into its own nested command), not opaque.
+		expect(isUnknown('bash -c "echo hi"')).toBe(false)
+	})
+
+	it('busybox/toybox applet dispatch is transparent, the same as builtin', () => {
+		expect(isUnknown('busybox ls -la')).toBe(false)
+		expect(isUnknown('toybox echo hi')).toBe(false)
+		expect(isUnknown('busybox $(echo ls)')).toBe(true)
+	})
+
+	it('declare -x/typeset -x (any cluster with it, never +x) poison later commands like export', () => {
+		expect(isUnknown('declare -x PATH=/evil; ls')).toBe(true)
+		expect(isUnknown('declare -gx PATH=/evil; ls')).toBe(true)
+		expect(isUnknown('typeset -x LD_PRELOAD=/evil.so; ls')).toBe(true)
+		expect(isUnknown('declare +x PATH; ls')).toBe(false) // removes the attribute
+		expect(isUnknown('declare -r PATH; ls')).toBe(false) // no -x at all
+		expect(isUnknown('declare -x FOO=bar; ls')).toBe(false) // not a poisoning name
+	})
+
+	it('export -n removes the export attribute and does not poison', () => {
+		expect(isUnknown('export -n PATH; ls')).toBe(false)
+		expect(isUnknown('export PATH=/evil; ls')).toBe(true) // sanity: plain export still does
+	})
+
+	describe('su -c / runuser -c / script -c / flock -c: a -c payload is a nested-shell command', () => {
+		it.each([
+			['su', '-c'],
+			['runuser', '-c'],
+			['script', '-c'],
+			['flock', '-c'],
+		])('%s %s with a literal payload recurses; with an expanding one, unknown', (wrapper, flag) => {
+			const target =
+				wrapper === 'flock' ? ' /tmp/lock' : wrapper === 'script' ? ' typescript.log' : ''
+			expect(isUnknown(`${wrapper} ${flag} "echo hi"${target}`), wrapper).toBe(false)
+			expect(isUnknown(`${wrapper} ${flag} "$X"${target}`), wrapper).toBe(true)
+		})
+
+		it('a nested wrapper hidden inside a literal -c payload is still unknown, transitively', () => {
+			expect(isUnknown('su -c "env $(echo git) push"')).toBe(true)
+		})
+
+		it('su/runuser without -c/--command start an interactive login shell: unknown', () => {
+			expect(isUnknown('su root')).toBe(true)
+			expect(isUnknown('su')).toBe(true)
+			expect(isUnknown('runuser root')).toBe(true)
+		})
+
+		it('script without -c is known: it records a session, its own argument is a log file, not a command', () => {
+			expect(isUnknown('script session.log')).toBe(false)
+			expect(isUnknown('script')).toBe(false)
+		})
+	})
+
+	describe('flock: -c and the positional form', () => {
+		it('the positional form (file command args…) reads the real argv directly, no shell', () => {
+			expect(isUnknown('flock /tmp/lock rsync -a /src /dst')).toBe(false)
+			expect(isUnknown('flock -n /tmp/lock echo hi')).toBe(false)
+			expect(isUnknown('flock /tmp/lock $(echo systemctl) stop x')).toBe(true)
+		})
+
+		it('a bare fd/file with nothing after it names no program at all', () => {
+			expect(isUnknown('flock /tmp/lock')).toBe(false)
+			expect(isUnknown('flock 9')).toBe(false)
+		})
+	})
+
+	describe('coverage pass: unshare, nsenter, chroot, setpriv, prlimit, numactl, watch', () => {
+		it('unshare/nsenter read their own options, then the ordinary argv', () => {
+			expect(isUnknown('unshare -m -- rsync -a /src /dst')).toBe(false)
+			expect(isUnknown('unshare --net $(echo rm) -rf /')).toBe(true)
+			expect(isUnknown('nsenter -t 1 -m -u -n -i cmd')).toBe(false)
+			expect(isUnknown('nsenter -t 1 $(echo rm) -rf /')).toBe(true)
+		})
+
+		it('chroot skips the new-root directory, then reads the command; none at all is an interactive shell', () => {
+			expect(isUnknown('chroot /mnt bash')).toBe(false)
+			expect(isUnknown('chroot /mnt $(echo rm) -rf /')).toBe(true)
+			expect(isUnknown('chroot /mnt')).toBe(true)
+		})
+
+		it('setpriv reads its own options, then the ordinary argv', () => {
+			expect(isUnknown('setpriv --reuid 1000 --regid 1000 --clear-groups cmd')).toBe(false)
+			expect(isUnknown('setpriv --reuid 1000 $(echo rm) -rf /')).toBe(true)
+		})
+
+		it('prlimit reads a resource option (bare or =value) or -p (no command), then the argv', () => {
+			expect(isUnknown('prlimit --nofile=1024:1024 cmd')).toBe(false)
+			expect(isUnknown('prlimit --nofile=1024 $(echo rm) -rf /')).toBe(true)
+			expect(isUnknown('prlimit -p 1234')).toBe(false)
+		})
+
+		it('numactl reads its own options (attached =value only), or --show/--hardware (no command)', () => {
+			expect(isUnknown('numactl --interleave=0,1 cmd')).toBe(false)
+			expect(isUnknown('numactl --interleave=0,1 $(echo rm) -rf /')).toBe(true)
+			expect(isUnknown('numactl --show')).toBe(false)
+		})
+
+		it('watch joins and lexes its default payload like eval; -x execs the argv directly', () => {
+			expect(isUnknown('watch -n 5 df -h')).toBe(false)
+			expect(isUnknown('watch "$X"')).toBe(true)
+			expect(isUnknown('watch env $(echo git) push')).toBe(true) // nested wrapper, transitively unknown
+			expect(isUnknown('watch -x rsync -a /src /dst')).toBe(false)
+			expect(isUnknown('watch -x $(echo rm) -rf /')).toBe(true)
+		})
+
+		it('ssh stays out of scope: it is not unwrapped, remains the known program itself', () => {
+			// The command it runs is on a REMOTE machine — verifying it is not
+			// a question this local resolver can answer at all; `ssh` itself
+			// is what is known here, and its trailing words are ordinary,
+			// unexamined arguments, exactly like any program this does not
+			// specifically model.
+			expect(isUnknown('ssh host rm -rf /')).toBe(false)
+		})
+	})
+
+	describe('sudo -i/-s/-e and bare sudoedit: an explicit unknown, not an accident', () => {
+		it.each(['-i', '--login', '-s', '--shell', '-e', '--edit'])(
+			'sudo %s is explicitly unknown',
+			(flag) => {
+				expect(isUnknown(`sudo ${flag}`)).toBe(true)
+			},
+		)
+
+		it('bare sudoedit is explicitly unknown', () => {
+			expect(isUnknown('sudoedit /etc/hosts')).toBe(true)
+		})
+
+		it('does not mistake the wrapped command’s OWN -i for sudo’s login flag', () => {
+			// sudo's own option scan stops at the first non-option word, the
+			// same as every other wrapper here — `-i` two words later belongs
+			// to docker, not to sudo.
+			expect(isUnknown('sudo docker run -i --rm app')).toBe(false)
+		})
 	})
 })
 
