@@ -1962,6 +1962,10 @@ function describeRule(rule: AuthorizationRule): string {
 			return `deny   ${rule.toolNames.join(', ')}`
 		case 'allow_by_name':
 			return `allow  ${rule.toolNames.join(', ')}`
+		case 'by_source': {
+			const verb = rule.decision === 'review' ? 'review' : rule.decision
+			return `${verb}  tools from source ${rule.sourceIdGlob}`
+		}
 		case 'allow_by_category':
 			return `allow  any tool in category: ${rule.categories.join(', ')}`
 		case 'allow_by_tier':

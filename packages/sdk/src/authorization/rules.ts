@@ -1,5 +1,6 @@
 import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
+import { matchesSourceIdGlob } from '../toolsets/source-glob.js'
 import type { ToolSourceRef } from '../toolsets/types.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
@@ -87,6 +88,13 @@ export function evaluateRule(
 
 		case 'deny_by_name': {
 			return nameSet?.has(toolName) ? 'deny' : null
+		}
+
+		case 'by_source': {
+			const source = options.toolSource
+			return source !== undefined && matchesSourceIdGlob(source.id, rule.sourceIdGlob)
+				? rule.decision
+				: null
 		}
 
 		case 'custom_pattern': {

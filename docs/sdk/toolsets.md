@@ -222,6 +222,8 @@ owning toolset's `ToolSourceRef` — what `ToolDefinition.provenance` used to
 carry on the tool itself, before it was retired in favour of this. `view()`
 returns the narrow, read-only `{ has, availability, searchDeferred }` slice
 a running tool's own `ToolContext` is given, as a `ToolsView`.
+The authorization gate reads that same source for `by_source` rules; see
+[Rules that ask](review-policy.md#rules-that-ask).
 
 ### The execution pipeline
 

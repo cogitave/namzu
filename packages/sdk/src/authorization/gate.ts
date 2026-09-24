@@ -61,6 +61,15 @@ export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredic
 			return `allowed by name (${rule.toolNames.join(', ')})`
 		case 'deny_by_name':
 			return `denied by name (${rule.toolNames.join(', ')}) — this tool is refused for this turn, so a different input will not change it`
+		case 'by_source': {
+			const verb =
+				rule.decision === 'deny'
+					? 'denied'
+					: rule.decision === 'review'
+						? 'sent for review'
+						: 'allowed'
+			return `${verb} by source (${rule.sourceIdGlob})`
+		}
 		case 'allow_by_category':
 			return `allowed by category (${rule.categories.join(', ')})`
 		case 'allow_by_tier':

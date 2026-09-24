@@ -56,7 +56,7 @@ The built-in `job` classifies each prepared action: reading/listing owned output
 is exempt by default; stopping work is not. `DefineToolOptions.readOnly` supports
 typed input predicates for other mixed-purpose host tools.
 
-A `custom_pattern` or `argument_pattern` authorization rule can explicitly
+A `custom_pattern`, `argument_pattern` or `by_source` authorization rule can explicitly
 return `review` (see [Rules that ask](#rules-that-ask)). Matching
 calls retain `authorization.explicitReview: true` in `ToolCallSummary`, including
 durable review requests. That marker prevents read-only and accept-edits
@@ -84,6 +84,8 @@ const askBeforePush: AuthorizationRule = {
 A `review` rule matches the way a `deny` does. The whole value is tested, then every segment of it read as a command line, and any match counts. So the rule also asks about `true; git push`. An `allow` still needs every segment to match and nothing hidden in the line. Rules are first-match, so a `deny` before a `review` still refuses. The reason reads ``sent for review because the `command` argument matched …``. A `custom_pattern` rule with `decision: 'review'` now reads `sent for review by a pattern rule …`; it used to read `allowed by …`.
 
 A tool whose input schema canonicalises an argument to a URL declares it with `ToolDefinition.urlArgument` (`defineTool({ urlArgument })`). A rule on that argument tests the value whole, never as a command line. Without the declaration, `&`, `;` and `|` in a query string cut the value into segments, and an `allow` for a site declined every address with a query string. The `browser` tool declares `url`. See [Browser tools](browser-tools.md#one-spelling-per-address).
+
+`by_source` decides from the owning toolset's host-assigned source id. For example, `{ type: 'by_source', sourceIdGlob: 'mcp:github', decision: 'review' }` asks about every tool from that MCP server, including its prompts and resource tools. `*` matches any characters, including `/`, so `plugin:acme/mcp:*` covers plugin-owned MCP servers. The source is supplied by `ToolManager.sourceOf`; a tool's input or self-declared metadata cannot set it. If a caller has no source to supply, the rule does not match. Rules still run in order, before the default read-only allowance.
 
 # Calls a skill pre-approved
 
