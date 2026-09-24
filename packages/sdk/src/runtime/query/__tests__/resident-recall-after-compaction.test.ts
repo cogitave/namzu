@@ -59,7 +59,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		}))
 			contributions.register(contribution)
 		const tools = testToolset(
-			buildResidentHistoryTools((context) => {
+			...buildResidentHistoryTools((context) => {
 				if (context.turnId !== turnId) throw new Error('Wrong owner.')
 				return source
 			}),
@@ -101,7 +101,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const result = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				turnId,
 				workingDirectory: directory,
 				systemPrompt: 'Follow the authorized resident objective.',

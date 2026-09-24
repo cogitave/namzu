@@ -6,8 +6,9 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -51,8 +52,7 @@ async function run(tool: ToolDefinition, observe?: (event: SessionEvent) => void
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-progress-'))
 	dirs.push(workingDirectory)
 
-	const tools = new ToolRegistry()
-	tools.register(tool)
+	const tools = testToolset(tool)
 	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
@@ -60,7 +60,7 @@ async function run(tool: ToolDefinition, observe?: (event: SessionEvent) => void
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ name: 'build', args: {} }] }, { text: 'done' }],
 			}),
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
@@ -224,13 +224,17 @@ describe('a long-running tool can say how far along it is', () => {
 		})
 		const observed: string[] = []
 		const turnId = '86614d1a-725e-4184-a360-f91aa452060c' as TurnId
-		const tools = new ToolRegistry()
-		tools.register(
-			reportingTool((ctx) => {
-				ctx.report?.('held')
-				ctx.report?.('latest')
-			}),
-		)
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset(
+					reportingTool((ctx) => {
+						ctx.report?.('held')
+						ctx.report?.('latest')
+					}),
+				),
+			],
+			messages: () => [],
+		})
 		const executor = new ToolExecutor(
 			{
 				sessionId: SESSION_ID,

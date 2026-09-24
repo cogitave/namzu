@@ -75,7 +75,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const first = await drainQuery({
 			...common,
 			...scope,
-			tools,
+			toolsets: [tools],
 			provider: new MockLLMProvider({
 				turns: [
 					{ toolCalls: [{ id: 'mint-once', name: 'mint_receipt', args: {} }] },
@@ -120,7 +120,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		while (!search.evidence?.matches.length && search.nextCursor)
 			search = await source.search({ query: 'RECEIPT-CODE', cursor: search.nextCursor })
 		const match = search.evidence!.matches[0]!
-		const reader = testToolset(buildResidentToolEvidenceTools(() => source))
+		const reader = testToolset(...buildResidentToolEvidenceTools(() => source))
 		const contributions = new PromptContributionRegistry()
 		for (const contribution of createResidentStepContributions({
 			state: settled,

@@ -14,12 +14,13 @@ import {
 } from '../../manager/resident/learning.js'
 import type { ResidentState } from '../../manager/resident/store.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { runCompactionCheck } from '../../runtime/query/iteration/phases/compaction.js'
 import type { IterationContext } from '../../runtime/query/iteration/phases/context.js'
 import { PromptCache } from '../../runtime/query/prompt-cache.js'
 import { PromptBuilder } from '../../runtime/query/prompt.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import {
 	type Message,
@@ -39,6 +40,10 @@ import {
 
 const OUTPUT = 'Finish with the host receipt containing disposition and retained evidence.'
 const dirs: string[] = []
+
+function emptyTools(): ToolManager {
+	return new ToolManager({ toolsets: [], messages: () => [] })
+}
 
 afterEach(async () => {
 	await removeTempDirs(dirs)
@@ -76,7 +81,7 @@ function registry(options: Partial<ResidentStepPromptOptions> = {}): PromptContr
 
 function segments(options: Partial<ResidentStepPromptOptions> = {}) {
 	return new PromptBuilder({
-		tools: new ToolRegistry(),
+		tools: emptyTools(),
 		systemPrompt: 'You are the host assistant.',
 		contributions: registry(options),
 	}).buildSegmented()
@@ -129,7 +134,7 @@ describe('resident context separates stable guidance from the admitted snapshot'
 			learning: admitted,
 			resolveLearningSources: () => [{ ...source, revision: current }],
 		})
-		const prompt = new PromptBuilder({ tools: new ToolRegistry(), contributions }).buildSegmented()
+		const prompt = new PromptBuilder({ tools: emptyTools(), contributions }).buildSegmented()
 		expect(prompt.static + prompt.dynamic).not.toContain(candidate.body)
 		expect(contributions.render('turn', { iteration: 1 }).join('\n')).toContain(candidate.body)
 		current = 'two'
@@ -168,7 +173,7 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		]
 		const contributions = registry({ state: state({ wakeEvidence: evidence }) })
 		evidence[0]!.reason = 'Mutated after admission.'
-		const prompt = new PromptBuilder({ tools: new ToolRegistry(), contributions }).buildSegmented()
+		const prompt = new PromptBuilder({ tools: emptyTools(), contributions }).buildSegmented()
 		expect(prompt.dynamic).toContain('BUILD-ALPHA')
 		expect(prompt.dynamic).toContain('SECURITY-BETA')
 		expect(prompt.dynamic.match(/SECURITY-BETA/g)).toHaveLength(1)
@@ -264,7 +269,7 @@ describe('resident context separates stable guidance from the admitted snapshot'
 			agentId: 'resident',
 			projectId: 'f036bdfb-609f-4796-9f01-36423ebc2f94' as ProjectId,
 		})
-		const tools = new ToolRegistry()
+		const tools = emptyTools()
 		const before = cache.getSystemPromptSegmented({ tools, contributions: registry() })
 		const after = cache.getSystemPromptSegmented({
 			tools,
@@ -357,7 +362,6 @@ it('keeps the admitted objective, evidence and project policy through every quer
 			{ text: 'The fixture checks passed with fresh receipt BETA-822.' },
 		],
 	})
-	const tools = new ToolRegistry()
 	let inspections = 0
 	const original = learning()
 	const dependency = { key: 'fixture:current-receipt', revision: 'before-inspection' }
@@ -369,7 +373,7 @@ it('keeps the admitted objective, evidence and project policy through every quer
 			{ ...candidate, hash, verification: { ...candidate.verification, candidateHash: hash } },
 		],
 	}
-	tools.register({
+	const tools = testToolset({
 		name: 'inspect_receipt',
 		description: 'Read the current acceptance receipt.',
 		inputSchema: z.object({}),
@@ -377,7 +381,7 @@ it('keeps the admitted objective, evidence and project policy through every quer
 	})
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		workingDirectory,
 		systemPrompt: 'You are the host assistant.',
 		promptContributions: registry({

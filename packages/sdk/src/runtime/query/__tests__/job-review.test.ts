@@ -84,7 +84,7 @@ async function run(
 	})
 	const result = await drainQuery({
 		provider,
-		tools,
+		toolsets: [testToolset(JobTool)],
 		agentId: 'job-review-fixture',
 		agentName: 'Job review fixture',
 		messages: [{ role: 'user', content: 'inspect the background work' }],

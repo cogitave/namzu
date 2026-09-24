@@ -22,7 +22,7 @@ describe('memory controls the next actual model request', () => {
 			summary: 'Expiry',
 			content: 'cerulean-cache expires after 14 hours',
 		})
-		const tools = testToolset(buildMemoryTools(store))
+		const tools = testToolset(...buildMemoryTools(store))
 		const provider = new MockLLMProvider({
 			turns: [
 				{
@@ -60,7 +60,7 @@ describe('memory controls the next actual model request', () => {
 		})
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			prepareStep: createMemoryRecallStep({ store }),
 			agentId: 'memory-lifecycle',
 			agentName: 'Memory lifecycle',
