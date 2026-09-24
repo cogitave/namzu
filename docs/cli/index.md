@@ -4,6 +4,7 @@
 * [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
+* [Opening a page in your browser](open-url.md) - The open_url tool: which sessions have it, how it reaches the browser on each platform (the Windows browser under WSL), its review, and what its result claims.
 * [The browser](browser.md) - The browser the interactive terminal drives: which browser runs where, profiles and `namzu browser login`, the `browser.sites` rules, the review screen, the pause when a page needs you, and what the controls do not stop.
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.

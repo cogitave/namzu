@@ -106,7 +106,10 @@ Claude profile, a paired Windows home from WSL, or the default macOS Keychain
 entry. Custom macOS Keychain entries are not currently discovered.
 
 Without a directory override, WSL may also reuse a session from its paired
-Windows home. Discovery records the exact file it selected. Subsequent reads
+Windows home. That home is `%USERPROFILE%` as `cmd.exe` reports it. Both
+`cmd.exe` and the home are found under the drive mount root
+(`[automount] root` in `/etc/wsl.conf`, `/mnt/` by default). Discovery records
+the exact file it selected. Subsequent reads
 and a rotating Claude refresh use that same file, preserving its other fields.
 Namzu does not copy borrowed sessions into its own credential store.
 

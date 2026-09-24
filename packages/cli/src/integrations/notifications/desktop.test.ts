@@ -36,6 +36,7 @@ const wslProbe = {
 		WSLENV: 'WT_SESSION:USERPROFILE/p',
 	},
 	exists: () => true,
+	mountRoot: '/mnt/',
 }
 
 describe('a WSL toast', () => {
@@ -65,6 +66,7 @@ describe('a WSL toast', () => {
 		env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus', PATH: '/usr/bin' },
 		exists: () => true,
 		osRelease: () => '6.6.87.2-microsoft-standard-WSL2',
+		mountRoot: '/mnt/',
 	}
 
 	it('is a toast for a systemd service with no WSL variables, through an interop socket it finds', async () => {
@@ -82,6 +84,25 @@ describe('a WSL toast', () => {
 		// Handed to the helper only; the daemon's own environment is untouched.
 		expect(calls[0]?.env.WSL_INTEROP).toBe('/run/WSL/1_interop')
 		expect(service.env).not.toHaveProperty('WSL_INTEROP')
+	})
+
+	it('finds PowerShell, and starts it, under the mount root wsl.conf moved the drives to', async () => {
+		const moved = '/win/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+		const backend = selectDesktopBackend({
+			...wslProbe,
+			exists: (path) => path === moved,
+			mountRoot: '/win/',
+		})
+		expect(backend.kind).toBe('wsl-toast')
+		expect(backend.command).toBe(moved)
+		const { calls, spawn } = recorder()
+		await sendDesktopNotification(backend, { title: 't', body: 'b' }, { env: wslProbe.env, spawn })
+		expect(calls[0]?.command).toBe(moved)
+		expect(calls[0]?.cwd).toBe('/win/c')
+		expect(
+			selectDesktopBackend({ ...wslProbe, exists: (path) => path !== moved, mountRoot: '/win/' })
+				.detail,
+		).toBe(`${moved} was not found`)
 	})
 
 	it('takes the newest session socket when the distro has no 1_interop', () => {
