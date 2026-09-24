@@ -43,7 +43,7 @@ async function fixture() {
 		workingDirectory,
 		turnId,
 		budget,
-		tools,
+		toolsets: [tools],
 		projectId: generateProjectId(),
 		sessionId,
 		tenantId: generateTenantId(),

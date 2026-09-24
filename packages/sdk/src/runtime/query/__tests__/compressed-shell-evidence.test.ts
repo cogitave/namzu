@@ -7,6 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import { ToolExecutor } from '../executor.js'
@@ -19,16 +20,21 @@ afterEach(async () => {
 async function execute(output: string, hook?: PluginHookResult) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-shell-evidence-'))
 	roots.push(root)
-	const tools = testToolset({
-		name: 'shell_observation',
-		description: 'Return shell output.',
-		category: 'shell',
-		inputSchema: z.object({}),
-		execute: async () => ({
-			success: true,
-			output,
-			content: [{ type: 'text', text: output }, image],
-		}),
+	const tools = new ToolManager({
+		toolsets: [
+			testToolset({
+				name: 'shell_observation',
+				description: 'Return shell output.',
+				category: 'shell',
+				inputSchema: z.object({}),
+				execute: async () => ({
+					success: true,
+					output,
+					content: [{ type: 'text', text: output }, image],
+				}),
+			}),
+		],
+		messages: () => [],
 	})
 	const image = { type: 'image' as const, data: 'AAAA', mediaType: 'image/png' }
 	const turnId = fixtureId.turn('shell-evidence')

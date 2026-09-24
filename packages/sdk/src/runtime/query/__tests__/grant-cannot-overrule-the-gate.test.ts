@@ -77,7 +77,7 @@ async function run(commands: readonly string[]) {
 
 	await drainQuery({
 		provider: new MockLLMProvider({ turns }),
-		tools: tools(),
+		toolsets: [tools()],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
