@@ -333,16 +333,9 @@ only writer of this field, never a caller.
 
 A host is free to cache what it is given and pass it back as `query()`'s next
 `messages`, in whole or in part — this is how an interactive session and a
-resumed one both work. Each message in that cache reconciles independently,
-by id where one is present:
+resumed one both work. A message carrying an id reconciles against the log
+directly:
 
-- **no id** — new input, kept in order, unless it exactly matches the next
-  unclaimed message of the log's own fold (a value comparison, ignoring
-  `id`), in which case it is that fold member read back, and is dropped so
-  the turn does not see it twice. A host that never adopted `Message.id` at
-  all — every message it resends carries none — gets exactly this value-based
-  matching against the WHOLE fold, the same reconciliation a session log
-  without per-message ids has always had.
 - **a known id, unedited** — already durable; dropped, because the fold
   supplies it from wherever a compaction has since put it. A message before a
   compaction that summarized it away is still known this way: the log
@@ -352,14 +345,55 @@ by id where one is present:
   mutated before it is sent back.
 - **an id this log never recorded** — refused with `stale_cached_history`
   (`details.kind: 'foreign'`): a host must never mint its own id, only
-  replay one the kernel gave it in this same session.
+  replay one the kernel gave it in this same session. A host need not be
+  all-or-nothing about ids for this to matter: a protocol adapter that can
+  only ever attach one to a message it produced itself, never to one its own
+  client authored, still reconciles correctly — an id an id-carrying message
+  already claimed this way is set aside for the rest of this list too, so it
+  cannot also be matched by value below.
 
-Both refusals name the message id and fail the turn before any provider call;
-retrying with the same cache cannot help. The way out is to pass only new
-messages (no id), or to re-read history from the session instead of reusing a
-stale copy. Nothing here concatenates a caller's cache after the log's own
-fold — a durable message is always dropped, never appended a second time —
-which is what makes replaying a whole cached conversation safe.
+Every remaining message with no id — new input a host just wrote, one from a
+caller that never adopted `Message.id` at all, or one a protocol adapter
+could never attach one to — is aligned as a whole: the largest number `k`
+such that the FIRST `k` of these messages equal, by value (ignoring `id`),
+the LAST `k` messages of what remains of the log's own fold once the kinds
+above already claimed are set aside. That aligned block is dropped, in one
+step, as already durable; everything after it, in the cache's own order, is
+new. A cache that is exactly the fold plus new messages appended after it —
+what a host is handed back, cached whole or in part, always looks like —
+therefore reconciles correctly regardless of how many of its messages carry
+an id: a host that never adopted `Message.id` at all gets its entire cache
+aligned against the entire remaining fold, the same reconciliation a session
+log without per-message ids has always had.
+
+Two kinds of message never join that alignment, on either side, because the
+kernel does not trust a cached copy of them to begin with: the per-turn
+system prompt (rebuilt fresh every turn, and never durably recorded at all —
+so a stale cached copy of it is dropped outright, not offered to alignment)
+and a project-instruction snapshot (durably recorded once per turn that had
+one, but collapsed to only the LATEST in what a host is ever handed back —
+so the log's own copies of the earlier ones would not align against a
+cache that only ever has the one). A host using `continuationMode` — asking
+`query()` not to rebuild or filter its input at all — is the one exception:
+there, a message of either kind is ordinary content like any other, since
+there is no "the kernel discards this anyway" to lean on.
+
+If nothing aligns at all (`k` is `0`) while the fold has something left to
+align against, and some no-id message OTHER than the cache's own last one
+still matches fold content by value, the cache is not shaped like a fold
+plus new messages — refused as `stale_cached_history`
+(`details.kind: 'unaligned'`) rather than guessed at. The cache's last
+message is exempt: legitimately repeating older text as a host's NEWEST
+addition (a user saying "hello" again) is ordinary, not a stale cache.
+
+Every `stale_cached_history` refusal names what it can (the message id, for
+`'edited'`/`'foreign'`; the role, for all three) and fails the turn before
+any provider call — retrying with the same cache cannot help. The way out is
+to pass only new messages, or to re-read history from the session instead of
+reusing a stale copy. Nothing here concatenates a caller's cache after the
+log's own fold — a durable message is always dropped, never appended a
+second time — which is what makes replaying a whole cached conversation
+safe.
 
 ## Documents beside the log
 

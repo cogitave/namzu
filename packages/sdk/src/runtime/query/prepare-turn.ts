@@ -50,6 +50,7 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import {
 	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
+	isProjectInstructionMessage,
 	replaceProjectInstructionSnapshot,
 } from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
@@ -556,7 +557,12 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			: await readFoldedHistory(storage.log)
 		const input = params.resumeFromCheckpoint
 			? []
-			: await reconcileCallerMessages(params.messages, history, storage.log)
+			: await reconcileCallerMessages(
+					params.messages,
+					history,
+					storage.log,
+					params.continuationMode === true,
+				)
 		const seeded: Message[] = queuedForThisRun.length > 0 ? [...queuedForThisRun, ...input] : input
 		let resolvedInitialMessages: Message[]
 		let attachmentResolutionCancelled = false
@@ -860,95 +866,209 @@ function projectRecordedHistory(
 }
 
 /**
- * Deep-equal ignoring `id`: two copies of one message may disagree only on
- * which record named it. Each side is round-tripped through JSON first —
- * "canonical" — so an `undefined`-valued own property (a field a driver or
- * the recorder set explicitly, as opposed to one never mentioned) does not
- * read as a difference: `isDeepStrictEqual` alone treats `{ x: undefined }`
- * and `{}` as unequal, and the durable record went through the same
- * round trip when it was written.
+ * Deep-equal ignoring `id` and `timestamp`: two copies of one message may
+ * disagree only on which record named it, and `timestamp` is bookkeeping
+ * about when it was authored, not part of what it says — `createUserMessage`
+ * and its siblings always stamp `Date.now()`, but the field is optional on
+ * `BaseMessage`, and a host that reconstructs history itself (the
+ * documented stateless `exec --json` stdin contract never requires it) has
+ * no way to recover the original value and must not be read as having
+ * edited a message merely for omitting one. Each side is round-tripped
+ * through JSON first — "canonical" — so an `undefined`-valued own property
+ * (a field a driver or the recorder set explicitly, as opposed to one never
+ * mentioned) does not read as a difference: `isDeepStrictEqual` alone treats
+ * `{ x: undefined }` and `{}` as unequal, and the durable record went
+ * through the same round trip when it was written.
  */
 function sameMessageContent(a: Message, b: Message): boolean {
-	const { id: _a, ...restA } = a
-	const { id: _b, ...restB } = b
+	const { id: _a, timestamp: _ta, ...restA } = a
+	const { id: _b, timestamp: _tb, ...restB } = b
 	return isDeepStrictEqual(
 		JSON.parse(JSON.stringify(restA)) as unknown,
 		JSON.parse(JSON.stringify(restB)) as unknown,
 	)
 }
 
-/** A `stale_cached_history` refusal: which half of "the log disagrees" this is. */
-function staleCachedHistoryError(kind: 'edited' | 'foreign', message: Message): NamzuError {
+/** A `stale_cached_history` refusal: which way "the log disagrees" this is. */
+function staleCachedHistoryError(
+	kind: 'edited' | 'foreign' | 'unaligned',
+	message: Message,
+): NamzuError {
 	const id = message.id
+	const guidance =
+		'pass only new messages (with no id), or re-read history from the session instead of reusing a cached copy.'
+	const text =
+		kind === 'edited'
+			? `A cached message carries id ${id}, but its content no longer matches what this session's log recorded under that id. A message read from history must not be edited before it is sent back: ${guidance}`
+			: kind === 'foreign'
+				? `A cached message carries id ${id}, which this session's log never recorded. A host must not mint its own id for a message: pass only messages this session's log gave an id (unedited), or new messages with no id.`
+				: `A cached message with no id matches content this session's log already recorded, but not where a cache that is exactly the log's fold plus new messages appended after it would put it. The cache does not read as new input following the log's own history: ${guidance}`
 	return new NamzuError({
 		code: 'stale_cached_history',
-		message:
-			kind === 'edited'
-				? `A cached message carries id ${id}, but its content no longer matches what this session's log recorded under that id. A message read from history must not be edited before it is sent back: pass only new messages (with no id), or re-read history from the session instead of reusing a cached copy.`
-				: `A cached message carries id ${id}, which this session's log never recorded. A host must not mint its own id for a message: pass only messages this session's log gave an id (unedited), or new messages with no id.`,
-		details: { messageId: id, kind, role: message.role },
+		message: text,
+		details: { kind, role: message.role, ...(id === undefined ? {} : { messageId: id }) },
 	})
 }
 
 /**
- * `messages` reconciled against this session's log, by id rather than by
- * position: a message already durable under its id is dropped (the log's
- * own fold supplies it, from wherever compaction has since put it); a
- * message with no id is new input, kept in order — unless it exactly
- * matches the next unclaimed member of the log's own fold, in which case it
- * is that member, read back, and is dropped too.
+ * A kind `query()` reconstructs itself every turn rather than trusting a
+ * caller's cached copy of it: the per-turn static/dynamic system prompt
+ * (`pushSystemMessages`, pushed `transient: true` and so never durably
+ * recorded at all — see `manager/session/turn-recorder.ts`), and a
+ * project-instruction snapshot (durably recorded, but `Turn.messages` keeps
+ * only the LATEST one per `collapseProjectInstructionSnapshots`, while the
+ * log keeps every turn's own). A compaction summary and a working-memory
+ * note are deliberately NOT here: those two are conversation STATE the
+ * kernel cannot re-derive, not prompt scaffolding it rebuilds.
  *
- * A message whose id the log never recorded, or whose content no longer
- * matches what the log recorded under it, is refused outright
- * (`stale_cached_history`): a host that edits a message before resending it,
- * or mints its own id, gets a named refusal instead of a silently rewritten
- * or duplicated conversation. `BaseMessage.id` documents the contract this
- * enforces: the kernel stamps it, and only the kernel does.
+ * Comparing either kind positionally is meaningless — the caller's copy and
+ * the log's own history disagree on how many of them exist by construction,
+ * never because anything is stale — so both are dropped before the no-id
+ * alignment below ever sees them, on both the caller's side and the fold's.
+ */
+function isKernelDerivedMessage(message: Message): boolean {
+	if (isProjectInstructionMessage(message)) return true
+	if (message.role !== 'system') return false
+	const content = typeof message.content === 'string' ? message.content : null
+	return !isCompactionMessage(content) && !isWorkingMemoryMessage(content)
+}
+
+/**
+ * The largest `k` such that `caller`'s first `k` messages equal, by
+ * canonical value (ignoring `id`), `pool`'s LAST `k` messages, in the same
+ * order.
  *
- * A host that passes only its new input, or the whole conversation exactly
- * as `Turn.messages`/`onConversationMessages` gave it back, is unaffected
- * either way — this is what makes both tolerated. So is one that never
- * adopted `.id` at all: a caller whose OWN serialization boundary drops a
- * field it does not know about resends every message with no id, and gets
- * back exactly the value-based reconciliation this replaced, matched
- * against the WHOLE fold in order rather than only its no-id members —
- * because nothing it sends claims an id, there is no id-carrying entry it
- * could wrongly steal. A caller that attaches an id to at least one message
- * is trusted to attach one wherever it means "this is already durable": its
- * OWN no-id members then match only a no-id fold entry (a compaction
- * summary, or a message record predating per-message ids), never claim an
- * idded one by value alone — a modern client that meant to resend a durable
- * message unmodified says so with its id, and one that omits it is kept as
- * new sooner than silently swallowed.
+ * A host's cache is presumed to end where the log's fold ends: whatever it
+ * sends beyond an exact alignment of the fold's tail is new. Anchoring to
+ * the tail, rather than walking a cursor that advances only on a match, is
+ * what makes this immune to a stuck position — the defect a position-based
+ * cursor had: one mismatch left the cursor behind forever, so everything
+ * after it either duplicated (kept as "new" though already durable) or, the
+ * opposite way, got silently matched against that same stale position and
+ * dropped though it was genuinely new. Anchoring to the tail also means a
+ * caller that repeats an earlier value as its OWN newest message (a user
+ * saying "hello" again) still lines up correctly, because nothing folds it
+ * back against an earlier occurrence — only a suffix of consecutive matches
+ * ending the pool counts.
+ */
+function largestSuffixAlignment(caller: readonly Message[], pool: readonly Message[]): number {
+	const max = Math.min(caller.length, pool.length)
+	for (let k = max; k > 0; k--) {
+		let aligned = true
+		for (let i = 0; i < k; i++) {
+			if (!sameMessageContent(caller[i] as Message, pool[pool.length - k + i] as Message)) {
+				aligned = false
+				break
+			}
+		}
+		if (aligned) return k
+	}
+	return 0
+}
+
+/**
+ * `messages` reconciled against this session's log, by id where a message
+ * carries one, and otherwise by a whole-cache alignment against the log's
+ * own fold — never by walking the two positionally message by message,
+ * which cannot tell "the caller dropped/edited something earlier" from
+ * "everything after this is new" and so either duplicates or drops.
+ *
+ * A message carrying an id already durable under it (matching content) is
+ * dropped — the fold supplies it, from wherever compaction has since put
+ * it, even from before a compaction summarized it away, since the log
+ * remembers every id it ever gave out. One whose id the log never recorded,
+ * or whose content no longer matches what the log recorded under it, is
+ * refused outright (`stale_cached_history`, `'foreign'` / `'edited'`).
+ *
+ * A message with no id, once the kernel-derived kinds above are set aside
+ * from both sides, joins its OWN sequence of no-id messages (in their
+ * original relative order) and that sequence is aligned as a whole against
+ * the fold's own remaining pool: every fold entry EXCEPT one whose id an
+ * id-carrying caller message already claimed above (so nothing is offered
+ * to both mechanisms) and a no-id one (a compaction summary, or a record
+ * predating per-message ids). A caller using no ids at all thus reconciles
+ * exactly as the value-based mechanism this replaced always did — its pool
+ * is the whole fold, nothing claimed. A caller that CAN only ever id some
+ * roles — a protocol adapter (AG-UI) that mints an id for an assistant/tool
+ * message it produced but never for one its own client authored — still
+ * reconciles its no-id messages correctly, against whatever the id path
+ * left unclaimed, rather than an empty pool that would read every one of
+ * them as new. The largest aligned suffix is dropped; what follows it is
+ * new.
+ *
+ * If nothing aligns at all (`k === 0`) while the pool is non-empty, and some
+ * no-id message OTHER than the caller's last still matches pool content by
+ * value, the cache is not a recognizable "fold plus new messages" shape —
+ * refused as `stale_cached_history` (`'unaligned'`) rather than guessed at.
+ * The last message is exempt because a host's newest addition legitimately
+ * repeating older text (a second "hello") is ordinary, not a stale cache.
  */
 async function reconcileCallerMessages(
 	messages: readonly Message[],
 	history: readonly RecordedMessage[],
 	log: SessionLog,
+	continuationMode: boolean,
 ): Promise<Message[]> {
 	const hasId = messages.some((message) => message.id !== undefined)
 	const recordedById = hasId ? await readEverRecordedMessages(log) : undefined
-	const candidateHistory = (
-		hasId ? history.filter((entry) => entry.messageId === undefined) : history
-	).map((entry) => entry.message)
-	let historyCursor = 0
-	const kept: Message[] = []
-	for (const message of messages) {
+	// Ids a caller message already claimed by direct lookup above: a fold
+	// entry that gave one of THESE out must not also be offered to the no-id
+	// alignment below, or a message that already reconciled by id could be
+	// matched a second time by value. A caller need not be all-or-nothing
+	// about ids for this to matter — a protocol adapter (AG-UI) that can
+	// only ever attach an id to an assistant/tool message it itself minted,
+	// never to a message its OWN client authored, sends exactly this mix.
+	const claimedIds = new Set<MessageId>()
+
+	const noIdIndices: number[] = []
+	const noIdMessages: Message[] = []
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index] as Message
 		const id = message.id
 		if (id !== undefined) {
 			const recorded = recordedById?.get(id)
 			if (recorded === undefined) throw staleCachedHistoryError('foreign', message)
 			if (!sameMessageContent(recorded, message)) throw staleCachedHistoryError('edited', message)
+			claimedIds.add(id)
 			continue // already durable: the fold supplies it
 		}
-		const next = candidateHistory[historyCursor]
-		if (next !== undefined && sameMessageContent(next, message)) {
-			historyCursor++
-			continue // a fold member (no-id-only once the caller uses ids, or the whole fold otherwise), read back
-		}
-		kept.push(message)
+		// Outside `continuationMode`, the kernel rebuilds the system floor and
+		// collapses every project-instruction snapshot but the latest
+		// (`pushSystemMessages`, `collapseProjectInstructionSnapshots`
+		// downstream of this function) regardless of what a caller sent, so a
+		// no-id message of either kind is dropped here rather than offered to
+		// the alignment below, where the fold's OWN asymmetric copies of them
+		// (one durable record per turn that had one, never collapsed) would
+		// corrupt it. `continuationMode` turns that rebuilding OFF — the
+		// caller's array IS the request, verbatim — so there is no "the
+		// kernel discards this anyway" to lean on; a message of either kind
+		// is ordinary content there; unforced-through, it would just report
+		// a passthrough-only conversation as no-id forever - a genuinely new
+		// no-id system message (a `continuationMode` caller's own) has to
+		// reconcile like anything else, not vanish.
+		if (!continuationMode && isKernelDerivedMessage(message)) continue
+		noIdIndices.push(index)
+		noIdMessages.push(message)
 	}
-	return kept
+
+	const pool = history
+		.filter((entry) => entry.messageId === undefined || !claimedIds.has(entry.messageId))
+		.map((entry) => entry.message)
+		.filter((message) => continuationMode || !isKernelDerivedMessage(message))
+
+	const k = largestSuffixAlignment(noIdMessages, pool)
+	if (k === 0 && pool.length > 0 && noIdMessages.length > 0) {
+		const last = noIdMessages.length - 1
+		for (let i = 0; i < last; i++) {
+			const candidate = noIdMessages[i] as Message
+			if (pool.some((entry) => sameMessageContent(entry, candidate))) {
+				throw staleCachedHistoryError('unaligned', candidate)
+			}
+		}
+	}
+
+	const newIndices = new Set(noIdIndices.slice(k))
+	return messages.filter((_message, index) => newIndices.has(index))
 }
 
 /**

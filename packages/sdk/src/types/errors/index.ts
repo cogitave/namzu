@@ -21,13 +21,18 @@ export type NamzuErrorCode =
 	/** The turn was set up wrong — missing model, contradictory options. Retrying cannot help. */
 	| 'invalid_config'
 	/**
-	 * A caller's cached prior messages disagree with this session's log: a
-	 * message the log recorded under one id now carries different content
-	 * (edited), or carries an id this log never recorded (foreign).
-	 * `details.messageId` and `details.kind` (`'edited' | 'foreign'`) narrow
-	 * it. Retrying with the same messages cannot help; the host must pass
-	 * only its new messages, or re-read history from the session instead of
-	 * reusing a cached copy.
+	 * A caller's cached prior messages disagree with this session's log. A
+	 * message carrying an id disagrees when the log recorded it under that id
+	 * with different content (`'edited'`) or never recorded that id at all
+	 * (`'foreign'`); `details.messageId` names it. A message with no id
+	 * disagrees when the caller's whole no-id cache does not align as a
+	 * contiguous run ending the log's own fold — the shape a host's cache
+	 * always has when it is exactly the fold plus new messages appended after
+	 * it — yet some of it still matches the fold by value out of place
+	 * (`'unaligned'`; no `messageId`, since none of it carries one). Retrying
+	 * with the same messages cannot help; the host must pass only its new
+	 * messages, or re-read history from the session instead of reusing a
+	 * cached copy.
 	 */
 	| 'stale_cached_history'
 	/** The upstream model call failed. `details.providerCode` narrows it. */

@@ -149,6 +149,40 @@ Set `allowSystemMessages` only for instructions whose authority your host
 already established. Keep client context as data; the adapter does not put
 it in system instructions or trace metadata.
 
+`toNamzuMessages` does not read an incoming AG-UI message's `id` onto the
+converted message's `BaseMessage.id`, even though `fromNamzuMessages` (below)
+emits one. A live run's `TEXT_MESSAGE_START`/`CONTENT`/`END` events give the
+client a streaming correlation id, minted fresh per request — a different
+value from the id `query()` later stamps on the durable `message` record for
+that same content. Resending the id the client was actually given would hand
+`query()` an id its own session log never recorded under, and the turn would
+fail as `stale_cached_history` (`'foreign'`; see [Session log](
+session-log.md#a-hosts-cached-messages)). Unifying the two id-minting paths
+is tracked separately; until then, sending `id`-carrying history back through
+`toNamzuMessages` has no effect — every converted message starts with none,
+and `query()` reconciles it the same way it does for any caller that never
+adopted `.id`.
+
+## Convert namzu messages for display
+
+`fromNamzuMessages(messages, options?)` converts a namzu history into AG-UI
+display messages, for `ui.setInitialMessages` (below). Feed it the session's
+own fold (`foldSessionMessages`, or `namzu history`'s own read of the log) —
+never a live turn's in-memory messages — so every guardrail rewrite, review
+override or structured-output replacement shows as the turn settled it, not
+as the model first wrote it. Tool-result blocks are flattened to text with a
+placeholder for anything that is not, reasoning and attachments are not
+display history, and system messages are omitted.
+
+Each converted message carries the source namzu message's own `id`
+(`BaseMessage.id`) when it has one — which a message read from a fold read
+always does. `options.idPrefix` (default `namzu-message-`) only names the
+fallback for a message with none, such as one a caller constructed itself
+and never recorded. This is a one-way, display-only capability: the id is
+useful to a host for its own bookkeeping (matching a rating or a comment to
+the exact durable message), but is not, today, something `toNamzuMessages`
+reads back — see above.
+
 ## Reconcile initial display history
 
 Inside `createQuery`, call `ui.setInitialMessages(admittedMessages)` to replace

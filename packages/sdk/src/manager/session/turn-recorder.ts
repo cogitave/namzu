@@ -1266,8 +1266,16 @@ export async function readFoldedHistory(
 	const out: RecordedMessage[] = []
 	const spilled = fold.spilledSummary
 	if (spilled) {
+		// `withMessageId(message, undefined)` strips any id already embedded in
+		// the spilled JSON — same as the inline branch below, and for the same
+		// reason `readEverRecordedMessages`'s doc comment gives: a summary
+		// member has no record of its own. A synthesized summary never had an
+		// id, so this is invisible there; a fork's seeded summary IS the
+		// source session's own already-id'd messages, and without this a
+		// spilled (large) fork's first live turn reads its fold back carrying
+		// a DIFFERENT session's ids and fails reconciliation as foreign.
 		for (const message of JSON.parse(await log.readSpill(spilled.spill)) as Message[]) {
-			out.push({ message })
+			out.push({ message: withMessageId(message, undefined) })
 		}
 	}
 	for (const entry of fold.entries()) {

@@ -231,7 +231,15 @@ export async function foldSessionMessages(
 	const spilled = fold.spilledSummary
 	if (spilled !== undefined) {
 		const text = await (options.readSpill ?? spillMissing)(spilled.spill)
-		out.push(...(JSON.parse(text) as Message[]))
+		// A summary member carries no id of its own (`withMessageId`'s doc
+		// comment) — same as the inline branch below. A synthesized summary
+		// never had one, so this is invisible there; a fork's seeded summary
+		// IS the source session's own already-id'd messages (see
+		// `seedConversationHistory` in `@namzu/cli`), and without this, a
+		// spilled (large) fork's first live turn would read its fold back
+		// carrying a DIFFERENT session's ids and fail reconciliation as
+		// foreign.
+		for (const message of JSON.parse(text) as Message[]) out.push(withMessageId(message, undefined))
 	}
 	for (const entry of fold.entries()) {
 		const message = entry.spill

@@ -36,6 +36,16 @@ function stringField(value: JSONObject, key: string, path: string): string | nul
 
 function validateCommon(value: JSONObject, path: string): string | null {
 	return (
+		// A string, not a checked `MessageId`: this file validates spelling
+		// the same way it already does for `toolCalls[].id`, never provenance
+		// — `query()`'s own reconciliation is what tells an id this log
+		// actually recorded from one a host invented, refusing the latter as
+		// `stale_cached_history` (`'foreign'`) rather than trusting it here.
+		// Keeping it (not stripping it) is what lets a host that reads its
+		// prior turn back from `namzu history --session <key>` (which DOES
+		// carry the real durable id) feed that same history into a stateless
+		// `exec --json` call and have it reconcile by id.
+		optional(value, 'id', path, (candidate) => typeof candidate === 'string', 'a string') ??
 		optional(value, 'timestamp', path, isFiniteNumber, 'a finite number') ??
 		optional(
 			value,

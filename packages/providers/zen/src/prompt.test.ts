@@ -344,6 +344,53 @@ describe('Zen native replay ownership', () => {
 		})
 	})
 
+	it('does not invalidate replay when an earlier message gains or changes a durable id', () => {
+		// `BaseMessage.id` names which durable record a message came from; it
+		// is not part of what the prefix SAYS. Two requests built from the
+		// exact same prefix must not disagree on `prefixDigest` merely
+		// because one side is a fresh, never-recorded copy of the earlier
+		// message (no `id`) and the other is the same content read back from
+		// the session's own fold (`id` set) — or, equally, a fork's copy of
+		// it, carrying a DIFFERENT session's id for identical content.
+		const message = materialize(
+			nativeReasoning({ anthropic: { signature: 'sig-opaque' } }),
+			'messages',
+		)
+		const bare: Message[] = [...INPUT.messages, message]
+		const withId: Message[] = [
+			{ ...INPUT.messages[0], id: '01a0d000-0000-7000-8000-000000000001' } as Message,
+			message,
+		]
+		const differentId: Message[] = [
+			{ ...INPUT.messages[0], id: '01a0d000-0000-7000-8000-000000000002' } as Message,
+			message,
+		]
+		const bareState = createReplayState(
+			{ model: ROUTE.model, messages: bare },
+			ROUTE,
+			'zen',
+			'messages',
+			nativeReasoning({ anthropic: { signature: 'sig-opaque' } }),
+		) as { prefixDigest: string }
+		const withIdState = createReplayState(
+			{ model: ROUTE.model, messages: withId },
+			ROUTE,
+			'zen',
+			'messages',
+			nativeReasoning({ anthropic: { signature: 'sig-opaque' } }),
+		) as { prefixDigest: string }
+		const differentIdState = createReplayState(
+			{ model: ROUTE.model, messages: differentId },
+			ROUTE,
+			'zen',
+			'messages',
+			nativeReasoning({ anthropic: { signature: 'sig-opaque' } }),
+		) as { prefixDigest: string }
+
+		expect(withIdState.prefixDigest).toBe(bareState.prefixDigest)
+		expect(differentIdState.prefixDigest).toBe(bareState.prefixDigest)
+	})
+
 	it('matches semantically identical JSON arguments without depending on whitespace', () => {
 		const message = materialize(nativeReasoning({ anthropic: { signature: 'sig' } }), 'messages')
 		required(message.toolCalls?.[0]).function.arguments = '{ "path": "a.ts" }'
