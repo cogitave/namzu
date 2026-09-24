@@ -96,7 +96,7 @@ async function turnOf(
 	workdirs.push(dir)
 	await drainQuery({
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
@@ -174,7 +174,7 @@ describe('every span of a turn', () => {
 					{ text: 'done' },
 				],
 			}),
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,

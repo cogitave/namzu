@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -57,7 +57,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply one' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('placeholder first message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -68,8 +68,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 		})
 		expect(run1.status).toBe('completed')
 
-		const tools2 = new ToolRegistry()
-		tools2.register(ReadFileTool)
+		const tools2 = testToolset(ReadFileTool)
 		const run2 = await drainQuery({
 			provider: new MockLLMProvider({
 				turns: [
@@ -77,7 +76,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 					{ text: 'placeholder reply two' },
 				],
 			}),
-			tools: tools2,
+			toolsets: [tools2],
 			messages: [...run1.messages, createUserMessage('placeholder second message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -99,7 +98,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 
 		const run3 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply three' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...suffix, createUserMessage('placeholder third message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -127,7 +126,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply one' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('placeholder first message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -144,7 +143,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 		const provider2 = new MockLLMProvider({ responseText: 'placeholder reply two' })
 		const run2 = await drainQuery({
 			provider: provider2,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...stripped, createUserMessage('placeholder second message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -178,7 +177,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply one' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('placeholder first message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -194,7 +193,7 @@ describe('a caller that does not resend the whole conversation verbatim', () => 
 		const provider2 = new MockLLMProvider({ responseText: 'placeholder reply two' })
 		const run2 = await drainQuery({
 			provider: provider2,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [
 				...run1.messages,
 				createSystemMessage(novelText),

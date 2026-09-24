@@ -6,10 +6,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog, SessionMessageFold } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type {
 	CheckpointId,
 	HITLDecisionRequest,
@@ -204,9 +205,8 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 	 * A tool that parks on its own question, recording what the seam handed
 	 * back so the test can read it from outside the turn.
 	 */
-	function deployTool(seen: { outcome?: ToolPauseOutcome }): ToolRegistry {
-		const tools = new ToolRegistry()
-		tools.register(
+	function deployTool(seen: { outcome?: ToolPauseOutcome }): Toolset {
+		return testToolset(
 			defineTool({
 				name: 'deploy',
 				description: 'deploy tool',
@@ -222,7 +222,6 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 				},
 			}),
 		)
-		return tools
 	}
 
 	/**
@@ -233,10 +232,9 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 	 * actually replay. A fresh worker will mint a different child id, so using
 	 * that id as the pause owner can never resume across a process.
 	 */
-	function codeDispatchTool(seen: { outcome?: ToolPauseOutcome }): ToolRegistry {
+	function codeDispatchTool(seen: { outcome?: ToolPauseOutcome }): Toolset {
 		const tools = deployTool(seen)
-		tools.register(buildRunCodeTool({ timeoutMs: 5_000 }))
-		return tools
+		return testToolset(...tools.tools(), buildRunCodeTool({ timeoutMs: 5_000 }))
 	}
 
 	async function baseParams(sessionLog: InMemorySessionLog) {
@@ -310,7 +308,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 					{ text: 'deployed' },
 				],
 			}),
-			tools: deployTool(seen),
+			toolsets: [deployTool(seen)],
 			messages: [{ role: 'user', content: 'deploy it' }],
 			// Nobody answers: this stands in for the process that went away
 			// while the question was on somebody's screen.
@@ -357,7 +355,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
-			tools: deployTool(seen),
+			toolsets: [deployTool(seen)],
 			pendingDecision: answerWith(questionId, 'staging'),
 			resumeHandler: async (request: HITLDecisionRequest) => {
 				asked(request.type)
@@ -396,7 +394,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
-			tools: deployTool({}),
+			toolsets: [deployTool({})],
 			pendingDecision: answerWith(questionId, 'staging'),
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
 		})
@@ -430,7 +428,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
-			tools: deployTool({}),
+			toolsets: [deployTool({})],
 			pendingDecision: answerWith(questionId, 'staging'),
 			prepareStep: (context) => {
 				seen.push(context.turnStartedAt)
@@ -466,7 +464,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 					{ text: 'deployed' },
 				],
 			}),
-			tools: codeDispatchTool(firstSeen),
+			toolsets: [codeDispatchTool(firstSeen)],
 			messages: [{ role: 'user', content: 'deploy it through code' }],
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
 		})
@@ -484,7 +482,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
-			tools: codeDispatchTool(resumedSeen),
+			toolsets: [codeDispatchTool(resumedSeen)],
 			pendingDecision: answerWith(questionId, 'staging'),
 			resumeHandler: async (request: HITLDecisionRequest) => {
 				asked(request.type)
@@ -518,7 +516,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			turnId: SCOPE.turnId,
 			questionParks: parks,
 			provider: new MockLLMProvider({ turns: [{ text: 'nothing to deploy' }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [{ role: 'user', content: 'status' }],
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
 		})
@@ -549,7 +547,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 					{ text: 'deployed' },
 				],
 			}),
-			tools: deployTool(seen),
+			toolsets: [deployTool(seen)],
 			messages: [{ role: 'user', content: 'deploy it' }],
 			resumeHandler: async (request: HITLDecisionRequest) => {
 				asked(request.type)
@@ -570,7 +568,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
-			tools: deployTool(seen),
+			toolsets: [deployTool(seen)],
 			// A stale client answering some other turn's question. The widened
 			// gate must not have widened into accepting this.
 			pendingDecision: answerWith(pauseId('call_7', PAUSE.name), 'production'),

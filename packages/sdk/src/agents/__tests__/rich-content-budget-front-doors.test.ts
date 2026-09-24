@@ -76,7 +76,7 @@ describe('agent front doors preserve the request rich-content budget', () => {
 		})
 		const config = {
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,
@@ -113,7 +113,7 @@ describe('agent front doors preserve the request rich-content budget', () => {
 			{ messages: [createUserMessage('Inspect once')], workingDirectory: await directory() },
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				model: 'mock-model',
 				tokenBudget: 100_000,
 				timeoutMs: 5_000,

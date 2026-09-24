@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -86,7 +86,7 @@ describe('a stale cached conversation must not duplicate a completed turn', () =
 		// own settled messages yet.
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply one' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('placeholder first message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -101,8 +101,7 @@ describe('a stale cached conversation must not duplicate a completed turn', () =
 		// Turn 2: a tool call, so it checkpoints mid-flight like the real
 		// session this reproduces. Its OWN project-instruction snapshot
 		// collapses turn 1's out of its settled `messages`.
-		const tools2 = new ToolRegistry()
-		tools2.register(ReadFileTool)
+		const tools2 = testToolset(ReadFileTool)
 		const run2 = await drainQuery({
 			provider: new MockLLMProvider({
 				turns: [
@@ -110,7 +109,7 @@ describe('a stale cached conversation must not duplicate a completed turn', () =
 					{ text: 'placeholder reply two' },
 				],
 			}),
-			tools: tools2,
+			toolsets: [tools2],
 			messages: [...run1.messages, createUserMessage('placeholder second message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -138,7 +137,7 @@ describe('a stale cached conversation must not duplicate a completed turn', () =
 		const foldedHistory = (await readFoldedHistory(resumed)).map((entry) => entry.message)
 		const runAfterResume = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply after resume' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...foldedHistory, createUserMessage('placeholder resumed message')],
 			workingDirectory: cwd,
 			sessionLog: resumed,
@@ -160,7 +159,7 @@ describe('a stale cached conversation must not duplicate a completed turn', () =
 		// it may. Before the fix this threw "repeats tool-call id".
 		const run3 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply three' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...run2.messages, createUserMessage('placeholder third message')],
 			workingDirectory: cwd,
 			sessionLog: log,

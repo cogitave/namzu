@@ -8,7 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { Message } from '../../../types/message/index.js'
@@ -46,8 +46,7 @@ registerMock()
 
 describe('a fact a tool pinned', () => {
 	it('is in the next model request, in the working-memory slot', async () => {
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'probe',
 				description: 'probes',
@@ -84,7 +83,7 @@ describe('a fact a tool pinned', () => {
 		} as unknown as PluginLifecycleManager
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
-			tools,
+			toolsets: [tools],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'probe it' }],
@@ -164,8 +163,7 @@ function pauseAtCheckpoint(nth: number) {
 it('replaces then removes the last pin across a resume from a checkpoint and a compaction', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-pin-lifecycle-'))
 	dirs.push(dir)
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'set_pin',
 		description: 'Update the current region',
 		inputSchema: z.object({ text: z.string() }),
@@ -180,7 +178,7 @@ it('replaces then removes the last pin across a resume from a checkpoint and a c
 	const params = {
 		...session,
 		turnId,
-		tools,
+		toolsets: [tools],
 		agentId: 'pin-lifecycle',
 		agentName: 'Pin lifecycle',
 		workingDirectory: dir,
@@ -267,7 +265,7 @@ it('preserves an opaque inherited host ledger when no live provider or tool pins
 	const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 	await drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		...memorySession(),
 		agentId: 'opaque-ledger',
 		agentName: 'Opaque ledger',

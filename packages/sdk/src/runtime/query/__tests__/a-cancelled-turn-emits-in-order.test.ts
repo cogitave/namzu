@@ -8,9 +8,10 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type {
@@ -138,9 +139,8 @@ const types = (events: readonly SessionEvent[]): string[] => events.map((event) 
 const onlyOf = <T extends SessionEvent['type']>(events: readonly SessionEvent[], type: T) =>
 	events.filter((event) => event.type === type) as Extract<SessionEvent, { type: T }>[]
 
-function registryWithNoop(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function toolsetWithNoop(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'noop',
 			description: 'does nothing',
@@ -153,7 +153,6 @@ function registryWithNoop(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'ok' }),
 		}),
 	)
-	return tools
 }
 
 /** Streams a little, then holds the turn open until the caller aborts. */
@@ -180,7 +179,7 @@ describe('a turn cancelled while the provider held the turn', () => {
 	it('closes the message before it settles the turn, and never reports a failure', async () => {
 		const caller = new AbortController()
 		const provider = new HeldTurnProvider()
-		const params = await baseParams({ provider, tools: new ToolRegistry(), signal: caller.signal })
+		const params = await baseParams({ provider, toolsets: [], signal: caller.signal })
 
 		const pending = drain(query(params))
 		await provider.entered.promise
@@ -239,7 +238,7 @@ describe('a turn cancelled between one iteration and the next', () => {
 
 		const params = await baseParams({
 			provider,
-			tools: registryWithNoop(),
+			toolsets: [toolsetWithNoop()],
 			signal: caller.signal,
 		})
 		const { events, run } = await drain(query(params), (event) => {
@@ -271,8 +270,7 @@ describe('a Stop that arrives while the turn is parked on a tool review', () => 
 	/** A destructive call no gate pre-approves, so it reaches a human. */
 	function reviewFixture() {
 		const executed: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'deploy',
 				description: 'a destructive call that needs a human',
@@ -310,7 +308,7 @@ describe('a Stop that arrives while the turn is parked on a tool review', () => 
 		const events: SessionEvent[] = []
 		const params = await baseParams({
 			provider,
-			tools,
+			toolsets: [tools],
 			signal: caller.signal,
 			// Zero so the review is written down as a durable park promptly;
 			// the wait the Stop has to interrupt is the host's, and it never
@@ -356,7 +354,7 @@ describe('a Stop that arrives while the turn is parked on a tool review', () => 
 		const asked = latch()
 		const params = await baseParams({
 			provider,
-			tools,
+			toolsets: [tools],
 			sessionId,
 			sessionLog,
 			signal: caller.signal,
@@ -409,7 +407,7 @@ describe('the in-iteration abort checkpoints', () => {
 
 			const params = await baseParams({
 				provider,
-				tools: registryWithNoop(),
+				toolsets: [toolsetWithNoop()],
 				signal: caller.signal,
 			})
 			const { events, run } = await drain(query(params), (event) => {
@@ -430,7 +428,6 @@ describe('why a turn was cancelled', () => {
 	function managerWithInterruptHook(id: string, seen: unknown[]): PluginLifecycleManager {
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 5_000,
@@ -454,7 +451,7 @@ describe('why a turn was cancelled', () => {
 			const manager = managerWithInterruptHook(`plugin_interrupt_${cause}`, seen)
 			const params = await baseParams({
 				provider: new MockLLMProvider({ responseText: 'the answer' }),
-				tools: new ToolRegistry(),
+				toolsets: [],
 				pluginManager: manager,
 				signal: caller.signal,
 			})
@@ -485,7 +482,7 @@ describe('why a turn was cancelled', () => {
 		const manager = managerWithInterruptHook('plugin_interrupt_user', seen)
 		const params = await baseParams({
 			provider: new MockLLMProvider({ responseText: 'the answer' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			pluginManager: manager,
 			signal: caller.signal,
 		})
@@ -502,7 +499,7 @@ describe('why a turn was cancelled', () => {
 		const caller = new AbortController()
 		const params = await baseParams({
 			provider: new MockLLMProvider({ responseText: 'the answer' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			signal: caller.signal,
 		})
 

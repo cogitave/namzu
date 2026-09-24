@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -84,7 +84,7 @@ describe('a stateless exec --json style caller that never carries an id', () => 
 
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply one' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('placeholder first message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -96,8 +96,7 @@ describe('a stateless exec --json style caller that never carries an id', () => 
 		})
 		expect(run1.status).toBe('completed')
 
-		const tools2 = new ToolRegistry()
-		tools2.register(ReadFileTool)
+		const tools2 = testToolset(ReadFileTool)
 		const run2 = await drainQuery({
 			provider: new MockLLMProvider({
 				turns: [
@@ -105,7 +104,7 @@ describe('a stateless exec --json style caller that never carries an id', () => 
 					{ text: 'placeholder reply two' },
 				],
 			}),
-			tools: tools2,
+			toolsets: [tools2],
 			// A stateless host's cache is never the SAME objects the kernel
 			// handed back with ids; it is whatever it rebuilt from the
 			// stream. Stripping `.id` here is the whole point of the probe.
@@ -127,7 +126,7 @@ describe('a stateless exec --json style caller that never carries an id', () => 
 
 		const run3 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'placeholder reply three' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...run2.messages.map(withoutId), createUserMessage('placeholder third message')],
 			workingDirectory: cwd,
 			sessionLog: log,
