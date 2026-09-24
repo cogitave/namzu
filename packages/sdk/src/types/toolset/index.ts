@@ -1,5 +1,3 @@
-import type { LLMToolSchema, ToolDefinition, ToolPermission } from '../tool/index.js'
-
 export type ToolSourceKind =
 	| 'host_tool'
 	| 'provider_builtin'
@@ -7,8 +5,6 @@ export type ToolSourceKind =
 	| 'skill'
 	| 'plugin'
 	| 'connector'
-
-export type ToolLoadingMode = 'eager' | 'deferred' | 'disabled' | 'suspended'
 
 export interface ToolSource {
 	readonly id: string
@@ -33,47 +29,4 @@ export interface ToolSource {
 		readonly version?: string
 	}
 	readonly metadata?: Record<string, unknown>
-}
-
-export interface ToolsetPolicy {
-	readonly enabled?: boolean
-	readonly loading?: ToolLoadingMode
-	readonly preferred?: boolean
-	readonly providerConfig?: Record<string, unknown>
-}
-
-export interface ToolsetDefinition {
-	readonly id: string
-	readonly sourceId: string
-	readonly name: string
-	readonly description?: string
-	readonly defaultPolicy?: ToolsetPolicy
-	readonly metadata?: Record<string, unknown>
-}
-
-export interface ToolCatalogEntry {
-	readonly name: string
-	readonly description: string
-	readonly sourceId: string
-	readonly toolsetId: string
-	readonly policy: ToolsetPolicy
-	readonly definition?: ToolDefinition
-	readonly llmSchema?: LLMToolSchema
-	readonly permissions?: readonly ToolPermission[]
-	readonly category?: ToolDefinition['category']
-	readonly metadata?: Record<string, unknown>
-}
-
-export interface ToolCatalogSearchResult {
-	readonly tool: ToolCatalogEntry
-	readonly source: ToolSource
-	readonly toolset: ToolsetDefinition
-	readonly score: number
-	readonly matched: readonly string[]
-}
-
-export interface ToolCatalogSnapshot {
-	readonly sources: readonly ToolSource[]
-	readonly toolsets: readonly ToolsetDefinition[]
-	readonly tools: readonly ToolCatalogEntry[]
 }

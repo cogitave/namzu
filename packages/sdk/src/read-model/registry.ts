@@ -1,3 +1,4 @@
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { SessionRecord } from '../types/session/index.js'
 
 /**
@@ -70,11 +71,15 @@ export class UnknownReadModelError extends Error {
 }
 
 /** Two models claiming one id. */
-export class ReadModelCollisionError extends Error {
+export class ReadModelCollisionError extends RegistryCollisionError {
 	readonly details: { id: string }
 
 	constructor(details: { id: string }) {
-		super(`A read model with id "${details.id}" is already registered.`)
+		super(
+			'ReadModelRegistry',
+			details.id,
+			`A read model with id "${details.id}" is already registered.`,
+		)
 		this.name = 'ReadModelCollisionError'
 		this.details = details
 	}

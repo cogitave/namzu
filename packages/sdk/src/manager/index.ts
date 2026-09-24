@@ -3,10 +3,10 @@ export { TurnRecorder } from './session/turn-recorder.js'
 export { ConnectorManager } from './connector/lifecycle.js'
 export type { ConnectorManagerConfig } from './connector/lifecycle.js'
 
-export { TenantConnectorManager } from './connector/tenant.js'
+export { TenantCollisionError, TenantConnectorManager } from './connector/tenant.js'
 export type { TenantConnectorManagerConfig } from './connector/tenant.js'
 
-export { EnvironmentConnectorManager } from './connector/environment.js'
+export { EnvironmentCollisionError, EnvironmentConnectorManager } from './connector/environment.js'
 export type {
 	EnvironmentConnectorSetup,
 	EnvironmentConnectorManagerConfig,

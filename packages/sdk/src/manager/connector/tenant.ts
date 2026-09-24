@@ -1,5 +1,6 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
+import { RegistryCollisionError } from '../../registry/collision.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type {
 	AuthConfig,
@@ -47,6 +48,21 @@ export interface TenantConnectorManagerConfig {
 	log?: Logger
 }
 
+/** Two tenants claiming one id. */
+export class TenantCollisionError extends RegistryCollisionError {
+	readonly tenantId: string
+
+	constructor(tenantId: string) {
+		super(
+			'TenantConnectorManager',
+			tenantId,
+			`Tenant "${tenantId}" is already registered. Unregister it first via unregisterTenant(), or pick a different id.`,
+		)
+		this.name = 'TenantCollisionError'
+		this.tenantId = tenantId
+	}
+}
+
 interface TenantState {
 	descriptor: TenantDescriptor
 	manager: ConnectorManager
@@ -73,10 +89,7 @@ export class TenantConnectorManager {
 
 	registerTenant(descriptor: TenantDescriptor, rateLimit?: TenantRateLimitConfig): void {
 		if (this.tenants.has(descriptor.id)) {
-			this.log.warn('Tenant already registered, skipping', {
-				[NAMZU.TENANT_ID]: descriptor.id,
-			})
-			return
+			throw new TenantCollisionError(descriptor.id)
 		}
 
 		const tenantLog = this.log.child({ [NAMZU.TENANT_ID]: descriptor.id })

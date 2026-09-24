@@ -1,3 +1,4 @@
+import { RegistryCollisionError } from '../registry/collision.js'
 import type {
 	LLMProvider,
 	LLMProviderConstructor,
@@ -23,11 +24,13 @@ export class UnknownProviderError extends Error {
 	}
 }
 
-export class DuplicateProviderError extends Error {
+export class DuplicateProviderError extends RegistryCollisionError {
 	readonly providerType: string
 
 	constructor(providerType: string) {
 		super(
+			'ProviderRegistry',
+			providerType,
 			`Provider type "${providerType}" is already registered. Pass { replace: true } to override an existing registration.`,
 		)
 		this.name = 'DuplicateProviderError'

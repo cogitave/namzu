@@ -5,6 +5,7 @@ import type {
 	SerializableHostCommand,
 } from '../../types/command/index.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { RegistryCollisionError } from '../collision.js'
 
 /**
  * A second command claiming a name that is already taken.
@@ -14,11 +15,13 @@ import { ManagedRegistry } from '../ManagedRegistry.js'
  * skip, rename, refuse to boot — has to catch it narrowly instead of
  * matching on message text.
  */
-export class HostCommandNameCollisionError extends Error {
+export class HostCommandNameCollisionError extends RegistryCollisionError {
 	readonly commandName: string
 
 	constructor(commandName: string) {
 		super(
+			'HostCommandRegistry',
+			commandName,
 			`Host command "/${commandName}" is already registered. Two commands answering to one name shadow each other silently, and which one wins depends on registration order.`,
 		)
 		this.name = 'HostCommandNameCollisionError'
