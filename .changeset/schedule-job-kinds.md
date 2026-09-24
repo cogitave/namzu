@@ -3,7 +3,7 @@
 "@namzu/cli": major
 ---
 
-A scheduled job can now be a fixed shell script instead of a model prompt, or a cheap "wake-gate" script that decides whether to run the model at all — `namzu schedule add --kind script|script+agent`, or the model's `schedule` tool with `kind`/`script`. A `script` job spends zero tokens and opens no session; a `script+agent` job runs a gate script first and calls the model only when it prints `{"wake": true, "context": "..."}`. Both go through the same scheduled-run floor and the job's own permission rules a live `bash` call already gets, evaluated once, at confirm time, as one command.
+A scheduled job can now be a fixed shell script instead of a model prompt, or a cheap "wake-gate" script that decides whether to run the model at all — `namzu schedule add --kind script|script+agent`, or the model's `schedule` tool with `kind`/`script`. A `script` job spends zero tokens and opens no session; a `script+agent` job runs a gate script first and calls the model only when it prints `{"wake": true, "context": "..."}`. The script body is checked against the scheduled-run floor (the whole text, exactly as a live `bash` call is read) and then every `deny` rule — the operator's own and any config file's — per lexed command; **`allow`/`ask` rules and `unmatched` are never consulted for a script**, since it is fixed, human-confirmed text, not a call a model improvises. A `script+agent` job's `allow`/`ask`/`unmatched` rules still govern its AGENT phase only, unaffected by the script's own (deny-only) check.
 
 **`@namzu/sdk` (major)**
 

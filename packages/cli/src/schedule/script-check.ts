@@ -4,31 +4,30 @@
  * confirmed to run unattended.
  *
  * A pure `script` job has no model in the loop, ever: nothing reviews a call
- * it makes the way a live agent's tool calls are reviewed one at a time.
- * The design here is to give the WHOLE script body exactly the review one
- * of the model's own `bash` calls already gets — the same lexer, the same
- * scheduled-run floor, the same job-authored rules, the same production
- * `AuthorizationGate` — evaluated once, at confirm time (and re-verified,
- * cheaply, by `confirmationHolds()` at every `__fire`, since the job's
- * security digest now includes the script). What a live call is allowed to
- * do call-by-call, a script is allowed to do as one fixed, human-read,
- * human-confirmed body.
+ * it makes the way a live agent's tool calls are reviewed one at a time. The
+ * design here gives the script body the review a live call's `allow`/`ask`
+ * rules and `unmatched` can never usefully give it (there is no person and
+ * no per-turn review mode to resolve an undecided call FOR a script), and
+ * instead treats the operator's own confirmation of the exact text — bound
+ * to it by the job's security digest — as the allowance:
  *
- * Two consequences fall out of "one call, whole text":
- *
- * - `unmatched: allow`/`ask`-style review does not rescue an unmatched
- *   command the way it would for a live turn (where a person or an "auto"
- *   review mode decides what the gate left undecided): nothing here ever
- *   resolves a `review` decision, because there is no person and no
- *   per-turn review mode to resolve it FOR a script. Only a literal `allow`
- *   from the gate passes. An operator authorizes a script job the same way
- *   they authorize an agent's shell access in general — `bash: "allow"` (or
- *   a pattern that matches the exact script text) — and the floor plus any
- *   config file's denials remain the actual safety net.
- * - A script that mixes several statements is judged as ONE command line,
- *   because that is what it is: `cmd1 && cmd2; cmd3` is a single argument to
- *   the synthetic `bash` call, exactly as the lexer already reads a live
- *   call's multi-statement command line.
+ * - the scheduled-run floor (and, on the whole script, the kernel's
+ *   dangerous-command patterns) still refuse anything they always would;
+ * - every config file's `deny` rules, and the job's OWN rules narrowed to
+ *   their `deny` entries, are checked against EACH lexed command of the
+ *   script in turn, so a refusal names the exact command and the rule that
+ *   denied it (`compileScriptCheckPolicy`, `policy.ts`);
+ * - `allow`/`ask` rules and `unmatched` are never consulted for the script.
+ *   Revision (design.md §6, 2026-09-24, after review): the first version of
+ *   this design evaluated the WHOLE script against the job's FULL permission
+ *   set, so a script needed an `allow` rule (in practice a blanket `bash:
+ *   allow`, since a script rarely matches one exact pattern) to pass at
+ *   all — and because a `script+agent` job has only one permission set, that
+ *   same blanket rule then gave the model UNRESTRICTED bash in the agent
+ *   phase too. Dropping `allow`/`ask`/`unmatched` from the script's own
+ *   check removes the reason to ever write one for this purpose; the job's
+ *   `rules`/`unmatched` (allow included) still govern the agent phase
+ *   exactly as before, unchanged.
  *
  * Failing closed: a script the lexer cannot fully account for (a command
  * substitution, a construct it does not model, a syntax error) is refused
@@ -39,7 +38,7 @@
  */
 
 import { AuthorizationGate, NOOP_LOGGER, lexShellCommandLine } from '@namzu/sdk'
-import type { CompiledJobPolicy } from './policy.js'
+import type { ScriptCheckPolicy } from './policy.js'
 
 export interface ScriptCheckResult {
 	readonly ok: boolean
@@ -56,21 +55,34 @@ function shown(text: string, max = MAX_SHOWN): string {
 	return cut.includes('`') ? `\`\` ${cut} \`\`` : `\`${cut}\``
 }
 
+/** A one-rule-set-only gate: only ever answers `deny` or the default "nothing matched". */
+function denyOnlyGate(
+	rules: ScriptCheckPolicy['floorRules'] | ScriptCheckPolicy['denyRules'],
+	denyDangerousPatterns: boolean,
+): AuthorizationGate {
+	return new AuthorizationGate(
+		{
+			enabled: true,
+			allowReadOnlyTools: false,
+			denyDangerousPatterns,
+			logDecisions: false,
+			rules: [...rules],
+		},
+		NOOP_LOGGER,
+	)
+}
+
 /**
- * Verify one script body against a job's compiled policy: the lexer can
- * fully account for it, and the whole body, read as one `bash` call, is
- * `allow` under the scheduled-run floor and the job's own rules (in that
- * order — `compileJobPolicy` already puts the floor first).
- *
- * `policy` is the job's OWN compiled policy (`compileJobPolicy(job.
- * permissions, {...})`), not a separate, narrower shape: per the settled
- * design decision, a script goes through the same permissions an agent
- * phase would, evaluated once instead of call-by-call.
+ * Verify one script body against the policy a script gets
+ * (`compileScriptCheckPolicy`): the lexer can fully account for it, the
+ * whole text clears the scheduled-run floor and the kernel's dangerous-
+ * command patterns, and no single lexed command in it is denied by a
+ * config file or by the job's own `deny` rules.
  */
 export function verifyScheduledScript(
 	body: string,
 	shell: 'bash' | 'sh',
-	policy: Pick<CompiledJobPolicy, 'rules'>,
+	policy: ScriptCheckPolicy,
 ): ScriptCheckResult {
 	const reading = lexShellCommandLine(body, { dialect: shell })
 	if (reading.opaque) {
@@ -79,26 +91,41 @@ export function verifyScheduledScript(
 			reason: `the script cannot be verified line-for-line (${reading.reasons[0] ?? 'a construct the lexer does not model'}); a script that cannot be read is refused rather than run unattended`,
 		}
 	}
-	const gate = new AuthorizationGate(
-		{
-			enabled: true,
-			allowReadOnlyTools: false,
-			denyDangerousPatterns: true,
-			logDecisions: false,
-			rules: [...policy.rules],
-		},
-		NOOP_LOGGER,
-	)
-	const result = gate.evaluate({
+	// The floor (and the kernel's own dangerous-command patterns) read the
+	// WHOLE script at once, exactly as they would a live call's command
+	// line: both track state across commands (a `cd` earlier in the script,
+	// a pipeline's two sides for `curl … | sh`), which per-command text
+	// alone would lose.
+	const floorGate = denyOnlyGate(policy.floorRules, true)
+	const floorResult = floorGate.evaluate({
 		toolName: 'bash',
 		toolInput: { command: body },
 		toolDef: undefined,
 		commandDialect: shell,
 	})
-	if (result.decision !== 'allow') {
-		return {
-			ok: false,
-			reason: `the job's permissions do not allow this script, read as one command (${shown(body)}): ${result.reason}`,
+	if (floorResult.decision === 'deny') {
+		return { ok: false, reason: floorResult.reason }
+	}
+	// The job's own `deny` rules (and every config file's) are the
+	// operator's own glob patterns, written with one command in mind
+	// ("npm publish*": "deny"); checked per lexed command so a refusal
+	// names the exact command that matched, not "somewhere in the script".
+	if (policy.denyRules.length > 0) {
+		const denyGate = denyOnlyGate(policy.denyRules, false)
+		for (const command of reading.commands) {
+			if (!command.text.trim()) continue
+			const result = denyGate.evaluate({
+				toolName: 'bash',
+				toolInput: { command: command.text },
+				toolDef: undefined,
+				commandDialect: shell,
+			})
+			if (result.decision === 'deny') {
+				return {
+					ok: false,
+					reason: `the command ${shown(command.text)} is denied: ${result.reason}`,
+				}
+			}
 		}
 	}
 	return { ok: true }

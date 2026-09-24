@@ -54,15 +54,26 @@ namzu schedule list
   4,000 characters (`--script-timeout` gates the gate's own clock, separate
   from `--timeout`, which now covers only the agent phase).
 
-For `script`/`script+agent`, `--permissions` still applies in full: the
-scheduled-run floor and the job's own rules read the **whole script body as
-one command**, exactly as a live `bash` call is read, and only a clean
-`allow` decision lets it through — see [What a run may
-do](#what-a-run-may-do) for the mechanics. `execution: sandbox` is not yet
-supported for the script/gate phase; a job of either kind must use
+For `script`/`script+agent`, the script body's own check is narrower than
+`--permissions` as a whole: the scheduled-run floor reads the whole script
+(exactly as it would a live `bash` call), and then every `deny` rule — the
+operator's own and any config file's — is checked against each command in
+it, naming the command and the rule if one matches. **`allow`/`ask` rules
+and `--unmatched` are never consulted for the script**: the operator's
+confirmation of the exact text is what allows it, the same way a confirmed
+prompt is trusted by the operator's own read of it, not by a rule engine.
+There is nothing to gain from an allow rule for a script and no need for
+one — see [What a run may do](#what-a-run-may-do) for the mechanics. A
+`script+agent` job's `--permissions` (with `allow`/`ask`/`--unmatched`
+included) still governs its AGENT phase exactly as for an `agent` job, once
+the gate wakes it; the two phases are independent. `execution: sandbox` is
+not yet supported for the script/gate phase; a job of either kind must use
 `execution: host` (a follow-up may add sandboxed scripts). Editing the
 script (by hand or with `edit`) invalidates the confirmation exactly like
-editing the prompt does, through the same digest.
+editing the prompt does, through the same digest, and a config file's
+`deny` rules are re-checked fresh at every run (they are not part of the
+digest, so a rule added after confirmation still applies from the very next
+run, without waiting for a re-confirmation).
 
 An old namzu refuses a job file a newer one wrote for `script`/`script+agent`
 (format `v: 2`) rather than misread it as a malformed `agent` job; a plain
@@ -350,20 +361,52 @@ The rules a run is gated by, in order (the first that matches decides):
 This order is for the **agent** path — every live call an `agent` job's
 model makes, and the calls a `script+agent` job's agent phase makes once its
 gate wakes it. A `script`/`script+agent` job's **script body** is checked
-once, at confirm time, differently: the whole text is read as ONE `bash`
-call through the same floor and the same job rules above (order 1–4; there
-is no live `unmatched` review of a fixed script, so only a literal `allow`
-passes — `unmatched: allow`/`ask` do not rescue a command no rule names the
-way they would for a live turn). A script the lexer cannot fully account for
-(a command substitution, a syntax error, a construct it does not model) is
-refused outright, naming the lexer's reason — there is no textual-tripwire
-fallback for a whole script the way there is for one opaque argument inside
-an otherwise-read line. `powershell.exe`/`pwsh` with `-EncodedCommand` (or
-an unambiguous abbreviation of it, `-e`, `-en`, …) is refused outright,
-always, in both a script and a live call: its payload is base64, so nothing
-in it can be read as text, and the tripwire proves nothing about what it
-decodes to. Use `-Command '<literal text>'` instead, which the floor can
-still read.
+once, at confirm time (and again fresh at every `__fire`), differently:
+
+1. the whole text is read once, as a live call's command line would be, and
+   must clear the dangerous-command floor and the scheduled-run floor (order
+   1–2 above) — both track state across the script's own commands (a `cd`
+   earlier in it, a pipeline's two sides), which reading each command alone
+   would lose;
+2. every config file's `deny` rules and the job's OWN rules, narrowed to
+   their `deny` entries only, are then checked against EACH command the
+   script lexes into, in turn — a refusal names the exact command and the
+   rule that denied it;
+3. **`allow`/`ask` rules and `unmatched` (order 3–5 above) are never
+   consulted for the script.** They exist to referee a model improvising
+   calls one at a time; a script has no such call to referee; it is fixed
+   text the operator already read and confirmed, and that confirmation —
+   bound to the exact text by the job's security digest — is what allows
+   it. Proposing an `allow` rule for a script changes nothing and is never
+   needed.
+
+Revision (2026-09-24): an earlier version of this design ran the WHOLE
+script against the job's full permission set including `allow`/`unmatched`,
+so a script needed an allow rule to pass at all — in practice a blanket
+`bash: allow`, since a script rarely equals one exact pattern — and because
+a `script+agent` job has one permission set, that same blanket rule then
+gave the model itself unrestricted `bash` in its own agent phase. Dropping
+`allow`/`ask`/`unmatched` from the script's own check closes that: the
+job's `rules`/`unmatched` (allow included) still govern the AGENT phase
+exactly as before, unaffected by whatever the script's own check does.
+
+A script the lexer cannot fully account for (a command substitution, a
+syntax error, a construct it does not model) is refused outright, naming
+the lexer's reason — there is no textual-tripwire fallback for a whole
+script the way there is for one opaque argument inside an otherwise-read
+line. `powershell.exe`/`pwsh` with `-EncodedCommand` (or an unambiguous
+abbreviation of it, `-e`, `-en`, …) is refused outright, always, in both a
+script and a live call: its payload is base64, so nothing in it can be
+read as text, and the tripwire proves nothing about what it decodes to.
+Use `-Command '<literal text>'` instead, which the floor can still read.
+
+A config file's `deny` rules are not part of the job's confirmation digest
+(only the job's OWN `permissions` are), so a `deny` added to a user,
+project or managed config file after confirmation would otherwise never be
+seen again by a job whose script no longer makes any live calls to catch
+it — `__fire` re-derives the script's policy from the CURRENT config files
+on every run and refuses (`blocked-config`) if it no longer passes, the
+same freshness a live agent call already gets for free.
 
 The project's `namzu.config.json` is repository content: a `git pull` in one run
 could add a hook, a tool server, a plugin or a permission before the next. The

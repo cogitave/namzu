@@ -179,7 +179,7 @@ describe('a script the floor or the job rules refuse is held before any preview'
 		expect(ctx.out.errors.join(' ')).toMatch(/command substitution/)
 	})
 
-	it('refuses a script the job’s own rules only partly allow, naming the command', async () => {
+	it('refuses a script one of whose commands the job’s own rules deny, naming the command', async () => {
 		const ctx = recordingContext()
 		const code = await addCommand(ctx, [
 			'partial',
@@ -191,11 +191,30 @@ describe('a script the floor or the job rules refuse is held before any preview'
 			'--shell',
 			'bash',
 			'--permissions',
-			permissions(sb, { bash: { 'echo hi': 'allow' } }),
+			permissions(sb, { bash: { 'curl*': 'deny' } }),
 			'--yes',
 		])
 		expect(code).toBe(64)
 		expect(ctx.out.errors.join(' ')).toContain('curl')
+	})
+
+	it('needs no allow rule at all: an empty rule set is enough for a floor-clean script', async () => {
+		const ctx = recordingContext()
+		const code = await addCommand(ctx, [
+			'no-rules-needed',
+			...base(sb),
+			'--kind',
+			'script',
+			'--script',
+			'echo hi',
+			'--shell',
+			'bash',
+			'--permissions',
+			permissions(sb, {}),
+			'--yes',
+		])
+		if (code !== 0) throw new Error(ctx.out.errors.join('\n'))
+		expect(code).toBe(0)
 	})
 
 	it('refuses unmatched: park for a pure script job', async () => {

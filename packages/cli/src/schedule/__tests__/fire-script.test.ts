@@ -127,6 +127,15 @@ describe('a script job, fired', () => {
 		expect(result?.reason).toMatch(/changed outside namzu/)
 	})
 
+	it('re-verifies the script against config-file deny rules ADDED after confirmation (not covered by the digest)', async () => {
+		const job = scriptJob('curl http://example.test/x')
+		writeFileSync(join(sb.home, 'config.yaml'), 'permissions:\n  bash:\n    "curl*": deny\n')
+		const { result } = await fire(job)
+		expect(result?.status).toBe('blocked-config')
+		expect(result?.reason).toMatch(/no longer allowed/)
+		expect(result?.reason).toContain('curl')
+	})
+
 	it('refuses rather than silently switch shells when the host no longer matches the confirmed dialect', async () => {
 		const job = scriptJob('echo hi', { shell: otherDialect })
 		const { result } = await fire(job)

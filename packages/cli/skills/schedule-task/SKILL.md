@@ -44,18 +44,23 @@ so decide it first. Absent, a job is `"agent"`.
   nowhere near the model reads it as one; the run is told this explicitly,
   but do not write a `prompt` that treats `context` as trusted input either.
 
-For `"script"`/`"script+agent"`, `permissions` still applies in full — the
-scheduled-run floor and the job's own rules read the **whole script body as
-one command**, exactly as they would read a live `bash` call, and only a
-clean `allow` lets it through. Propose rules that allow exactly the
-commands the script runs (commonly `{"bash": "allow"}` for a fixed,
-human-readable script, since the floor and any config `deny` remain the
-real safety net) — a rule so narrow it does not match the script's own text
-verbatim makes the job unconfirmable. `unmatched: "park"` is refused for a
-pure `"script"` job: nothing can wait for the operator mid-script; use
-`park` only on a `"script+agent"` job, where it governs the agent phase
-after the gate wakes it. `execution: "sandbox"` is not yet supported for the
-script/gate phase; leave `execution` unset (host).
+For `"script"`/`"script+agent"`, the script body's OWN check is narrower than
+`permissions` as a whole: the scheduled-run floor reads the whole script, and
+then every `deny` rule (the operator's own, and any config file's) is
+checked against each command in it, naming the command and the rule if one
+matches. **`allow`/`ask` rules and `unmatched` are never consulted for the
+script** — the operator's confirmation of the exact text is what allows it,
+the same way their confirmation of a prompt is; there is nothing to
+improve by proposing `{"bash": "allow"}` or any other allow rule for a
+script, and no need to. Propose `permissions` for what you actually want to
+forbid (`deny` rules) plus whatever the AGENT phase of a `"script+agent"`
+job needs once it wakes — `unmatched`/`allow`/`ask` rules apply ONLY to that
+phase, exactly as for an `"agent"` job, never to the gate or to a pure
+`"script"` job. `unmatched: "park"` is refused for a pure `"script"` job:
+nothing can wait for the operator mid-script; use `park` only on a
+`"script+agent"` job, where it governs the agent phase after the gate
+wakes it. `execution: "sandbox"` is not yet supported for the script/gate
+phase; leave `execution` unset (host).
 
 The operator confirms the **exact script text**, once; a later change needs
 re-confirmation, so do not propose a script expecting to iterate on it live
@@ -199,5 +204,6 @@ and for a `script` job:
 
 `namzu schedule add disk-check --kind script --script-file check.sh --shell bash --when "every 5m" --permissions rules.json`
 
-(`rules.json`: `{"rules": {"bash": "allow"}, "unmatched": "deny"}` — a file,
-since `--permissions` takes a preset name or a path, never inline JSON).
+(`rules.json`: `{"rules": {}, "unmatched": "deny"}` — no `bash` rule needed
+at all for the script itself; a file, since `--permissions` takes a preset
+name or a path, never inline JSON).

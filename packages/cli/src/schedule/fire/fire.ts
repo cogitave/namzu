@@ -52,7 +52,8 @@ import { DEFAULT_WAKE_GATE_CONTEXT_CHARS } from '../build.js'
 import { readDaemonEnv } from '../env.js'
 import { checkJobFolder, folderReadable } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { compileJobPolicy, withheldTools } from '../policy.js'
+import { compileJobPolicy, compileScriptCheckPolicy, withheldTools } from '../policy.js'
+import { verifyScheduledScript } from '../script-check.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
 import {
@@ -298,6 +299,25 @@ export async function runFire(
 	// exactly what an agent run checks before it opens a session. A script
 	// job stops here instead of going any further.
 	const runKind = job.runKind ?? 'agent'
+	if (runKind !== 'agent' && job.script) {
+		// The digest binds the script's own text and the job's OWN rules, but
+		// not a config file's `deny` rules — those can gain a new one after
+		// confirmation without the digest ever changing. An agent phase would
+		// see that new deny on its very next live call; a script has no live
+		// calls to see it with, so it is re-verified fresh, every fire, the
+		// same way a moved folder or a changed project config already is.
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(job.script.body, job.script.shell, scriptPolicy)
+		if (!checked.ok) {
+			return blocked(
+				`the ${runKind === 'script' ? 'script' : 'wake-gate script'} is no longer allowed: ${checked.reason}; run namzu schedule confirm ${job.name} once it is fixed`,
+			)
+		}
+	}
 	if (runKind === 'script') {
 		return runScriptJob(job, folder.canonical, paths, deps, finish, blocked)
 	}

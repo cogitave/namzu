@@ -6,6 +6,8 @@
  * turn's systemNote as clearly labelled, untrusted text.
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
@@ -156,5 +158,46 @@ describe('the wake-gate says yes', () => {
 		const messages = (body.messages ?? []) as { role: string; content: unknown }[]
 		const userMessage = messages.find((m) => m.role === 'user')
 		expect(JSON.stringify(userMessage)).not.toContain('unique-context-marker-x1')
+	})
+})
+
+describe('the permission-model fix: the gate needs no allow rule, and the two phases are independent', () => {
+	it('the gate script runs (and the run reaches the agent phase) with an EMPTY permission set — no bash: allow needed', async () => {
+		const job = confirmedJob(sb, {
+			runKind: 'script+agent',
+			script: {
+				body: 'echo \'{"wake": true, "context": "x"}\'',
+				shell: host.dialect,
+				timeoutMs: 5_000,
+			},
+			// Deliberately no `bash` rule at all: the old model forced a
+			// blanket `bash: allow` here for the gate to pass its own check.
+			permissions: { rules: {}, unmatched: 'deny' },
+		})
+		responses.push(() => completion())
+		const { result } = await fire(job)
+		expect(result?.gateResult).toEqual({ wake: true, contextChars: 1 })
+		expect(result?.status).toBe('completed')
+	})
+
+	it('the job’s rules still govern the AGENT phase, unaffected by the gate’s own (deny-only) check: a bash call the rules do not allow is refused, never run', async () => {
+		const marker = join(sb.project, 'marker')
+		const job = confirmedJob(sb, {
+			runKind: 'script+agent',
+			script: {
+				body: 'echo \'{"wake": true, "context": "x"}\'',
+				shell: host.dialect,
+				timeoutMs: 5_000,
+			},
+			// No bash rule for the AGENT phase either: proves the gate's own
+			// permissive (deny-only) check never leaks into what the model
+			// itself may do once woken.
+			permissions: { rules: {}, unmatched: 'deny' },
+		})
+		responses.push(() => completion({ name: 'bash', input: { command: `touch ${marker}` } }))
+		const { result } = await fire(job)
+		expect(result?.status).toBe('completed')
+		expect(existsSync(marker)).toBe(false)
+		expect(result?.refusedCalls?.first.tool).toBe('bash')
 	})
 })

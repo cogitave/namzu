@@ -55,6 +55,7 @@ import {
 	type CompiledJobPolicy,
 	type PermissionInput,
 	compileJobPolicy,
+	compileScriptCheckPolicy,
 } from '../../schedule/policy.js'
 import { verifyScheduledScript } from '../../schedule/script-check.js'
 import { readManifest } from '../../schedule/service/manifest.js'
@@ -148,8 +149,9 @@ function confirmationBody(
 	const scriptSection =
 		p.runKind && p.runKind !== 'agent' && p.script
 			? [
-					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; verified against the job's own rules and the scheduled-run floor)`,
+					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; verified against the scheduled-run floor and any deny rules)`,
 					...p.script.body.split('\n').map((l) => `  │ ${l}`),
+					"Runs exactly as shown; the job's permissions below apply to the model only",
 				]
 			: []
 	const promptSection = p.prompt.trim()
@@ -330,19 +332,25 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		extra: readonly string[],
 		now: Date,
 	): Promise<{ preview: ScheduleJobPreview; policy: CompiledJobPolicy }> => {
+		const layers = readPermissionLayers({ cwd: job.folder.canonical })
 		const policy = compileJobPolicy(job.permissions, {
-			layers: readPermissionLayers({ cwd: job.folder.canonical }),
+			layers,
 			namzuHome: ui.home(),
 			folder: job.folder,
 		})
 		if (policy.diagnostics.length > 0)
 			throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
 		// A model-proposed script/wake-gate gets the same static check
-		// `schedule add` runs before anything is shown, so a proposal that
-		// cannot be verified — or whose commands the job's own rules do not
-		// allow — never reaches this confirmation screen at all.
+		// `schedule add` runs before anything is shown, so a proposal the
+		// floor or a `deny` rule refuses never reaches this confirmation
+		// screen at all.
 		if (job.runKind && job.runKind !== 'agent' && job.script) {
-			const checked = verifyScheduledScript(job.script.body, job.script.shell, policy)
+			const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+				layers,
+				namzuHome: ui.home(),
+				folder: job.folder,
+			})
+			const checked = verifyScheduledScript(job.script.body, job.script.shell, scriptPolicy)
 			if (!checked.ok) {
 				throw new Error(
 					`The ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,

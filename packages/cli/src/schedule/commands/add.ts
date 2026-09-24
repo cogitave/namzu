@@ -30,7 +30,12 @@ import {
 } from '../changes.js'
 import { isPrivacyProtectedFolder } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { type PermissionInput, compileJobPolicy, isPresetName } from '../policy.js'
+import {
+	type PermissionInput,
+	compileJobPolicy,
+	compileScriptCheckPolicy,
+	isPresetName,
+} from '../policy.js'
 import { verifyScheduledScript } from '../script-check.js'
 import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
@@ -398,11 +403,17 @@ async function confirmOnTerminal(
 		throw new JobRequestError(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
 	// Fail closed before anything is shown: a script that cannot be verified,
-	// or that the job's own rules do not allow as one command, never reaches
-	// a preview or a confirmation prompt. Re-verified at every `__fire`
-	// through the same digest that already re-checks the prompt.
+	// or that the floor or a `deny` rule refuses, never reaches a preview or
+	// a confirmation prompt. Re-verified at every `__fire`, both through the
+	// digest (the exact text cannot change unnoticed) and freshly against
+	// current config-file denies (see `runFire`).
 	if (job.runKind && job.runKind !== 'agent' && job.script) {
-		const checked = verifyScheduledScript(job.script.body, job.script.shell, policy)
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(job.script.body, job.script.shell, scriptPolicy)
 		if (!checked.ok) {
 			throw new JobRequestError(
 				`the ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
@@ -418,7 +429,7 @@ async function confirmOnTerminal(
 			.join('\n')
 	if (job.runKind && job.runKind !== 'agent' && job.script) {
 		ctx.formatter.info(
-			`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}, verified clean)\n${indented(job.script.body)}`,
+			`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}, verified clean)\n${indented(job.script.body)}\nRuns exactly as shown; the job's permissions below apply to the model only`,
 		)
 	}
 	if (job.prompt.trim()) {
