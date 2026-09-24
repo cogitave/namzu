@@ -33,7 +33,7 @@ export {
 	wrapUntrusted,
 } from './tools/untrusted-envelope.js'
 export { filterReadOnlyTools, filterToolsNamed } from './tools/roster.js'
-export type { UntrustedEnvelope } from './tools/untrusted-envelope.js'
+export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-envelope.js'
 
 // ─── Built-in tools ──────────────────────────────────────────────────────
 

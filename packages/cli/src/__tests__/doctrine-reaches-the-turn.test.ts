@@ -197,8 +197,8 @@ describe('the turn-start snapshot', () => {
 			`?? ${scratch}`,
 		)
 		expect(first, 'the commit subject only `git log` could have produced').toContain(subject)
-		expect(first, 'names and subjects are text somebody wrote, landing in the request').toContain(
-			'<namzu-untrusted kind="repository-snapshot"',
+		expect(first, 'names and subjects are text somebody wrote, landing in the request').toMatch(
+			/<namzu-untrusted-[0-9a-f]+ kind="repository-snapshot"/,
 		)
 
 		expect(

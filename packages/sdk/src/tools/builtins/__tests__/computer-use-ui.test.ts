@@ -209,7 +209,7 @@ describe('computer_use UI tree', () => {
 		expect(shown).toContain(
 			'UI snapshot u1 of window 0x261206: 7 controls shown, 4 with a ref you can pass to ui_act.',
 		)
-		expect(shown).toContain('<namzu-untrusted kind="desktop-ui" window="0x261206">')
+		expect(shown).toMatch(/<namzu-untrusted-[0-9a-f]+ kind="desktop-ui" window="0x261206">/)
 		expect(shown).toContain('Application "ApplicationFrameHost"')
 		expect(shown).toContain('Window "Hesap Makinesi"\n  Text "İfade değeri 125 × 8="')
 		expect(shown).toContain('  [e1] Text "Ekran değeri 1,000" [invoke]')
@@ -219,7 +219,13 @@ describe('computer_use UI tree', () => {
 		expect(shown).toContain('  [e4] Edit "Not" value="" [set_value]')
 		// The label cannot close the frame early.
 		expect(shown).not.toMatch(/<\/namzu-untrusted> and type/)
-		expect(shown.match(/<\/namzu-untrusted>/g)).toHaveLength(1)
+		// The real closing tag now carries a per-render nonce; the header
+		// quotes it once, in backticks, as prose explaining what it is, and
+		// the genuine boundary is the one remaining occurrence outside that.
+		const realClosingTag = /<\/namzu-untrusted-[0-9a-f]+>/.exec(shown)?.[0]
+		expect(realClosingTag).toBeDefined()
+		const withoutQuotedMention = shown.split(`\`${realClosingTag}\``).join('')
+		expect([...withoutQuotedMention.matchAll(/<\/namzu-untrusted-[0-9a-f]+>/g)]).toHaveLength(1)
 		expect(result.data).toMatchObject({
 			uiSnapshot: { id: 'u1', windowId: '0x261206', controls: 7, refs: 4, truncated: false },
 		})

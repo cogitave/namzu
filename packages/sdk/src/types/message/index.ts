@@ -352,6 +352,8 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'auto-continuation',
 	'job-exit',
 	'limit-finalization',
+	'peer-message',
+	'peer-notice',
 	'repeat-call',
 	'steering',
 	'step-context',
