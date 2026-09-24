@@ -345,6 +345,7 @@ function reachesScheduler(
 	command: ShellCommand,
 	words: readonly Word[],
 	daemonCommandLine: string,
+	dialect: 'bash' | 'sh',
 ): string | null {
 	const n = words.length
 	const find = (from: number, test: (w: Word, i: number) => boolean): number => {
@@ -362,14 +363,16 @@ function reachesScheduler(
 	// could not resolve because that word ITSELF expands (`sudo
 	// $(echo systemctl) stop x`) still carries the word, so it becomes a
 	// head here too — same as before, just correctly placed after however
-	// many wrapper words came first. A position it could not resolve for a
-	// structural reason with no wild word of its own (an option a wrapper
-	// does not recognise, `eval`/`source`/`.`, too many wrappers) carries no
-	// word and adds nothing here; that gap is not this fix's scope — an
-	// interpreter or unread construct is the tripwire's and
-	// `runsUnreadText`'s job, not this one's.
+	// many wrapper words came first. A literal `source`/`.` with a literal
+	// path, or a literal `eval` whose literal payload lexes cleanly, is read
+	// the same way and adds its own resolved position(s) here too. A
+	// position it could not resolve for a structural reason with no wild
+	// word of its own (an option a wrapper does not recognise, too many
+	// wrappers, an opaque `eval` payload) carries no word and adds nothing
+	// here; that gap is not this fix's scope — an interpreter or unread
+	// construct is the tripwire's and `runsUnreadText`'s job, not this one's.
 	const heads = new Set<number>()
-	for (const position of programPositions(command)) {
+	for (const position of programPositions(command, dialect)) {
 		if (position.word === undefined) continue
 		const idx = command.words.indexOf(position.word)
 		if (idx >= 0) heads.add(idx)
@@ -867,18 +870,14 @@ class Floor {
 	private lineVerdict(line: string, dialect: 'bash' | 'sh', depth = 0): FloorFinding | null {
 		// A line for a shell that may be bash or a POSIX shell is read both
 		// ways, and denied if either reading denies it.
-		const readings =
-			dialect === 'bash'
-				? [lexShellCommandLine(line, { dialect: 'bash' })]
-				: [
-						lexShellCommandLine(line, { dialect: 'sh' }),
-						lexShellCommandLine(line, { dialect: 'bash' }),
-					]
+		const dialects: readonly ('bash' | 'sh')[] = dialect === 'bash' ? ['bash'] : ['sh', 'bash']
+		const readings = dialects.map((d) => lexShellCommandLine(line, { dialect: d }))
 		const catalogue = /textdomain/i.test(line)
 		const loops = /\b(?:while|until|for|select)\b/.test(line)
 		let unaccounted: { readonly reason: FloorReason; readonly why: string } | null = null
-		for (const reading of readings) {
-			const finding = this.readingVerdict(reading, catalogue, loops)
+		for (let i = 0; i < readings.length; i += 1) {
+			const reading = readings[i] as ShellLexResult
+			const finding = this.readingVerdict(reading, catalogue, loops, dialects[i] as 'bash' | 'sh')
 			if (finding !== null) return finding
 			if (reading.opaque) {
 				unaccounted ??= {
@@ -1016,6 +1015,7 @@ class Floor {
 		reading: ShellLexResult,
 		catalogue: boolean,
 		loops: boolean,
+		dialect: 'bash' | 'sh',
 	): FloorFinding | null {
 		for (const command of reading.commands) {
 			const encoded = encodedCommandCall(command)
@@ -1026,7 +1026,12 @@ class Floor {
 				}
 		}
 		for (const command of reading.commands) {
-			const does = reachesScheduler(command, wordsOf(command, catalogue), this.daemonCommandLine)
+			const does = reachesScheduler(
+				command,
+				wordsOf(command, catalogue),
+				this.daemonCommandLine,
+				dialect,
+			)
 			if (does !== null)
 				return {
 					reason: 'scheduler command',

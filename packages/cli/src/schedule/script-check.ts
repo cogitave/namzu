@@ -119,7 +119,7 @@ export function verifyScheduledScript(
 	// run time the way a live call's own review can; this is the same
 	// posture as opaque, and for the same reason — refused rather than
 	// guessed at.
-	for (const { command, positions } of resolveScriptPrograms(reading.commands)) {
+	for (const { command, positions } of resolveScriptPrograms(reading.commands, shell)) {
 		for (const position of positions) {
 			if (position.unknown !== undefined) {
 				return {

@@ -20,7 +20,7 @@ import { lexShellCommandLine } from '../shell-lexer.js'
 function isUnknown(line: string, dialect: 'bash' | 'sh' = 'bash'): boolean {
 	const reading = lexShellCommandLine(line, { dialect })
 	if (reading.opaque) return true
-	return resolveScriptPrograms(reading.commands).some(({ positions }) =>
+	return resolveScriptPrograms(reading.commands, dialect).some(({ positions }) =>
 		positions.some((p) => p.unknown !== undefined),
 	)
 }
@@ -62,24 +62,57 @@ describe('a re-exec wrapper does not move the program out of reach', () => {
 	})
 })
 
-describe('eval, source and the dot builtin run text as code, not a program by name', () => {
+describe('source, the dot builtin and eval are read the same way a nested bash -c payload is', () => {
+	// Consistency fix (2026-09-24 follow-up review): `source`/`.` with a
+	// LITERAL path is known — running that file, exactly like `bash path` —
+	// and `eval` with literal argument words has its joined payload lexed
+	// and resolved recursively, exactly like `bash -c '<literal>'`. Only an
+	// expanding path/argument word, or a payload that does not read cleanly,
+	// is unknown. Treating these three as automatically unknown regardless
+	// of literalness (the previous round) made `source .venv/bin/activate`
+	// ask alongside `source "$X"`, which is exactly the asymmetry `bash
+	// script.sh` (known) versus `bash -c "$X"` (unknown) does not have.
+
 	it.each([
-		['eval "$X"', 'eval, runtime string'],
-		['eval "$(cat /tmp/cmd)"', 'eval, command-substitution string'],
 		['source "$X"', 'source, runtime path'],
 		['. "$X"', 'the dot builtin, runtime path'],
+		['. "$(cat /tmp/target)"', 'the dot builtin, command-substitution path'],
+		['eval "$X"', 'eval, an expanding argument word'],
 	])('%s is unknown (%s)', (line) => {
 		expect(isUnknown(line), line).toBe(true)
 	})
 
-	it('is unknown even when the argument is a literal, static path', () => {
-		// The argument never expands here — `./known.sh` is exactly the text
-		// that runs — but `source`/`.`/`eval` read it as code to execute in the
-		// current shell, not as a program's identity a rule could match, and
-		// nothing here inspects a sourced file's contents. Unknown regardless
-		// of literalness is deliberate, not a gap: see the module doc comment.
-		expect(isUnknown('source ./known.sh')).toBe(true)
-		expect(isUnknown('. ./known.sh')).toBe(true)
+	it.each([
+		['source ./known.sh', 'source, a literal, static path'],
+		['. ./known.sh', 'the dot builtin, a literal, static path'],
+		['source .venv/bin/activate', 'source, activating a venv'],
+		['. .venv/bin/activate', 'the dot builtin, activating a venv'],
+	])('%s is known, the same way bash <path> is (%s)', (line) => {
+		expect(isUnknown(line), line).toBe(false)
+	})
+
+	it('a literal eval payload is lexed and its own commands resolved recursively', () => {
+		// `rm -rf ~` is an ordinary, known program: eval reading it does not
+		// make it unknown. Whatever catches a dangerous literal argument here
+		// is a `deny` rule over the recursively-lexed text, a completely
+		// different mechanism from `unknownProgram` — see
+		// `script-check.test.ts`'s deny-rule coverage of exactly this.
+		expect(isUnknown("eval 'rm -rf ~'")).toBe(false)
+		// A wrapper hidden inside a literal eval payload is still unknown,
+		// transitively: the payload's own positions are resolved the same
+		// way any script's are.
+		expect(isUnknown("eval 'env $(echo git) push'")).toBe(true)
+		// A payload that does not read as valid shell at all is unknown too.
+		expect(isUnknown("eval 'a && && b'")).toBe(true)
+	})
+
+	it('eval with no arguments names no position at all (bash: a no-op)', () => {
+		expect(isUnknown('eval')).toBe(false)
+	})
+
+	it('source/. with no path at all is unknown', () => {
+		expect(isUnknown('source')).toBe(true)
+		expect(isUnknown('.')).toBe(true)
 	})
 })
 
@@ -179,6 +212,8 @@ describe('negative controls: an ordinary coding-session command never asks', () 
 		'bash scripts/build.sh',
 		'bash -c "echo hi"',
 		'sh -c "echo hi"',
+		'source .venv/bin/activate',
+		'. .venv/bin/activate',
 	])('%s', (line) => {
 		expect(isUnknown(line), line).toBe(false)
 	})
@@ -202,39 +237,35 @@ describe('negative controls: an ordinary coding-session command never asks', () 
 		expect(isUnknown(line), line).toBe(false)
 	})
 
-	it('is a fixed set: exactly four asks over the whole corpus above, named here', () => {
+	it('is a fixed set: exactly two asks over the whole corpus above, named here', () => {
 		// Pinned so a change to this list is a change someone has to look at.
-		// Two are the review's own accepted asks — a program built from
+		// Both are the review's own accepted asks — a program built from
 		// command substitution has no static name a rule could ever match,
-		// wrapper or not. The other two are `source`/`.` activating a venv:
-		// ordinary and common, but `source`/`.` read their argument as code
-		// to run in the current shell, unknown wherever they stand (see the
-		// eval/source/dot describe block above) — a NEW ask this round adds
-		// deliberately, not a regression, because the same rule that closes
-		// `source "$X"` cannot stop at `source ./known.sh` without leaving
-		// exactly the gap it exists to close.
-		const asks = [
-			'$(npm bin)/tsc --noEmit',
-			'"$(git rev-parse --show-toplevel)"/scripts/x.sh',
-			'source .venv/bin/activate',
-			'. .venv/bin/activate',
-		]
+		// wrapper or not, whatever the substitution's own text looks like.
+		// `source .venv/bin/activate`/`. .venv/bin/activate` are NOT here:
+		// a literal `source`/`.` path is known, the same way `bash path` is
+		// (see the describe block above) — they moved into the "does not
+		// ask" list above in the consistency-review follow-up.
+		const asks = ['$(npm bin)/tsc --noEmit', '"$(git rev-parse --show-toplevel)"/scripts/x.sh']
 		for (const line of asks) expect(isUnknown(line), line).toBe(true)
-		expect(asks).toHaveLength(4)
+		expect(asks).toHaveLength(2)
 	})
 })
 
 describe('programPositions on one command, directly', () => {
 	it('reports no positions for an empty command', () => {
 		expect(
-			programPositions({
-				words: [],
-				assignments: 0,
-				redirections: [],
-				text: '',
-				origin: 'line',
-				depth: 0,
-			}),
+			programPositions(
+				{
+					words: [],
+					assignments: 0,
+					redirections: [],
+					text: '',
+					origin: 'line',
+					depth: 0,
+				},
+				'bash',
+			),
 		).toEqual([])
 	})
 
@@ -243,7 +274,7 @@ describe('programPositions on one command, directly', () => {
 			dialect: 'bash',
 		})
 		const [command] = reading.commands
-		const positions = programPositions(command as (typeof reading.commands)[number])
+		const positions = programPositions(command as (typeof reading.commands)[number], 'bash')
 		expect(positions).toHaveLength(1)
 		expect(positions[0]?.unknown).toBeUndefined()
 		expect(positions[0]?.word?.value).toBe('systemctl')

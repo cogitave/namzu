@@ -245,10 +245,13 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 			expect(result.ok, body).toBe(false)
 			expect(result.reason, body).toMatch(/decided at runtime/)
 		}
+		// `eval`/`source`/`.` with an EXPANDING argument stay unknown — only a
+		// literal path/payload is read (see the dedicated describe block
+		// below, a consistency-review follow-up).
 		for (const body of ['eval "$X"', 'source "$X"', '. "$X"']) {
 			const result = verifyScheduledScript(body, 'bash', gitPush)
 			expect(result.ok, body).toBe(false)
-			expect(result.reason, body).toMatch(/reads its argument as code to run/)
+			expect(result.reason, body).toMatch(/decided at runtime/)
 		}
 		for (const body of [
 			'export PATH=$(echo /tmp/evil); git push origin main',
@@ -258,6 +261,24 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 			expect(result.ok, body).toBe(false)
 			expect(result.reason, body).toMatch(/cannot be trusted to resolve/)
 		}
+	})
+
+	// Consistency fix (2026-09-24 follow-up review): `source path`/`. path`
+	// with a LITERAL path is known — running that file, exactly like
+	// `bash path` — and a literal `eval` payload that reads as an ordinary
+	// command is known too. Neither is refused by THIS check on that
+	// account alone; a deny rule can still refuse the recursively-lexed
+	// command a literal `eval` payload turns out to hold.
+	it('does not refuse source/. with a literal path, or eval with a literal, ordinary payload', () => {
+		expect(ok('source ./setup.sh')).toBe(true)
+		expect(ok('. ./setup.sh')).toBe(true)
+		expect(ok('eval "echo hi"')).toBe(true)
+	})
+
+	it('still refuses a deny-listed command a literal eval payload turns out to hold', () => {
+		const gitPush = policyFor({ rules: { bash: { 'git push*': 'deny' } } })
+		const result = verifyScheduledScript('eval "git push origin main"', 'bash', gitPush)
+		expect(result.ok).toBe(false)
 	})
 
 	it('does not refuse a literal command name with substitutions only in its arguments', () => {

@@ -462,14 +462,22 @@ be resolved to a literal word — the same reader the live agent path's
 cannot pass a check a live call of the same text would be asked about. A
 command whose program is a substitution or a variable (`$(echo rm) -rf x`),
 hidden behind a re-exec wrapper with its own real option grammar
-(`env $(echo git) push`, `timeout 5 $(echo systemctl) stop …`), `eval`,
-`source` or `.` (which run text as code, not a program by name, even when
-their argument is a literal, static path — nothing here inspects a sourced
-file's contents), an `xargs` program that is a shell or built from its
-input, or a command running after an earlier assignment to `PATH`,
-`LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`, `ENV` or `IFS` in the same
-script, is refused outright, naming the command and why: no `deny` rule —
-the job's own or a config file's — could have been trusted to have matched
+(`env $(echo git) push`, `timeout 5 $(echo systemctl) stop …`), an `xargs`
+program that is a shell or built from its input, or a command running after
+an earlier assignment to `PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`,
+`ENV` or `IFS` in the same script, is refused outright, naming the command
+and why. `source path`/`. path` and `eval word…` are read the same way a
+nested `bash -c '<literal>'` payload already is: a LITERAL path is known —
+running that file is exactly as knowable as `bash path` running it, and
+nothing here inspects either one's contents — and a LITERAL `eval` payload
+is joined and lexed as a command of its own, with every position inside it
+checked the same way (so `eval 'env $(echo git) push'` is still refused,
+transitively; a deny rule can still refuse whatever ordinary command a
+literal `eval` payload turns out to hold, such as `eval 'rm -rf ~'`, the
+same way it would refuse that text written directly). Only an expanding
+path or argument word (`source "$X"`, `eval "$X"`), or a payload that does
+not read cleanly, is refused here. No `deny` rule — the job's own or a
+config file's — could have been trusted to have matched
 a name that never appears as such anywhere in the script's text, and a
 script confirmed once and never reviewed live cannot lean on an operator
 noticing at run time the way a live call's own review can.

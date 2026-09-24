@@ -896,7 +896,7 @@ export class ToolExecutor {
 		if (typeof value !== 'string') return undefined
 		const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
 		const reading = lexShellCommandLine(value, { dialect })
-		for (const { command, positions } of resolveScriptPrograms(reading.commands)) {
+		for (const { command, positions } of resolveScriptPrograms(reading.commands, dialect)) {
 			for (const position of positions) {
 				if (position.unknown !== undefined) return `${command.text}: ${position.unknown}`
 			}

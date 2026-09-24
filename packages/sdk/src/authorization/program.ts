@@ -22,19 +22,34 @@
  *
  * A position is `known` (the literal, non-expanding word that names the
  * program) or `unknown` (why it could not be resolved: the word itself
- * expands, an option this does not recognise stood in the way, or the
- * position is inherently unreadable — `eval`/`source`/`.`, which run text as
- * code rather than a program by name, wherever they stand; an `xargs`
- * program that is a shell or a `{}` placeholder). Fail closed: an option
- * this does not model makes the position unknown, never "assumed to be the
- * program" and never "assumed harmless". An `unknown` position still
- * carries `word` when a single word is the reason (the word itself expands,
- * so its value is not known before the line runs) — a caller that only
- * needs "is there a word here that could name any of several tools" (the
- * scheduled-run floor's `pkill`/`systemctl`/… detection) reads that word
- * whether the position is known or not; `unknown` with no `word` is a
+ * expands, an option this does not recognise stood in the way, or an
+ * `xargs` program that is a shell or a `{}` placeholder). Fail closed: an
+ * option this does not model makes the position unknown, never "assumed to
+ * be the program" and never "assumed harmless".
+ *
+ * `source`/`.` and `eval` are read the same way a nested `bash -c` payload
+ * already is, not as an automatic unknown: `source path`/`. path` with a
+ * LITERAL path is known — the position is the `source`/`.` word itself,
+ * exactly as `bash path` is known without anyone reading what `path`
+ * contains — and unknown only when the path itself expands (`source "$X"`).
+ * `eval`'s literal argument words are joined and lexed as a command line of
+ * their own, and every position in the commands that come out of that is
+ * folded into the result — unknown when that reading is opaque, when any
+ * argument word expands, or, transitively, when a position inside the
+ * lexed payload is itself unknown (`eval 'env $(echo git) push'`).
+ * Consistency review (2026-09-24): treating `eval`/`source`/`.` as
+ * automatically unknown "wherever they stand, even literal" made
+ * `source .venv/bin/activate` ask alongside `source "$X"`, which is exactly
+ * the asymmetry `bash script.sh` (known) versus `bash -c "$X"` (unknown)
+ * does not have — the same module read a literal argument two different
+ * ways depending only on which command carried it. An `unknown` position
+ * still carries `word` when a single word is the reason (the word itself
+ * expands, so its value is not known before the line runs) — a caller that
+ * only needs "is there a word here that could name any of several tools"
+ * (the scheduled-run floor's `pkill`/`systemctl`/… detection) reads that
+ * word whether the position is known or not; `unknown` with no `word` is a
  * structural failure with no single culprit (too many wrappers, an
- * unrecognised option, `eval`/`source`/`.`, a poisoned environment).
+ * unrecognised option, an opaque `eval` payload, a poisoned environment).
  *
  * `hasPoisoningPrefix`, `poisonsLaterCommands` and `poisonedProgramPosition`
  * are the other half a caller iterating a whole script needs: a command
@@ -50,7 +65,14 @@
  */
 
 import { RUNTIME_EVALUATORS } from './command-line.js'
-import { NESTED_SHELLS, type ShellCommand, type ShellWord, basename } from './shell-lexer.js'
+import {
+	NESTED_SHELLS,
+	type ShellCommand,
+	type ShellDialect,
+	type ShellWord,
+	basename,
+	lexShellCommandLine,
+} from './shell-lexer.js'
 
 /**
  * Where a program is named, or why it could not be resolved. `word` is set
@@ -60,8 +82,8 @@ import { NESTED_SHELLS, type ShellCommand, type ShellWord, basename } from './sh
  * word here that might be any program name" (the scheduled-run floor's
  * scheduler-tool detection) reads `word` regardless of `unknown`. `unknown`
  * with no `word` is a structural failure with no single culprit word — an
- * option on a wrapper this does not recognise, too many wrappers, `eval`/
- * `source`/`.`, or a poisoned resolution environment.
+ * option on a wrapper this does not recognise, too many wrappers, an opaque
+ * `eval` payload, or a poisoned resolution environment.
  */
 export type ProgramPosition =
 	| { readonly word: ShellWord; readonly unknown?: undefined }
@@ -303,29 +325,86 @@ function unwrapOnce(words: readonly ShellWord[]): Consumed | null {
 	}
 }
 
+/**
+ * `source path [args…]` / `. path [args…]`: known at `head` (the
+ * `source`/`.` word itself) when `path` is a literal word, exactly as
+ * `bash path` is known without reading what `path` contains — trailing
+ * words are the sourced script's own positional parameters, not inspected
+ * either, the same as `bash path`'s do not name a second program. Unknown,
+ * naming `path` itself, when it expands or is absent.
+ */
+function resolveSourceOrDot(head: ShellWord, args: readonly ShellWord[]): ProgramPosition {
+	const path = args[0]
+	if (path === undefined) {
+		return { word: head, unknown: `${basename(head.value)} was given nothing to run` }
+	}
+	if (!LITERAL(path)) {
+		return { word: path, unknown: `the file this runs is decided at runtime: ${path.text}` }
+	}
+	return { word: head }
+}
+
+/**
+ * `eval word…`: bash joins `eval`'s arguments with a space and reads the
+ * result as a command line. When every argument word is literal, that joined
+ * text is lexed the same way a `bash -c` payload already is, and every
+ * position in the commands it contains (poisoning threaded across them,
+ * same as any script) is folded into the result — unknown when the reading
+ * is opaque or incomplete, and transitively unknown when a position inside
+ * it is. An expanding argument word is unknown outright: its value, and so
+ * what `eval` will even read, is not known before the line runs. `eval`
+ * with no arguments does nothing in bash and names no position at all.
+ */
+function resolveEvalPayload(
+	args: readonly ShellWord[],
+	dialect: ShellDialect,
+): readonly ProgramPosition[] {
+	if (args.length === 0) return []
+	for (const arg of args) {
+		if (!LITERAL(arg)) {
+			return [{ word: arg, unknown: `eval's payload is decided at runtime: ${arg.text}` }]
+		}
+	}
+	const payload = args.map((arg) => arg.value).join(' ')
+	const reading = lexShellCommandLine(payload, { dialect })
+	if (reading.opaque || !reading.complete) {
+		return [
+			{
+				unknown: `eval's payload cannot be read (${reading.reasons[0] ?? 'a construct the lexer does not model'}): ${payload}`,
+			},
+		]
+	}
+	return resolveScriptPrograms(reading.commands, dialect).flatMap((entry) => entry.positions)
+}
+
 /** The final position a chain of re-exec wrappers resolves to, from `words` (already literal, non-empty). */
-function resolveChain(words: readonly ShellWord[]): ProgramPosition {
+function resolveChain(
+	words: readonly ShellWord[],
+	dialect: ShellDialect,
+): readonly ProgramPosition[] {
 	let current = words
 	for (let depth = 0; depth < MAX_WRAPPER_DEPTH; depth += 1) {
 		const head = current[0]
-		if (head === undefined) return { unknown: 'no program follows this wrapper' }
+		if (head === undefined) return [{ unknown: 'no program follows this wrapper' }]
 		if (!LITERAL(head)) {
-			return { word: head, unknown: `the program is decided at runtime: ${head.text}` }
+			return [{ word: head, unknown: `the program is decided at runtime: ${head.text}` }]
 		}
 		const name = basename(head.value)
+		if (name === 'eval') return resolveEvalPayload(current.slice(1), dialect)
 		if (RUNTIME_EVALUATORS.has(name)) {
-			return {
-				unknown: `\`${name}\` reads its argument as code to run, not as a program name`,
-			}
+			// `source`/`.`: `eval` is handled above, on its own, since a
+			// literal `eval` reads its payload rather than being the position
+			// itself.
+			return [resolveSourceOrDot(head, current.slice(1))]
 		}
 		const unwrapped = unwrapOnce(current)
-		if (unwrapped === null) return { word: head }
-		if ('unknown' in unwrapped) return { unknown: unwrapped.unknown }
-		if ('none' in unwrapped) return { word: head }
-		if (unwrapped.rest.length === 0) return { word: head }
+		if (unwrapped === null) return [{ word: head }]
+		if ('unknown' in unwrapped) return [{ unknown: unwrapped.unknown }]
+		if ('none' in unwrapped) return [{ word: head }]
+		if (unwrapped.rest.length === 0) return [{ word: head }]
 		current = unwrapped.rest
 	}
-	return { unknown: 'too many re-exec wrappers to follow' }
+	return [{ unknown: 'too many re-exec wrappers to follow' }]
 }
 
 /** `find`'s own `-exec`/`-execdir`/`-ok`/`-okdir` clauses, each an independent program position. */
@@ -361,12 +440,19 @@ function findExecPositions(words: readonly ShellWord[]): ProgramPosition[] {
 /**
  * Every position in `command` where a program is actually exec'd: the
  * (possibly re-exec-wrapped) head, and, for `find`, each `-exec`-family
- * clause's own head. Empty for a command with no words at all.
+ * clause's own head. Empty for a command with no words at all. `dialect` is
+ * the shell that will run the line — needed only to read a literal `eval`
+ * payload the same way its own commands would be.
  */
-export function programPositions(command: ShellCommand): readonly ProgramPosition[] {
+export function programPositions(
+	command: ShellCommand,
+	dialect: ShellDialect,
+): readonly ProgramPosition[] {
 	const head = command.words[command.assignments]
 	if (head === undefined) return []
-	const positions: ProgramPosition[] = [resolveChain(command.words.slice(command.assignments))]
+	const positions: ProgramPosition[] = [
+		...resolveChain(command.words.slice(command.assignments), dialect),
+	]
 	if (LITERAL(head) && basename(head.value) === 'find') {
 		positions.push(...findExecPositions(command.words.slice(command.assignments + 1)))
 	}
@@ -463,12 +549,15 @@ export interface CommandProgramPositions {
  */
 export function resolveScriptPrograms(
 	commands: readonly ShellCommand[],
+	dialect: ShellDialect,
 ): readonly CommandProgramPositions[] {
 	let poisoned = false
 	const out: CommandProgramPositions[] = []
 	for (const command of commands) {
 		const selfPoisoned = poisoned || hasPoisoningPrefix(command)
-		const positions = selfPoisoned ? [poisonedProgramPosition()] : programPositions(command)
+		const positions = selfPoisoned
+			? [poisonedProgramPosition()]
+			: programPositions(command, dialect)
 		out.push({ command, positions })
 		if (poisonsLaterCommands(command)) poisoned = true
 	}

@@ -726,10 +726,10 @@ describe('a command whose own program name is decided at runtime', () => {
 		expect(text).not.toContain('HOST_RAN')
 	})
 
-	it('is escalated for eval, source and the dot builtin, which run text as code, not a program by name', async () => {
+	it('is escalated for eval with an expanding argument, and source/. with an expanding path', async () => {
 		for (const command of [
 			'eval "$(echo echo HOST_RAN)"',
-			'source /tmp/does-not-exist-either-way.sh',
+			'source "$(echo /tmp/does-not-exist-either-way.sh)"',
 		]) {
 			const { text } = await unknownProgramThroughQuery({
 				command,
@@ -738,6 +738,28 @@ describe('a command whose own program name is decided at runtime', () => {
 			expect(text, command).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
 			expect(text, command).not.toContain('HOST_RAN')
 		}
+	})
+
+	// Consistency fix: `source path`/`. path` with a LITERAL path is known —
+	// running that file, exactly like `bash path` — not escalated. Likewise
+	// a literal `eval` payload that reads as an ordinary command is known,
+	// not escalated, even though its argument word is (trivially) the whole
+	// command; only a payload that does not read cleanly, or that itself
+	// contains something unverifiable, still is (covered above and in
+	// `program.test.ts`).
+	it('is not escalated for source/. with a literal path, or eval with a literal, ordinary payload', async () => {
+		const notEscaped = await unknownProgramThroughQuery({
+			command: 'source /tmp/does-not-exist-either-way.sh',
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+		expect(notEscaped.text).not.toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+
+		const ran = await unknownProgramThroughQuery({
+			command: 'eval "echo HOST_RAN"',
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+		expect(ran.text).not.toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+		expect(ran.text).toContain('HOST_RAN')
 	})
 
 	it('is escalated once an earlier command in the same call poisons PATH for the rest', async () => {
