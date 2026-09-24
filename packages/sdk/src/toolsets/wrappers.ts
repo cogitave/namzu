@@ -98,8 +98,10 @@ function toPredicate(ts: Toolset, selector: ToolFilterSelector | ToolPredicate):
 
 /**
  * Deep-match: every key in `pattern` must be present and equal on `actual`,
- * recursing into nested plain objects. Mirrors Pydantic AI's
- * `_metadata_includes` (see plan.md gaps/no-open-metadata-and-selector.md).
+ * recursing into nested plain objects and comparing arrays elementwise (see
+ * plan.md gaps/no-open-metadata-and-selector.md for the selector design this
+ * generalizes). A `pattern` value that is neither a plain object nor an
+ * array must match `actual` exactly (`Object.is`).
  */
 function metadataIncludes(actual: Readonly<Record<string, unknown>>, pattern: Readonly<Record<string, unknown>>): boolean {
 	return Object.entries(pattern).every(([key, expected]) => valueIncludes(actual[key], expected))
@@ -108,6 +110,9 @@ function metadataIncludes(actual: Readonly<Record<string, unknown>>, pattern: Re
 function valueIncludes(actual: unknown, expected: unknown): boolean {
 	if (isPlainObject(expected) && isPlainObject(actual)) {
 		return metadataIncludes(actual as Record<string, unknown>, expected as Record<string, unknown>)
+	}
+	if (Array.isArray(expected) && Array.isArray(actual)) {
+		return actual.length === expected.length && expected.every((item, index) => valueIncludes(actual[index], item))
 	}
 	return Object.is(actual, expected)
 }

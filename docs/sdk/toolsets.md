@@ -2,7 +2,7 @@
 type: Reference
 title: Toolsets
 description: The unit every tool comes from, its composable wrappers, and combineToolsets's atomic conflict detection.
-resource: packages/sdk/src/toolsets/index.ts
+resource: packages/sdk/src/toolsets/
 tags: [sdk, tools, toolsets]
 status: stable
 ---
@@ -59,7 +59,8 @@ the tool carried.
   plain predicate function) admits. A selector is an array of tool names,
   `{ metadata }` (a deep-match against `ToolDefinition.metadata`: every key
   in the pattern must be present and equal, or, for a nested plain object,
-  recursively matched), or `{ sourceIdGlob }`. The glob form is
+  recursively matched; an array matches an array of the same length whose
+  elements deep-match pairwise), or `{ sourceIdGlob }`. The glob form is
   all-or-nothing per toolset: it tests the *toolset's own* `source.id`
   against the pattern (see below), not a per-tool source, so it keeps
   every tool when the toolset's source matches and none when it does not.

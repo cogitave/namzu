@@ -84,6 +84,40 @@ describe('filtered', () => {
 		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
 	})
 
+	it('matches array-valued metadata elementwise, not by reference', () => {
+		const ts = filtered(
+			toolset('demo', [
+				tool('read', { metadata: { tags: ['experimental', 'infra'] } }),
+				tool('write', { metadata: { tags: ['stable'] } }),
+			]),
+			{ metadata: { tags: ['experimental', 'infra'] } },
+		)
+		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
+	})
+
+	it('rejects arrays of different length or with a mismatched element', () => {
+		const ts = filtered(
+			toolset('demo', [
+				tool('shorter', { metadata: { tags: ['experimental'] } }),
+				tool('mismatched', { metadata: { tags: ['stable', 'infra'] } }),
+				tool('match', { metadata: { tags: ['experimental', 'infra'] } }),
+			]),
+			{ metadata: { tags: ['experimental', 'infra'] } },
+		)
+		expect(ts.tools().map((t) => t.name)).toEqual(['match'])
+	})
+
+	it('matches nested objects inside array elements recursively', () => {
+		const ts = filtered(
+			toolset('demo', [
+				tool('read', { metadata: { limits: [{ maxBytes: 10 }] } }),
+				tool('write', { metadata: { limits: [{ maxBytes: 20 }] } }),
+			]),
+			{ metadata: { limits: [{ maxBytes: 10 }] } },
+		)
+		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
+	})
+
 	it('keeps every tool when the toolset\'s own source id matches a glob, none otherwise', () => {
 		const mcpSource = { id: 'mcp:github', kind: 'mcp_server' as const, name: 'GitHub' }
 		const kept = filtered(toolset(mcpSource, [tool('a'), tool('b')]), { sourceIdGlob: 'mcp:*' })
