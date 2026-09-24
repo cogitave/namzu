@@ -189,6 +189,21 @@ waitingFor, handoff? }]` in `--json`; a run a page parked for you reads
 path that no longer exists, or a CLI version that differs from the installed
 one.
 
+For Task Scheduler the supervisor line gives the task's last result in words,
+with the number `schtasks` printed kept in parentheses (and in hexadecimal,
+which is how Windows documents it): `Task Scheduler: Running, enabled, last
+result: running (267009, 0x41301)`. While the daemon runs, the five-minute
+re-check is refused by `IgnoreNew`, and the last result reads `an instance was
+already running, so a new one was not started; expected, since the task checks
+every five minutes (-2147020576, 0x800710E0)` — not a failure. Also in words:
+`succeeded` (0), `ready to run` (0x41300), `disabled` (0x41302), `not run yet`
+(0x41303), `ended by a person or a stop` (0x41306), `the program was not
+found` (0x80070002), `ended when its console closed` (0xC000013A), and the
+scheduler's own exits, `another one owns this NAMZU_HOME` (75) and `namzu
+schedule stop asked it to` (80). Any other result is its number with the
+hexadecimal beside it. It used to print the bare decimal (`last result
+267009`), which says nothing.
+
 | Exit | Meaning |
 |---|---|
 | 0 | the daemon answers, or wrote its heartbeat in the last 90 seconds |

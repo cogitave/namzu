@@ -29,6 +29,7 @@ import {
 	uninstallSystemd,
 } from './systemd.js'
 import {
+	describeTaskResult,
 	parseTaskQuery,
 	removeEmptyTaskFolderArguments,
 	taskPath,
@@ -363,7 +364,7 @@ export async function serviceState(
 			)
 			if (queried.code !== 0) return 'Task Scheduler: task not found'
 			const fields = parseTaskQuery(queried.stdout)
-			return `Task Scheduler: ${fields.status ?? 'unknown'}${fields.state ? `, ${fields.state.toLowerCase()}` : ''}${fields.lastResult ? `, last result ${fields.lastResult}` : ''}`
+			return `Task Scheduler: ${fields.status ?? 'unknown'}${fields.state ? `, ${fields.state.toLowerCase()}` : ''}${fields.lastResult ? `, last result: ${describeTaskResult(fields.lastResult)}` : ''}`
 		}
 	}
 }

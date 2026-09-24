@@ -7,7 +7,13 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { detectPlatform } from '../service/detect.js'
-import { installService, startService, stopService, uninstallService } from '../service/index.js'
+import {
+	installService,
+	serviceState,
+	startService,
+	stopService,
+	uninstallService,
+} from '../service/index.js'
 import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { readManifest } from '../service/manifest.js'
 import { defaultServiceName } from '../service/names.js'
@@ -16,6 +22,7 @@ import type { CommandRunner } from '../service/runner.js'
 import { systemdUnit } from '../service/systemd.js'
 import {
 	REMOVE_EMPTY_TASK_FOLDER_SCRIPT,
+	describeTaskResult,
 	parseTaskQuery,
 	taskXml,
 	taskXmlBytes,
@@ -235,6 +242,55 @@ describe('Windows Task Scheduler', () => {
 			state: 'Enabled',
 			lastResult: '0',
 		})
+	})
+
+	it('says a task’s last result in words, keeping the number', () => {
+		// What the operator's `namzu schedule status` printed: "last result
+		// 267009", then "-2147020576".
+		expect(describeTaskResult('267009')).toBe('running (267009, 0x41301)')
+		expect(describeTaskResult('-2147020576')).toBe(
+			'an instance was already running, so a new one was not started; expected, since the task checks every five minutes (-2147020576, 0x800710E0)',
+		)
+		expect(describeTaskResult('0')).toBe('succeeded (0)')
+		expect(describeTaskResult('267011')).toBe('not run yet (267011, 0x41303)')
+		expect(describeTaskResult('0x41301')).toBe('running (0x41301)')
+		expect(describeTaskResult('75')).toBe(
+			'the scheduler exited: another one owns this NAMZU_HOME (75)',
+		)
+		expect(describeTaskResult('80')).toBe(
+			'the scheduler exited: namzu schedule stop asked it to (80)',
+		)
+		expect(describeTaskResult('42')).toBe('the program exited (42)')
+		expect(describeTaskResult('-1073741510')).toBe(
+			'ended when its console closed (-1073741510, 0xC000013A)',
+		)
+		// Unknown: the number, with its hexadecimal.
+		expect(describeTaskResult('-1073741819')).toBe('-1073741819 (0xC0000005)')
+		expect(describeTaskResult('N/A')).toBe('N/A')
+	})
+
+	it('puts the words in the status line', async () => {
+		const run: CommandRunner = async () => ({
+			code: 0,
+			stdout: 'Status:  Running\r\nScheduled Task State: Enabled\r\nLast Result: -2147020576\r\n',
+			stderr: '',
+		})
+		const state = await serviceState({ paths: sb.paths, run, env: {}, version: 't' }, {
+			v: 1,
+			kind: 'schedule-service',
+			platform: 'wsl-windows-task',
+			name: 'namzu-test',
+			installedAt: '',
+			cliVersion: 't',
+			nodePath: '',
+			binPath: '',
+			namzuHome: sb.home,
+			artifacts: [],
+			windows: { taskPath: '\\namzu\\namzu-test', schtasks: 'schtasks.exe' },
+		} as never)
+		expect(state).toBe(
+			'Task Scheduler: Running, enabled, last result: an instance was already running, so a new one was not started; expected, since the task checks every five minutes (-2147020576, 0x800710E0)',
+		)
 	})
 
 	it('stop disables the task rather than only ending it', async () => {
