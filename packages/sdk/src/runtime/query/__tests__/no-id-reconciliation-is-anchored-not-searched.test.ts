@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
 import {
@@ -79,7 +78,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const controller = new AbortController()
 		const cancelled = drainQuery({
 			provider: new HeldProvider(),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('yes')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -99,7 +98,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const provider2 = new MockLLMProvider({ responseText: 'turn two reply' })
 		const run2 = await drainQuery({
 			provider: provider2,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [{ role: 'user', content: 'yes' } as Message],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -121,7 +120,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const log = new InMemorySessionLog({ sessionId: scope.sessionId })
 		await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'hi there' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('hello')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -132,7 +131,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		})
 		await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'good' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('how are you')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -149,7 +148,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const provider = new MockLLMProvider({ responseText: 'turn reply' })
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [
 				{ role: 'user', content: 'hello' } as Message,
 				{ role: 'user', content: 'a brand new, never-before-seen message' } as Message,
@@ -178,7 +177,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const log = new InMemorySessionLog({ sessionId: scope.sessionId })
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'ok' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('yes')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -195,7 +194,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const provider2 = new MockLLMProvider({ responseText: 'turn two reply' })
 		const run2 = await drainQuery({
 			provider: provider2,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			// The whole prior turn, unmodified, PLUS a new final message that
 			// happens to repeat the earlier "yes". It is never compared to
 			// anything — it sits after the exactly-matched prefix — so it
@@ -221,7 +220,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const log = new InMemorySessionLog({ sessionId: scope.sessionId })
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'ok' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('yes')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -243,7 +242,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 
 		const refusal = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'unused' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...diverged, createUserMessage('a new message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -264,7 +263,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('first ever message')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -290,7 +289,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const log = new InMemorySessionLog({ sessionId: scope.sessionId })
 		await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'hi there' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('hello')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -301,7 +300,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		})
 		await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'good' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('how are you')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -319,7 +318,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const provider = new MockLLMProvider({ responseText: 'turn reply' })
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [{ role: 'user', content: 'hello' } as Message],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -349,7 +348,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const log = new InMemorySessionLog({ sessionId: scope.sessionId })
 		const run1 = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'settled answer' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('question')],
 			workingDirectory: cwd,
 			sessionLog: log,
@@ -371,7 +370,7 @@ describe('no-id reconciliation is anchored to the fold, never searched', () => {
 		const provider2 = new MockLLMProvider({ responseText: 'reply after resend' })
 		const run2 = await drainQuery({
 			provider: provider2,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: noIdPrefixPlusIdTail,
 			workingDirectory: cwd,
 			sessionLog: log,

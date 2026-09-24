@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
@@ -31,7 +32,7 @@ function fixture(turns: MockTurn[]) {
 	const sessionId = generateSessionId()
 	const params = {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [] as Toolset[],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'Return a score' }],
@@ -63,7 +64,9 @@ describe('native structured output through the real query loop', () => {
 				schema: { type: 'object', properties: { score: { type: 'number' } } },
 			},
 		})
-		expect(params.tools.has('structured_output')).toBe(false)
+		expect(
+			params.toolsets.some((set) => set.tools().some((tool) => tool.name === 'structured_output')),
+		).toBe(false)
 	})
 	it.each(['not JSON', '{"score":"bad"}', '{"score":'])(
 		'corrects invalid output %s with bounded feedback',
@@ -102,7 +105,7 @@ describe('native structured output through the real query loop', () => {
 			sessionLog: session.log,
 			checkpointStore: session.store,
 			turnId: session.turnId,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			resumeFromCheckpoint: session.checkpointId,
 		})
 		expect(run.stopReason).toBe('structured_output_failed')
@@ -152,19 +155,21 @@ describe('native structured output through the real query loop', () => {
 			{ text: '{"score":2}' },
 		])
 		const execute = vi.fn(async () => ({ success: true, output: 'Observed 2' }))
-		params.tools.register(
-			defineTool({
-				name: 'observe',
-				terminal: true,
-				category: 'analysis',
-				permissions: [],
-				destructive: false,
-				concurrencySafe: true,
-				description: 'Observe',
-				inputSchema: z.object({}),
-				execute,
-				readOnly: true,
-			}),
+		params.toolsets.push(
+			testToolset(
+				defineTool({
+					name: 'observe',
+					terminal: true,
+					category: 'analysis',
+					permissions: [],
+					destructive: false,
+					concurrencySafe: true,
+					description: 'Observe',
+					inputSchema: z.object({}),
+					execute,
+					readOnly: true,
+				}),
+			),
 		)
 		const run = await drainQuery(params)
 		expect(execute).toHaveBeenCalledTimes(1)
