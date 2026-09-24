@@ -46,6 +46,7 @@ An external tool server is declared under `mcpServers` in `namzu.config.json`, o
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |
 | `requireApproval` | both | `true` asks for approval on every tool this server contributes, including prompts and resources. Default `false`. |
 | `readOnlyHintTrusted` | both | `true` lets this server's read-only annotations count as trusted for review exemptions. Default `false`. Set only for a server whose claims the operator trusts. |
+| `instructions` | both | `true` includes this server's initialization instructions as labelled, untrusted request context for the model. Default `false`. They never become operator or system instructions. |
 
 An entry names a command or a URL, never both. One that names both is refused rather than guessed at, because picking either would run something the operator did not mean to run.
 
@@ -103,4 +104,4 @@ Each failure becomes an entry with a reason: the command could not be spawned, t
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot `namzu exec` leaves nothing behind.
 
-`/mcp tools` shows the current names and any instructions the server supplied during initialization. Instructions are server-authored text, displayed as such; they do not change the host's authorization rules. The two resource tools are deferred until discovered by name. Closing the session stops reconnect attempts before disconnecting transports.
+`/mcp tools` shows the current names and any instructions the server supplied during initialization. Instructions are server-authored text, displayed as such; they do not change the host's authorization rules. With `instructions: true`, the current text also reaches each model request inside an untrusted envelope tagged with the server name. A disconnected server contributes nothing until it reconnects. The two resource tools are deferred until discovered by name. Closing the session stops reconnect attempts before disconnecting transports.

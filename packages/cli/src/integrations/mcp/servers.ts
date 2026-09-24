@@ -136,6 +136,8 @@ export interface McpServerSpec {
 	readonly requireApproval?: boolean
 	/** Trust this server's read-only hints for review exemptions. Defaults to false. */
 	readonly readOnlyHintTrusted?: boolean
+	/** Include the server's own initialize instructions as untrusted turn context. Default false. */
+	readonly instructions?: boolean
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -360,6 +362,9 @@ function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions
 	}
 	if (spec.readOnlyHintTrusted !== undefined && typeof spec.readOnlyHintTrusted !== 'boolean') {
 		return 'readOnlyHintTrusted must be true or false'
+	}
+	if (spec.instructions !== undefined && typeof spec.instructions !== 'boolean') {
+		return 'instructions must be true or false'
 	}
 	return {
 		id: `mcp:${name}`,

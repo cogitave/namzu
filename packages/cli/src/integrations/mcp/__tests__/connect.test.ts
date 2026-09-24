@@ -607,6 +607,16 @@ describe('a server that does not work is named, never merely absent', () => {
 })
 
 describe('a spec that is not a server', () => {
+	it('reports an invalid instructions opt-in by server name', async () => {
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, instructions: 'yes' as never } },
+			{ cwd: dir },
+		)
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed).toEqual([{ name: 'tickets', reason: 'instructions must be true or false' }])
+		await mcp.close()
+	})
+
 	it('refuses one that names neither a command nor a url', () => {
 		expect(transportFor({}, dir)).toContain('neither a command nor a url')
 	})
