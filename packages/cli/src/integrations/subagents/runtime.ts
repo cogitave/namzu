@@ -407,10 +407,19 @@ export async function createSubagentRuntime(
 	// a file cannot grant a tool the parent does not have — narrowed further
 	// to read-only when the file says so. The prompt is the file's body over
 	// the same sub-agent base every child gets.
+	//
+	// `replace`, not `register`: a project may deliberately name a file agent
+	// `explore` (or `general-purpose`) to shadow the built-in of that name —
+	// tested behaviour, not a bug — and `AgentRegistry`'s default collision
+	// policy is `'throw'` now (every SDK registry converges on that; see
+	// `registry/collision.ts`). Two file agents sharing a name shadow each
+	// other the same way, last one in `opts.definitions` winning, same as
+	// `fileAgents`'s own `Map.set` below.
 	const fileAgents = new Map<string, AgentFileDefinition>()
 	for (const definition of opts.definitions ?? []) {
 		fileAgents.set(definition.name, definition)
-		registry.register(
+		registry.replace(
+			definition.name,
 			buildDefinition(
 				definition.name,
 				definition.description,

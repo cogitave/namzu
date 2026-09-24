@@ -20,6 +20,7 @@ import type {
 import { toErrorMessage } from '../../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../../utils/json-snapshot.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { RegistryCollisionError } from '../collision.js'
 import { callableToolNames, formatToolNames } from './callable.js'
 import { renderToolSchema, toolWireSchema } from './schema.js'
 import { ToolResultHalted, screenToolResult } from './screen.js'
@@ -61,10 +62,10 @@ const SEARCH_STOP_TOKENS = new Set([
 	'search',
 ])
 
-// Weighted-scoring weights mirroring ToolCatalog.searchTools (the richer,
-// otherwise-unused catalog scorer): exact name 12, name substring 8,
-// description 5 — extended here with argument-name indexing (3), following
-// argument names are searched too, not only the tool's own name.
+// Weighted-scoring weights for this registry's own scorer, the one every
+// run actually uses: exact name 12, name substring 8, description 5 —
+// extended here with argument-name indexing (3), so argument names are
+// searched too, not only the tool's own name.
 const SEARCH_WEIGHT_NAME_EXACT = 12
 const SEARCH_WEIGHT_NAME_PARTIAL = 8
 const SEARCH_WEIGHT_DESCRIPTION = 5
@@ -114,11 +115,13 @@ export function assertToolName(name: string): void {
  * shadowing-by-name the only way to say "I do not want this tool", which is
  * precisely what now throws.
  */
-export class ToolNameCollisionError extends Error {
+export class ToolNameCollisionError extends RegistryCollisionError {
 	readonly toolName: string
 
 	constructor(toolName: string, context: string) {
 		super(
+			'ToolRegistry',
+			toolName,
 			`Tool name "${toolName}" is already registered by this host, and ${context} will not replace it. Rename the host tool, or decline the one being mounted with runtimeToolOverrides: { "${toolName}": "disabled" }.`,
 		)
 		this.name = 'ToolNameCollisionError'
@@ -162,6 +165,13 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 			componentName: 'ToolRegistry',
 			idField: 'name',
 			logger: config?.logger,
+			// `ManagedRegistry`'s own default is now `'throw'` (registries
+			// converge on that; see `registry/collision.ts`), but this
+			// registry is scheduled for removal in a later wave — tools enter
+			// only through toolsets there — and nothing about tool
+			// registration changes until that wave. Pinned explicitly so the
+			// base class's default flip is invisible here.
+			onCollision: 'warn-overwrite',
 		})
 		this.tierConfig = config?.tierConfig
 		this.resultGuardrails = config?.resultGuardrails

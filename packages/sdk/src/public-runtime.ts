@@ -278,9 +278,13 @@ export type { JsonSchemaDialect } from './registry/tool/dialect.js'
 // by construction. Exported so a driver or a CI gate can assert it.
 export {
 	findPortableSchemaViolations,
+	findUndescribedProperties,
 	toPortableToolSchema,
 } from './registry/tool/portable.js'
-export type { PortableSchemaViolation } from './registry/tool/portable.js'
+export type {
+	PortableSchemaViolation,
+	UndescribedPropertyViolation,
+} from './registry/tool/portable.js'
 // The renderer itself, so a driver or a contract test can ask what a tool will
 // actually put on the wire without reaching into the registry.
 export { renderToolSchema, toolWireSchema } from './registry/tool/schema.js'
@@ -424,6 +428,7 @@ export {
 	loadSkill,
 	resolveSkillChain,
 	SKILL_FRONTMATTER_KEYS,
+	SkillCollisionError,
 	SkillRegistry,
 } from './skills/index.js'
 // The one frontmatter reader. `loadSkill` is built on it, and a host reading
@@ -450,6 +455,7 @@ export {
 	loadDirectory,
 } from './directory/index.js'
 export {
+	AdvisorCollisionError,
 	AdvisorRegistry,
 	AdvisoryContext,
 	AdvisoryExecutor,
@@ -552,13 +558,11 @@ export {
 	BaseRegistry,
 	ManagedRegistry,
 	PluginRegistry,
-	ToolCatalog,
+	RegistryCollisionError,
 	ToolNameCollisionError,
 	ToolRegistry,
-	createToolCatalogFromRegistry,
-	loadingFromAvailability,
-	toolDefinitionToCatalogEntry,
 } from './registry/index.js'
+export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/index.js'
 
 // Toolsets (plan.md §1): the unit every tool comes from, before any of it
 // reaches a `ToolRegistry`. `toolset()` builds a plain static one;
@@ -761,6 +765,7 @@ export {
 	CommandCancellationUnsupportedError,
 	ConnectorManager,
 	ConnectorRegistry,
+	EnvironmentCollisionError,
 	EnvironmentConnectorManager,
 	ExecutionContextFactory,
 	HttpConnector,
@@ -807,6 +812,7 @@ export {
 	ServerStdioTransport,
 	StdioTransport,
 	StreamableHttpTransport,
+	TenantCollisionError,
 	TenantConnectorManager,
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
@@ -1444,7 +1450,6 @@ export type {
 	GoalCommandScope,
 	KernelCommandOptions,
 } from './registry/command/kernel-commands.js'
-export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.js'
 export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiTurn, BidiTurnParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'

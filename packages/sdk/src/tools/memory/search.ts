@@ -19,7 +19,10 @@ function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 		inputSchema: z.object({
 			query: z.string().optional().describe('Relevant words or identifiers to search'),
 			tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
-			status: z.enum(['active', 'archived']).default('active'),
+			status: z
+				.enum(['active', 'archived'])
+				.default('active')
+				.describe('Which memories to search; archived for obsolete records'),
 			limit: z
 				.number()
 				.int()

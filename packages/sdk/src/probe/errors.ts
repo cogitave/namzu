@@ -1,10 +1,13 @@
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { VetoableEventKind } from '../types/probe/index.js'
 
-export class ProbeNameCollisionError extends Error {
+export class ProbeNameCollisionError extends RegistryCollisionError {
 	readonly probeName: string
 
 	constructor(probeName: string) {
 		super(
+			'ProbeRegistry',
+			probeName,
 			`Probe name "${probeName}" is already registered. Pass { override: true } to replace, or pick a different name.`,
 		)
 		this.name = 'ProbeNameCollisionError'

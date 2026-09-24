@@ -53,6 +53,19 @@ async function runtimeWith(definitions: readonly AgentFileDefinition[]) {
 	) {
 		for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
 	})
+	// File-defined agents go through `replace`, not `register`: a file may
+	// deliberately name itself `explore` or `general-purpose` to shadow a
+	// built-in, and `AgentRegistry`'s default collision policy is `'throw'`
+	// now (see `registry/collision.ts`) — `createSubagentRuntime` opts every
+	// file agent's registration into the one escape hatch meant for exactly
+	// that. Captured the same way `register` is above.
+	vi.spyOn(AgentRegistry.prototype, 'replace').mockImplementation(function (
+		this: AgentRegistry,
+		_id,
+		def,
+	) {
+		registered.push(def)
+	})
 	const parent = await subagentParentFixture(process.cwd())
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,

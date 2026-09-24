@@ -19,7 +19,8 @@ The kernel.
 * [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
 * [Toolsets](toolsets.md) - The unit every tool comes from, its composable wrappers, and combineToolsets's atomic conflict detection.
 * [Tool metadata and selectors](tool-metadata-and-selectors.md) - ToolDefinition.metadata as a host-only, never-on-the-wire data bag, matchesToolSelector's three selector shapes, and how an MCP server's annotations land in it.
-* [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
+* [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it, the normaliser that enforces it, and the sibling sweep for an undescribed field.
+* [Registry collisions](registries.md) - One collision policy, one base error class, and which registry chose which policy and why.
 
 * [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.
 * [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.

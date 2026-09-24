@@ -304,7 +304,12 @@ describe('ConnectorManager auth admission', () => {
 			{ connectorId: CONNECTOR_A, name: 'snapshotted', auth: bearer('ok') },
 			connector,
 		)
-		registry.register({
+		// `replace`, not `register`: `ConnectorRegistry` throws on a
+		// duplicate id by default now (every SDK registry converges on that
+		// — see `registry/collision.ts`), and this mutates the SAME id on
+		// purpose to prove the manager captured a detached snapshot rather
+		// than a live reference.
+		registry.replace(CONNECTOR_A, {
 			...connector.toDefinition(),
 			supportedAuth: ['basic'],
 		})

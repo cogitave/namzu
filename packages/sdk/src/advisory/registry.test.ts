@@ -1,8 +1,11 @@
 /**
- * Current-code invariants asserted (2026-04-21, ses_006 Phase 6):
+ * Current-code invariants asserted (2026-04-21, ses_006 Phase 6; collision
+ * behaviour updated 2026-09-24 — see `registry/collision.ts`):
  *
  *   - `AdvisorRegistry` extends the plain `Registry<AdvisorDefinition>`
- *     (NOT `ManagedRegistry` — no warn-log, direct register via `Map.set`).
+ *     (NOT `ManagedRegistry`), and its own `register` throws
+ *     `AdvisorCollisionError` on a duplicate id rather than delegating to a
+ *     shared collision policy.
  *   - Constructor registers every advisor immediately.
  *   - `resolve(advisorId?, domain?)` resolution priority:
  *     1. Explicit `advisorId` (even if unknown — returns undefined).
@@ -15,10 +18,11 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { AdvisorDefinition } from '../types/advisory/index.js'
 import type { LLMProvider } from '../types/provider/index.js'
 
-import { AdvisorRegistry } from './registry.js'
+import { AdvisorCollisionError, AdvisorRegistry } from './registry.js'
 
 const provider = {} as LLMProvider
 
@@ -36,6 +40,15 @@ describe('AdvisorRegistry', () => {
 	it('registers every advisor from the constructor array', () => {
 		const r = new AdvisorRegistry([makeAdvisor('a'), makeAdvisor('b')])
 		expect(r.listAll().map((a) => a.id)).toEqual(['a', 'b'])
+	})
+
+	it('throws AdvisorCollisionError, a RegistryCollisionError, on a duplicate id', () => {
+		expect(() => new AdvisorRegistry([makeAdvisor('a'), makeAdvisor('a')])).toThrow(
+			AdvisorCollisionError,
+		)
+		expect(() => new AdvisorRegistry([makeAdvisor('a'), makeAdvisor('a')])).toThrow(
+			RegistryCollisionError,
+		)
 	})
 
 	describe('resolve priority', () => {

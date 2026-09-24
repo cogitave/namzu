@@ -1,16 +1,21 @@
 /**
- * Current-code invariants asserted (2026-04-21, ses_006 Phase 3):
+ * Current-code invariants asserted (2026-04-21, ses_006 Phase 3; collision
+ * default flipped 2026-09-24 — see `registry/collision.ts`):
  *
  *   - `ManagedRegistry` extends `Registry` with a component-named
  *     logger + two optional id-extraction strategies: `idField` or
  *     `computeId`. `computeId` takes precedence when both are set.
  *   - `register(id, item)` (2-arg): throws when `item` is missing;
- *     warn-logs + overwrites on duplicate id (no typed error).
+ *     throws `RegistryCollisionError` on a duplicate id by default.
+ *     `onCollision: 'warn-overwrite' | 'warn-skip'` opts a registry out.
  *   - `register(item)` (1-arg): extracts id via computeId/idField;
  *     throws when neither is configured.
  *   - `register(items[])`: batch-registers (recursively calls the
  *     single-arg path for each). Any failure in a single register
  *     throws and aborts the batch (no partial-success semantics).
+ *   - `replace(id, item)`: always overwrites, regardless of `onCollision`
+ *     — the one escape hatch for a caller that genuinely supersedes an
+ *     earlier registration under the same id.
  *   - `getOrThrow(id)`: returns the item; throws
  *     `new Error("Not found: <id>. Available: <csv of known ids>")`
  *     — a plain `Error`, NOT a typed `XYZNotFoundError`.
@@ -23,6 +28,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Logger } from '../utils/logger.js'
 
 import { ManagedRegistry } from './ManagedRegistry.js'
+import { RegistryCollisionError } from './collision.js'
 
 function makeLogger(): Logger {
 	const self = {
@@ -50,9 +56,22 @@ describe('ManagedRegistry', () => {
 			expect(() => (r as any).register('a')).toThrow(/requires an item argument/)
 		})
 
-		it('warn-logs then overwrites on duplicate id', () => {
+		it('throws RegistryCollisionError on a duplicate id by default, leaving the original in place', () => {
+			const r = new ManagedRegistry<Item>({ componentName: 't' })
+			const a = { id: 'a', info: { id: 'a' }, value: 1 }
+			const b = { id: 'a', info: { id: 'a' }, value: 2 }
+			r.register('a', a)
+			expect(() => r.register('a', b)).toThrow(RegistryCollisionError)
+			expect(r.get('a')?.value).toBe(1)
+		})
+
+		it('honours an explicit onCollision: "warn-overwrite" (the pre-2026-09-24 default)', () => {
 			const logger = makeLogger()
-			const r = new ManagedRegistry<Item>({ componentName: 't', logger })
+			const r = new ManagedRegistry<Item>({
+				componentName: 't',
+				logger,
+				onCollision: 'warn-overwrite',
+			})
 			const a = { id: 'a', info: { id: 'a' }, value: 1 }
 			const b = { id: 'a', info: { id: 'a' }, value: 2 }
 			r.register('a', a)
@@ -65,6 +84,34 @@ describe('ManagedRegistry', () => {
 			expect(logger.warn).toHaveBeenCalledWith('Already registered, overwriting', {
 				'namzu.registry.item_id': 'a',
 			})
+		})
+
+		it('honours an explicit onCollision: "warn-skip"', () => {
+			const logger = makeLogger()
+			const r = new ManagedRegistry<Item>({ componentName: 't', logger, onCollision: 'warn-skip' })
+			const a = { id: 'a', info: { id: 'a' }, value: 1 }
+			const b = { id: 'a', info: { id: 'a' }, value: 2 }
+			r.register('a', a)
+			r.register('a', b)
+			expect(r.get('a')?.value).toBe(1)
+			expect(logger.warn).toHaveBeenCalledWith('Already registered, keeping existing', {
+				'namzu.registry.item_id': 'a',
+			})
+		})
+	})
+
+	describe('replace', () => {
+		it('overwrites an existing id regardless of onCollision', () => {
+			const r = new ManagedRegistry<Item>({ componentName: 't' })
+			r.register('a', { id: 'a', info: { id: 'a' }, value: 1 })
+			r.replace('a', { id: 'a', info: { id: 'a' }, value: 2 })
+			expect(r.get('a')?.value).toBe(2)
+		})
+
+		it('registers a fresh id too (not only a replacement)', () => {
+			const r = new ManagedRegistry<Item>({ componentName: 't' })
+			r.replace('a', { id: 'a', info: { id: 'a' }, value: 1 })
+			expect(r.get('a')?.value).toBe(1)
 		})
 	})
 
