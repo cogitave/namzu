@@ -10,7 +10,10 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # The composer prefixes
 
-Two first characters make a line something other than a prompt.
+Two first characters make a line something other than a prompt — in a line
+you type, or in a [loop you made](session-loops.md). A loop the model made
+is always sent as a prompt, so its `!` and `#` lines never run or remember
+anything ([The model's version](session-loops.md#the-models-version)).
 
 ## `!command` — the operator's own shell
 

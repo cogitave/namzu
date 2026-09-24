@@ -156,6 +156,7 @@ import {
 	Composer,
 	type ComposerDraft,
 	type ComposerSubmitMode,
+	type SubmitMeta,
 	suggestionWindowSize,
 } from './Composer.js'
 import { ComposerFrame } from './ComposerFrame.js'
@@ -1591,7 +1592,7 @@ export function App({
 		say: (text: string) => void
 		ask: QuestionFn
 		askPermission: ScreenPermissionFn
-		submit: (text: string) => void
+		submit: (text: string, createdBy: 'model' | 'operator') => void
 		model?: { readonly provider: string; readonly model?: string }
 	} | null>(null)
 	const scheduleRef = useRef<ScheduleIntegration | null>(null)
@@ -1620,7 +1621,7 @@ export function App({
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
-			submit: (text) => scheduleLiveRef.current?.submit(text),
+			submit: (text, createdBy) => scheduleLiveRef.current?.submit(text, createdBy),
 		})
 	}
 	/**
@@ -6433,8 +6434,9 @@ export function App({
 	const handleSubmit = useCallback(
 		(
 			value: string,
-			attachments?: readonly MessageAttachment[],
-			mode: ComposerSubmitMode = 'submit',
+			attachments: readonly MessageAttachment[] | undefined,
+			mode: ComposerSubmitMode,
+			meta: SubmitMeta,
 		) => {
 			if (goalCommandInFlightRef.current) {
 				pushMessage(
@@ -6469,8 +6471,19 @@ export function App({
 			}
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
-			setHistory((prev) => [...prev, value])
-			const selectionIntent = !attachments?.length ? parseModelSelectionIntent(value) : undefined
+			// A loop is not something the operator typed here, so it is not a line
+			// Up should bring back.
+			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
+			if (!fromLoop) setHistory((prev) => [...prev, value])
+			// What the model wrote is never the operator acting. A loop the model
+			// made (`session_loop`) fires this path on a timer, for up to a week,
+			// after one review of its creation — so its text must not reach the
+			// host-side meanings of `/`, `!`, `#` or a model switch: `!` runs on
+			// the host outside the sandbox with no review, and `#` writes memory
+			// every later turn reads. It is sent as the prompt it looks like.
+			const operatorText = meta.source !== 'model-loop'
+			const selectionIntent =
+				operatorText && !attachments?.length ? parseModelSelectionIntent(value) : undefined
 			if (selectionIntent) {
 				void selectModelIntent(selectionIntent.query)
 				return
@@ -6478,12 +6491,12 @@ export function App({
 			// `#` remembers, `!` runs — neither is a prompt. Both are the
 			// operator acting directly, the way other coding agents spell it,
 			// and both leave a row the model reads on its next turn.
-			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
+			if (operatorText && value.startsWith('#') && value.slice(1).trim().length > 0) {
 				const note = value.slice(1).trim()
 				void rememberProjectNote(note)
 				return
 			}
-			const escaped = shellEscapeCommand(value)
+			const escaped = operatorText ? shellEscapeCommand(value) : null
 			if (escaped !== null) {
 				pushMessage('user', value)
 				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
@@ -6515,7 +6528,7 @@ export function App({
 			// to run one.
 			let outgoing = value
 			let skillFlow = false
-			const slash = runSlash(value, slashCtx, hostCommands)
+			const slash = operatorText ? runSlash(value, slashCtx, hostCommands) : null
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
@@ -7682,7 +7695,8 @@ export function App({
 	// picker is also used by review/export flows. Keep only this dispatch hop in
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
-	commandPickerSubmitRef.current = handleSubmit
+	commandPickerSubmitRef.current = (command) =>
+		handleSubmit(command, undefined, 'submit', { source: 'command-picker' })
 	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
@@ -7692,7 +7706,10 @@ export function App({
 		},
 		ask: askQuestion,
 		askPermission: onPermission,
-		submit: (text) => handleSubmit(text),
+		submit: (text, createdBy) =>
+			handleSubmit(text, undefined, 'submit', {
+				source: createdBy === 'operator' ? 'operator-loop' : 'model-loop',
+			}),
 	}
 	// Scheduled work since the TUI last looked: one line, after the first
 	// paint, never blocking it. Loops fire when a turn ends, and on their timer.

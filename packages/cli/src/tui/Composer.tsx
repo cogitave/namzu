@@ -26,8 +26,9 @@ export interface ComposerProps {
 	readonly reasoningEffortLevels?: readonly string[]
 	readonly onSubmit: (
 		value: string,
-		attachments?: readonly MessageAttachment[],
-		mode?: ComposerSubmitMode,
+		attachments: readonly MessageAttachment[] | undefined,
+		mode: ComposerSubmitMode,
+		meta: SubmitMeta,
 	) => void
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
@@ -95,6 +96,30 @@ export interface ComposerProps {
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
 export type ComposerSubmitMode = 'submit' | 'queue'
+
+/**
+ * Where a submitted line came from. Every caller of the App's submit path
+ * names one; none is optional, so a new caller cannot inherit the operator's
+ * authority by leaving an argument out.
+ *
+ * - `composer`: the operator's own keys in this composer, sent with Enter or Tab.
+ * - `composer-dropdown`: a command the operator ran from the slash dropdown.
+ * - `command-picker`: a command a picker or menu re-entered through the command path.
+ * - `operator-loop`: a `/loop` the operator made, firing.
+ * - `model-loop`: a loop the model made with `session_loop`, firing. Its text
+ *   is always a plain prompt: never a `/` command, a `!` shell line, a `#`
+ *   memory note or a model switch, and never an entry in composer history.
+ */
+export type SubmitSource =
+	| 'composer'
+	| 'composer-dropdown'
+	| 'command-picker'
+	| 'operator-loop'
+	| 'model-loop'
+
+export interface SubmitMeta {
+	readonly source: SubmitSource
+}
 
 export interface ComposerDraft {
 	readonly token: number
@@ -586,8 +611,7 @@ export function Composer({
 					.join('\n\n')
 				if (message.length === 0 && attachments.length === 0) return false
 				const submittedAttachments = attachments.length > 0 ? attachments : undefined
-				if (mode === 'queue') onSubmit(message, submittedAttachments, mode)
-				else onSubmit(message, submittedAttachments)
+				onSubmit(message, submittedAttachments, mode, { source: 'composer' })
 				reset()
 				return true
 			}
@@ -633,7 +657,9 @@ export function Composer({
 			if (key.return) {
 				if (liveSuggestionKind === 'command') {
 					// Run the highlighted command.
-					onSubmit(`/${liveCommandSuggestions[liveSelection]?.name ?? ''}`)
+					onSubmit(`/${liveCommandSuggestions[liveSelection]?.name ?? ''}`, undefined, 'submit', {
+						source: 'composer-dropdown',
+					})
 					reset()
 					return
 				}
