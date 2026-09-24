@@ -25,6 +25,11 @@ describe('golden rates', () => {
 	// `rates.source.json` so the two moved together deliberately.
 	it.each([
 		['anthropic', 'claude-opus-5', 5, 25, 0.5, 6.25],
+		// Cache reads off the usual 0.1x: 0.05x on Opus 5.5, 0.025x on the 5.1
+		// pair. A row derived from the 0.1x rule would bill these at 2x and 4x.
+		['anthropic', 'claude-opus-5-5', 4, 20, 0.2, 5],
+		['anthropic', 'claude-fable-5-1', 10, 50, 0.25, 12.5],
+		['anthropic', 'claude-mythos-5-1', 10, 50, 0.25, 12.5],
 		['anthropic', 'claude-haiku-4-5', 1, 5, 0.1, 1.25],
 		['openai', 'gpt-4o', 2.5, 10, 1.25, undefined],
 	])('%s/%s is priced at %d in, %d out', (provider, model, input, output, read, write) => {
