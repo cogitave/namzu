@@ -155,6 +155,34 @@ describe('the thinking configuration that reaches the wire', () => {
 		expect(body.thinking).toBeUndefined()
 	})
 
+	it('omits a disabled intent on Opus 5.5 and keeps the effort that rides with it', async () => {
+		// The request this model answers with `"thinking.type.disabled" is not
+		// supported for this model`: it went out whenever effort was unset or
+		// `high` or below, and `xhigh`/`max` were refused locally as if the
+		// level were the problem. Effort is this model's only thinking control,
+		// so it is what reaches the wire.
+		for (const effort of ['low', 'max'] as const) {
+			const body = await bodyFor({
+				model: 'claude-opus-5-5',
+				thinking: { type: 'disabled' },
+				effort,
+			})
+
+			expect(body.thinking, effort).toBeUndefined()
+			expect(body.output_config, effort).toEqual({ effort })
+		}
+	})
+
+	it('still sends a disabled intent to Opus 5, which accepts it', async () => {
+		const body = await bodyFor({
+			model: 'claude-opus-5',
+			thinking: { type: 'disabled' },
+			effort: 'high',
+		})
+
+		expect(body.thinking).toEqual({ type: 'disabled' })
+	})
+
 	it('sends no thinking field when the caller configured none', async () => {
 		const body = await bodyFor({ model: 'claude-sonnet-5' })
 
