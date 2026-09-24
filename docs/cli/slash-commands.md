@@ -189,7 +189,9 @@ highest published level — the last entry of the menu, since every provider
 publishes low-to-high — and strengthens the delegation guidance for future
 turns in this session, from "delegate genuinely independent work" toward
 delegating by default; this widens prompt guidance only, and mounts no
-roster and starts no delegation by itself. When the current model or a usable
+roster and starts no delegation by itself. Turning it off puts back the effort
+that was in force before it was turned on (`Hypermode is off — effort back to
+low.`), unless you chose another level while it was on, which then stays. When the current model or a usable
 fallback publishes no exact effort menu, the mode still turns on and still
 strengthens delegation guidance, but pins nothing, and says so. The status
 line reads the level and the mode together, for example `effort high ·

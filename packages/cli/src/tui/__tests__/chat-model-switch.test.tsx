@@ -494,6 +494,42 @@ it("turning hypermode on pins effort to the model's highest published level", as
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
+it('puts the effort back when hypermode turns off, unless it was changed meanwhile', async () => {
+	const screen = await open()
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), '/effort low')
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/hypermode off')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is off — effort back to low.'),
+		'the effort did not come back',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('low')
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+
+	// Chosen by hand while the mode was on: that choice stays. (From the
+	// provider default, so putting it back would send no effort at all.)
+	await submit(screen, '/effort default')
+	await until(screen, () => screen.viewport().join('\n').includes('provider default'), 'default')
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').split('Hypermode is on').length > 2, 'on again')
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').split('Reasoning: low').length > 2, 'low again')
+	await submit(screen, '/hypermode off')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is off.'),
+		'off again',
+	)
+	await submit(screen, 'again')
+	await until(screen, () => sent.length === 2, 'Second turn was not sent')
+	expect(sent[1]?.options?.effort).toBe('low')
+})
+
 it('keeps /orchestrate working as a deprecated alias that says so', async () => {
 	const screen = await open()
 	await submit(screen, '/orchestrate on')

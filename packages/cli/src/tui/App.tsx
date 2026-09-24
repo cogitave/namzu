@@ -2439,6 +2439,15 @@ export function App({
 	 * model publishes no exact menu, effort is left alone and the notice says
 	 * so explicitly rather than silently doing nothing.
 	 */
+	/**
+	 * The effort in force before hypermode pinned the highest level, and the
+	 * level it pinned. Turning the mode off puts the effort back — unless the
+	 * operator chose another level meanwhile, which then stays.
+	 */
+	const hypermodePinRef = useRef<{
+		readonly before: ReasoningEffort | undefined
+		readonly pinned: ReasoningEffort
+	} | null>(null)
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -2469,13 +2478,31 @@ export function App({
 				)
 				return
 			}
+			if (!enabled && !hypermodeRef.current) {
+				pushMessage('system', 'Hypermode is off.')
+				return
+			}
 			setHypermode(enabled)
 			if (!enabled) {
+				const pin = hypermodePinRef.current
+				hypermodePinRef.current = null
+				if (pin && reasoningEffortRef.current === pin.pinned) {
+					setReasoningEffort(pin.before)
+					pushMessage(
+						'system',
+						`Hypermode is off — effort back to ${pin.before ?? 'the provider default'}.`,
+					)
+					return
+				}
 				pushMessage('system', 'Hypermode is off.')
 				return
 			}
 			const highest = highestReasoningEffort(session.reasoningEffortLevels)
 			if (highest !== undefined) {
+				// Turning it on twice keeps the effort from before the first time.
+				if (!hypermodePinRef.current)
+					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned: highest }
+				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned: highest }
 				setReasoningEffort(highest)
 				pushMessage(
 					'system',
@@ -3546,9 +3573,13 @@ export function App({
 			// mode survives the switch: re-pin to the new model's highest published
 			// level instead of clearing, exactly as it pinned when first turned on.
 			if (signal !== undefined) {
-				setReasoningEffort(
-					hypermodeRef.current ? highestReasoningEffort(s.reasoningEffortLevels) : undefined,
-				)
+				const repinned = hypermodeRef.current
+					? highestReasoningEffort(s.reasoningEffortLevels)
+					: undefined
+				// A new model starts at its own default; that is what turning
+				// hypermode off returns to now.
+				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
+				setReasoningEffort(repinned)
 			}
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
