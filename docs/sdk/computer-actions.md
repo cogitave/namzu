@@ -158,6 +158,12 @@ tool as a diagnostic: its description says why and every call is refused
 without touching the host. An undeclared capability keeps the permissive
 default.
 
+The Codex (OpenAI Responses) driver sends tool-result images with
+`detail: "high"` instead of `auto`, which could pick the 512-pixel `low`
+view. `high` is accepted by every Responses model and keeps an image within
+2048 px and 2 500 patches at its own size; `original` would too, but only
+gpt-5.4 and later accept it. User attachments keep `auto`.
+
 ## Host action declarations
 
 `ComputerUseCapabilities.supportedActions` optionally declares an exact action

@@ -440,8 +440,10 @@ describe('Codex request projection', () => {
 				output: [
 					{ type: 'input_text', text: 'desktop' },
 					{
+						// A screenshot the model clicks on: never left to `auto`,
+						// which may pick a 512-pixel `low` view.
 						type: 'input_image',
-						detail: 'auto',
+						detail: 'high',
 						image_url: 'data:image/webp;base64,V0VCUA==',
 					},
 					{ type: 'input_text', text: 'after' },
@@ -592,7 +594,7 @@ it('sends rich user and tool images on the complete subscription request', async
 				{ type: 'input_text', text: 'captured' },
 				{
 					type: 'input_image',
-					detail: 'auto',
+					detail: 'high',
 					image_url: 'data:image/jpeg;base64,VE9PTA==',
 				},
 			],
