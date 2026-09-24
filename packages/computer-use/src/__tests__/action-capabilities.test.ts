@@ -35,9 +35,10 @@ describe('native adapter action declarations', () => {
 			'type_text',
 			'key',
 		])
+		// `zoom` and `wait` follow the screenshot; `batch` carries the rest.
 		expect(tool.modelInputSchema).toMatchObject({
 			properties: {
-				type: { enum: ['screenshot', 'mouse_click', 'type_text', 'key'] },
+				type: { enum: ['screenshot', 'zoom', 'mouse_click', 'type_text', 'key', 'wait', 'batch'] },
 				button: { enum: ['left'] },
 			},
 		})
@@ -48,6 +49,29 @@ describe('native adapter action declarations', () => {
 	})
 
 	it('macOS refuses middle clicks and non-left drags instead of executing a different gesture', async () => {
+		// A display at 1x, so a physical pixel is a point.
+		vi.mocked(runCommandOrThrow).mockImplementation(async (command) => ({
+			stdout: Buffer.from(
+				command === 'system_profiler'
+					? JSON.stringify({
+							SPDisplaysDataType: [
+								{
+									spdisplays_ndrvs: [
+										{
+											_spdisplays_resolution: '1920 x 1080 @ 60.00Hz',
+											_spdisplays_pixels: '1920 x 1080',
+										},
+									],
+								},
+							],
+						})
+					: '',
+			),
+			stderr: '',
+			exitCode: 0,
+			timedOut: false,
+			signal: null,
+		}))
 		const adapter = await DarwinAdapter.create()
 		expect(adapter.capabilities.supportedActions).not.toContain('scroll')
 		expect(adapter.capabilities.mouseClickButtons).toEqual(['left', 'right'])
@@ -74,7 +98,9 @@ describe('native adapter action declarations', () => {
 		expect(adapter.capabilities.supportedActions).toEqual(['screenshot', 'type_text', 'key'])
 		expect(
 			createComputerUseTool(new SubprocessComputerUseHost({ adapter })).modelInputSchema,
-		).toMatchObject({ properties: { type: { enum: ['screenshot', 'type_text', 'key'] } } })
+		).toMatchObject({
+			properties: { type: { enum: ['screenshot', 'zoom', 'type_text', 'key', 'wait', 'batch'] } },
+		})
 	})
 
 	it.each([

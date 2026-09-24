@@ -1433,7 +1433,12 @@ export type {
 export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
 export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
-export type { ActionInput } from './tools/builtins/computer-use.js'
+export type {
+	ActionInput,
+	ComputerUseToolOptions,
+	ImageSize,
+	ScreenshotLimits,
+} from './tools/builtins/computer-use.js'
 export type { Project } from './types/project/entity.js'
 export type { CreatedLogger } from './utils/log/create-logger.js'
 export type {

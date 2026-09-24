@@ -105,7 +105,11 @@ export {
 } from './tools/builtins/structuredOutput.js'
 export {
 	COMPUTER_USE_TOOL_NAME,
+	HIGH_RES_SCREENSHOT_LIMITS,
+	STANDARD_SCREENSHOT_LIMITS,
+	computerUseUnavailableReason,
 	createComputerUseTool,
+	screenshotTargetSize,
 } from './tools/builtins/computer-use.js'
 // The browser contract: the two tools over a host a separate package
 // provides, and the canonicalisers a host and a site-rule compiler must share
