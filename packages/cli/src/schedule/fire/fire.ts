@@ -59,6 +59,7 @@ import type {
 	ScheduleRunTrigger,
 } from '../types.js'
 import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
+import { CallTally } from './calls.js'
 import { writeRunResult } from './result.js'
 import { unattendedNote } from './unattended-note.js'
 
@@ -170,6 +171,7 @@ export async function runFire(
 	let turnId: string | undefined
 	const warnings: string[] = []
 	const found: { credential?: string } = {}
+	let calls = new CallTally()
 	const base = (): Omit<ScheduleRunResult, 'status' | 'exitCode'> => ({
 		v: 1,
 		kind: 'schedule-run-result',
@@ -181,6 +183,7 @@ export async function runFire(
 		...(turnId ? { turnId } : {}),
 		...(found.credential ? { credentialSource: found.credential } : {}),
 		...(warnings.length > 0 ? { warnings: [...warnings] } : {}),
+		...calls.tallies(),
 	})
 	// Once the watchdog has recorded the wall clock, nothing after it rewrites the result.
 	let settledByWatchdog = false
@@ -306,6 +309,9 @@ export async function runFire(
 		subagents: { active: [] },
 	}
 
+	const withheld = withheldTools(job.permissions, policy)
+	calls = new CallTally(withheld)
+
 	// ── the conversation ──────────────────────────────────────────────────
 	let sessions: Awaited<ReturnType<typeof openSessions>>
 	try {
@@ -337,7 +343,7 @@ export async function runFire(
 		},
 		rules: policy.rules,
 		permissionMode: policy.mode,
-		withheldTools: withheldTools(job.permissions, policy),
+		withheldTools: withheld,
 		...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
 		...(config.skills ? { skills: config.skills } : {}),
@@ -449,6 +455,9 @@ export async function runFire(
 						'namzu.schedule.run_id': args.runId,
 						'namzu.tool.name': event.toolName,
 					})
+					break
+				case 'tool-end':
+					calls.observe(event)
 					break
 			}
 		}

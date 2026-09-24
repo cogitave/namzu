@@ -49,6 +49,7 @@ import {
 	describeChanges,
 	permissionsChanged,
 } from '../../schedule/changes.js'
+import { callsCount } from '../../schedule/fire/calls.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import {
 	type CompiledJobPolicy,
@@ -110,7 +111,13 @@ function summary(job: ScheduleJob, here: boolean, home: string): ScheduleJobSumm
 		state: job.state,
 		schedule: describeSchedule(job.schedule, { tz }),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
-		...(state.lastRun ? { lastStatus: state.lastRun.status } : {}),
+		...(state.lastRun
+			? {
+					lastStatus: callsCount(state.lastRun)
+						? `${state.lastRun.status} (${callsCount(state.lastRun)})`
+						: state.lastRun.status,
+				}
+			: {}),
 		...(here ? { prompt: job.prompt, inSessionFolder: true } : {}),
 	}
 }

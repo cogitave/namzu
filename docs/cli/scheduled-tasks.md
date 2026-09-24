@@ -424,7 +424,24 @@ guess the time in UTC. A parked run continued from the TUI is told the time
 again, as it is then: an answer can come days later.
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
-`blocked-config`, `interrupted`, `approval-expired`. The run enforces its own
+`blocked-config`, `interrupted`, `approval-expired`. The status says how the
+turn ended, not what its tool calls did, so a run whose only command was
+refused ends `completed` — the model was answered and finished. Beside the
+status, a run records the calls that did not do what they were for:
+`refusedCalls` (never ran: a rule, the scheduled-run floor, `unmatched: deny`,
+a tool its permissions withhold) and `failedCalls` (ran and returned an
+error), each `{ count, first: { tool, reason } }`. They are in the run's result
+and history record, the job's state (`lastRun.refusedCalls`,
+`lastRun.failedCalls`, counts only), `list` (`last completed (1 call refused)
+11:03`), `show` and `history` (`1 call was refused (bash: the scheduled-run
+floor refused this call: …)` under the run), `run-now`, `/schedule` and the
+model's `schedule` tool `list`. There is no separate status for it: every
+reader of a status — the failure streak and automatic pause, which
+notification is sent, catch-up, a `v: 1` history an older namzu reads — would
+have to decide whether such a run failed, and a run that failed or timed out
+can have refused calls too. In the operator's first trial a job's only
+command was refused on every run and each was recorded `completed` with a
+`finished` notification and nothing else. The run enforces its own
 wall clock (`--timeout`): the turn's limit first, then a minute later the run
 records `timed-out`, gives its session back and exits. A provider pause (a rate
 limit, an outage) is waited out within `--wait-for-provider`, resuming from the
@@ -536,7 +553,12 @@ again at its next time.
 
 A notification names the job and what happened — finished, failed, waiting for
 your approval, a catch-up, a job on hold — and nothing the model wrote, unless
-the job asked for its one-line summary (`--notify-summary`). At most one per job
+the job asked for its one-line summary (`--notify-summary`). A finished run
+with refused calls says so: `done at Thu 11:03, but 1 call was refused (bash);
+namzu schedule show <job> says why`. The reason can quote the command the model
+wrote, so it is in the notification only for a job that asked for its summary
+(`done at …, but 1 call was refused: the scheduled-run floor refused this call:
+…`), cut to fit. At most one per job
 every ten minutes and twenty a day, except the ones that need you — a run
 waiting for your approval, an approval that expired, a job on hold, waiting for
 confirmation or paused after failures — which are always sent.
@@ -584,7 +606,9 @@ resumeCommand?, handoff? } }] }`, `resumeCommand` for a run waiting for
 approval and `handoff: { reason }` for one a tool parked for a person (the
 text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
-"records": [...] }` with records newest first, a run's last status winning.
+"records": [...] }` with records newest first, a run's last status winning. A
+run record and `lastRun` carry `refusedCalls` and `failedCalls` when a run had
+any (see [One run](#one-run)).
 
 In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
