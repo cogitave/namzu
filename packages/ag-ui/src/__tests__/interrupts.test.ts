@@ -836,7 +836,7 @@ describe('a question the model asks the user', () => {
 				namzu: {
 					kind: 'question',
 					options: [
-						{ id: 'opt_1', label: 'Staging (Recommended)' },
+						{ id: 'opt_1', label: 'Staging', recommended: true },
 						{ id: 'opt_2', label: 'Production' },
 					],
 					multiSelect: false,

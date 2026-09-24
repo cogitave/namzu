@@ -242,7 +242,7 @@ one entry per interrupt, and continues the same native turn.
 | Native cause | `reason` | `toolCallId` | `resume` payload when `resolved` | `cancelled` |
 | --- | --- | --- | --- | --- |
 | A tool call the review policy puts to a person | `tool_call` | the call | `{ approved: boolean, editedArgs?: object, reason?: string }` (and `confirmSandboxEscape?: boolean` for a call that asks to leave the sandbox) | refuses the call |
-| `ask_user_question`, or `ToolContext.requestPause` in any tool | `input_required` | the asking call, when the client saw it | `{ selected?: string[], text?: string }`: option ids from `metadata.namzu.options`, and text when `allowFreeText`; a bare string is text | the tool reads "the user did not answer" |
+| `ask_user_question`, or `ToolContext.requestPause` in any tool | `input_required` | the asking call, when the client saw it | `{ selected?: string[], text?: string }`: option ids from `metadata.namzu.options` (each `{ id, label, description?, recommended? }`; `recommended: true` marks the option the model recommends, and its label carries no "(Recommended)" suffix), and text when `allowFreeText`; a bare string is text | the tool reads "the user did not answer" |
 | `ToolResult.handoff` (sign-in, CAPTCHA, a takeover of the desktop) | `namzu:handoff` | — | anything; "done, carry on" | the turn is closed (`abandonTurn`) |
 | A plan the policy put to the client | `confirmation` | — | `{ approved: boolean, feedback?: string }` | the turn is closed |
 | A cadence checkpoint the host's policy paused on | `confirmation` | — | `{ approved: boolean, feedback?: string }` | the turn is closed |

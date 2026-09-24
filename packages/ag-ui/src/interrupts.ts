@@ -285,6 +285,7 @@ export function questionInterrupt(
 					id: option.id,
 					label: option.label,
 					...(option.description !== undefined ? { description: option.description } : {}),
+					...(option.recommended === true ? { recommended: true } : {}),
 				})),
 				multiSelect: question.multiSelect,
 				allowFreeText: question.allowFreeText,
