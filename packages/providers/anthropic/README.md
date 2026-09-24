@@ -102,3 +102,23 @@ This provider-level feature does not enable native mode in
 `QueryParams.structuredOutput`; that still uses the SDK output tool. See
 [structured output review and native transport](../../../docs/sdk/structured-output-review.md)
 for the boundary and tested behavior.
+
+## Thinking and effort
+
+`thinking` on a request is an intent. The driver resolves it against the model
+before it builds the request, because the vendor rejects a thinking mode the
+model does not have instead of adjusting it:
+
+- On a model with adaptive thinking only (Claude 4.7 and later), `enabled` is
+  sent as `adaptive`, without its budget.
+- On a model with manual thinking only (Claude 4.5 and earlier), `adaptive` is
+  sent as `enabled`.
+- On a model that cannot stop thinking, a `disabled` intent is left out and the
+  model runs its default adaptive thinking. These are the Fable and Mythos
+  families, Mythos Preview, and Opus from 5.5. On those models `effort` is the
+  only thinking control.
+
+`effort` must be a level the model accepts with the thinking that is actually
+sent, or the request fails before it is sent. `provider.effortLevelsFor(model,
+thinking)` returns those levels. `resolveThinkingCapability(model)` also says
+whether thinking can be switched off at all (`canDisable`).

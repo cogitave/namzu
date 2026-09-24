@@ -33,11 +33,20 @@ const NONE: string[] = []
  * twice, so a boolean could not say that `xhigh` is rejected on 4.6 and `max`
  * is rejected on 4.5 — which is exactly what it failed to say.
  */
-const CAPPED = BASE // opus 5+ with thinking off
+const CAPPED = BASE // opus 5 with thinking off
 const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] = [
-	// Always-on families: thinking cannot be switched off at any version.
+	// Always-on: thinking cannot be switched off, at any effort level. Two
+	// whole families, and Opus from 5.5 — the vendor's list of models that
+	// answer `thinking: {type: "disabled"}` with a 400.
+	['claude-fable-5-1', true, false, false, ALL, ALL],
+	['claude-mythos-5-1', true, false, false, ALL, ALL],
 	['claude-fable-5', true, false, false, ALL, ALL],
 	['claude-mythos-5', true, false, false, ALL, ALL],
+	// Crossed at a minor version, which the version fallback read as "a newer
+	// adaptive Opus, so it can disable thinking and caps effort while off":
+	// `disabled` went to the wire and came back 400 at every effort level, and
+	// `disabled` + `max` was refused locally as an effort problem.
+	['claude-opus-5-5', true, false, false, ALL, ALL],
 	// The preview takes `max` and NOT `xhigh`, which is the pairing it is easy
 	// to assume away — the reference says outright that some models supporting
 	// `max` do not support `xhigh`, and this is one. Reading the levels as a
@@ -72,6 +81,20 @@ describe('what each model accepts', () => {
 			})
 		})
 	}
+
+	it('keeps a family always-on at every version after it crossed', () => {
+		// A floor, not a list of ids: the next Opus inherits "cannot stop
+		// thinking" instead of falling back to "can", which is the default that
+		// sent `disabled` to Opus 5.5. The line is still where the vendor drew
+		// it — the Opus below it keeps its switch.
+		for (const model of ['claude-opus-5-6', 'claude-opus-6', 'anthropic/claude-opus-5-5']) {
+			expect(resolveThinkingCapability(model), model).toMatchObject({ canDisable: false })
+		}
+		expect(resolveThinkingCapability('claude-opus-5')).toMatchObject({ canDisable: true })
+		// Only the family that crossed moves: Sonnet has no floor, so a later
+		// Sonnet still resolves through the version fallback.
+		expect(resolveThinkingCapability('claude-sonnet-5-5')).toMatchObject({ canDisable: true })
+	})
 
 	it('tolerates a vendor prefix and a date suffix', () => {
 		expect(resolveThinkingCapability('anthropic/claude-sonnet-5')).toMatchObject({
@@ -162,6 +185,19 @@ describe('turning an intent into a body this model accepts', () => {
 		expect(resolveThinkingBody({ type: 'disabled' }, alwaysOn)).toBeUndefined()
 	})
 
+	it('omits it on Opus 5.5 too, where the same intent works one minor below', () => {
+		// A config shared across the Opus line: accepted on Opus 5 at `high` or
+		// below, a 400 on Opus 5.5 at every level. The vendor's migration says
+		// to delete the setting; this is the driver doing that per model.
+		const opus55 = resolveThinkingCapability('claude-opus-5-5')
+		expect(resolveThinkingBody({ type: 'disabled' }, opus55)).toBeUndefined()
+		expect(
+			resolveThinkingBody({ type: 'disabled' }, resolveThinkingCapability('claude-opus-5')),
+		).toEqual({
+			type: 'disabled',
+		})
+	})
+
 	it('honours disable where it is accepted', () => {
 		expect(resolveThinkingBody({ type: 'disabled' }, adaptiveOnly)).toEqual({
 			type: 'disabled',
@@ -217,6 +253,19 @@ describe('when effort rides along', () => {
 
 		// `adaptiveOnly` here is Sonnet 5, which the wire does not cap.
 		expect(resolveEffort('max', { type: 'disabled' }, adaptiveOnly)).toBe('max')
+	})
+
+	it('keeps every level on Opus 5.5 when the caller asked for thinking off', () => {
+		// The Opus 5 cap used to reach this model too, and it misdirected: a
+		// `disabled` + `max` request was refused as "effort max is not
+		// supported, Supported levels: low, medium, high", when the model takes
+		// all five and the thing it rejects is the thinking mode. Following
+		// that advice produced the vendor's 400 instead.
+		const opus55 = resolveThinkingCapability('claude-opus-5-5')
+		const body = resolveThinkingBody({ type: 'disabled' }, opus55)
+		for (const level of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+			expect(resolveEffort(level, body, opus55, 'claude-opus-5-5'), level).toBe(level)
+		}
 	})
 
 	it('refuses a level this model does not have', () => {

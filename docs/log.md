@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-24
+
+- **Update** [@namzu/anthropic](../packages/providers/anthropic/README.md#thinking-and-effort): `claude-opus-5-5` resolves to thinking always on (`canDisable: false`, all five effort levels in `effort` and `effortWhenDisabled`). A `thinking: { type: 'disabled' }` intent is left out of its request; it used to be sent and drew the vendor's 400 (`"thinking.type.disabled" is not supported for this model`). `disabled` with `xhigh` or `max` is no longer refused as an effort problem, and `effortLevelsFor('claude-opus-5-5', { type: 'disabled' })` returns all five levels. The always-on models are now a table of per-family version floors (`ALWAYS_ON_FROM`: Fable and Mythos at every version, Opus from 5.5), so a later Opus id resolves the same way without a new branch. The README gains a section on how the driver resolves thinking and effort (`packages/providers/anthropic/src/thinking-capability.ts`, `version-floor.ts`). `.changeset/opus-5-5-thinking-always-on.md`, **patch** for `@namzu/anthropic`. Issue #525.
+
 ## 2026-09-23
 
 - **Update** [Tool execution](sdk/tool-execution.md): `ToolCallView` (generic) gains `outcome: 'cancelled'` for a result the person declined on the tool's own screen; `save_skill` and the `schedule` tool use it, and the CLI shows `○ … ⎿ Cancelled — nothing was saved` instead of `✗ … failed: Error: The operator cancelled`; the CLI's `tool-end` event carries `cancelled: true`
