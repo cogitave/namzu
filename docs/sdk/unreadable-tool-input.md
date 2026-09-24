@@ -114,7 +114,7 @@ export const saveNote = defineTool({
 	inputSchema: z.object({ title: z.string(), body: z.string(), tags: z.array(z.string()) }),
 	// The argument that can be long, and the characters one call should keep it under.
 	largeStringArguments: { body: 8_000 },
-	// Appended when a call was cut off and sending less gets past it.
+	// Appended when a cut-off call has to carry less.
 	truncatedInputHint: 'Save a long note as several notes with numbered titles.',
 	// Appended when the arguments were not valid JSON.
 	malformedInputHint: 'Pass "tags" as a JSON array of strings.',
