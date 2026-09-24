@@ -201,10 +201,8 @@ async function cwd(): Promise<string> {
 	return root
 }
 
-async function until(check: () => boolean, why: string, timeoutMs = 4_000): Promise<void> {
-	const started = performance.now()
-	while (!check() && performance.now() - started < timeoutMs) await tick(20)
-	expect(check(), why).toBe(true)
+async function until(check: () => boolean, why: string, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(check(), why).toBe(true), timeoutMs)
 }
 
 async function submit(

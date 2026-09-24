@@ -146,12 +146,9 @@ afterEach(() => {
 async function frameShows(
 	lastFrame: () => string | undefined,
 	text: string,
-	timeoutMs = 5_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!(lastFrame() ?? '').includes(text) && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
+	await vi.waitFor(() => expect(lastFrame() ?? '').toContain(text), timeoutMs)
 }
 
 /** Render, run the turn, and stop with two collapsed bodies on screen. */

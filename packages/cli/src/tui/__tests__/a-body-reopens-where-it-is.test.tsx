@@ -116,14 +116,18 @@ afterEach(async () => {
 })
 
 /** Poll rather than sleep: this suite transforms TypeScript on the way in, and
- *  a fixed wait that passes alone goes red inside the full parallel run. */
-async function screenShows(screen: Screen, text: string, timeoutMs = 8_000): Promise<void> {
-	const started = performance.now()
-	while (performance.now() - started < timeoutMs) {
+ *  a fixed wait that passes alone goes red inside the full parallel run.
+ *  `vi.waitFor` inherits this package's test-budget-aware default
+ *  (`test-setup.ts`) instead of racing its own fixed wall clock; an explicit
+ *  `timeoutMs` is still honoured when a caller passes one. */
+async function screenShows(screen: Screen, text: string, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(async () => {
 		await screen.waitForRender()
-		if (screen.viewport().some((line) => line.includes(text))) return
-		await new Promise((resolve) => setTimeout(resolve, 20))
-	}
+		expect(
+			screen.viewport().some((line) => line.includes(text)),
+			`screen does not show ${JSON.stringify(text)}`,
+		).toBe(true)
+	}, timeoutMs)
 }
 
 /** Index of the viewport row containing `text`, or -1. */

@@ -154,9 +154,7 @@ afterEach(() => {
 })
 
 async function until(check: () => boolean, why: string): Promise<void> {
-	const started = performance.now()
-	while (!check() && performance.now() - started < 5_000) await tick(20)
-	expect(check(), why).toBe(true)
+	await vi.waitFor(() => expect(check(), why).toBe(true))
 }
 
 async function submit(

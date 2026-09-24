@@ -208,25 +208,19 @@ describe('stored attachment resolution belongs to the turn', () => {
 		await started
 		const reason = new TurnCancelled('user')
 		caller.abort(reason)
-		const safety = Symbol('attachment resolution ignored cancellation')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const outcome = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		let outcome: Awaited<typeof pending>
 		try {
-			expect(outcome).not.toBe(safety)
+			outcome = await pending
 		} finally {
-			// A broken implementation is released only after the bounded observer
-			// has its answer, so the test fails rather than leaving a live query.
+			// Release the stalled attachment fetch so nothing is left live
+			// regardless of how the query above settled.
 			release({ data: 'late-pdf', mediaType: 'application/pdf' })
-			if (outcome === safety) await pending
 		}
-		if (outcome === safety) return
 
 		expect(storeOptions?.signal).not.toBe(caller.signal)
 		expect(storeOptions?.signal?.aborted).toBe(true)
@@ -338,24 +332,16 @@ describe('stored attachment resolution belongs to the turn', () => {
 
 		await storeStarted
 		caller.abort(new TurnCancelled('user'))
-		const safety = Symbol('cancelled turn entered a non-cooperative guardrail')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const outcome = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: see the fix above at the top of this
+		// file for why racing it against the cancellation work it waited on
+		// was the flaky part, not the mechanism.
+		let outcome: Awaited<typeof pending>
 		try {
-			expect(outcome).not.toBe(safety)
+			outcome = await pending
 		} finally {
 			releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
 			releaseGuardrail({ action: 'pass' })
-			if (outcome === safety) await pending
 		}
-		if (outcome === safety) return
 
 		expect(inputGuardrail).not.toHaveBeenCalled()
 		expect(provider.requests).toHaveLength(0)
@@ -687,23 +673,15 @@ describe('stored attachment resolution belongs to the turn', () => {
 
 		await storeStarted
 		caller.abort(new TurnCancelled('user'))
-		const safety = Symbol('resume stalled after cancellation')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-
+		// No real 250ms safety race: see the fix above at the top of this
+		// file for why racing it against the cancellation work it waited on
+		// was the flaky part, not the mechanism.
+		let result: Awaited<typeof pending>
 		try {
-			expect(result).not.toBe(safety)
+			result = await pending
 		} finally {
 			releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
-			if (result === safety) await pending
 		}
-		if (result === safety) return
 
 		expect(rereads).toBe(0)
 		expect(provider.requests).toHaveLength(0)
@@ -808,22 +786,21 @@ describe('stored attachment resolution belongs to the turn', () => {
 			},
 			signal: caller.signal,
 		})
-		const safety = Symbol('replay observer pinned the cancelled turn')
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const result = await Promise.race([
-			pending,
-			new Promise<typeof safety>((resolve) => {
-				timer = setTimeout(() => resolve(safety), 250)
-			}),
-		])
-		if (timer) clearTimeout(timer)
-		rejectReplay(replayFailure)
-		if (result === safety) await pending
+		// No real 250ms safety race: see the fix at the top of this file for
+		// why racing it against the cancellation work it waited on was the
+		// flaky part, not the mechanism. `rejectReplay` unconditionally
+		// settling `heldReplay` in `finally` is what used to make the safety
+		// branch reachable at all; now it just guarantees the observer's
+		// promise is never left dangling, whichever way `pending` settles.
+		let result: Awaited<typeof pending>
+		try {
+			result = await pending
+		} finally {
+			rejectReplay(replayFailure)
+		}
 		await new Promise<void>((resolve) => setImmediate(resolve))
 		process.off('unhandledRejection', recordUnhandledRejection)
 
-		expect(result).not.toBe(safety)
-		if (result === safety) return
 		expect(replayCallbacks).toBe(1)
 		expect(unhandledRejections).toEqual([])
 		expect(result.resumed).toBe(true)

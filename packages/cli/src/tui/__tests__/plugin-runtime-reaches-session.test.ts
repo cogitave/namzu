@@ -452,20 +452,16 @@ export const tools = [{
 				}
 				return events
 			})()
-			// The hook's own deadline is 5 ms; this window only separates "the deadline
-			// fired" from "the turn hangs forever", so it must cover a whole turn's
-			// setup on a loaded CI runner, where 500 ms was not enough.
-			const safety = Symbol('configured hook deadline was not applied')
-			const outcome = await Promise.race([
-				eventsPromise,
-				new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 3_000)),
-			])
-			if (outcome === safety) {
-				await session.close()
-				await eventsPromise
-			}
-			expect(outcome).not.toBe(safety)
-			const events = outcome === safety ? [] : outcome
+			// The hook's own deadline is 5ms. This used to race `eventsPromise`
+			// against its own real safety timer — first 500ms, then 3000ms
+			// once 500ms proved too tight on a loaded CI runner — but raising
+			// the number only shrank the window instead of closing it: both
+			// bounds compete with the same clock as the turn setup they wait
+			// on. A regression that dropped the 5ms deadline (or a turn that
+			// never applies it) now hangs and fails on Vitest's own
+			// per-test timeout instead of a hand-rolled one racing the same
+			// clock.
+			const events = await eventsPromise
 			expect(events).toContainEqual(
 				expect.objectContaining({
 					kind: 'error',
