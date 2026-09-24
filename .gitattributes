@@ -20,3 +20,10 @@
 
 # Lockfiles are generated; keep them out of diffs and reviews.
 pnpm-lock.yaml linguist-generated=true -diff
+
+# Concurrent branches routinely append a bullet under the same `## YYYY-MM-DD`
+# heading in the update history. A plain three-way merge conflicts on that
+# shared context line even though the two edits do not overlap; the union
+# merge driver instead keeps every line either side added, so both bullets
+# land in the merged file with no manual resolution.
+docs/log.md merge=union
