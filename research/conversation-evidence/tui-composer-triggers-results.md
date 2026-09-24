@@ -426,3 +426,53 @@ No `SKILL.md` was written in the user or project skills directory. The model the
  └────────────────────────────────────────────────────────────────────────────┘
  ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/fixture             gpt-5.6-sol
 ```
+
+## After the owner's decision: hypermode pins `xhigh`
+
+The merged build (feature branch at `3156620d` merged with `origin/main` at `791e949c`), same driver, fresh `NAMZU_HOME`, `/model gpt-5.6-luna`, no model call (spec `tui-composer-triggers-xhigh.json`). gpt-5.6-luna publishes `max`; the mode and the keyword pin `xhigh`.
+
+### `/effort`
+
+```text
+
+                      Faster                                                                Smarter
+                      ───▲──────────────────────────────────────────┆──────────────────────────────
+                      default   low   medium   high   xhigh   max   ┆ xhigh + hypermode (workflows)
+                                                                      Off · delegates to parallel agents by default
+   
+  ←/→ adjust · 1–9 select · enter apply · esc back
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/fixture  ←/→ adjust · 1–9 select · enter apply · esc back
+```
+
+### `/hypermode on`
+
+```text
+ · Hypermode is on — effort pinned to xhigh for gpt-5.6-luna, and delegation guidance is strengthened for this session.
+
+ ┌─ MESSAGE ────────────────────────────────────────────────────────────────────────────────────────────── hypermode ─┐
+ │ › Type a message… (/help for commands)                                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · effort xhigh · hypermode · …/fixture           gpt-5.6-luna
+```
+
+### `/hypermode off`
+
+```text
+
+ · Hypermode is off — effort back to the provider default.
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/fixture gpt-5.6-luna
+```
+
+### The keyword, typed
+
+```text
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ ✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop                                    │
+ │ › hypermode fix the flaky test▏                                                                                    │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/fixture gpt-5.6-luna
+```
