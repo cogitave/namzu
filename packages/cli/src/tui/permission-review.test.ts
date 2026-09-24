@@ -399,6 +399,46 @@ describe('buildPermissionSummary — desktop actions', () => {
 		expect(summarize({ type: 'key', keys: 'CTRL+R' }).text).not.toContain('Coordinates')
 	})
 
+	it('names the control a ui_act ref points at, when the session knows it', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'computer_use',
+				input: {
+					type: 'batch',
+					actions: [
+						{ type: 'ui_act', ref: 'e30', action: 'invoke' },
+						{ type: 'ui_act', ref: 'e41', action: 'set_value', value: 'Merhaba dünya ığüşöç' },
+						{ type: 'ui_act', ref: 'e99', action: 'expand' },
+					],
+				},
+				isDestructive: true,
+			},
+		])
+		if (!review.ok) throw new Error('unreachable')
+		const summary = buildPermissionSummary(review.text, {
+			describeUiRef: (ref) =>
+				ref === 'e30'
+					? 'Button "Beş" (e30)'
+					: ref === 'e41'
+						? 'Edit "Text Editor" (e41)'
+						: undefined,
+		})
+		expect(summary.complete).toBe(true)
+		expect(summary.text.split('\n').slice(2)).toEqual([
+			'   1. Press Button "Beş" (e30)',
+			'   2. Set Edit "Text Editor" (e41) to "Merhaba dünya ığüşöç"',
+			'   3. Expand control e99',
+		])
+		expect(summarize({ type: 'ui_snapshot', window_id: '0x261206' }).text).toContain(
+			'Read the controls of window "0x261206"',
+		)
+		expect(summarize({ type: 'ui_snapshot' }).text).toContain(
+			'Read the controls of the window in front',
+		)
+		expect(summarize({ type: 'ui_act', ref: 'e1', action: 'teleport' }).complete).toBe(false)
+	})
+
 	it('opens exact-first for a desktop action or field it does not know', () => {
 		for (const input of [
 			{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'left', hidden: true },
