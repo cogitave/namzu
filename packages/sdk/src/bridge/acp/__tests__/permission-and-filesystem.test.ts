@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { ACP_CLIENT_REQUESTS, ACP_PERMISSION_CAPABILITY } from '../../../constants/acp/index.js'
 import { HostCommandRegistry } from '../../../registry/command/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MCPJsonRpcMessage, MCPTransport } from '../../../types/connector/mcp.js'
 import type { Sandbox } from '../../../types/sandbox/index.js'
 import { clientBackedSandbox } from '../filesystem.js'
@@ -24,6 +24,8 @@ import { ACPServer, type AcpAgentGateway } from '../server.js'
  */
 
 const CAPS = [ACP_PERMISSION_CAPABILITY, 'fs']
+const emptyPresenter = () =>
+	createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 
 function pair() {
 	const sent: MCPJsonRpcMessage[] = []
@@ -125,7 +127,7 @@ describe('a tool batch that needs a human', () => {
 			transport: wire.transport,
 			gateway,
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
@@ -195,7 +197,7 @@ describe('a tool batch that needs a human', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
@@ -234,7 +236,7 @@ describe('approve all', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => `ses_owner_${++seq}`,
 		})
@@ -287,7 +289,7 @@ describe('approve all', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => `ses_${++seq}`,
 		})
@@ -340,7 +342,7 @@ describe('approve all', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '3ed2a628-64c0-448f-a1b5-abb705215b7a',
 		})
@@ -503,7 +505,7 @@ describe('a client that errors on a request', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
@@ -545,7 +547,7 @@ describe('session/load', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -588,7 +590,7 @@ describe('session/load', () => {
 			transport: wire.transport,
 			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -613,7 +615,7 @@ describe('session/load', () => {
 			transport: wire.transport,
 			gateway: { load: async () => [], prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -651,7 +653,7 @@ describe('the client answering after the connection closed', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
@@ -687,7 +689,7 @@ describe('the outcomes the wire can carry', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
@@ -725,7 +727,7 @@ describe('frames and values at their edges', () => {
 			transport: wire.transport,
 			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()

@@ -14,6 +14,7 @@ import { HostCommandRegistry } from '../../../registry/command/index.js'
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MCPJsonRpcMessage, MCPTransport } from '../../../types/connector/mcp.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import { TurnInProgressError } from '../../../types/session/turn.js'
@@ -29,6 +30,9 @@ import { ACPServer, type AcpAgentGateway } from '../server.js'
  * connection, and a session refusing to exist when it could not ask a human
  * anything.
  */
+
+const emptyPresenter = () =>
+	createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 
 function pair(): {
 	transport: MCPTransport
@@ -70,7 +74,7 @@ function build(
 		transport: wire.transport,
 		gateway,
 		commands: over.commands ?? new HostCommandRegistry(),
-		presenter: createToolPresenter(new ToolRegistry()),
+		presenter: emptyPresenter(),
 		agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		newSessionId: () => '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
 	})
@@ -582,7 +586,7 @@ describe('this module never compares a tool name', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(registry),
+			presenter: createToolPresenter(new ToolManager({ toolsets: [registry], messages: () => [] })),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 			newSessionId: () => '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
 		})
@@ -618,7 +622,7 @@ describe('a transport that fails', () => {
 			},
 			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -697,7 +701,7 @@ describe('a wire write failure', () => {
 			transport,
 			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -806,7 +810,7 @@ describe('stop()', () => {
 				prompt: async () => ({ stopReason: 'end_turn' }),
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -849,7 +853,7 @@ describe('defaults', () => {
 			transport: wire.transport,
 			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -941,7 +945,7 @@ describe('the session-id namespace', () => {
 				prompt: async () => ({ stopReason: 'end_turn' }),
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -999,7 +1003,7 @@ describe('the session-id namespace', () => {
 				},
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -1076,7 +1080,7 @@ describe('the session-id namespace', () => {
 				prompt: async () => ({ stopReason: 'end_turn' }),
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -1121,7 +1125,7 @@ describe('the session-id namespace', () => {
 				prompt: async () => ({ stopReason: 'end_turn' }),
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
@@ -1205,7 +1209,7 @@ describe('one active turn per session, and sessions the store does not have', ()
 				prompt: async () => ({ stopReason: 'end_turn' }),
 			},
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: emptyPresenter(),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
 		})
 		await server.start()
