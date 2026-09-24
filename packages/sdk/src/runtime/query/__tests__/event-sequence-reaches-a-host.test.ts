@@ -7,12 +7,13 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	InMemorySessionLog,
 	type SessionLease,
 	type SessionLog,
 } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
@@ -100,15 +101,13 @@ function latch() {
 	return { promise, resolve }
 }
 
-function registryWithEcho(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
+function registryWithEcho(): Toolset {
+	return testToolset({
 		name: 'echo',
 		description: 'echo the text back',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async () => ({ success: true, output: 'hi' }),
 	})
-	return tools
 }
 
 /**
@@ -121,7 +120,7 @@ async function params(sessionLog: SessionLog): Promise<QueryParams> {
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 		}),
-		tools: registryWithEcho(),
+		toolsets: [registryWithEcho()],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
@@ -394,8 +393,7 @@ describe('a live log snapshot stays between whole appends', () => {
 			return pending
 		})
 		let executions = 0
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'echo',
 			description: 'records budgeted execution',
 			inputSchema: z.object({ text: z.string() }),
@@ -406,7 +404,7 @@ describe('a live log snapshot stays between whole appends', () => {
 		})
 		const running = drainQuery({
 			...(await params(sessionLog)),
-			tools,
+			toolsets: [tools],
 			maxToolCalls: 1,
 			authorizationGate: {
 				enabled: true,

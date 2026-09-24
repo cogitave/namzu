@@ -8,12 +8,13 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, UserQuestionData } from '../../../types/hitl/index.js'
 import type { TaskEvent } from '../../../types/task/index.js'
@@ -68,9 +69,8 @@ async function dirWith(prefix: string): Promise<string> {
 	return dir
 }
 
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoRegistry(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -83,13 +83,12 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 async function baseParams(overrides: Record<string, unknown>): Promise<QueryParams> {
 	return {
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-		tools: echoRegistry(),
+		toolsets: [echoRegistry()],
 		agentId: 'agent_cleanup',
 		agentName: 'Cleanup agent',
 		messages: [{ role: 'user', content: 'go' }],

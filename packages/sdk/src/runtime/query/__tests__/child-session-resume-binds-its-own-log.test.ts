@@ -7,7 +7,8 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -48,15 +49,13 @@ afterEach(async () => {
 	await removeTempDirs(dirs)
 })
 
-function registryWithEcho(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
+function registryWithEcho(): Toolset {
+	return testToolset({
 		name: 'echo',
 		description: 'echo the text back',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async () => ({ success: true, output: 'hi' }),
 	})
-	return tools
 }
 
 describe('a resumed child turn continues its own log', () => {
@@ -70,7 +69,7 @@ describe('a resumed child turn continues its own log', () => {
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 			}),
-			tools: registryWithEcho(),
+			toolsets: [registryWithEcho()],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
@@ -119,7 +118,7 @@ describe('a resumed child turn continues its own log', () => {
 			checkpointStore: storage.checkpoints,
 			pendingDecision: { action: 'continue' },
 			provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
-			tools: registryWithEcho(),
+			toolsets: [registryWithEcho()],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,

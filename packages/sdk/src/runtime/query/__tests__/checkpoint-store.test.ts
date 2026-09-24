@@ -6,13 +6,14 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	type CheckpointScope,
 	type CheckpointWriteReceipt,
 	InMemorySessionCheckpointStore,
 } from '../../../store/checkpoint/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { CheckpointId, HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -195,15 +196,13 @@ describe('iteration checkpoint cadence (checkpointEvery)', () => {
 
 // ─── query()-level injection ─────────────────────────────────────────────────
 
-function echoTools(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
+function echoTools(): Toolset {
+	return testToolset({
 		name: 'echo',
 		description: 'echo the text back',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async () => ({ success: true, output: 'hi' }),
 	})
-	return tools
 }
 
 describe('query() with an injected checkpoint store', () => {
@@ -228,7 +227,7 @@ describe('query() with an injected checkpoint store', () => {
 
 		const turn = await drainQuery({
 			provider,
-			tools: echoTools(),
+			toolsets: [echoTools()],
 			sessionLog,
 			checkpointStore: store,
 			turnConfig: {
@@ -347,7 +346,7 @@ describe('prune() and an outstanding park', () => {
 				provider: new MockLLMProvider({
 					turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 				}),
-				tools: echoTools(),
+				toolsets: [echoTools()],
 				sessionLog: session.log,
 				checkpointStore: store,
 				turnId: session.turnId,
