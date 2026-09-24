@@ -28,6 +28,8 @@ const KEY = process.env.ANTHROPIC_API_KEY
 const ADAPTIVE_MODEL = process.env.NAMZU_WIRE_TEST_MODEL ?? 'claude-sonnet-5'
 const CAPPED_MODEL = 'claude-opus-5'
 const MANUAL_MODEL = 'claude-haiku-4-5'
+/** The first Opus that cannot stop thinking — crossed at a minor version. */
+const ALWAYS_ON_MODEL = 'claude-opus-5-5'
 
 async function send(model: string, extra: Record<string, unknown>): Promise<string | true> {
 	const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -133,5 +135,24 @@ describe.skipIf(!KEY)('the thinking body the resolver builds is one the wire acc
 				output_config: { effort: 'max' },
 			}),
 		).toBe(true)
+	}, 120_000)
+
+	it('drops a disabled intent where thinking cannot stop, and the wire agrees it had to', async () => {
+		// Both halves: the request the resolver builds is accepted at the
+		// highest level, and the one it avoided is refused at the lowest —
+		// the vendor rejects `disabled` here at every effort level.
+		const capability = resolveThinkingCapability(ALWAYS_ON_MODEL)
+		expect(capability.canDisable).toBe(false)
+		const body = resolveThinkingBody({ type: 'disabled' }, capability)
+		expect(body).toBeUndefined()
+		expect(resolveEffort('max', body, capability)).toBe('max')
+
+		expect(await send(ALWAYS_ON_MODEL, { output_config: { effort: 'max' } })).toBe(true)
+		expect(
+			await send(ALWAYS_ON_MODEL, {
+				thinking: { type: 'disabled' },
+				output_config: { effort: 'low' },
+			}),
+		).not.toBe(true)
 	}, 120_000)
 })

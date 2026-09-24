@@ -3,6 +3,7 @@ import type {
 	ComputerUseCapabilities,
 	ComputerUseResult,
 	DisplayGeometry,
+	DisplayInfo,
 	MouseButton,
 	ScrollDirection,
 } from '@namzu/sdk'
@@ -206,11 +207,23 @@ export class LinuxWaylandAdapter implements Adapter {
 	private async screenshot() {
 		const result = await runCommandOrThrow('grim', ['-t', 'png', '-'])
 		const dims = decodePngDims(result.stdout)
+		// grim composites every output into one image at the layout's origin.
+		// The compositor's per-output scale is not read here; 1 is reported.
+		const display: DisplayInfo = {
+			id: 'outputs',
+			x: 0,
+			y: 0,
+			width: dims.width,
+			height: dims.height,
+			scaleFactor: 1,
+			primary: true,
+		}
 		return {
 			data: result.stdout,
 			mimeType: 'image/png' as const,
 			width: dims.width,
 			height: dims.height,
+			display,
 		}
 	}
 

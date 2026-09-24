@@ -17,6 +17,8 @@ export default defineConfig({
 	test: {
 		// Keeps the kernel's default state root out of the user's home.
 		globalSetup: ['../../tools/vitest-state-root.mjs'],
+		// No test starts a program that acts on the real desktop.
+		setupFiles: ['../../tools/vitest-desktop-guard.mjs'],
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 })

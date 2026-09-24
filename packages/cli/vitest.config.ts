@@ -56,7 +56,7 @@ export default defineConfig({
 		// `src/logging.ts`. Defaulting that env var to `silent` here
 		// (`src/test-setup.ts`) keeps the dozen-plus existing fixtures across
 		// this package quiet without editing any of them.
-		setupFiles: ['./src/test-setup.ts'],
+		setupFiles: ['../../tools/vitest-desktop-guard.mjs', './src/test-setup.ts'],
 		globalSetup: ['./src/__fixtures__/test-home-run.ts'],
 		// Vitest 4's default `exclude` is `node_modules` and `.git` only, so
 		// this package's 358 compiled test files under `dist/` stopped being

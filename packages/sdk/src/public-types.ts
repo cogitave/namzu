@@ -272,6 +272,7 @@ export type { PermissionPreset } from './authorization/index.js'
 export type { EvaluateRuleOptions } from './authorization/rules.js'
 export type {
 	ShellCommand,
+	NestedShellCommand,
 	ShellLexOptions,
 	ShellLexResult,
 	ShellRedirection,
@@ -403,6 +404,7 @@ export type {
 	ReviewExemption,
 	ReviewMode,
 	ReviewPolicyOptions,
+	ScreenConsentRecord,
 	ToolReviewAnswer,
 	ToolReviewPrompt,
 	ToolReviewRequest,
@@ -671,11 +673,14 @@ export type {
 	ScheduleBrowserSiteLevel,
 	ScheduleConfirmAnswer,
 	ScheduleConfirmRequest,
+	ScheduleJobChanges,
 	ScheduleJobDraft,
 	ScheduleJobPreview,
 	ScheduleJobSummary,
+	ScheduleJobUpdateProposal,
 	ScheduleRuleEffect,
 	ScheduleToolHost,
+	ScheduleUpdateRequest,
 	SessionLoop,
 	SessionLoopHost,
 } from './tools/schedules/index.js'

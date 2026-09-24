@@ -42,6 +42,12 @@ export interface SkillRegistryRef {
 				registeredName: string
 				description: string
 				location: string
+				/**
+				 * The skill's directory as the host reads it. Optional so a registry
+				 * written before it existed still satisfies this interface; what the
+				 * `skill` tool hands a host's `resolveModelDirectory` to map.
+				 */
+				directory?: string
 				allowedTools?: string
 				invocation?: 'model' | 'operator' | 'both'
 		  }[]
@@ -50,6 +56,7 @@ export interface SkillRegistryRef {
 					registeredName: string
 					description: string
 					location: string
+					directory?: string
 					allowedTools?: string
 					invocation?: 'model' | 'operator' | 'both'
 				}[]
@@ -927,6 +934,18 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	isReadOnly?(input: TInput): boolean
 	isDestructive?(input: TInput): boolean
 	isConcurrencySafe?(input: TInput): boolean
+	/**
+	 * This call sends what is on the operator's screen to the model provider:
+	 * a screenshot, the titles of the open windows, a window's accessibility
+	 * tree.
+	 *
+	 * Orthogonal to {@link isReadOnly}: a screenshot changes nothing and is
+	 * still the one read a person may want to allow before it happens. A
+	 * review policy given a consent record (`createReviewHandler`'s
+	 * `screenConsent`) asks once per session before the first such call.
+	 * Absent means the tool never does.
+	 */
+	capturesScreen?(input: TInput): boolean
 
 	/**
 	 * Opt-in ordering boundary in a direct model tool-call batch. Earlier

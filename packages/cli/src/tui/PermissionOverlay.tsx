@@ -51,6 +51,20 @@ export interface PermissionOverlayProps {
 	readonly batchOnly?: boolean
 	/** Which browser site rule decided each browser call, with the profile and engine. */
 	readonly siteNotes?: readonly string[]
+	/**
+	 * This batch would show the model the screen for the first time in the
+	 * session (`ToolReviewRequest.screenConsent`); `provider` is who receives
+	 * it, as the session names its provider.
+	 */
+	readonly screenConsent?: { readonly provider: string | null }
+}
+
+/** What the box says when the question is whether to share the screen. */
+export function screenConsentNotes(provider: string | null): readonly string[] {
+	return [
+		`namzu will see your screen and send it to ${provider ?? 'the model provider'} for this session: screenshots, the titles of open windows and the controls of the windows it reads.`,
+		'Asked once per session. Clicks, typing and other changes are still asked about.',
+	]
 }
 
 function pathOf(input: unknown): string | undefined {
@@ -224,8 +238,15 @@ export type PermissionAnswerKind = 'approve' | 'approve-all' | 'reject'
  */
 export function permissionAnswers(
 	toolCalls: readonly PermissionToolCall[],
-	options: { readonly batchOnly?: boolean } = {},
+	options: { readonly batchOnly?: boolean; readonly screenConsent?: boolean } = {},
 ): readonly { readonly label: string; readonly kind: PermissionAnswerKind }[] {
+	// A yes to sharing the screen is its own answer; "allow all tools" on the
+	// same box would be a second, wider one given in passing.
+	if (options.screenConsent)
+		return [
+			{ label: 'Yes, share my screen for this session', kind: 'approve' },
+			{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
+		]
 	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
 	const approve = agents
 		? toolCalls.length === 1
@@ -256,7 +277,7 @@ export function permissionAnswers(
 /** The answers' labels, in order. */
 export function permissionChoices(
 	toolCalls: readonly PermissionToolCall[],
-	options: { readonly batchOnly?: boolean } = {},
+	options: { readonly batchOnly?: boolean; readonly screenConsent?: boolean } = {},
 ): readonly string[] {
 	return permissionAnswers(toolCalls, options).map((answer) => answer.label)
 }
@@ -299,6 +320,7 @@ export function PermissionOverlay({
 	rows: terminalRows,
 	batchOnly = false,
 	siteNotes = [],
+	screenConsent,
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -312,8 +334,10 @@ export function PermissionOverlay({
 	const first = rows.length === 0 ? 0 : offset + 1
 	const last = Math.min(rows.length, offset + pageRows)
 	const destructive = toolCalls.some((call) => call.isDestructive)
-	const choices = permissionChoices(toolCalls, { batchOnly })
+	const sharing = screenConsent !== undefined
+	const choices = permissionChoices(toolCalls, { batchOnly, screenConsent: sharing })
 	const escalationNotes = permissionEscalationNotes(toolCalls)
+	const sharingNotes = sharing ? screenConsentNotes(screenConsent.provider) : []
 
 	return (
 		<Box
@@ -325,7 +349,11 @@ export function PermissionOverlay({
 		>
 			<Text>
 				<Text color={theme.status.warn} bold>
-					{detailsOpen ? 'Exact prepared input' : terminalDisplayText(permissionTitle(toolCalls))}
+					{detailsOpen
+						? 'Exact prepared input'
+						: sharing
+							? 'Share your screen'
+							: terminalDisplayText(permissionTitle(toolCalls))}
 				</Text>
 				{queuedCount > 0 ? (
 					<Text color={theme.text.muted}> · {queuedCount} more awaiting approval</Text>
@@ -337,6 +365,11 @@ export function PermissionOverlay({
 					{terminalDisplayText(sourceLabel)}
 				</Text>
 			) : null}
+			{sharingNotes.map((note) => (
+				<Text key={note} color={theme.text.primary}>
+					{terminalDisplayText(note)}
+				</Text>
+			))}
 			{escalationNotes.map((note) => (
 				<Text key={note} color={theme.status.error}>
 					{terminalDisplayText(note)}
@@ -364,7 +397,11 @@ export function PermissionOverlay({
 			<Box flexDirection="column" paddingTop={1}>
 				{!compact ? (
 					<Text color={theme.text.primary} bold>
-						{terminalDisplayText(permissionQuestion(toolCalls))}
+						{terminalDisplayText(
+							sharing
+								? `Let namzu see your screen for the rest of this session?`
+								: permissionQuestion(toolCalls),
+						)}
 					</Text>
 				) : null}
 				{choices.map((label, index) => {
@@ -379,7 +416,7 @@ export function PermissionOverlay({
 			</Box>
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					↑↓ select · enter confirm · {batchOnly ? 'y / n' : 'y / a / n'} answer · d{' '}
+					↑↓ select · enter confirm · {batchOnly || sharing ? 'y / n' : 'y / a / n'} answer · d{' '}
 					{detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}
 				</Text>
 				<Text color={theme.text.muted}>esc decline · ctrl+c decline and stop the turn</Text>

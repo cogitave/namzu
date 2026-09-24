@@ -114,6 +114,49 @@ describe('a predicate rule', () => {
 		expect(describeRule(predicate(() => null))).toBe('the host’s own rule')
 	})
 
+	it('says what in the call matched when it has a describe', () => {
+		const rule: AuthorizationRule = {
+			type: 'predicate',
+			description: 'the host’s own rule',
+			decide: (call) => (call.toolName === 'bash' ? 'deny' : null),
+			describe: (call) =>
+				`\`${(call.toolInput as { command: string }).command}\` in ${call.commandDialect}`,
+		}
+		const g = gate([rule])
+		const result = g.evaluate({
+			toolName: 'bash',
+			toolInput: { command: 'ls' },
+			toolDef: undefined,
+			commandDialect: 'bash',
+		})
+		expect(result.decision).toBe('deny')
+		expect(result.reason).toBe('`ls` in bash')
+		// The dialect `decide` was told when the caller said nothing.
+		expect(
+			g.evaluate({ toolName: 'bash', toolInput: { command: 'ls' }, toolDef: undefined }).reason,
+		).toBe('`ls` in sh')
+		expect(describeRule(rule)).toBe('the host’s own rule')
+	})
+
+	it('falls back to its description when describe has nothing to say or throws', () => {
+		const withDescribe = (describe: () => string | null): AuthorizationRule => ({
+			type: 'predicate',
+			description: 'the host’s own rule',
+			decide: () => 'deny',
+			describe,
+		})
+		const call = { toolName: 'bash', toolInput: {}, toolDef: undefined }
+		expect(gate([withDescribe(() => null)]).evaluate(call).reason).toBe('the host’s own rule')
+		expect(gate([withDescribe(() => '')]).evaluate(call).reason).toBe('the host’s own rule')
+		const thrown = gate([
+			withDescribe(() => {
+				throw new Error('boom')
+			}),
+		]).evaluate(call)
+		expect(thrown.decision).toBe('deny')
+		expect(thrown.reason).toBe('the host’s own rule')
+	})
+
 	it('needs a description and a function', () => {
 		const parse = (rule: unknown) =>
 			AuthorizationGateConfigSchema.safeParse({ enabled: true, rules: [rule] }).success
@@ -121,16 +164,21 @@ describe('a predicate rule', () => {
 		expect(parse({ type: 'predicate', description: '', decide: () => null })).toBe(false)
 		expect(parse({ type: 'predicate', description: 'x', decide: 'deny' })).toBe(false)
 		expect(parse({ type: 'predicate', description: 'x' })).toBe(false)
+		expect(
+			parse({ type: 'predicate', description: 'x', decide: () => null, describe: 'why' }),
+		).toBe(false)
 	})
 
-	it('keeps its function through the gate’s own parse', () => {
+	it('keeps its functions through the gate’s own parse', () => {
 		// zod strips what a schema does not name; a stripped `decide` would
-		// leave a rule that can never be called.
+		// leave a rule that can never be called, a stripped `describe` a
+		// refusal that no longer says what matched.
 		const parsed = AuthorizationGateConfigSchema.parse({
 			enabled: true,
-			rules: [predicate(() => 'deny')],
+			rules: [{ ...predicate(() => 'deny'), describe: () => 'why' }],
 		})
 		const rule = parsed.rules[0]
 		expect(rule?.type === 'predicate' && typeof rule.decide).toBe('function')
+		expect(rule?.type === 'predicate' && typeof rule.describe).toBe('function')
 	})
 })

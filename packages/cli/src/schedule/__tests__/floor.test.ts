@@ -10,7 +10,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { type FloorReason, scheduledRunFloorVerdict } from '../floor.js'
+import {
+	type FloorReason,
+	floorRefusal,
+	scheduledRunFloorFinding,
+	scheduledRunFloorRule,
+	scheduledRunFloorVerdict,
+} from '../floor.js'
 
 const USER = '/home/u'
 const HOME = '/home/u/.namzu'
@@ -22,6 +28,25 @@ const verdict = scheduledRunFloorVerdict({
 	folders: [FOLDER],
 	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule daemon',
 })
+
+const finding = scheduledRunFloorFinding({
+	namzuHome: HOME,
+	userHome: USER,
+	folders: [FOLDER],
+	daemonCommandLine: 'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule daemon',
+})
+
+/** What a refusal of `command` says matched, or null. */
+function detail(command: string, dialect: 'bash' | 'sh' = 'bash'): string | null {
+	return (
+		finding({
+			toolName: 'bash',
+			toolInput: { command },
+			toolDef: undefined,
+			commandDialect: dialect,
+		})?.detail ?? null
+	)
+}
 
 function bash(command: string, dialect: 'bash' | 'sh' = 'bash'): FloorReason | null {
 	return verdict({
@@ -94,8 +119,157 @@ describe('text that another program runs', () => {
 	})
 
 	it('denies an unreadable line that mentions what the floor protects, and only that', () => {
-		denied(['$(echo namzu) schedule stop', 'eval "$CMD" # namzu', '$S --user stop namzu-scheduler'])
-		allowed(['echo "$(date)" >> run.log', 'eval "$CMD"', 'x=$(git rev-parse HEAD)'])
+		denied([
+			'$(echo namzu) schedule stop',
+			'eval "$CMD" # namzu schedule stop',
+			'$S --user stop namzu-scheduler',
+		])
+		allowed([
+			'echo "$(date)" >> run.log',
+			'eval "$CMD"',
+			'x=$(git rev-parse HEAD)',
+			// The product's name is not a way to the scheduler.
+			'eval "$CMD" # namzu',
+		])
+	})
+})
+
+describe('the tripwire, on text a program runs as code', () => {
+	// A scheduled job's only command, refused on the operator's first trial
+	// because the text said "Namzu" (and "scheduled").
+	const trial = `powershell.exe -NoProfile -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Namzu: scheduled job çalışıyor','Namzu')"`
+
+	it('does not deny the product’s name, or "scheduled", in a string', () => {
+		allowed([trial])
+		allowed([trial], 'sh')
+		allowed([
+			`powershell.exe -NoProfile -Command "Write-Host 'namzu finished the scheduled run'"`,
+			`powershell.exe -NoProfile -Command "(New-Object -ComObject WScript.Shell).Popup('Namzu is running a scheduled job', 5, 'Namzu')"`,
+			'powershell.exe -NoProfile -Command "Get-ScheduledTask | Select-Object TaskName"',
+			`cmd.exe /c "echo Namzu scheduled job & msg * Namzu"`,
+			`python3 -c "print('Namzu: scheduled job done')"`,
+			`python3 -c "print('the next schedule is tomorrow')"`,
+			`python3 -c $'print(\'the next schedule is tomorrow\')'`,
+			`node -e "console.log('namzu scheduled run')"`,
+			`echo 'notify-send Namzu "scheduled job done"' | sh`,
+			`sh <<'EOF'\nnotify-send Namzu "scheduled job done"\nEOF`,
+			`echo 'namzu schedule list && namzu schedule history nightly' | sh`,
+		])
+	})
+
+	it('denies what can reach the scheduler, NAMZU_HOME or the browser profiles', () => {
+		denied([
+			// The CLI with a `schedule` subcommand that changes something.
+			'powershell.exe -NoProfile -Command "namzu schedule stop"',
+			'powershell -Command "wsl namzu schedule remove nightly"',
+			'powershell.exe -Command "& $cli schedule remove nightly"',
+			`python3 -c "import subprocess; subprocess.run(['namzu','schedule','remove','x'])"`,
+			`python3 -c "import subprocess; subprocess.run(['node', '/opt/cli/dist/bin.js', 'schedule', 'stop'])"`,
+			`node -e "require('child_process').execSync('npx @namzu/cli schedule pause x')"`,
+			'xargs -a jobs.txt namzu schedule',
+			// The service, by name or by tool.
+			'powershell.exe -NoProfile -Command "Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux"',
+			`powershell.exe -Command "Unregister-ScheduledTask -TaskPath '\\namzu\\' -Confirm:$false"`,
+			'cmd.exe /c "schtasks /end /tn \\namzu\\namzu-scheduler"',
+			`python3 -c "import os; os.system('systemctl --user stop namzu-scheduler')"`,
+			`python3 -c "import os; os.system('launchctl bootout gui/501/com.namzu.scheduler')"`,
+			`python3 -c "import os; os.system('pkill -f node')"`,
+			// NAMZU_HOME.
+			'powershell.exe -Command "Remove-Item $env:USERPROFILE\\.namzu -Recurse"',
+			`python3 -c "import shutil, os; shutil.rmtree(os.path.expanduser('~/.namzu'))"`,
+			`python3 -c "import os; print(open(os.environ['NAMZU_HOME'] + '/x').read())"`,
+			'cmd.exe /c "type %NAMZU_HOME%\\schedule\\daemon\\endpoint.json"',
+			`node -e "console.log(process.env.NAMZU_HOME)"`,
+			// The Windows browser's profiles.
+			`powershell.exe -Command "Remove-Item (Join-Path $env:LOCALAPPDATA 'namzu') -Recurse"`,
+			`powershell.exe -Command "Get-Content (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'namzu\\browser')"`,
+			'cmd.exe /c "rmdir /s /q %LOCALAPPDATA%\\namzu"',
+		])
+	})
+
+	it('reads text given to a shell with -c when the lexer did not follow it', () => {
+		// The lexer reads the `-c` payload of sh, bash, dash, zsh, ksh, ash and
+		// mksh only. `-c` after any other shell was taken as read too, so
+		// these ran unread and untripped.
+		denied([
+			"powershell -c 'namzu schedule stop'",
+			"powershell.exe -c 'Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux'",
+			"pwsh -command 'namzu schedule stop'",
+			"fish -c 'namzu schedule stop'",
+			"tcsh -c 'systemctl --user stop namzu-scheduler'",
+			"bash.exe -c 'namzu schedule stop'",
+			"bash script.sh -c 'namzu schedule stop'",
+		])
+		// What the lexer did follow is still read, not tripped over.
+		allowed(["bash -c 'npm test && echo namzu-scheduler'", "busybox sh -c 'echo hi'"])
+	})
+
+	it('names the rule that matched, and where, instead of everything it protects', () => {
+		expect(detail('powershell.exe -NoProfile -Command "namzu schedule stop"')).toBe(
+			'`powershell.exe` runs commands the floor does not read, and it holds `schedule stop` (a `namzu schedule` subcommand other than list, show, status, history, logs), in the argument `namzu schedule stop`',
+		)
+		expect(
+			detail(
+				'powershell.exe -NoProfile -Command "Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux"',
+			),
+		).toContain("`namzu-scheduler-wsl-archlinux` (the scheduler service's name)")
+		expect(detail(`python3 -c "import os; os.system('pkill node')"`)).toMatch(
+			/^`python3` runs text as code, and it holds `pkill` /,
+		)
+		expect(detail('$(echo namzu) schedule stop')).toMatch(
+			/^the floor cannot read the line \(command substitution\), and it holds `schedule stop`/,
+		)
+		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
+			"`systemctl --user stop namzu-scheduler` stops or disables the scheduler's service",
+		)
+		expect(detail('namzu schedule remove nightly')).toBe(
+			'`namzu schedule remove nightly` runs `schedule remove`, a `namzu schedule` subcommand other than list, show, status, history, logs',
+		)
+		expect(detail('cat ~/.namzu/config.yaml')).toBe(
+			'the argument `~/.namzu/config.yaml` names NAMZU_HOME (/home/u/.namzu)',
+		)
+		expect(detail('echo x >> ~/.namzu/x')).toBe(
+			'the redirection `>> ~/.namzu/x` names NAMZU_HOME (/home/u/.namzu)',
+		)
+		expect(detail('ls /mnt/c/Users/A/AppData/Local/namzu')).toBe(
+			"the argument `/mnt/c/Users/A/AppData/Local/namzu` names the Windows browser's profile folder (%LOCALAPPDATA%\\namzu)",
+		)
+		expect(
+			finding({
+				toolName: 'write',
+				toolInput: { path: 'notes.md', content: 'see ~/.namzu' },
+				toolDef: undefined,
+				commandDialect: 'sh',
+			})?.detail,
+		).toBe('the `content` argument names NAMZU_HOME (/home/u/.namzu)')
+		expect(
+			finding({
+				toolName: 'mcp_tool',
+				toolInput: { args: [{ dir: '~/.namzu' }] },
+				toolDef: undefined,
+				commandDialect: 'sh',
+			})?.detail,
+		).toBe('the `args[0].dir` argument names NAMZU_HOME (/home/u/.namzu)')
+	})
+
+	it('gives the gate that reason for the call it refused', () => {
+		const rule = scheduledRunFloorRule({ namzuHome: HOME, userHome: USER, folders: [FOLDER] })
+		const call = {
+			toolName: 'bash',
+			toolInput: { command: 'cat ~/.namzu/x' },
+			toolDef: undefined,
+			commandDialect: 'bash' as const,
+		}
+		expect(rule.type === 'predicate' && rule.decide(call)).toBe('deny')
+		expect(rule.type === 'predicate' && rule.describe?.(call)).toBe(
+			floorRefusal({
+				reason: 'word names NAMZU_HOME',
+				detail: 'the argument `~/.namzu/x` names NAMZU_HOME (/home/u/.namzu)',
+			}),
+		)
+		expect(
+			rule.type === 'predicate' && rule.describe?.({ ...call, toolInput: { command: 'ls' } }),
+		).toBeNull()
 	})
 })
 
@@ -146,15 +320,18 @@ describe('NAMZU_HOME', () => {
 			'for f in *.ts; do wc -l "$f"; done',
 			'cd "$DIR" && ls',
 			'tool --config=~/.namzu/x',
+			// After an unknown variable, the name is not a path segment here.
+			'echo "$USER: namzu done"',
+			'notify-send "$JOB" "namzu finished"',
 		])
 	})
 
 	it('reads a line in both dialects when the shell may be bash or sh', () => {
 		// In `sh`, `$'…'` is opaque; the bash reading still decides.
 		denied(["cat $'/home/u/.n\\x61mzu/x'"], 'sh')
-		denied(["echo $'hi' # namzu"], 'sh')
-		allowed(["echo $'hi' # namzu"], 'bash')
-		allowed(["echo $'hi'"], 'sh')
+		denied(["echo $'hi' # namzu schedule stop"], 'sh')
+		allowed(["echo $'hi' # namzu schedule stop"], 'bash')
+		allowed(["echo $'hi'", "echo $'hi' # namzu"], 'sh')
 	})
 
 	it('denies it in every other tool’s arguments, at any depth', () => {

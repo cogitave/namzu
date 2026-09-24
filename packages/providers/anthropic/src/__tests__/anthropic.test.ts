@@ -250,6 +250,7 @@ describe('AnthropicProvider — buildCreateParams', () => {
 			).enum,
 		).toEqual([
 			'screenshot',
+			'zoom',
 			'cursor_position',
 			'mouse_move',
 			'mouse_click',
@@ -257,6 +258,8 @@ describe('AnthropicProvider — buildCreateParams', () => {
 			'scroll',
 			'type_text',
 			'key',
+			'wait',
+			'batch',
 		])
 		expect(body.tools?.filter((tool) => 'cache_control' in tool).map((tool) => tool.name)).toEqual([
 			'Agent',

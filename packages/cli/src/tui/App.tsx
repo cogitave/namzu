@@ -1526,8 +1526,11 @@ export function App({
 	const browserProfileRef = useRef<string | undefined>(undefined)
 	/** The current session's browser, for notices written from event handlers. */
 	const browserControlRef = useRef<BrowserControl | undefined>(undefined)
+	/** The current session, for the review screen to name a computer-use control by its ref. */
+	const reviewSessionRef = useRef<AgentSession | null>(null)
 	useEffect(() => {
 		browserControlRef.current = session?.browser
+		reviewSessionRef.current = session
 	}, [session])
 	useEffect(() => {
 		const source = session?.subagents
@@ -4376,7 +4379,13 @@ export function App({
 				// only on its own.
 				const kept: typeof permissionQueueRef.current = []
 				for (const pending of permissionQueueRef.current.splice(0)) {
-					if (releasedByApproveAll(pending.permission.toolCalls)) pending.resolve(decision)
+					// Nor a question about sharing the screen, which only its own
+					// answer settles.
+					if (
+						pending.permission.screenConsent !== true &&
+						releasedByApproveAll(pending.permission.toolCalls)
+					)
+						pending.resolve(decision)
 					else kept.push(pending)
 				}
 				permissionQueueRef.current.push(...kept)
@@ -5088,7 +5097,9 @@ export function App({
 					feedback: permissionReviewRefusal(review.reason),
 				})
 			}
-			const summary = buildPermissionSummary(review.text)
+			const summary = buildPermissionSummary(review.text, {
+				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
+			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {
 				if (permissionResolveRef.current) {
@@ -8492,7 +8503,11 @@ export function App({
 				}
 				if (permission && (key.upArrow || key.downArrow)) {
 					const current = permissionChoiceRef.current
-					const last = permissionAnswers(permission.toolCalls, { batchOnly: permission.batchOnly === true }).length - 1
+					const last =
+						permissionAnswers(permission.toolCalls, {
+							batchOnly: permission.batchOnly === true,
+							screenConsent: permission.screenConsent === true,
+						}).length - 1
 					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(last, current + 1)
 					setPermissionChoice(next as PermissionChoice)
 					return
@@ -8536,6 +8551,7 @@ export function App({
 				// neither its `a` nor a `3` answers it.
 				const answers = permissionAnswers(permission?.toolCalls ?? [], {
 					batchOnly: permission?.batchOnly === true,
+					screenConsent: permission?.screenConsent === true,
 				})
 				const numbered = /^[1-9]$/.test(ch) ? Number(ch) - 1 : null
 				const chosen = key.return ? permissionChoiceRef.current : numbered
@@ -9249,6 +9265,9 @@ export function App({
 								rows={terminal.rows}
 								batchOnly={permission.batchOnly === true}
 								siteNotes={permission.siteNotes}
+								{...(permission.screenConsent === true
+									? { screenConsent: { provider: session?.providerSummary ?? null } }
+									: {})}
 							/>
 						) : null}
 						{saveSkillPrompt && permission === null ? (

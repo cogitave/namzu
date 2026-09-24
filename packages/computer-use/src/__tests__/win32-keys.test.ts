@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { translateKeyToSendKeys } from '../adapters/win32.js'
+import { translateKeyToSendKeys } from '../adapters/win32-powershell.js'
 
 describe('translateKeyToSendKeys', () => {
 	it('passes through bare printable characters', () => {
