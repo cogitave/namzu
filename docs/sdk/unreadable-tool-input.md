@@ -51,9 +51,12 @@ send less. That does not fix malformed JSON.
   working.
 - `inputError`: a `ToolInputError`, with fields `reason`, `finishReason`
   (absent when the stream reported none), `parseError` (the JSON parser's
-  message), `offset` and `length`. `offset` is where parsing stopped: the
-  whole length when the text simply ended, and absent when the parser did not
-  say. `length` counts the characters of arguments that arrived.
+  message), `offset`, `length` and `responseLength`. `offset` is where parsing
+  stopped: the whole length when the text simply ended, and absent when the
+  parser did not say. `length` counts the characters of arguments that
+  arrived. `responseLength` counts the characters the whole response streamed
+  before it stopped: its text, its visible reasoning and every tool call's
+  arguments, this call's included.
 - `partialArguments`: everything that arrived. A `repairToolCall` hook is given
   this text.
 
@@ -76,13 +79,25 @@ The message is assembled from the reason and from the tool:
   arguments as one valid JSON object, and the tool's own `malformedInputHint`
   if it declares one. It gives no size advice, because size does not fix
   malformed JSON.
-- **Truncated.** What stopped the response (the output token limit, a content
-  filter, or the stream ending), after how many characters. After an output
-  limit or a stream that ended, it adds a size budget if the tool declares
-  large string arguments, and the tool's own `truncatedInputHint` if it
-  declares one. Otherwise the model is told to send the call again, and after
-  an output limit, with less text before it. After a content filter it adds
-  no advice and no hint: sending less does not get past a filter.
+- **Truncated by the output limit.** What stopped the response, after how many
+  characters of arguments. Then it depends on what filled the response:
+  - The call was less than half of it (`length` against `responseLength`):
+    the model is told that most of the response went to what came before the
+    call, and to send the call again with less before it. Nothing about the
+    call's own size.
+  - Otherwise the call itself has to carry less. A tool that declares large
+    string arguments is given a budget for each; any other tool is told to
+    keep its arguments under half of what arrived, in all. Then the tool's own
+    `truncatedInputHint`, if it declares one.
+- **Truncated by the stream ending.** The declared budgets, if the tool has
+  any, or just to send the call again. Then the tool's `truncatedInputHint`.
+- **Stopped by a content filter.** No advice and no hint: sending less does
+  not get past a filter.
+
+Before, a tool that declared no large arguments was always told to send less
+text before the call. A `bash` heredoc, a `run_code` body or an MCP tool's
+long input that filled the response on its own was sent back the same size,
+into the same cut.
 
 A tool declares what it needs on its definition or through `defineTool`:
 
@@ -113,7 +128,9 @@ export const saveNote = defineTool({
 
 After an output-limit cut, a declared budget larger than half of what arrived
 is lowered to that half. A budget the response could not hold would lead to the
-same cut again.
+same cut again. The budget sentence says how much, and the hint says how:
+splitting fits a file body and not a delegated prompt, so the kernel does not
+say to split.
 
 The built-in tools that take long text declare it: `write` (`content`), `edit`
 (`old_string`, `new_string`), `create_task` and the coordinator `Agent` tool
@@ -123,7 +140,8 @@ budget and a `truncatedInputHint`: for `write`, extend a short opening with
 file instead of pasting its content. None declares a `malformedInputHint`, so
 a malformed call to any of them, or one a content filter stopped, gets no
 advice about size or files. Any other tool, such as a question or plan tool,
-gets no size advice and no file-writing advice.
+gets no file-writing advice, and a size budget only for its arguments as a
+whole, when they filled the response.
 
 ## Tool-call framing
 

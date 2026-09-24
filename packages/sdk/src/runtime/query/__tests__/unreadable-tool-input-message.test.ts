@@ -25,12 +25,18 @@ import { unreadableToolInputMessage } from '../executor/tool-call-admission.js'
 const SESSION_ID = '9d3c4b2a-1e0f-4a8b-9c7d-6e5f4a3b2c1d' as SessionId
 const TURN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as TurnId
 
-const cutOff = (length: number, finishReason?: ToolInputError['finishReason']): ToolInputError => ({
+/** A call cut off after `length` characters, of `responseLength` in the whole response. */
+const cutOff = (
+	length: number,
+	finishReason?: ToolInputError['finishReason'],
+	responseLength = length,
+): ToolInputError => ({
 	reason: 'truncated',
 	...(finishReason ? { finishReason } : {}),
 	parseError: 'Unterminated string in JSON at position 30 (line 1 column 31)',
 	offset: length,
 	length,
+	responseLength,
 })
 
 const malformed: ToolInputError = {
@@ -39,18 +45,46 @@ const malformed: ToolInputError = {
 	parseError: "Expected ',' or ']' after array element in JSON at position 40 (line 1 column 41)",
 	offset: 40,
 	length: 45,
+	responseLength: 45,
 }
 
 const FILE_ADVICE = /12000|content|new_string|write|marker|edit/i
 
 describe('unreadableToolInputMessage', () => {
 	it('tells a tool with no large inputs what happened, and nothing about files', () => {
-		const message = unreadableToolInputMessage('ask_user_question', cutOff(900, 'length'))
+		const message = unreadableToolInputMessage('ask_user_question', cutOff(900, 'length', 30_000))
 
 		expect(message).toBe(
-			'Error: The call to "ask_user_question" was cut off: the response reached its output token limit after 900 characters of its arguments, before they were complete. The tool was NOT executed. Send the call again, with less text before it in the same response.',
+			'Error: The call to "ask_user_question" was cut off: the response reached its output token limit after 900 characters of its arguments, before they were complete. The tool was NOT executed. Most of the response (30000 characters) went to what came before this call, so send the call again with less before it in the same response.',
 		)
 		expect(message).not.toMatch(FILE_ADVICE)
+	})
+
+	it('tells a tool that declares nothing to carry less when its own arguments filled the response', () => {
+		// A long `bash` heredoc, a `run_code` body or an MCP tool's input: the
+		// arguments were what ran out, and blaming the text before them sent
+		// the same input back into the same cutoff.
+		const message = unreadableToolInputMessage('bash', cutOff(30_000, 'length', 31_000))
+
+		expect(message).toBe(
+			'Error: The call to "bash" was cut off: the response reached its output token limit after 30000 characters of its arguments, before they were complete. The tool was NOT executed. Send it again with less in one call: keep its arguments under 15000 characters in all.',
+		)
+	})
+
+	it('blames what came before the call only when that was most of the response', () => {
+		const tool = {
+			largeStringArguments: { content: 12_000 },
+			truncatedInputHint: 'Write a long file in parts.',
+		}
+		const before = unreadableToolInputMessage('write', cutOff(40, 'length', 60_000), tool)
+		expect(before).toContain('went to what came before this call')
+		// Nothing about the call's own size: 40 characters of it did not fill
+		// the response, and a budget cut to half of them would be nonsense.
+		expect(before).not.toMatch(/under \d+ characters|in parts/)
+
+		const itself = unreadableToolInputMessage('write', cutOff(30_000, 'length', 60_000), tool)
+		expect(itself).toContain('keep `content` under 12000 characters.')
+		expect(itself).toMatch(/ Write a long file in parts\.$/)
 	})
 
 	it('names the JSON error for malformed arguments, and never calls them cut off', () => {
@@ -76,6 +110,7 @@ describe('unreadableToolInputMessage', () => {
 			parseError: 'Unexpected end of JSON input',
 			offset: 12,
 			length: 12,
+			responseLength: 12,
 		})
 		expect(message).toContain(
 			'(Unexpected end of JSON input at character 12; 12 characters in all)',
@@ -87,7 +122,7 @@ describe('unreadableToolInputMessage', () => {
 			largeStringArguments: { old_string: 12_000, new_string: 12_000 },
 		})
 		expect(message).toContain(
-			'Send it again with less in one call: keep `old_string` under 12000 characters and `new_string` under 12000 characters, and split longer text across several calls.',
+			'Send it again with less in one call: keep `old_string` under 12000 characters and `new_string` under 12000 characters.',
 		)
 	})
 

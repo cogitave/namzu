@@ -776,14 +776,16 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	validationErrorHint?: string
 	/**
 	 * Concise, model-readable advice appended when a call to this tool was cut
-	 * off before its arguments closed, by the output limit or by the stream
-	 * ending: how this tool takes long input in parts. It comes with the size
-	 * budget {@link largeStringArguments} sets.
+	 * off before its arguments closed and the call itself has to carry less:
+	 * how this tool takes long input in parts. It follows the size budget the
+	 * model is given (see {@link largeStringArguments}).
 	 *
-	 * Only for a cut-off, because it is advice about sending less. A content
-	 * filter's stop does not get it, since sending less does not get past a
-	 * filter, and a malformed call does not, since size does not fix JSON: that
-	 * is {@link malformedInputHint}.
+	 * That is a cut-off by the stream ending, or by the output limit when the
+	 * call was at least half of the response. When most of the response went
+	 * to what came before the call, the model is told to send less before it
+	 * instead, and this is not appended. Nor after a content filter's stop,
+	 * which sending less does not get past, nor for a malformed call, since
+	 * size does not fix JSON: that is {@link malformedInputHint}.
 	 */
 	truncatedInputHint?: string
 	/**
@@ -801,10 +803,13 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * one call should keep it under, e.g. `{ content: 12_000 }`.
 	 *
 	 * Read only when a call to this tool is cut off before its arguments
-	 * close: the model is then told to keep these arguments under their
-	 * budgets and split longer text across calls. A tool that declares none
-	 * gets no size advice, because the length of its own arguments is not
-	 * what ran out.
+	 * close and the call itself has to carry less (see
+	 * {@link truncatedInputHint} for when that is): the model is told to keep
+	 * these arguments under their budgets, each lowered to half of what
+	 * arrived after an output limit. A tool that declares none is still told,
+	 * after an output limit, to keep its arguments as a whole under half of
+	 * what arrived. Declaring them names the arguments the model should
+	 * shorten, and gives a budget after a stream that ended as well.
 	 */
 	largeStringArguments?: Readonly<Record<string, number>>
 

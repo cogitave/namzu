@@ -37,7 +37,9 @@ describe('classifyUnreadableToolInput', () => {
 		['tool_calls', 'malformed'],
 		['stop', 'malformed'],
 	] as const)('reads finish reason %s as %s', (finishReason, reason) => {
-		expect(classifyUnreadableToolInput(failure, 6, finishReason).reason).toBe(reason)
+		expect(
+			classifyUnreadableToolInput(failure, { length: 6, responseLength: 6 }, finishReason).reason,
+		).toBe(reason)
 	})
 })
 

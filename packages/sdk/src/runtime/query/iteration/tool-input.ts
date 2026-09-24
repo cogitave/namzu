@@ -47,11 +47,12 @@ function parseErrorOffset(message: string, length: number): number | undefined {
  * same whether the output limit cut it or the model closed its turn early,
  * and only the finish reason tells the two apart. `finishReason` is what the
  * stream reported, `undefined` when it reported nothing — a stream that died
- * or was dropped before its final frame, which is a cut-off too.
+ * or was dropped before its final frame, which is a cut-off too. `sizes`
+ * are the characters of this call's arguments and of the whole response.
  */
 export function classifyUnreadableToolInput(
 	failure: { readonly parseError: string; readonly offset?: number },
-	length: number,
+	sizes: { readonly length: number; readonly responseLength: number },
 	finishReason: ChatCompletionResponse['finishReason'] | undefined,
 ): ToolInputError {
 	const cutOff =
@@ -61,7 +62,8 @@ export function classifyUnreadableToolInput(
 		...(finishReason !== undefined ? { finishReason } : {}),
 		parseError: failure.parseError,
 		...(failure.offset !== undefined ? { offset: failure.offset } : {}),
-		length,
+		length: sizes.length,
+		responseLength: sizes.responseLength,
 	}
 }
 

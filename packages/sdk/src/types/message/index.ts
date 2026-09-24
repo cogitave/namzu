@@ -199,6 +199,15 @@ export interface ToolInputError {
 	readonly offset?: number
 	/** How many characters of arguments arrived. */
 	readonly length: number
+	/**
+	 * How many characters the whole response streamed before it stopped: its
+	 * text, its visible reasoning and the arguments of every tool call, this
+	 * one's included. Beside {@link length} it says how much of the response
+	 * this call was, which is what decides the advice after an output limit:
+	 * a call that was most of the response is told to carry less, one that was
+	 * not is told to send less before it.
+	 */
+	readonly responseLength: number
 }
 
 export interface BaseMessage {

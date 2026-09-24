@@ -714,6 +714,7 @@ describe('mapSessionEventToStreamEvent — v3 message and tool-input lifecycle',
 			parseError: 'Unexpected end of JSON input',
 			offset: 11,
 			length: 11,
+			responseLength: 11,
 		}
 		const r = mapSessionEventToStreamEvent({
 			type: 'tool_input_completed',

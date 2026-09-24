@@ -487,31 +487,44 @@ export function unreadableToolCallMessage(
 }
 
 /**
- * The characters one large argument should stay under, in the model's
- * words, when the output limit cut a call off. Halved from what arrived,
- * when that is smaller than the tool's own budget: a budget above what the
- * response could hold would send the model straight back into the cutoff.
+ * How much one call should carry, in the model's words, or `undefined` when
+ * there is no number to give: a stream that ended, to a tool that declares no
+ * large arguments.
+ *
+ * A tool that declares large arguments is given a budget for each of them.
+ * After an output limit, any tool is told to keep its arguments under half of
+ * what arrived: the whole of them for a tool that declares none, and each
+ * declared budget lowered to that half when it is larger, since a budget the
+ * response could not hold would send the model straight back into the cutoff.
+ * How to carry less (in parts, in a file) is the tool's own
+ * `truncatedInputHint`: splitting is right for a file body and wrong for a
+ * delegated prompt.
  */
 function sizeAdvice(
 	largeStringArguments: ToolDefinition['largeStringArguments'],
 	error: ToolInputError,
 ): string | undefined {
-	const declared = Object.entries(largeStringArguments ?? {}).filter(
-		([, budget]) => Number.isFinite(budget) && budget > 0,
-	)
-	if (declared.length === 0) return undefined
 	const ceiling =
 		error.finishReason === 'length'
 			? Math.max(100, Math.floor(error.length / 2 / 100) * 100)
-			: Number.POSITIVE_INFINITY
+			: undefined
+	const declared = Object.entries(largeStringArguments ?? {}).filter(
+		([, budget]) => Number.isFinite(budget) && budget > 0,
+	)
+	if (declared.length === 0) {
+		return ceiling === undefined
+			? undefined
+			: `Send it again with less in one call: keep its arguments under ${ceiling} characters in all.`
+	}
 	const budgets = declared.map(
-		([name, budget]) => `\`${name}\` under ${Math.floor(Math.min(budget, ceiling))} characters`,
+		([name, budget]) =>
+			`\`${name}\` under ${Math.floor(Math.min(budget, ceiling ?? Number.POSITIVE_INFINITY))} characters`,
 	)
 	const list =
 		budgets.length === 1
 			? budgets[0]
 			: `${budgets.slice(0, -1).join(', ')} and ${budgets[budgets.length - 1]}`
-	return `Send it again with less in one call: keep ${list}, and split longer text across several calls.`
+	return `Send it again with less in one call: keep ${list}.`
 }
 
 /**
@@ -519,13 +532,23 @@ function sizeAdvice(
  *
  * Each part answers one question, and a part with no answer is left out:
  * what happened (from `error`, which says cut off or malformed and why), and
- * what to do about it. For a malformed call that is a valid JSON object and
- * the tool's own `malformedInputHint`. For a cut-off that sending less can
- * get past, it is a size budget for a tool that declares large string
- * arguments and the tool's own `truncatedInputHint`. A content filter's stop
- * gets neither. A call recorded before the reason was kept has no `error`
- * and gets the plain statement that its arguments were unreadable, and no
- * hint, since which one applies is not known.
+ * what to do about it.
+ *
+ * - Malformed: send one valid JSON object, and the tool's own
+ *   `malformedInputHint`. Never size advice: size does not fix JSON.
+ * - Cut off by the output limit: first, which part of the response filled it.
+ *   A call that was less than half of it (`length` against `responseLength`)
+ *   did not; the text and calls before it did, and the model is told to send
+ *   less before it, with no advice about the call. Otherwise the call itself
+ *   is to carry less: {@link sizeAdvice}, and the tool's `truncatedInputHint`.
+ * - Cut off by the stream ending: the declared budgets, if any, or just to
+ *   send the call again, and the tool's `truncatedInputHint`.
+ * - Stopped by a content filter: no advice. Sending less does not get past a
+ *   filter.
+ *
+ * A call recorded before the reason was kept has no `error` and gets the
+ * plain statement that its arguments were unreadable, and no hint, since
+ * which one applies is not known.
  */
 export function unreadableToolInputMessage(
 	toolName: string,
@@ -560,13 +583,12 @@ export function unreadableToolInputMessage(
 		parts.push(
 			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
 		)
-		if (error.finishReason !== 'content_filter') {
+		if (error.finishReason === 'length' && error.length * 2 < error.responseLength) {
 			parts.push(
-				sizeAdvice(tool?.largeStringArguments, error) ??
-					(error.finishReason === 'length'
-						? 'Send the call again, with less text before it in the same response.'
-						: 'Send the call again.'),
+				`Most of the response (${error.responseLength} characters) went to what came before this call, so send the call again with less before it in the same response.`,
 			)
+		} else if (error.finishReason !== 'content_filter') {
+			parts.push(sizeAdvice(tool?.largeStringArguments, error) ?? 'Send the call again.')
 			hint(tool?.truncatedInputHint)
 		}
 	}

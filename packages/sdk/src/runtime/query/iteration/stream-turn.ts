@@ -262,6 +262,11 @@ export async function* streamProviderTurn(
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
 	}
+	// Characters the response streamed: text, reasoning and every tool call's
+	// arguments. What an output limit ran out of, so an unreadable call's
+	// share of it says whether the call itself or what came before it filled
+	// the response.
+	let streamedLength = 0
 	const toolBuckets = new Map<number, ToolCallBucket>()
 	// Announce a call once its id and name are both known: `tool_input_started`,
 	// then, as one delta, whatever arguments arrived before that.
@@ -465,6 +470,7 @@ export async function* streamProviderTurn(
 				if (reasoning.encrypted) bucket.encrypted = reasoning.encrypted
 				if (reasoning.text) {
 					bucket.text += reasoning.text
+					streamedLength += reasoning.text.length
 					await emitEvent({
 						type: 'reasoning_delta',
 						turnId,
@@ -490,6 +496,7 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.delta.content) {
+				streamedLength += chunk.delta.content.length
 				await emitEvent({
 					type: 'text_delta',
 					turnId,
@@ -536,7 +543,10 @@ export async function* streamProviderTurn(
 				// Until the call can be announced they are only buffered, and the
 				// announcement carries them.
 				const fragment = tc.function?.arguments
-				if (fragment) bucket.argsBuf += fragment
+				if (fragment) {
+					bucket.argsBuf += fragment
+					streamedLength += fragment.length
+				}
 
 				if (!bucket.started) {
 					yield* announceToolCall(bucket)
@@ -696,7 +706,7 @@ export async function* streamProviderTurn(
 		bucket.parsed = {}
 		const inputError = classifyUnreadableToolInput(
 			failure,
-			bucket.argsBuf.length,
+			{ length: bucket.argsBuf.length, responseLength: streamedLength },
 			reportedFinishReason,
 		)
 		bucket.inputError = inputError

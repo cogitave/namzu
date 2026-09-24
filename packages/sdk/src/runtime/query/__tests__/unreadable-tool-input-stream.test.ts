@@ -194,6 +194,29 @@ describe('unreadable tool input is classified from how the response ended', () =
 		})
 	})
 
+	it('measures the whole response beside the call: text, reasoning and every call', async () => {
+		// What decides whether the call itself or what came before it is to be
+		// shortened after an output limit.
+		const cut = '{"path":"a.md","content":"long'
+		const { events } = await run([
+			{ id: 'c', delta: { reasoning: { index: 0, text: 'Planning the file.' } } },
+			{ id: 'c', delta: { content: 'Here it is:' } },
+			open(0, 'call_1'),
+			args(0, '{"q":"fine"}'),
+			close(0, 'call_1'),
+			open(1, 'call_2', 'write'),
+			args(1, cut),
+			finish('length'),
+		])
+
+		expect(completed(events).at(-1)?.inputError).toMatchObject({
+			reason: 'truncated',
+			length: cut.length,
+			responseLength:
+				'Planning the file.'.length + 'Here it is:'.length + '{"q":"fine"}'.length + cut.length,
+		})
+	})
+
 	it('caps the text on the event and keeps all of it on the message', async () => {
 		const long = `{"content":"${'x'.repeat(PARTIAL_ARGUMENTS_EVENT_LIMIT + 500)}`
 		const { result, events } = await run([
