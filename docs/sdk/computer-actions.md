@@ -255,7 +255,10 @@ A yes adds the session id to `sessions` and also answers that batch: nobody
 is asked twice for one batch. A no refuses the batch with
 `SCREEN_CONSENT_DECLINED_FEEDBACK`; with no person to ask the batch is
 refused with `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A call a rule allowed is
-never asked about. Clicks, typing and `ui_act` keep being reviewed as before.
+never asked about — but the gate's read-only rule (`allowReadOnlyTools`) steps
+aside for a call that captures the screen, so the first screenshot reaches the
+policy instead of running unasked. Clicks, typing and `ui_act` keep being
+reviewed as before.
 The host keeps one record for as long as its sessions live, so a mode switch
 keeps the answer and a new session is asked again.
 

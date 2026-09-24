@@ -1,5 +1,5 @@
 ---
-"@namzu/sdk": minor
+"@namzu/sdk": major
 "@namzu/cli": major
 ---
 
@@ -10,4 +10,5 @@ Approving a `ui_act` call shows the control by name (`Press Button "Beş" (e30)`
 **`@namzu/sdk`**
 
 - `ToolDefinition.capturesScreen?(input)` and `defineTool({ capturesScreen })` declare which calls send the operator's screen to the model provider. `computer_use` declares its observations and every action followed by a screenshot.
+- **Breaking:** the authorization gate's `allow_read_only` rule (`allowReadOnlyTools: true`, in every shipped preset) no longer allows a call that declares `capturesScreen`; it goes to the review policy instead. With `createReviewHandler` and no `screenConsent` nothing changes (a screenshot is approved as a read); a custom `ResumeHandler` now sees `computer_use` screenshots, zooms, window lists and UI snapshots. To keep them out of review, add an explicit rule such as `{ type: 'allow_by_name', toolNames: ['computer_use'] }` (which allows clicks too).
 - `createReviewHandler` / `createReviewPolicy` take `screenConsent: { sessions: Set<string> }` and an optional `capturesScreen(name, input)` predicate (default: the tool's declaration from `registry`). With them, the first such batch in a session is put to `prompt` with the new `ToolReviewRequest.screenConsent: true`; `strict` refuses it unless a rule allowed it, `auto` does not ask, and without a `prompt` it is refused with the new `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A no is `SCREEN_CONSENT_DECLINED_FEEDBACK`. New type `ScreenConsentRecord`. Without `screenConsent` nothing changes.
