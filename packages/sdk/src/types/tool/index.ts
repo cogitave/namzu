@@ -974,6 +974,43 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * label shown to a human both need the server's own answer.
 	 */
 	provenance?: ToolProvenance
+
+	/**
+	 * Free-form data about this tool, for filtering and composition —
+	 * never sent to the model.
+	 *
+	 * Unlike {@link outputSchema}, which is shown but not validated, this is
+	 * not shown at all: it exists so a toolset wrapper or a permission rule
+	 * can target "every tool tagged `experimental`" without maintaining a
+	 * parallel name list. Field addition coordinated with plan.md item A2
+	 * (`packages/sdk/src/toolsets/`); declared here so item A1's
+	 * `withMetadata`/`filtered` wrappers have a real field to write and
+	 * match against ahead of A2 landing its own consumers of it.
+	 */
+	metadata?: Readonly<Record<string, unknown>>
+
+	/**
+	 * This call must be approved every time, in every mode, with no
+	 * grant/accept-edits exemption and no way for a `deny` rule to be
+	 * outrun by it.
+	 *
+	 * Mode-proof like {@link ToolContext.sandboxEscapeApproved}'s consent
+	 * requirement: present (`true`, or a predicate of the input that
+	 * returns `true`) means the call is refused when nobody can approve it
+	 * and otherwise always asked, never silently allowed by mode or memory.
+	 * A `deny` permission rule still wins over this. Field addition
+	 * coordinated with plan.md item A2, which owns the enforcement path in
+	 * `registry/tool/execute.ts`; `requireApproval(toolset, selector?)`
+	 * (item A1, `packages/sdk/src/toolsets/`) only sets this field on the
+	 * tools it selects and enforces nothing itself.
+	 */
+	// `unknown`, not `TInput`: a function-typed property (unlike the
+	// method-shorthand `isReadOnly?(input: TInput)` above) is checked
+	// contravariantly, so a `TInput`-typed predicate would make
+	// `ToolDefinition<Concrete>` stop being assignable to
+	// `ToolDefinition<unknown>` — which every generic consumer of a tool
+	// list relies on. A predicate that needs the narrowed shape casts.
+	requiresApproval?: boolean | ((input: unknown) => boolean)
 }
 
 export interface ToolProvenance {
