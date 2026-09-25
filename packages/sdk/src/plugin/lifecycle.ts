@@ -62,6 +62,37 @@ interface PluginAdmission {
 	readonly inCode?: DefinedPlugin
 }
 
+/** Dynamic imports bypass ToolDefinition's TypeScript contract. */
+function assertPluginTool(
+	value: unknown,
+	pluginName: string,
+	origin: string,
+	index: number,
+): asserts value is ToolDefinition {
+	const tool = value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+	const label = `Plugin "${pluginName}" tool #${index} from ${origin}`
+	if (
+		!tool ||
+		typeof tool.name !== 'string' ||
+		tool.name.length === 0 ||
+		typeof tool.description !== 'string' ||
+		typeof tool.execute !== 'function'
+	) {
+		throw new Error(`${label} must define name, description and execute.`)
+	}
+	const schema = tool.inputSchema
+	if (
+		!schema ||
+		typeof schema !== 'object' ||
+		typeof (schema as { safeParse?: unknown }).safeParse !== 'function' ||
+		(!tool.modelInputSchema && typeof (schema as { _def?: unknown })._def !== 'object')
+	) {
+		throw new Error(
+			`${label} must define inputSchema as a Zod schema, or as a compatible parser with modelInputSchema.`,
+		)
+	}
+}
+
 function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefinition['manifest'] {
 	const mcpServers = manifest.mcpServers?.map((server) =>
 		Object.freeze({
@@ -507,7 +538,8 @@ export class PluginLifecycleManager {
 		try {
 			// Host-authored definitions have no file path to resolve or module to import.
 			if (admission.inCode) {
-				for (const tool of admission.inCode.tools) {
+				for (const [index, tool] of admission.inCode.tools.entries()) {
+					assertPluginTool(tool, manifest.name, 'the in-code declaration', index + 1)
 					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + tool.name
 					this.addFileTool({ ...tool, name: namespacedName })
 					contributions.toolNames.push(namespacedName)
@@ -524,7 +556,8 @@ export class PluginLifecycleManager {
 						)
 					}
 
-					for (const tool of mod.tools) {
+					for (const [index, tool] of mod.tools.entries()) {
+						assertPluginTool(tool, manifest.name, `"${toolPath}"`, index + 1)
 						const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + tool.name
 						const namespacedTool: ToolDefinition = { ...tool, name: namespacedName }
 						this.addFileTool(namespacedTool)

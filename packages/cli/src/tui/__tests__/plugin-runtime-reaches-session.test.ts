@@ -168,7 +168,7 @@ describe('the CLI owns a real plugin runtime', () => {
 		const root = join(cwd, '.namzu', 'plugins', 'ledger')
 		await writeFile(
 			join(root, 'tools.mjs'),
-			"export const tools = [{ name: 'audit', description: 'audit', async execute() { return { success: true, output: 'ok' }; } }];\n",
+			"export const tools = [{ name: 'audit', description: 'audit', inputSchema: { safeParse: (v) => ({ success: true, data: v }) }, modelInputSchema: { type: 'object', properties: {} }, async execute() { return { success: true, output: 'ok' }; } }];\n",
 		)
 		await writeFile(
 			join(root, 'skills', 'reconcile', 'SKILL.md'),
@@ -222,6 +222,22 @@ describe('the CLI owns a real plugin runtime', () => {
 		}
 		expect(session.plugins?.list()).toEqual([])
 		await expect(session.plugins?.setEnabled('ledger', true)).rejects.toThrow(/closed/i)
+	})
+
+	it('rejects a file plugin tool without inputSchema while loading the plugin', async () => {
+		const cwd = await projectWithPlugin({
+			name: 'ledger',
+			version: '1.0.0',
+			description: 'bad tool',
+			tools: ['tools.mjs'],
+		})
+		await writeFile(
+			join(cwd, '.namzu', 'plugins', 'ledger', 'tools.mjs'),
+			"export const tools = [{ name: 'broken', description: 'no schema', async execute() { return { success: true }; } }];\n",
+		)
+		await expect(
+			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, cwd),
+		).rejects.toThrow(/Plugin "ledger" tool #1 from "tools.mjs" must define inputSchema/)
 	})
 
 	it.skipIf(process.platform === 'win32')(
@@ -279,7 +295,7 @@ describe('the CLI owns a real plugin runtime', () => {
 		)
 		await writeFile(
 			join(good, 'tools.mjs'),
-			"export const tools = [{ name: 'probe', description: 'probe', async execute() { return { success: true, output: 'ok' }; } }];\n",
+			"export const tools = [{ name: 'probe', description: 'probe', inputSchema: { safeParse: (v) => ({ success: true, data: v }) }, modelInputSchema: { type: 'object', properties: {} }, async execute() { return { success: true, output: 'ok' }; } }];\n",
 			'utf8',
 		)
 		await writeFile(join(bad, 'plugin.json'), '{"definitely":"invalid"}', 'utf8')

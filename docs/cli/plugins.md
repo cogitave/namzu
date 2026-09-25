@@ -64,6 +64,11 @@ JavaScript module paths; MCP servers declare their stdio command, optional
 arguments and environment. `connectors` and `personas` in plugin manifests are
 not supported and are refused rather than ignored.
 
+A JavaScript tool module must export complete tool definitions, including an
+`inputSchema` that the SDK can parse and render. A missing or unusable schema
+refuses plugin enablement with the plugin and module named, before the tool
+appears in a session.
+
 Review executable plugins before enabling loading: module imports and hooks
 execute in the CLI process, and MCP servers start child processes. Tool approval
 is not a sandbox for plugin startup code. Project trust and admitted scope roots
