@@ -9,6 +9,7 @@
 			"authorization",
 			"bridge",
 			"bus",
+			"capabilities",
 			"compaction",
 			"config",
 			"connector",

@@ -2,6 +2,7 @@
 
 ## 2026-09-25
 
+- **Creation** [Host capabilities](sdk/host-capabilities.md): `defineCapability` and `dynamicCapability` compose host-authored instructions, toolsets, guardrails, prompt contributions and model settings for each `runAgent` invocation, with stable IDs and per-run factories (`packages/sdk/src/capabilities/index.ts`).
 - **Fix** [AG-UI clients](sdk/ag-ui.md): `@namzu/ag-ui` now requires SDK 48 because its adapter reads `QueryParams.toolsets`; SDK 45.1–47 provide only the removed `tools` shape. The existing `.changeset/agui-mcp-toolsets.md` now records a **major** release and tells hosts how to migrate.
 - **Fix** [Durable run storage](sdk/session-log.md): the `runtime-state-growth` benchmark now supplies a `toolset` to `drainQuery`; importing the removed `ToolRegistry` export had stopped the benchmark before it measured a turn (`scripts/benchmarks/runtime-state-growth.mjs`).
 - **Fix** [Toolsets](sdk/toolsets.md#migrating-from-toolregistry): the pre-publish packed `@namzu/live` fixture now supplies an empty toolset list to the SDK instead of importing the removed `ToolRegistry` export (`.github/scripts/verify-consumer-install.sh`). The fixture also exposed that live's new `NamzuQueryConfig.toolsets` cannot run on SDK 44–47; live now requires SDK 48 and carries a **major** changeset (`.changeset/live-toolsets-sdk-peer.md`).

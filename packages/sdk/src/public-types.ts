@@ -49,6 +49,13 @@ export type {
 	ToolsetAvailability,
 	ToolSourceRef,
 } from './toolsets/types.js'
+export type {
+	AgentCapability,
+	Capability,
+	CapabilityModelSettings,
+	CapabilityRunContext,
+	DynamicCapability,
+} from './capabilities/index.js'
 export type * from './types/permission/index.js'
 export type * from './types/errors/index.js'
 export type * from './types/provider/index.js'

@@ -572,6 +572,7 @@ export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/
 // `toolsets`, and a host embedding the execution pipeline directly (rather
 // than through `query()`/the agent classes) builds its own.
 export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
+export { defineCapability, dynamicCapability } from './capabilities/index.js'
 export { ToolManager } from './toolsets/manager.js'
 export type { ToolManagerConfig, ToolsetChangeReport } from './toolsets/manager.js'
 export { matchesSourceIdGlob } from './toolsets/source-glob.js'

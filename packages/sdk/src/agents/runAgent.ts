@@ -1,3 +1,5 @@
+import { resolveCapabilities } from '../capabilities/index.js'
+import type { AgentCapability } from '../capabilities/index.js'
 import { type QueryParams, drainQuery } from '../runtime/query/index.js'
 import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
 import { resolveNamzuHome } from '../session/home.js'
@@ -5,6 +7,7 @@ import { SessionPaths, ensureProject } from '../session/paths.js'
 import { InMemorySessionLog } from '../store/session-log/index.js'
 import type { Toolset } from '../toolsets/types.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
+import type { InputGuardrailSpec, OutputGuardrailSpec } from '../types/guardrail/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
@@ -76,6 +79,11 @@ export interface RunAgentOptions extends AgentIdentity {
 
 	/** Every tool this turn may see comes from one of these — see `toolsets/types.ts`. */
 	toolsets?: readonly Toolset[]
+	/** Reusable host behavior, resolved once per invocation before the model is called. */
+	capabilities?: readonly AgentCapability[]
+	/** Additional turn guardrails, after those supplied by capabilities. */
+	inputGuardrails?: readonly InputGuardrailSpec[]
+	outputGuardrails?: readonly OutputGuardrailSpec[]
 
 	/**
 	 * Screens to run against every tool result. The turn builds its own
@@ -281,6 +289,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 		projectId: options.projectId ?? layout.projectId,
 		tenantId: options.tenantId ?? generateTenantId(),
 	}
+	const resolvedCapabilities = options.capabilities
+		? await resolveCapabilities(options.capabilities, {
+				...identity,
+				workingDirectory,
+				model: options.model,
+				prompt: options.prompt,
+				...(options.signal ? { signal: options.signal } : {}),
+			})
+		: undefined
+	const capabilitySettings = resolvedCapabilities?.modelSettings
 
 	const messages: Message[] =
 		typeof options.prompt === 'string'
@@ -299,7 +317,26 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(layout.paths ? { paths: layout.paths } : {}),
 			...(options.sessionLog ? { sessionLog: options.sessionLog } : {}),
 			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
-			toolsets: options.toolsets ?? [],
+			toolsets: [...(options.toolsets ?? []), ...(resolvedCapabilities?.toolsets ?? [])],
+			...(resolvedCapabilities
+				? { promptContributions: resolvedCapabilities.promptContributions }
+				: {}),
+			...((resolvedCapabilities?.inputGuardrails.length ?? 0) > 0 || options.inputGuardrails
+				? {
+						inputGuardrails: [
+							...(resolvedCapabilities?.inputGuardrails ?? []),
+							...(options.inputGuardrails ?? []),
+						],
+					}
+				: {}),
+			...((resolvedCapabilities?.outputGuardrails.length ?? 0) > 0 || options.outputGuardrails
+				? {
+						outputGuardrails: [
+							...(resolvedCapabilities?.outputGuardrails ?? []),
+							...(options.outputGuardrails ?? []),
+						],
+					}
+				: {}),
 			...(options.toolResultGuardrails !== undefined
 				? { toolResultGuardrails: options.toolResultGuardrails }
 				: {}),
@@ -325,9 +362,15 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				...(options.maxRequestRichContentBytes !== undefined
 					? { maxRequestRichContentBytes: options.maxRequestRichContentBytes }
 					: {}),
-				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-				...(options.thinking ? { thinking: options.thinking } : {}),
-				...(options.effort ? { effort: options.effort } : {}),
+				...((options.temperature ?? capabilitySettings?.temperature) !== undefined
+					? { temperature: options.temperature ?? capabilitySettings?.temperature }
+					: {}),
+				...((options.thinking ?? capabilitySettings?.thinking) !== undefined
+					? { thinking: options.thinking ?? capabilitySettings?.thinking }
+					: {}),
+				...((options.effort ?? capabilitySettings?.effort) !== undefined
+					? { effort: options.effort ?? capabilitySettings?.effort }
+					: {}),
 			},
 			// One option covers both. `drainQuery` separates the id from the
 			// display name because a fleet needs a stable key and a readable
