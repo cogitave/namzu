@@ -2,6 +2,7 @@
 
 ## 2026-09-25
 
+- **Fix** [AG-UI clients](sdk/ag-ui.md): `@namzu/ag-ui` now requires SDK 48 because its adapter reads `QueryParams.toolsets`; SDK 45.1–47 provide only the removed `tools` shape. The existing `.changeset/agui-mcp-toolsets.md` now records a **major** release and tells hosts how to migrate.
 - **Fix** [Durable run storage](sdk/session-log.md): the `runtime-state-growth` benchmark now supplies a `toolset` to `drainQuery`; importing the removed `ToolRegistry` export had stopped the benchmark before it measured a turn (`scripts/benchmarks/runtime-state-growth.mjs`).
 - **Fix** [Toolsets](sdk/toolsets.md#migrating-from-toolregistry): the pre-publish packed `@namzu/live` fixture now supplies an empty toolset list to the SDK instead of importing the removed `ToolRegistry` export (`.github/scripts/verify-consumer-install.sh`). The fixture also exposed that live's new `NamzuQueryConfig.toolsets` cannot run on SDK 44–47; live now requires SDK 48 and carries a **major** changeset (`.changeset/live-toolsets-sdk-peer.md`).
 - **Fix** [Plugin toolsets and lifecycle](sdk/plugins.md) and [Plugins in the CLI](cli/plugins.md): file and in-code plugin tools without a usable `inputSchema` now fail during enablement with a named diagnostic. A real `exec --json` trial had revealed such a tool through `search_tools` and then failed at wire rendering with an opaque Zod `_def` error (`packages/sdk/src/plugin/lifecycle.ts`). `.changeset/plugin-tool-schema-admission.md`, **patch** for `@namzu/sdk` and `@namzu/cli`.

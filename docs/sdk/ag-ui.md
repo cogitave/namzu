@@ -15,9 +15,11 @@ clients such as the official `HttpAgent`. It is an optional leaf package:
 the host supplies a trusted SDK query configuration, and the adapter runs
 `query` with that configuration.
 
-Install `@namzu/ag-ui` 2.x, `@namzu/sdk >=45.1.0`, and the SDK's Zod v3 peer in a
-Node.js 20+ ESM application. `zod` is a peer of `@namzu/ag-ui` too, because
-the frontend tools it builds carry a Zod input schema. The adapter pins
+Install `@namzu/ag-ui` 3.x, `@namzu/sdk >=48.0.0`, and the SDK's Zod v3 peer in a
+Node.js 20+ ESM application. Use `@namzu/ag-ui` 2.x with SDK 45.1–47; version 3
+requires `QueryParams.toolsets` in each host `createQuery` result. `zod` is a
+peer of `@namzu/ag-ui` too, because the frontend tools it builds carry a Zod
+input schema. The adapter pins
 `@ag-ui/core` and `@ag-ui/encoder` to `0.0.59`. Tests use the official
 `@ag-ui/client` at `0.0.59` to parse SSE, verify event order, and rebuild
 messages and state.
@@ -33,7 +35,7 @@ not. The factory returns `QueryParams` or a promise of them.
 This example accepts an application-owned resolver. That resolver must
 authenticate `request`, authorize the thread, and select the complete
 history that may reach the model. Its returned `params` contain trusted
-provider, model, tools, permissions, stores, and native scope. Defining
+provider, model, toolsets, permissions, stores, and native scope. Defining
 this function does not create or call a provider.
 
 ```ts
