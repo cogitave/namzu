@@ -13,5 +13,5 @@ export {
 } from './adapter.js'
 export type { ConnectorRouterInput } from './adapter.js'
 
-export { ConnectorToolRouter } from './router.js'
-export type { ConnectorToolStrategy, ConnectorToolRouterConfig } from './router.js'
+export { connectorTools } from './router.js'
+export type { ConnectorToolStrategy, ConnectorTools } from './router.js'

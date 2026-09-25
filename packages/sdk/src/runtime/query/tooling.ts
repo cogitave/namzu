@@ -2,16 +2,13 @@ import type { AuthorizationGate } from '../../authorization/gate.js'
 import type { SkillGrantSet } from '../../authorization/skill-grant.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
 import type { SessionRecord } from '../../types/session/records.js'
-import type {
-	RequestToolPause,
-	SkillRegistryRef,
-	ToolRegistryContract,
-} from '../../types/tool/index.js'
+import type { RequestToolPause, SkillRegistryRef } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { Logger } from '../../utils/logger.js'
@@ -22,7 +19,7 @@ import type { EmitEvent } from './events.js'
 
 export interface ToolingBootstrapConfig {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
-	tools: ToolRegistryContract
+	tools: ToolManager
 	sessionId: SessionId
 	turnId: TurnId
 	workingDirectory: string

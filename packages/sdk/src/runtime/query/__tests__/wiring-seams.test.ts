@@ -6,7 +6,8 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -56,13 +57,13 @@ function countingTool(name: string, calls: string[]): ToolDefinition {
 
 function baseParams(opts: {
 	dir: string
-	tools: ToolRegistry
+	tools: Toolset
 	provider: MockLLMProvider
 	resumeHandler?: ResumeHandler
 }) {
 	return {
 		provider: opts.provider,
-		tools: opts.tools,
+		toolsets: [opts.tools],
 		...(opts.resumeHandler ? { resumeHandler: opts.resumeHandler } : {}),
 		turnConfig: {
 			model: 'mock-model',
@@ -89,8 +90,7 @@ describe('query() actually reaches repairToolCall', () => {
 		// so `query({ repairToolCall })` type-checked and did nothing.
 		const dir = await workdir()
 		const calls: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(countingTool('delete_row', calls))
+		const tools = testToolset(countingTool('delete_row', calls))
 
 		const repair = vi.fn<RepairToolCall>(() => ({ arguments: '{"id":42}' }))
 		const provider = new MockLLMProvider({
@@ -117,8 +117,7 @@ describe('a post_tool_use retry works on a tool that did not opt into retries', 
 		// silence instead of an error.
 		const dir = await workdir()
 		const calls: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(countingTool('flaky', calls))
+		const tools = testToolset(countingTool('flaky', calls))
 
 		let asked = 0
 		const pluginManager = {
@@ -151,8 +150,7 @@ describe('a post_tool_use retry works on a tool that did not opt into retries', 
 	it('a hook that always asks for a retry cannot spin the executor', async () => {
 		const dir = await workdir()
 		const calls: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(countingTool('flaky', calls))
+		const tools = testToolset(countingTool('flaky', calls))
 
 		const pluginManager = {
 			executeHooks: (event: string) =>
@@ -187,8 +185,7 @@ describe('a cross-process resume clears the park it acted on', () => {
 		// prevent. Both halves run on the session's log on disk.
 		const dir = await workdir()
 		const calls: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(countingTool('delete_row', calls))
+		const tools = testToolset(countingTool('delete_row', calls))
 		const scope = {
 			tenantId: '36da1973-021d-40d5-9a72-7ba4084729de' as TenantId,
 			projectId: '8e2b818f-eb63-4f6e-a416-18b311dcb61c' as ProjectId,
@@ -248,7 +245,7 @@ describe('configuring an output guardrail does not rewrite the turn outcome', ()
 		// materialize the produced text, so merely ADDING a safety check
 		// turned a cancelled turn into a completed one.
 		const dir = await workdir()
-		const tools = new ToolRegistry()
+		const tools = testToolset()
 		const controller = new AbortController()
 
 		const provider = new MockLLMProvider({
@@ -273,7 +270,7 @@ describe('configuring an output guardrail does not rewrite the turn outcome', ()
 
 	it('still settles a normal run as completed', async () => {
 		const dir = await workdir()
-		const tools = new ToolRegistry()
+		const tools = testToolset()
 		const result = await drainQuery({
 			...baseParams({
 				dir,

@@ -1,5 +1,6 @@
 export * from './base.js'
 export * from './core.js'
+export * from './query.js'
 export * from './reactive.js'
 export * from './pipeline.js'
 export * from './router.js'

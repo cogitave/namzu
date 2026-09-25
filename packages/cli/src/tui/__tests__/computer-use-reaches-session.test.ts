@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { LLMToolSchema, ToolRegistry } from '@namzu/sdk'
+import { type LLMToolSchema, ToolManager, type Toolset } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -55,12 +55,14 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
-		query: (params: { tools: ToolRegistry }) => {
-			queryTools = params.tools.toLLMTools()
+		query: (params: { toolsets: readonly Toolset[] }) => {
+			const manager = new ToolManager({ toolsets: params.toolsets, messages: () => [] })
+			queryTools = manager.toLLMTools()
 			queryToolNames = queryTools.map((tool) => tool.function.name)
-			enforcedToolNames = params.tools
-				.getCallableTools()
-				.filter((tool) => tool.enforceModelInput === true)
+			enforcedToolNames = manager
+				.listNames()
+				.map((name) => manager.get(name))
+				.filter((tool): tool is NonNullable<typeof tool> => tool?.enforceModelInput === true)
 				.map((tool) => tool.name)
 			return (async function* () {})()
 		},

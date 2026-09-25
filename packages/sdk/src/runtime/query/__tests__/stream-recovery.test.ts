@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { ProviderRequestError } from '../../../provider/errors.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
@@ -127,8 +127,7 @@ describe('query stream recovery', () => {
 			success: true,
 			output: 'should not run',
 		}))
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'write_file',
 			description: 'write a file',
 			inputSchema: z.object({
@@ -146,7 +145,7 @@ describe('query stream recovery', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
@@ -208,8 +207,7 @@ describe('query stream recovery', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-framing-'))
 		workdirs.push(workingDirectory)
 		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'write_file',
 			description: 'write a file',
 			inputSchema: z.object({ path: z.string() }),
@@ -220,7 +218,7 @@ describe('query stream recovery', () => {
 			{
 				provider: new IndexReusingProvider(),
 				retry: { maxRetries: 0 },
-				tools,
+				toolsets: [tools],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
@@ -262,7 +260,7 @@ describe('query stream recovery', () => {
 				// whole timeout backing off and settle it as a timeout instead,
 				// testing the retry policy rather than the thing named here.
 				retry: { maxRetries: 0 },
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,

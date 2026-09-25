@@ -6,9 +6,9 @@ import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
@@ -31,8 +31,7 @@ async function run(
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-work-context-'))
 	try {
 		const path = join(cwd, 'doc.md')
-		const tools = new ToolRegistry()
-		for (const tool of [WriteFileTool, EditTool]) tools.register(tool)
+		const tools = testToolset(WriteFileTool, EditTool)
 		// Sixteen, the most the inbox reports, so owned work is the larger of the
 		// two contributions and the room genuinely runs out between them.
 		const taskIds = Array.from({ length: 16 }, (_, index) =>
@@ -58,7 +57,7 @@ async function run(
 		}
 		const requests: Message[][] = []
 		await drainQuery({
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			fileReadTracker: createFileReadTracker(),
 			agentId: 'test',

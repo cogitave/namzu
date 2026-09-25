@@ -21,6 +21,7 @@ import {
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
@@ -41,7 +42,7 @@ import type {
 	StepResult,
 	StopReason,
 } from '../../../types/session/index.js'
-import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
+import type { LLMToolSchema } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
@@ -2478,7 +2479,7 @@ function round6(n: number): number {
  * next call, not the next process.
  */
 function enforcedModelInputToolNames(
-	registry: ToolRegistryContract,
+	registry: ToolManager,
 	tools: readonly LLMToolSchema[],
 ): readonly string[] | undefined {
 	const names = tools

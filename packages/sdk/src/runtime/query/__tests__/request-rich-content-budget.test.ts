@@ -13,8 +13,9 @@ import { snapshotRequestContext } from '../request-context.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { Message, ToolMessage, UserMessage } from '../../../types/message/index.js'
 import type { TurnConfig } from '../../../types/session/index.js'
 import {
@@ -47,14 +48,14 @@ async function workdir(): Promise<string> {
 
 async function run(opts: {
 	provider: MockLLMProvider
-	tools?: ToolRegistry
+	tools?: Toolset
 	messages: Message[]
 	turnConfig?: Partial<TurnConfig>
 	pluginManager?: PluginLifecycleManager
 }) {
 	return drainQuery({
 		provider: opts.provider,
-		tools: opts.tools ?? new ToolRegistry(),
+		toolsets: [opts.tools ?? testToolset()],
 		agentId: 'rich_request_agent',
 		agentName: 'Rich request agent',
 		messages: opts.messages,
@@ -209,8 +210,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		const second = 'B'.repeat(8)
 		const pending = [first, second]
 		const requests: PluginModelRequest[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'capture',
 				description: 'Capture an image',

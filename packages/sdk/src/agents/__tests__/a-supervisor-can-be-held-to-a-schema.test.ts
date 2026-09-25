@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../tools/builtins/structuredOutput.js'
 import type { SupervisorAgentResult } from '../../types/agent/index.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
@@ -91,7 +90,7 @@ async function supervise(opts: {
 			provider: opts.provider,
 			agentIds: ['worker'],
 			agentManager: new IdleManager(),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			systemPrompt: 'You coordinate.',
 			model: 'mock-model',
 			tokenBudget: 100_000,

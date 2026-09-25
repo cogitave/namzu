@@ -5,8 +5,8 @@ import { afterEach, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createEvidenceQueryResolver } from '../../../turn/evidence-query.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
@@ -23,8 +23,7 @@ it('keeps the current subject when tool-result steering repeats an older questio
 	const steering = new SteeringBinding()
 	const question = 'What was its exact identifier?'
 	const resolve = createEvidenceQueryResolver()
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'observe',
 		description: 'Read-only fixture',
 		inputSchema: z.object({}),
@@ -52,7 +51,7 @@ it('keeps the current subject when tool-result steering repeats an older questio
 	})
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		steering,
 		workingDirectory,
 		agentId: 'query-steering',

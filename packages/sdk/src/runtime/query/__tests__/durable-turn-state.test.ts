@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { CheckpointId, HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
@@ -7,9 +7,15 @@ import {
 	TurnStateVersionError,
 	parseTurnState,
 } from '../../../types/session/turn-state.js'
-import { InvalidIdError, generateSessionId } from '../../../utils/id.js'
+import {
+	InvalidIdError,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
+} from '../../../utils/id.js'
 import { CheckpointManager, findPendingCheckpoint, readParks } from '../checkpoint.js'
-import { type TurnStateScope, loadTurnState } from '../turn-state.js'
+import { type TurnStateScope, loadSelectedTurnState, loadTurnState } from '../turn-state.js'
 import {
 	type CheckpointedSession,
 	TEST_SCOPE,
@@ -120,6 +126,64 @@ describe('recording a park', () => {
 })
 
 describe('loadTurnState', () => {
+	it.each(['projectId', 'tenantId', 'topicId', 'sessionId'] as const)(
+		'refuses a foreign %s before reading checkpoints or session history',
+		async (field) => {
+			const s = await session()
+			const scope = {
+				...scopeOf(s),
+				[field]: {
+					projectId: generateProjectId,
+					tenantId: generateTenantId,
+					topicId: generateTopicId,
+					sessionId: generateSessionId,
+				}[field](),
+			} as TurnStateScope
+			const list = vi.spyOn(s.store, 'list')
+			const restore = vi.spyOn(s.store, 'restore')
+			const readHistory = vi.spyOn(s.log, 'read')
+
+			await expect(loadTurnState(s.log, s.store, scope)).rejects.toMatchObject({
+				code: 'invalid_config',
+				details: { fields: [field] },
+			})
+			await expect(
+				loadSelectedTurnState(s.log, s.store, scope, s.checkpointId),
+			).rejects.toMatchObject({
+				code: 'invalid_config',
+				details: { fields: [field] },
+			})
+			expect(list).not.toHaveBeenCalled()
+			expect(restore).not.toHaveBeenCalled()
+			// The owner check reads only the opening record, not the conversation.
+			expect(readHistory.mock.calls.every(([options]) => options?.throughSeq === 1)).toBe(true)
+		},
+	)
+	it.each(['tenantId', 'topicId'] as const)(
+		'refuses a legacy session missing %s before reading checkpoints',
+		async (field) => {
+			const log = new InMemorySessionLog({ sessionId: generateSessionId() })
+			const lease = await log.claim({ holder: 'test', ttlMs: 60_000 })
+			expect(lease).not.toBeNull()
+			await log.append(lease!, {
+				type: 'session_started',
+				projectId: TEST_SCOPE.projectId,
+				...(field === 'tenantId' ? {} : { tenantId: TEST_SCOPE.tenantId }),
+				...(field === 'topicId' ? {} : { topicId: TEST_SCOPE.topicId }),
+				cwd: '/tmp',
+				agent: { id: 'agent', name: 'Agent' },
+			})
+			const store = checkpointStoreFor(log)
+			const list = vi.spyOn(store, 'list')
+			const restore = vi.spyOn(store, 'restore')
+			await expect(
+				loadTurnState(log, store, { ...TEST_SCOPE, sessionId: log.sessionId, turnId: TURN_ID }),
+			).rejects.toMatchObject({ code: 'invalid_config', details: { fields: [field] } })
+			expect(list).not.toHaveBeenCalled()
+			expect(restore).not.toHaveBeenCalled()
+		},
+	)
+
 	it('rebuilds a snapshot with no live turn object', async () => {
 		const s = await session()
 		const second = await addCheckpoint(s, {
@@ -156,7 +220,10 @@ describe('loadTurnState', () => {
 		// while claiming to be a continuation.
 		const log = new InMemorySessionLog({ sessionId: generateSessionId() })
 		const scope = { ...TEST_SCOPE, sessionId: log.sessionId, turnId: TURN_ID }
-		expect(await loadTurnState(log, checkpointStoreFor(log), scope)).toBeNull()
+		const store = checkpointStoreFor(log)
+		const list = vi.spyOn(store, 'list')
+		expect(await loadTurnState(log, store, scope)).toBeNull()
+		expect(list).not.toHaveBeenCalled()
 	})
 
 	it('survives a JSON round trip', async () => {

@@ -1,4 +1,5 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
+import type { ToolSourceRef } from '../../../../toolsets/types.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
@@ -67,6 +68,13 @@ export async function* runToolReview(
 			: {}
 	}
 
+	// `allow_read_only` needs to know whether the tool's own `readOnlyHint`
+	// is one the operator trusts (an MCP server they configured that way), so
+	// it must not be told "host-defined" for a name the manager does not
+	// have. `sourceOf` throws for an unknown name, so this checks first.
+	const sourceFor = (toolName: string): { toolSource?: ToolSourceRef } =>
+		ctx.tools.has(toolName) ? { toolSource: ctx.tools.sourceOf(toolName) } : {}
+
 	const finish = (decision: ToolReviewDecision): ToolReviewOutcome => ({
 		decision,
 		results: executed,
@@ -98,6 +106,7 @@ export async function* runToolReview(
 		return calls.map((tc) => {
 			const tool = ctx.tools.get(tc.name)
 			const isDestructive = tool?.isDestructive ? tool.isDestructive(tc.input) : false
+			const requiresApproval = tool?.requiresApproval ? tool.requiresApproval(tc.input) : false
 			const escalation = 'escalation' in tc ? tc.escalation : undefined
 
 			return {
@@ -106,6 +115,7 @@ export async function* runToolReview(
 				input: tc.input,
 				isDestructive,
 				authorization: { decision: 'review' },
+				...(requiresApproval ? { requiresApproval: true as const } : {}),
 				...(escalation ? { escalation } : {}),
 			}
 		})
@@ -113,6 +123,9 @@ export async function* runToolReview(
 	let toolCallSummaries = summariesFor(preparedBatch)
 	const escalated = (): ToolCallSummary[] =>
 		toolCallSummaries.filter((tc) => tc.escalation !== undefined)
+	/** A call the tool itself declared always needs a person's approval. */
+	const requiresApproval = (): ToolCallSummary[] =>
+		toolCallSummaries.filter((tc) => tc.requiresApproval === true)
 
 	/**
 	 * A call that has failed identically too many times in a row is answered
@@ -269,6 +282,7 @@ export async function* runToolReview(
 				toolInput: tc.input,
 				toolDef: ctx.tools.get(tc.name),
 				...dialectFor(tc.name),
+				...sourceFor(tc.name),
 			}),
 		}))
 		for (const gr of gateResults) {
@@ -282,6 +296,18 @@ export async function* runToolReview(
 					decision: 'review',
 					matchedRule: gr.gateResult.matchedRule,
 					reason: `${gr.gateResult.reason}; but this call reaches past the turn's boundary, which a rule cannot approve on its own`,
+				}
+			}
+			// Same override, for a call the tool itself declared always needs a
+			// person's approval: an `allow` rule was written about the tool by
+			// name or category, never about this per-call declaration, so it
+			// cannot settle the question on its own either. A `deny` still
+			// refuses it, because this can only ADD a review, never remove one.
+			if (gr.toolCall.requiresApproval && gr.gateResult.decision === 'allow') {
+				gr.gateResult = {
+					decision: 'review',
+					matchedRule: gr.gateResult.matchedRule,
+					reason: `${gr.gateResult.reason}; but the tool itself declares this call always needs a person's approval, which a rule cannot waive`,
 				}
 			}
 			const { toolCall, gateResult } = gr
@@ -357,7 +383,7 @@ export async function* runToolReview(
 		for (const tc of toolCallSummaries) {
 			if (gateDenied.has(tc.id)) continue
 			if (tc.authorization?.decision === 'deny' || tc.authorization?.explicitReview) continue
-			if (tc.isDestructive || tc.escalation !== undefined) continue
+			if (tc.isDestructive || tc.escalation !== undefined || tc.requiresApproval) continue
 			const skill = ctx.skillGrants.coveringSkill(tc, ctx.tools.get(tc.name), dialectFor(tc.name))
 			if (skill !== undefined) tc.skillGrant = { skill }
 		}
@@ -379,6 +405,7 @@ export async function* runToolReview(
 		!reviewAllowed() &&
 		gateDenied.size === 0 &&
 		escalated().length === 0 &&
+		requiresApproval().length === 0 &&
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
 	) {
 		ctx.log.debug('Every tool call is covered by an approval already granted', {
@@ -527,6 +554,7 @@ export async function* runToolReview(
 						toolInput: summary.input,
 						toolDef: ctx.tools.get(summary.name),
 						...dialectFor(summary.name),
+						...sourceFor(summary.name),
 					})
 					if (gateResult.decision === 'allow') continue
 					const reason =

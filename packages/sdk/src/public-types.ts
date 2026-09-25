@@ -39,6 +39,23 @@ export type {
 	SupervisorPlan,
 } from './directory/derive-supervisor.js'
 export type * from './types/toolset/index.js'
+// The toolset layer (plan.md §1): the unit every tool comes from, and its
+// composable wrappers. `ToolSource`/`ToolSourceKind` above are the ones
+// `Toolset.source` and `toolset()` use — this only adds what is new.
+export type {
+	ToolFilterSelector,
+	ToolPredicate,
+	Toolset,
+	ToolsetAvailability,
+	ToolSourceRef,
+} from './toolsets/types.js'
+export type {
+	AgentCapability,
+	Capability,
+	CapabilityModelSettings,
+	CapabilityRunContext,
+	DynamicCapability,
+} from './capabilities/index.js'
 export type * from './types/permission/index.js'
 export type * from './types/errors/index.js'
 export type * from './types/provider/index.js'
@@ -183,11 +200,7 @@ export type {
 	Timestamped,
 } from './store/index.js'
 
-export type {
-	ManagedRegistryConfig,
-	ToolExecutionResult,
-	ToolRegistryForkOptions,
-} from './registry/index.js'
+export type { ManagedRegistryConfig } from './registry/index.js'
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export type {
@@ -242,7 +255,7 @@ export type {
 export type {
 	ConnectorRouterInput,
 	ConnectorToolConfig,
-	ConnectorToolRouterConfig,
+	ConnectorTools,
 	ConnectorToolStrategy,
 } from './connector/tools/index.js'
 

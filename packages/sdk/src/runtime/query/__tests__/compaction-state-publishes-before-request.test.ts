@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import {
@@ -88,7 +87,7 @@ async function runUntilCompactionSnapshot(options: {
 	let prepareStepCalls = 0
 	const iterator = query({
 		provider: recorded.provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type { Citation } from '../../../types/message/index.js'
 import type { ChatCompletionParams } from '../../../types/provider/index.js'
 import {
@@ -49,7 +48,7 @@ function run(opts: { citations?: Citation[] } = {}) {
 
 	const settled = drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'can we terminate early?', attachments: [PDF] }],

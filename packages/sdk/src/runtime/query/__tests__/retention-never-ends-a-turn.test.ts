@@ -6,12 +6,12 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import {
 	type CheckpointScope,
 	InMemorySessionCheckpointStore,
 } from '../../../store/checkpoint/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import {
 	generateProjectId,
@@ -64,8 +64,7 @@ async function run(
 }> {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-retention-'))
 	dirs.push(root)
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'probe',
 		description: 'probe',
 		inputSchema: z.object({ n: z.number() }),
@@ -80,7 +79,7 @@ async function run(
 	const store = makeStore(sessionLog)
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'probe four times' }],

@@ -278,9 +278,13 @@ export type { JsonSchemaDialect } from './registry/tool/dialect.js'
 // by construction. Exported so a driver or a CI gate can assert it.
 export {
 	findPortableSchemaViolations,
+	findUndescribedProperties,
 	toPortableToolSchema,
 } from './registry/tool/portable.js'
-export type { PortableSchemaViolation } from './registry/tool/portable.js'
+export type {
+	PortableSchemaViolation,
+	UndescribedPropertyViolation,
+} from './registry/tool/portable.js'
 // The renderer itself, so a driver or a contract test can ask what a tool will
 // actually put on the wire without reaching into the registry.
 export { renderToolSchema, toolWireSchema } from './registry/tool/schema.js'
@@ -424,6 +428,7 @@ export {
 	loadSkill,
 	resolveSkillChain,
 	SKILL_FRONTMATTER_KEYS,
+	SkillCollisionError,
 	SkillRegistry,
 } from './skills/index.js'
 // The one frontmatter reader. `loadSkill` is built on it, and a host reading
@@ -450,6 +455,7 @@ export {
 	loadDirectory,
 } from './directory/index.js'
 export {
+	AdvisorCollisionError,
 	AdvisorRegistry,
 	AdvisoryContext,
 	AdvisoryExecutor,
@@ -464,6 +470,7 @@ export {
 	defineAgent,
 	InvocationLock,
 	PipelineAgent,
+	QueryAgent,
 	ReactiveAgent,
 	RouterAgent,
 	// The short path: provider + model + prompt. Assembles the identity and
@@ -552,18 +559,42 @@ export {
 	BaseRegistry,
 	ManagedRegistry,
 	PluginRegistry,
-	ToolCatalog,
+	RegistryCollisionError,
 	ToolNameCollisionError,
-	ToolRegistry,
-	createToolCatalogFromRegistry,
-	loadingFromAvailability,
-	toolDefinitionToCatalogEntry,
 } from './registry/index.js'
+export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/index.js'
+
+// Toolsets (plan.md v3 §1-2): the unit every tool comes from, and the
+// runtime-owned resolver of them. `toolset()` builds a plain static one;
+// `combineToolsets` merges several under one umbrella source, atomically
+// (throwing `ToolsetConflictError` on a name collision instead of silently
+// picking a winner); the rest are composable wrappers over any `Toolset`.
+// `ToolManager` is an advanced API: `query()` builds one per turn from
+// `toolsets`, and a host embedding the execution pipeline directly (rather
+// than through `query()`/the agent classes) builds its own.
+export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
+export { defineCapability, dynamicCapability } from './capabilities/index.js'
+export { ToolManager } from './toolsets/manager.js'
+export type { ToolManagerConfig, ToolsetChangeReport } from './toolsets/manager.js'
+export { matchesSourceIdGlob } from './toolsets/source-glob.js'
+export { toolset } from './toolsets/toolset.js'
+export { toToolSourceRef } from './toolsets/types.js'
+export {
+	deferred,
+	filtered,
+	mapTools,
+	prefixed,
+	renamed,
+	readyWhen,
+	requireApproval,
+	withMetadata,
+} from './toolsets/wrappers.js'
 
 export {
 	attachShellHooks,
 	createShellHook,
 	DEFAULT_SHELL_HOOK_TIMEOUT_MS,
+	definePlugin,
 	discoverAllPluginDirs,
 	discoverPlugins,
 	loadPluginManifest,
@@ -576,6 +607,7 @@ export {
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'
+export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
 export {
 	AgentManager,
@@ -742,6 +774,7 @@ export {
 	CommandCancellationUnsupportedError,
 	ConnectorManager,
 	ConnectorRegistry,
+	EnvironmentCollisionError,
 	EnvironmentConnectorManager,
 	ExecutionContextFactory,
 	HttpConnector,
@@ -778,6 +811,8 @@ export {
 	renderPromptMessages,
 	mcpJsonSchemaToZod,
 	mcpToolResultToToolResult,
+	mcpToolset,
+	mcpToolsetName,
 	mcpToolToToolDefinition,
 	RemoteExecutionContext,
 	RemoteExecutionBusyError,
@@ -788,6 +823,7 @@ export {
 	ServerStdioTransport,
 	StdioTransport,
 	StreamableHttpTransport,
+	TenantCollisionError,
 	TenantConnectorManager,
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
@@ -810,6 +846,8 @@ export type {
 	MCPToolDrift,
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
+	MCPToolsetOptions,
+	MCPToolsets,
 } from './connector/index.js'
 
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────
@@ -1425,7 +1463,6 @@ export type {
 	GoalCommandScope,
 	KernelCommandOptions,
 } from './registry/command/kernel-commands.js'
-export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.js'
 export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiTurn, BidiTurnParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'

@@ -10,14 +10,15 @@ import {
 	type HITLDecisionRequest,
 	type SessionId,
 	type ToolCallSummary,
-	ToolRegistry,
+	ToolManager,
 	asTurnId,
 } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import type { PermissionMode } from '../../permissions/mode.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { confirmsItself, makeResumeHandler, reviewExemptionFor } from '../agent.js'
 
-const registry = new ToolRegistry()
+const registry = new ToolManager({ toolsets: [testToolset()], messages: () => [] })
 const call = (action: string, extra: Partial<ToolCallSummary> = {}): ToolCallSummary => ({
 	id: `c_${action}`,
 	name: 'schedule',

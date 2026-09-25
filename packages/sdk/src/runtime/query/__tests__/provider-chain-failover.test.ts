@@ -17,7 +17,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -45,10 +44,10 @@ function failing(id: string, status: number): LLMProvider & { calls: number } {
 	} as unknown as LLMProvider & { calls: number }
 }
 
-function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory: string) {
+function baseParams(provider: LLMProvider, workingDirectory: string) {
 	return {
 		provider,
-		tools,
+		toolsets: [],
 		turnConfig: {
 			model: 'primary-model',
 			timeoutMs: 5_000,
@@ -91,7 +90,7 @@ describe('query() drives the declared provider chain', () => {
 
 		const run = await drainQuery(
 			{
-				...baseParams(primary, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(primary, await mkWorkdir()),
 				fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 				messages: [createUserMessage('hello')],
 			},
@@ -122,7 +121,7 @@ describe('query() drives the declared provider chain', () => {
 
 		const run = await drainQuery(
 			{
-				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(provider, await mkWorkdir()),
 				messages: [createUserMessage('hello')],
 			},
 			(e) => {
@@ -145,7 +144,7 @@ describe('query() drives the declared provider chain', () => {
 
 		await expect(
 			drainQuery({
-				...baseParams(primary, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(primary, await mkWorkdir()),
 				fallbackProviders: [{ provider: fallback }],
 				pricing: { inputCostPer1M: 3, outputCostPer1M: 15 },
 				messages: [createUserMessage('hello')],
@@ -157,7 +156,7 @@ describe('query() drives the declared provider chain', () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'ok' }] })
 
 		const run = await drainQuery({
-			...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+			...baseParams(provider, await mkWorkdir()),
 			pricing: { inputCostPer1M: 3, outputCostPer1M: 15 },
 			messages: [createUserMessage('hello')],
 		})

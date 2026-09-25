@@ -28,7 +28,6 @@ import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS } from '../../../provider/idle-timeout.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -156,7 +155,7 @@ describe('the turn logger reaches withProviderRetry, withProviderFallback and bu
 
 		const run = await drainQuery({
 			provider: primary,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },
 			turnConfig: {

@@ -50,7 +50,7 @@ const SCRIPT = `
 import { randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 const sdk = await import(pathToFileURL(process.argv[2]).href)
-const { ToolRegistry, drainQuery, defineTool } = sdk
+const { toolset, drainQuery, defineTool } = sdk
 const { z } = await import(pathToFileURL(process.argv[3]).href)
 
 const ZERO = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 }
@@ -71,8 +71,7 @@ const provider = {
   },
 }
 
-const tools = new ToolRegistry()
-tools.register(defineTool({
+const toolsets = [toolset('park', [defineTool({
   name: 'ping',
   description: 'pings',
   inputSchema: z.object({}),
@@ -82,12 +81,12 @@ tools.register(defineTool({
   destructive: false,
   concurrencySafe: true,
   async execute() { return { success: true, output: 'pong' } },
-}))
+})])]
 
 let last = '(none)'
 drainQuery({
   provider,
-  tools,
+  toolsets,
   agentId: 'a',
   agentName: 'A',
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],

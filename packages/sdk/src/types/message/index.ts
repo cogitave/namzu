@@ -105,7 +105,7 @@ export interface Citation {
  * An attachment whose bytes are held by a store, not by the message.
  *
  * Structural rather than an import from `store/attachment`, so this types
- * module keeps depending on nothing — the same reasoning `ToolRegistryRef`
+ * module keeps depending on nothing — the same reasoning `ToolsView`
  * gives. `store/attachment` owns the resolution and its refusals; this is
  * the shape a message may carry.
  *
@@ -551,6 +551,13 @@ export type ToolResultBlock =
  */
 export type ToolResultContent = string | readonly ToolResultBlock[]
 
+/** A schema reveal bound to the source that contributed that exact tool. */
+export interface ToolRevealReceipt {
+	readonly name: string
+	readonly sourceId: string
+	readonly sourceKind: import('../toolset/index.js').ToolSourceKind
+}
+
 export interface ToolMessage extends BaseMessage {
 	role: 'tool'
 	content: ToolResultContent
@@ -566,6 +573,19 @@ export interface ToolMessage extends BaseMessage {
 	 * fired and namzu relied on prose formatting to convey failure.
 	 */
 	isError?: boolean
+	/**
+	 * Source-bound receipts for deferred schemas loaded by a successful
+	 * {@link ToolResult.reveals} (`types/tool/index.ts`). The executor writes
+	 * these onto the message it built from that result.
+	 *
+	 * This is what `ToolManager.availability` (`toolsets/manager.ts`) scans
+	 * the post-compaction history for, instead of a mutable activation map:
+	 * a deferred tool is active once a matching receipt appears after the
+	 * last compaction summary and the host still reports it ready. Persisted
+	 * like any other message field — a session log or checkpoint already
+	 * carries this too, with nothing extra to serialize.
+	 */
+	revealedTools?: readonly ToolRevealReceipt[]
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
@@ -645,12 +665,14 @@ export function createToolMessage(
 	content: ToolResultContent,
 	toolCallId: string,
 	isError?: boolean,
+	revealedTools?: readonly ToolRevealReceipt[],
 ): ToolMessage {
 	return {
 		role: 'tool',
 		content,
 		toolCallId,
 		...(isError !== undefined ? { isError } : {}),
+		...(revealedTools && revealedTools.length > 0 ? { revealedTools } : {}),
 		timestamp: Date.now(),
 	}
 }

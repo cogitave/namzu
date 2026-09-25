@@ -16,7 +16,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import { CONNECT_TIMEOUT_MS, connectMcpServers, transportFor } from '../servers.js'
+import {
+	CONNECT_TIMEOUT_MS,
+	connectMcpServers,
+	expandEnvRefsInRecord,
+	transportFor,
+} from '../servers.js'
 
 let dir: string
 const origins: TestOrigin[] = []
@@ -258,12 +263,14 @@ describe('a declared server', () => {
 				{
 					name: 'tickets',
 					toolCount: 2,
-					tools: ['mcp_tickets_create', 'mcp_tickets_close'],
+					tools: ['mcp__tickets__create', 'mcp__tickets__close'],
+					drift: { added: [], removed: [], changed: [] },
+					refused: [],
 				},
 			])
 			// Prefixed with the server name so two servers offering `create` do
 			// not collide and the transcript says where a call went.
-			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp_tickets_create', 'mcp_tickets_close'])
+			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp__tickets__create', 'mcp__tickets__close'])
 		} finally {
 			await mcp.close()
 		}
@@ -280,7 +287,7 @@ describe('a declared server', () => {
 			{ cwd: dir },
 		)
 		try {
-			const create = mcp.tools.find((t) => t.name === 'mcp_tickets_create')
+			const create = mcp.tools.find((t) => t.name === 'mcp__tickets__create')
 			const result = await create?.execute({ title: 'the build is red' }, {} as never)
 			expect(result?.success).toBe(true)
 			expect(JSON.stringify(result?.output)).toContain('opened the build is red')
@@ -288,6 +295,78 @@ describe('a declared server', () => {
 			await mcp.close()
 		}
 	})
+
+	it('applies server policy, retry budget and approval to the live toolsets', async () => {
+		const server = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: {
+					command: process.execPath,
+					args: [server],
+					allow: ['create'],
+					deny: ['close'],
+					maxRetries: 2,
+					requireApproval: true,
+					readOnlyHintTrusted: true,
+				},
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.failed).toEqual([])
+			expect(mcp.connected[0]?.tools).toEqual(['mcp__tickets__create'])
+			expect(mcp.current().connected[0]?.refused).toEqual([
+				{ kind: 'tools', name: 'close', reason: 'denied' },
+			])
+			expect(mcp.toolsets).toHaveLength(2)
+			expect(mcp.toolsets[1]?.availability).toBe('deferred')
+			expect(mcp.toolsets[0]?.source.mcpServer?.readOnlyHintTrusted).toBe(true)
+			const create = mcp.tools.find((tool) => tool.name === 'mcp__tickets__create')
+			expect(create?.maxRetries).toBe(2)
+			expect(create?.requiresApproval?.({ title: 'work' })).toBe(true)
+			expect(mcp.toolsets[0]?.tools()[0]).toBe(mcp.toolsets[0]?.tools()[0])
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it('surfaces server instructions without changing their content', async () => {
+		const server = writeServer(
+			'instructed.js',
+			WORKING_SERVER.replace(
+				'capabilities: { tools: {} },',
+				"capabilities: { tools: {} }, instructions: 'Use create sparingly.',",
+			),
+		)
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, args: [server] } },
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected[0]?.instructions).toBe('Use create sparingly.')
+			expect(mcp.toolsets[0]?.source.description).toBe('Use create sparingly.')
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it.each([
+		[{ allow: [''] }, /allow must be a list/],
+		[{ deny: 'close' }, /deny must be a list/],
+		[{ maxRetries: -1 }, /maxRetries must be a nonnegative integer/],
+		[{ requireApproval: 'yes' }, /requireApproval must be true or false/],
+		[{ readOnlyHintTrusted: 'yes' }, /readOnlyHintTrusted must be true or false/],
+	] as const)(
+		'names an invalid server tool policy instead of silently skipping it',
+		async (policy, reason) => {
+			const mcp = await connectMcpServers(
+				{ tickets: { command: process.execPath, ...policy } as never },
+				{ cwd: dir },
+			)
+			expect(mcp.connected).toEqual([])
+			expect(mcp.failed[0]?.reason).toMatch(reason)
+		},
+	)
 
 	it('leaves no child process behind when the session closes', async () => {
 		// The reason `close()` exists. A stdio server is a child process and
@@ -533,6 +612,16 @@ describe('a server that does not work is named, never merely absent', () => {
 })
 
 describe('a spec that is not a server', () => {
+	it('reports an invalid instructions opt-in by server name', async () => {
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, instructions: 'yes' as never } },
+			{ cwd: dir },
+		)
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed).toEqual([{ name: 'tickets', reason: 'instructions must be true or false' }])
+		await mcp.close()
+	})
+
 	it('refuses one that names neither a command nor a url', () => {
 		expect(transportFor({}, dir)).toContain('neither a command nor a url')
 	})
@@ -564,5 +653,100 @@ describe('a spec that is not a server', () => {
 
 		expect(typeof transport).not.toBe('string')
 		expect((transport as { cwd?: string }).cwd).toBe(dir)
+	})
+})
+
+describe('${VAR} expansion in env and headers values', () => {
+	it('expands a bare ${VAR} reference against the given environment', () => {
+		const result = expandEnvRefsInRecord({ TOKEN: '${API_TOKEN}' }, { API_TOKEN: 'secret-1' })
+		expect(result).toEqual({ TOKEN: 'secret-1' })
+	})
+
+	it('expands a reference embedded inside a larger string', () => {
+		const result = expandEnvRefsInRecord(
+			{ Authorization: 'Bearer ${API_TOKEN}' },
+			{ API_TOKEN: 'secret-1' },
+		)
+		expect(result).toEqual({ Authorization: 'Bearer secret-1' })
+	})
+
+	it('leaves a value with no ${VAR} reference untouched', () => {
+		const result = expandEnvRefsInRecord({ NAME: 'literal' }, {})
+		expect(result).toEqual({ NAME: 'literal' })
+	})
+
+	it('refuses a reference to a variable that is not set, naming it', () => {
+		const result = expandEnvRefsInRecord({ TOKEN: '${MISSING_TOKEN}' }, {})
+		expect(typeof result).toBe('string')
+		expect(result).toContain('MISSING_TOKEN')
+		expect(result).toContain('not set')
+	})
+
+	it('does not support a ${VAR:-default} fallback — the whole value is treated as the variable name search', () => {
+		// No `:-default` syntax at all: a colon inside the braces is just not a
+		// valid identifier character, so this is read as an unset reference
+		// rather than one that falls back to a default.
+		const result = expandEnvRefsInRecord({ TOKEN: '${MISSING:-fallback}' }, { MISSING: 'x' })
+		expect(result).toEqual({ TOKEN: '${MISSING:-fallback}' })
+	})
+
+	it('transportFor expands env values for a stdio server', () => {
+		const transport = transportFor({ command: 'node', env: { TOKEN: '${API_TOKEN}' } }, dir, {
+			API_TOKEN: 'secret-1',
+		} as NodeJS.ProcessEnv)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { env?: Record<string, string> }).env).toEqual({ TOKEN: 'secret-1' })
+	})
+
+	it('transportFor expands header values for an http server', () => {
+		const transport = transportFor(
+			{ url: 'https://example.invalid/mcp', headers: { 'X-Token': '${API_TOKEN}' } },
+			dir,
+			{ API_TOKEN: 'secret-1' } as NodeJS.ProcessEnv,
+		)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { headers?: Record<string, string> }).headers).toEqual({
+			'X-Token': 'secret-1',
+		})
+	})
+
+	it('transportFor refuses a stdio server whose env references an unset variable', () => {
+		const transport = transportFor(
+			{ command: 'node', env: { TOKEN: '${MISSING_TOKEN}' } },
+			dir,
+			{} as NodeJS.ProcessEnv,
+		)
+		expect(typeof transport).toBe('string')
+		expect(transport).toContain('MISSING_TOKEN')
+	})
+
+	it('command, args, url and cwd are passed through literally, never expanded', () => {
+		const transport = transportFor({ command: '${NOT_EXPANDED}', args: ['${ALSO_NOT}'] }, dir, {
+			NOT_EXPANDED: 'x',
+			ALSO_NOT: 'y',
+		} as NodeJS.ProcessEnv)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { command?: string }).command).toBe('${NOT_EXPANDED}')
+		expect((transport as { args?: string[] }).args).toEqual(['${ALSO_NOT}'])
+	})
+
+	it('connectMcpServers fails the whole server, by name, when a header references an unset variable', async () => {
+		const mcp = await connectMcpServers(
+			{
+				secure: {
+					url: 'https://example.invalid/mcp',
+					headers: { Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}' },
+				},
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected).toEqual([])
+			expect(mcp.failed).toHaveLength(1)
+			expect(mcp.failed[0]?.name).toBe('secure')
+			expect(mcp.failed[0]?.reason).toContain('MISSING_MCP_TOKEN_TEST_ONLY_XYZ')
+		} finally {
+			await mcp.close()
+		}
 	})
 })

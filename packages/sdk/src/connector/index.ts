@@ -6,10 +6,13 @@ export { ScopedConnectorRegistry } from '../registry/connector/scoped.js'
 export { ConnectorManager } from '../manager/connector/lifecycle.js'
 export type { ConnectorManagerConfig } from '../manager/connector/lifecycle.js'
 
-export { TenantConnectorManager } from '../manager/connector/tenant.js'
+export { TenantCollisionError, TenantConnectorManager } from '../manager/connector/tenant.js'
 export type { TenantConnectorManagerConfig } from '../manager/connector/tenant.js'
 
-export { EnvironmentConnectorManager } from '../manager/connector/environment.js'
+export {
+	EnvironmentCollisionError,
+	EnvironmentConnectorManager,
+} from '../manager/connector/environment.js'
 export type {
 	EnvironmentConnectorSetup,
 	EnvironmentConnectorManagerConfig,
@@ -73,6 +76,8 @@ export {
 	mcpJsonSchemaToZod,
 	mcpPromptToToolDefinition,
 	mcpToolResultToToolResult,
+	mcpToolset,
+	mcpToolsetName,
 	mcpToolToToolDefinition,
 	renderPromptMessages,
 	resolveMcpEra,
@@ -102,4 +107,6 @@ export type {
 	MCPToolDrift,
 	MCPToolPolicy,
 	MCPToolPolicyDecision,
+	MCPToolsetOptions,
+	MCPToolsets,
 } from './mcp/index.js'

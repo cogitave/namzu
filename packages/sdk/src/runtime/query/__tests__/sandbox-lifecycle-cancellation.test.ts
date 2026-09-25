@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -71,7 +70,7 @@ async function params(input: {
 	workdirs.push(workingDirectory)
 	return {
 		provider: input.provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		sandboxProvider: input.sandboxProvider,
 		...(input.signal ? { signal: input.signal } : {}),
 		...(input.teardownTimeoutMs !== undefined

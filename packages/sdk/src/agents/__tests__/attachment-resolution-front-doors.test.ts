@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import {
 	type AttachmentOperationOptions,
 	AttachmentResolutionTimeoutError,
@@ -143,7 +142,7 @@ describe('agent front doors own stored attachment liveness', () => {
 		})
 		const config = {
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,

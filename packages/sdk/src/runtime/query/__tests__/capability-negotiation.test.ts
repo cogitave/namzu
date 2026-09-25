@@ -10,12 +10,13 @@ import {
 	resolveProviderCapabilities,
 } from '../../../provider/capabilities.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, ProviderCapabilities } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -62,8 +63,8 @@ const PNG_1X1 =
  * A tool that opts in to constrained generation, which is the only thing
  * that makes `enforceToolInputSchema` non-empty on the wire.
  */
-function registerEnforcedTool(tools: ToolRegistry, name: string): void {
-	tools.register({
+function registerEnforcedTool(tools: ToolDefinition[], name: string): void {
+	tools.push({
 		name,
 		description: `${name} tool`,
 		inputSchema: z.object({ new_string: z.string().optional(), newStr: z.string().optional() }),
@@ -78,8 +79,8 @@ function registerEnforcedTool(tools: ToolRegistry, name: string): void {
 	})
 }
 
-function registerEchoTool(tools: ToolRegistry): void {
-	tools.register({
+function registerEchoTool(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string() }),
@@ -87,8 +88,8 @@ function registerEchoTool(tools: ToolRegistry): void {
 	})
 }
 
-function registerScreenshotTool(tools: ToolRegistry): void {
-	tools.register({
+function registerScreenshotTool(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'shot',
 		description: 'Capture one image.',
 		inputSchema: z.object({}),
@@ -101,10 +102,10 @@ function registerScreenshotTool(tools: ToolRegistry): void {
 	})
 }
 
-function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory: string) {
+function baseParams(provider: LLMProvider, tools: ToolDefinition[], workingDirectory: string) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
@@ -158,7 +159,7 @@ describe('query() capability negotiation', () => {
 
 	it('strips tool surfaces and emits a capability_warning for a no-tools provider', async () => {
 		const provider = capturingProvider(NO_TOOLS_CAPABILITIES)
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEchoTool(tools)
 		const events: SessionEvent[] = []
 
@@ -196,7 +197,7 @@ describe('query() capability negotiation', () => {
 
 	it('keeps tool surfaces intact for an undeclared (permissive-default) provider', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEchoTool(tools)
 
 		const run = await drainQuery({
@@ -214,7 +215,7 @@ describe('query() capability negotiation', () => {
 
 		const run = await drainQuery(
 			{
-				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(provider, [], await mkWorkdir()),
 				messages: [
 					createUserMessage('what is in this image?', [
 						{ data: 'aGVsbG8=', mediaType: 'image/png' },
@@ -241,7 +242,7 @@ describe('query() capability negotiation', () => {
 
 		await drainQuery(
 			{
-				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(provider, [], await mkWorkdir()),
 				messages: [createUserMessage('plain text')],
 			},
 			(event) => {
@@ -264,7 +265,7 @@ describe('query() capability negotiation', () => {
 			],
 			onRequest: () => order.push(`request-${++request}`),
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerScreenshotTool(tools)
 		registerEchoTool(tools)
 		const events: SessionEvent[] = []
@@ -330,7 +331,7 @@ describe('query() capability negotiation', () => {
 				capabilities: testCase.capabilities,
 				turns: [{ toolCalls: [{ name: toolName, args }] }, { text: 'done' }],
 			})
-			const tools = new ToolRegistry()
+			const tools: ToolDefinition[] = []
 			testCase.register(tools)
 			const events: SessionEvent[] = []
 			const base = baseParams(provider, tools, await mkWorkdir())
@@ -368,7 +369,7 @@ describe('query() capability negotiation', () => {
 			capabilities: NO_TOOL_IMAGE_CAPABILITIES,
 			turns: [{ toolCalls: [{ name: 'shot', args: {} }] }, { text: 'must not run' }],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerScreenshotTool(tools)
 		const base = baseParams(provider, tools, await mkWorkdir())
 
@@ -385,7 +386,7 @@ describe('query() capability negotiation', () => {
 
 	it('strictCapabilities: true throws on a tools mismatch instead of degrading', async () => {
 		const provider = capturingProvider(NO_TOOLS_CAPABILITIES)
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEchoTool(tools)
 
 		await expect(
@@ -402,7 +403,7 @@ describe('query() capability negotiation', () => {
 
 		await expect(
 			drainQuery({
-				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(provider, [], await mkWorkdir()),
 				messages: [createUserMessage('describe', [{ data: 'aGVsbG8=', mediaType: 'image/png' }])],
 				strictCapabilities: true,
 			}),
@@ -411,7 +412,7 @@ describe('query() capability negotiation', () => {
 
 	it('names the enforced tools on the request, so a driver can constrain them', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEnforcedTool(tools, 'edit')
 		registerEnforcedTool(tools, 'write')
 		registerEchoTool(tools)
@@ -430,7 +431,7 @@ describe('query() capability negotiation', () => {
 
 	it('omits the field entirely when no tool opts in', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEchoTool(tools)
 
 		await drainQuery({
@@ -445,7 +446,7 @@ describe('query() capability negotiation', () => {
 
 	it('follows the allowed set rather than everything registered', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEnforcedTool(tools, 'edit')
 		registerEnforcedTool(tools, 'excluded')
 

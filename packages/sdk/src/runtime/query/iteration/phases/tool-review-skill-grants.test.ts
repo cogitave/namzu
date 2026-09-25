@@ -5,18 +5,14 @@ import { SkillGrantSet } from '../../../../authorization/skill-grant.js'
 import { ActivityStore } from '../../../../store/activity/memory.js'
 import { SkillTool } from '../../../../tools/builtins/skill.js'
 import { WriteFileTool } from '../../../../tools/builtins/write-file.js'
+import type { ToolManager } from '../../../../toolsets/manager.js'
 import type { AuthorizationGateConfig } from '../../../../types/authorization/index.js'
 import type { HITLDecisionRequest, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { TurnId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
 import { PLAN_MODE_REFUSAL } from '../../../../types/permission/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
-import type {
-	SkillRegistryRef,
-	ToolContext,
-	ToolDefinition,
-	ToolRegistryContract,
-} from '../../../../types/tool/index.js'
+import type { SkillRegistryRef, ToolContext, ToolDefinition } from '../../../../types/tool/index.js'
 import { generateSessionId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { ToolExecutor } from '../../executor.js'
@@ -146,11 +142,10 @@ function turn(opts: {
 			return { success: true, output: `${name} ok` }
 		}),
 		has: vi.fn((name: string) => name in DEFINITIONS),
+		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => Object.keys(DEFINITIONS)),
-		getAvailability: vi.fn(() => 'active'),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 	const toolExecutor = new ToolExecutor(
 		{
 			sessionId: SESSION_ID,
@@ -237,7 +232,10 @@ function policy(mode: ReviewMode, skillGrants?: 'honour' | 'ignore') {
 	const handler = createReviewHandler({
 		mode,
 		prompt,
-		registry: { get: (name: string) => DEFINITIONS[name] },
+		registry: {
+			get: (name: string) => DEFINITIONS[name],
+			sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
+		},
 		...(skillGrants ? { skillGrants } : {}),
 	})
 	return { prompt, handler }

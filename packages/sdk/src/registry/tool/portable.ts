@@ -134,6 +134,65 @@ export function findPortableSchemaViolations(
 	return found
 }
 
+export interface UndescribedPropertyViolation {
+	/** Dotted path to the property missing a description, e.g. `properties.readRange`. */
+	readonly path: string
+}
+
+/**
+ * Every named object property, at any depth, whose schema carries no
+ * `description`.
+ *
+ * `defineTool` requires a tool-level `description`, but nothing requires one
+ * on each field of its Zod `inputSchema` — a field with no `.describe()`
+ * renders with no `description` key, silently, and reaches the model with no
+ * account of what it is for. Some other tool-calling frameworks catch the
+ * equivalent gap at registration time, behind an opt-in flag, doing the
+ * schema derivation themselves; namzu's Zod-first schemas are hand-authored,
+ * so the check here is the same shape as {@link findPortableSchemaViolations}
+ * — a non-throwing sweep a test runs over a rendered schema, not a
+ * registration-time throw. Wiring this into `ToolRegistry.registerOne` as a
+ * hard default would break any existing tool, first-party or third-party,
+ * that already ships an undescribed field.
+ *
+ * Only named properties are checked, mirroring that per-parameter
+ * granularity: an array's own `.describe()` on the array itself is enough,
+ * no per-element description is demanded.
+ */
+export function findUndescribedProperties(
+	schema: unknown,
+	path = '',
+): UndescribedPropertyViolation[] {
+	if (Array.isArray(schema)) {
+		return schema.flatMap((item, index) => findUndescribedProperties(item, `${path}[${index}]`))
+	}
+	if (typeof schema !== 'object' || schema === null) return []
+
+	const found: UndescribedPropertyViolation[] = []
+	const node = schema as Record<string, unknown>
+	const props = node.properties
+	if (props && typeof props === 'object' && !Array.isArray(props)) {
+		for (const [name, value] of Object.entries(props as Record<string, unknown>)) {
+			const here = path ? `${path}.properties.${name}` : `properties.${name}`
+			const described =
+				value !== null &&
+				typeof value === 'object' &&
+				!Array.isArray(value) &&
+				typeof (value as Record<string, unknown>).description === 'string' &&
+				(value as Record<string, unknown>).description !== ''
+			if (!described) {
+				found.push({ path: here })
+			}
+			found.push(...findUndescribedProperties(value, here))
+		}
+	}
+	for (const [key, value] of Object.entries(node)) {
+		if (key === 'properties') continue
+		found.push(...findUndescribedProperties(value, path ? `${path}.${key}` : key))
+	}
+	return found
+}
+
 /**
  * Rewrite what can be rewritten, so a tuple cannot reach a wire.
  *

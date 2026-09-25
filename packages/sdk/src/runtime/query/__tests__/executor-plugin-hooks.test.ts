@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
-import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { SessionEventDraft } from '../events.js'
@@ -31,16 +32,14 @@ function makeLogger(): Logger {
 	} as unknown as Logger
 }
 
-function makeToolRegistry(execute: ToolRegistryContract['execute']): ToolRegistryContract {
+function makeToolRegistry(execute: ToolManager['execute']): ToolManager {
 	return {
-		register: vi.fn(),
-		unregister: vi.fn(),
 		execute,
 		get: vi.fn(() => undefined),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 }
 
 function makePluginManager(
@@ -397,7 +396,6 @@ describe('ToolExecutor plugin hooks', () => {
 		const { PluginLifecycleManager } = await import('../../../plugin/lifecycle.js')
 		const realManager = new PluginLifecycleManager({
 			pluginRegistry: {} as any,
-			toolRegistry: {} as any,
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: makeLogger(),
 		})
@@ -444,7 +442,6 @@ describe('ToolExecutor plugin hooks', () => {
 		const { PluginLifecycleManager } = await import('../../../plugin/lifecycle.js')
 		const realManager = new PluginLifecycleManager({
 			pluginRegistry: {} as any,
-			toolRegistry: {} as any,
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: makeLogger(),
 		})

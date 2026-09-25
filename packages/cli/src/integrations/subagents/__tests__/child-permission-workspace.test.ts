@@ -8,9 +8,10 @@ import {
 	NOOP_LOGGER,
 	type ResumeHandler,
 	type ToolContext,
-	ToolRegistry,
+	type Toolset,
 	asTurnId,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -39,12 +40,10 @@ const reviewGate: AuthorizationGateConfig = {
 	logDecisions: false,
 }
 
-function childTools(): ToolRegistry {
-	const tools = new ToolRegistry()
+function childTools(): readonly Toolset[] {
 	const write = getBuiltinTools().find((tool) => tool.name === 'write')
 	if (!write) throw new Error('write tool fixture is missing')
-	tools.register(write)
-	return tools
+	return [toolset('test', [write])]
 }
 
 function context(): ToolContext {

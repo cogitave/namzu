@@ -9,6 +9,7 @@
 // worse home than the one it started in.
 
 import { ManagedRegistry } from '../registry/ManagedRegistry.js'
+import { RegistryCollisionError } from '../registry/collision.js'
 
 /**
  * What a module's check said about its own claim, the moment it was asked.
@@ -50,12 +51,14 @@ export type InvariantCheck<TContext = unknown> = (
  * every reference to the other's `id` kept resolving as if it still existed.
  * Mirrors `ProbeNameCollisionError`.
  */
-export class InvariantNameCollisionError extends Error {
+export class InvariantNameCollisionError extends RegistryCollisionError {
 	readonly moduleName: string
 	readonly invariantName: string
 
 	constructor(moduleName: string, invariantName: string) {
 		super(
+			'InvariantRegistry',
+			`${moduleName}:${invariantName}`,
 			`Invariant "${moduleName}:${invariantName}" is already registered. Two modules picked the same name, or this module registered itself twice — pick a different name, or find the second registration.`,
 		)
 		this.name = 'InvariantNameCollisionError'

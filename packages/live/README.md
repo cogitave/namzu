@@ -46,11 +46,12 @@ turn detection, speech synthesis and a cancellable audio output.
 pnpm add @namzu/sdk @namzu/live
 ```
 
-`@namzu/sdk` is a peer dependency. Install both. This release requires
-`@namzu/sdk >=44.0.0` and Node.js 20 or newer.
+`@namzu/sdk` is a peer dependency. Install both. `@namzu/live` 3.0 and newer
+require `@namzu/sdk >=48.0.0` and Node.js 20 or newer.
 
-**Compatibility.** `@namzu/live` before 2.0.0 breaks on `@namzu/sdk >=44`. Use
-`@namzu/live >=2` with `@namzu/sdk` 44.
+**Compatibility.** Use `@namzu/live` 2.x with `@namzu/sdk` 44–47. Starting with
+`@namzu/live` 3.0, `NamzuQueryConfig` accepts `toolsets` instead of `tools`;
+pass `toolset(source, definitions)` values in its `toolsets` list.
 
 ## Compose a live session
 
@@ -166,9 +167,10 @@ refused.
   worker deployment belong to caller adapters.
 - Local inference and native speech-to-speech can be implemented as drivers;
   they are not bundled or claimed by this package.
-- When using `NamzuModel`, register tools in Namzu's `ToolRegistry`. There is no
-  second tool executor in the live runtime. Custom `LiveModel` implementations
-  own their tool semantics themselves.
+- When using `NamzuModel`, pass tools as `toolsets` (`NamzuQueryConfig.toolsets`,
+  a `readonly Toolset[]` — see `@namzu/sdk`'s `toolset()`). There is no second
+  tool executor in the live runtime. Custom `LiveModel` implementations own
+  their tool semantics themselves.
 
 ## Documentation
 

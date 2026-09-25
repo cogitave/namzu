@@ -16,7 +16,7 @@ generated: { by: human:bahadirarda, at: 2026-09-23T00:00:00Z }
 import {
   type BrowserHost,
   type BrowserPageInfo,
-  ToolRegistry,
+  toolset,
   createBrowserTools,
 } from '@namzu/sdk'
 
@@ -48,8 +48,7 @@ const host: BrowserHost = {
   },
 }
 
-const registry = new ToolRegistry()
-for (const tool of createBrowserTools(host)) registry.register(tool)
+const tools = toolset('browser', createBrowserTools(host))
 ```
 
 ## The two tools
@@ -80,7 +79,7 @@ The provider-facing schemas are flat objects, one per tool, with `action` as an 
 
 ## One spelling per address
 
-`url` and `origin` are canonicalised by the input schema. The registry hands the authorization gate and the reviewer the schema's output, not the model's text (`ToolRegistry.prepareExecution`), so a rule is tested against the address the browser loads. `runtime/query/__tests__/browser-site-rules.test.ts` drives the real kernel and gate: `HTTPS://GitHub.com.:443/search?q=a&type=code` is allowed by a rule for `^https://github\.com(?:[/?#]|$)` and the host receives `https://github.com/search?q=a&type=code`.
+`url` and `origin` are canonicalised by the input schema. `ToolManager.prepareExecution` hands the authorization gate and reviewer the schema's output, not the model's text, so a rule is tested against the address the browser loads. `runtime/query/__tests__/browser-site-rules.test.ts` drives the real kernel and gate: `HTTPS://GitHub.com.:443/search?q=a&type=code` is allowed by a rule for `^https://github\.com(?:[/?#]|$)` and the host receives `https://github.com/search?q=a&type=code`.
 
 `canonicalizeBrowserUrl(raw)` returns `{ ok, url, origin }` or `{ ok: false, reason }`:
 

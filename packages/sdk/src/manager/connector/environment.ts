@@ -1,6 +1,7 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
 import type { BaseExecutionContext } from '../../execution/base.js'
 import { ExecutionContextFactory } from '../../execution/factory.js'
+import { RegistryCollisionError } from '../../registry/collision.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type { ScopedConnectorRegistry } from '../../registry/connector/scoped.js'
 import type {
@@ -43,6 +44,21 @@ export interface EnvironmentConnectorManagerConfig {
 	log?: Logger
 }
 
+/** Two environments claiming one id. */
+export class EnvironmentCollisionError extends RegistryCollisionError {
+	readonly environmentId: string
+
+	constructor(environmentId: string) {
+		super(
+			'EnvironmentConnectorManager',
+			environmentId,
+			`Environment "${environmentId}" is already registered. Unregister it first via unregisterEnvironment(), or pick a different id.`,
+		)
+		this.name = 'EnvironmentCollisionError'
+		this.environmentId = environmentId
+	}
+}
+
 interface EnvironmentState {
 	descriptor: EnvironmentDescriptor
 	scopeChain: ScopeChain
@@ -71,10 +87,7 @@ export class EnvironmentConnectorManager {
 	registerEnvironment(setup: EnvironmentConnectorSetup): void {
 		const envId = setup.environment.id
 		if (this.environments.has(envId)) {
-			this.log.warn('Environment already registered, skipping', {
-				'namzu.environment.id': envId,
-			})
-			return
+			throw new EnvironmentCollisionError(envId)
 		}
 
 		const manager = new ConnectorManager({ registry: this.connectorRegistry, log: this.log })

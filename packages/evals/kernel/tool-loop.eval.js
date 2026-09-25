@@ -21,7 +21,7 @@ import { join } from "node:path";
 import {
 	MockLLMProvider,
 	SessionPaths,
-	ToolRegistry,
+	toolset,
 	autoApproveHandler,
 	completionScorer,
 	drainQuery,
@@ -41,34 +41,35 @@ const TOOL_NAMES = ["read_file", "write_file", "search"];
 
 /**
  * @param {readonly string[]} failing
- * @returns {ToolRegistry}
+ * @returns {readonly import("@namzu/sdk").Toolset[]}
  */
-function registry(failing = []) {
-	const tools = new ToolRegistry();
-	for (const name of TOOL_NAMES) {
-		tools.register({
-			name,
-			description: `${name}, for the eval suite`,
-			inputSchema: z.object({
-				path: z.string().optional(),
-				query: z.string().optional(),
-			}),
-			// Declared, not defaulted. Without these the permission gate parks
-			// for an approval no one is there to give, and the suite hangs
-			// rather than failing — which is how a gate reports success by
-			// never finishing.
-			category: "custom",
-			permissions: [],
-			readOnly: true,
-			destructive: false,
-			concurrencySafe: true,
-			execute: async () =>
-				failing.includes(name)
-					? { success: false, output: "", error: `${name} refused` }
-					: { success: true, output: `${name} ok` },
-		});
-	}
-	return tools;
+function toolsets(failing = []) {
+	return [
+		toolset(
+			"test",
+			TOOL_NAMES.map((name) => ({
+				name,
+				description: `${name}, for the eval suite`,
+				inputSchema: z.object({
+					path: z.string().optional(),
+					query: z.string().optional(),
+				}),
+				// Declared, not defaulted. Without these the permission gate parks
+				// for an approval no one is there to give, and the suite hangs
+				// rather than failing — which is how a gate reports success by
+				// never finishing.
+				category: "custom",
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () =>
+					failing.includes(name)
+						? { success: false, output: "", error: `${name} refused` }
+						: { success: true, output: `${name} ok` },
+			})),
+		),
+	];
 }
 
 /** @param {{turns: unknown[], maxIterations?: number, prepareStep?: unknown, failing?: string[]}} input */
@@ -80,7 +81,7 @@ async function runCase(input) {
 		const provider = new MockLLMProvider({ turns: input.turns });
 		const turn = await drainQuery({
 			provider,
-			tools: registry(input.failing),
+			toolsets: toolsets(input.failing),
 			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,

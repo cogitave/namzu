@@ -32,7 +32,8 @@ export {
 	untrustedEnvelopeBody,
 	wrapUntrusted,
 } from './tools/untrusted-envelope.js'
-export { filterReadOnlyTools, filterToolsNamed } from './tools/roster.js'
+export { matchesToolSelector } from './tools/roster.js'
+export type { ToolSelector } from './tools/roster.js'
 export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-envelope.js'
 
 // ─── Built-in tools ──────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ export {
 	allConnectorTools,
 	connectorInstanceToTools,
 	connectorMethodToTool,
-	ConnectorToolRouter,
+	connectorTools,
 	createConnectorExecuteTool,
 	createConnectorListTool,
 	createConnectorRouterTool,

@@ -7,8 +7,9 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { SessionPaths } from '../../session/paths.js'
+import { testToolset } from '../../test-support/toolset.js'
+import type { Toolset } from '../../toolsets/types.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -56,7 +57,7 @@ function fsTool(name: string): ToolDefinition {
 	} as unknown as ToolDefinition
 }
 
-async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
+async function baseConfig(provider: MockLLMProvider, toolsets: readonly Toolset[]) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-reach-'))
 	dirs.push(workingDirectory)
 	return {
@@ -67,7 +68,7 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 			timeoutMs: 10_000,
 			maxIterations: 4,
 			provider,
-			tools,
+			toolsets,
 			sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
 			topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
 			projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
@@ -79,7 +80,7 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 describe('ReactiveAgent forwards the loop-control seams', () => {
 	it('reaches an injected durable layout without touching the cwd fallback', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-reach-state-'))
 		dirs.push(stateRoot)
 
@@ -95,7 +96,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 
 	it('reaches an output guardrail', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'raw answer' }] })
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
@@ -112,7 +113,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ text: 'one' }, { text: 'two' }, { text: 'three' }],
 		})
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 
 		await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
@@ -124,7 +125,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 
 	it('reaches prepareStep', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 
 		await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
@@ -140,7 +141,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		// hook a host configures and nothing honours — which reads exactly
 		// like a hook that decided not to fire.
 		const provider = new MockLLMProvider({ turns: [{ text: 'never' }] })
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
@@ -153,7 +154,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 
 	it('reaches an input guardrail, so a refusal costs nothing', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'never' }] })
-		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const { workingDirectory, config } = await baseConfig(provider, [])
 
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
@@ -176,9 +177,9 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'read_file', args: {} }] }, { text: 'done' }],
 		})
-		const tools = new ToolRegistry()
-		tools.register(fsTool('read_file'))
-		const { workingDirectory, config } = await baseConfig(provider, tools)
+		const { workingDirectory, config } = await baseConfig(provider, [
+			testToolset(fsTool('read_file')),
+		])
 		const onStepFinish = vi.fn()
 
 		await agent().run(
@@ -219,7 +220,7 @@ describe('SupervisorAgent forwards the durable layout seam', () => {
 			provider,
 			agentIds: ['worker'],
 			agentManager: manager,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 10_000,
@@ -249,10 +250,9 @@ describe('the <env> block keys on what a tool declares, not its name', () => {
 		// `permissions: ['file_read']` used to get NO env block, so the model
 		// was never told its working directory and the host hand-encoded
 		// paths into the system prompt instead.
-		const tools = new ToolRegistry()
-		tools.register(fsTool('read_file'))
+		const tools = testToolset(fsTool('read_file'))
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const { workingDirectory, config } = await baseConfig(provider, tools)
+		const { workingDirectory, config } = await baseConfig(provider, [tools])
 
 		await agent().run({ messages: [createUserMessage('go')], workingDirectory }, config)
 
@@ -264,8 +264,7 @@ describe('the <env> block keys on what a tool declares, not its name', () => {
 	})
 
 	it('still says nothing when no tool touches the filesystem', async () => {
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'add',
 			description: 'add numbers',
 			inputSchema: z.object({}),
@@ -273,7 +272,7 @@ describe('the <env> block keys on what a tool declares, not its name', () => {
 			execute: () => Promise.resolve({ success: true, output: '2' }),
 		} as unknown as ToolDefinition)
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const { workingDirectory, config } = await baseConfig(provider, tools)
+		const { workingDirectory, config } = await baseConfig(provider, [tools])
 
 		await agent().run({ messages: [createUserMessage('go')], workingDirectory }, config)
 
@@ -304,9 +303,9 @@ describe('a provider is not handed the live turn array', () => {
 			return original(params)
 		}
 
-		const tools = new ToolRegistry()
-		tools.register(fsTool('read_file'))
-		const { workingDirectory, config } = await baseConfig(provider, tools)
+		const { workingDirectory, config } = await baseConfig(provider, [
+			testToolset(fsTool('read_file')),
+		])
 
 		await agent().run({ messages: [createUserMessage('go')], workingDirectory }, config)
 
@@ -337,10 +336,9 @@ describe('a provider is not handed the live turn array', () => {
 			return original(params)
 		}
 
-		const tools = new ToolRegistry()
-		tools.register(fsTool('read_file'))
-		tools.register(fsTool('write_file'))
-		const { workingDirectory, config } = await baseConfig(provider, tools)
+		const { workingDirectory, config } = await baseConfig(provider, [
+			testToolset(fsTool('read_file'), fsTool('write_file')),
+		])
 
 		await agent().run({ messages: [createUserMessage('go')], workingDirectory }, {
 			...config,

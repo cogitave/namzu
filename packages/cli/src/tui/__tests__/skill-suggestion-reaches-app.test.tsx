@@ -16,6 +16,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import { readSuggestionLedger } from '../skills/suggestion-ledger.js'
 import type { TuiContext } from '../types.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -75,6 +76,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'test-provider',
 			modelSummary: 'test-model',
 			toolNames: () => [],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			agentIds: [],

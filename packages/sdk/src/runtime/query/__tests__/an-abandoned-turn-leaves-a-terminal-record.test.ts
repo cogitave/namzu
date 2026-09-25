@@ -20,11 +20,12 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { agentTurnSpanName } from '../../../telemetry/attributes.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { isTerminalStatus } from '../../../types/common/index.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, UserQuestionData } from '../../../types/hitl/index.js'
@@ -135,9 +136,8 @@ function recordingTracer(): {
 	}
 }
 
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -150,7 +150,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 describe('a host that walks away from the generator', () => {
@@ -176,7 +175,7 @@ describe('a host that walks away from the generator', () => {
 					{ text: 'never reached' },
 				],
 			}),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			sessionLog,
 			questionParks: parks,
 			agentId: 'agent_abandoned',

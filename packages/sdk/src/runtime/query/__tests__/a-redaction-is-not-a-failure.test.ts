@@ -17,8 +17,9 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { ToolCall } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import { generateSessionId } from '../../../utils/id.js'
@@ -33,15 +34,18 @@ function toolsThatReturn(result: {
 	success: boolean
 	output: string
 	content?: unknown
-}): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
-		name: 'fetch_config',
-		description: 'Returns configuration.',
-		inputSchema: z.object({}),
-		execute: async () => result as never,
+}): ToolManager {
+	return new ToolManager({
+		toolsets: [
+			testToolset({
+				name: 'fetch_config',
+				description: 'Returns configuration.',
+				inputSchema: z.object({}),
+				execute: async () => result as never,
+			}),
+		],
+		messages: () => [],
 	})
-	return tools
 }
 
 /**
@@ -68,7 +72,7 @@ function call(): ToolCall {
 }
 
 async function runWith(
-	tools: ToolRegistry,
+	tools: ToolManager,
 	hookResults: PluginHookResult[],
 ): Promise<{ output: string; isError?: boolean; content?: unknown }> {
 	const stub = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }

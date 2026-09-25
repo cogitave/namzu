@@ -4,10 +4,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { LocalSandboxProvider } from '../../../sandbox/provider/local.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
@@ -27,10 +28,8 @@ afterEach(async () => {
 	workspaces.length = 0
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register([WriteFileTool, BashTool])
-	return registry
+function tools(): Toolset {
+	return testToolset(WriteFileTool, BashTool)
 }
 
 async function run(
@@ -39,7 +38,7 @@ async function run(
 ): Promise<Awaited<ReturnType<typeof drainQuery>>> {
 	return drainQuery({
 		provider,
-		tools: tools(),
+		toolsets: [tools()],
 		sandboxProvider: new LocalSandboxProvider(NOOP_LOGGER),
 		turnConfig: {
 			model: 'mock-model',

@@ -14,7 +14,7 @@
  *       "search":   { "url": "https://tools.example.internal/mcp" }
  *     }
  *
- * Its tools arrive prefixed with the server's name (`mcp_tickets_create`), so
+ * Its tools arrive prefixed with the server's name (`mcp__tickets__create`), so
  * two servers offering `search` do not collide and the transcript says where a
  * call went.
  *
@@ -34,9 +34,13 @@
 
 import {
 	MCPClient,
+	type MCPToolDrift,
+	type MCPToolsetOptions,
 	type MCPTransportUnion,
 	type ToolDefinition,
-	mcpToolToToolDefinition,
+	type Toolset,
+	mcpToolset,
+	requireApproval,
 } from '@namzu/sdk'
 
 /**
@@ -64,6 +68,15 @@ export interface McpServerSpec {
 	/** Stdio: the executable to run. */
 	readonly command?: string
 	readonly args?: readonly string[]
+	/**
+	 * A value may reference the operator's own environment with a bare
+	 * `${VAR_NAME}` — no `${VAR:-default}` fallback, and an unset
+	 * `VAR_NAME` fails this server with a named reason rather than running
+	 * with an empty string. See {@link expandEnvRefsInRecord}. Prefer
+	 * `inheritEnv` below for a plain "grant this variable under its own
+	 * name"; use `${VAR_NAME}` here to rename a variable into whatever key
+	 * the server expects.
+	 */
 	readonly env?: Readonly<Record<string, string>>
 	/**
 	 * Variables from the operator's own environment this server may have.
@@ -81,6 +94,11 @@ export interface McpServerSpec {
 	readonly cwd?: string
 	/** HTTP: the server's endpoint. */
 	readonly url?: string
+	/**
+	 * Same `${VAR_NAME}` expansion as `env` above — the only secret-safe
+	 * option for a header value, since `inheritEnv` reaches the stdio
+	 * child's process environment only, never an HTTP header.
+	 */
 	readonly headers?: Readonly<Record<string, string>>
 	/**
 	 * How long THIS server gets to connect, hand shake and list its tools, in
@@ -109,6 +127,18 @@ export interface McpServerSpec {
 	 * `connectTimeoutMs` for the handshake that will actually answer.
 	 */
 	readonly eraProbeTimeoutMs?: number
+	/** Server-reported names admitted from tools, prompts and resources. */
+	readonly allow?: readonly string[]
+	/** Server-reported names refused even if `allow` includes them. */
+	readonly deny?: readonly string[]
+	/** Retries only tool calls the SDK marks safe to repeat. Defaults to none. */
+	readonly maxRetries?: number
+	/** Require a person to approve every call this server contributes. */
+	readonly requireApproval?: boolean
+	/** Trust this server's read-only hints for review exemptions. Defaults to false. */
+	readonly readOnlyHintTrusted?: boolean
+	/** Include the server's own initialize instructions as untrusted turn context. Default false. */
+	readonly instructions?: boolean
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -120,11 +150,21 @@ export interface ConnectedMcpServer {
 	 * What this server actually contributes, by tool name.
 	 *
 	 * Carried from the listing rather than recovered later. The names arrive
-	 * prefixed with the server's own (`mcp_tickets_create`), so a caller COULD
+	 * prefixed with the server's own (`mcp__tickets__create`), so a caller COULD
 	 * split them back apart — but that turns an encoding this file owns into a
 	 * format two places have to agree about, and the list is free right here.
 	 */
 	readonly tools: readonly string[]
+	/** The server's current initialize instructions, if it supplied any. */
+	readonly instructions?: string
+	/** Names changed since this connection's first listing; changed definitions remain held. */
+	readonly drift?: MCPToolDrift
+	/** Current allow/deny refusals, by server-reported name. */
+	readonly refused?: readonly {
+		kind: 'tools' | 'prompts' | 'resources'
+		name: string
+		reason: 'not_allowed' | 'denied'
+	}[]
 }
 
 export interface FailedMcpServer {
@@ -134,8 +174,13 @@ export interface FailedMcpServer {
 }
 
 export interface McpConnection {
-	/** Adapted tools from every server that connected, ready to register. */
+	/** Current definitions from every connected server, read from its live toolsets. */
 	readonly tools: readonly ToolDefinition[]
+	/**
+	 * Two live entries per connected server: its configured main tools and its
+	 * always-deferred resource tools. Both carry the `mcp:<server>` source.
+	 */
+	readonly toolsets: readonly Toolset[]
 	/** One coherent live snapshot; use this when successes and failures are shown together. */
 	current(): {
 		readonly connected: readonly ConnectedMcpServer[]
@@ -157,33 +202,95 @@ export interface McpConnection {
 }
 
 /**
+ * A bare `${VAR}` reference inside an `env` or `headers` value — identifier
+ * characters only, no `:-default` fallback. See {@link expandEnvRefsInRecord}.
+ */
+const ENV_REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+
+/**
+ * Expand `${VAR}` references inside `env`/`headers` values against the
+ * operator's own environment.
+ *
+ * Deliberately narrower than the interpolation some other MCP clients'
+ * configs use (see docs/cli/mcp-servers.md): bare `${VAR}` only, no
+ * `${VAR:-default}` fallback, and only inside `env` and `headers` values —
+ * never `command`, `args`, `url` or `cwd`, which have no legitimate secret
+ * use case and would only widen the surface for an accidental literal `${`
+ * to break. A referenced variable that is unset is refused with a named
+ * reason, not silently substituted with an empty string: that is exactly
+ * the footgun a `:-default` fallback would reintroduce, and this module's
+ * whole design is "every failure is named" rather than a server running
+ * quietly with a secret it never got.
+ *
+ * `inheritEnv` stays the primary idiom for "grant this named variable to
+ * the child process under its own name" — this is for the config VALUE
+ * itself, letting an operator rename an env var into whatever key or
+ * header a server expects, and giving `headers` a secret-safe option it
+ * has never had (`inheritEnv` only reaches the stdio child's process env,
+ * not header values).
+ *
+ * Returns the expanded record, or a reason string naming the first unset
+ * variable a value referenced.
+ */
+export function expandEnvRefsInRecord(
+	record: Readonly<Record<string, string>>,
+	env: NodeJS.ProcessEnv,
+): Readonly<Record<string, string>> | string {
+	const result: Record<string, string> = {}
+	for (const [key, raw] of Object.entries(record)) {
+		let missing: string | undefined
+		const expanded = raw.replace(ENV_REF_PATTERN, (whole, name: string) => {
+			const value = env[name]
+			if (value === undefined) {
+				missing = name
+				return whole
+			}
+			return value
+		})
+		if (missing !== undefined) {
+			return `references \${${missing}}, which is not set in the operator's environment`
+		}
+		result[key] = expanded
+	}
+	return result
+}
+
+/**
  * Turn one spec into a transport, or say why it is not one.
  *
  * Refused rather than guessed. A spec with both a command and a URL is an
  * operator who edited one into a file that already had the other, and picking
  * either would run something they did not mean to run.
  */
-export function transportFor(spec: McpServerSpec, defaultCwd: string): MCPTransportUnion | string {
+export function transportFor(
+	spec: McpServerSpec,
+	defaultCwd: string,
+	env: NodeJS.ProcessEnv = process.env,
+): MCPTransportUnion | string {
 	const hasCommand = typeof spec.command === 'string' && spec.command.trim().length > 0
 	const hasUrl = typeof spec.url === 'string' && spec.url.trim().length > 0
 	if (hasCommand && hasUrl) {
 		return 'it declares both a command and a url — pick one'
 	}
 	if (hasCommand) {
+		const expandedEnv = spec.env ? expandEnvRefsInRecord(spec.env, env) : undefined
+		if (typeof expandedEnv === 'string') return expandedEnv
 		return {
 			type: 'stdio',
 			command: spec.command as string,
 			...(spec.args ? { args: [...spec.args] } : {}),
-			...(spec.env ? { env: { ...spec.env } } : {}),
+			...(expandedEnv ? { env: expandedEnv } : {}),
 			...(spec.inheritEnv ? { inheritEnv: [...spec.inheritEnv] } : {}),
 			cwd: spec.cwd ?? defaultCwd,
 		}
 	}
 	if (hasUrl) {
+		const expandedHeaders = spec.headers ? expandEnvRefsInRecord(spec.headers, env) : undefined
+		if (typeof expandedHeaders === 'string') return expandedHeaders
 		return {
 			type: 'streamable-http',
 			url: spec.url as string,
-			...(spec.headers ? { headers: { ...spec.headers } } : {}),
+			...(expandedHeaders ? { headers: expandedHeaders } : {}),
 		}
 	}
 	return 'it declares neither a command nor a url'
@@ -243,17 +350,61 @@ export function eraProbeTimeoutFor(spec: McpServerSpec): number | undefined | st
 	return ms
 }
 
+function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions | string {
+	for (const field of ['allow', 'deny'] as const) {
+		const value = spec[field]
+		if (
+			value !== undefined &&
+			(!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item.length > 0))
+		) {
+			return `${field} must be a list of nonempty server-reported names`
+		}
+	}
+	if (
+		spec.maxRetries !== undefined &&
+		(!Number.isSafeInteger(spec.maxRetries) || spec.maxRetries < 0)
+	) {
+		return `maxRetries must be a nonnegative integer, got ${JSON.stringify(spec.maxRetries)}`
+	}
+	if (spec.requireApproval !== undefined && typeof spec.requireApproval !== 'boolean') {
+		return 'requireApproval must be true or false'
+	}
+	if (spec.readOnlyHintTrusted !== undefined && typeof spec.readOnlyHintTrusted !== 'boolean') {
+		return 'readOnlyHintTrusted must be true or false'
+	}
+	if (spec.instructions !== undefined && typeof spec.instructions !== 'boolean') {
+		return 'instructions must be true or false'
+	}
+	return {
+		id: `mcp:${name}`,
+		allow: spec.allow,
+		deny: spec.deny,
+		maxRetries: spec.maxRetries,
+		readOnlyHintTrusted: spec.readOnlyHintTrusted,
+	}
+}
+
 export async function connectMcpServers(
 	config: McpServersConfig | undefined,
 	options: { readonly cwd: string },
 ): Promise<McpConnection> {
 	const entries = Object.entries(config ?? {})
-	const tools: ToolDefinition[] = []
+	const toolsets: Toolset[] = []
 	const startupFailed: FailedMcpServer[] = []
 	const clients: MCPClient[] = []
 	const liveServers: Array<{
 		readonly client: MCPClient
-		readonly summary: ConnectedMcpServer
+		readonly name: string
+		readonly toolsets: readonly Toolset[]
+		readonly discovery: {
+			readonly added: Set<string>
+			readonly removed: Set<string>
+			readonly changed: Set<string>
+			readonly refused: Map<
+				'tools' | 'prompts' | 'resources',
+				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+			>
+		}
 	}> = []
 
 	// Sequential, not parallel. Each server may spawn a process and each is
@@ -261,6 +412,10 @@ export async function connectMcpServers(
 	// of nothing and the failure output arrive interleaved, for a saving that
 	// matters only to someone running many servers, who has other problems.
 	for (const [name, spec] of entries) {
+		if (typeof spec !== 'object' || spec === null) {
+			startupFailed.push({ name, reason: 'server spec must be a mapping' })
+			continue
+		}
 		const transport = transportFor(spec, options.cwd)
 		if (typeof transport === 'string') {
 			startupFailed.push({ name, reason: transport })
@@ -276,30 +431,45 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: eraProbeTimeoutMs })
 			continue
 		}
+		const toolsetOptions = toolsetOptionsFor(spec, name)
+		if (typeof toolsetOptions === 'string') {
+			startupFailed.push({ name, reason: toolsetOptions })
+			continue
+		}
 		const client = new MCPClient({
 			serverName: name,
 			transport,
 			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
 		})
+		const discovery = {
+			added: new Set<string>(),
+			removed: new Set<string>(),
+			changed: new Set<string>(),
+			refused: new Map<
+				'tools' | 'prompts' | 'resources',
+				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+			>(),
+		}
 		try {
 			await withDeadline(client.connect(), deadline, `server "${name}"`)
-			const listed = await withDeadline(
-				client.listTools(),
+			const discovered = await withDeadline(
+				mcpToolset(client, {
+					...toolsetOptions,
+					onDrift: ({ drift }) => {
+						for (const item of drift.added) discovery.added.add(item)
+						for (const item of drift.removed) discovery.removed.add(item)
+						for (const item of drift.changed) discovery.changed.add(item)
+					},
+					onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
+				}),
 				deadline,
-				`server "${name}" listing its tools`,
+				`server "${name}" discovering its tools`,
 			)
-			// Adapted once, then read twice. Adapting a second time to collect
-			// the names would build a parallel set of definitions bound to the
-			// same client — cheap today and exactly the kind of duplicate a
-			// future adapter with a side effect turns into a bug.
-			const adapted = listed.map((tool) => mcpToolToToolDefinition(tool, client, name))
-			tools.push(...adapted)
-			const summary = {
-				name,
-				toolCount: adapted.length,
-				tools: adapted.map((tool) => tool.name),
-			} satisfies ConnectedMcpServer
-			liveServers.push({ client, summary })
+			const mounted = spec.requireApproval
+				? discovered.map((entry) => requireApproval(entry))
+				: [...discovered]
+			toolsets.push(...mounted)
+			liveServers.push({ client, name, toolsets: mounted, discovery })
 			clients.push(client)
 		} catch (err) {
 			startupFailed.push({ name, reason: reasonOf(err) })
@@ -327,14 +497,30 @@ export async function connectMcpServers(
 	} => {
 		const connected: ConnectedMcpServer[] = []
 		const failed: FailedMcpServer[] = [...startupFailed]
-		for (const { client, summary } of liveServers) {
+		for (const { client, name, toolsets: serverToolsets, discovery } of liveServers) {
 			const state = client.getState()
 			if (state.status === 'connected') {
-				connected.push(summary)
+				const names = serverToolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
+				connected.push({
+					name,
+					toolCount: names.length,
+					tools: names,
+					drift: {
+						added: [...discovery.added],
+						removed: [...discovery.removed],
+						changed: [...discovery.changed],
+					},
+					refused: [...discovery.refused.entries()].flatMap(([kind, items]) =>
+						items.map((item) => ({ kind, ...item })),
+					),
+					...(state.serverInstructions !== undefined
+						? { instructions: state.serverInstructions }
+						: {}),
+				})
 				continue
 			}
 			failed.push({
-				name: summary.name,
+				name,
 				reason:
 					state.error ??
 					(state.status === 'disconnected'
@@ -346,7 +532,10 @@ export async function connectMcpServers(
 	}
 
 	return {
-		tools,
+		get tools() {
+			return toolsets.flatMap((entry) => entry.tools())
+		},
+		toolsets,
 		current,
 		get connected() {
 			return current().connected
@@ -355,6 +544,7 @@ export async function connectMcpServers(
 			return current().failed
 		},
 		close: async () => {
+			await Promise.all(toolsets.map((entry) => entry.close?.()))
 			await Promise.all(
 				clients.map((c) =>
 					withDeadline(c.disconnect(), CLOSE_TIMEOUT_MS, 'closing a tool server').catch(() => {

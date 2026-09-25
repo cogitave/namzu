@@ -31,17 +31,22 @@ function makeLogger(): never {
 function makeManager(hookTimeoutMs?: number) {
 	return new PluginLifecycleManager({
 		pluginRegistry: {} as never,
-		toolRegistry: {} as never,
 		scopeRoots: { project: process.cwd(), user: process.cwd() },
 		log: makeLogger(),
 		...(hookTimeoutMs !== undefined ? { hookTimeoutMs } : {}),
 	})
 }
 
-const record = (order: string[], name: string, result?: PluginHookResult) => async () => {
-	order.push(name)
-	return result ?? ({ action: 'continue' } as PluginHookResult)
-}
+const record =
+	<T extends PluginHookResult = { action: 'continue' }>(
+		order: string[],
+		name: string,
+		result?: T,
+	) =>
+	async (): Promise<T | { action: 'continue' }> => {
+		order.push(name)
+		return result ?? { action: 'continue' }
+	}
 
 describe('priority', () => {
 	it('runs a lower priority first, whatever order it was registered in', async () => {
@@ -58,7 +63,10 @@ describe('priority', () => {
 			handler: record(order, 'guard'),
 		})
 
-		await manager.executeHooks('pre_tool_use', { sessionId: SESSION_ID, turnId: TURN_ID })
+		await manager.executeHooks('pre_tool_use', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		expect(order).toEqual(['guard', 'observer'])
 	})
 
@@ -96,7 +104,10 @@ describe('priority', () => {
 		}
 
 		// A plugin that never sets a priority behaves exactly as before.
-		await manager.executeHooks('iteration_start', { sessionId: SESSION_ID, turnId: TURN_ID })
+		await manager.executeHooks('iteration_start', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		expect(order).toEqual(['a', 'b', 'c'])
 	})
 
@@ -119,7 +130,10 @@ describe('priority', () => {
 
 		// Post hooks unwind, so whichever opened first closes last — the
 		// wrapping order a guard needs.
-		await manager.executeHooks('post_tool_use', { sessionId: SESSION_ID, turnId: TURN_ID })
+		await manager.executeHooks('post_tool_use', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		expect(order).toEqual(['observer', 'guard'])
 	})
 
@@ -131,7 +145,10 @@ describe('priority', () => {
 			priority: 200,
 			handler: async (ctx) => {
 				seen.push(ctx.toolInput)
-				return { action: 'modify', input: { ...(ctx.toolInput as object), second: true } }
+				return {
+					action: 'modify',
+					input: { ...(ctx.toolInput as object), second: true },
+				}
 			},
 		})
 		manager.registerHook('p_first' as PluginId, {
@@ -139,7 +156,10 @@ describe('priority', () => {
 			priority: 100,
 			handler: async (ctx) => {
 				seen.push(ctx.toolInput)
-				return { action: 'modify', input: { ...(ctx.toolInput as object), first: true } }
+				return {
+					action: 'modify',
+					input: { ...(ctx.toolInput as object), first: true },
+				}
 			},
 		})
 
@@ -170,7 +190,10 @@ describe('the deadline timer', () => {
 
 		vi.useFakeTimers()
 		try {
-			await manager.executeHooks('turn_start', { sessionId: SESSION_ID, turnId: TURN_ID })
+			await manager.executeHooks('turn_start', {
+				sessionId: SESSION_ID,
+				turnId: TURN_ID,
+			})
 			// An armed timer keeps the Node event loop alive. Hooks fire on
 			// every tool call and every model call, so a leak here meant a
 			// short turn could not exit until the last deadline expired.
@@ -213,7 +236,10 @@ describe('the deadline timer', () => {
 
 		vi.useFakeTimers()
 		try {
-			await manager.executeHooks('iteration_start', { sessionId: SESSION_ID, turnId: TURN_ID })
+			await manager.executeHooks('iteration_start', {
+				sessionId: SESSION_ID,
+				turnId: TURN_ID,
+			})
 			expect(vi.getTimerCount()).toBe(0)
 		} finally {
 			vi.useRealTimers()
@@ -257,7 +283,10 @@ describe('the deadline timer', () => {
 			},
 		})
 
-		await manager.executeHooks('turn_start', { sessionId: SESSION_ID, turnId: TURN_ID })
+		await manager.executeHooks('turn_start', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		await new Promise((resolve) => setTimeout(resolve, 20))
 		expect(aborted).toBe(false)
 	})

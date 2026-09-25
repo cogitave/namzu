@@ -1,6 +1,5 @@
 import type { RunAgentOptions } from '../agents/runAgent.js'
-import { ToolRegistry } from '../registry/tool/execute.js'
-
+import { toolset } from '../toolsets/toolset.js'
 import type { DeriveTurnOptionsInput, DirectoryManifest } from './types.js'
 
 /**
@@ -32,14 +31,18 @@ export function deriveTurnOptions(
 		)
 	}
 
-	const tools = new ToolRegistry()
-	for (const entry of manifest.tools) tools.register(entry.definition)
+	const toolsets = [
+		toolset(
+			'directory',
+			manifest.tools.map((entry) => entry.definition),
+		),
+	]
 
 	return {
 		provider: input.provider,
 		prompt: input.prompt,
 		model,
-		tools,
+		toolsets,
 		// The one value the project knows and `runAgent` cannot infer. Left
 		// unset it would default to the host's own cwd, pointing the file
 		// tools' containment at the host's source tree rather than at the

@@ -1,4 +1,4 @@
-import { ToolRegistry, generateTurnId } from '@namzu/sdk'
+import { generateTurnId } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -35,7 +35,7 @@ it('answers agent_task_list history from the logs without launching or listing a
 				paths: fixture.paths,
 				session: { sessionId: parent.sessionId },
 			}),
-		buildTools: () => new ToolRegistry(),
+		buildTools: () => [],
 		buildProvider: () => {
 			providers++
 			throw new Error('no child is launched by a history read')

@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
@@ -43,7 +42,7 @@ async function fixture(turns: MockTurn[]) {
 	})
 	return {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'review-inference',
 		agentName: 'Review inference',
 		workingDirectory: cwd,

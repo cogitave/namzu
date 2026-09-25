@@ -6,10 +6,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -40,8 +41,8 @@ async function mkWorkdir(): Promise<string> {
 	return dir
 }
 
-function registerEcho(tools: ToolRegistry): void {
-	tools.register({
+function registerEcho(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string().optional() }),
@@ -49,10 +50,10 @@ function registerEcho(tools: ToolRegistry): void {
 	})
 }
 
-async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
+async function baseParams(provider: MockLLMProvider, tools: ToolDefinition[]) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
@@ -74,7 +75,7 @@ async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
 describe('a step can force the model to call a tool', () => {
 	it('puts the caller choice on that step request', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		await drainQuery({
@@ -87,7 +88,7 @@ describe('a step can force the model to call a tool', () => {
 
 	it('carries a named function through unchanged', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		await drainQuery({
@@ -105,7 +106,7 @@ describe('a step can force the model to call a tool', () => {
 
 	it('leaves the request alone when no step asks', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		await drainQuery(await baseParams(provider, tools))
@@ -117,7 +118,7 @@ describe('a step can force the model to call a tool', () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 
 		await drainQuery({
-			...(await baseParams(provider, new ToolRegistry())),
+			...(await baseParams(provider, [])),
 			prepareStep: () => ({ toolChoice: 'required' as const }),
 		})
 
@@ -143,7 +144,7 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 				{ text: 'finished' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		await drainQuery({
@@ -166,7 +167,7 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 				{ text: 'finished' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({

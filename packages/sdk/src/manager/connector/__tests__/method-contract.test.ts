@@ -389,7 +389,11 @@ describe('ConnectorManager method contracts', () => {
 		exposed.methods.length = 0
 		methods[0]!.name = 'mutated_source'
 		;(instance as { connectorId: ConnectorId }).connectorId = OTHER_ID
-		registry.register({
+		// `replace`, not `register`: `ConnectorRegistry` throws on a
+		// duplicate id by default now (see `registry/collision.ts`), and
+		// this mutates the SAME id on purpose to prove the manager's
+		// projections are detached snapshots.
+		registry.replace(CONNECTOR_ID, {
 			...methodsDefinition('replacement_only'),
 			id: CONNECTOR_ID,
 		})
@@ -456,7 +460,8 @@ describe('ConnectorManager method contracts', () => {
 
 		const duplicateDefinition = methodsDefinition('registered')
 		duplicateDefinition.methods.push({ ...registeredMethod })
-		registry.register(duplicateDefinition)
+		// `replace`: same id ('registered'), a deliberately mutated definition.
+		registry.replace(CONNECTOR_ID, duplicateDefinition)
 		const duplicate = new ContractConnector([{ ...registeredMethod }, { ...registeredMethod }], {
 			success: true,
 			output: null,

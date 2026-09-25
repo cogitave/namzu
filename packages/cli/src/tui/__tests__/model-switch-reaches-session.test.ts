@@ -5,7 +5,7 @@ import {
 	type Message,
 	MockLLMProvider,
 	ProviderRegistry,
-	type ToolRegistryContract,
+	type Toolset,
 	createUserMessage,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -18,9 +18,9 @@ import {
 } from '../../integrations/providers/index.js'
 import type { AgentEvent, SendOptions } from '../agent.js'
 
-let childTools: (() => ToolRegistryContract) | undefined
+let childTools: (() => readonly Toolset[]) | undefined
 vi.mock('../../integrations/subagents/runtime.js', () => ({
-	createSubagentRuntime: async (options: { buildTools: () => ToolRegistryContract }) => {
+	createSubagentRuntime: async (options: { buildTools: () => readonly Toolset[] }) => {
 		childTools = options.buildTools
 		throw new Error('This fixture isolates the main conversation tools')
 	},
@@ -155,7 +155,11 @@ it('settles an accepted switch without another inference and preserves its recei
 			}),
 		)
 		expect(session.toolNames()).toContain('switch_model')
-		expect(childTools?.().listNames()).not.toContain('switch_model')
+		expect(
+			childTools?.()
+				.flatMap((ts) => ts.tools())
+				.map((tool) => tool.name),
+		).not.toContain('switch_model')
 	} finally {
 		await session.close()
 	}

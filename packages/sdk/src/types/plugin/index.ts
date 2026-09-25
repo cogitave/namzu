@@ -326,26 +326,41 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 	}
 }
 
-export interface PluginHookDefinition {
-	readonly event: PluginHookEvent
-	readonly handler: (context: PluginHookContext) => Promise<PluginHookResult>
-	/**
-	 * Lower runs first. Default 100.
-	 *
-	 * Order was install order, which is neither declared nor stable — it
-	 * depends on when each plugin happened to be installed. That is fine
-	 * for hooks that only observe, and wrong for the ones that decide:
-	 * `executeHooks` SHORT-CIRCUITS on `skip` and `error`, so a hook that
-	 * denies a dangerous command only gets to deny it if it runs before
-	 * whatever else stops the chain. A guard that fires depending on
-	 * installation history is not a guard.
-	 *
-	 * Ties keep registration order, so plugins that never set a priority
-	 * behave exactly as before. Convention: guards below 100, observers
-	 * above.
-	 */
-	readonly priority?: number
-}
+/** Actions the query can interpret for a particular hook event. */
+export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_prompt_submit'
+	? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
+	: E extends 'pre_tool_use'
+		? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
+		: E extends 'post_tool_use'
+			? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
+			: E extends 'turn_interrupt' | 'session_start' | 'session_end'
+				? Extract<PluginHookResult, { action: 'continue' }>
+				: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+
+/** The event and its handler verdict stay correlated, including in hook arrays. */
+export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
+	E extends PluginHookEvent
+		? {
+				readonly event: E
+				readonly handler: (context: PluginHookContext) => Promise<PluginHookResultFor<E>>
+				/**
+				 * Lower runs first. Default 100.
+				 *
+				 * Order was install order, which is neither declared nor stable — it
+				 * depends on when each plugin happened to be installed. That is fine
+				 * for hooks that only observe, and wrong for the ones that decide:
+				 * `executeHooks` SHORT-CIRCUITS on `skip` and `error`, so a hook that
+				 * denies a dangerous command only gets to deny it if it runs before
+				 * whatever else stops the chain. A guard that fires depending on
+				 * installation history is not a guard.
+				 *
+				 * Ties keep registration order, so plugins that never set a priority
+				 * behave exactly as before. Convention: guards below 100, observers
+				 * above.
+				 */
+				readonly priority?: number
+			}
+		: never
 
 // ---------------------------------------------------------------------------
 // Plugin MCP server config
@@ -367,6 +382,8 @@ export interface PluginManifest {
 	readonly version: string
 	readonly description: string
 	readonly author?: string
+	/** Plugin-authored request context, present only while this plugin is enabled. */
+	readonly instructions?: string
 	readonly tools?: readonly string[]
 	readonly skills?: readonly string[]
 	readonly hooks?: readonly string[]
@@ -391,6 +408,7 @@ export const PluginManifestSchema = z.object({
 	version: z.string().min(1),
 	description: z.string().min(1),
 	author: z.string().optional(),
+	instructions: z.string().min(1).optional(),
 	tools: z.array(z.string()).max(MAX_TOOLS_PER_PLUGIN).optional(),
 	skills: z.array(z.string()).max(MAX_SKILLS_PER_PLUGIN).optional(),
 	hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),
@@ -419,7 +437,12 @@ export interface PluginDefinition {
 // ---------------------------------------------------------------------------
 
 export type PluginLifecycleEvent =
-	| { type: 'plugin_installed'; pluginId: PluginId; name: string; scope: PluginScope }
+	| {
+			type: 'plugin_installed'
+			pluginId: PluginId
+			name: string
+			scope: PluginScope
+	  }
 	| { type: 'plugin_enabled'; pluginId: PluginId; name: string }
 	| { type: 'plugin_disabled'; pluginId: PluginId; name: string }
 	| { type: 'plugin_uninstalled'; pluginId: PluginId; name: string }

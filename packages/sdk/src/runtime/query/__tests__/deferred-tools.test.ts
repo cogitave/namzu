@@ -6,10 +6,13 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { SearchToolsTool } from '../../../tools/builtins/search-tools.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import type { Toolset } from '../../../toolsets/types.js'
+import { deferred } from '../../../toolsets/wrappers.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { type Message, createToolMessage, createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { generateSessionId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
@@ -26,17 +29,16 @@ function capturingProvider(): MockLLMProvider {
 	return new MockLLMProvider({ turns: [{ text: 'done' }] })
 }
 
-function registerDeferredDocumentTool(tools: ToolRegistry, name = 'generate_document'): void {
-	tools.register(
-		{
+function deferredDocumentTool(name = 'generate_document'): Toolset {
+	return deferred(
+		testToolset({
 			name,
 			description: 'Generate a project document by document id.',
 			inputSchema: z.object({
 				documentId: z.string(),
 			}),
 			execute: async () => ({ success: true, output: 'generated' }),
-		},
-		'deferred',
+		}),
 	)
 }
 
@@ -48,17 +50,44 @@ describe('query deferred tool discovery', () => {
 		workdirs = []
 	})
 
+	it('rejects a deferred caller-provided search_tools instead of silently deadlocking discovery', async () => {
+		const provider = capturingProvider()
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-deferred-tools-'))
+		workdirs.push(workingDirectory)
+		await expect(
+			drainQuery({
+				provider,
+				toolsets: [deferred(testToolset(SearchToolsTool)), deferredDocumentTool()],
+				turnConfig: {
+					model: 'mock-model',
+					timeoutMs: 5_000,
+					tokenBudget: 100_000,
+					maxIterations: 1,
+					maxResponseTokens: 256,
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('find a document tool')],
+				workingDirectory,
+				sessionId: '5df50119-0604-4efb-9ce9-ec54a635b257' as SessionId,
+				topicId: '2d636b87-b749-4b32-9f0b-5cc6dec1cd13' as TopicId,
+				projectId: 'f8135875-706b-426d-8012-26fccc63ec88' as ProjectId,
+				tenantId: '89016fd9-b650-4aea-9ce4-a7c85ccb789d' as TenantId,
+			}),
+		).rejects.toThrow(/search_tools must be active and ready/)
+		expect(provider.requests).toHaveLength(0)
+	})
+
 	it('auto-exposes search_tools when deferred tools are registered', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
-		registerDeferredDocumentTool(tools)
+		const tools = deferredDocumentTool()
 
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-deferred-tools-'))
 		workdirs.push(workingDirectory)
 
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
@@ -77,9 +106,7 @@ describe('query deferred tool discovery', () => {
 		})
 
 		expect(run.status).toBe('completed')
-		expect(tools.has(SearchToolsTool.name)).toBe(true)
-		expect(tools.getAvailability(SearchToolsTool.name)).toBe('active')
-		expect(tools.getAvailability('generate_document')).toBe('deferred')
+		expect(tools.availability).toBe('deferred')
 
 		const toolNames =
 			provider.requests
@@ -101,15 +128,14 @@ describe('query deferred tool discovery', () => {
 
 	it('keeps search_tools executable when allowedTools names a deferred tool', async () => {
 		const provider = capturingProvider()
-		const tools = new ToolRegistry()
-		registerDeferredDocumentTool(tools)
+		const tools = deferredDocumentTool()
 
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-deferred-tools-'))
 		workdirs.push(workingDirectory)
 
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			allowedTools: ['generate_document'],
 			turnConfig: {
 				model: 'mock-model',
@@ -129,7 +155,7 @@ describe('query deferred tool discovery', () => {
 		})
 
 		expect(run.status).toBe('completed')
-		expect(tools.getAvailability('generate_document')).toBe('deferred')
+		expect(tools.availability).toBe('deferred')
 
 		const toolNames =
 			provider.requests
@@ -147,9 +173,18 @@ describe('query deferred tool discovery', () => {
 	})
 
 	it('does not let search_tools reveal or activate deferred tools outside allowedTools', async () => {
-		const tools = new ToolRegistry()
-		registerDeferredDocumentTool(tools)
-		registerDeferredDocumentTool(tools, 'dangerous_purge_document')
+		const messages: Message[] = []
+		const tools = new ToolManager({
+			toolsets: [
+				deferred(
+					testToolset(
+						...deferredDocumentTool().tools(),
+						...deferredDocumentTool('dangerous_purge_document').tools(),
+					),
+				),
+			],
+			messages: () => messages,
+		})
 
 		// 'dangerous' matches only the out-of-allowlist tool ('delete'-style
 		// CRUD verbs are stop tokens and never match anything by themselves).
@@ -170,26 +205,30 @@ describe('query deferred tool discovery', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('No deferred tools matching "dangerous"')
 		expect(result.output).not.toContain('dangerous_purge_document')
-		expect(tools.getAvailability('generate_document')).toBe('deferred')
-		expect(tools.getAvailability('dangerous_purge_document')).toBe('deferred')
+		expect(tools.availability('generate_document')).toBe('deferred')
+		expect(tools.availability('dangerous_purge_document')).toBe('deferred')
 	})
 
 	it('activates only the top-5 ranked matches and reports near-misses without activating', async () => {
-		const tools = new ToolRegistry()
+		const messages: Message[] = []
 		// Eight deferred tools that all match "invoice" equally by name; the
 		// alphabetical tie-break makes the top-5 cut deterministic.
 		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((s) => `invoice_${s}`)
-		for (const name of names) {
-			tools.register(
-				{
-					name,
-					description: `Billing helper ${name.slice(-1)}.`,
-					inputSchema: z.object({ id: z.string() }),
-					execute: async () => ({ success: true, output: 'ok' }),
-				},
-				'deferred',
-			)
-		}
+		const tools = new ToolManager({
+			toolsets: [
+				deferred(
+					testToolset(
+						...names.map((name) => ({
+							name,
+							description: `Billing helper ${name.slice(-1)}.`,
+							inputSchema: z.object({ id: z.string() }),
+							execute: async () => ({ success: true, output: 'ok' }),
+						})),
+					),
+				),
+			],
+			messages: () => messages,
+		})
 
 		const result = await SearchToolsTool.execute(
 			{ query: 'invoice' },
@@ -212,11 +251,19 @@ describe('query deferred tool discovery', () => {
 			count: 5,
 			nearMisses: ['invoice_f', 'invoice_g', 'invoice_h'],
 		})
+		messages.push(
+			createToolMessage(
+				result.output,
+				'search-invoice',
+				false,
+				result.reveals?.map((name) => tools.revealReceipt(name)),
+			),
+		)
 		for (const name of ['invoice_a', 'invoice_b', 'invoice_c', 'invoice_d', 'invoice_e']) {
-			expect(tools.getAvailability(name)).toBe('active')
+			expect(tools.availability(name)).toBe('active')
 		}
 		for (const name of ['invoice_f', 'invoice_g', 'invoice_h']) {
-			expect(tools.getAvailability(name)).toBe('deferred')
+			expect(tools.availability(name)).toBe('deferred')
 		}
 	})
 })

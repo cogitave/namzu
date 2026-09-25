@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ToolRegistryContract } from '@namzu/sdk'
+import type { Toolset } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -32,9 +32,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
-let capturedBuildTools: (() => ToolRegistryContract) | null = null
+let capturedBuildTools: (() => readonly Toolset[]) | null = null
 vi.mock('../subagents/runtime.js', () => ({
-	createSubagentRuntime: async (opts: { buildTools: () => ToolRegistryContract }) => {
+	createSubagentRuntime: async (opts: { buildTools: () => readonly Toolset[] }) => {
 		capturedBuildTools = opts.buildTools
 		return {
 			gatewayForTurn: async () => ({}) as never,
@@ -177,7 +177,9 @@ describe('where open_url is mounted', () => {
 		})
 		try {
 			expect(session.toolNames()).toContain(OPEN_URL_TOOL_NAME)
-			const child = (capturedBuildTools as unknown as () => ToolRegistryContract)().listNames()
+			const child = (capturedBuildTools as unknown as () => readonly Toolset[])()
+				.flatMap((ts) => ts.tools())
+				.map((tool) => tool.name)
 			expect(child).toContain('read')
 			expect(child).not.toContain(OPEN_URL_TOOL_NAME)
 		} finally {

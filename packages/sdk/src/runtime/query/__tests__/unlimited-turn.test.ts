@@ -7,9 +7,9 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { RuntimeConfigSchema } from '../../../config/runtime.js'
 import { TurnConfigSchema } from '../../../contracts/session/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { checkLimitsDetailed } from '../../../turn/LimitChecker.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { GuardCoordinator } from '../guard.js'
@@ -34,8 +34,7 @@ it.each([
 		}),
 	})
 	let observations = 0
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'observe',
 		description: 'Observe the next numbered sample.',
 		inputSchema: z.object({ index: z.number() }),
@@ -44,7 +43,7 @@ it.each([
 	const run = await drainQuery({
 		workingDirectory,
 		provider,
-		tools,
+		toolsets: [tools],
 		retry: false,
 		agentId: 'limit-test',
 		agentName: 'Limit test',

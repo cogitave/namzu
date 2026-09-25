@@ -18,7 +18,7 @@ does not enforce a tenant boundary without that host check.
 
 ```ts
 import {
-  createResidentStepContext, PromptContributionRegistry, ToolRegistry,
+  createResidentStepContext, PromptContributionRegistry, toolset,
   type ResidentStepPromptOptions, type TurnId,
 } from '@namzu/sdk'
 
@@ -29,8 +29,7 @@ export function contextForAdmission(
     ...options,
     authorizeLearningRead: context => context.turnId === turnId && isActive(),
   })
-  const tools = new ToolRegistry()
-  for (const tool of bundle.tools) tools.register(tool)
+  const tools = toolset('resident-step', bundle.tools)
   const promptContributions = new PromptContributionRegistry()
   for (const contribution of bundle.contributions) promptContributions.register(contribution)
   return { tools, promptContributions }
@@ -74,7 +73,10 @@ The older factory below retains eager disclosure for existing SDK hosts.
 [resident step](resident-agents.md). It returns two `PromptContribution` objects
 for the existing `PromptContributionRegistry`. Register them on the registry
 passed to `query` or `drainQuery`; other host contributions can use that same
-registry.
+registry. A host that disables a contribution owner calls
+`PromptContributionRegistry.unregister(id)` for each of its ids. It returns
+whether an entry existed; registering the same id again after re-enabling is
+then allowed and appears at the end of rendering order.
 
 `ResidentStepPromptOptions` requires `state: ResidentState` and
 `outputInstructions: string`. Optional fields are the admission's approved

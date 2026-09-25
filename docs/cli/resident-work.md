@@ -95,9 +95,10 @@ improved quality or a measured monetary saving.
 `run` and `start` accept `--tool-loading eager|deferred`, default `eager`.
 `deferred` keeps reading, file search, editing, shell/job and available web tools
 ready, but loads optional schemas such as delegation, task management and memory
-through `search_tools` when requested. Each step owns a fresh SDK
-[registry fork](../sdk/tool-discovery.md); discovery in one step cannot activate
-another step's tools. Newly loaded tools still pass the same permission rules,
+through `search_tools` when requested. Each step has an isolated session and
+a fresh [`ToolManager`](../sdk/tool-discovery.md) over its toolsets; discovery
+in one step cannot reveal another step's tools. Revealed tools still pass the
+same permission rules,
 plan restrictions, sandbox and execution gates. Provider-native web search is
 unchanged. This option reduces initial schema context; discovery adds a model
 round trip when an optional tool is needed.

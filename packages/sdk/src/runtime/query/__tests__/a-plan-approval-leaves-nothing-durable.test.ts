@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { generateTurnId } from '../../../utils/id.js'
@@ -58,7 +57,7 @@ async function runToPlanApproval(): Promise<{
 	await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			...session,
 			agentId: 'agent_plan_approval',
 			agentName: 'Plan approval agent',

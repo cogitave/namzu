@@ -4,9 +4,9 @@ import { SessionGoalActivation } from '../../../manager/goal/activation.js'
 import { InMemorySessionGoalStore } from '../../../store/goal/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { generateTenantId, generateTopicId } from '../../../utils/id.js'
-import { ToolRegistry } from '../../tool/execute.js'
 import { HostCommandRegistry } from '../index.js'
 import { kernelHostCommands } from '../kernel-commands.js'
 
@@ -289,10 +289,10 @@ describe('a host command never becomes a model-visible tool', () => {
 		// The separation is the point. A registered command that leaked into
 		// the tool registry would be handed to a provider as a schema, and
 		// the model would call the operator's readout and spend a turn on it.
-		const tools = new ToolRegistry()
+		const tools = testToolset()
 		const commands = registryWith(kernelHostCommands({ allowedAgentIds: ['a'] }))
 
-		const toolNames = tools.listNames()
+		const toolNames = tools.tools().map((tool) => tool.name)
 
 		for (const command of commands.describe()) {
 			expect(toolNames).not.toContain(command.name)

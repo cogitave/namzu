@@ -7,7 +7,6 @@ import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -73,7 +72,7 @@ describe('end of turn with running agent tasks', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: {
 					model: 'mock-model',
 					// Deliberately longer than the vitest timeout: the old

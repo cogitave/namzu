@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	type SessionEvent,
 	type SessionId,
-	ToolRegistry,
+	ToolManager,
 	type TurnId,
 	createToolPresenter,
 } from '@namzu/sdk'
@@ -12,7 +12,7 @@ import { toAgentEvent } from '../agent.js'
 
 /** No tool is involved in any event here; the registry-backed presenter with an
  * empty registry gives exactly the generic fallback these assertions expect. */
-const presenter = createToolPresenter(new ToolRegistry())
+const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 
 /**
  * The seam between the kernel and the command.

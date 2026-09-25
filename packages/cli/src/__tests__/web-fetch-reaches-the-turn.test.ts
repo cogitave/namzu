@@ -24,8 +24,11 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
 	type Message,
 	type PromptContributionRegistry,
-	type ToolRegistryContract,
-	filterReadOnlyTools,
+	ToolManager,
+	type Toolset,
+	filtered,
+	isTrustedReadOnly,
+	toToolSourceRef,
 } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -42,15 +45,15 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
-const childToolBuilders: (() => ToolRegistryContract)[] = []
+const childToolBuilders: (() => readonly Toolset[])[] = []
 vi.mock('../integrations/subagents/runtime.js', async (load) => {
 	const actual = await load<typeof import('../integrations/subagents/runtime.js')>()
 	return {
 		...actual,
 		createSubagentRuntime: async (options: Parameters<typeof actual.createSubagentRuntime>[0]) => {
 			childToolBuilders.push(() => {
-				const tools = options.buildTools()
-				options.configureWebSearch?.(
+				const toolsets = options.buildTools()
+				const webSearch = options.configureWebSearch?.(
 					{
 						id: 'fixture',
 						name: 'fixture',
@@ -63,9 +66,15 @@ vi.mock('../integrations/subagents/runtime.js', async (load) => {
 						chatStream: async function* () {},
 					},
 					'fixture',
-					tools,
+					toolsets,
 				)
-				return tools
+				// The one tool `configureWebSearch` ever asks to have removed —
+				// see `subagents/runtime.ts`'s `configBuilder`, which this mock
+				// replicates rather than calling (it stands in for the whole
+				// runtime, not just this one function).
+				return webSearch
+					? toolsets.map((ts) => filtered(ts, (tool) => tool.name !== 'web_search'))
+					: toolsets
 			})
 			return actual.createSubagentRuntime(options)
 		},
@@ -129,13 +138,16 @@ async function drive(
 	}
 	expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 	const call = queryCalls[0] as Record<string, unknown>
-	const tools = call.tools as { listNames(): string[] }
+	const tools = new ToolManager({
+		toolsets: call.toolsets as readonly Toolset[],
+		messages: () => [],
+	})
 	const contributions = call.promptContributions as PromptContributionRegistry
 	return {
 		session,
 		turnConfig: call.turnConfig as { webSearch?: { mode: string } },
 		toolNames: tools.listNames(),
-		childTools: childToolBuilders.at(-1)?.(),
+		childToolsets: childToolBuilders.at(-1)?.(),
 		web: call.web as { fetch?: unknown } | undefined,
 		hasGuidance: contributions.has('namzu.web.citations'),
 	}
@@ -193,8 +205,13 @@ it('keeps hosted search absent when switched off', async () => {
 it('gives independent search to explore children without granting file writes', async () => {
 	const turn = await drive(undefined)
 	try {
-		expect(turn.childTools).toBeDefined()
-		const explore = filterReadOnlyTools(turn.childTools!)
+		expect(turn.childToolsets).toBeDefined()
+		const explore = new ToolManager({
+			toolsets: turn.childToolsets!.map((ts) =>
+				filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+			),
+			messages: () => [],
+		})
 		expect(explore.listNames()).toContain('web_search')
 		expect(explore.listNames()).not.toContain('write')
 		expect(explore.listNames()).not.toContain('edit')
@@ -207,7 +224,9 @@ it.each([{ search: 'off' as const }, { search: 'cached' as const, backend: 'nati
 	async (config) => {
 		const turn = await drive(config)
 		try {
-			expect(turn.childTools?.listNames()).not.toContain('web_search')
+			expect(
+				turn.childToolsets?.flatMap((ts) => ts.tools()).map((tool) => tool.name),
+			).not.toContain('web_search')
 		} finally {
 			await turn.session.close()
 		}

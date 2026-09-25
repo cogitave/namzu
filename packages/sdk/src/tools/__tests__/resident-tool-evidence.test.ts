@@ -1,14 +1,17 @@
 import { expect, it, vi } from 'vitest'
 import type { ResidentToolEvidenceSource } from '../../manager/resident/tool-evidence.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { buildResidentToolEvidenceTools } from '../resident-tool-evidence.js'
 
 it('rejects model-selected authority and malformed pointers before resolving the host', async () => {
 	const resolve = vi.fn<() => ResidentToolEvidenceSource>()
-	const registry = new ToolRegistry()
-	registry.register(buildResidentToolEvidenceTools(resolve))
+	const registry = new ToolManager({
+		toolsets: [testToolset(...buildResidentToolEvidenceTools(resolve))],
+		messages: () => [],
+	})
 	const context: ToolContext = {
 		sessionId: generateSessionId(),
 		turnId: generateTurnId(),

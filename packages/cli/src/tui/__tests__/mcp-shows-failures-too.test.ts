@@ -17,7 +17,7 @@ describe('renderMcp', () => {
 		// The load-bearing one. A page that listed only what worked would look
 		// correct and complete on a machine where nothing worked.
 		const rendered = renderMcp({
-			connected: [{ name: 'tickets', tools: ['mcp_tickets_create'] }],
+			connected: [{ name: 'tickets', tools: ['mcp__tickets__create'] }],
 			failed: [{ name: 'search', reason: 'command not found: uvx' }],
 		})
 		expect(rendered).toContain('search')
@@ -39,13 +39,40 @@ describe('renderMcp', () => {
 		// whether the tool they wanted is among them.
 		const rendered = renderMcp(
 			{
-				connected: [{ name: 'tickets', tools: ['mcp_tickets_create', 'mcp_tickets_search'] }],
+				connected: [{ name: 'tickets', tools: ['mcp__tickets__create', 'mcp__tickets__search'] }],
 				failed: [],
 			},
 			true,
 		)
-		expect(rendered).toContain('mcp_tickets_create')
-		expect(rendered).toContain('mcp_tickets_search')
+		expect(rendered).toContain('mcp__tickets__create')
+		expect(rendered).toContain('mcp__tickets__search')
+	})
+
+	it('shows server instructions safely in the detailed view', () => {
+		const mcp = {
+			connected: [{ name: 'tickets', tools: [], instructions: 'Use create.\u001b[31m' }],
+			failed: [],
+		}
+		expect(renderMcp(mcp, true)).toContain('instructions: Use create.\\u{001b}[31m')
+		expect(renderMcp(mcp, false)).not.toContain('Use create.')
+	})
+
+	it('shows drift, held changes and policy refusals', () => {
+		const rendered = renderMcp({
+			connected: [
+				{
+					name: 'tickets',
+					tools: ['mcp__tickets__create'],
+					drift: { added: ['new'], removed: ['old'], changed: ['create'] },
+					refused: [{ kind: 'tools', name: 'delete', reason: 'denied' }],
+				},
+			],
+			failed: [],
+		})
+		expect(rendered).toContain('added: new')
+		expect(rendered).toContain('removed: old')
+		expect(rendered).toContain('changed, earlier definition held: create')
+		expect(rendered).toContain('refused tools: delete (denied)')
 	})
 
 	it('says nothing is configured only when nothing is', () => {

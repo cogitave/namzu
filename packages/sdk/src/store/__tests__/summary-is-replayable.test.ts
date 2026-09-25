@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { readAuditTrail } from '../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -44,7 +43,7 @@ describe("a completed turn's audit trail replays to its own summary", () => {
 		const result = await drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,

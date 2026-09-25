@@ -6,9 +6,10 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { CheckpointScope, SessionCheckpointStore } from '../../../store/checkpoint/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../types/ids/index.js'
 import type { Checkpoint } from '../../../types/session/checkpoint.js'
@@ -86,9 +87,8 @@ afterEach(async () => {
 function pausingRegistry(
 	seen: Array<ToolPauseOutcome | undefined>,
 	store: StoreRefusingDuringQuestions,
-): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'deploy',
 			description: 'asks before it deploys',
@@ -109,7 +109,6 @@ function pausingRegistry(
 			},
 		}),
 	)
-	return tools
 }
 
 describe('a question whose park cannot be recorded', () => {
@@ -129,7 +128,7 @@ describe('a question whose park cannot be recorded', () => {
 						{ text: 'deployed to staging' },
 					],
 				}),
-				tools: pausingRegistry(seen, store),
+				toolsets: [pausingRegistry(seen, store)],
 				...session,
 				checkpointStore: store,
 				agentId: 'agent_question_refused',
@@ -191,7 +190,7 @@ describe('a question whose park cannot be recorded', () => {
 						{ text: 'deployed' },
 					],
 				}),
-				tools: pausingRegistry(seen, store),
+				toolsets: [pausingRegistry(seen, store)],
 				...session,
 				checkpointStore: store,
 				agentId: 'agent_question_refused',

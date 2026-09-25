@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
@@ -33,11 +33,10 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 	try {
 		const path = join(cwd, 'doc.md')
 		await writeFile(path, 'alpha\nbeta\n')
-		const tools = new ToolRegistry()
-		for (const tool of [ReadFileTool, EditTool]) tools.register(tool)
+		const tools = testToolset(ReadFileTool, EditTool)
 		const fileReadTracker = createFileReadTracker()
 		const base = {
-			tools,
+			toolsets: [tools],
 			fileReadTracker,
 			agentId: 'test',
 			agentName: 'test',
@@ -119,11 +118,10 @@ it('withholds a windowed read, which shows a fragment however large the window i
 	try {
 		const path = join(cwd, 'doc.md')
 		await writeFile(path, 'alpha\nbeta\ngamma\n')
-		const tools = new ToolRegistry()
-		tools.register(ReadFileTool)
+		const tools = testToolset(ReadFileTool)
 		const requests: Message[][] = []
 		await drainQuery({
-			tools,
+			toolsets: [tools],
 			fileReadTracker: createFileReadTracker(),
 			agentId: 'test',
 			agentName: 'test',

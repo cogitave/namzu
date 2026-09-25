@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
@@ -51,10 +52,8 @@ function tool(name: string) {
 	})
 }
 
-function registry(): ToolRegistry {
-	const r = new ToolRegistry()
-	for (const name of ['read', 'write', 'bash']) r.register(tool(name))
-	return r
+function registry(): Toolset {
+	return testToolset(...['read', 'write', 'bash'].map(tool))
 }
 
 /** Records the tool list every request carried. */
@@ -82,7 +81,7 @@ async function run(opts: {
 
 	const result = await drainQuery({
 		provider,
-		tools: registry(),
+		toolsets: [registry()],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
 		agentId: 'a',
 		agentName: 'A',

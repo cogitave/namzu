@@ -10,9 +10,9 @@ import { createResidentToolEvidenceSource } from '../../../manager/resident/tool
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { createResidentStepContributions } from '../../../prompt/resident-step.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createSessionEvidenceSource } from '../../../store/evidence/disk.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildResidentToolEvidenceTools } from '../../../tools/resident-tool-evidence.js'
 import {
 	type Message,
@@ -51,11 +51,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		)
 		const execution = agenda.execution(pursuit.id)
 		const claim = await execution.claim(pursuit.state, 1)
-		const tools = new ToolRegistry()
-		let effects = 0
-		const exact = 'RECEIPT-CODE ALPHA-739 🦉'
-		const output = `${'earlier record '.repeat(8000)}\n${exact}\n${'later record '.repeat(8000)}`
-		tools.register({
+		const tools = testToolset({
 			name: 'mint_receipt',
 			description: 'Create a one-time receipt.',
 			inputSchema: z.object({}).strict(),
@@ -65,6 +61,9 @@ it.each(['structured', 'sliding-window'] as const)(
 				return { success: true, output }
 			},
 		})
+		let effects = 0
+		const exact = 'RECEIPT-CODE ALPHA-739 🦉'
+		const output = `${'earlier record '.repeat(8000)}\n${exact}\n${'later record '.repeat(8000)}`
 		const common = {
 			workingDirectory: root,
 			agentId: 'receipt',
@@ -76,7 +75,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const first = await drainQuery({
 			...common,
 			...scope,
-			tools,
+			toolsets: [tools],
 			provider: new MockLLMProvider({
 				turns: [
 					{ toolCalls: [{ id: 'mint-once', name: 'mint_receipt', args: {} }] },
@@ -121,8 +120,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		while (!search.evidence?.matches.length && search.nextCursor)
 			search = await source.search({ query: 'RECEIPT-CODE', cursor: search.nextCursor })
 		const match = search.evidence!.matches[0]!
-		const reader = new ToolRegistry()
-		reader.register(buildResidentToolEvidenceTools(() => source))
+		const reader = testToolset(...buildResidentToolEvidenceTools(() => source))
 		const contributions = new PromptContributionRegistry()
 		for (const contribution of createResidentStepContributions({
 			state: settled,
@@ -170,7 +168,7 @@ it.each(['structured', 'sliding-window'] as const)(
 				sessionId: fixtureId.session(`read-${strategy}`),
 				turnId: fixtureId.turn(`read-${strategy}`),
 				provider,
-				tools: reader,
+				toolsets: [reader],
 				messages,
 				promptContributions: contributions,
 				compactionConfig: CompactionConfigSchema.parse({

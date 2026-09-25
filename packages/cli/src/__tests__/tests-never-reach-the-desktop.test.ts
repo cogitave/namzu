@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ToolRegistry } from '@namzu/sdk'
+import { ToolManager, type Toolset } from '@namzu/sdk'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -32,13 +32,13 @@ interface Refused {
 const refused = (): readonly Refused[] =>
 	(globalThis as { __namzuRefusedDesktopLaunches?: Refused[] }).__namzuRefusedDesktopLaunches ?? []
 
-let queryTools: ToolRegistry | undefined
+let queryTools: ToolManager | undefined
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
-		query: (params: { tools: ToolRegistry }) => {
-			queryTools = params.tools
+		query: (params: { toolsets: readonly Toolset[] }) => {
+			queryTools = new ToolManager({ toolsets: params.toolsets, messages: () => [] })
 			return (async function* () {})()
 		},
 	}

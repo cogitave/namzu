@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import type { ToolRegistryContract } from '@namzu/sdk'
+import { ToolManager, type Toolset } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 
@@ -25,9 +25,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 // The sub-agent's registry is built by a callback the session hands to this
 // factory, so capturing the callback is the only way to see what a sub-agent
 // would actually get — and it is the real wiring, not a re-derivation of it.
-let capturedBuildTools: (() => ToolRegistryContract) | null = null
+let capturedBuildTools: (() => readonly Toolset[]) | null = null
 vi.mock('../../integrations/subagents/runtime.js', () => ({
-	createSubagentRuntime: async (opts: { buildTools: () => ToolRegistryContract }) => {
+	createSubagentRuntime: async (opts: { buildTools: () => readonly Toolset[] }) => {
 		capturedBuildTools = opts.buildTools
 		return {
 			gatewayForTurn: async () => ({}) as never,
@@ -96,8 +96,8 @@ describe('search_tools is mounted only where a deferred roster exists', () => {
 			capturedBuildTools,
 			'the session must hand the sub-agent factory a tool builder',
 		).not.toBeNull()
-		const subagentTools = (capturedBuildTools as unknown as () => ToolRegistryContract)()
-		const subagentNames = subagentTools.listNames()
+		const subagentToolsets = (capturedBuildTools as unknown as () => readonly Toolset[])()
+		const subagentNames = subagentToolsets.flatMap((ts) => ts.tools()).map((tool) => tool.name)
 
 		// The whole point: same builder, and this side must NOT have it.
 		expect(subagentNames).not.toContain('search_tools')
@@ -112,11 +112,10 @@ describe('search_tools is mounted only where a deferred roster exists', () => {
 	it('leaves the sub-agent nothing deferred, which is why the tool is withheld', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
-		const subagentTools = (capturedBuildTools as unknown as () => ToolRegistryContract)()
+		const subagentToolsets = (capturedBuildTools as unknown as () => readonly Toolset[])()
+		const manager = new ToolManager({ toolsets: subagentToolsets, messages: () => [] })
 
-		const deferred = subagentTools
-			.listNames()
-			.filter((n) => subagentTools.getAvailability(n) === 'deferred')
+		const deferred = manager.listNames().filter((n) => manager.availability(n) === 'deferred')
 		expect(deferred).toEqual([])
 	})
 })

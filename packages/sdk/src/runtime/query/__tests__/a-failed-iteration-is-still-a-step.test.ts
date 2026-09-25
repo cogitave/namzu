@@ -24,16 +24,17 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookEvent } from '../../../types/plugin/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
-function registerEcho(tools: ToolRegistry): void {
-	tools.register({
+function registerEcho(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({}),
@@ -56,10 +57,10 @@ function failingAt(event: PluginHookEvent, message: string): PluginLifecycleMana
 	} as unknown as PluginLifecycleManager
 }
 
-function baseParams(provider: MockLLMProvider, tools: ToolRegistry, workingDirectory: string) {
+function baseParams(provider: MockLLMProvider, tools: ToolDefinition[], workingDirectory: string) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		turnConfig: {
 			model: 'run-model',
 			timeoutMs: 5_000,
@@ -99,7 +100,7 @@ describe('an iteration that failed still leaves a step', () => {
 				{ error: { message: 'upstream refused the request', status: 400 } },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -132,7 +133,7 @@ describe('an iteration that failed still leaves a step', () => {
 				{ error: { message: 'the third turn died' } },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 		const events: SessionEvent[] = []
 
@@ -169,7 +170,7 @@ describe('an iteration that failed still leaves a step', () => {
 		})
 
 		const run = await drainQuery({
-			...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+			...baseParams(provider, [], await mkWorkdir()),
 			pluginManager: failingAt('post_llm_call', 'the audit hook rejected the reply'),
 			messages: [createUserMessage('hello')],
 		})
@@ -196,7 +197,7 @@ describe('an iteration that failed still leaves a step', () => {
 
 		const run = await drainQuery(
 			{
-				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+				...baseParams(provider, [], await mkWorkdir()),
 				messages: [createUserMessage('hello')],
 			},
 			(e) => {
@@ -225,7 +226,7 @@ describe('an iteration that failed still leaves a step', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ id: 'c1', name: 'echo', rawArguments: '{}' }] }],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -254,7 +255,7 @@ describe('an iteration that failed still leaves a step', () => {
 		})
 
 		const run = await drainQuery({
-			...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
+			...baseParams(provider, [], await mkWorkdir()),
 			signal: controller.signal,
 			messages: [createUserMessage('hello')],
 		})
@@ -280,7 +281,7 @@ describe('an iteration that failed still leaves a step', () => {
 				},
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({

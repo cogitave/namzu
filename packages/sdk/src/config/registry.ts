@@ -1,5 +1,6 @@
 import type { ZodType, ZodTypeDef } from 'zod'
 
+import { RegistryCollisionError } from '../registry/collision.js'
 import { type ConfigOverrideStore, InMemoryConfigOverrideStore } from '../store/config/index.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
@@ -49,9 +50,11 @@ export interface ConfigScope<T> {
 	watch(listener: (next: T, previous: T) => void): () => void
 }
 
-export class ConfigNamespaceCollisionError extends Error {
+export class ConfigNamespaceCollisionError extends RegistryCollisionError {
 	constructor(readonly namespace: string) {
 		super(
+			'ConfigRegistry',
+			namespace,
 			`Configuration namespace "${namespace}" is already registered. Two owners of one namespace means whichever registered second silently decides the schema, so this refuses instead.`,
 		)
 		this.name = 'ConfigNamespaceCollisionError'

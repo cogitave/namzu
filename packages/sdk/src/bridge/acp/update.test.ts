@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { createToolPresenter } from '../../registry/tool/presentation.js'
 import { fixtureId } from '../../test-support/ids.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import type { SessionEvent } from '../../types/session/events.js'
 import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
 
@@ -18,7 +18,7 @@ import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
 const SID = fixtureId.session('acp')
 const TID = fixtureId.turn('acp')
 const MID = fixtureId.message('a')
-const presenter = createToolPresenter(new ToolRegistry())
+const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 
 describe('what this protocol has a word for', () => {
 	it('maps a text delta to an assistant chunk', () => {

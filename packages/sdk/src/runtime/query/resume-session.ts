@@ -1,3 +1,4 @@
+import { assertSessionLogAttribution } from '../../manager/session/attribution.js'
 import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import type { SessionLease, SessionLog } from '../../store/session-log/index.js'
 import { NamzuError } from '../../types/errors/index.js'
@@ -75,6 +76,12 @@ export interface ResumeSessionParams
 export async function resumeSession(params: ResumeSessionParams): Promise<ResumeOutcome> {
 	const { scope, sessionLog, checkpointId, pendingDecision, listener, onEventReplay, ...rest } =
 		params
+	// A caller-chosen checkpoint scope is not proof that the source log belongs
+	// to it. Refuse foreign attribution before reading any checkpoint or park.
+	assertResumeRequestAttribution(params, scope)
+	if (!(await assertSessionLogAttribution(sessionLog, scope))) {
+		return { resumed: false, reason: 'no-checkpoint' }
+	}
 	const checkpointStore =
 		params.checkpointStore ??
 		(
@@ -114,7 +121,12 @@ export async function resumeSession(params: ResumeSessionParams): Promise<Resume
 	// A park is outstanding until it is answered.
 	const outstanding = state.pending && !state.pending.resolvedAt ? state.pending : undefined
 	if (outstanding && !pendingDecision) {
-		return { resumed: false, reason: 'awaiting-decision', pending: outstanding, state }
+		return {
+			resumed: false,
+			reason: 'awaiting-decision',
+			pending: outstanding,
+			state,
+		}
 	}
 
 	let replay: SessionLogReplay | undefined
@@ -147,10 +159,18 @@ export async function resumeSession(params: ResumeSessionParams): Promise<Resume
 		listener,
 	)
 
-	return { resumed: true, turn, state, ...(replay !== undefined ? { replay } : {}) }
+	return {
+		resumed: true,
+		turn,
+		state,
+		...(replay !== undefined ? { replay } : {}),
+	}
 }
 
-function assertResumeRequestAttribution(params: ResumeSessionParams, state: TurnState): void {
+function assertResumeRequestAttribution(
+	params: ResumeSessionParams,
+	state: TurnState | TurnStateScope,
+): void {
 	const mismatchedFields: string[] = []
 	if (params.scope.turnId !== state.turnId) mismatchedFields.push('turnId')
 	if (params.sessionId !== state.sessionId) mismatchedFields.push('sessionId')

@@ -6,12 +6,13 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	type StreamChunk,
-	ToolRegistry,
+	type Toolset,
 	TurnCancelled,
 	cancelCauseOf,
 	createUserMessage,
 	drainQuery,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -111,17 +112,14 @@ describe('a CLI blocking delegation ends with its parent', () => {
 							},
 						}
 					: {}),
-				buildTools: () => {
-					const tools = new ToolRegistry()
+				buildTools: (): readonly Toolset[] => {
 					const write = getBuiltinTools().find((tool) => tool.name === 'write')
 					if (!write) throw new Error('write tool fixture is missing')
-					tools.register(write)
-					return tools
+					return [toolset('test', [write])]
 				},
 			})
 			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
-			const parentTools = new ToolRegistry()
-			parentTools.register(runtime.agentTool)
+			const parentToolsets: Toolset[] = [toolset('test', [runtime.agentTool])]
 			const parentProvider = new MockLLMProvider({
 				turns: [
 					{
@@ -144,7 +142,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 			const pending = drainQuery({
 				taskScheduler: gateway,
 				provider: parentProvider,
-				tools: parentTools,
+				toolsets: parentToolsets,
 				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 10_000,

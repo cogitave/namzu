@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
@@ -38,15 +38,14 @@ async function readThroughQuery(added: boolean) {
 	await mkdir(cwd)
 	await mkdir(shared)
 	await writeFile(join(shared, 'lib.txt'), 'from the shared directory')
-	const tools = new ToolRegistry()
-	tools.register(ReadFileTool)
+	const tools = testToolset(ReadFileTool)
 	const call: MockTurn = {
 		toolCalls: [{ id: 'r1', name: 'read', args: { path: join(shared, 'lib.txt') } }],
 		finishReason: 'tool_calls',
 	}
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',

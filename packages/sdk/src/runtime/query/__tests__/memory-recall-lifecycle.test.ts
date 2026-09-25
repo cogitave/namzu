@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { buildMemoryTools } from '../../../tools/memory/index.js'
 import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import {
@@ -22,8 +22,7 @@ describe('memory controls the next actual model request', () => {
 			summary: 'Expiry',
 			content: 'cerulean-cache expires after 14 hours',
 		})
-		const tools = new ToolRegistry()
-		tools.register(buildMemoryTools(store))
+		const tools = testToolset(...buildMemoryTools(store))
 		const provider = new MockLLMProvider({
 			turns: [
 				{
@@ -61,7 +60,7 @@ describe('memory controls the next actual model request', () => {
 		})
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			prepareStep: createMemoryRecallStep({ store }),
 			agentId: 'memory-lifecycle',
 			agentName: 'Memory lifecycle',

@@ -7,7 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
@@ -49,8 +49,7 @@ describe('resumeSession refuses a completed turns checkpoint', () => {
 	it('throws instead of restarting a turn the log already closed', async () => {
 		const cwd = await workingTree()
 		const session = memorySession()
-		const tools = new ToolRegistry()
-		tools.register(ReadFileTool)
+		const tools = testToolset(ReadFileTool)
 
 		const turn = await drainQuery({
 			provider: new MockLLMProvider({
@@ -59,7 +58,7 @@ describe('resumeSession refuses a completed turns checkpoint', () => {
 					{ text: 'placeholder final answer' },
 				],
 			}),
-			tools,
+			toolsets: [tools],
 			messages: [createUserMessage('placeholder message')],
 			workingDirectory: cwd,
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 4 },
@@ -77,7 +76,7 @@ describe('resumeSession refuses a completed turns checkpoint', () => {
 		await expect(
 			resumeSession({
 				provider: new MockLLMProvider({ responseText: 'must not run' }),
-				tools: new ToolRegistry(),
+				toolsets: [],
 				scope: { ...session, turnId: turn.id },
 				checkpointStore: await heldCheckpointStore(session.sessionLog),
 				checkpointId,

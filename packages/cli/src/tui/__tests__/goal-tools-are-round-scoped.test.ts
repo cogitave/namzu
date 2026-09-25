@@ -11,7 +11,7 @@ import {
 	MockLLMProvider,
 	ProviderRegistry,
 	SESSION_GOAL_TOOL_NAMES,
-	type ToolRegistryContract,
+	type Toolset,
 	createUserMessage,
 	generateTenantId,
 	generateTopicId,
@@ -20,9 +20,9 @@ import {
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 
-let capturedBuildTools: (() => ToolRegistryContract) | null = null
+let capturedBuildTools: (() => readonly Toolset[]) | null = null
 vi.mock('../../integrations/subagents/runtime.js', () => ({
-	createSubagentRuntime: async (options: { buildTools: () => ToolRegistryContract }) => {
+	createSubagentRuntime: async (options: { buildTools: () => readonly Toolset[] }) => {
 		capturedBuildTools = options.buildTools
 		throw new Error('subagent intentionally unavailable in this fixture')
 	},
@@ -116,7 +116,9 @@ it('withholds goal tools from a human turn and exposes them only to an admitted 
 		}
 
 		expect(capturedBuildTools).not.toBeNull()
-		const childNames = (capturedBuildTools as unknown as () => ToolRegistryContract)().listNames()
+		const childNames = (capturedBuildTools as unknown as () => readonly Toolset[])()
+			.flatMap((ts) => ts.tools())
+			.map((tool) => tool.name)
 		for (const name of SESSION_GOAL_TOOL_NAMES) expect(childNames).not.toContain(name)
 		expect(childNames).toContain('bash')
 	} finally {

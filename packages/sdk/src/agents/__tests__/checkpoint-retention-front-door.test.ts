@@ -6,8 +6,8 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { SessionPaths } from '../../session/paths.js'
+import { testToolset } from '../../test-support/toolset.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -39,8 +39,7 @@ afterEach(async () => {
 async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-agent-retention-'))
 	dirs.push(root)
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'probe',
 		description: 'probe',
 		inputSchema: z.object({ n: z.number() }),
@@ -62,7 +61,7 @@ async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 		{ messages: [createUserMessage('probe six times')], workingDirectory: root },
 		{
 			provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-			tools,
+			toolsets: [tools],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 10_000,

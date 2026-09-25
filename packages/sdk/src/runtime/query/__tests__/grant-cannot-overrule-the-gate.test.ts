@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -29,8 +29,7 @@ registerMock()
 const ran: string[] = []
 
 function tools() {
-	const registry = new ToolRegistry()
-	registry.register(
+	const registry = testToolset(
 		defineTool({
 			name: 'shell',
 			description: 'run a command',
@@ -78,7 +77,7 @@ async function run(commands: readonly string[]) {
 
 	await drainQuery({
 		provider: new MockLLMProvider({ turns }),
-		tools: tools(),
+		toolsets: [tools()],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],

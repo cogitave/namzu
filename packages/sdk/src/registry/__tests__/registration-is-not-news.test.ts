@@ -72,15 +72,21 @@ describe('registering something is not news', () => {
 		expect(info).not.toHaveBeenCalled()
 	})
 
-	it('still warns when a live id is overwritten', () => {
+	it('still warns when a live id is overwritten, for a registry that opts into warn-overwrite', () => {
 		// The negative half. Quieting the routine case must not quiet the one
 		// that is genuinely news: a second registration under an id something
 		// may already hold a reference to. Lowering this to debug fails here.
+		//
+		// `onCollision: 'warn-overwrite'` explicit here because the base
+		// default flipped to `'throw'` (see `registry/collision.ts`) — this
+		// test is about the LOG LEVEL a registry that still opts into
+		// overwrite uses, not about which policy is the default.
 		const { log, warn } = spyLogger()
 		const registry = new ManagedRegistry<Thing>({
 			componentName: 'TestRegistry',
 			idField: 'name',
 			logger: log,
+			onCollision: 'warn-overwrite',
 		})
 
 		registry.register({ name: 'alpha' })

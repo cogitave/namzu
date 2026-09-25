@@ -48,7 +48,7 @@ const sandbox = {
 let last = '(none)'
 sdk.drainQuery({
   provider,
-  tools: new sdk.ToolRegistry(),
+  toolsets: [],
   sandboxProvider: { id: 'held', name: 'Held', environment: 'basic', async create() { return sandbox } },
   sandboxTeardownTimeoutMs: 20,
   agentId: 'a', agentName: 'A',

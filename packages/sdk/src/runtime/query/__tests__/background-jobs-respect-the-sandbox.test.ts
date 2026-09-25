@@ -8,11 +8,12 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { BackgroundJobRegistry } from '../../../runtime/jobs/registry.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool, SANDBOX_CANNOT_DETACH } from '../../../tools/builtins/bash.js'
 import { sandboxShellSpawn } from '../../../tools/command-shell.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Sandbox, SandboxProvider } from '../../../types/sandbox/index.js'
@@ -64,7 +65,7 @@ function sandbox(): Sandbox {
 
 function params(input: {
 	readonly cwd: string
-	readonly tools: ToolRegistry
+	readonly tools: Toolset
 	readonly provider: MockLLMProvider
 	readonly sandbox: Sandbox
 	readonly backgroundJobs: BackgroundJobRegistry
@@ -72,7 +73,7 @@ function params(input: {
 }) {
 	return {
 		provider: input.provider,
-		tools: input.tools,
+		toolsets: [input.tools],
 		turnConfig: {
 			model: 'mock',
 			env: input.env,
@@ -115,8 +116,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 		})
 		const spawnDetached = vi.fn(() => ({ child, kill }))
 		const boundary: Sandbox = { ...sandbox(), spawnDetached }
-		const tools = new ToolRegistry()
-		tools.register(BashTool)
+		const tools = testToolset(BashTool)
 		const seen: SessionEvent[] = []
 		vi.mocked(spawn).mockClear()
 
@@ -181,8 +181,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 
 	it('withholds the host process capability from every tool context', async () => {
 		const observed: Array<{ sandbox: boolean; backgroundJobs: boolean }> = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'inspect_context',
 				description: 'Inspect the execution capabilities supplied to this tool.',
@@ -221,8 +220,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 	})
 
 	it('returns the sandbox-conflict refusal through the real tool event path', async () => {
-		const tools = new ToolRegistry()
-		tools.register(BashTool)
+		const tools = testToolset(BashTool)
 		const boundary = sandbox()
 		const seen: SessionEvent[] = []
 

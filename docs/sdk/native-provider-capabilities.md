@@ -66,5 +66,5 @@ when present, it must accept the exact model and `live`/`cached` mode before
 query dispatch. Absence preserves the driver-wide declaration. Retry and idle
 watchdog wrappers bind the original receiver. Fallback wrappers evaluate each
 member's actual configured model; they cannot advertise a head-only guarantee.
-`ReactiveAgentConfig.webSearch` forwards the same setting into the query's turn.
+`QueryAgentConfig.webSearch` forwards the same setting into the query's turn.
 See [Web search](../cli/web-search.md) for driver restrictions and replay behavior.

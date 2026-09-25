@@ -1,5 +1,6 @@
 import { installationRows } from '../installation.js'
 import { statusCard } from './status-card.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
@@ -32,6 +33,7 @@ import {
 	type HostCommandOutcome,
 	type MemoryType,
 	type ReasoningEffort,
+	RegistryCollisionError,
 	type SerializableHostCommand,
 	type SessionTokenBudgetSummary,
 	isMemoryType,
@@ -305,6 +307,17 @@ export interface SlashContext {
 		readonly connected: readonly {
 			readonly name: string
 			readonly tools: readonly string[]
+			readonly instructions?: string
+			readonly drift?: {
+				readonly added: readonly string[]
+				readonly removed: readonly string[]
+				readonly changed: readonly string[]
+			}
+			readonly refused?: readonly {
+				readonly kind: 'tools' | 'prompts' | 'resources'
+				readonly name: string
+				readonly reason: 'not_allowed' | 'denied'
+			}[]
 		}[]
 		readonly failed: readonly {
 			readonly name: string
@@ -487,9 +500,11 @@ export function matchSlashCommands(
 }
 
 /** A registry command whose name a CLI-local one already answers to. */
-export class CommandNameCollisionError extends Error {
+export class CommandNameCollisionError extends RegistryCollisionError {
 	constructor(name: string) {
 		super(
+			'SlashCommands',
+			name,
 			`/${name} is registered by the kernel AND by this host. One of them would silently never run, and which depends on merge order — rename one.`,
 		)
 		this.name = 'CommandNameCollisionError'
@@ -1779,7 +1794,23 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 	]
 	for (const server of mcp.connected) {
 		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
-		if (details) for (const tool of server.tools) lines.push(`  ${tool}`)
+		const drift = server.drift
+		if (drift) {
+			for (const name of drift.added) lines.push(`  added: ${terminalDisplayText(name)}`)
+			for (const name of drift.removed) lines.push(`  removed: ${terminalDisplayText(name)}`)
+			for (const name of drift.changed)
+				lines.push(`  changed, earlier definition held: ${terminalDisplayText(name)}`)
+		}
+		for (const item of server.refused ?? []) {
+			lines.push(`  refused ${item.kind}: ${terminalDisplayText(item.name)} (${item.reason})`)
+		}
+		if (details) {
+			if (server.instructions) {
+				const safe = terminalDisplayText(server.instructions).replace(/\s+/g, ' ').trim()
+				lines.push(`  instructions: ${safe.length > 300 ? `${safe.slice(0, 300)}…` : safe}`)
+			}
+			for (const tool of server.tools) lines.push(`  ${tool}`)
+		}
 	}
 	for (const server of mcp.failed) lines.push(`${server.name}: unavailable — ${server.reason}`)
 	if (!details && mcp.connected.length > 0) lines.push('/mcp tools to list available tools.')
@@ -1959,6 +1990,10 @@ function describeRule(rule: AuthorizationRule): string {
 			return `deny   ${rule.toolNames.join(', ')}`
 		case 'allow_by_name':
 			return `allow  ${rule.toolNames.join(', ')}`
+		case 'by_source': {
+			const verb = rule.decision === 'review' ? 'review' : rule.decision
+			return `${verb}  tools from source ${rule.sources.join(', ')}`
+		}
 		case 'allow_by_category':
 			return `allow  any tool in category: ${rule.categories.join(', ')}`
 		case 'allow_by_tier':

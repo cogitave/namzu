@@ -19,7 +19,7 @@ defineSessionLogConformance({
 	it,
 	expect,
 	label: 'InMemorySessionLog',
-	contractVersion: 1,
+	contractVersion: 2,
 	makeLog: (sessionId) => {
 		const log = new InMemorySessionLog({ sessionId })
 		return {
@@ -38,7 +38,7 @@ defineSessionLogConformance({
 	it,
 	expect,
 	label: 'DiskSessionLog',
-	contractVersion: 1,
+	contractVersion: 2,
 	makeLog: async (sessionId) => {
 		const root = await realpath(await mkdtemp(join(tmpdir(), 'namzu-session-log-')))
 		made.push(root)

@@ -2,6 +2,8 @@ import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	MCPDiscoveredTool,
 	MCPPromptDefinition,
+	MCPRequestOptions,
+	MCPResource,
 	MCPToolDefinition,
 } from '../../types/connector/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
@@ -38,6 +40,13 @@ export interface MCPToolDiscoveryOptions {
 	 * knows which it is looking at.
 	 */
 	readonly onDrift?: (event: { serverName: string; clientId: string; drift: MCPToolDrift }) => void
+	/** The current policy refusals after each listing, including an empty list when they clear. */
+	readonly onRefused?: (event: {
+		serverName: string
+		clientId: string
+		kind: 'tools' | 'prompts' | 'resources'
+		refused: readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+	}) => void
 	readonly logger?: Logger
 }
 
@@ -120,6 +129,12 @@ export class MCPToolDiscovery {
 		// having agreed to it.
 		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
 		const { admitted, refused } = applyToolPolicy(advertised, policy)
+		this.options.onRefused?.({
+			serverName: state.serverName,
+			clientId: client.id,
+			kind: 'tools',
+			refused,
+		})
 
 		if (refused.length > 0) {
 			this.log.warn('MCP tools refused by policy', {
@@ -168,9 +183,54 @@ export class MCPToolDiscovery {
 
 		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
 		const { admitted, refused } = applyNamePolicy(advertised, policy)
+		this.options.onRefused?.({
+			serverName: state.serverName,
+			clientId: client.id,
+			kind: 'prompts',
+			refused,
+		})
 
 		if (refused.length > 0) {
 			this.log.warn('MCP prompts refused by policy', {
+				[NAMZU.SERVER_NAME]: state.serverName,
+				'namzu.mcp.client_id': client.id,
+				'namzu.connector.refused': refused.map((r) => `${r.name} (${r.reason})`),
+			})
+		}
+
+		return admitted
+	}
+
+	/**
+	 * The resources a server publishes, through the same admission gate its
+	 * tools and prompts go through.
+	 *
+	 * A server publishing a resource is the same trust question as one
+	 * publishing a tool or a prompt: the remote side must not decide what
+	 * enters the agent's registry. Policy is matched on the resource's own
+	 * `name`, as the server reports it — before this call existed,
+	 * `mcpToolset` read `client.listResources()` directly and admitted every
+	 * URI the server returned, so `deny`/`allow` governed tools and prompts
+	 * but not the one other surface a server can contribute by name.
+	 */
+	async discoverResourcesFrom(
+		client: MCPClient,
+		options?: MCPRequestOptions,
+	): Promise<MCPResource[]> {
+		const state = client.getState()
+		const advertised = await client.listResources(options)
+
+		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
+		const { admitted, refused } = applyNamePolicy(advertised, policy)
+		this.options.onRefused?.({
+			serverName: state.serverName,
+			clientId: client.id,
+			kind: 'resources',
+			refused,
+		})
+
+		if (refused.length > 0) {
+			this.log.warn('MCP resources refused by policy', {
 				[NAMZU.SERVER_NAME]: state.serverName,
 				'namzu.mcp.client_id': client.id,
 				'namzu.connector.refused': refused.map((r) => `${r.name} (${r.reason})`),

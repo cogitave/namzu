@@ -2,10 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId } from '../../types/ids/index.js'
 import type { PluginDefinition } from '../../types/plugin/index.js'
-import type { ToolDefinition, ToolRegistryContract } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 
@@ -39,12 +39,17 @@ vi.mock('../../connector/mcp/client.js', () => ({
 			// The real client has always had this; the mock did not, which went
 			// unnoticed while nothing on this path asked the client which server
 			// it was talking to. Admission does — a policy is per server name.
-			getState: () => ({ serverName: config.serverName }),
+			getState: () => ({
+				status: 'connected',
+				serverName: config.serverName,
+				serverCapabilities: { tools: {} },
+			}),
 			// Same shape of omission as `getState` above, one layer later: the
 			// reconnect supervisor subscribes through this, so a mock without it
 			// is a fixture unlike production and the wiring fails only at runtime.
 			isConnected: () => true,
 			onLifecycle: () => () => {},
+			onNotification: () => () => {},
 		}
 	}),
 }))
@@ -123,22 +128,8 @@ afterEach(() => {
 	for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-function makeToolRegistry(): ToolRegistryContract {
-	const names: string[] = []
-	return {
-		register: vi.fn((tool: ToolDefinition) => {
-			names.push(tool.name)
-		}),
-		unregister: vi.fn((name: string) => {
-			const i = names.indexOf(name)
-			if (i >= 0) names.splice(i, 1)
-		}),
-		listNames: vi.fn(() => [...names]),
-		has: vi.fn((name: string) => names.includes(name)),
-		get: vi.fn(),
-		execute: vi.fn(),
-		getAvailability: vi.fn(),
-	} as unknown as ToolRegistryContract
+function toolNames(manager: PluginLifecycleManager): string[] {
+	return manager.toolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
 }
 
 describe('PluginLifecycleManager enable() contribution types', () => {
@@ -148,6 +139,31 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 		mockConnect.mockReset()
 		mockDisconnect.mockReset()
 		mockListTools.mockReset()
+	})
+
+	it('revokes plugin instructions from an already-started prompt when disabled', async () => {
+		const { registry, scopeRoots } = makePluginRegistry({
+			manifest: {
+				name: 'guidance',
+				version: '0.0.1',
+				description: 't',
+				instructions: 'Use the plugin carefully.',
+			},
+		})
+		const manager = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			scopeRoots,
+			log: makeLogger(),
+		})
+		await manager.enable(pluginId)
+		const turn = new PromptContributionRegistry()
+		for (const contribution of manager.promptContributions) turn.register(contribution)
+		expect(turn.render('context', {})[0]).toContain('Use the plugin carefully.')
+		await manager.disable(pluginId)
+		expect(manager.promptContributions).toEqual([])
+		expect(turn.render('context', {})).toEqual([])
+		await manager.enable(pluginId)
+		expect(manager.promptContributions).toHaveLength(1)
 	})
 
 	describe('unsupported contribution types', () => {
@@ -162,7 +178,6 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry: makeToolRegistry(),
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -180,7 +195,6 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry: makeToolRegistry(),
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -198,7 +212,6 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry: makeToolRegistry(),
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -218,7 +231,6 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry: makeToolRegistry(),
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -246,10 +258,8 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 				'utf8',
 			)
 			const registry = new PluginRegistry()
-			const toolRegistry = makeToolRegistry()
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry,
 				scopeRoots: { project: authorityRoot, user: authorityRoot },
 				log: makeLogger(),
 			})
@@ -265,7 +275,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			await mgr.uninstall(installed.id)
 
 			expect(mockDisconnect).toHaveBeenCalledOnce()
-			expect(toolRegistry.listNames()).toEqual([])
+			expect(toolNames(mgr)).toEqual([])
 			expect(registry.get(installed.id)).toBeUndefined()
 		})
 
@@ -283,10 +293,8 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 					mcpServers: [{ name: 'fs', command: '/bin/true' }],
 				},
 			})
-			const toolRegistry = makeToolRegistry()
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry,
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -294,8 +302,8 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			await mgr.enable(pluginId)
 
 			expect(mockConnect).toHaveBeenCalledOnce()
-			expect(mockListTools).toHaveBeenCalledOnce()
-			expect(toolRegistry.listNames()).toEqual([
+			expect(mockListTools).toHaveBeenCalledTimes(2)
+			expect(toolNames(mgr)).toEqual([
 				'fs-plugin__mcp__fs__read_file',
 				'fs-plugin__mcp__fs__write_file',
 			])
@@ -313,20 +321,18 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 					mcpServers: [{ name: 'srv', command: '/bin/true' }],
 				},
 			})
-			const toolRegistry = makeToolRegistry()
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry,
 				scopeRoots,
 				log: makeLogger(),
 			})
 
 			await mgr.enable(pluginId)
-			expect(toolRegistry.listNames()).toContain('net__mcp__srv__ping')
+			expect(toolNames(mgr)).toContain('net__mcp__srv__ping')
 
 			await mgr.disable(pluginId)
 			expect(mockDisconnect).toHaveBeenCalledOnce()
-			expect(toolRegistry.listNames()).toEqual([])
+			expect(toolNames(mgr)).toEqual([])
 		})
 
 		it('disconnects MCP clients before unregistering tools on disable', async () => {
@@ -342,29 +348,22 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 				},
 			})
 			const events: string[] = []
-			const toolRegistry = {
-				register: vi.fn(),
-				unregister: vi.fn(() => events.push('unregister')),
-				listNames: vi.fn(() => []),
-				has: vi.fn(),
-				get: vi.fn(),
-				execute: vi.fn(),
-				getAvailability: vi.fn(),
-			} as unknown as ToolRegistryContract
 			mockDisconnect.mockImplementation(async () => {
 				events.push('disconnect')
+				expect(toolNames(mgr)).toContain('net__mcp__srv__ping')
 			})
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry,
 				scopeRoots,
 				log: makeLogger(),
 			})
 
 			await mgr.enable(pluginId)
+			expect(toolNames(mgr)).toContain('net__mcp__srv__ping')
 			await mgr.disable(pluginId)
 
-			expect(events).toEqual(['disconnect', 'unregister'])
+			expect(events).toEqual(['disconnect'])
+			expect(toolNames(mgr)).toEqual([])
 		})
 
 		it('rolls back tools and MCP clients when connect fails mid-enable', async () => {
@@ -384,10 +383,8 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 					],
 				},
 			})
-			const toolRegistry = makeToolRegistry()
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
-				toolRegistry,
 				scopeRoots,
 				log: makeLogger(),
 			})
@@ -395,7 +392,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/connect refused/)
 
 			// Rollback: first server's tools unregistered, first client disconnected.
-			expect(toolRegistry.listNames()).toEqual([])
+			expect(toolNames(mgr)).toEqual([])
 			expect(mockDisconnect).toHaveBeenCalledOnce()
 		})
 	})

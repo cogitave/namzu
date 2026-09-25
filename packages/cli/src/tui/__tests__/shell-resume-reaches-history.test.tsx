@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import { renderToScreen } from './support/screen.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const existing: readonly Message[] = [
 	{ role: 'user', content: 'remember the blue door', timestamp: 1 },
@@ -72,6 +73,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				modelSummary: 'model',
 				reasoningEffortLevels: [],
 				toolNames: () => [],
+				presenter: genericPresenter,
 				errorHint: null,
 				errorKind: null,
 				instructionFiles: [],

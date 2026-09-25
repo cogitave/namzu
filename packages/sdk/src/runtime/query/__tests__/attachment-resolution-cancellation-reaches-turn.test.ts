@@ -10,7 +10,6 @@ import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type {
 	AttachmentOperationOptions,
 	AttachmentStore,
@@ -136,7 +135,7 @@ async function params(
 ) {
 	return {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		messages: [...messages],
 		...(attachmentStore ? { attachmentStore } : {}),
 		workingDirectory: await workingDirectory(),
@@ -268,7 +267,6 @@ describe('stored attachment resolution belongs to the turn', () => {
 		}
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 1_000,
@@ -545,7 +543,7 @@ describe('stored attachment resolution belongs to the turn', () => {
 			sessionLog: session.log,
 			checkpointStore: session.store,
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
@@ -662,7 +660,7 @@ describe('stored attachment resolution belongs to the turn', () => {
 			checkpointStore,
 			lease,
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
@@ -775,7 +773,7 @@ describe('stored attachment resolution belongs to the turn', () => {
 			sessionLog: session.log,
 			checkpointStore: session.store,
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,

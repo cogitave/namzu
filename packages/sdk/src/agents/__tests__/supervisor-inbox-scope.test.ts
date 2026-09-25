@@ -7,8 +7,9 @@ import { SessionTokenBudget } from '../../store/budget/index.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { defineTool } from '../../tools/defineTool.js'
+import { ToolsetConflictError } from '../../toolsets/combine.js'
 import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
@@ -82,8 +83,7 @@ async function runOnce(
 		description: 'coordinates workers',
 	})
 
-	const tools = new ToolRegistry()
-	if (options.collide) tools.register(collidingTool)
+	const toolsets = options.collide ? [testToolset(collidingTool)] : []
 
 	await agent.run(
 		{
@@ -96,7 +96,7 @@ async function runOnce(
 			}),
 			agentIds: ['worker'],
 			scheduler,
-			tools,
+			toolsets,
 			systemPrompt: 'You coordinate.',
 			model: 'mock-model',
 			tokenBudget: 100_000,
@@ -123,14 +123,14 @@ describe('a supervisor releases the gateway it borrowed', () => {
 	it('releases it when setup throws before the turn ever starts', async () => {
 		// The reason it is a `finally` covering the whole body and not a line
 		// after `drainQuery`. A host whose tool shares a coordinator name gets
-		// `ToolNameCollisionError` from the registration loop — after the inbox
+		// `ToolsetConflictError` from composition — after the inbox
 		// attached — then fixes its config and runs again. A leak of one
 		// listener per turn becomes one per ATTEMPT, and the attempts are what
 		// there are most of.
 		const gateway = new HostGateway()
 
 		await expect(runOnce(gateway, 'sup_collide', { collide: true })).rejects.toThrow(
-			ToolNameCollisionError,
+			ToolsetConflictError,
 		)
 
 		expect(gateway.listeners.size, 'a turn that threw left its listener attached').toBe(0)

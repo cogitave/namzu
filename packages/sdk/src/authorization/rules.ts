@@ -1,5 +1,7 @@
 import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
+import { matchesSourceIdGlob } from '../toolsets/source-glob.js'
+import type { ToolSourceRef } from '../toolsets/types.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { decodedCommands, decomposeCommandLine } from './command-line.js'
@@ -12,6 +14,14 @@ export interface EvaluateRuleOptions {
 	 * opaque. `ToolDefinition.commandDialect` supplies it for a tool.
 	 */
 	readonly commandDialect?: ShellDialect
+	/**
+	 * Where the tool named by this call came from, when the caller has a
+	 * `ToolManager` to ask (`ToolManager.sourceOf`). `allow_read_only` reads
+	 * this to decide whether an MCP server's own `readOnlyHint` is trusted;
+	 * absent, `isTrustedReadOnly` treats the tool as host-defined, matching a
+	 * caller with no manager to ask.
+	 */
+	readonly toolSource?: ToolSourceRef
 }
 
 export function evaluateRule(
@@ -31,7 +41,7 @@ export function evaluateRule(
 			// A server's own claim about its own tool cannot settle this. See
 			// `isTrustedReadOnly`: a self-declaration may raise the requirement
 			// and never lower it.
-			if (!isTrustedReadOnly(toolDef, toolInput)) return null
+			if (!isTrustedReadOnly(toolDef, toolInput, options.toolSource)) return null
 
 			// Read-only is a claim about the DATA a call returns, not about the
 			// CHANNEL it travels over. A tool can be `readOnlyHint: true` AND
@@ -78,6 +88,13 @@ export function evaluateRule(
 
 		case 'deny_by_name': {
 			return nameSet?.has(toolName) ? 'deny' : null
+		}
+
+		case 'by_source': {
+			const source = options.toolSource
+			return source !== undefined && rule.sources.some((id) => matchesSourceIdGlob(source.id, id))
+				? rule.decision
+				: null
 		}
 
 		case 'custom_pattern': {

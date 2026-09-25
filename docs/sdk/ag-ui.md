@@ -15,9 +15,11 @@ clients such as the official `HttpAgent`. It is an optional leaf package:
 the host supplies a trusted SDK query configuration, and the adapter runs
 `query` with that configuration.
 
-Install `@namzu/ag-ui` 2.x, `@namzu/sdk >=45.1.0`, and the SDK's Zod v3 peer in a
-Node.js 20+ ESM application. `zod` is a peer of `@namzu/ag-ui` too, because
-the frontend tools it builds carry a Zod input schema. The adapter pins
+Install `@namzu/ag-ui` 3.x, `@namzu/sdk >=48.0.0`, and the SDK's Zod v3 peer in a
+Node.js 20+ ESM application. Use `@namzu/ag-ui` 2.x with SDK 45.1–47; version 3
+requires `QueryParams.toolsets` in each host `createQuery` result. `zod` is a
+peer of `@namzu/ag-ui` too, because the frontend tools it builds carry a Zod
+input schema. The adapter pins
 `@ag-ui/core` and `@ag-ui/encoder` to `0.0.59`. Tests use the official
 `@ag-ui/client` at `0.0.59` to parse SSE, verify event order, and rebuild
 messages and state.
@@ -33,7 +35,7 @@ not. The factory returns `QueryParams` or a promise of them.
 This example accepts an application-owned resolver. That resolver must
 authenticate `request`, authorize the thread, and select the complete
 history that may reach the model. Its returned `params` contain trusted
-provider, model, tools, permissions, stores, and native scope. Defining
+provider, model, toolsets, permissions, stores, and native scope. Defining
 this function does not create or call a provider.
 
 ```ts
@@ -302,7 +304,7 @@ on `context.interrupts`:
 - `interrupts.resumeHandler` is a `ResumeHandler` that asks the client
   whenever a person is needed: questions become `input_required`
   interrupts, a tool review goes through the prompt-mode review policy over
-  `params.tools` (trusted reads run, everything else is asked about), a plan
+  `params.toolsets` (trusted reads run, everything else is asked about), a plan
   approval is asked about, and a cadence checkpoint continues.
 - `interrupts.prompt` is a `ToolReviewPrompt` for `createReviewHandler` and
   `createReviewPolicy`, so any mode, exemption and skill-grant rule the host
@@ -321,33 +323,33 @@ import {
   type AGUITurnContext,
   type QueryParams,
 } from '@namzu/ag-ui'
-import { ToolRegistry, buildAskUserQuestionTool, createReviewHandler } from '@namzu/sdk'
+import { ToolManager, type Toolset, buildAskUserQuestionTool, createReviewHandler, toolset } from '@namzu/sdk'
 
 /** The host's own scope for a thread, including the session log a resume needs. */
 type ThreadScope = (
   context: AGUITurnContext,
-) => Promise<Omit<QueryParams, 'tools' | 'resumeHandler' | 'messages'>>
+) => Promise<Omit<QueryParams, 'toolsets' | 'resumeHandler' | 'messages'>>
 
-export function createInteractiveEndpoint(scope: ThreadScope, hostTools: ToolRegistry) {
+export function createInteractiveEndpoint(scope: ThreadScope, hostTools: readonly Toolset[]) {
   const adapter = new AGUIAdapter({
     interrupts: { ttlMs: 15 * 60_000 },
     frontendTools: { allow: ['pick_color'] },
     async createQuery(context) {
-      const tools = hostTools.fork()
       // A question waits no longer than its tool's own deadline.
-      tools.register({
+      const question = {
         ...buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
         timeoutMs: 15 * 60_000,
-      })
-      for (const tool of context.frontendTools) tools.register(tool)
+      }
+      const toolsets = [...hostTools, toolset('ag-ui', [question, ...context.frontendTools])]
+      const registry = new ToolManager({ toolsets, messages: () => [] })
       const review = createReviewHandler({
         mode: 'accept-edits',
         prompt: context.interrupts.prompt,
-        registry: tools,
+        registry,
       })
       return {
         ...(await scope(context)),
-        tools,
+        toolsets,
         messages: [],
         resumeHandler: (request) =>
           request.type === 'tool_review' ? review(request) : context.interrupts.resumeHandler(request),
@@ -472,8 +474,8 @@ export function createClientToolEndpoint(createQuery: AGUIQueryFactory) {
 }
 ```
 
-The host registers the ones it wants in `params.tools`; a definition it does
-not register is never offered to the model. A name must be 1 to 64 letters,
+The host includes the ones it wants in `params.toolsets`; a definition it does
+not include is never offered to the model. A name must be 1 to 64 letters,
 digits, `_` or `-`, and unique. The client's `parameters` are shown to the
 model as the tool's input schema, unchanged. The definitions are `readOnly`,
 because the server only waits, so the review policy lets them through; a

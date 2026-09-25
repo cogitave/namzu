@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -71,15 +71,18 @@ function run(opts: {
 	}[]
 	fallbackProviders?: { provider: LLMProvider; model?: string }[]
 }) {
-	const tools = new ToolRegistry()
-	if (opts.withEchoTool) {
-		tools.register({
-			name: 'echo',
-			description: 'echo the text back',
-			inputSchema: z.object({ text: z.string() }),
-			execute: async () => ({ success: true, output: 'hi' }),
-		})
-	}
+	const tools = testToolset(
+		...(opts.withEchoTool
+			? [
+					{
+						name: 'echo',
+						description: 'echo the text back',
+						inputSchema: z.object({ text: z.string() }),
+						execute: async () => ({ success: true, output: 'hi' }),
+					},
+				]
+			: []),
+	)
 	const provider = new ProviderWearing(
 		opts.providerId,
 		new MockLLMProvider({
@@ -92,7 +95,7 @@ function run(opts: {
 		provider,
 		...(opts.fallbackProviders ? { fallbackProviders: opts.fallbackProviders } : {}),
 		retry: false,
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'hello' }],

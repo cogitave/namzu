@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
 import { drainQuery } from '../../runtime/query/index.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { BashTool } from '../../tools/builtins/bash.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -59,12 +59,11 @@ async function runWith(contributions: PromptContributionRegistry, turns: number)
 			{ text: 'done' },
 		] as never,
 	})
-	const tools = new ToolRegistry()
-	tools.register(BashTool)
+	const tools = testToolset(BashTool)
 
 	await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',

@@ -44,7 +44,7 @@ pnpm add @namzu/sdk @namzu/lsp
 
 ```ts
 import { RoutingCodeNavigationProvider } from '@namzu/lsp'
-import { getCodeNavigationTools, ToolRegistry } from '@namzu/sdk'
+import { getCodeNavigationTools, toolset } from '@namzu/sdk'
 
 const rootDir = process.cwd()
 
@@ -55,8 +55,7 @@ const codeNavigation = new RoutingCodeNavigationProvider({
   ],
 })
 
-const registry = new ToolRegistry()
-for (const tool of getCodeNavigationTools(codeNavigation)) registry.register(tool)
+const tools = toolset('lsp', getCodeNavigationTools(codeNavigation))
 
 // …and when the session is over:
 await codeNavigation.dispose()

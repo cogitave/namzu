@@ -119,6 +119,7 @@ export class MCPClient {
 	private status: MCPConnectionStatus = 'disconnected'
 	private serverInfo?: { name: string; version?: string }
 	private serverCapabilities?: MCPServerCapabilities
+	private serverInstructions?: string
 	private era?: McpEra
 	private connectedAt?: number
 	private error?: string
@@ -312,6 +313,7 @@ export class MCPClient {
 
 		this.serverInfo = result.serverInfo
 		this.serverCapabilities = result.capabilities
+		this.serverInstructions = result.instructions
 
 		await this.notify('notifications/initialized', {})
 
@@ -486,6 +488,7 @@ export class MCPClient {
 		const result = this.modernInitializeResult(era.version, resolution.discover)
 		this.serverInfo = result.serverInfo
 		this.serverCapabilities = result.capabilities
+		this.serverInstructions = result.instructions
 
 		this.status = 'connected'
 		this.connectedAt = Date.now()
@@ -509,6 +512,9 @@ export class MCPClient {
 	 * not name itself is reported under the name the operator gave it.
 	 * Inventing a placeholder like "unknown" would put a word in the
 	 * server's mouth in the one field a person reads to identify it.
+	 *
+	 * `instructions` is left unset: the modern era has no `initialize`
+	 * round trip, so there is nothing in a `DiscoverResult` to carry it.
 	 */
 	private modernInitializeResult(
 		version: McpModernVersion,
@@ -558,6 +564,7 @@ export class MCPClient {
 			status: this.status,
 			serverInfo: this.serverInfo,
 			serverCapabilities: this.serverCapabilities,
+			serverInstructions: this.serverInstructions,
 			connectedAt: this.connectedAt,
 			error: this.error,
 		}
@@ -837,8 +844,19 @@ export class MCPClient {
 		}
 	}
 
-	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): void {
+	/**
+	 * Returns an unsubscribe, mirroring {@link onLifecycle} below — a listener
+	 * that cannot be removed keeps whatever it closes over (a discovery
+	 * object, a logger, a caller's own state) referenced by this client for
+	 * as long as the client lives, even after the listener's own owner is
+	 * done with it.
+	 */
+	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): () => void {
 		this.notificationHandlers.push(handler)
+		return () => {
+			const index = this.notificationHandlers.indexOf(handler)
+			if (index >= 0) this.notificationHandlers.splice(index, 1)
+		}
 	}
 
 	/**
@@ -851,9 +869,7 @@ export class MCPClient {
 	 * this adds no state, it just says out loud what the client already
 	 * knew.
 	 *
-	 * Returns an unsubscribe. `onNotification` above does not, which is the
-	 * bug this avoids repeating: a listener that cannot be removed keeps a
-	 * disposed host object alive for as long as the client lives.
+	 * Returns an unsubscribe, the same shape `onNotification` above returns.
 	 */
 	onLifecycle(listener: MCPEventListener): () => void {
 		this.lifecycleListeners.push(listener)

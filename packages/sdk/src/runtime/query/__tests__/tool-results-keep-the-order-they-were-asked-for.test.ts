@@ -6,15 +6,16 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
-import type { ToolContext } from '../../../types/tool/index.js'
+import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -90,8 +91,19 @@ interface ExecutorFixture {
 	events: SessionEvent[]
 }
 
-function executorOver(tools: ToolRegistry): ExecutorFixture {
+class ToolFixture {
+	readonly definitions: ToolDefinition[] = []
+	register(tool: ToolDefinition): void {
+		this.definitions.push(tool)
+	}
+}
+
+function executorOver(fixture: ToolFixture): ExecutorFixture {
 	const events: SessionEvent[] = []
+	const tools = new ToolManager({
+		toolsets: [testToolset(...fixture.definitions)],
+		messages: () => [],
+	})
 	const executor = new ToolExecutor(
 		{
 			sessionId: SESSION_ID,
@@ -145,7 +157,7 @@ describe('a batch whose calls finish in the opposite order to the one they were 
 	function reversedPair() {
 		const done: string[] = []
 		const secondFinished = latch()
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		tools.register(
 			defineTool({
 				name: 'first',
@@ -239,7 +251,7 @@ describe('a batch whose calls finish in the opposite order to the one they were 
 			['bravo', latch()],
 			['alpha', latch()],
 		])
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		for (const [name, output] of [
 			['alpha', 'A'],
 			['bravo', 'B'],
@@ -289,7 +301,7 @@ describe('a tool that must not run beside anything else', () => {
 	function pair(options: { barrier: boolean }) {
 		const order: string[] = []
 		const held = latch()
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		tools.register(
 			defineTool({
 				name: 'mutate',
@@ -362,7 +374,7 @@ describe('a tool that must not run beside anything else', () => {
 		// a full barrier would change what a read observes.
 		const order: string[] = []
 		const held = latch()
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		tools.register(
 			defineTool({
 				name: 'mutate',
@@ -424,7 +436,7 @@ describe('a real turn that asked for two tools at once', () => {
 	function concurrentRegistry() {
 		const finished: string[] = []
 		const secondFinished = latch()
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		tools.register(
 			defineTool({
 				name: 'alpha',
@@ -483,7 +495,7 @@ describe('a real turn that asked for two tools at once', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [testToolset(...tools.definitions)],
 				agentId: 'agent_tool_order',
 				agentName: 'Tool order agent',
 				messages: [{ role: 'user', content: 'go' }],
@@ -556,7 +568,7 @@ describe('a real turn that asked for two tools at once', () => {
 
 describe('the ordering a nested dispatch sees', () => {
 	it('gives every sibling the batch id of the call that opened the batch', async () => {
-		const tools = new ToolRegistry()
+		const tools = new ToolFixture()
 		const batchIds: Array<string | undefined> = []
 		for (const name of ['one', 'two']) {
 			tools.register(

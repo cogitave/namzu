@@ -6,11 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool, SANDBOX_ESCAPE_NOT_APPROVED } from '../../../tools/builtins/bash.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { AuthorizationRule } from '../../../types/authorization/index.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
@@ -86,13 +87,13 @@ async function auditOf(log: InMemorySessionLog) {
 
 async function readOutside(input: {
 	/** Given the registry, so the shipped exemption (read-only is not asked about) is in force. */
-	readonly resumeHandler: (tools: ToolRegistry) => ResumeHandler
+	readonly resumeHandler: (tools: ToolManager) => ResumeHandler
 	readonly outsideRootAccess?: 'refuse' | 'review'
 	readonly rules?: AuthorizationRule[]
 }) {
 	const { cwd, file } = await layout()
-	const tools = new ToolRegistry()
-	tools.register(ReadFileTool)
+	const tools = testToolset(ReadFileTool)
+	const registry = new ToolManager({ toolsets: [tools], messages: () => [] })
 	const call: MockTurn = {
 		toolCalls: [{ id: 'r1', name: 'read', args: { path: file } }],
 		finishReason: 'tool_calls',
@@ -101,7 +102,7 @@ async function readOutside(input: {
 	const sessionLog = new InMemorySessionLog({ sessionId })
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',
@@ -119,7 +120,7 @@ async function readOutside(input: {
 					},
 				}
 			: {}),
-		resumeHandler: input.resumeHandler(tools),
+		resumeHandler: input.resumeHandler(registry),
 		sessionId,
 		sessionLog,
 		...ids,
@@ -234,8 +235,8 @@ describe('a path outside the working directory, on a host turn', () => {
 		// containment check has to canonicalize it rather than refuse it.
 		const { cwd, outside } = await layout()
 		const target = join(outside, 'created.txt')
-		const tools = new ToolRegistry()
-		tools.register(WriteFileTool)
+		const tools = testToolset(WriteFileTool)
+		const registry = new ToolManager({ toolsets: [tools], messages: () => [] })
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
 		const sessionId = generateSessionId()
 		const sessionLog = new InMemorySessionLog({ sessionId })
@@ -249,14 +250,14 @@ describe('a path outside the working directory, on a host turn', () => {
 					{ text: 'done' },
 				],
 			}),
-			tools,
+			toolsets: [tools],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('write it')],
 			workingDirectory: cwd,
 			outsideRootAccess: 'review',
-			resumeHandler: createReviewHandler({ mode: 'prompt', prompt, registry: tools }),
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt, registry }),
 			sessionId,
 			sessionLog,
 			...ids,
@@ -384,8 +385,7 @@ async function escapeThroughQuery(input: {
 	const base = await mkdtemp(join(tmpdir(), 'namzu-escape-'))
 	dirs.push(base)
 	const sandbox = fakeSandbox()
-	const tools = new ToolRegistry()
-	tools.register(BashTool)
+	const tools = testToolset(BashTool)
 	const call: MockTurn = {
 		toolCalls: [
 			{
@@ -400,7 +400,7 @@ async function escapeThroughQuery(input: {
 	const sessionLog = new InMemorySessionLog({ sessionId })
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',

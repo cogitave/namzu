@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -131,9 +131,7 @@ async function run(opts: {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-allow-'))
 	workdirs.push(workingDirectory)
 
-	const tools = new ToolRegistry()
-	tools.register(readOnly)
-	tools.register(dangerous)
+	const tools = testToolset(readOnly, dangerous)
 
 	const provider = new NamesTool(opts.names)
 	let output = ''
@@ -141,7 +139,7 @@ async function run(opts: {
 	await drainQuery(
 		{
 			provider,
-			tools,
+			toolsets: [tools],
 			...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
 			...(opts.activeTools
 				? { prepareStep: () => ({ activeTools: opts.activeTools as string[] }) }

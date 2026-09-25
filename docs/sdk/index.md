@@ -16,8 +16,13 @@ The kernel.
 * [Environment exploration before learning](resident-exploration.md) - Active tool experiments and retained observations before independent skill evaluation.
 * [Evaluating exploration policies](exploration-policies.md) - Purpose-bound learning instructions and independent measurement of evidence acquisition.
 
-* [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
-* [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
+* [Tool discovery](tool-discovery.md) - Deferred tool search, host readiness, source-bound receipts and allowed-tool filtering.
+* [Toolsets](toolsets.md) - The unit every tool comes from, its composable wrappers, and combineToolsets's atomic conflict detection.
+* [Host capabilities](host-capabilities.md) - Reusable per-run instructions, toolsets, guardrails, prompt contributions and model settings for runAgent.
+* [Plugin toolsets and lifecycle](plugins.md) - File and in-code plugins, source ownership, MCP servers, request context and revocation.
+* [Tool metadata and selectors](tool-metadata-and-selectors.md) - ToolDefinition.metadata as a host-only, never-on-the-wire data bag, matchesToolSelector's three selector shapes, and how an MCP server's annotations land in it.
+* [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it, the normaliser that enforces it, and the sibling sweep for an undescribed field.
+* [Registry collisions](registries.md) - One collision policy, one base error class, and which registry chose which policy and why.
 
 * [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.
 * [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
@@ -34,6 +39,7 @@ The kernel.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
 
 * [Run the kernel](quick-start.md) - An offline SDK turn, real tool execution, conversation identity and where the session is recorded.
+* [Agent ownership](agent-ownership.md) - The SDK agent contract, the CLI's agent and example orchestration patterns.
 * [AG-UI clients](ag-ui.md) - Explicit host admission, backend and frontend tools, interrupts and resume, shared UI state and CopilotKit connection.
 * [Kubernetes sandboxes](kubernetes-sandbox.md) - Warm-pool claims on an agent-sandbox cluster, the pristine-claim rule, the per-instance agent credential, persistent block-disk workspaces and what is not built yet.
 * [Firecracker sandboxes](firecracker-sandbox.md) - The Firecracker microvm tier against a self-hosted orchestrator, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
@@ -97,5 +103,6 @@ The kernel.
 
 * [MCP protocol eras](mcp-protocol-eras.md) - The era model behind MCP negotiation, the single-round-trip legacy handshake across four versions, and why there is no waterfall.
 * [MCP content blocks](mcp-content-blocks.md) - Which tool-result content types reach the model, which protocol revision introduced each, and how audio, resource_link and embedded resources are represented.
+* [The MCP toolset](mcp-toolset.md) - mcpToolset(client, options): two live toolsets from a connected MCP server, with mcp__<server>__<rest> naming, deferred resource tools, and list_changed and reconnect updates.
 
 * [Tool-result screening](tool-result-screening.md) - The registry boundary that judges a result before anything reads it, the four verdicts, what the two shipped screens decide and refuse to decide, and how a turn, a registry and the CLI each choose which ones apply.

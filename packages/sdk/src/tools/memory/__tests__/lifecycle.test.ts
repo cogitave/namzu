@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { buildMemoryTools } from '../index.js'
@@ -28,8 +29,10 @@ describe('memory lifecycle tools', () => {
 			await update(id, { metadata: { version: 'new', externalReceipt: 'preserve' } })
 			return update(id, patch)
 		})
-		const registry = new ToolRegistry()
-		registry.register(buildMemoryTools(store))
+		const registry = new ToolManager({
+			toolsets: [testToolset(...buildMemoryTools(store))],
+			messages: () => [],
+		})
 		expect(
 			(await registry.execute('update_memory', { id: entry.id, content: '28 hours' }, context))
 				.success,
@@ -42,8 +45,10 @@ describe('memory lifecycle tools', () => {
 
 	it('corrects a record in place, supports explicit archived inspection and permanent deletion', async () => {
 		const store = new InMemoryMemoryStore()
-		const registry = new ToolRegistry()
-		registry.register(buildMemoryTools(store))
+		const registry = new ToolManager({
+			toolsets: [testToolset(...buildMemoryTools(store))],
+			messages: () => [],
+		})
 		await registry.execute(
 			'save_memory',
 			{ title: 'paymentdb port', summary: 'Port 5432', content: 'Use 5432' },
@@ -82,8 +87,10 @@ describe('memory lifecycle tools', () => {
 		const deletion = definitions.find((tool) => tool.name === 'delete_memory')
 		expect(deletion?.isReadOnly?.({})).toBe(false)
 		expect(deletion?.isDestructive?.({})).toBe(true)
-		const registry = new ToolRegistry()
-		registry.register(definitions)
+		const registry = new ToolManager({
+			toolsets: [testToolset(...buildMemoryTools(store))],
+			messages: () => [],
+		})
 		const { entry } = await store.create({
 			title: 'one',
 			summary: 'one',

@@ -4,13 +4,13 @@ import { z } from 'zod'
 import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -39,14 +39,10 @@ function memoryLog(): InMemorySessionLog {
 	return new InMemorySessionLog({ sessionId: generateSessionId() })
 }
 
-function params(
-	provider: MockLLMProvider,
-	tools: ToolRegistryContract,
-	sessionLog: InMemorySessionLog,
-) {
+function params(provider: MockLLMProvider, tools: Toolset, sessionLog: InMemorySessionLog) {
 	return {
 		provider,
-		tools,
+		toolsets: [tools],
 		sessionLog,
 		agentId: 'prepared-authorization-agent',
 		agentName: 'Prepared Authorization Agent',
@@ -84,8 +80,7 @@ describe('prepared tool authorization', () => {
 		const pluginManager = {
 			executeHooks: vi.fn(async () => [{ action: 'continue' as const }]),
 		} as unknown as PluginLifecycleManager
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'record',
 				description: 'duplicate id fixture',
@@ -143,8 +138,7 @@ describe('prepared tool authorization', () => {
 		const executions: string[] = []
 		const events: SessionEvent[] = []
 		const sessionLog = memoryLog()
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'shell',
 				description: 'schema-transforming shell fixture',
@@ -199,8 +193,7 @@ describe('prepared tool authorization', () => {
 
 	it('runs pre-tool rewrites before authorization', async () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'ran' }))
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'shell',
 				description: 'hook-transforming shell fixture',
@@ -237,8 +230,7 @@ describe('prepared tool authorization', () => {
 	it('reuses one prepared value across an opted-in retry', async () => {
 		let parses = 0
 		const executions: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'shell',
 				description: 'stateful transform fixture',
@@ -281,8 +273,7 @@ describe('prepared tool authorization', () => {
 
 	it('shows a human reviewer the exact schema-transformed input', async () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'ran' }))
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'shell',
 				description: 'review projection fixture',
@@ -327,60 +318,9 @@ describe('prepared tool authorization', () => {
 		expect(execute).not.toHaveBeenCalled()
 	})
 
-	it('fails closed when a custom registry cannot bind review to execution', async () => {
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'shell',
-				description: 'legacy registry fixture',
-				inputSchema: z.object({ command: z.string() }),
-				category: 'shell',
-				permissions: ['shell_execute'],
-				readOnly: false,
-				destructive: true,
-				concurrencySafe: false,
-				execute: async () => ({ success: true, output: 'ran' }),
-			}),
-		)
-		const legacyExecute = vi.spyOn(tools, 'execute')
-		const legacy = new Proxy(tools, {
-			get(target, property) {
-				if (property === 'prepareExecution' || property === 'executePrepared') return undefined
-				const value = Reflect.get(target, property, target)
-				return typeof value === 'function' ? value.bind(target) : value
-			},
-		}) as unknown as ToolRegistryContract
-		const events: SessionEvent[] = []
-		const allow: AuthorizationGateConfig = {
-			...gate,
-			rules: [{ type: 'allow_by_name', toolNames: ['shell'] }],
-		}
-
-		await drainQuery(
-			{
-				...params(provider(), legacy, memoryLog()),
-				authorizationGate: allow,
-			},
-			(event) => {
-				events.push(event)
-			},
-		)
-
-		expect(legacyExecute).not.toHaveBeenCalled()
-		expect(events).toContainEqual(
-			expect.objectContaining({
-				type: 'tool_completed',
-				toolName: 'shell',
-				isError: true,
-				result: expect.stringMatching(/cannot bind authorization/i),
-			}),
-		)
-	})
-
 	it('does not let an in-place pre-tool hook mutate the retained executable value', async () => {
 		const executions: string[] = []
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'shell',
 				description: 'detached review fixture',

@@ -1,7 +1,8 @@
 import { decode, encode } from 'fast-png'
 import { Validator } from 'jsonschema'
 import { describe, expect, it } from 'vitest'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type {
 	ComputerUseAction,
 	ComputerUseCapabilities,
@@ -1092,8 +1093,7 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 		it('rejects incomplete actions before the host is called', () => {
 			const { host, calls } = makeHost()
 			const tool = createComputerUseTool(host, FAST)
-			const registry = new ToolRegistry()
-			registry.register(tool)
+			const registry = new ToolManager({ toolsets: [testToolset(tool)], messages: () => [] })
 			expect(tool.validationErrorHint).toMatch(/mouse_move needs to/)
 			expect(tool.validationErrorHint).toMatch(/scroll needs at, direction, and amount/)
 			expect(tool.validationErrorHint).toMatch(/"type":"batch"/)

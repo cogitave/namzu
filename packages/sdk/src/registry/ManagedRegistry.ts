@@ -2,6 +2,7 @@ import { NAMZU } from '../constants/telemetry/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { BaseRegistry } from './BaseRegistry.js'
+import { RegistryCollisionError, type RegistryCollisionPolicy } from './collision.js'
 
 export interface ManagedRegistryConfig<TDefinition> {
 	componentName: string
@@ -12,17 +13,31 @@ export interface ManagedRegistryConfig<TDefinition> {
 	 */
 	computeId?: (item: TDefinition) => string
 	logger?: Logger
+	/**
+	 * What to do when `register` is given an id already present.
+	 *
+	 * Defaults to `'throw'`. Pass `'warn-overwrite'` or `'warn-skip'` only for
+	 * a registry that genuinely means one of those (see
+	 * {@link RegistryCollisionPolicy}). A single call that needs to replace
+	 * one entry on an otherwise-`'throw'` registry calls {@link ManagedRegistry.replace}
+	 * instead of changing the registry's policy.
+	 */
+	onCollision?: RegistryCollisionPolicy
 }
 
 export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 	protected log: Logger
 	private idField?: keyof TDefinition & string
 	private computeId?: (item: TDefinition) => string
+	private componentName: string
+	private onCollision: RegistryCollisionPolicy
 
 	constructor(config: ManagedRegistryConfig<TDefinition>) {
 		super()
 		this.idField = config.idField
 		this.computeId = config.computeId
+		this.componentName = config.componentName
+		this.onCollision = config.onCollision ?? 'throw'
 		this.log = resolveLogger(config.logger).child({
 			[SCOPE_ATTRIBUTE]: 'registry',
 			[NAMZU.REGISTRY_NAME]: config.componentName,
@@ -46,8 +61,8 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 			}
 			const id = idOrItem
 			const item = maybeItem
-			if (this.has(id)) {
-				this.log.warn('Already registered, overwriting', { 'namzu.registry.item_id': id })
+			if (this.has(id) && !this.applyCollisionPolicy(id)) {
+				return
 			}
 			super.register(id, item)
 			this.log.debug('Registered', { 'namzu.registry.item_id': id })
@@ -64,8 +79,8 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 			throw new Error('register(item) requires idField or computeId to be configured')
 		}
 
-		if (this.has(id)) {
-			this.log.warn('Already registered, overwriting', { 'namzu.registry.item_id': id })
+		if (this.has(id) && !this.applyCollisionPolicy(id)) {
+			return
 		}
 		super.register(id, item)
 		// `debug`, not `info`. Registration is the startup path doing exactly
@@ -75,14 +90,50 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 		// failure as silence with the sign flipped — the interesting lines are
 		// there, and nobody can find them.
 		//
-		// The overwrite case above stays at `warn`, because a second
-		// registration under a live id IS news.
+		// The overwrite case above stays at `warn` (or throws), because a
+		// second registration under a live id IS news.
 		//
 		// Found by running the CLI against a real provider rather than a mock.
 		// Every unit test here asserts on a logger stub, so the LEVEL was
 		// invisible to all of them: what a start actually reads like is not a
 		// property any of them measure.
 		this.log.debug('Registered', { 'namzu.registry.item_id': id })
+	}
+
+	/**
+	 * Register `item` under `id`, replacing whatever is already there —
+	 * regardless of this registry's {@link RegistryCollisionPolicy}.
+	 *
+	 * For the one call site that legitimately supersedes an earlier
+	 * registration under the same id (a plugin's status transition, a
+	 * reload) — not a registry-wide escape hatch. A registry whose intended
+	 * behaviour IS overwrite-by-default declares `onCollision: 'warn-overwrite'`
+	 * instead of routing every caller through this method.
+	 */
+	replace(id: string, item: TDefinition): void {
+		const existed = this.has(id)
+		super.register(id, item)
+		this.log.debug(existed ? 'Replaced' : 'Registered', { 'namzu.registry.item_id': id })
+	}
+
+	/**
+	 * Runs this registry's {@link RegistryCollisionPolicy} for an id already
+	 * present. Returns `true` when the caller should proceed to overwrite,
+	 * `false` when it should leave the existing item alone.
+	 */
+	private applyCollisionPolicy(id: string): boolean {
+		switch (this.onCollision) {
+			case 'throw':
+				throw new RegistryCollisionError(this.componentName, id)
+			case 'warn-skip':
+				this.log.warn('Already registered, keeping existing', {
+					'namzu.registry.item_id': id,
+				})
+				return false
+			default:
+				this.log.warn('Already registered, overwriting', { 'namzu.registry.item_id': id })
+				return true
+		}
 	}
 
 	getOrThrow(id: string): TDefinition {

@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { PluginId } from '../../../types/ids/index.js'
-import type { PluginHookContext, PluginHookResult } from '../../../types/plugin/index.js'
+import type { PluginHookContext, PluginHookDefinition } from '../../../types/plugin/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -39,7 +38,6 @@ describe('plugin hook cancellation reaches a real query', () => {
 		})
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 10_000,
@@ -48,8 +46,8 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const entered = new Promise<void>((resolve) => {
 			enter = resolve
 		})
-		let release!: (result: PluginHookResult) => void
-		const held = new Promise<PluginHookResult>((resolve) => {
+		let release!: (result: { action: 'continue' }) => void
+		const held = new Promise<{ action: 'continue' }>((resolve) => {
 			release = resolve
 		})
 		let hookSignal: AbortSignal | undefined
@@ -62,13 +60,16 @@ describe('plugin hook cancellation reaches a real query', () => {
 			},
 		})
 		const interruptContexts: PluginHookContext[] = []
-		manager.registerHook('plugin_interrupt_skip' as PluginId, {
-			event: 'turn_interrupt',
-			handler: async (context) => {
-				interruptContexts.push(context)
-				return { action: 'skip', reason: 'observed' }
-			},
-		})
+		manager.registerHook(
+			'plugin_interrupt_skip' as PluginId,
+			{
+				event: 'turn_interrupt',
+				handler: async (context: PluginHookContext) => {
+					interruptContexts.push(context)
+					return { action: 'skip', reason: 'observed' }
+				},
+			} as unknown as PluginHookDefinition,
+		)
 		manager.registerHook('plugin_interrupt_last' as PluginId, {
 			event: 'turn_interrupt',
 			handler: async (context) => {
@@ -80,7 +81,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const runPromise = drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				pluginManager: manager,
 				turnConfig: {
 					model: 'mock-model',
@@ -166,7 +167,6 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const caller = new AbortController()
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 10_000,
@@ -179,10 +179,10 @@ describe('plugin hook cancellation reaches a real query', () => {
 			event: 'pre_llm_call',
 			handler: () => {
 				enter()
-				return new Promise<PluginHookResult>(() => {})
+				return new Promise<{ action: 'continue' }>(() => {})
 			},
 		})
-		const interrupted = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+		const interrupted = vi.fn(async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }))
 		manager.registerHook('plugin_interrupt' as PluginId, {
 			event: 'turn_interrupt',
 			handler: interrupted,
@@ -191,7 +191,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 			provider: new MockLLMProvider({
 				responseText: 'must not be requested',
 			}),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			pluginManager: manager,
 			turnConfig: {
 				model: 'mock-model',
@@ -210,7 +210,11 @@ describe('plugin hook cancellation reaches a real query', () => {
 			tenantId: generateTenantId(),
 			signal: caller.signal,
 			...(nested
-				? { depth: 1, parentSessionId: generateSessionId(), parentTurnId: generateTurnId() }
+				? {
+						depth: 1,
+						parentSessionId: generateSessionId(),
+						parentTurnId: generateTurnId(),
+					}
 				: {}),
 		})
 
@@ -226,12 +230,11 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const caller = new AbortController()
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 1_000,
 		})
-		const interrupted = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+		const interrupted = vi.fn(async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }))
 		manager.registerHook('plugin_interrupt' as PluginId, {
 			event: 'turn_interrupt',
 			handler: interrupted,
@@ -240,7 +243,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 
 		const run = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'must not be requested' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			pluginManager: manager,
 			turnConfig: {
 				model: 'mock-model',

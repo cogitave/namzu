@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type {
 	BidiEvent,
 	BidiProvider,
@@ -51,8 +52,8 @@ function deferred<T>() {
 	}
 }
 
-function emptyTools(): ToolRegistry {
-	return new ToolRegistry()
+function emptyTools(): Toolset[] {
+	return [] as Toolset[]
 }
 
 function lateSession(close: () => Promise<void>): BidiSession {
@@ -76,8 +77,8 @@ async function caught(promise: Promise<unknown>): Promise<unknown> {
 }
 
 function open(gate?: Promise<void>) {
-	const tools = new ToolRegistry()
-	tools.register(slowTool('lookup', gate ?? Promise.resolve()))
+	const tools = [] as Toolset[]
+	tools.push(testToolset(slowTool('lookup', gate ?? Promise.resolve())))
 	const provider = createMockBidiProvider()
 	return { tools, provider }
 }
@@ -108,7 +109,7 @@ describe('a session with no turn boundary', () => {
 		const outcome = await caught(
 			startBidiTurn({
 				provider,
-				tools: emptyTools(),
+				toolsets: emptyTools(),
 				connect: { model: 'mock' },
 				workingDirectory: process.cwd(),
 				signal: controller.signal,
@@ -134,7 +135,7 @@ describe('a session with no turn boundary', () => {
 			await expect(
 				startBidiTurn({
 					provider,
-					tools: emptyTools(),
+					toolsets: emptyTools(),
 					connect: { model: 'mock' },
 					workingDirectory: process.cwd(),
 					closeTimeoutMs,
@@ -155,7 +156,7 @@ describe('a session with no turn boundary', () => {
 		const reason = new Error('stop during connect')
 		const starting = startBidiTurn({
 			provider,
-			tools: emptyTools(),
+			toolsets: emptyTools(),
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 			signal: controller.signal,
@@ -177,7 +178,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -189,11 +190,48 @@ describe('a session with no turn boundary', () => {
 		await run.close()
 	})
 
+	it('releases live toolset listeners when the duplex run closes', async () => {
+		const { tools, provider } = open()
+		const unsubscribe = vi.fn()
+		const live: Toolset = { ...tools[0]!, onChange: () => unsubscribe }
+		const run = await startBidiTurn({
+			provider,
+			toolsets: [live],
+			connect: { model: 'mock' },
+			workingDirectory: process.cwd(),
+		})
+		await run.close()
+		expect(unsubscribe).toHaveBeenCalledOnce()
+		await run.close()
+		expect(unsubscribe).toHaveBeenCalledOnce()
+	})
+
+	it('releases live toolset listeners if provider connection fails', async () => {
+		const { tools } = open()
+		const unsubscribe = vi.fn()
+		const live: Toolset = { ...tools[0]!, onChange: () => unsubscribe }
+		const provider: BidiProvider = {
+			id: 'failed-connect',
+			connect: async () => {
+				throw new Error('connection failed')
+			},
+		}
+		await expect(
+			startBidiTurn({
+				provider,
+				toolsets: [live],
+				connect: { model: 'mock' },
+				workingDirectory: process.cwd(),
+			}),
+		).rejects.toThrow('connection failed')
+		expect(unsubscribe).toHaveBeenCalledOnce()
+	})
+
 	it('answers a tool call on the same session', async () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -220,7 +258,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open(gate)
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -243,16 +281,18 @@ describe('a session with no turn boundary', () => {
 			release = resolve
 		})
 		let toolSignal: AbortSignal | undefined
-		const tools = new ToolRegistry()
-		tools.register(
-			slowTool('lookup', gate, (signal) => {
-				toolSignal = signal
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				slowTool('lookup', gate, (signal) => {
+					toolSignal = signal
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -274,7 +314,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -311,16 +351,18 @@ describe('a session with no turn boundary', () => {
 	it('manual close revokes a held tool without waiting for code that ignores the signal', async () => {
 		const never = new Promise<void>(() => undefined)
 		let toolSignal: AbortSignal | undefined
-		const tools = new ToolRegistry()
-		tools.register(
-			slowTool('lookup', never, (signal) => {
-				toolSignal = signal
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				slowTool('lookup', never, (signal) => {
+					toolSignal = signal
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -348,17 +390,19 @@ describe('a session with no turn boundary', () => {
 	it('caller cancellation closes once, aborts the tool context, and publishes no late terminal event', async () => {
 		let toolSignal: AbortSignal | undefined
 		const toolFinished = deferred<void>()
-		const tools = new ToolRegistry()
-		tools.register(
-			slowTool('lookup', toolFinished.promise, (signal) => {
-				toolSignal = signal
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				slowTool('lookup', toolFinished.promise, (signal) => {
+					toolSignal = signal
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const controller = new AbortController()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 			signal: controller.signal,
@@ -395,7 +439,7 @@ describe('a session with no turn boundary', () => {
 		const reason = new Error('the caller owns this stop')
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 			signal: controller.signal,
@@ -424,7 +468,7 @@ describe('a session with no turn boundary', () => {
 		const provider: BidiProvider = { id: 'held-close', connect: async () => session }
 		const run = await startBidiTurn({
 			provider,
-			tools: emptyTools(),
+			toolsets: emptyTools(),
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 			closeTimeoutMs: 10,
@@ -445,7 +489,7 @@ describe('a session with no turn boundary', () => {
 			const provider: BidiProvider = { id: 'default-close-bound', connect: async () => session }
 			const run = await startBidiTurn({
 				provider,
-				tools: emptyTools(),
+				toolsets: emptyTools(),
 				connect: { model: 'mock' },
 				workingDirectory: process.cwd(),
 			})
@@ -478,7 +522,7 @@ describe('a session with no turn boundary', () => {
 			const provider: BidiProvider = { id: 'unbounded-close', connect: async () => session }
 			const run = await startBidiTurn({
 				provider,
-				tools: emptyTools(),
+				toolsets: emptyTools(),
 				connect: { model: 'mock' },
 				workingDirectory: process.cwd(),
 				closeTimeoutMs: 0,
@@ -507,16 +551,18 @@ describe('a session with no turn boundary', () => {
 	it('far-side close revokes a held tool context without redundantly closing the provider', async () => {
 		const never = new Promise<void>(() => undefined)
 		let toolSignal: AbortSignal | undefined
-		const tools = new ToolRegistry()
-		tools.register(
-			slowTool('lookup', never, (signal) => {
-				toolSignal = signal
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				slowTool('lookup', never, (signal) => {
+					toolSignal = signal
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -548,7 +594,7 @@ describe('a session with no turn boundary', () => {
 		const controller = new AbortController()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 			signal: controller.signal,
@@ -576,22 +622,24 @@ describe('a session with no turn boundary', () => {
 
 	it('does not admit a tool event delivered by a driver after local close began', async () => {
 		let executeCalls = 0
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'lookup',
-				description: 'lookup',
-				inputSchema: z.object({}),
-				category: 'custom',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				execute: async () => {
-					executeCalls++
-					return { success: true, output: 'ran' }
-				},
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				defineTool({
+					name: 'lookup',
+					description: 'lookup',
+					inputSchema: z.object({}),
+					category: 'custom',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => {
+						executeCalls++
+						return { success: true, output: 'ran' }
+					},
+				}),
+			),
 		)
 		const delivered = deferred<IteratorResult<BidiEvent>>()
 		const iterator: AsyncIterableIterator<BidiEvent> = {
@@ -614,7 +662,7 @@ describe('a session with no turn boundary', () => {
 		const provider: BidiProvider = { id: 'late-event', connect: async () => session }
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -631,28 +679,30 @@ describe('a session with no turn boundary', () => {
 	it('fences the session instead of executing one tool-call id twice', async () => {
 		let executeCalls = 0
 		const gate = deferred<void>()
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'lookup',
-				description: 'lookup',
-				inputSchema: z.object({}),
-				category: 'custom',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				execute: async () => {
-					executeCalls++
-					await gate.promise
-					return { success: true, output: 'ran' }
-				},
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				defineTool({
+					name: 'lookup',
+					description: 'lookup',
+					inputSchema: z.object({}),
+					category: 'custom',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => {
+						executeCalls++
+						await gate.promise
+						return { success: true, output: 'ran' }
+					},
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -684,7 +734,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -699,24 +749,26 @@ describe('a session with no turn boundary', () => {
 	})
 
 	it('reports a tool failure rather than dropping it', async () => {
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'lookup',
-				description: 'lookup',
-				inputSchema: z.object({}),
-				category: 'custom',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				execute: async () => ({ success: false, output: '', error: 'the lookup failed' }),
-			}),
+		const tools = [] as Toolset[]
+		tools.push(
+			testToolset(
+				defineTool({
+					name: 'lookup',
+					description: 'lookup',
+					inputSchema: z.object({}),
+					category: 'custom',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => ({ success: false, output: '', error: 'the lookup failed' }),
+				}),
+			),
 		)
 		const provider = createMockBidiProvider()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -740,7 +792,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})
@@ -758,7 +810,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({
 			provider,
-			tools,
+			toolsets: tools,
 			connect: { model: 'mock' },
 			workingDirectory: process.cwd(),
 		})

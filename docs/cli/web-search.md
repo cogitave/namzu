@@ -77,7 +77,7 @@ matching-route continuation reuses them. Cross-provider continuation retains the
 readable answer and source links, not another provider's private protocol items.
 Retrieved content remains untrusted data.
 
-SDK callers opt in through `ReactiveAgentConfig.webSearch`, `TurnConfig.webSearch` or direct
+SDK callers opt in through `QueryAgentConfig.webSearch`, `TurnConfig.webSearch` or direct
 `ChatCompletionParams.webSearch`, with `{ mode: 'live' }` or `{ mode: 'cached' }`.
 Drivers explicitly declare `supportsHostedWebSearch` and may refine it with
 `supportsHostedWebSearchFor(model, mode)`. Retry/idle-timeout decorators preserve

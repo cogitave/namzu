@@ -23,7 +23,7 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -72,12 +72,11 @@ describe('the tool-retry backoff a caller sets reaches the executor', () => {
 	async function run(extra: Record<string, unknown>) {
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-backoff-reach-'))
 		workdirs.push(dir)
-		const tools = new ToolRegistry()
-		tools.register(echoTool())
+		const tools = testToolset(echoTool())
 
 		return drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'run-model',
 				timeoutMs: 30_000,

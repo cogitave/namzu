@@ -56,6 +56,8 @@ import {
 	zodToMCPJsonSchema,
 } from './adapter.js'
 import type { MCPClient } from './client.js'
+import { MCPInputRequiredError, MCPProtocolError } from './errors.js'
+import { MCPHttpRedirectError } from './http-redirect.js'
 
 const PNG =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
@@ -63,6 +65,15 @@ const PNG =
 function mockClient(result: MCPToolResult): MCPClient {
 	return {
 		callTool: vi.fn(async () => result),
+	} as unknown as MCPClient
+}
+
+/** A client whose `callTool` always rejects with the given error. */
+function mockFailingClient(error: unknown): MCPClient {
+	return {
+		callTool: vi.fn(async () => {
+			throw error
+		}),
 	} as unknown as MCPClient
 }
 
@@ -167,6 +178,56 @@ describe('mcpToolToToolDefinition', () => {
 		expect(tool.isDestructive?.({})).toBe(false)
 	})
 
+	it('carries the annotations and _meta that have no typed home into metadata', () => {
+		const tool = mcpToolToToolDefinition(
+			{
+				name: 't',
+				inputSchema: { type: 'object' } as MCPJsonSchema,
+				annotations: {
+					title: 'Search the docs',
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+				_meta: { 'vendor.example/rateLimit': 5 },
+			},
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.metadata).toEqual({
+			title: 'Search the docs',
+			idempotentHint: true,
+			openWorldHint: false,
+			_meta: { 'vendor.example/rateLimit': 5 },
+			readOnlyHintTrusted: false,
+		})
+		// readOnlyHint/destructiveHint already have a typed home; not duplicated.
+		expect(tool.metadata).not.toHaveProperty('readOnlyHint')
+	})
+
+	it('keeps only advisory trust metadata when the server sent no annotations and no _meta', () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 't', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.metadata).toEqual({ readOnlyHintTrusted: false })
+	})
+
+	it('never populates requiresApproval: a connected server cannot demand its own review', () => {
+		const tool = mcpToolToToolDefinition(
+			{
+				name: 't',
+				inputSchema: { type: 'object' } as MCPJsonSchema,
+				annotations: { destructiveHint: true },
+				_meta: { requiresApproval: true },
+			},
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.requiresApproval).toBeUndefined()
+	})
+
 	it('execute calls client.callTool(tool.name, input) and adapts result', async () => {
 		const client = mockClient({
 			content: [{ type: 'text', text: 'hello' }],
@@ -191,6 +252,83 @@ describe('mcpToolToToolDefinition', () => {
 		// dropped the content would fail.
 		expect(result.output).toContain('hello')
 		expect(result.output).toContain('namzu-untrusted')
+	})
+
+	it('leaves maxRetries unset when the caller does not pass one (today, byte-for-byte)', () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockClient({ content: [], isError: false }),
+			's',
+		)
+		expect(tool.maxRetries).toBeUndefined()
+	})
+
+	it('sets maxRetries on the returned definition when the caller passes one', () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockClient({ content: [], isError: false }),
+			's',
+			false,
+			3,
+		)
+		expect(tool.maxRetries).toBe(3)
+	})
+
+	it('marks a "no way to supply the requested input" failure retryable', async () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockFailingClient(new MCPInputRequiredError([{ method: 'sampling/createMessage' }])),
+			's',
+		)
+		const result = await tool.execute({}, {
+			abortSignal: new AbortController().signal,
+		} as ToolContext)
+		expect(result.success).toBe(false)
+		expect(result.retryable).toBe(true)
+		expect((result.data as { code?: string } | undefined)?.code).toBe('mcp_tool_input_required')
+	})
+
+	it('marks a missing-client-capability failure retryable', async () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockFailingClient(
+				new MCPProtocolError(-32021, 'missing capability', { requiredCapabilities: ['sampling'] }),
+			),
+			's',
+		)
+		const result = await tool.execute({}, {
+			abortSignal: new AbortController().signal,
+		} as ToolContext)
+		expect(result.success).toBe(false)
+		expect(result.retryable).toBe(true)
+		expect((result.data as { code?: string } | undefined)?.code).toBe(
+			'mcp_tool_missing_client_capability',
+		)
+	})
+
+	it('never marks an outcome-unknown redirect refusal retryable', async () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockFailingClient(new MCPHttpRedirectError(307, 'tools/call')),
+			's',
+		)
+		const result = await tool.execute({}, {
+			abortSignal: new AbortController().signal,
+		} as ToolContext)
+		expect(result.success).toBe(false)
+		expect(result.retryable).not.toBe(true)
+		expect((result.data as { code?: string } | undefined)?.code).toBe('mcp_tool_outcome_unknown')
+	})
+
+	it('never marks a raw transport error retryable', async () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockFailingClient(new Error('socket hang up')),
+			's',
+		)
+		await expect(
+			tool.execute({}, { abortSignal: new AbortController().signal } as ToolContext),
+		).rejects.toThrow('socket hang up')
 	})
 })
 

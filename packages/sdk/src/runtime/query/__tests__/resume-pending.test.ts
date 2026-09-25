@@ -7,8 +7,9 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
@@ -65,7 +66,7 @@ interface Harness {
 	/** The session's log. A second process opens another instance over the same bytes. */
 	log: InMemorySessionLog
 	calls: string[]
-	tools: ToolRegistry
+	tools: Toolset
 }
 
 /** The log as a second process opens it: the same bytes, lease and spills, a new instance. */
@@ -87,8 +88,7 @@ async function stateOf(h: Harness, turnId: TurnStateScope['turnId']) {
 async function harness(): Promise<Harness> {
 	const dir = await workdir()
 	const calls: string[] = []
-	const tools = new ToolRegistry()
-	tools.register(deleteRowTool(calls) as unknown as ToolDefinition)
+	const tools = testToolset(deleteRowTool(calls) as unknown as ToolDefinition)
 	const sessionId = '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId
 	return {
 		dir,
@@ -108,7 +108,7 @@ async function harness(): Promise<Harness> {
 function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: ResumeHandler) {
 	return {
 		provider,
-		tools: h.tools,
+		toolsets: [h.tools],
 		resumeHandler,
 		sessionLog: reopen(h.log),
 		turnId: h.scope.turnId,
@@ -368,9 +368,9 @@ describe('an approval survives a process boundary', () => {
 		const h = await harness()
 		const executions: string[] = []
 		const makeTools = () => {
-			const tools = new ToolRegistry()
-			tools.register(deleteRowTool(executions) as unknown as ToolDefinition)
-			tools.register({
+			const definitions: ToolDefinition[] = []
+			definitions.push(deleteRowTool(executions) as unknown as ToolDefinition)
+			definitions.push({
 				name: 'shell',
 				description: 'schema-transforming shell fixture',
 				inputSchema: z
@@ -387,7 +387,7 @@ describe('an approval survives a process boundary', () => {
 					return Promise.resolve({ success: true, output: 'ran shell' })
 				},
 			} as ToolDefinition)
-			return tools
+			return testToolset(...definitions)
 		}
 		const authorizationGate: AuthorizationGateConfig = {
 			enabled: true,
@@ -411,7 +411,7 @@ describe('an approval survives a process boundary', () => {
 		})
 		const parked = await drainQuery({
 			...baseParams(h, first, pauseOnReview),
-			tools: makeTools(),
+			toolsets: [makeTools()],
 			authorizationGate,
 			messages: [createUserMessage('run both')],
 		})
@@ -444,7 +444,7 @@ describe('an approval survives a process boundary', () => {
 		}
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
-			tools: makeTools(),
+			toolsets: [makeTools()],
 			authorizationGate: currentGate,
 			messages: [],
 			resumeFromCheckpoint: state.checkpointId,
@@ -463,8 +463,8 @@ describe('an approval survives a process boundary', () => {
 		const h = await harness()
 		const executions: string[] = []
 		const makeTools = () => {
-			const tools = new ToolRegistry()
-			tools.register({
+			const definitions: ToolDefinition[] = []
+			definitions.push({
 				name: 'canonicalize',
 				description: 'null-prototype normalization fixture',
 				inputSchema: z
@@ -478,14 +478,14 @@ describe('an approval survives a process boundary', () => {
 					return Promise.resolve({ success: true, output: input.value })
 				},
 			} as ToolDefinition)
-			return tools
+			return testToolset(...definitions)
 		}
 		const first = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'canonicalize', args: { value: 'x' } }] }],
 		})
 		const parked = await drainQuery({
 			...baseParams(h, first, pauseOnReview),
-			tools: makeTools(),
+			toolsets: [makeTools()],
 			messages: [createUserMessage('normalize x')],
 		})
 		const state = await stateOf(h, parked.id)
@@ -494,7 +494,7 @@ describe('an approval survives a process boundary', () => {
 		const second = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
-			tools: makeTools(),
+			toolsets: [makeTools()],
 			messages: [],
 			resumeFromCheckpoint: state?.checkpointId,
 			pendingDecision: { action: 'approve_tools' },
@@ -510,8 +510,8 @@ describe('an approval survives a process boundary', () => {
 		const h = await harness()
 		const executions: string[] = []
 		const makeTools = (version: string) => {
-			const tools = new ToolRegistry()
-			tools.register({
+			const definitions: ToolDefinition[] = []
+			definitions.push({
 				name: 'normalize',
 				description: 'versioned normalization fixture',
 				inputSchema: z
@@ -528,14 +528,14 @@ describe('an approval survives a process boundary', () => {
 					return Promise.resolve({ success: true, output: value })
 				},
 			} as ToolDefinition)
-			return tools
+			return testToolset(...definitions)
 		}
 		const first = new MockLLMProvider({
 			turns: [{ toolCalls: [{ id: 'normalize_call', name: 'normalize', args: { value: 'x' } }] }],
 		})
 		const parked = await drainQuery({
 			...baseParams(h, first, pauseOnReview),
-			tools: makeTools('v1'),
+			toolsets: [makeTools('v1')],
 			messages: [createUserMessage('normalize')],
 		})
 		const state = await stateOf(h, parked.id)
@@ -545,7 +545,7 @@ describe('an approval survives a process boundary', () => {
 		const second = new MockLLMProvider({ turns: [{ text: 'not run' }] })
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
-			tools: makeTools('v2'),
+			toolsets: [makeTools('v2')],
 			messages: [],
 			resumeFromCheckpoint: state.checkpointId,
 			pendingDecision: { action: 'approve_tools' },

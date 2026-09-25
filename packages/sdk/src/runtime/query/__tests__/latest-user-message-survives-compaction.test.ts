@@ -7,11 +7,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import {
 	type Message,
@@ -62,8 +62,7 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 			return { text: 'done' }
 		},
 	})
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'noop',
 		description: 'Read-only fixture',
 		inputSchema: z.object({}),
@@ -76,7 +75,7 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 		{
 			...scope,
 			provider,
-			tools,
+			toolsets: [tools],
 			sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 			agentId: 'attention-audit',
 			agentName: 'Attention audit',
@@ -147,8 +146,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 		const reviewed: (string | undefined)[] = []
 		const largeTurn = ingress === 'stranded-steering' ? 2 : 1
 		let output = 'ok'
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'noop',
 			description: 'Read-only fixture',
 			inputSchema: z.object({}),
@@ -182,7 +180,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 			{
 				...scope,
 				provider,
-				tools,
+				toolsets: [tools],
 				steering,
 				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'operator-retention',
@@ -259,7 +257,7 @@ describe('which user-role messages can supply current intent', () => {
 			await drainQuery({
 				...scope,
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'operator-seeding',
 				agentName: 'Operator seeding',
@@ -323,7 +321,7 @@ describe('which user-role messages can supply current intent', () => {
 			await drainQuery({
 				...scope,
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'latest-input',
 				agentName: 'Latest input',
@@ -356,8 +354,7 @@ describe('which user-role messages can supply current intent', () => {
 })
 
 it('resumes the current topic after a compacted checkpoint, without resurrecting an old retained request', async () => {
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'noop',
 		description: 'Fixture',
 		inputSchema: z.object({}),
@@ -366,7 +363,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
 	const params = {
 		...scope,
-		tools,
+		toolsets: [tools],
 		workingDirectory: await workingDirectory(),
 		agentId: 'resume-intent',
 		agentName: 'Resume intent',
@@ -556,7 +553,7 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 	const result = await drainQuery({
 		...scope,
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 		agentId: 'budget-intent',
 		agentName: 'Budget intent',
@@ -626,7 +623,7 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 	await drainQuery({
 		...scope,
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 		agentId: 'model-budget',
 		agentName: 'Model budget',
@@ -669,8 +666,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	const steering = new SteeringBinding()
 	const pending: Message[] = []
 	const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'inspect',
 		description: 'Read-only fixture',
 		inputSchema: z.object({}),
@@ -691,7 +687,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 		{
 			...scope,
 			provider,
-			tools,
+			toolsets: [tools],
 			sessionLog,
 			agentId: 'steered-recall',
 			agentName: 'Steered recall',

@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { PluginHookContext, PluginHookEvent } from '../../../types/plugin/index.js'
 import {
 	generateProjectId,
@@ -36,15 +36,14 @@ function recordingManager(seen: Seen[]): PluginLifecycleManager {
 }
 
 async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
-	const tools = new ToolRegistry()
-	for (const name of toolNames) {
-		tools.register({
+	const tools = testToolset(
+		...toolNames.map((name) => ({
 			name,
 			description: `${name} tool`,
 			inputSchema: z.object({}),
 			execute: () => Promise.resolve({ success: true, output: 'ok' }),
-		})
-	}
+		})),
+	)
 
 	return drainQuery({
 		provider: new MockLLMProvider({
@@ -52,7 +51,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 				{ text: 'the answer', usage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } },
 			],
 		}),
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'what is the answer' }],
@@ -112,8 +111,7 @@ describe('what an extension is shown about a model call', () => {
 
 	it('threads one turn-owned cancellation signal through every lifecycle hook', async () => {
 		const seen: Seen[] = []
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'lookup',
 			description: 'look something up',
 			inputSchema: z.object({}),
@@ -123,7 +121,7 @@ describe('what an extension is shown about a model call', () => {
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ name: 'lookup', args: {} }] }, { text: 'done' }],
 			}),
-			tools,
+			toolsets: [tools],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'look it up' }],

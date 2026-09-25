@@ -1,4 +1,6 @@
 export { discoverPlugins, loadPluginManifest, discoverAllPluginDirs } from './loader.js'
+export { definePlugin } from './define.js'
+export type { DefinedPlugin, DefinePluginOptions } from './define.js'
 export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './loader.js'
 export { PluginLifecycleManager } from './lifecycle.js'
 export { PluginResolver } from './resolver.js'

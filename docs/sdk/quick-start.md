@@ -47,8 +47,9 @@ also contains a complete example that executes a local tool through this loop.
 `<NAMZU_HOME>/projects/<slug>/project.json` by `ensureProject` and adopted by
 every later call there, so every session in one directory is filed under one
 Project, in one tree. None of this creates Project, Topic or Session records in a session
-store. A host using store-backed delegation supplies the identity from its
-actual records.
+store. These generated IDs are correlation and storage labels, not ownership
+or permission claims. A host using store-backed delegation supplies the
+identity from its actual records.
 
 `runAgent` defaults to 16 main-loop iterations, 200,000 cumulative tokens and
 five minutes. Set `maxIterations: 0`, `tokenBudget: 0` and `timeoutMs: 0` to
@@ -58,12 +59,22 @@ disable those guards explicitly. Usage and cancellation remain active; see
 To continue a conversation, spread the returned `identity` into the next
 `runAgent` call and pass the prior `turn.messages` plus a new user message as
 `prompt`. Reusing identity alone does not load history. Omitting identity starts
-a new session in the working directory's Project.
+a new session in the working directory's Project. If you reuse a `sessionId`,
+pass the same project, tenant and topic IDs too: an existing session refuses
+a turn attributed to a different scope.
 
 For inference, install a provider driver and select its model explicitly.
-For more runtime configuration, use `ReactiveAgent` or `query`. Unlike
-`runAgent`, those entry points take the four identity fields explicitly and
-do not generate missing identity.
+For more runtime configuration, use `QueryAgent` or `query`. Unlike
+`runAgent`, they do not generate missing identity: `query` takes the four
+fields explicitly, and a managed `QueryAgent` takes their complete scope on
+`ManagedAgentInput.managedScope` (with the config fields still accepted for existing
+callers).
+
+`QueryAgent` is an optional adapter for hosts that need an `Agent` instance
+inside `AgentManager`. For an application-specific agent, implement the SDK's
+`Agent` contract or use `defineAgent`; choose any `type` string. See
+[Agent ownership](agent-ownership.md) for the division between the SDK, CLI
+and example orchestration patterns.
 
 ## Where the session is recorded
 

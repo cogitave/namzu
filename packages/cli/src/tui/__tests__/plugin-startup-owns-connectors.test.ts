@@ -24,6 +24,7 @@ vi.mock('../../integrations/mcp/servers.js', async (importOriginal) => {
 			if (mcp.mode === 'throw') throw new Error('mcp startup failed')
 			return {
 				tools: [],
+				toolsets: [],
 				connected: [{ name: 'fixture', toolCount: 0, tools: [] }],
 				failed: [],
 				close: mcp.close,

@@ -6,8 +6,8 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { repairToolMessageHistory } from '../../../compaction/dangling.js'
 import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
@@ -439,10 +439,9 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		const workdir = await realpath(await mkdtemp(join(tmpdir(), 'namzu-ledger-replay-')))
 		workdirs.push(workdir)
 		const file = join(workdir, 'doc.md')
-		const tools = new ToolRegistry()
-		for (const tool of [WriteFileTool, ReadFileTool, EditTool]) tools.register(tool)
+		const tools = testToolset(WriteFileTool, ReadFileTool, EditTool)
 		const run = await drainQuery({
-			tools,
+			toolsets: [tools],
 			messages: [{ role: 'user', content: 'write doc.md, then read it back' }],
 			provider: new MockLLMProvider({
 				turns: [

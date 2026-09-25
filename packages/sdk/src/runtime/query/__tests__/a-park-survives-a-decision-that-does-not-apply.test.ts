@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { generateTurnId } from '../../../utils/id.js'
@@ -72,9 +73,8 @@ async function workdir(): Promise<string> {
 }
 
 /** A destructive call the gate sends to a human, recording every execution. */
-function deployRegistry(executions: string[]): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function deployRegistry(executions: string[]): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'deploy',
 			description: 'a destructive call that needs a human',
@@ -90,7 +90,6 @@ function deployRegistry(executions: string[]): ToolRegistry {
 			},
 		}),
 	)
-	return tools
 }
 
 describe('a resume whose decision the runtime cannot apply', () => {
@@ -110,7 +109,7 @@ describe('a resume whose decision the runtime cannot apply', () => {
 						},
 					],
 				}),
-				tools: deployRegistry(executions),
+				toolsets: [deployRegistry(executions)],
 				...session,
 				agentId: 'agent_refused_plan',
 				agentName: 'Refused plan agent',
@@ -174,7 +173,7 @@ describe('a resume whose decision the runtime cannot apply', () => {
 			await resumeParams(target, {
 				pendingDecision: { action: 'continue' },
 				provider: new MockLLMProvider({ turns: [{ text: 'never mind, I will ask again' }] }),
-				tools: deployRegistry(executions),
+				toolsets: [deployRegistry(executions)],
 				workingDirectory,
 			}),
 		)
@@ -212,7 +211,7 @@ describe('a resume whose decision the runtime cannot apply', () => {
 			await resumeParams(target, {
 				pendingDecision: { action: 'approve_tools' },
 				provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-				tools: deployRegistry(executions),
+				toolsets: [deployRegistry(executions)],
 				workingDirectory,
 			}),
 		)
@@ -255,9 +254,8 @@ describe('a partially-applied tool batch', () => {
 			release: true,
 		})
 
-		const tools = new ToolRegistry()
-		for (const name of ['first', 'second']) {
-			tools.register(
+		const tools = testToolset(
+			...['first', 'second'].map((name) =>
 				defineTool({
 					name,
 					description: name,
@@ -272,8 +270,8 @@ describe('a partially-applied tool batch', () => {
 						return { success: true, output: `${name} ran again` }
 					},
 				}),
-			)
-		}
+			),
+		)
 
 		const resumed = await resumeSession({
 			scope: {
@@ -291,7 +289,7 @@ describe('a partially-applied tool batch', () => {
 			tenantId: crashed.scope.tenantId,
 			checkpointId: crashed.checkpointId,
 			provider: new MockLLMProvider({ turns: [{ text: 'understood' }] }),
-			tools,
+			toolsets: [tools],
 			agentId: 'agent_partial_batch',
 			agentName: 'Partial batch agent',
 			workingDirectory,

@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
@@ -61,7 +60,7 @@ describe('a message from before a compaction, replayed by the host', () => {
 		for (let turn = 1; turn <= 3; turn++) {
 			const run = await drainQuery({
 				provider: new MockLLMProvider({ responseText: `placeholder reply ${turn}` }),
-				tools: new ToolRegistry(),
+				toolsets: [],
 				messages: [
 					...history,
 					createUserMessage(`placeholder message ${turn}: padding so it is not trivially tiny`),
@@ -100,7 +99,7 @@ describe('a message from before a compaction, replayed by the host', () => {
 		const provider4 = new MockLLMProvider({ responseText: 'placeholder reply 4' })
 		const run4 = await drainQuery({
 			provider: provider4,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [firstUser, ...history.slice(1), createUserMessage('placeholder message 4')],
 			workingDirectory: cwd,
 			sessionLog: log,

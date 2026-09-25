@@ -14,9 +14,10 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { GENAI, NAMZU, agentTurnSpanName } from '../../../telemetry/attributes.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import {
 	generateProjectId,
@@ -121,9 +122,8 @@ async function workdir(): Promise<string> {
 	return dir
 }
 
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -136,7 +136,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 async function runOnce(signal?: AbortSignal): Promise<{
@@ -159,7 +158,7 @@ async function runOnce(signal?: AbortSignal): Promise<{
 				},
 			],
 		}),
-		tools: echoRegistry(),
+		toolsets: [echoToolset()],
 		agentId: 'agent_root_span',
 		agentName: 'Root span agent',
 		messages: [{ role: 'user', content: 'go' }],
@@ -231,7 +230,7 @@ describe('the root span of a turn that failed', () => {
 
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [{ error: { message: 'the model fell over' } }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'agent_root_span',
 			agentName: 'Root span agent',
 			messages: [{ role: 'user', content: 'go' }],

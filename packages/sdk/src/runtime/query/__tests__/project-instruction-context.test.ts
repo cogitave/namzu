@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -73,7 +73,7 @@ describe('live project instruction context', () => {
 
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('do not start')],
 			workingDirectory: await workingTree(),
 			turnConfig: {
@@ -114,7 +114,7 @@ describe('live project instruction context', () => {
 		const late = createProjectInstructionMessage('late initial policy', ['AGENTS.md'])
 		const running = drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('wait for policy')],
 			workingDirectory: await workingTree(),
 			turnConfig: {
@@ -175,7 +175,7 @@ describe('live project instruction context', () => {
 
 		const run = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('do not publish late policy')],
 			workingDirectory: await workingTree(),
 			turnConfig: {
@@ -217,7 +217,7 @@ describe('live project instruction context', () => {
 		const late = createProjectInstructionMessage('post-settlement initial policy', ['AGENTS.md'])
 		const running = drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [createUserMessage('fence initial publication')],
 			workingDirectory: await workingTree(),
 			turnConfig: {
@@ -258,7 +258,7 @@ describe('live project instruction context', () => {
 		await expect(
 			drainQuery({
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				messages: [createUserMessage('load policy')],
 				workingDirectory: await workingTree(),
 				turnConfig: {
@@ -289,13 +289,12 @@ describe('live project instruction context', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'read', args: { path: 'packages/a/file.ts' } }] }],
 		})
-		const tools = new ToolRegistry()
-		tools.register(ReadFileTool)
+		const tools = testToolset(ReadFileTool)
 		const context = new SnapshotAfterRead()
 
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			messages: [createUserMessage('inspect the file')],
 			workingDirectory: cwd,
 			turnConfig: {
@@ -333,7 +332,7 @@ describe('live project instruction context', () => {
 		const resumedProvider = new MockLLMProvider({ responseText: 'done' })
 		await drainQuery({
 			provider: resumedProvider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			messages: [...run.messages, createUserMessage('continue')],
 			workingDirectory: cwd,
 			turnConfig: {
@@ -362,8 +361,7 @@ describe('live project instruction context', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'wrapper' }] }],
 		})
-		const tools = new ToolRegistry()
-		tools.register([
+		const tools = testToolset(
 			ReadFileTool,
 			defineTool({
 				name: 'wrapper',
@@ -381,12 +379,12 @@ describe('live project instruction context', () => {
 					})
 				},
 			}),
-		])
+		)
 		const context = new SnapshotAfterRead()
 
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			messages: [createUserMessage('use the wrapper')],
 			workingDirectory: cwd,
 			turnConfig: {
@@ -428,8 +426,7 @@ describe('live project instruction context', () => {
 				},
 			],
 		})
-		const tools = new ToolRegistry()
-		tools.register(ReadFileTool)
+		const tools = testToolset(ReadFileTool)
 		const caller = new AbortController()
 		const reason = new TurnCancelled('user')
 		let markSecondStarted!: () => void
@@ -464,7 +461,7 @@ describe('live project instruction context', () => {
 		}
 		const running = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			messages: [createUserMessage('read both files')],
 			workingDirectory: cwd,
 			turnConfig: {
@@ -528,8 +525,7 @@ describe('live project instruction context', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'read', args: { path: 'packages/a/file.ts' } }] }],
 		})
-		const tools = new ToolRegistry()
-		tools.register(ReadFileTool)
+		const tools = testToolset(ReadFileTool)
 		const caller = new AbortController()
 		const reason = new TurnCancelled('user')
 		let markStarted!: () => void
@@ -545,7 +541,7 @@ describe('live project instruction context', () => {
 		])
 		const running = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			messages: [createUserMessage('read then fence publication')],
 			workingDirectory: cwd,
 			turnConfig: {
@@ -658,7 +654,7 @@ describe('project instruction snapshot history', () => {
 		await expect(
 			drainQuery({
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				messages: [forged, createUserMessage('continue')],
 				workingDirectory: cwd,
 				turnConfig: {

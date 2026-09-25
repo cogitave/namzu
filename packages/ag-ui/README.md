@@ -9,9 +9,13 @@ exercise the official `@ag-ui/client` `HttpAgent` at the same version.
 pnpm add @namzu/ag-ui @namzu/sdk zod@^3
 ```
 
-Node.js 20 or later, `@namzu/sdk >=45.1.0` and `zod` 3 are required.
+`@namzu/ag-ui` 3.0 requires Node.js 20 or later, `@namzu/sdk >=48.0.0`,
+and `zod` 3.
 
-**Compatibility.** `@namzu/ag-ui` 2 ends a paused turn's run with an AG-UI
+**Compatibility.** Use `@namzu/ag-ui` 2.x with SDK 45.1–47. Version 3.0
+expects `QueryParams.toolsets` from SDK 48; replace a `ToolRegistry` in your
+`createQuery` result with `toolsets: [toolset(source, definitions)]`.
+`@namzu/ag-ui` 2 ends a paused turn's run with an AG-UI
 interrupt (`RUN_FINISHED` with `outcome.type: "interrupt"`) and serves
 `resume`; 1.x ended it with `RUN_ERROR` code `NAMZU_TURN_PAUSED`.
 `@namzu/ag-ui` before 1.0.0 breaks on `@namzu/sdk >=44`, where the kernel's
@@ -36,7 +40,7 @@ accepts JSON `RunAgentInput` over POST and returns `text/event-stream`. The
 factory receives `{ input, signal, ui, interrupts, frontendTools, request?,
 session?, continuation? }`; `request` is present for HTTP handling and absent
 when the host iterates `adapter.run()` directly. An existing host query
-configuration supplies providers, model, tools, stores, permissions, and native
+configuration supplies providers, model, toolsets, stores, permissions, and native
 tenant/project/topic/session identity.
 
 Map an authenticated tenant plus `input.threadId` to a server-owned native
@@ -100,23 +104,24 @@ handlers on the factory's context:
 
 ```ts
 import { AGUIAdapter, type AGUITurnContext, type QueryParams } from '@namzu/ag-ui'
-import { ToolRegistry, buildAskUserQuestionTool } from '@namzu/sdk'
+import { buildAskUserQuestionTool, toolset } from '@namzu/sdk'
 
 /** Your authorized scope, provider and stores for the request's thread. */
 type HostParams = (
   context: AGUITurnContext,
-) => Promise<Omit<QueryParams, 'tools' | 'resumeHandler'>>
+) => Promise<Omit<QueryParams, 'toolsets' | 'resumeHandler'>>
 
 export function createInteractiveHandler(hostParams: HostParams) {
   const adapter = new AGUIAdapter({
     frontendTools: { allow: ['pick_color'] },
     async createQuery(context) {
-      const tools = new ToolRegistry()
-      tools.register(buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }))
-      for (const tool of context.frontendTools) tools.register(tool)
+      const toolsets = [toolset('ag-ui', [
+        buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
+        ...context.frontendTools,
+      ])]
       return {
         ...(await hostParams(context)),
-        tools,
+        toolsets,
         resumeHandler: context.interrupts.resumeHandler,
       }
     },

@@ -29,7 +29,7 @@ const lease = await log.claim({ holder: 'review-restart:' + mode + ':' + process
 if (!lease) throw new Error('the session is held')
 const provider = new sdk.MockLLMProvider({ turns: [{ text: 'Unverified.' }] })
 const params = {
-  ...state, paths, lease, provider, tools: new sdk.ToolRegistry(),
+  ...state, paths, lease, provider, toolsets: [],
   agentId: 'review-restart', agentName: 'Review restart', workingDirectory: root,
   turnConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 5, timeoutMs: 10000 },
   maxAnswerReviews: 0, reviewAnswer: () => ({ accept: false, feedback: 'Evidence mismatch.' }),

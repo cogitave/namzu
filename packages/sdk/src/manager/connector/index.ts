@@ -1,10 +1,10 @@
 export { ConnectorManager } from './lifecycle.js'
 export type { ConnectorManagerConfig } from './lifecycle.js'
 
-export { TenantConnectorManager } from './tenant.js'
+export { TenantCollisionError, TenantConnectorManager } from './tenant.js'
 export type { TenantConnectorManagerConfig } from './tenant.js'
 
-export { EnvironmentConnectorManager } from './environment.js'
+export { EnvironmentCollisionError, EnvironmentConnectorManager } from './environment.js'
 export type {
 	EnvironmentConnectorSetup,
 	EnvironmentConnectorManagerConfig,

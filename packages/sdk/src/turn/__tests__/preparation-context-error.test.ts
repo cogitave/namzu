@@ -5,7 +5,6 @@ import { afterEach, expect, it } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../config/runtime.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import {
@@ -30,7 +29,7 @@ it.each(['safe', 'ordinary', 'ceiling', 'remaining-room'] as const)(
 		let laterContext: string | undefined
 		await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			workingDirectory: cwd,
 			tenantId: generateTenantId(),
 			projectId: generateProjectId(),

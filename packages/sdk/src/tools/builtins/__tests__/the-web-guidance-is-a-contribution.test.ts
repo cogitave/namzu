@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { PromptBuilder } from '../../../runtime/query/prompt.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import { WEB_GUIDANCE_CONTRIBUTION_ID, webGuidanceContribution } from '../web-guidance.js'
 import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME } from '../web.js'
 
@@ -22,7 +22,7 @@ import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME } from '../web.js'
 
 const builder = (contributions?: PromptContributionRegistry) =>
 	new PromptBuilder({
-		tools: new ToolRegistry(),
+		tools: new ToolManager({ toolsets: [], messages: () => [] }),
 		systemPrompt: 'be brief',
 		...(contributions ? { contributions } : {}),
 	})

@@ -129,6 +129,11 @@ export interface ActiveTurnOptions {
 	readonly now?: number
 }
 
+export interface SessionLogClaimOptions extends ClaimSessionOptions {
+	/** Defer torn-tail repair until the first append, after caller admission checks. */
+	readonly repairTornTail?: boolean
+}
+
 /**
  * One session's append-only, hash-chained log: the source of truth for
  * everything the session did (spec §4). One writer at a time holds its
@@ -143,9 +148,10 @@ export interface SessionLog {
 	 * the same name waits like any other. This instance renews its own holding
 	 * under the same fence, late or not, unless somebody took the session in
 	 * between. A new fence is above the log's highest `gen`. Taking it
-	 * repairs a torn tail first (`log_repaired`).
+	 * repairs a torn tail first (`log_repaired`) unless `repairTornTail` is false.
+	 * A caller validating a log owner should defer repair until after that check.
 	 */
-	claim(options: ClaimSessionOptions): Promise<SessionLease | null>
+	claim(options: SessionLogClaimOptions): Promise<SessionLease | null>
 	/** Give the lease up; a stale lease releases nothing. */
 	release(lease: SessionLease): Promise<void>
 	/** The current holding, or `null` when never claimed. */
@@ -362,7 +368,7 @@ export class SessionLogCore implements SessionLog {
 
 	// ── lease ──
 
-	async claim(options: ClaimSessionOptions): Promise<SessionLease | null> {
+	async claim(options: SessionLogClaimOptions): Promise<SessionLease | null> {
 		if (sessionLeasesReleasedForExit()) throw new SessionLeasesReleasedError()
 		// The log's own highest gen is the floor for a new fence, so lease files
 		// that were lost or cleared cannot mint a fence below records already
@@ -383,7 +389,7 @@ export class SessionLogCore implements SessionLog {
 			if (sessionLeasesReleasedForExit()) throw new SessionLeasesReleasedError()
 			await this.#mutex.run(async () => {
 				await this.#catchUp()
-				await this.#heal(lease)
+				if (options.repairTornTail !== false) await this.#heal(lease)
 			})
 		} catch (error) {
 			// A log this writer cannot append to (a broken chain, a conflict) is

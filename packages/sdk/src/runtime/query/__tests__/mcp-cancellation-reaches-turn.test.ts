@@ -7,7 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { mcpToolToToolDefinition } from '../../../connector/mcp/adapter.js'
 import { MCPClient } from '../../../connector/mcp/client.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type {
 	MCPJsonRpcMessage,
 	MCPTransport,
@@ -95,8 +95,7 @@ describe('MCP cancellation reaches a real turn', () => {
 		;(client as unknown as { transport: MCPTransport }).transport = transport
 		await client.connect()
 
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			mcpToolToToolDefinition(
 				{
 					name: 'remote_mutation',
@@ -125,7 +124,7 @@ describe('MCP cancellation reaches a real turn', () => {
 		const caller = new AbortController()
 		const pending = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,

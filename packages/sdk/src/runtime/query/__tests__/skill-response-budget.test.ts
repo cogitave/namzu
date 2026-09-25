@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SkillRegistry } from '../../../skills/registry.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { SkillTool } from '../../../tools/builtins/skill.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -62,7 +63,7 @@ function lastToolOutput(
 
 async function run(
 	provider: MockLLMProvider,
-	tools: ToolRegistry,
+	tools: Toolset,
 	skills: SkillRegistryRef,
 	over: Record<string, unknown> = {},
 ) {
@@ -70,7 +71,7 @@ async function run(
 	workdirs.push(workingDirectory)
 	return drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		skillRegistry: skills,
 		maxToolOutputChars: 420,
 		turnConfig: {
@@ -114,8 +115,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 			description: 'x'.repeat(1_024),
 		})
 
-		const tools = new ToolRegistry()
-		tools.register(SkillTool)
+		const tools = testToolset(SkillTool)
 		const outputs: string[] = []
 		const listed: string[] = []
 		const warnings: string[] = []
@@ -171,8 +171,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 			load: async () => undefined,
 			names: () => ['mutable', 'later'],
 		}
-		const tools = new ToolRegistry()
-		tools.register(SkillTool)
+		const tools = testToolset(SkillTool)
 		let staleOutput = ''
 		const provider = new MockLLMProvider({
 			nextTurn(params, index): MockTurn {
@@ -204,8 +203,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 			}),
 			names: () => ['long'],
 		}
-		const tools = new ToolRegistry()
-		tools.register(SkillTool)
+		const tools = testToolset(SkillTool)
 		const seenOutputs: string[] = []
 		const provider = new MockLLMProvider({
 			nextTurn(params, index): MockTurn {
@@ -261,10 +259,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 				return { success: true, output: 'read succeeded' }
 			}),
 		}
-		const tools = new ToolRegistry()
-		tools.register(SkillTool)
-		tools.register(read)
-		tools.register({
+		const tools = testToolset(SkillTool, read, {
 			...read,
 			name: 'bash',
 			execute: async () => ({ success: true, output: 'still available' }),

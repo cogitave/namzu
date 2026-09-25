@@ -48,7 +48,7 @@ import type { DetectedProvider, Preferences } from '../integrations/providers/in
 import { readSessionStart } from '../integrations/resident/session-log-reads.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
-import { compilePermissions } from '../permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import { applyProviderFlags, resolveWorkingDirectory } from './exec-flags.js'
 import type { CommandDef } from './types.js'
 
@@ -435,6 +435,7 @@ export const drainCommand: CommandDef = {
 			return 1
 		}
 		prefs = applyProviderFlags(prefs, flags)
+		warnLegacyMcpPermissionNames(ctx.config.permissions)
 		const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 		for (const diagnostic of permissions.diagnostics) {
 			const where = diagnostic.pattern

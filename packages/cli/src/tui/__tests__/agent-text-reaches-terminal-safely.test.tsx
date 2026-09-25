@@ -11,6 +11,7 @@ import {
 } from '../permission-review.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const BEL = String.fromCodePoint(0x07)
 const CSI = String.fromCodePoint(0x9b)
@@ -81,6 +82,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],

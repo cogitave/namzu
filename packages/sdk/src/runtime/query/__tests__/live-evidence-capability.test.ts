@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { PrepareStepContext } from '../../../types/session/prepare-step.js'
-import type { ToolContext } from '../../../types/tool/index.js'
+import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -57,8 +57,8 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 	let refused: unknown
 	let nextRead = false
 	let settledRead = false
-	const tools = new ToolRegistry()
-	tools.register({
+	const definitions: ToolDefinition[] = []
+	definitions.push({
 		name: 'slow_capture',
 		description: 'Capture with a controlled delay.',
 		inputSchema: z.object({}),
@@ -76,7 +76,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 			return { success: true, output: 'Finished observing cancellation.' }
 		},
 	})
-	tools.register({
+	definitions.push({
 		name: 'next_capture',
 		description: 'Read after another tool timed out.',
 		inputSchema: z.object({}),
@@ -102,7 +102,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 				{ text: 'Done.' },
 			],
 		}),
-		tools,
+		toolsets: [testToolset(...definitions)],
 		projectId: generateProjectId(),
 		...memorySession(),
 		topicId: generateTopicId(),
@@ -138,7 +138,7 @@ it('local preparation cancellation refuses late capture without cancelling the t
 	const result = await drainQuery({
 		turnId: generateTurnId(),
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		projectId: generateProjectId(),
 		...memorySession(),
 		topicId: generateTopicId(),
@@ -181,8 +181,8 @@ it.each(
 		let capture: ToolContext['captureSessionEvidence']
 		let returned = false
 		let refused = false
-		const tools = new ToolRegistry()
-		tools.register({
+		const definitions: ToolDefinition[] = []
+		definitions.push({
 			name: 'capture_evidence',
 			description: 'Read the current invocation boundary.',
 			inputSchema: z.object({}),
@@ -222,7 +222,7 @@ it.each(
 								{ text: 'Done.' },
 							],
 			}),
-			tools,
+			toolsets: [testToolset(...definitions)],
 			...(entry === 'prepare' ? { prepareStep: prepare } : {}),
 			projectId: generateProjectId(),
 			...memorySession(),
@@ -267,8 +267,8 @@ it.each(['nested', 'local'] as const)(
 		let childCapture: ToolContext['captureSessionEvidence']
 		let childRefused = false
 		let parentRead = false
-		const tools = new ToolRegistry()
-		tools.register({
+		const definitions: ToolDefinition[] = []
+		definitions.push({
 			name: 'child',
 			description: 'Read inside a nested dispatch.',
 			inputSchema: z.object({}),
@@ -283,7 +283,7 @@ it.each(['nested', 'local'] as const)(
 				return { success: true, output: 'Child observed cancellation.' }
 			},
 		})
-		tools.register({
+		definitions.push({
 			name: 'parent',
 			description: 'Keep working after one read is cancelled.',
 			inputSchema: z.object({}),
@@ -314,7 +314,7 @@ it.each(['nested', 'local'] as const)(
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ id: 'parent', name: 'parent', args: {} }] }, { text: 'Done.' }],
 			}),
-			tools,
+			toolsets: [testToolset(...definitions)],
 			projectId: generateProjectId(),
 			...memorySession(),
 			topicId: generateTopicId(),

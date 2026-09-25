@@ -1,5 +1,5 @@
 import type { ChatCompletionParams, ProviderRoute } from '@namzu/sdk'
-import { ToolRegistry, findPortableSchemaViolations, getBuiltinTools } from '@namzu/sdk'
+import { ToolManager, findPortableSchemaViolations, getBuiltinTools, toolset } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import type { ZenProtocol } from '../models.js'
@@ -35,8 +35,10 @@ import { createCallOptions } from '../options.js'
 const PROTOCOLS: ZenProtocol[] = ['chat', 'responses', 'messages', 'google']
 
 function toolsFromTheKernel(): NonNullable<ChatCompletionParams['tools']> {
-	const registry = new ToolRegistry()
-	for (const tool of getBuiltinTools()) registry.register(tool)
+	const registry = new ToolManager({
+		toolsets: [toolset('test', getBuiltinTools())],
+		messages: () => [],
+	})
 	return registry.toLLMTools()
 }
 

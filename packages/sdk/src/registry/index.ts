@@ -1,16 +1,10 @@
 export { BaseRegistry } from './BaseRegistry.js'
+export { RegistryCollisionError } from './collision.js'
+export type { RegistryCollisionPolicy } from './collision.js'
 export { ManagedRegistry } from './ManagedRegistry.js'
 export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 
-export { ToolNameCollisionError, ToolRegistry } from './tool/execute.js'
-export type { ToolExecutionResult, ToolRegistryForkOptions } from './tool/execute.js'
-export {
-	ToolCatalog,
-	createToolCatalogFromRegistry,
-	loadingFromAvailability,
-	toolDefinitionToCatalogEntry,
-} from './toolset/catalog.js'
-export type { ToolCatalogFromRegistryOptions, ToolCatalogSearchOptions } from './toolset/catalog.js'
+export { ToolNameCollisionError, TOOL_NAME_PATTERN, assertToolName } from './tool/execute.js'
 
 export { ConnectorRegistry } from './connector/definitions.js'
 export { ScopedConnectorRegistry } from './connector/scoped.js'

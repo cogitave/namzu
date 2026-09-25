@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { JobTool } from '../../../tools/builtins/job.js'
 import { WaitForJobTool } from '../../../tools/builtins/wait-for-job.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
 	generateProjectId,
@@ -51,19 +52,15 @@ function startTool() {
 	})
 }
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(startTool())
-	registry.register(JobTool)
-	registry.register(WaitForJobTool)
-	return registry
+function tools(): Toolset {
+	return testToolset(startTool(), JobTool, WaitForJobTool)
 }
 
 async function run(turns: MockTurn[]) {
 	const provider = new MockLLMProvider({ turns })
 	const result = await drainQuery({
 		provider,
-		tools: tools(),
+		toolsets: [tools()],
 		agentId: 'job-wait-fixture',
 		agentName: 'Job wait fixture',
 		messages: [{ role: 'user', content: 'start the job and tell me when it finishes' }],

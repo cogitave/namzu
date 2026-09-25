@@ -2,8 +2,8 @@ import { type MockInstance, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { isTerminalStatus } from '../../../types/common/index.js'
 import { deriveTurnStatus } from '../../../types/session/derive-status.js'
@@ -52,8 +52,7 @@ function startTurn(): TurnUnderTest {
 	const sessionLog = new InMemorySessionLog({ sessionId })
 	const jobs = new BackgroundJobRegistry()
 
-	const tools = new ToolRegistry()
-	tools.register(
+	const tools = testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes its input',
@@ -74,7 +73,7 @@ function startTurn(): TurnUnderTest {
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'ready' } }] }, { text: 'done' }],
 		} as never),
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
@@ -197,8 +196,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 		}
 		const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
 
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'echo',
 				description: 'echoes its input',
@@ -216,7 +214,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ name: 'echo', args: { text: 'ready' } }] }, { text: 'done' }],
 			} as never),
-			tools,
+			toolsets: [tools],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
@@ -270,7 +268,7 @@ describe('a new turn named by the host', () => {
 		const turnId = generateTurnId()
 		const base = {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] } as never),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			workingDirectory: process.cwd(),

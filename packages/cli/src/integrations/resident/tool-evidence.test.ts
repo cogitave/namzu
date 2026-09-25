@@ -6,7 +6,7 @@ import {
 	MockLLMProvider,
 	ProviderRegistry,
 	type ResidentStepContext,
-	type ToolRegistryContract,
+	ToolManager,
 	type TurnId,
 	generateSessionId,
 	generateTurnId,
@@ -21,13 +21,17 @@ import { createResidentSessionStep } from './session-step.js'
 import { findResidentProject } from './storage.js'
 import { residentToolEvidence } from './tool-evidence.js'
 
-const registries = new Map<string, ToolRegistryContract>()
+const registries = new Map<string, ToolManager>()
 vi.mock('@namzu/sdk', async (original) => {
 	const actual = await original<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		query: (params: Parameters<typeof actual.query>[0]) => {
-			if (params.turnId) registries.set(params.turnId, params.tools)
+			if (params.turnId)
+				registries.set(
+					params.turnId,
+					new ToolManager({ toolsets: params.toolsets, messages: () => [] }),
+				)
 			return actual.query(params)
 		},
 	}

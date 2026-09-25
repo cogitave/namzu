@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolRegistry, createUserMessage } from '@namzu/sdk'
+import { createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -168,7 +168,7 @@ describe('the CLI owns a real plugin runtime', () => {
 		const root = join(cwd, '.namzu', 'plugins', 'ledger')
 		await writeFile(
 			join(root, 'tools.mjs'),
-			"export const tools = [{ name: 'audit', description: 'audit', async execute() { return { success: true, output: 'ok' }; } }];\n",
+			"export const tools = [{ name: 'audit', description: 'audit', inputSchema: { safeParse: (v) => ({ success: true, data: v }) }, modelInputSchema: { type: 'object', properties: {} }, async execute() { return { success: true, output: 'ok' }; } }];\n",
 		)
 		await writeFile(
 			join(root, 'skills', 'reconcile', 'SKILL.md'),
@@ -222,6 +222,22 @@ describe('the CLI owns a real plugin runtime', () => {
 		}
 		expect(session.plugins?.list()).toEqual([])
 		await expect(session.plugins?.setEnabled('ledger', true)).rejects.toThrow(/closed/i)
+	})
+
+	it('rejects a file plugin tool without inputSchema while loading the plugin', async () => {
+		const cwd = await projectWithPlugin({
+			name: 'ledger',
+			version: '1.0.0',
+			description: 'bad tool',
+			tools: ['tools.mjs'],
+		})
+		await writeFile(
+			join(cwd, '.namzu', 'plugins', 'ledger', 'tools.mjs'),
+			"export const tools = [{ name: 'broken', description: 'no schema', async execute() { return { success: true }; } }];\n",
+		)
+		await expect(
+			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, cwd),
+		).rejects.toThrow(/Plugin "ledger" tool #1 from "tools.mjs" must define inputSchema/)
 	})
 
 	it.skipIf(process.platform === 'win32')(
@@ -279,17 +295,19 @@ describe('the CLI owns a real plugin runtime', () => {
 		)
 		await writeFile(
 			join(good, 'tools.mjs'),
-			"export const tools = [{ name: 'probe', description: 'probe', async execute() { return { success: true, output: 'ok' }; } }];\n",
+			"export const tools = [{ name: 'probe', description: 'probe', inputSchema: { safeParse: (v) => ({ success: true, data: v }) }, modelInputSchema: { type: 'object', properties: {} }, async execute() { return { success: true, output: 'ok' }; } }];\n",
 			'utf8',
 		)
 		await writeFile(join(bad, 'plugin.json'), '{"definitely":"invalid"}', 'utf8')
-		const tools = new ToolRegistry()
 
+		// No shared registry to inspect afterward any more (plan.md v3 §7):
+		// `PluginLifecycleManager` owns its own toolsets, so a construction
+		// that rejects never hands a caller a runtime to read one FROM at
+		// all — the promise rejecting, rather than partially resolving with
+		// `good`'s tool still contributed, IS the rollback guarantee here.
 		await expect(
-			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, tools, cwd),
+			createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, cwd),
 		).rejects.toThrow(/Plugin runtime could not start/i)
-		expect(tools.has('good__probe')).toBe(false)
-		expect(tools.has('skill')).toBe(false)
 	})
 
 	it('keeps discovery and plugin imports off until enabled exactly', async () => {

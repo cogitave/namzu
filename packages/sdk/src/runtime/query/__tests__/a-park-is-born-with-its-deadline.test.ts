@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { generateTurnId } from '../../../utils/id.js'
 import { type RecordedPark, findPendingCheckpoint, readParks } from '../checkpoint.js'
@@ -38,9 +39,8 @@ afterEach(async () => {
 const TURN_ID = generateTurnId()
 
 /** A destructive call no gate pre-approves, so it reaches a human. */
-function reviewRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function reviewRegistry(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'deploy',
 			description: 'a destructive call that needs a human',
@@ -53,7 +53,6 @@ function reviewRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'deployed' }),
 		}),
 	)
-	return tools
 }
 
 async function runUntilParked(options: { hitlParkTtlMs?: number }): Promise<{
@@ -86,7 +85,7 @@ async function runUntilParked(options: { hitlParkTtlMs?: number }): Promise<{
 	const drained = (async () => {
 		const gen = query({
 			provider,
-			tools: reviewRegistry(),
+			toolsets: [reviewRegistry()],
 			...session,
 			agentId: 'agent_park_ttl',
 			agentName: 'Park TTL agent',

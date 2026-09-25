@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionTokenBudget, type SessionTokenBudgetSnapshot } from '../../../store/budget/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
@@ -69,7 +68,7 @@ describe('caller cancellation with the stream idle watchdog disabled', () => {
 				turnId,
 				provider,
 				budget,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				sessionLog: new InMemorySessionLog({ sessionId }),
 				projectId: generateProjectId(),
 				sessionId,

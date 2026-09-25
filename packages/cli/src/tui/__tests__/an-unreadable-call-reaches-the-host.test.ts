@@ -17,7 +17,7 @@ import {
 	type QueryParams,
 	type SessionEvent,
 	type ToolInputError,
-	ToolRegistry,
+	ToolManager,
 	type TurnId,
 	createAssistantMessage,
 	createToolPresenter,
@@ -100,7 +100,7 @@ afterEach(() => {
 
 describe('an unreadable tool call', () => {
 	it('is mapped with its reason and what arrived, and a readable completion is not', () => {
-		const presenter = createToolPresenter(new ToolRegistry())
+		const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 		expect(toAgentEvent(unreadable, presenter)).toEqual({
 			kind: 'tool-input-unreadable',
 			turnId,

@@ -5,8 +5,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { MarkdownMemoryStore } from '../../../store/memory/markdown.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
@@ -32,8 +33,10 @@ async function fixture() {
 	const directory = await mkdtemp(join(tmpdir(), 'namzu-typed-tools-'))
 	roots.push(directory)
 	const store = new MarkdownMemoryStore({ directory })
-	const registry = new ToolRegistry()
-	registry.register(buildMemoryTools(store))
+	const registry = new ToolManager({
+		toolsets: [testToolset(...buildMemoryTools(store))],
+		messages: () => [],
+	})
 	return { store, registry }
 }
 

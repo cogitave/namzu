@@ -10,11 +10,11 @@
 
 import { expect, it } from 'vitest'
 
-import { type SessionEvent, ToolRegistry, type TurnId, createToolPresenter } from '@namzu/sdk'
+import { type SessionEvent, ToolManager, type TurnId, createToolPresenter } from '@namzu/sdk'
 
 import { RESULT_SUMMARY_WHOLE_MAX, toAgentEvent } from '../agent.js'
 
-const presenter = createToolPresenter(new ToolRegistry())
+const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 const turnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function completed(result: string) {

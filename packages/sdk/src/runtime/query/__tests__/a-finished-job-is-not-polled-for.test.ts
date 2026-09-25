@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -30,9 +31,8 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function tools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'start',
 			description: 'starts a short background job',
@@ -50,8 +50,6 @@ function tools(): ToolRegistry {
 				return { success: true, output: `started ${job?.id ?? 'nothing'}` }
 			},
 		}),
-	)
-	registry.register(
 		defineTool({
 			name: 'wait',
 			description: 'waits a little',
@@ -67,7 +65,6 @@ function tools(): ToolRegistry {
 			},
 		}),
 	)
-	return registry
 }
 
 async function run(registry: BackgroundJobRegistry, owner?: string, command = 'exit 3') {
@@ -84,7 +81,7 @@ async function run(registry: BackgroundJobRegistry, owner?: string, command = 'e
 				{ text: 'done' },
 			],
 		}),
-		tools: tools(),
+		toolsets: [tools()],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',

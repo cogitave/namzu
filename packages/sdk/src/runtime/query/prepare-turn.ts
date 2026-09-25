@@ -5,6 +5,7 @@ import {
 	repairToolMessageHistory,
 	toolHistoryRepairChanged,
 } from '../../compaction/dangling.js'
+import { assertSessionLogAttribution } from '../../manager/session/attribution.js'
 import {
 	type RecordedMessage,
 	readEverRecordedMessages,
@@ -47,6 +48,7 @@ import { EventTranslator } from './events.js'
 import type { QueryParams } from './index.js'
 import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
+import { PreludeSessionLease } from './prelude-lease.js'
 import {
 	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
@@ -366,187 +368,207 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		...(params.tokenBudgetStore ? { tokenBudgetStore: params.tokenBudgetStore } : {}),
 		...(params.workingDirectory ? { workingDirectory: params.workingDirectory } : {}),
 	})
-	const savedBudget = await savedBudgetReference(params, turnId, storage, selectedResumeState)
-	const budget = await resolveQueryBudget(params, turnId, storage.tokenBudget, savedBudget)
-	const log = TurnContextFactory.buildLogger({
-		agentName: params.agentName,
-		turnConfig,
+	// The preflight refuses an already foreign log before opening a budget or
+	// draining queued topic messages. Repeat after claiming the writer lease:
+	// another process may have opened a log that was empty at preflight time.
+	await assertSessionLogAttribution(storage.log, params)
+	const preludeLease = await PreludeSessionLease.acquire(
+		storage.log,
+		params.sessionId,
 		turnId,
-		...(params.parentSessionId ? { parentSessionId: params.parentSessionId } : {}),
-		sessionId: params.sessionId,
-		topicId: params.topicId,
-		projectId: params.projectId,
-		tenantId: params.tenantId,
-	})
+		params.lease,
+	)
+	let releaseOwnedLease = () => preludeLease.release()
+	try {
+		await preludeLease.assertCurrent()
+		await assertSessionLogAttribution(storage.log, params)
+		const savedBudget = await savedBudgetReference(params, turnId, storage, selectedResumeState)
+		const budget = await resolveQueryBudget(params, turnId, storage.tokenBudget, savedBudget)
+		const log = TurnContextFactory.buildLogger({
+			agentName: params.agentName,
+			turnConfig,
+			turnId,
+			...(params.parentSessionId ? { parentSessionId: params.parentSessionId } : {}),
+			sessionId: params.sessionId,
+			topicId: params.topicId,
+			projectId: params.projectId,
+			tenantId: params.tenantId,
+		})
 
-	// Every model call in the turn — the loop's turns, the forced-final
-	// summary, advisory and compaction side calls — goes through this one
-	// wrapped provider, so the retry policy cannot be bypassed by a code
-	// path that happens to hold the raw driver.
-	// The logger is passed on purpose: `withProviderRetry` guards every one
-	// of its warns behind `options.log`, and this is its only production
-	// call site — so without it the "failed, retrying" and "failed, giving
-	// up" lines were dead code and a backoff left no trace anywhere.
-	//
-	// With a chain declared, the same sentence holds two levels out. The idle
-	// watchdog is applied to each raw member, retry wraps that, and fallback
-	// wraps the members: `fallback(retry(idle(m0)), retry(idle(m1)), …)`. The
-	// idle layer cannot sit outside retry, because its timer would then count a
-	// legitimate backoff as provider silence. This order is not a
-	// preference. Assembled the other way round — which is what a host gets if
-	// it wraps its own chain and hands the result in, because this function
-	// would then wrap THAT in retry — an exhausted chain gets restarted from
-	// the head by the outer loop and a throttle on the last member is counted
-	// by two budgets. Building it here is what makes the order unspellable
-	// wrong.
-	const chain: readonly ProviderChainMember[] = [
-		{ provider: params.provider },
-		...(params.fallbackProviders ?? []),
-	]
-	assertCostIsAttributable(chain, params.pricing)
-	assertBudgetIsMeasurable(params)
-	const withRecovery = (provider: LLMProvider): LLMProvider => {
-		const withIdleBound = withStreamIdleTimeout(provider, {
-			idleTimeoutMs: streamIdleTimeoutMs,
+		// Every model call in the turn — the loop's turns, the forced-final
+		// summary, advisory and compaction side calls — goes through this one
+		// wrapped provider, so the retry policy cannot be bypassed by a code
+		// path that happens to hold the raw driver.
+		// The logger is passed on purpose: `withProviderRetry` guards every one
+		// of its warns behind `options.log`, and this is its only production
+		// call site — so without it the "failed, retrying" and "failed, giving
+		// up" lines were dead code and a backoff left no trace anywhere.
+		//
+		// With a chain declared, the same sentence holds two levels out. The idle
+		// watchdog is applied to each raw member, retry wraps that, and fallback
+		// wraps the members: `fallback(retry(idle(m0)), retry(idle(m1)), …)`. The
+		// idle layer cannot sit outside retry, because its timer would then count a
+		// legitimate backoff as provider silence. This order is not a
+		// preference. Assembled the other way round — which is what a host gets if
+		// it wraps its own chain and hands the result in, because this function
+		// would then wrap THAT in retry — an exhausted chain gets restarted from
+		// the head by the outer loop and a throttle on the last member is counted
+		// by two budgets. Building it here is what makes the order unspellable
+		// wrong.
+		const chain: readonly ProviderChainMember[] = [
+			{ provider: params.provider },
+			...(params.fallbackProviders ?? []),
+		]
+		assertCostIsAttributable(chain, params.pricing)
+		assertBudgetIsMeasurable(params)
+		const withRecovery = (provider: LLMProvider): LLMProvider => {
+			const withIdleBound = withStreamIdleTimeout(provider, {
+				idleTimeoutMs: streamIdleTimeoutMs,
+				log,
+			})
+			const metered = withTokenBudget(withIdleBound, budget)
+			return params.retry === false
+				? metered
+				: withProviderRetry(metered, {
+						config: params.retry,
+						log,
+						canRetry: () => budget.remaining > 0,
+					})
+		}
+		// Who is serving right now, for the turn RECORD rather than for the request.
+		//
+		// It starts at the head and moves only when the chain does, which is the
+		// whole of the truth because the cursor never rewinds. The turn cannot read
+		// this off `resilientProvider`: that wrapper reports the head's `id` on
+		// purpose, so asking it produces the declaration back — the defect this
+		// record exists to fix.
+		const serving: { current: ServingMember } = {
+			current: { index: 0, providerId: params.provider.id },
+		}
+		const resilientProvider = withProviderFallback(
+			chain.map((member) => ({
+				...member,
+				provider: withRecovery(member.provider),
+			})),
+			{
+				log,
+				canFallback: () => budget.remaining > 0,
+				onSwap: (to) => {
+					serving.current = to
+					// `ctx` is declared below and is initialized before anything can
+					// call the provider: this fires from inside a `chatStream`, and
+					// the first one is issued by the loop that `ctx` is built for.
+					ctx.recorder.setServingProvider(to.providerId)
+				},
+			},
+		)
+
+		// Asked ONCE, here, before the loop exists. Both readers are synchronous
+		// and hot, so this can never move inside the iteration — and a driver
+		// that rejects, or one that hangs until the turn is cancelled, must not
+		// take down a run the table could have served perfectly well. That is
+		// why the failure path is a swallow with a log rather than a throw: the
+		// window is an optimisation over a working default, not a prerequisite.
+		const providerContextWindow = await resolveProviderContextWindow(
+			resilientProvider,
+			turnConfig.model,
+			params.signal,
+			turnConfig.timeoutMs,
+			log,
+		)
+		const modelContextWindows = new Map<string, number | undefined>()
+		if (turnConfig.model) modelContextWindows.set(turnConfig.model, providerContextWindow)
+
+		// The mode this conversation was left in, when the turn config names none.
+		// Read once, before the loop exists, for the same reason the context
+		// window is: the executor's resolver is synchronous and hot.
+		//
+		// A store that throws is not a turn failure — the turn falls back to the
+		// config's answer, which is exactly what it did before this existed.
+		const topicState = params.topicStateStore
+			? await params.topicStateStore
+					.getState(params.topicId, params.tenantId)
+					.catch((err: unknown) => {
+						log.debug('Could not read the topic state; using the turn config', {
+							'namzu.topic.id': params.topicId,
+							'namzu.error.message': toErrorMessage(err),
+						})
+						return null
+					})
+			: null
+
+		// Whatever a host left for "the next turn", taken and cleared in one
+		// compare-and-set write. Prepended to the messages this turn starts from,
+		// so it is in the FIRST request rather than arriving a turn late.
+		//
+		// Cleared as it is read: a queue read and cleared separately re-delivers
+		// on a crash between the two, and "start with this" arriving twice is a
+		// different instruction from the one that was left.
+		await preludeLease.assertCurrent()
+		const queuedForThisRun: readonly Message[] = params.topicStateStore
+			? await drainQueuedMessages(params.topicStateStore, params.topicId, params.tenantId).catch(
+					(err: unknown) => {
+						log.debug('Could not drain the topic queue; starting without it', {
+							'namzu.topic.id': params.topicId,
+							'namzu.error.message': toErrorMessage(err),
+						})
+						return []
+					},
+				)
+			: []
+
+		// One effective list, used everywhere the turn is seeded from. Three
+		// branches below push from it, and computing it at each would be three
+		// places to forget the queue.
+		//
+		// Stored attachments are resolved HERE, once, before the messages reach
+		// the turn record. Resolving later — at the provider boundary — would put
+		// refs in the durable transcript and in every checkpoint, and a turn
+		// resumed against a store that had since forgotten a ref would fail
+		// replaying its own history rather than at the moment somebody asked for
+		// the bytes. Every failure refuses: a message that silently lost its
+		// image is a model answering about a picture it never saw.
+		const ctx = TurnContextFactory.build({
+			budget,
+			...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
+			...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
+			agentId: params.agentId,
+			agentName: params.agentName,
+			turnConfig,
+			provider: resilientProvider,
+			workingDirectory: params.workingDirectory,
+			pricing: params.pricing,
+			enableActivityTracking: params.enableActivityTracking,
+			signal: params.signal,
+			sessionId: params.sessionId,
+			topicId: params.topicId,
+			projectId: params.projectId,
+			tenantId: params.tenantId,
+			storage,
+			turnId,
+			...(params.parentSessionId ? { parentSessionId: params.parentSessionId } : {}),
+			...(params.parentTurnId ? { parentTurnId: params.parentTurnId } : {}),
+			...(params.depth !== undefined ? { depth: params.depth } : {}),
 			log,
 		})
-		const metered = withTokenBudget(withIdleBound, budget)
-		return params.retry === false
-			? metered
-			: withProviderRetry(metered, {
-					config: params.retry,
-					log,
-					canRetry: () => budget.remaining > 0,
-				})
-	}
-	// Who is serving right now, for the turn RECORD rather than for the request.
-	//
-	// It starts at the head and moves only when the chain does, which is the
-	// whole of the truth because the cursor never rewinds. The turn cannot read
-	// this off `resilientProvider`: that wrapper reports the head's `id` on
-	// purpose, so asking it produces the declaration back — the defect this
-	// record exists to fix.
-	const serving: { current: ServingMember } = {
-		current: { index: 0, providerId: params.provider.id },
-	}
-	const resilientProvider = withProviderFallback(
-		chain.map((member) => ({
-			...member,
-			provider: withRecovery(member.provider),
-		})),
-		{
-			log,
-			canFallback: () => budget.remaining > 0,
-			onSwap: (to) => {
-				serving.current = to
-				// `ctx` is declared below and is initialized before anything can
-				// call the provider: this fires from inside a `chatStream`, and
-				// the first one is issued by the loop that `ctx` is built for.
-				ctx.recorder.setServingProvider(to.providerId)
+
+		// The writer lease, and `session_started` on an empty log. Everything
+		// from here to the end of the turn holds the lease, so a failure before
+		// the turn body owns it releases it.
+		await ctx.recorder.open({
+			lease: await preludeLease.transfer(),
+			ownLease: preludeLease.ownsLease,
+			session: {
+				cwd: ctx.cwd,
+				...(params.origin ? { origin: params.origin } : {}),
+				...(params.forkedFrom ? { forkedFrom: params.forkedFrom } : {}),
 			},
-		},
-	)
-
-	// Asked ONCE, here, before the loop exists. Both readers are synchronous
-	// and hot, so this can never move inside the iteration — and a driver
-	// that rejects, or one that hangs until the turn is cancelled, must not
-	// take down a run the table could have served perfectly well. That is
-	// why the failure path is a swallow with a log rather than a throw: the
-	// window is an optimisation over a working default, not a prerequisite.
-	const providerContextWindow = await resolveProviderContextWindow(
-		resilientProvider,
-		turnConfig.model,
-		params.signal,
-		turnConfig.timeoutMs,
-		log,
-	)
-	const modelContextWindows = new Map<string, number | undefined>()
-	if (turnConfig.model) modelContextWindows.set(turnConfig.model, providerContextWindow)
-
-	// The mode this conversation was left in, when the turn config names none.
-	// Read once, before the loop exists, for the same reason the context
-	// window is: the executor's resolver is synchronous and hot.
-	//
-	// A store that throws is not a turn failure — the turn falls back to the
-	// config's answer, which is exactly what it did before this existed.
-	const topicState = params.topicStateStore
-		? await params.topicStateStore
-				.getState(params.topicId, params.tenantId)
-				.catch((err: unknown) => {
-					log.debug('Could not read the topic state; using the turn config', {
-						'namzu.topic.id': params.topicId,
-						'namzu.error.message': toErrorMessage(err),
-					})
-					return null
-				})
-		: null
-
-	// Whatever a host left for "the next turn", taken and cleared in one
-	// compare-and-set write. Prepended to the messages this turn starts from,
-	// so it is in the FIRST request rather than arriving a turn late.
-	//
-	// Cleared as it is read: a queue read and cleared separately re-delivers
-	// on a crash between the two, and "start with this" arriving twice is a
-	// different instruction from the one that was left.
-	const queuedForThisRun: readonly Message[] = params.topicStateStore
-		? await drainQueuedMessages(params.topicStateStore, params.topicId, params.tenantId).catch(
-				(err: unknown) => {
-					log.debug('Could not drain the topic queue; starting without it', {
-						'namzu.topic.id': params.topicId,
-						'namzu.error.message': toErrorMessage(err),
-					})
-					return []
-				},
-			)
-		: []
-
-	// One effective list, used everywhere the turn is seeded from. Three
-	// branches below push from it, and computing it at each would be three
-	// places to forget the queue.
-	//
-	// Stored attachments are resolved HERE, once, before the messages reach
-	// the turn record. Resolving later — at the provider boundary — would put
-	// refs in the durable transcript and in every checkpoint, and a turn
-	// resumed against a store that had since forgotten a ref would fail
-	// replaying its own history rather than at the moment somebody asked for
-	// the bytes. Every failure refuses: a message that silently lost its
-	// image is a model answering about a picture it never saw.
-	const ctx = TurnContextFactory.build({
-		budget,
-		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
-		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
-		agentId: params.agentId,
-		agentName: params.agentName,
-		turnConfig,
-		provider: resilientProvider,
-		workingDirectory: params.workingDirectory,
-		pricing: params.pricing,
-		enableActivityTracking: params.enableActivityTracking,
-		signal: params.signal,
-		sessionId: params.sessionId,
-		topicId: params.topicId,
-		projectId: params.projectId,
-		tenantId: params.tenantId,
-		storage,
-		turnId,
-		...(params.parentSessionId ? { parentSessionId: params.parentSessionId } : {}),
-		...(params.parentTurnId ? { parentTurnId: params.parentTurnId } : {}),
-		...(params.depth !== undefined ? { depth: params.depth } : {}),
-		log,
-	})
-
-	// The writer lease, and `session_started` on an empty log. Everything
-	// from here to the end of the turn holds the lease, so a failure before
-	// the turn body owns it releases it.
-	await ctx.recorder.open({
-		...(params.lease ? { lease: params.lease } : {}),
-		session: {
-			cwd: ctx.cwd,
-			...(params.origin ? { origin: params.origin } : {}),
-			...(params.forkedFrom ? { forkedFrom: params.forkedFrom } : {}),
-		},
-	})
-	try {
+		})
+		releaseOwnedLease = async () => {
+			await preludeLease.stop()
+			await ctx.recorder.release()
+		}
+		await preludeLease.stop()
 		await assertTurnMayStart(params, turnId, storage, ctx)
 		// The session log is the conversation's source of truth. A new turn starts
 		// from its folded history, and `params.messages` is what this turn adds.
@@ -800,7 +822,10 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			taskScheduler,
 		}
 	} catch (error) {
-		await ctx.recorder.release()
+		// Once open succeeds, the recorder normally releases this lease at the
+		// end of the turn. Preparation failures, including an open refusal,
+		// still belong to this prelude. A caller-supplied lease stays theirs.
+		if (preludeLease.ownsLease) await releaseOwnedLease().catch(() => undefined)
 		throw error
 	}
 }
@@ -816,7 +841,10 @@ async function savedBudgetReference(
 	selected: SelectedResumeState | undefined,
 ): Promise<SavedBudgetReference | undefined> {
 	if (selected?.budgetBinding) {
-		return { binding: selected.budgetBinding, accountId: selected.budgetBinding.accountId }
+		return {
+			binding: selected.budgetBinding,
+			accountId: selected.budgetBinding.accountId,
+		}
 	}
 	// A selected state carries only a durable binding. An account held in
 	// memory is named by the checkpoint document alone, and a resume must
@@ -906,7 +934,11 @@ function staleCachedHistoryError(
 	return new NamzuError({
 		code: 'stale_cached_history',
 		message: text,
-		details: { kind, role: message.role, ...(id === undefined ? {} : { messageId: id }) },
+		details: {
+			kind,
+			role: message.role,
+			...(id === undefined ? {} : { messageId: id }),
+		},
 	})
 }
 

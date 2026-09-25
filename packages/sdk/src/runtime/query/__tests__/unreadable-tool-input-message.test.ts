@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool, EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import { buildAgentTool } from '../../../tools/coordinator/agent.js'
 import { buildAskUserQuestionTool } from '../../../tools/coordinator/ask-user-question.js'
 import { buildCoordinatorTools } from '../../../tools/coordinator/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -399,13 +400,13 @@ function makeLogger(): Logger {
 }
 
 function makeExecutor(
-	registry: ToolRegistry,
+	tools: ToolManager,
 	extra: Partial<ToolExecutorConfig> = {},
 	logger: Logger = makeLogger(),
 ) {
 	return new ToolExecutor(
 		{
-			tools: registry,
+			tools,
 			turnId: TURN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
@@ -459,9 +460,8 @@ describe('the executor answers an unreadable call from its reason and its tool',
 	})
 
 	it('does not give a malformed question file-tool advice', async () => {
-		const registry = new ToolRegistry()
-		registry.register(question)
-		const batch = await makeExecutor(registry).executeBatch(
+		const tools = new ToolManager({ toolsets: [testToolset(question)], messages: () => [] })
+		const batch = await makeExecutor(tools).executeBatch(
 			unreadable('ask_user_question', malformed, '{"question":"Which one?","options":["a" "b"]}'),
 		)
 
@@ -473,11 +473,15 @@ describe('the executor answers an unreadable call from its reason and its tool',
 	})
 
 	it('answers a malformed call to the real question tool with the shape it validates against', async () => {
-		const registry = new ToolRegistry()
-		registry.register(
-			buildAskUserQuestionTool({ resumeHandler: async () => ({ action: 'continue' }) }),
-		)
-		const batch = await makeExecutor(registry).executeBatch(
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset(
+					buildAskUserQuestionTool({ resumeHandler: async () => ({ action: 'continue' }) }),
+				),
+			],
+			messages: () => [],
+		})
+		const batch = await makeExecutor(tools).executeBatch(
 			unreadable('ask_user_question', malformed, '{"question":"Which one?","options":"[a, b]"'),
 		)
 
@@ -488,9 +492,8 @@ describe('the executor answers an unreadable call from its reason and its tool',
 	})
 
 	it('budgets a cut-off write by its own declaration', async () => {
-		const registry = new ToolRegistry()
-		registry.register(WriteFileTool)
-		const batch = await makeExecutor(registry).executeBatch(
+		const tools = new ToolManager({ toolsets: [testToolset(WriteFileTool)], messages: () => [] })
+		const batch = await makeExecutor(tools).executeBatch(
 			unreadable('write', cutOff(60_000, 'length'), '{"path":"a.md","content":"long'),
 		)
 
@@ -501,8 +504,7 @@ describe('the executor answers an unreadable call from its reason and its tool',
 	})
 
 	it('logs a repaired call as unreadable, with its reason, not as a truncated stream', async () => {
-		const registry = new ToolRegistry()
-		registry.register(question)
+		const tools = new ToolManager({ toolsets: [testToolset(question)], messages: () => [] })
 		const info = vi.fn()
 		const logger = {
 			info,
@@ -512,7 +514,7 @@ describe('the executor answers an unreadable call from its reason and its tool',
 			child: () => logger,
 		} as unknown as Logger
 		await makeExecutor(
-			registry,
+			tools,
 			{ repairToolCall: () => ({ arguments: '{"question":"Which one?","options":["a","b"]}' }) },
 			logger,
 		).executeBatch(
@@ -525,10 +527,9 @@ describe('the executor answers an unreadable call from its reason and its tool',
 	})
 
 	it('offers a repairer the same message it would have sent the model', async () => {
-		const registry = new ToolRegistry()
-		registry.register(question)
+		const tools = new ToolManager({ toolsets: [testToolset(question)], messages: () => [] })
 		const seen = vi.fn<RepairToolCall>(() => null)
-		await makeExecutor(registry, { repairToolCall: seen }).executeBatch(
+		await makeExecutor(tools, { repairToolCall: seen }).executeBatch(
 			unreadable('ask_user_question', malformed, '{"question":"Which one?","options":["a" "b"]}'),
 		)
 

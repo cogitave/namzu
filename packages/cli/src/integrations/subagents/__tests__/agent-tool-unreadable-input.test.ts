@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, ToolRegistry } from '@namzu/sdk'
+import { MockLLMProvider } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -29,7 +29,7 @@ describe('the Agent tool and unreadable input', () => {
 			cwd,
 			model: 'parent-model',
 			resolveParent: parent.resolveParent,
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider: () => new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		})
 		try {

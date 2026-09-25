@@ -1,28 +1,20 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import type { Toolset } from '../../../toolsets/types.js'
+import { deferred, filtered } from '../../../toolsets/wrappers.js'
 import { PromptBuilder } from '../prompt.js'
 
-function makeToolRegistry(): ToolRegistryContract {
-	return {
-		register: vi.fn(),
-		unregister: vi.fn(),
-		execute: vi.fn(),
-		get: vi.fn(() => undefined),
-		has: vi.fn(() => false),
-		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(),
-		toPromptSection: vi.fn(() => ''),
-		toTierGuidance: vi.fn(() => ''),
-	} as unknown as ToolRegistryContract
+function manager(toolsets: readonly Toolset[] = []): ToolManager {
+	return new ToolManager({ toolsets, messages: () => [] })
 }
 
 describe('PromptBuilder runtime context', () => {
 	it('includes output contract even when no filesystem tool is registered', () => {
 		const prompt = new PromptBuilder({
 			systemPrompt: 'You are a worker.',
-			tools: makeToolRegistry(),
+			tools: manager(),
 			runtimeContext: {
 				label: 'test runtime',
 				outputDirectory: 'outputs/',
@@ -42,7 +34,7 @@ describe('PromptBuilder runtime context', () => {
 	it('discloses available skills even when the host supplies a systemPrompt', () => {
 		const prompt = new PromptBuilder({
 			systemPrompt: 'You are a project assistant.',
-			tools: makeToolRegistry(),
+			tools: manager(),
 			skills: [
 				{
 					metadata: {
@@ -67,7 +59,7 @@ describe('PromptBuilder runtime context', () => {
 	it('includes loaded skill bodies with systemPrompt while preserving the metadata catalogue', () => {
 		const prompt = new PromptBuilder({
 			systemPrompt: 'You are a supervisor.',
-			tools: makeToolRegistry(),
+			tools: manager(),
 			skills: [
 				{
 					metadata: {
@@ -97,7 +89,7 @@ describe('PromptBuilder runtime context', () => {
 })
 
 describe.each(['flat', 'segmented'] as const)('%s prompt file discovery', (format) => {
-	function build(tools: ToolRegistry, allowedTools?: string[]): string {
+	function build(tools: ToolManager, allowedTools?: string[]): string {
 		const builder = new PromptBuilder({ tools, allowedTools })
 		return format === 'flat'
 			? builder.build('full', '/workspace/project')
@@ -115,8 +107,7 @@ describe.each(['flat', 'segmented'] as const)('%s prompt file discovery', (forma
 	}
 
 	it('reads known paths directly and reserves recursive discovery for the task', () => {
-		const tools = new ToolRegistry()
-		tools.register([fileTool('read_file'), fileTool('glob')])
+		const tools = manager([testToolset(fileTool('read_file'), fileTool('glob'))])
 		const prompt = build(tools)
 
 		expect(prompt).toContain('Working directory: /workspace/project')
@@ -132,14 +123,22 @@ describe.each(['flat', 'segmented'] as const)('%s prompt file discovery', (forma
 		expect(prompt).not.toContain('Before reading a file, use the glob tool')
 	})
 
-	it.each(['absent', 'disallowed', 'suspended', 'deferred'] as const)(
+	it.each(['absent', 'disallowed', 'filtered', 'deferred'] as const)(
 		'does not prescribe glob when it is %s',
 		(state) => {
-			const tools = new ToolRegistry()
-			tools.register(fileTool('read_file'))
-			if (state !== 'absent') {
-				tools.register(fileTool('glob'), state === 'disallowed' ? 'active' : state)
-			}
+			const glob = testToolset(fileTool('glob'))
+			const tools = manager([
+				testToolset(fileTool('read_file')),
+				...(state === 'absent'
+					? []
+					: [
+							state === 'deferred'
+								? deferred(glob)
+								: state === 'filtered'
+									? filtered(glob, () => false)
+									: glob,
+						]),
+			])
 			const prompt = build(tools, state === 'disallowed' ? ['read_file'] : undefined)
 			const guidance = prompt.split('</env>')[1] ?? ''
 

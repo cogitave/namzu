@@ -1,3 +1,4 @@
+import { assertSessionLogAttribution } from '../../manager/session/attribution.js'
 import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import type { SessionLog } from '../../store/session-log/index.js'
@@ -113,6 +114,9 @@ export async function loadSelectedTurnContext(
 	readonly checkpoint: Checkpoint
 	readonly messageIds: ReadonlyMap<Message, MessageId>
 } | null> {
+	// A checkpoint scope is supplied by the caller; prove that it owns the
+	// source log before finding a park or reading a checkpoint document.
+	if (!(await assertSessionLogAttribution(log, scope))) return null
 	const storeScope = {
 		tenantId: scope.tenantId,
 		projectId: scope.projectId,

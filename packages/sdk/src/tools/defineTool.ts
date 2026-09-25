@@ -29,6 +29,10 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	concurrencySafe: boolean
 	/** Whether this exact call sends the screen to the provider; see {@link ToolDefinition.capturesScreen}. */
 	capturesScreen?: boolean | ((input: z.infer<S>) => boolean)
+	/** Whether this exact call always needs a person's approval; see {@link ToolDefinition.requiresApproval}. */
+	requiresApproval?: boolean | ((input: z.infer<S>) => boolean)
+	/** Free-form filtering data, never sent to the model; see {@link ToolDefinition.metadata}. */
+	metadata?: Readonly<Record<string, unknown>>
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
 	executionBarrier?: boolean
 	tier?: string
@@ -164,6 +168,15 @@ export function defineTool<S extends z.ZodType>(
 							: () => options.capturesScreen as boolean,
 				}
 			: {}),
+		...(options.requiresApproval !== undefined
+			? {
+					requiresApproval:
+						typeof options.requiresApproval === 'function'
+							? options.requiresApproval
+							: () => options.requiresApproval as boolean,
+				}
+			: {}),
+		...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
 
 		async execute(input: TInput, context: ToolContext): Promise<ToolResult> {
 			try {

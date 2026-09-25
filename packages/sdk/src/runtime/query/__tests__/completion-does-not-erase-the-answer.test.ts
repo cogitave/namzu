@@ -7,8 +7,8 @@ import { z } from 'zod'
 import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
@@ -135,12 +135,11 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 			}
 		}
 
-		const tools = new ToolRegistry()
-		tools.register(noop)
+		const tools = testToolset(noop)
 
 		const run = await drainQuery({
 			provider: new ClosingTurnProvider(),
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',

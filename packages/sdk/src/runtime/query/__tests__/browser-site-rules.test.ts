@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createBrowserTools } from '../../../tools/builtins/browser.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type {
 	BrowserActAction,
@@ -76,14 +77,13 @@ function fixture() {
 			return { page }
 		},
 	}
-	const tools = new ToolRegistry()
-	for (const tool of createBrowserTools(host)) tools.register(tool as ToolDefinition)
+	const tools = testToolset(...createBrowserTools(host).map((tool) => tool as ToolDefinition))
 	return { observed, acted, tools }
 }
 
 async function runTurn(
 	toolCalls: { id: string; name: string; args: Record<string, unknown> }[],
-	tools: ToolRegistry,
+	tools: Toolset,
 	review?: (request: HITLDecisionRequest) => Promise<unknown>,
 ) {
 	const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
@@ -92,7 +92,7 @@ async function runTurn(
 	await drainQuery(
 		{
 			provider,
-			tools,
+			toolsets: [tools],
 			sessionLog,
 			agentId: 'browser-site-rules',
 			agentName: 'Browser site rules',
@@ -244,8 +244,7 @@ describe('browser site rules through the real gate', () => {
 				throw new Error('not reached')
 			},
 		}
-		const tools = new ToolRegistry()
-		for (const tool of createBrowserTools(host)) tools.register(tool as ToolDefinition)
+		const tools = testToolset(...createBrowserTools(host).map((tool) => tool as ToolDefinition))
 		const events = await runTurn(
 			[
 				{

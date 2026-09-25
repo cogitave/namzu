@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { ToolContext, ToolRegistryContract } from '../../../types/tool/index.js'
+import type { ToolContext } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { SessionEventDraft } from '../events.js'
@@ -80,7 +81,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			has: vi.fn(() => true),
 			listNames: vi.fn(() => []),
 			getAvailability: vi.fn(),
-		} as unknown as ToolRegistryContract
+		} as unknown as ToolManager
 
 		const exec = new ToolExecutor(
 			{
@@ -119,7 +120,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			has: vi.fn(() => true),
 			listNames: vi.fn(() => []),
 			getAvailability: vi.fn(),
-		} as unknown as ToolRegistryContract
+		} as unknown as ToolManager
 
 		const exec = new ToolExecutor(
 			{
@@ -152,7 +153,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			has: vi.fn(() => true),
 			listNames: vi.fn(() => []),
 			getAvailability: vi.fn(),
-		} as unknown as ToolRegistryContract
+		} as unknown as ToolManager
 		const exec = new ToolExecutor(
 			{
 				sessionId: SESSION_ID,
@@ -224,7 +225,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			has: () => true,
 			listNames: () => [],
 			getAvailability: () => 'active',
-		} as unknown as ToolRegistryContract
+		} as unknown as ToolManager
 		const executor = new ToolExecutor(
 			{
 				sessionId: SESSION_ID,
@@ -379,9 +380,9 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 	it('retains builder metadata in registry copies and orders nested execution without deadlock', async () => {
 		let value = 'before'
 		const events: string[] = []
-		const original = new ToolRegistry()
+		const definitions = [] as ReturnType<typeof defineTool>[]
 		for (const name of ['write', 'nested', 'read']) {
-			original.register(
+			definitions.push(
 				defineTool({
 					name,
 					description: name,
@@ -406,8 +407,10 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 				}),
 			)
 		}
-		const tools = new ToolRegistry()
-		for (const tool of original.getAll()) tools.register({ ...tool })
+		const tools = new ToolManager({
+			toolsets: [testToolset(...definitions.map((tool) => ({ ...tool })))],
+			messages: () => [],
+		})
 		expect(tools.get('write')?.executionBarrier).toBe(true)
 		expect(tools.get('read')?.executionBarrier).toBeUndefined()
 		const executor = new ToolExecutor(

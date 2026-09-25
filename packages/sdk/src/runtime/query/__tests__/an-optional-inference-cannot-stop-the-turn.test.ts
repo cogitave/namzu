@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider } from '../../../types/provider/index.js'
 import type { PrepareStepChain } from '../../../types/session/prepare-step.js'
@@ -72,7 +71,7 @@ async function run(prepareStep: PrepareStepChain, provider: LLMProvider) {
 	dirs.push(workingDirectory)
 	return drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		prepareStep,
 		retry: false,
 		agentId: 'prepare',

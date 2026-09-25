@@ -1,5 +1,4 @@
 import type { z } from 'zod'
-import type { Logger } from '../../utils/logger.js'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
 // terms of the tool that produced the result, and the registry that holds
@@ -12,18 +11,27 @@ import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
 import type { ToolPresentation } from './presentation.js'
 
-export interface ToolRegistryRef {
-	searchDeferred(query: string): ToolDefinition[]
-	/** Ranked active matches, when this registry supports active-tool discovery. */
-	searchActive?(query: string): ToolDefinition[]
-	activate(names: string[]): void
-	getAvailability(name: string): ToolAvailability
+/**
+ * The read-only slice of a `ToolManager` (`toolsets/manager.ts`) a running
+ * tool's own `execute()` body is given, through {@link ToolContext.toolRegistry}.
+ *
+ * Replaces the old `ToolRegistryRef`, which also carried `activate` (a
+ * mutation) and an optional `searchActive`. Availability is derived, not
+ * mutated (see `ToolManager.availability`), so there is nothing left for a
+ * tool body to activate: a tool that wants to make more of the catalogue
+ * callable returns `ToolResult.reveals` instead, and the manager derives the
+ * effect from that result once it is persisted onto the tool message.
+ */
+export interface ToolsView {
+	has(name: string): boolean
+	availability(name: string): ToolAvailability
+	searchDeferred(query: string, limit?: number): readonly ToolDefinition[]
 }
 
 /**
  * The slice of the skills registry a tool is given.
  *
- * Structural for the reason `ToolRegistryRef` is: this file is imported by
+ * Structural for the reason `ToolsView` is: this file is imported by
  * everything, and naming `SkillRegistry` here would drag the skill loader's
  * filesystem imports into every consumer's type graph.
  */
@@ -98,7 +106,7 @@ export interface SkillRegistryRef {
  * The slice of the background job registry a tool is given.
  *
  * A structural reference rather than the class, for the reason
- * `ToolRegistryRef` exists: this type file is imported by everything, and
+ * `ToolsView` exists: this type file is imported by everything, and
  * naming the implementation here would drag a `node:child_process` module
  * into every consumer's type graph. `owner` is not on this surface at all —
  * the executor binds it to the turn, so a tool cannot start a job that
@@ -400,7 +408,7 @@ export interface ToolContext {
 
 	invocationState?: InvocationState
 
-	toolRegistry?: ToolRegistryRef
+	toolRegistry?: ToolsView
 	/**
 	 * The names this turn may call, if the turn was narrowed.
 	 *
@@ -550,7 +558,7 @@ export interface ToolContext {
 	 * option alone is the host's to write and the kernel's default reaches
 	 * nobody.
 	 *
-	 * The registry's own {@link ToolRegistryConfig.resultGuardrails} WIN when
+	 * The registry's own {@link ToolManagerConfig.resultGuardrails} (`toolsets/manager.ts`) WIN when
 	 * the registry was built with them — including an empty array, which means
 	 * none — because a registry that stated its policy has stated it. These
 	 * apply to a registry that declared none, which is the ordinary case: a
@@ -566,7 +574,7 @@ export interface ToolContext {
 	 * Run another tool through the same dispatch this call came through.
 	 *
 	 * For `run_code`, whose whole purpose is calling tools in a loop. NOT
-	 * added to {@link ToolRegistryRef}: that ref is about discovering and
+	 * added to {@link ToolsView}: that ref is about discovering and
 	 * activating tools, and putting `execute` on it would make "can dispatch"
 	 * a property of holding a registry reference rather than a capability a
 	 * host wired deliberately.
@@ -722,6 +730,20 @@ export interface ToolResult {
 	 * must not lose: what its controls do, where things are, what failed.
 	 */
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
+	/**
+	 * Names of deferred tool schemas this successful result loads, like
+	 * `search_tools`. This is a discovery receipt, not proof that an external
+	 * connection or capability is ready. Use `readyWhen(toolset, check)` for
+	 * a host-owned prerequisite; search cannot satisfy that check.
+	 *
+	 * Only a name currently `'deferred'` in the manager is loaded, and
+	 * only when it is also inside `ToolContext.allowedTools` when that turn
+	 * is narrowed to an allow-list. Every other name — unknown, already
+	 * active, suspended, or outside the allow-list — is silently ignored:
+	 * this can never throw, resurrect a tool a host marked unready, or
+	 * widen what a narrowed turn may call.
+	 */
+	reveals?: readonly string[]
 	/**
 	 * This result needs a person before the turn can go on — a sign-in page,
 	 * a CAPTCHA, a second factor, anything the model must not try to answer
@@ -999,6 +1021,52 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	capturesScreen?(input: TInput): boolean
 
 	/**
+	 * This call always needs a person's approval, whatever the host's rules
+	 * say and whatever mode the turn is running in.
+	 *
+	 * Distinct from {@link isDestructive}, and stronger. A destructive call
+	 * is still let through by a gate `allow` rule (`allow_by_name`,
+	 * `allow_by_category`, …) and by `auto` mode or an unattended turn — the
+	 * rule and the mode both outrank it. This flag cannot be outranked either
+	 * way: it survives an `allow` rule the same way an escalation does (the
+	 * decision is forced back to review before the rule's `allow` ever
+	 * settles anything), and it is asked about, or refused when nobody can
+	 * be asked, in every mode — `auto` and a remembered "approve all"
+	 * included — the same way a sandbox escape or a path outside the turn's
+	 * roots is. No grant, skill grant or `accept-edits` exemption covers it.
+	 * A `deny` rule still wins: this flag can only ADD a review, never open
+	 * one a rule closed.
+	 *
+	 * For a call that is sensitive for a reason other than being
+	 * destructive — it costs money, it leaves an audit trail somewhere else,
+	 * it is policy-sensitive — rather than a tool author reaching for
+	 * `isDestructive` on a call that does not destroy anything, just to get
+	 * the review a host might not otherwise configure. See
+	 * `docs/sdk/review-policy.md`.
+	 *
+	 * Never populated from a connected server's own wire annotations
+	 * (`mcpToolToToolDefinition` does not set it): a server cannot demand,
+	 * or waive, its own review requirement. It is host/plugin-trust-boundary
+	 * metadata, like {@link capturesScreen}.
+	 */
+	requiresApproval?(input: TInput): boolean
+
+	/**
+	 * Free-form, tool-author-declared data for filtering and behaviour
+	 * customization — never a classification the runtime itself reads.
+	 *
+	 * Not sent to the model: unlike {@link outputSchema}, which is shown in
+	 * the description precisely so the model can act on it, this is for a
+	 * host, a capability or a toolset wrapper to read back, with
+	 * `matchesToolSelector` (`tools/roster.ts`) or by hand. A connected
+	 * server's own annotations that have nowhere else to land — its
+	 * `title`, `idempotentHint`, `openWorldHint`, and any `_meta` it
+	 * attached — arrive here (`mcpToolToToolDefinition`); `isReadOnly` and
+	 * `isDestructive` keep the two hints that already have a typed home.
+	 */
+	metadata?: Readonly<Record<string, unknown>>
+
+	/**
 	 * Opt-in ordering boundary in a direct model tool-call batch. Earlier
 	 * calls settle before this call starts; later calls wait for this call
 	 * to settle (including failed results). Defaults to false. Independent
@@ -1009,24 +1077,18 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * their external effects have stopped, and does not imply success.
 	 */
 	executionBarrier?: boolean
-
-	/**
-	 * Where this tool came from, when it did not come from here.
-	 *
-	 * Absent means host-defined: this process, code the operator installed,
-	 * no untrusted party in the chain. Present means a connected server
-	 * supplied both the tool and its own description of what the tool does
-	 * — including whether it is read-only, which three separate gates were
-	 * treating as a fact rather than as the hint the wire calls it.
-	 *
-	 * See {@link isTrustedReadOnly}. This field exists so a gate can tell
-	 * the two apart; `isReadOnly` keeps reporting faithfully what the
-	 * server said, because the outbound re-export and the destructive
-	 * label shown to a human both need the server's own answer.
-	 */
-	provenance?: ToolProvenance
 }
 
+/**
+ * A tool's owning source's read-only trust decision, as `screenToolResult`
+ * reads it off a call's `ToolContext`/result plumbing.
+ *
+ * Where a tool once carried this on itself (`ToolDefinition.provenance`,
+ * removed — plan.md v3 §3), it now comes from the `ToolManager`'s
+ * `sourceOf(name)` for the call in progress: a definition cannot claim its
+ * own source, only the toolset that contributed it can. See
+ * `toolsets/types.ts`'s `ToolSourceRef` and `tools/trusted-read-only.ts`.
+ */
 export interface ToolProvenance {
 	/** The connected server this tool came from, named as configured. */
 	readonly server: string
@@ -1057,6 +1119,12 @@ export interface LLMToolSchema {
 	}
 }
 
+/**
+ * `'suspended'` means the owning toolset's host-owned readiness check is
+ * false. Such tools are excluded from discovery and execution even if a
+ * deferred-schema receipt exists. `RuntimeToolOverrides` still does not
+ * implement session-level suspension.
+ */
 export type ToolAvailability = 'deferred' | 'active' | 'suspended'
 
 export type ZodToJsonSchema = (schema: z.ZodType) => Record<string, unknown>
@@ -1074,36 +1142,22 @@ export interface ToolTierConfig {
 	labelInDescription?: boolean
 }
 
-export interface ToolRegistryConfig {
-	logger?: Logger
-	tierConfig?: ToolTierConfig
-	/**
-	 * Screens run against every tool result before anything downstream
-	 * reads it — the output budget, compaction, and the model itself are
-	 * all past this point.
-	 *
-	 * Absent means no screening, which is what shipped before this existed:
-	 * a connected server's text reached the model unexamined. See
-	 * {@link ToolResultGuardrailSpec}.
-	 */
-	resultGuardrails?: readonly ToolResultGuardrailSpec[]
-}
-
 export interface ToolExecutionResult extends ToolResult {
 	permissionDenied?: boolean
 	permissionMessage?: string
 }
 
 /**
- * An input decoded exactly once by its owning tool registry.
+ * An input decoded exactly once by its owning `ToolManager`.
  *
  * `input` is the detached, deeply frozen JSON review projection:
  * authorization, approval UI, probes and audit all inspect this value. The
- * registry privately retains a separate detached copy that
- * {@link ToolRegistryContract.executePrepared} gives the tool. Caller-owned
- * aliases therefore cannot change either side after preparation. A
- * preparation is registry-owned and cannot be executed by a different
- * registry or after that tool registration is replaced.
+ * manager privately retains a separate detached copy that
+ * `ToolManager.executePrepared` (`toolsets/manager.ts`) gives the tool.
+ * Caller-owned aliases therefore cannot change either side after
+ * preparation. A preparation is owned by the manager that made it and
+ * cannot be executed by a different one, or after its tool's definition
+ * changed identity (a live toolset's own update).
  */
 export interface PreparedToolExecution {
 	readonly toolName: string
@@ -1114,62 +1168,6 @@ export interface PreparedToolExecution {
 export type ToolPreparationResult =
 	| { readonly success: true; readonly prepared: PreparedToolExecution }
 	| { readonly success: false; readonly result: ToolExecutionResult }
-
-/**
- * Full tool registry contract — registration, lookup, execution, prompt generation.
- * Concrete implementation: `ToolRegistry` in `registry/tool/execute.ts`.
- */
-export interface ToolRegistryContract {
-	register(id: string, tool: ToolDefinition): void
-	register(tool: ToolDefinition, initialState?: ToolAvailability): void
-	register(tools: ToolDefinition[], initialState?: ToolAvailability): void
-
-	unregister(id: string): boolean
-	clear(): void
-
-	get(name: string): ToolDefinition | undefined
-	getOrThrow(name: string): ToolDefinition
-	has(name: string): boolean
-	getAll(): ToolDefinition[]
-	listIds(): string[]
-	listNames(): string[]
-
-	getAvailability(name: string): ToolAvailability
-	activate(names: string[]): void
-	defer(names: string[]): void
-	suspendAll(): void
-	hasSuspended(): boolean
-	searchDeferred(query: string): ToolDefinition[]
-	/** Ranked active matches, when this registry supports active-tool discovery. */
-	searchActive?(query: string): ToolDefinition[]
-	getCallableTools(toolNames?: string[]): ToolDefinition[]
-
-	/**
-	 * Decode/transform an input once, before authorization or human review.
-	 *
-	 * The returned preparation is opaque registry authority. Implementations
-	 * must not run tool code here. They must detach both the executable value
-	 * and `prepared.input` from caller/schema aliases, and make the latter a
-	 * deeply immutable JSON projection of the exact value retained for
-	 * execution. Unsupported mutable/exotic graphs fail closed.
-	 */
-	prepareExecution(toolName: string, rawInput: unknown): ToolPreparationResult
-
-	/** Execute the exact value retained by `prepareExecution`, without parsing again. */
-	executePrepared(
-		prepared: PreparedToolExecution,
-		context: ToolContext,
-	): Promise<ToolExecutionResult>
-
-	execute(toolName: string, rawInput: unknown, context: ToolContext): Promise<ToolExecutionResult>
-
-	size(): number
-
-	toLLMTools(toolNames?: string[]): LLMToolSchema[]
-	toPromptSection(toolNames?: string[]): string
-	toTierGuidance(): string | null
-	assignTiers(mapping: Record<string, string>): void
-}
 
 export * from './repair.js'
 

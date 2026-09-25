@@ -1,16 +1,16 @@
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 
 /**
- * The tools a call on this step can reach: registered now, active, and on
- * the step's allow-list when it has one. In registry order.
+ * The tools a call on this step can reach: present in the manager now,
+ * active, and on the step's allow-list when it has one. In toolset order.
  *
  * This is what every "Available: …" a model is shown must say, because a
  * model takes it literally and calls the next name on it. Two answers used
  * to build that list separately and disagreed. A refusal echoed the step's
  * allow-list, which is a snapshot taken when the request was built and so
- * can name a tool unregistered since — a connector that disconnected — or
- * one that is deferred or suspended, which the executor refuses. An
- * unknown-tool error listed the whole registry, which on a narrowed step is
+ * can name a tool removed since — a connector that disconnected — or
+ * one that is deferred, which the executor refuses. An
+ * unknown-tool error listed the whole roster, which on a narrowed step is
  * mostly tools the step refuses. Each sent the model to a name the other
  * one answered, and a run went round between them until it was stopped.
  *
@@ -18,7 +18,7 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
  * that may call nothing, and the answer is then empty too.
  */
 export function callableToolNames(
-	tools: Pick<ToolRegistryContract, 'listNames' | 'getAvailability'>,
+	tools: Pick<ToolManager, 'listNames' | 'availability'>,
 	allowed: readonly string[] | undefined,
 ): string[] {
 	const permitted = allowed === undefined ? undefined : new Set(allowed)
@@ -26,8 +26,7 @@ export function callableToolNames(
 		.listNames()
 		.filter(
 			(name) =>
-				(permitted === undefined || permitted.has(name)) &&
-				tools.getAvailability(name) === 'active',
+				(permitted === undefined || permitted.has(name)) && tools.availability(name) === 'active',
 		)
 }
 

@@ -93,11 +93,10 @@ This complete example scripts two model turns and executes a real local tool.
 The mock requests `add`, then supplies the final answer; it does no inference.
 
 ```ts
-import { defineTool, MockLLMProvider, runAgent, ToolRegistry } from '@namzu/sdk'
+import { defineTool, MockLLMProvider, runAgent, toolset } from '@namzu/sdk'
 import { z } from 'zod'
 
-const tools = new ToolRegistry()
-tools.register(defineTool({
+const toolsets = [toolset('math', [defineTool({
   name: 'add',
   description: 'Add two numbers.',
   inputSchema: z.object({ a: z.number().finite(), b: z.number().finite() }),
@@ -107,7 +106,7 @@ tools.register(defineTool({
   destructive: false,
   concurrencySafe: true,
   execute: async ({ a, b }) => ({ success: true, output: String(a + b) }),
-}))
+})])]
 
 const provider = new MockLLMProvider({
   turns: [
@@ -119,7 +118,7 @@ const provider = new MockLLMProvider({
 const { output, turn } = await runAgent({
   provider,
   model: 'mock-model',
-  tools,
+  toolsets,
   prompt: 'Add 20 and 22.',
   maxIterations: 4,
   tokenBudget: 8192,
@@ -140,7 +139,7 @@ checkpoints. The session is recorded in one append-only log under
 and nothing is written under the working directory; see the
 [session log](https://github.com/cogitave/namzu/blob/main/docs/sdk/session-log.md).
 A session has at most one active turn: starting another while one is running
-or paused throws `TurnInProgressError`. `ReactiveAgent` exposes additional
+or paused throws `TurnInProgressError`. `QueryAgent` exposes additional
 configuration such as compaction and where the session is stored; the config
 passed to its `run` method requires `sessionId`, `topicId`, `projectId` and
 `tenantId`. OS isolation is explicit rather than ambient: supply a
@@ -185,7 +184,7 @@ carries its durable trace parent into the cancelled turn, preserving one
 cross-process timeline without a second checkpoint read.
 
 Hosts that discover scoped repository policy can supply a
-`ProjectInstructionContext` to `query`, `runAgent`, `ReactiveAgent`, or
+`ProjectInstructionContext` to `query`, `runAgent`, `QueryAgent`, or
 `SupervisorAgent`. Its first-request snapshot is structurally tagged and
 retained; completed registry calls, including nested dispatch, can publish a
 replacement immediately after the complete tool-result batch. Each callback
@@ -197,7 +196,7 @@ predicate cannot strand the update. Canonical project-relative `AGENTS.md`
 provenance survives compaction and lets a reconstructed host re-read disk
 authority rather than trusting persisted policy text.
 
-High-level `ReactiveAgent` and `SupervisorAgent` configurations also accept
+The `QueryAgent` configuration and the compatibility `SupervisorAgent` configuration also accept
 `paths`, a `SessionPaths`. Supplying one puts the session log, its child
 sessions, checkpoints, token ledger and task state under that root instead of
 `resolveNamzuHome()`. A project id is minted once per working directory into

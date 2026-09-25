@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createEvidenceRecallStep } from '../../../turn/evidence-recall.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import {
@@ -45,7 +44,7 @@ it.each(['query_planning', 'retrieval'] as const)(
 		const operator = createUserMessage('What was its earlier DELTA identifier?')
 		const result = await drainQuery({
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			workingDirectory: cwd,
 			...scope,
 			topicId: generateTopicId(),

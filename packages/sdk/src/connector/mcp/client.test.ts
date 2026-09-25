@@ -33,7 +33,9 @@ interface Harness {
 	failTransport(err: Error): void
 }
 
-function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } = {}): Harness {
+function harness(
+	opts: { autoInitialize?: boolean; requestTimeoutMs?: number; instructions?: string } = {},
+): Harness {
 	const sent: MCPJsonRpcMessage[] = []
 	let onMessage: ((m: MCPJsonRpcMessage) => void) | undefined
 	let onClose: (() => void) | undefined
@@ -62,7 +64,11 @@ function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } =
 					onMessage?.({
 						jsonrpc: '2.0',
 						id: message.id,
-						result: { serverInfo: { name: 'fake', version: '1' }, capabilities: {} },
+						result: {
+							serverInfo: { name: 'fake', version: '1' },
+							capabilities: {},
+							...(opts.instructions !== undefined ? { instructions: opts.instructions } : {}),
+						},
 					}),
 				)
 			}
@@ -176,5 +182,36 @@ describe('MCPClient — server-initiated requests are answered, not dropped', ()
 		expect(seen).toHaveBeenCalledWith('notifications/tools/list_changed', {})
 		// A notification must NOT be answered.
 		expect(h.sent).toHaveLength(0)
+	})
+
+	it('onNotification returns an unsubscribe, mirroring onLifecycle', async () => {
+		const h = harness()
+		await h.client.connect()
+		const seen = vi.fn()
+		const unsubscribe = h.client.onNotification(seen)
+
+		unsubscribe()
+		h.receive({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })
+
+		// A listener that cannot be removed keeps whatever it closes over
+		// referenced by the client for as long as the client lives — the same
+		// leak `onLifecycle`'s own unsubscribe already avoids.
+		expect(seen).not.toHaveBeenCalled()
+	})
+})
+
+describe('MCPClient — legacy `initialize` instructions', () => {
+	it('captures the server-provided instructions string into client state', async () => {
+		const h = harness({ instructions: 'Call `search` before `write`.' })
+		await h.client.connect()
+
+		expect(h.client.getState().serverInstructions).toBe('Call `search` before `write`.')
+	})
+
+	it('leaves serverInstructions unset when the server sends none', async () => {
+		const h = harness()
+		await h.client.connect()
+
+		expect(h.client.getState().serverInstructions).toBeUndefined()
 	})
 })

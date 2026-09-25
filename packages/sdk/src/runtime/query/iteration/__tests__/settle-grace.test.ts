@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../../registry/tool/execute.js'
 import { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import { DELEGATION_TIMEOUT_MS } from '../../../../tools/coordinator/index.js'
 import type { TaskHandle } from '../../../../types/agent/scheduler.js'
@@ -169,7 +168,7 @@ describe('the hold a turn pays is the one its own budget allows', () => {
 		const startedAt = Date.now()
 		await drainQuery({
 			provider: new AnswersImmediately(),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
@@ -238,7 +237,7 @@ describe('the hold a turn pays is the one its own budget allows', () => {
 
 		const run = await drainQuery({
 			provider: new AnswersImmediately(),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',

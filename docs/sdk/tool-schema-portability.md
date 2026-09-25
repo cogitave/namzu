@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Portable tool schemas
-description: One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
+description: One rendering valid in draft-07 and 2020-12, the profile that defines it, the normaliser that enforces it, and the sibling sweep for an undescribed field.
 resource: packages/sdk/src/registry/tool/portable.ts
 tags: [sdk, tools, providers, json-schema]
 status: stable
@@ -92,6 +92,27 @@ before. It is declared as a length-2 array of positive integers rather than a
 Both members always carried the identical constraint, so the tuple bought
 nothing and cost the whole request on a wire that validates against the 2020-12
 metaschema. What a model writes, and what the parser accepts, is unchanged.
+
+## Description completeness
+
+`findUndescribedProperties(schema)` is `findPortableSchemaViolations`'s
+sibling: a non-throwing sweep over a rendered schema, but for a different
+defect. `defineTool` requires a tool-level `description`; nothing requires
+one on each field of a tool's Zod `inputSchema`, and a field with no
+`.describe()` renders with no `description` key — silently, and reaching the
+model with no account of what it is for. It returns every named object
+property, at any depth, whose schema carries no non-empty `description`,
+each with its dotted path (`properties.readRange`, or nested further:
+`properties.outer.properties.inner`). Only named properties are checked; an
+array's own `.describe()` on the array itself is enough, no per-element
+description is demanded.
+
+`every-shipped-tool-schema-is-described.test.ts` sweeps the same shipped
+surface `every-shipped-tool-schema-is-portable.test.ts` does and asserts
+zero violations, printing the offending paths on failure. This is a test-time
+gate, not a toolset admission-time throw: wiring it into `ToolManager.resolveInitial`
+or `defineTool` as a hard default would break any existing tool — first-party
+or a consumer's — that already ships an undescribed field today.
 
 ## Relationship to dialect conversion
 

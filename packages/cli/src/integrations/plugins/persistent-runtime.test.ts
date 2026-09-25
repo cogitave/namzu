@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolRegistry, createSkillTool } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -38,7 +37,6 @@ it('does not import disabled contributions on restart, but can explicitly re-ena
 	const start = async () => {
 		const runtime = (await createCliPluginRuntime(
 			{ enabled: true, allowedScopes: ['project'] },
-			new ToolRegistry(),
 			cwd,
 		))!
 		runtimes.push(runtime)
@@ -87,7 +85,7 @@ it('does not import disabled contributions on restart, but can explicitly re-ena
 	expect(third.list()[0]?.status).toBe('enabled')
 	await third.close()
 	await expect(start()).rejects.toThrow('Could not read plugin setting')
-	expect(await createCliPluginRuntime(undefined, new ToolRegistry(), cwd)).toBeUndefined()
+	expect(await createCliPluginRuntime(undefined, cwd)).toBeUndefined()
 })
 
 it('keeps disabled hooks and MCP servers dormant while retaining manifest validation', async () => {
@@ -106,11 +104,7 @@ it('keeps disabled hooks and MCP servers dormant while retaining manifest valida
 	await writeFile(join(rootDir, 'plugin.json'), JSON.stringify(manifest))
 	await writeFile(join(rootDir, 'throw.mjs'), 'throw new Error("Hook imported while disabled");\n')
 	new PluginSettingsStore(home).write({ rootDir, name: 'dormant' }, false)
-	const runtime = (await createCliPluginRuntime(
-		{ enabled: true, allowedScopes: ['user'] },
-		new ToolRegistry(),
-		home,
-	))!
+	const runtime = (await createCliPluginRuntime({ enabled: true, allowedScopes: ['user'] }, home))!
 	runtimes.push(runtime)
 	expect(runtime.list()[0]).toMatchObject({
 		status: 'disabled',
@@ -120,14 +114,16 @@ it('keeps disabled hooks and MCP servers dormant while retaining manifest valida
 	await runtime.close()
 	await writeFile(join(rootDir, 'plugin.json'), '{bad-json')
 	await expect(
-		createCliPluginRuntime({ enabled: true, allowedScopes: ['user'] }, new ToolRegistry(), home),
+		createCliPluginRuntime({ enabled: true, allowedScopes: ['user'] }, home),
 	).rejects.toThrow('Plugin runtime could not start')
 })
 
-it("registers the session's own skill tool for plugin skills, not a bare one", async () => {
-	// The session's tool knows which directory the model can open for a skill
-	// (#536); a plugin runtime registering the SDK's default in its place would
-	// hand plugin skills the host path again.
+it('reports plugin skills through `skills.size`, live across enable/disable', async () => {
+	// `createCliPluginRuntime` no longer owns a `skill` tool itself (plan.md
+	// v3 §7 — it has no tool registry to register one into); the caller
+	// composes its OWN `skill` toolset from this live count instead (see
+	// `tui/agent.ts`'s `skills` toolset). This test is the plugin runtime's
+	// half of that contract: `skills.size` tracks enable/disable exactly.
 	const home = await mkdtemp(join(tmpdir(), 'namzu-plugin-skill-tool-'))
 	roots.push(home)
 	vi.stubEnv('NAMZU_HOME', home)
@@ -147,20 +143,15 @@ it("registers the session's own skill tool for plugin skills, not a bare one", a
 		join(root, 'skills', 'reconcile', 'SKILL.md'),
 		'---\nname: reconcile\ndescription: Reconcile ledger\n---\n\nRead ledger.\n',
 	)
-	const skillTool = createSkillTool({ resolveModelDirectory: () => undefined })
-	const tools = new ToolRegistry()
 	const runtime = (await createCliPluginRuntime(
 		{ enabled: true, allowedScopes: ['project'] },
-		tools,
 		cwd,
-		undefined,
-		skillTool,
 	))!
 	runtimes.push(runtime)
 
-	expect(tools.get('skill')).toBe(skillTool)
+	expect(runtime.skills.size).toBe(1)
 	await runtime.setEnabled('ledger', false)
-	expect(tools.has('skill')).toBe(false)
+	expect(runtime.skills.size).toBe(0)
 	await runtime.setEnabled('ledger', true)
-	expect(tools.get('skill')).toBe(skillTool)
+	expect(runtime.skills.size).toBe(1)
 })

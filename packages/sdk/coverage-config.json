@@ -9,6 +9,7 @@
 			"authorization",
 			"bridge",
 			"bus",
+			"capabilities",
 			"compaction",
 			"config",
 			"connector",
@@ -40,6 +41,7 @@
 			"streaming",
 			"telemetry",
 			"tools",
+			"toolsets",
 			"turn",
 			"utils",
 			"vault"

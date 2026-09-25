@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import type { MessageAttachment } from '../../../types/message/index.js'
 import type { ChatCompletionParams, ProviderCapabilities } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -56,7 +55,7 @@ function runWith(opts: {
 	const settled = drainQuery(
 		{
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [

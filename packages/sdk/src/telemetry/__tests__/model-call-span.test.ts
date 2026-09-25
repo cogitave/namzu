@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { fixtureId } from '../../test-support/ids.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -108,7 +107,7 @@ async function runOnce(turns: { text?: string }[]): Promise<void> {
 
 	await drainQuery({
 		provider: new MockLLMProvider({ turns: turns as never }),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,

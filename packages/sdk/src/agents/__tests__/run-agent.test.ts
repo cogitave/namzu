@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { runAgent } from '../runAgent.js'
 
 /**
@@ -100,10 +100,9 @@ describe('running an agent through the front door', () => {
 		expect(system).toContain('You only answer in haiku.')
 	})
 
-	it('runs tools when given a registry', async () => {
-		const tools = new ToolRegistry()
+	it('runs tools when given a toolset', async () => {
 		let ran = false
-		tools.register({
+		const tools = testToolset({
 			name: 'ping',
 			description: 'pings',
 			inputSchema: z.object({}),
@@ -124,7 +123,7 @@ describe('running an agent through the front door', () => {
 			}),
 			model: 'mock-model',
 			prompt: 'ping it',
-			tools,
+			toolsets: [tools],
 		})
 
 		expect(ran).toBe(true)
@@ -132,8 +131,7 @@ describe('running an agent through the front door', () => {
 	})
 
 	it('caps a runaway loop on its own default', async () => {
-		const tools = new ToolRegistry()
-		tools.register({
+		const tools = testToolset({
 			name: 'again',
 			description: 'always asks for more',
 			inputSchema: z.object({}),
@@ -156,7 +154,7 @@ describe('running an agent through the front door', () => {
 			}),
 			model: 'mock-model',
 			prompt: 'loop',
-			tools,
+			toolsets: [tools],
 			maxIterations: 2,
 		})
 

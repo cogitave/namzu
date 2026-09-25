@@ -1,5 +1,5 @@
 import type { ChatCompletionParams } from '@namzu/sdk'
-import { ToolRegistry, findPortableSchemaViolations, getBuiltinTools } from '@namzu/sdk'
+import { ToolManager, findPortableSchemaViolations, getBuiltinTools, toolset } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { toOpenAITools } from '../client.js'
@@ -20,8 +20,10 @@ import { toOpenAITools } from '../client.js'
 type FunctionTool = { function: { name: string; parameters?: unknown } }
 
 function toolsFromTheKernel(): FunctionTool[] {
-	const registry = new ToolRegistry()
-	for (const tool of getBuiltinTools()) registry.register(tool)
+	const registry = new ToolManager({
+		toolsets: [toolset('test', getBuiltinTools())],
+		messages: () => [],
+	})
 	return toOpenAITools({
 		model: 'gpt-5',
 		messages: [{ role: 'user', content: 'Read the first line of README.md.' }],

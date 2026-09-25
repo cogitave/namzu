@@ -1,7 +1,13 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, SessionPaths, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
+import {
+	MockLLMProvider,
+	SessionPaths,
+	type Toolset,
+	mcpJsonSchemaToZod,
+	toolset,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -56,20 +62,20 @@ describe('CLI delegation uses the parent token limit', () => {
 					providers.push(provider)
 					return provider
 				},
-				buildTools: () => {
-					const tools = new ToolRegistry()
-					tools.register({
-						name: 'observe',
-						description: 'Observe a sample',
-						inputSchema: mcpJsonSchemaToZod({
-							type: 'object',
-							properties: { index: { type: 'number' } },
-							required: ['index'],
-						}),
-						execute: async () => ({ success: true, output: 'observed' }),
-					})
-					return tools
-				},
+				buildTools: (): readonly Toolset[] => [
+					toolset('test', [
+						{
+							name: 'observe',
+							description: 'Observe a sample',
+							inputSchema: mcpJsonSchemaToZod({
+								type: 'object',
+								properties: { index: { type: 'number' } },
+								required: ['index'],
+							}),
+							execute: async () => ({ success: true, output: 'observed' }),
+						},
+					]),
+				],
 			})
 			try {
 				const results = await Promise.all(
@@ -141,7 +147,7 @@ describe('CLI delegation uses the parent token limit', () => {
 			resolveParent: parent.resolveParent,
 			paths: new SessionPaths({ home: stateRoot, slug: '-work-parent-budget' }),
 			buildProvider: () => provider,
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 		})
 		try {
 			const result = await runtime.agentTool.execute(

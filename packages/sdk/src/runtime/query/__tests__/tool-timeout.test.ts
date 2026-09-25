@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { DEFAULT_TOOL_TIMEOUT_MS, ToolExecutor } from '../executor.js'
@@ -87,10 +87,8 @@ function harness(opts: {
 		}),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(() => 'active'),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 
 	const exec = new ToolExecutor(
 		{

@@ -19,7 +19,6 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { runAgent } from '../runAgent.js'
 
 const SCHEMA = z.object({ city: z.string(), degrees: z.number() })
@@ -52,7 +51,7 @@ async function runWithSchema(workingDirectory: string) {
 		provider,
 		model: 'm',
 		prompt: 'what is the weather',
-		tools: new ToolRegistry(),
+		toolsets: [],
 		workingDirectory,
 		maxIterations: 4,
 		structuredOutput: { schema: SCHEMA },
@@ -94,7 +93,7 @@ describe('runAgent with a schema', () => {
 			provider,
 			model: 'm',
 			prompt: 'hello',
-			tools: new ToolRegistry(),
+			toolsets: [],
 			workingDirectory: dir,
 			maxIterations: 2,
 		})

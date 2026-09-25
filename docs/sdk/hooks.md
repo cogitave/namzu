@@ -20,13 +20,26 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `user_prompt_submit` | by the kernel, before the model sees the prompt and before `turn_start` | `prompt`, `sessionId`, `turnId` | `skip` blocks the turn, which ends failed and names the reason; `annotate` adds text to the system prompt for the whole turn |
 | `turn_start`, `turn_end` | at the edges of a turn | `sessionId`, `turnId` | `error` fails the turn |
 | `turn_interrupt` | when a root session's turn is stopped by the user | `cancelCause` | nothing; every hook runs |
-| `pre_tool_use`, `post_tool_use` | around each tool call | `toolName`, `toolInput`, `toolResult` | `skip`, `modify`, `error`; `replace`, `retry` after |
+| `pre_tool_use` | before each tool call | `toolName`, `toolInput` | `skip`, `modify`, `error` |
+| `post_tool_use` | after each tool call | `toolName`, `toolInput`, `toolResult` | `replace`, `retry`, `error` |
 | `pre_llm_call`, `post_llm_call` | around each model call | `request`, `response` | `error` |
 | `iteration_start`, `iteration_end` | around each iteration | `iteration` | `error` |
-| `pre_compact`, `post_compact` | around a compaction pass once the check decided to run one | `compaction`: `reason` (`threshold` or `overflow`), `tokensBefore`, `tokensAfter` after, `contextWindowTokens` | nothing; a context the provider will reject is not a hook's to insist on |
-| `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it) | nothing |
+| `pre_compact`, `post_compact` | around a compaction pass once the check decided to run one | `compaction`: `reason` (`threshold` or `overflow`), `tokensBefore`, `tokensAfter` after, `contextWindowTokens` | `error` fails the turn |
+| `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it) | `error` fails the child turn's finalization |
 
 `post_*` hooks run in reverse registration order, so a formatter registered last runs first after a write.
+
+Every in-process hook may return `continue`. The other actions in the table
+belong only to the listed event. `PluginHookDefinition` keeps the event and
+handler result correlated, including when hooks are supplied as an array to
+`definePlugin`. `PluginHookResultFor<Event>` names the accepted result type for
+one event. A handler previously declared as returning the whole
+`PluginHookResult` union should return the narrower result for its event.
+`session_start`, `session_end` and `turn_interrupt` only accept `continue` as a
+declared verdict: their returned values cannot decide a turn. The runtime
+still checks JavaScript hook results independently; unsupported actions are
+rejected by query hooks, while these three observational events ignore their
+results.
 
 Every hook context carries `sessionId`. `turnId` is present on every event
 inside a turn and absent on `session_start` and `session_end`

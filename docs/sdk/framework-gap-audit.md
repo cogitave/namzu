@@ -148,16 +148,18 @@ implemented and must not be reported as wholly missing.
 Follow-up implementation now addresses the computer action-advertising defect
 through [exact action and button capabilities](computer-actions.md). The
 source observations above remain the audit of the named baseline revision.
-The [tool-discovery receipt](tool-discovery.md) now verifies active matches and
-keeps unknown requests distinct; the two defects in step 1 are addressed.
+The [tool-discovery receipt](tool-discovery.md) now reports a search with no
+permitted deferred match without claiming an active match. Both defects in
+step 1 are addressed.
 
 1. Correct computer action capability declarations and tool-discovery feedback.
-   `packages/sdk/src/tools/builtins/search-tools.ts` still says all matching tools
-   are active when a deferred search has no result, without checking active
-   matches. The earlier [efficiency review](../cli/harness-efficiency-review.md)
-   identified this; it remains open at this revision.
+   **Done:** action-specific declarations now drive admission, and
+   `search_tools` reports when no permitted deferred tool matches without
+   inferring that an active tool matches.
 2. Add uniform parsed-output review and cumulative tool-call preadmission with
-   explicit retry/recovery contracts.
+   explicit retry/recovery contracts. **Done:** see
+   [structured output review](structured-output-review.md) and
+   [tool call budgets](tool-call-budget.md).
 3. Build the admitted deferred-tool/interrupt round trip, then exercise it
    through the official client and a real CopilotKit UI. Done for the adapter
    in [AG-UI clients](ag-ui.md#interrupts); a repository CopilotKit fixture

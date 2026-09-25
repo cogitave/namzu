@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -42,9 +43,8 @@ const call = (id: string): MockTurn => ({
 	finishReason: 'tool_calls',
 })
 
-function tools(extra?: { readonly schemaBody: string }): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function tools(extra?: { readonly schemaBody: string }): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'probe',
 			description: 'probes',
@@ -56,8 +56,6 @@ function tools(extra?: { readonly schemaBody: string }): ToolRegistry {
 			concurrencySafe: true,
 			execute: async () => ({ success: true, output: 'ok' }),
 		}),
-	)
-	registry.register(
 		defineTool({
 			name: 'other',
 			description: 'other',
@@ -70,7 +68,6 @@ function tools(extra?: { readonly schemaBody: string }): ToolRegistry {
 			execute: async () => ({ success: true, output: 'ok' }),
 		}),
 	)
-	return registry
 }
 
 type Envelope = Extract<SessionEvent, { type: 'request_envelope' }>
@@ -78,7 +75,7 @@ type Envelope = Extract<SessionEvent, { type: 'request_envelope' }>
 async function run(opts: {
 	readonly turns: number
 	readonly prepareStep?: PrepareStep
-	readonly registry?: ToolRegistry
+	readonly toolset?: Toolset
 }): Promise<Envelope[]> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-envelope-'))
 	dirs.push(workingDirectory)
@@ -89,7 +86,7 @@ async function run(opts: {
 			provider: new MockLLMProvider({
 				turns: [...Array.from({ length: opts.turns }, (_, i) => call(`c${i}`)), { text: 'done' }],
 			}),
-			tools: opts.registry ?? tools(),
+			toolsets: [opts.toolset ?? tools()],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
@@ -163,8 +160,8 @@ describe('what the model was asked, recorded when it changed', () => {
 		// likely to be noticed: a tool whose schema body moved while its name
 		// did not. Two runs with identical name lists must produce different
 		// digests.
-		const first = await run({ turns: 1, registry: tools() })
-		const second = await run({ turns: 1, registry: tools({ schemaBody: 'different_field' }) })
+		const first = await run({ turns: 1, toolset: tools() })
+		const second = await run({ turns: 1, toolset: tools({ schemaBody: 'different_field' }) })
 
 		expect(first[0]?.toolNames).toEqual(second[0]?.toolNames)
 		expect(first[0]?.toolSchemaDigest).not.toBe(second[0]?.toolSchemaDigest)

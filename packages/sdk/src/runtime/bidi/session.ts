@@ -1,4 +1,6 @@
 import { NAMZU } from '../../constants/telemetry/index.js'
+import { ToolManager } from '../../toolsets/manager.js'
+import type { Toolset } from '../../toolsets/types.js'
 import type {
 	BidiConnectParams,
 	BidiProvider,
@@ -7,7 +9,7 @@ import type {
 } from '../../types/bidi/index.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
-import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
@@ -62,7 +64,8 @@ async function waitForProviderClose(pending: Promise<void>, timeoutMs: number): 
 
 export interface BidiTurnParams {
 	readonly provider: BidiProvider
-	readonly tools: ToolRegistryContract
+	/** Every tool this duplex turn may see comes from one of these — see `toolsets/types.ts`. */
+	readonly toolsets: readonly Toolset[]
 	readonly connect: BidiConnectParams
 	readonly workingDirectory: string
 	readonly env?: Record<string, string>
@@ -88,8 +91,8 @@ export interface BidiTurnParams {
 	 *
 	 * Here rather than nowhere because this path builds its OWN tool context:
 	 * a duplex session executes the tools the model asks for, and its results
-	 * reach a model just as a turn's do. A registry built with
-	 * `resultGuardrails` still wins, as it does on the query path.
+	 * reach a model just as a turn's do. This duplex path builds its own
+	 * manager from the supplied toolsets, so this option is its screen policy.
 	 */
 	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 }
@@ -128,6 +131,20 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 		[NAMZU.SESSION_ID]: sessionId,
 		[NAMZU.TURN_ID]: turnId,
 	})
+	// Built once, from a fixed toolset list, like `query()`'s own manager.
+	// Nothing here ever calls `refresh()`: a duplex turn has no post-tool
+	// iteration boundary to call it at, and no message history for
+	// `availability()` to derive a reveal from — a deferred tool never
+	// becomes callable mid-session, same as before this existed (nothing in
+	// this file ever activated one either).
+	// `resultGuardrails` is deliberately left unset on the manager itself
+	// (unlike `query()`'s), so the per-call `ToolContext.toolResultGuardrails`
+	// below keeps deciding it, exactly as it did when this file called a live
+	// `ToolRegistry` directly.
+	const toolManager = new ToolManager({
+		toolsets: params.toolsets,
+		messages: () => [],
+	})
 	const lifetime = new AbortController()
 	const queue: BidiTurnEvent[] = []
 	let wake: (() => void) | undefined
@@ -149,6 +166,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 	const beginClose = (reason: unknown, closeTransport: boolean): void => {
 		if (!closed) {
 			closed = true
+			toolManager.dispose()
 			lifetime.abort(reason)
 			wake?.()
 		}
@@ -204,6 +222,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 	} catch (error) {
 		removeConnectAbort?.()
 		params.signal?.removeEventListener('abort', onCallerAbort)
+		toolManager.dispose()
 		if (lifetime.signal.aborted) {
 			void connecting.catch(() => undefined)
 			throw lifetime.signal.reason
@@ -252,7 +271,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 				toolUseId: call.id,
 				toolResultGuardrails: params.toolResultGuardrails ?? DEFAULT_TOOL_RESULT_GUARDRAILS,
 			}
-			const result = await params.tools.execute(call.name, input, context)
+			const result = await toolManager.execute(call.name, input, context)
 			output = result.success ? result.output : (result.error ?? 'the tool failed')
 			isError = !result.success
 		} catch (err) {

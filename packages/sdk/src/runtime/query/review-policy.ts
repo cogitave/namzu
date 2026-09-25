@@ -21,8 +21,8 @@
  * person (`prompt`).
  */
 
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -122,14 +122,16 @@ export const REVIEW_EXEMPT_WRITES: ReadonlySet<string> = new Set([
  * know, or one that declares nothing, is reviewed.
  */
 export function isReviewExempt(
-	registry: Pick<ToolRegistry, 'get'>,
+	registry: Pick<ToolManager, 'get' | 'sourceOf'>,
 	name: string,
 	input: unknown,
 ): boolean {
 	if (REVIEW_EXEMPT_WRITES.has(name.toLowerCase())) return true
-	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
+	const resolvedName = registry.get(name) ? name : name.toLowerCase()
+	const tool = registry.get(resolvedName)
 	if (tool?.category === 'network') return false
-	return isTrustedReadOnly(tool, input)
+	const source = tool ? registry.sourceOf(resolvedName) : undefined
+	return isTrustedReadOnly(tool, input, source)
 }
 
 export type ReviewExemption = (name: string, input: unknown) => boolean
@@ -152,6 +154,7 @@ export function batchNeedsReview(
 			tc.authorization?.explicitReview ||
 			tc.escalation !== undefined ||
 			tc.isDestructive ||
+			tc.requiresApproval === true ||
 			!exempt(tc.name, tc.input),
 	)
 }
@@ -196,6 +199,17 @@ export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
  */
 export const OUTSIDE_ROOTS_UNATTENDED_REFUSAL =
 	"Refused: a call in this batch reaches a path outside the working directory and the added directories, which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Stay inside the working directory, or tell the user which directory you need so they can add it to the session (the CLI's --add-dir)."
+
+/**
+ * What the model is told when a batch carries a call the tool itself
+ * declared always needs a person's approval and nobody can be asked.
+ *
+ * Refuses the whole batch, the same way a sandbox escape does: the
+ * declaration is the tool author's, not the operator's, so no rule, mode or
+ * remembered grant can stand in for the person it names.
+ */
+export const REQUIRES_APPROVAL_UNATTENDED_REFUSAL =
+	"Refused: a call in this batch is one the tool itself declared always needs a person's approval, and nobody can be asked in this session. Nothing in this batch ran. This cannot be granted by a rule, an automation mode, a remembered approval or a skill; run it in a session where a person can be asked."
 
 /**
  * What the model is told when a batch would show it the operator's screen for
@@ -251,7 +265,7 @@ export interface ReviewPolicyOptions {
 	readonly prompt?: ToolReviewPrompt
 	/** Which calls skip review; default `isReviewExempt` over `registry`, or nothing without one. */
 	readonly exempt?: ReviewExemption
-	readonly registry?: Pick<ToolRegistry, 'get'>
+	readonly registry?: Pick<ToolManager, 'get' | 'sourceOf'>
 	/**
 	 * Where "approve all" is remembered. A host that shows the state (a
 	 * badge saying the session is unattended) passes its own box so both
@@ -312,7 +326,8 @@ function isSkillGranted(tc: ToolCallSummary): boolean {
 		!tc.authorization?.explicitReview &&
 		tc.authorization?.decision !== 'deny' &&
 		!tc.isDestructive &&
-		tc.escalation === undefined
+		tc.escalation === undefined &&
+		tc.requiresApproval !== true
 	)
 }
 
@@ -394,6 +409,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					!tc.authorization?.explicitReview &&
 					tc.escalation === undefined &&
 					!tc.isDestructive &&
+					tc.requiresApproval !== true &&
 					(ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
 			)
 		) {
@@ -421,9 +437,19 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			.map((tc) => tc.id)
 		if (escapes.length > 0) {
 			if (!prompt) {
-				return options.unattendedSandboxEscape === 'allow'
-					? { action: 'approve_tools', confirmedEscalations: escapes }
-					: { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+				if (options.unattendedSandboxEscape !== 'allow') {
+					return { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+				}
+				// This opt-in confirms only the sandbox escape. A different call in
+				// the batch, or another boundary on this same call, still needs a
+				// person; the early return must not approve that boundary too.
+				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
+					return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
+				}
+				if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
+					return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+				}
+				return { action: 'approve_tools', confirmedEscalations: escapes }
 			}
 			const answer = await ask()
 			if (answer.kind === 'reject') {
@@ -451,6 +477,24 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				}
 			}
 			// Latches for the ordinary calls that follow, never for the next path.
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools' }
+		}
+		// A call the tool itself declared always needs a person's approval is
+		// asked about every time, in every mode that got this far — `auto`
+		// and a remembered "approve all" included, for the same reason an
+		// escape or a path outside the roots is: the tool author's
+		// declaration travels with the tool, and no rule, mode or remembered
+		// grant was ever an answer to IT specifically.
+		if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
+			if (!prompt) return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+			const answer = await ask()
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+				}
+			}
 			if (answer.kind === 'approve-all') remembered.all = true
 			return { action: 'approve_tools' }
 		}

@@ -7,10 +7,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -76,9 +77,8 @@ afterEach(async () => {
 })
 
 /** A read-only tool the gate approves, so the only park is the cadence one. */
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -91,7 +91,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 /** Three tool turns, so a resumed turn reaches a second checkpoint. */
@@ -123,7 +122,7 @@ async function runUntilPaused(workingDirectory: string) {
 	await drainQuery(
 		{
 			provider: toolTurns(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			sessionLog,
 			compactionConfig: COMPACTION,
 			agentId: 'agent_working_state',
@@ -182,7 +181,7 @@ describe('a resumed turn', () => {
 			tenantId: SCOPE.tenantId,
 			pendingDecision: { action: 'continue' },
 			provider: toolTurns(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			compactionConfig: COMPACTION,
 			agentId: 'agent_working_state',
 			agentName: 'Working state agent',
@@ -233,7 +232,7 @@ describe('a resumed turn', () => {
 			tenantId: SCOPE.tenantId,
 			pendingDecision: { action: 'continue' },
 			provider: toolTurns(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			compactionConfig: COMPACTION,
 			agentId: 'agent_working_state',
 			agentName: 'Working state agent',

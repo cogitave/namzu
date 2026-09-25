@@ -43,8 +43,6 @@ import {
 	LocalTaskScheduler,
 	type Project,
 	type ProjectInstructionContext,
-	ReactiveAgent,
-	type ReactiveAgentConfig,
 	type ReasoningEffort,
 	type ResumeHandler,
 	type SandboxProvider,
@@ -58,8 +56,8 @@ import {
 	type TaskScheduler,
 	type ToolContext,
 	type ToolDefinition,
-	type ToolRegistryContract,
 	type ToolResult,
+	type Toolset,
 	type Topic,
 	TopicArchivedError,
 	TopicManager,
@@ -69,19 +67,21 @@ import {
 	asTaskId,
 	asTurnId,
 	defineTool,
-	filterReadOnlyTools,
-	filterToolsNamed,
+	filtered,
 	generateSummaryId,
 	isTerminalAgentTaskState,
+	isTrustedReadOnly,
 	mcpJsonSchemaToZod,
 	openSessionTokenBudget,
 	requireOpenProject,
+	toToolSourceRef,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import { resolveTurnGuards } from '../../config/turn-guards.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
+import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
@@ -133,10 +133,21 @@ const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('
 function fileAgentTools(
 	definition: AgentFileDefinition,
 	opts: SubagentRuntimeOptions,
-): () => ToolRegistryContract {
+): () => readonly Toolset[] {
 	return () => {
-		const source = definition.readOnly ? filterReadOnlyTools(opts.buildTools()) : opts.buildTools()
-		return definition.tools ? filterToolsNamed(source, definition.tools) : source
+		// Filter each contributing toolset, then combine — never the reverse:
+		// `filtered`'s predicate reads `source` from the ONE toolset it runs
+		// on (`tools/roster.ts`), so a wide, already-combined toolset would
+		// hand every tool the same umbrella source.
+		const source = definition.readOnly
+			? opts
+					.buildTools()
+					.map((ts) =>
+						filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+					)
+			: opts.buildTools()
+		const names = definition.tools
+		return names ? source.map((ts) => filtered(ts, names)) : source
 	}
 }
 
@@ -220,14 +231,14 @@ export interface SubagentRuntimeOptions {
 		signal: AbortSignal,
 	) => Promise<DelegatedModel>
 	readonly listModels?: (query: string, signal: AbortSignal) => Promise<string>
-	/** Build the sub-agent's tool registry (its own working set). */
-	readonly buildTools: () => ToolRegistryContract
+	/** Build the sub-agent's own toolsets (its own working set). */
+	readonly buildTools: () => readonly Toolset[]
 	/** Resolve search against the actual child route and its admitted tool roster. */
 	readonly configureWebSearch?: (
 		provider: LLMProvider,
 		model: string,
-		tools: ToolRegistryContract,
-	) => ReactiveAgentConfig['webSearch']
+		toolsets: readonly Toolset[],
+	) => NamzuCliAgentConfig['webSearch']
 	readonly authorizationGate?: AuthorizationGateConfig
 	/**
 	 * Resolve the interactive authority owned by the parent turn that invoked
@@ -399,7 +410,11 @@ export async function createSubagentRuntime(
 	)
 	registry.register(
 		buildDefinition(EXPLORE_SUBAGENT, EXPLORE_AGENT_DESCRIPTION, EXPLORE_PROMPT, opts, () =>
-			filterReadOnlyTools(opts.buildTools()),
+			opts
+				.buildTools()
+				.map((ts) =>
+					filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+				),
 		),
 	)
 	// Agents a project or user defined in a file, each a type of its own.
@@ -407,10 +422,19 @@ export async function createSubagentRuntime(
 	// a file cannot grant a tool the parent does not have — narrowed further
 	// to read-only when the file says so. The prompt is the file's body over
 	// the same sub-agent base every child gets.
+	//
+	// `replace`, not `register`: a project may deliberately name a file agent
+	// `explore` (or `general-purpose`) to shadow the built-in of that name —
+	// tested behaviour, not a bug — and `AgentRegistry`'s default collision
+	// policy is `'throw'` now (every SDK registry converges on that; see
+	// `registry/collision.ts`). Two file agents sharing a name shadow each
+	// other the same way, last one in `opts.definitions` winning, same as
+	// `fileAgents`'s own `Map.set` below.
 	const fileAgents = new Map<string, AgentFileDefinition>()
 	for (const definition of opts.definitions ?? []) {
 		fileAgents.set(definition.name, definition)
-		registry.register(
+		registry.replace(
+			definition.name,
 			buildDefinition(
 				definition.name,
 				definition.description,
@@ -874,7 +898,14 @@ export async function createSubagentRuntime(
 						fileAgent
 							? fileAgentTools(fileAgent, opts)
 							: explore
-								? () => filterReadOnlyTools(opts.buildTools())
+								? () =>
+										opts
+											.buildTools()
+											.map((ts) =>
+												filtered(ts, (tool) =>
+													isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
+												),
+											)
 								: opts.buildTools,
 						selection?.model ?? fileAgent?.model ?? parentModel,
 						selection,
@@ -1558,12 +1589,12 @@ function buildDefinition(
 	systemPrompt: string,
 	opts: SubagentRuntimeOptions,
 	/** This definition's own roster; absent means the parent's working set. */
-	tools: () => ToolRegistryContract = opts.buildTools,
+	tools: () => readonly Toolset[] = opts.buildTools,
 	/** This definition's model; absent means the session's. */
 	model: string = opts.model,
 	selection?: DelegatedModel,
 ): AgentDefinition {
-	const agent = new ReactiveAgent({
+	const agent = new NamzuCliAgent({
 		id,
 		name: id,
 		version: '1.0.0',
@@ -1585,10 +1616,10 @@ function buildDefinition(
 			tools: [],
 			defaults: { model, tokenBudget: opts.tokenBudget ?? 0 },
 		},
-		// ReactiveAgent is Agent<ReactiveAgentConfig,…>; the registry stores the
+		// NamzuCliAgent is Agent<NamzuCliAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
-		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
+		configBuilder: async (options): Promise<NamzuCliAgentConfig> => {
 			const limits = resolveTurnGuards(
 				opts,
 				options.parentTurnId ? opts.resolveLimits?.(asTurnId(options.parentTurnId)) : undefined,
@@ -1605,8 +1636,13 @@ function buildDefinition(
 				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
-			const registry = tools()
-			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, registry)
+			const toolsets = tools()
+			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
+			// The one tool `configureWebSearch` ever asks to have removed: once
+			// native mode is confirmed usable, the tool-based path is redundant.
+			const resolvedToolsets = webSearch
+				? toolsets.map((ts) => filtered(ts, (tool) => tool.name !== 'web_search'))
+				: toolsets
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
@@ -1616,7 +1652,7 @@ function buildDefinition(
 				provider,
 				...(webSearch ? { webSearch } : {}),
 				...(selection?.effort ? { effort: selection.effort } : {}),
-				tools: registry,
+				toolsets: resolvedToolsets,
 				systemPrompt: [
 					base,
 					environment,

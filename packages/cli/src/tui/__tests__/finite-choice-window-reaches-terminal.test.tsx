@@ -15,6 +15,7 @@ import type { AgentSession, ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -93,6 +94,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'A Provider',
 			modelSummary: 'model-default',
 			toolNames: () => [],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],

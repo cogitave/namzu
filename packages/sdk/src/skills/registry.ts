@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { RegistryCollisionError } from '../registry/collision.js'
 import type {
 	Skill,
 	SkillChain,
@@ -10,6 +11,21 @@ import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 import { SKILL_FILENAME, discoverSkills, loadSkill } from './loader.js'
+
+/** Two skills claiming one registered name. */
+export class SkillCollisionError extends RegistryCollisionError {
+	readonly skillName: string
+
+	constructor(skillName: string) {
+		super(
+			'SkillRegistry',
+			skillName,
+			`Skill "${skillName}" is already registered. Unregister it first, or file it under a different name.`,
+		)
+		this.name = 'SkillCollisionError'
+		this.skillName = skillName
+	}
+}
 
 /**
  * What the file looked like when we read it.
@@ -98,8 +114,17 @@ export class SkillRegistry {
 	 * plugins shipping `reconcile` do not silently overwrite each other, and
 	 * the name a skill is filed under is then not the name in its own
 	 * frontmatter. `register(dirPath)` cannot express that.
+	 *
+	 * Throws {@link SkillCollisionError} on a name already held — every SDK
+	 * registry converges on throw-by-default (see `registry/collision.ts`),
+	 * and this one used to overwrite in total silence via a bare `Map.set`,
+	 * exactly the failure the plugin-namespacing comment above says it
+	 * exists to prevent.
 	 */
 	add(name: string, skill: Skill): void {
+		if (this.skills.has(name)) {
+			throw new SkillCollisionError(name)
+		}
 		this.skills.set(name, skill)
 		// Deliberately NOT stamped. `add` is synchronous by contract, and a
 		// fire-and-forget `stat` here would be a promise nothing awaits

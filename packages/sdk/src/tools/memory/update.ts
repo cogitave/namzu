@@ -15,11 +15,14 @@ export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 			id: z
 				.string()
 				.describe('Memory ID, or the memory name from the index, to correct or archive'),
-			title: z.string().min(1).optional(),
-			summary: z.string().min(1).optional(),
-			content: z.string().min(1).optional(),
-			tags: z.array(z.string()).optional(),
-			status: z.enum(['active', 'archived']).optional(),
+			title: z.string().min(1).optional().describe('Corrected short descriptive title'),
+			summary: z.string().min(1).optional().describe('Corrected brief summary (1-2 sentences)'),
+			content: z.string().min(1).optional().describe('Corrected full content'),
+			tags: z.array(z.string()).optional().describe('Replacement tags for categorization'),
+			status: z
+				.enum(['active', 'archived'])
+				.optional()
+				.describe('Set to archived to retire this memory without deleting it'),
 			...memoryFieldsSchema,
 		}),
 		category: 'custom',

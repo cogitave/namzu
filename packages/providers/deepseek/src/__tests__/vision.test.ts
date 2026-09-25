@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	MCPReconnectOptionsSchema,
-	ToolRegistry,
 	defineTool,
 	drainQuery,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -325,34 +325,35 @@ describe('the query loop reaches tool-result images', () => {
 				},
 			],
 		])
-		const tools = new ToolRegistry()
-		tools.register(
-			defineTool({
-				name: 'capture',
-				description: 'Capture an image',
-				inputSchema: MCPReconnectOptionsSchema,
-				modelInputSchema: { type: 'object', properties: {}, additionalProperties: false },
-				category: 'custom',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				execute: async () => ({
-					success: true,
-					output: 'captured',
-					content: [
-						{ type: 'text' as const, text: 'captured' },
-						{ type: 'image' as const, mediaType: 'image/png', data: PNG },
-					],
+		const toolsets = [
+			toolset('test', [
+				defineTool({
+					name: 'capture',
+					description: 'Capture an image',
+					inputSchema: MCPReconnectOptionsSchema,
+					modelInputSchema: { type: 'object', properties: {}, additionalProperties: false },
+					category: 'custom',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => ({
+						success: true,
+						output: 'captured',
+						content: [
+							{ type: 'text' as const, text: 'captured' },
+							{ type: 'image' as const, mediaType: 'image/png', data: PNG },
+						],
+					}),
 				}),
-			}),
-		)
+			]),
+		]
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-deepseek-vision-'))
 		dirs.push(cwd)
 
 		const turn = await drainQuery({
 			provider,
-			tools,
+			toolsets,
 			agentId: 'deepseek-vision-agent',
 			agentName: 'DeepSeek vision agent',
 			messages: [{ role: 'user', content: 'capture one image' }],

@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ReasoningEffort } from '../../../types/provider/index.js'
@@ -46,7 +45,7 @@ async function run(overrides: Partial<TurnConfig>, turns: unknown[]): Promise<Mo
 
 	await drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,

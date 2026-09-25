@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
+import { testToolset } from '../../test-support/toolset.js'
+import type { AuthorizationGateConfig } from '../../types/authorization/index.js'
 import { runAgent } from '../runAgent.js'
 
 /**
@@ -45,41 +46,87 @@ describe('runAgent forwards what the kernel takes', () => {
 		expect(JSON.stringify(provider.requests[0])).toContain('plan-a-trip')
 	})
 
-	it('forwards the verification gate, so a denied tool does not run', async () => {
-		// The first version of this test asserted `run.status === 'completed'`
-		// with the gate set. It passed with the forwarding deleted — a turn with
-		// no gate completes too — so it proved nothing. A gate is only observable
-		// through a call it stops, which means the assertion has to be about
-		// whether the tool body ran.
-		let ran = false
+	it.each(['authorizationGate', 'verificationGate'] as const)(
+		'forwards %s, so a denied tool does not run',
+		async (gateOption) => {
+			// The first version of this test asserted `run.status === 'completed'`
+			// with the gate set. It passed with the forwarding deleted — a turn with
+			// no gate completes too — so it proved nothing. A gate is only observable
+			// through a call it stops, which means the assertion has to be about
+			// whether the tool body ran.
+			let ran = false
 
-		const tools = new ToolRegistry()
-		tools.register({
-			name: 'delete_everything',
-			description: 'Deletes everything.',
-			inputSchema: z.object({}),
-			execute: async () => {
-				ran = true
-				return { success: true, output: 'deleted' }
-			},
-		})
+			const tools = testToolset({
+				name: 'delete_everything',
+				description: 'Deletes everything.',
+				inputSchema: z.object({}),
+				execute: async () => {
+					ran = true
+					return { success: true, output: 'deleted' }
+				},
+			})
 
-		await runAgent({
-			provider: new MockLLMProvider({
-				turns: [{ toolCalls: [{ name: 'delete_everything', args: {} }] }, { text: 'done' }],
-			}),
-			model: 'mock-model',
-			prompt: 'clean up',
-			tools,
-			authorizationGate: {
+			const gate = {
 				enabled: true,
 				rules: [{ type: 'deny_by_name', toolNames: ['delete_everything'] }],
 				allowReadOnlyTools: false,
 				denyDangerousPatterns: false,
 				logDecisions: false,
-			},
-		})
+			} satisfies AuthorizationGateConfig
 
-		expect(ran).toBe(false)
+			await runAgent({
+				provider: new MockLLMProvider({
+					turns: [{ toolCalls: [{ name: 'delete_everything', args: {} }] }, { text: 'done' }],
+				}),
+				model: 'mock-model',
+				prompt: 'clean up',
+				toolsets: [tools],
+				[gateOption]: gate,
+			})
+
+			expect(ran).toBe(false)
+		},
+	)
+
+	it('refuses conflicting gate spellings before a model call', async () => {
+		const provider = new MockLLMProvider({ turns: [{ text: 'should not run' }] })
+		const first = {
+			enabled: true,
+			rules: [],
+			allowReadOnlyTools: false,
+			denyDangerousPatterns: false,
+			logDecisions: false,
+		} satisfies AuthorizationGateConfig
+
+		await expect(
+			runAgent({
+				provider,
+				model: 'mock-model',
+				prompt: 'hello',
+				authorizationGate: first,
+				verificationGate: { ...first, enabled: false },
+			}),
+		).rejects.toThrow('must name the same policy')
+		expect(provider.requests).toHaveLength(0)
+	})
+
+	it('accepts both gate spellings when their policies agree', async () => {
+		const provider = new MockLLMProvider({ turns: [{ text: 'ok' }] })
+		const gate = {
+			enabled: true,
+			rules: [],
+			allowReadOnlyTools: false,
+			denyDangerousPatterns: false,
+			logDecisions: false,
+		} satisfies AuthorizationGateConfig
+
+		await runAgent({
+			provider,
+			model: 'mock-model',
+			prompt: 'hello',
+			authorizationGate: gate,
+			verificationGate: { ...gate },
+		})
+		expect(provider.requests).toHaveLength(1)
 	})
 })

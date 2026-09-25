@@ -1,15 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId, SessionId, TurnId } from '../../types/ids/index.js'
-import type { PluginHookContext, PluginHookResult } from '../../types/plugin/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { PluginHookContext, PluginHookDefinition } from '../../types/plugin/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 
 describe('PluginLifecycleManager', () => {
 	let manager: PluginLifecycleManager
 	let pluginRegistry: PluginRegistry
-	let toolRegistry: ToolRegistryContract
 	let logger: Logger
 
 	const mockSessionId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
@@ -23,13 +21,6 @@ describe('PluginLifecycleManager', () => {
 			unregister: vi.fn(),
 			getOrThrow: vi.fn(),
 			findByName: vi.fn(),
-			getAll: vi.fn(() => []),
-		} as any
-
-		toolRegistry = {
-			register: vi.fn(),
-			unregister: vi.fn(),
-			execute: vi.fn(),
 			getAll: vi.fn(() => []),
 		} as any
 
@@ -57,7 +48,6 @@ describe('PluginLifecycleManager', () => {
 
 		manager = new PluginLifecycleManager({
 			pluginRegistry,
-			toolRegistry,
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger,
 			hookTimeoutMs: 5000,
@@ -89,8 +79,12 @@ describe('PluginLifecycleManager', () => {
 		})
 
 		it('should execute all registered hooks for an event', async () => {
-			const hook1Handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
-			const hook2Handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+			const hook1Handler = vi.fn(
+				async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }),
+			)
+			const hook2Handler = vi.fn(
+				async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }),
+			)
 
 			// Register hooks manually
 			manager.registerHook('plugin_1' as PluginId, {
@@ -116,14 +110,18 @@ describe('PluginLifecycleManager', () => {
 			const reason = new Error('operator stopped before the hook')
 			const caller = new AbortController()
 			caller.abort(reason)
-			const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+			const handler = vi.fn(async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }))
 			const emitSessionEvent = vi.fn(async () => {})
 			manager.registerHook(mockPluginId, { event: 'pre_llm_call', handler })
 
 			await expect(
 				manager.executeHooks(
 					'pre_llm_call',
-					{ sessionId: mockSessionId, turnId: mockTurnId, signal: caller.signal },
+					{
+						sessionId: mockSessionId,
+						turnId: mockTurnId,
+						signal: caller.signal,
+					},
 					emitSessionEvent,
 				),
 			).rejects.toBe(reason)
@@ -138,8 +136,8 @@ describe('PluginLifecycleManager', () => {
 			const entered = new Promise<void>((resolve) => {
 				enter = resolve
 			})
-			let release!: (result: PluginHookResult) => void
-			const held = new Promise<PluginHookResult>((resolve) => {
+			let release!: (result: { action: 'continue' }) => void
+			const held = new Promise<{ action: 'continue' }>((resolve) => {
 				release = resolve
 			})
 			let hookSignal: AbortSignal | undefined
@@ -191,7 +189,7 @@ describe('PluginLifecycleManager', () => {
 		it('should handle hook timeout', async () => {
 			const slowHandler = vi.fn(
 				() =>
-					new Promise<PluginHookResult>((resolve) => {
+					new Promise<{ action: 'continue' }>((resolve) => {
 						setTimeout(() => resolve({ action: 'continue' }), 10000)
 					}),
 			)
@@ -203,7 +201,6 @@ describe('PluginLifecycleManager', () => {
 
 			const managerWithShortTimeout = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry,
 				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: logger,
 				hookTimeoutMs: 10, // Very short timeout
@@ -229,19 +226,23 @@ describe('PluginLifecycleManager', () => {
 		it('fans out interrupt observers after skip, error, and timeout results', async () => {
 			const observationalManager = new PluginLifecycleManager({
 				pluginRegistry,
-				toolRegistry,
 				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: logger,
 				hookTimeoutMs: 10,
 			})
-			const lastObserver = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
-			observationalManager.registerHook('plugin_skip' as PluginId, {
-				event: 'turn_interrupt',
-				handler: async () => ({
-					action: 'skip',
-					reason: 'observer has nothing to do',
-				}),
-			})
+			const lastObserver = vi.fn(
+				async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }),
+			)
+			observationalManager.registerHook(
+				'plugin_skip' as PluginId,
+				{
+					event: 'turn_interrupt',
+					handler: async () => ({
+						action: 'skip',
+						reason: 'observer has nothing to do',
+					}),
+				} as unknown as PluginHookDefinition,
+			)
 			observationalManager.registerHook('plugin_throw' as PluginId, {
 				event: 'turn_interrupt',
 				handler: async () => {
@@ -250,7 +251,7 @@ describe('PluginLifecycleManager', () => {
 			})
 			observationalManager.registerHook('plugin_timeout' as PluginId, {
 				event: 'turn_interrupt',
-				handler: () => new Promise<PluginHookResult>(() => {}),
+				handler: () => new Promise<{ action: 'continue' }>(() => {}),
 			})
 			observationalManager.registerHook('plugin_last' as PluginId, {
 				event: 'turn_interrupt',
@@ -286,17 +287,17 @@ describe('PluginLifecycleManager', () => {
 			it('should execute pre_* hooks in registration order (first registered first)', async () => {
 				const executionOrder: string[] = []
 
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook1')
 					return { action: 'continue' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook2')
 					return { action: 'continue' }
 				})
 
-				const handler3 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler3 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook3')
 					return { action: 'continue' }
 				})
@@ -314,7 +315,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler3,
 				})
 
-				await manager.executeHooks('pre_tool_use', { sessionId: mockSessionId, turnId: mockTurnId })
+				await manager.executeHooks('pre_tool_use', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(executionOrder).toEqual(['hook1', 'hook2', 'hook3'])
 			})
@@ -322,17 +326,17 @@ describe('PluginLifecycleManager', () => {
 			it('should execute post_* hooks in reverse registration order (last registered first)', async () => {
 				const executionOrder: string[] = []
 
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook1')
 					return { action: 'continue' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook2')
 					return { action: 'continue' }
 				})
 
-				const handler3 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler3 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook3')
 					return { action: 'continue' }
 				})
@@ -362,12 +366,12 @@ describe('PluginLifecycleManager', () => {
 			it('should execute non-pre/post hooks in registration order', async () => {
 				const executionOrder: string[] = []
 
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook1')
 					return { action: 'continue' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					executionOrder.push('hook2')
 					return { action: 'continue' }
 				})
@@ -381,7 +385,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler2,
 				})
 
-				await manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId })
+				await manager.executeHooks('turn_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(executionOrder).toEqual(['hook1', 'hook2'])
 			})
@@ -389,11 +396,11 @@ describe('PluginLifecycleManager', () => {
 
 		describe('Flow control: action priority', () => {
 			it('should short-circuit on error action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'error'; message: string }> => {
 					return { action: 'error', message: 'Hook failed' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
@@ -417,11 +424,11 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			it('should short-circuit on skip action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'skip'; reason: string }> => {
 					return { action: 'skip', reason: 'Condition not met' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
@@ -445,26 +452,25 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			it('should short-circuit and return retry action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'retry' }> => {
 					return { action: 'retry' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
-				// Use pre_* hook for forward execution order (plugin_1 runs first and short-circuits).
-				// post_* hooks run in reverse order for cleanup semantics.
-				manager.registerHook('plugin_1' as PluginId, {
-					event: 'pre_llm_call',
-					handler: handler1,
-				})
+				// Post hooks unwind, so register the observer first and the retrying hook last.
 				manager.registerHook('plugin_2' as PluginId, {
-					event: 'pre_llm_call',
+					event: 'post_tool_use',
 					handler: handler2,
 				})
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'post_tool_use',
+					handler: handler1,
+				})
 
-				const results = await manager.executeHooks('pre_llm_call', {
+				const results = await manager.executeHooks('post_tool_use', {
 					sessionId: mockSessionId,
 					turnId: mockTurnId,
 				})
@@ -475,11 +481,11 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			it('should continue executing on modify action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'modify'; input: unknown }> => {
 					return { action: 'modify', input: { updated: true } }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
@@ -504,11 +510,11 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			it('should continue executing on continue action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler1 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler2 = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
@@ -536,7 +542,7 @@ describe('PluginLifecycleManager', () => {
 			it('should pass correct context to hook handler', async () => {
 				let capturedContext: PluginHookContext | null = null
 
-				const handler = vi.fn(async (ctx: PluginHookContext): Promise<PluginHookResult> => {
+				const handler = vi.fn(async (ctx: PluginHookContext): Promise<{ action: 'continue' }> => {
 					capturedContext = ctx
 					return { action: 'continue' }
 				})
@@ -565,7 +571,7 @@ describe('PluginLifecycleManager', () => {
 			it('should include iteration number in context when provided', async () => {
 				let capturedContext: PluginHookContext | null = null
 
-				const handler = vi.fn(async (ctx: PluginHookContext): Promise<PluginHookResult> => {
+				const handler = vi.fn(async (ctx: PluginHookContext): Promise<{ action: 'continue' }> => {
 					capturedContext = ctx
 					return { action: 'continue' }
 				})
@@ -588,13 +594,16 @@ describe('PluginLifecycleManager', () => {
 				const events: any[] = []
 				manager.on((evt) => events.push(evt))
 
-				const handler = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					return { action: 'continue' }
 				})
 
 				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
 
-				await manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId })
+				await manager.executeHooks('turn_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				const hookExecutedEvents = events.filter((evt) => evt.type === 'plugin_hook_executed')
 				expect(hookExecutedEvents).toHaveLength(1)
@@ -609,7 +618,7 @@ describe('PluginLifecycleManager', () => {
 
 		describe('Exception handling', () => {
 			it('should catch thrown exceptions and return error action', async () => {
-				const handler = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					throw new Error('Handler crashed')
 				})
 
@@ -628,7 +637,7 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			it('should not throw when handler throws', async () => {
-				const handler = vi.fn(async (): Promise<PluginHookResult> => {
+				const handler = vi.fn(async (): Promise<{ action: 'continue' }> => {
 					throw new Error('Handler failed')
 				})
 
@@ -650,14 +659,22 @@ describe('PluginLifecycleManager', () => {
 				})
 
 				const handler = vi.fn(
-					async (): Promise<PluginHookResult> => ({ action: 'modify', input: { x: 1 } }),
+					async (): Promise<{ action: 'modify'; input: unknown }> => ({
+						action: 'modify',
+						input: { x: 1 },
+					}),
 				)
 
 				manager.registerHook(mockPluginId, { event: 'pre_tool_use', handler })
 
 				await manager.executeHooks(
 					'pre_tool_use',
-					{ sessionId: mockSessionId, turnId: mockTurnId, toolName: 't', toolInput: {} },
+					{
+						sessionId: mockSessionId,
+						turnId: mockTurnId,
+						toolName: 't',
+						toolInput: {},
+					},
 					emitSessionEvent,
 				)
 
@@ -676,14 +693,20 @@ describe('PluginLifecycleManager', () => {
 					pluginId: mockPluginId,
 					hookEvent: 'pre_tool_use',
 				})
-				expect(emitted[1].result).toEqual({ action: 'modify', input: { x: 1 } })
+				expect(emitted[1].result).toEqual({
+					action: 'modify',
+					input: { x: 1 },
+				})
 			})
 
 			it('should not emit SessionEvents when emitSessionEvent omitted', async () => {
-				const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+				const handler = vi.fn(async (): Promise<{ action: 'continue' }> => ({ action: 'continue' }))
 				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
 				await expect(
-					manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId }),
+					manager.executeHooks('turn_start', {
+						sessionId: mockSessionId,
+						turnId: mockTurnId,
+					}),
 				).resolves.toHaveLength(1)
 			})
 		})

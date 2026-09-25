@@ -2,7 +2,8 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MCPJsonRpcMessage, MCPToolDefinition } from '../../../types/connector/index.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
@@ -194,8 +195,7 @@ describe('remote MCP requests remain at their configured endpoint', () => {
 			annotations: { destructiveHint: true },
 		}
 		const definition = mcpToolToToolDefinition(remoteTool, client, 'fixture')
-		const registry = new ToolRegistry()
-		registry.register(definition)
+		const registry = new ToolManager({ toolsets: [testToolset(definition)], messages: () => [] })
 
 		const result = await registry.execute(
 			definition.name,

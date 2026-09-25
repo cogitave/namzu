@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentSession, SendOptions } from '../agent.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const sent = vi.hoisted(() => ({ options: [] as SendOptions[] }))
 
@@ -42,6 +43,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'a-model',
 			reasoningEffortLevels: ['low'],
 			toolNames: () => [],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],

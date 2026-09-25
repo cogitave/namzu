@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
@@ -61,9 +62,8 @@ class ReportingProvider extends MockLLMProvider {
 	}
 }
 
-function registry(): ToolRegistry {
-	const r = new ToolRegistry()
-	return r
+function registry(): Toolset {
+	return testToolset()
 }
 
 async function run(
@@ -79,7 +79,7 @@ async function run(
 	const result = await drainQuery(
 		{
 			provider,
-			tools: registry(),
+			toolsets: [registry()],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs,

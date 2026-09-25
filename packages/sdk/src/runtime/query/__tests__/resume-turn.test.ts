@@ -7,16 +7,17 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	InMemorySessionLog,
 	type SessionLease,
 	type SessionLog,
 } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import {
@@ -120,15 +121,13 @@ function toolCallingProvider(): MockLLMProvider {
 	})
 }
 
-function registryWithEcho(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
+function registryWithEcho(): Toolset {
+	return testToolset({
 		name: 'echo',
 		description: 'echo the text back',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async () => ({ success: true, output: 'hi' }),
 	})
-	return tools
 }
 
 async function baseParams(session: {
@@ -140,7 +139,7 @@ async function baseParams(session: {
 		sessionLog: session.log,
 		checkpointStore: session.store,
 		provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
@@ -369,7 +368,7 @@ describe('a resume carries the lease it was given', () => {
 		return {
 			...(await baseParams(session)),
 			provider: toolCallingProvider(),
-			tools: registryWithEcho(),
+			toolsets: [registryWithEcho()],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
@@ -448,12 +447,8 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		]
 	}
 
-	function fileTools(): ToolRegistry {
-		const tools = new ToolRegistry()
-		tools.register(WriteFileTool)
-		tools.register(EditTool)
-		tools.register(ReadFileTool)
-		return tools
+	function fileTools(): Toolset {
+		return testToolset(WriteFileTool, EditTool, ReadFileTool)
 	}
 
 	it('carries the written body into the first resumed request instead of re-reading it', async () => {
@@ -468,7 +463,7 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			tools: fileTools(),
+			toolsets: [fileTools()],
 			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
@@ -510,7 +505,7 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			tools: fileTools(),
+			toolsets: [fileTools()],
 			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
@@ -579,7 +574,7 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			tools: fileTools(),
+			toolsets: [fileTools()],
 			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
@@ -606,7 +601,7 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			tools: fileTools(),
+			toolsets: [fileTools()],
 			fileReadTracker: {
 				...createFileReadTracker(),
 				recordRead: () => {
@@ -638,7 +633,7 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			tools: fileTools(),
+			toolsets: [fileTools()],
 			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 

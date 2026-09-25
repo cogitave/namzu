@@ -6,7 +6,6 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -55,7 +54,7 @@ async function run(opts: {
 	const result = await drainQuery(
 		{
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,

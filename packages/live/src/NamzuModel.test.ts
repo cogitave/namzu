@@ -8,11 +8,11 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	type StreamChunk,
-	ToolRegistry,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -44,7 +44,7 @@ async function makeConfig(
 		sessionId,
 		sessionLog: log,
 		tenantId: generateTenantId(),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		topicId: generateTopicId(),
 		turnConfig: {
 			maxIterations: 4,
@@ -113,15 +113,19 @@ describe('NamzuModel', () => {
 		})
 		const { config } = await makeConfig(provider)
 		let executions = 0
-		config.tools.register({
-			description: 'look up a value',
-			execute: async () => {
-				executions++
-				return { output: 'value', success: true }
-			},
-			inputSchema: z.object({ key: z.string() }),
-			name: 'lookup',
-		})
+		config.toolsets = [
+			toolset('test', [
+				{
+					description: 'look up a value',
+					execute: async () => {
+						executions++
+						return { output: 'value', success: true }
+					},
+					inputSchema: z.object({ key: z.string() }),
+					name: 'lookup',
+				},
+			]),
+		]
 		const session = new LiveSession()
 		await session.start(
 			new LiveAgent({

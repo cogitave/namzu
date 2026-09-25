@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../registry/index.js'
 import type { AgentInput } from '../../types/agent/base.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import { ReactiveAgent } from '../ReactiveAgent.js'
@@ -88,7 +87,7 @@ function failingProvider() {
 const config = (provider: unknown, idempotencyKey?: string): ReactiveAgentConfig =>
 	({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		model: 'm',
 		tokenBudget: 1_000,
 		timeoutMs: 10_000,

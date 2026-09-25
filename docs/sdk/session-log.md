@@ -183,6 +183,35 @@ session hook, task and sandbox bookkeeping — may omit it.
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
 
+### Continuing under the recorded owner
+
+Every new session writes its project, tenant and topic into `session_started`.
+The schema still accepts older logs with no `tenantId` or `topicId` so they
+can be read and exported. A new turn, `resumeSession`, the public turn-state
+loaders or `prepareForkState` refuse to continue or restore such a log: its
+owner cannot be proved from the record. The three recorded IDs must match the
+caller's scope, and the log's `sessionId` must match the requested session. The
+check runs before a new turn's budget and topic queue are touched, before
+turn-state, resumed or forked checkpoints are read, and again under the writer
+lease before history is folded. A same-scope turn continues normally.
+`prepareForkState` requires the source `scope.topicId` and checks it against
+the recorded topic before restoring conversation messages.
+
+The SDK claims the writer lease with `repairTornTail: false` until it has
+checked the owner under that lease. The first authorized append repairs a torn
+tail as usual. A custom `SessionLog.claim` implementation must honor this
+option: it must not truncate or append repair records when the option is false.
+The session-log conformance suite now declares contract version 2 and checks
+that deferred repair occurs on the first append.
+
+To move a legacy log forward, treat it as read-only: verify its owner outside
+the log, then start a new session under the correct scope and seed that
+session with the trusted conversation messages. Do not edit the hash-chained
+`session_started` line. A paused turn in an ownerless legacy log cannot be
+resumed by this release. `listCheckpoints` receives only a checkpoint store,
+not the source log, so a host must authorize the listing against its own
+session ownership data before calling it.
+
 Three payload fields are checked against the rest of the record by
 `SessionRecordSchema`, not by the per-type schema alone: a `message` record's
 `role` is its `content.role`; `checkpoint_written.throughSeq` is below the

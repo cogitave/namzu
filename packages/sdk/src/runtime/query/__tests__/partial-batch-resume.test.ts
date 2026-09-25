@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
 import type { SessionLog } from '../../../store/session-log/index.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import {
@@ -10,7 +11,6 @@ import {
 	createAssistantMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { RestoredCheckpoint } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
@@ -215,14 +215,12 @@ describe('executing a batch that carries recovered results', () => {
 	async function runBatch(prior?: ReadonlyMap<string, { result: string; isError: boolean }>) {
 		const execute = vi.fn(async () => ({ success: true, output: 'freshly executed' }))
 		const tools = {
-			register: vi.fn(),
-			unregister: vi.fn(),
 			execute,
 			get: vi.fn(() => ({ isConcurrencySafe: () => true })),
 			has: vi.fn(() => true),
 			listNames: vi.fn(() => []),
-			getAvailability: vi.fn(),
-		} as unknown as ToolRegistryContract
+			availability: vi.fn(),
+		} as unknown as ToolManager
 
 		const executor = new ToolExecutor(
 			{

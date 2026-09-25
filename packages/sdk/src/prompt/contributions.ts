@@ -1,4 +1,5 @@
 import { renderSkillsSection } from '../persona/assembler.js'
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { AgentRuntimeContext } from '../types/agent/base.js'
 import type { Skill } from '../types/skills/index.js'
 
@@ -112,11 +113,15 @@ export interface PromptContribution {
 }
 
 /** Two contributions claiming one id. */
-export class PromptContributionCollisionError extends Error {
+export class PromptContributionCollisionError extends RegistryCollisionError {
 	readonly details: { id: string }
 
 	constructor(details: { id: string }) {
-		super(`A prompt contribution with id "${details.id}" is already registered.`)
+		super(
+			'PromptContributionRegistry',
+			details.id,
+			`A prompt contribution with id "${details.id}" is already registered.`,
+		)
 		this.name = 'PromptContributionCollisionError'
 		this.details = details
 	}
@@ -143,6 +148,11 @@ export class PromptContributionRegistry {
 	/** Replace one already registered, for a host that owns both. */
 	replace(contribution: PromptContribution): void {
 		this.byId.set(contribution.id, contribution)
+	}
+
+	/** Revoke one contribution when its owner is disabled or uninstalled. */
+	unregister(id: string): boolean {
+		return this.byId.delete(id)
 	}
 
 	has(id: string): boolean {

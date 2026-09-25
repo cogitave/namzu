@@ -14,7 +14,7 @@ generated: { by: human:bahadirarda, at: 2026-09-23T00:00:00Z }
 
 ```ts
 import { PlaywrightBrowserHost } from '@namzu/browser'
-import { ToolRegistry, createBrowserTools } from '@namzu/sdk'
+import { toolset, createBrowserTools } from '@namzu/sdk'
 
 const host = new PlaywrightBrowserHost({
   profile: 'work',
@@ -23,8 +23,7 @@ const host = new PlaywrightBrowserHost({
   sites: { 'https://github.com': 'act', '*': 'ask' },
 })
 
-const registry = new ToolRegistry()
-for (const tool of createBrowserTools(host)) registry.register(tool)
+const tools = toolset('browser', createBrowserTools(host))
 ```
 
 The constructor launches nothing and touches no file. The first `observe` or `act` creates the profile if needed, takes a lease on it, and launches the browser. `dispose()` releases the lease and closes the browser unless `keepOpen` was set; `close()` closes it regardless.

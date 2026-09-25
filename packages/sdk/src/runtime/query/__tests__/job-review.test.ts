@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { JobTool } from '../../../tools/builtins/job.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { AuthorizationRule } from '../../../types/authorization/index.js'
 import type { PermissionMode } from '../../../types/permission/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
@@ -18,8 +19,7 @@ import { drainQuery } from '../index.js'
 import { type ReviewMode, type ToolReviewRequest, createReviewHandler } from '../review-policy.js'
 
 function registry() {
-	const tools = new ToolRegistry()
-	tools.register(JobTool)
+	const tools = new ToolManager({ toolsets: [testToolset(JobTool)], messages: () => [] })
 	return tools
 }
 
@@ -84,7 +84,7 @@ async function run(
 	})
 	const result = await drainQuery({
 		provider,
-		tools,
+		toolsets: [testToolset(JobTool)],
 		agentId: 'job-review-fixture',
 		agentName: 'Job review fixture',
 		messages: [{ role: 'user', content: 'inspect the background work' }],

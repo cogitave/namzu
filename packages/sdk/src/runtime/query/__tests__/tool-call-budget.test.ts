@@ -5,10 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { InMemorySessionLog, type SessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -57,31 +58,38 @@ function response(...names: string[]): ChatCompletionResponse {
 	}
 }
 
-function registry(
+function definitions(
 	run: (name: string, context: ToolContext) => Promise<ToolResult>,
 	maxRetries = 0,
 ) {
-	const tools = new ToolRegistry()
-	for (const name of ['one', 'two', 'three'])
-		tools.register(
-			defineTool({
-				name,
-				description: name,
-				inputSchema: z.object({}),
-				category: 'analysis',
-				permissions: [],
-				readOnly: true,
-				destructive: false,
-				concurrencySafe: true,
-				maxRetries,
-				execute: (_input, context) => run(name, context),
-			}),
-		)
-	return tools
+	return ['one', 'two', 'three'].map((name) =>
+		defineTool({
+			name,
+			description: name,
+			inputSchema: z.object({}),
+			category: 'analysis',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			maxRetries,
+			execute: (_input, context) => run(name, context),
+		}),
+	)
+}
+
+function registry(
+	run: (name: string, context: ToolContext) => Promise<ToolResult>,
+	maxRetries = 0,
+): ToolManager {
+	return new ToolManager({
+		toolsets: [testToolset(...definitions(run, maxRetries))],
+		messages: () => [],
+	})
 }
 
 function harness(
-	tools: ToolRegistry,
+	tools: ToolManager,
 	limit?: number,
 	options: {
 		signal?: AbortSignal
@@ -383,7 +391,7 @@ describe('cumulative tool-call admission', () => {
 					{ text: 'Stopped at the tool budget.' },
 				],
 			}),
-			tools: registry(run),
+			toolsets: [testToolset(...definitions(run))],
 			maxToolCalls: 3,
 			turnConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },
 			agentId: 'budget',

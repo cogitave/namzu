@@ -8,7 +8,7 @@
 
 import { readdirSync } from 'node:fs'
 import { DiskSessionLeaseStore, NOOP_LOGGER } from '@namzu/sdk'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildJob, confirmJob } from '../build.js'
 import {
 	type DaemonNotice,
@@ -379,8 +379,7 @@ describe('upgrades', () => {
 			monotonic: () => Date.now(),
 		})
 		const done = d.run()
-		await new Promise((r) => setTimeout(r, 80))
-		expect(spawned).toHaveLength(1)
+		await vi.waitFor(() => expect(spawned).toHaveLength(1), { timeout: 5_000, interval: 20 })
 		fingerprint = 'v2'
 		await new Promise((r) => setTimeout(r, 80))
 		let finished = false
@@ -542,17 +541,23 @@ describe('schedule stop', () => {
 		const owner = daemon({ tickMs: 20, standbyPollMs: 20 })
 		clock = Date.now()
 		const ownerDone = owner.run()
-		await new Promise((r) => setTimeout(r, 50))
 		const standby = daemon({ tickMs: 20, standbyPollMs: 20 })
-		const standbyDone = standby.run()
-		await new Promise((r) => setTimeout(r, 60))
-		expect(standby.standby).toBe(true)
-		requestStop(sb.paths, true)
-		expect(await standbyDone).toBe(EXIT_STOP_REQUESTED)
-		expect(await ownerDone).toBe(EXIT_STOP_REQUESTED)
-		// Started again while the request stands (by hand, or at login): it
-		// exits at once with the code the systemd unit does not restart on.
-		expect(await daemon({ standbyPollMs: 20 }).run()).toBe(EXIT_STOP_REQUESTED)
-		requestStop(sb.paths, false)
+		let standbyDone: Promise<number> | undefined
+		try {
+			await vi.waitFor(() => expect(owner.lease).not.toBeNull(), { timeout: 5_000 })
+			standbyDone = standby.run()
+			await vi.waitFor(() => expect(standby.standby).toBe(true), { timeout: 5_000 })
+			requestStop(sb.paths, true)
+			expect(await standbyDone).toBe(EXIT_STOP_REQUESTED)
+			expect(await ownerDone).toBe(EXIT_STOP_REQUESTED)
+			// Started again while the request stands (by hand, or at login): it
+			// exits at once with the code the systemd unit does not restart on.
+			expect(await daemon({ standbyPollMs: 20 }).run()).toBe(EXIT_STOP_REQUESTED)
+		} finally {
+			owner.stop()
+			standby.stop()
+			await Promise.allSettled([ownerDone, ...(standbyDone ? [standbyDone] : [])])
+			requestStop(sb.paths, false)
+		}
 	})
 })

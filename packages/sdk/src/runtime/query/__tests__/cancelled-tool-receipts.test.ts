@@ -4,12 +4,13 @@ import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { PluginId } from '../../../types/ids/index.js'
-import type { PluginHookResult } from '../../../types/plugin/index.js'
+import type { PluginHookDefinition, PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -28,9 +29,8 @@ describe('cancellation after a tool returned its receipt', () => {
 	it('persists the completed call in a cancelled real query without leaking its unreviewed output', async () => {
 		const caller = new AbortController()
 		const turnId = generateTurnId()
-		const tools = new ToolRegistry()
 		let executions = 0
-		tools.register({
+		const tools = testToolset({
 			name: 'commit',
 			description: 'Commit a transaction.',
 			inputSchema: z.object({}),
@@ -41,7 +41,6 @@ describe('cancellation after a tool returned its receipt', () => {
 		})
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: tools,
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: resolveLogger(undefined),
 		})
@@ -60,9 +59,12 @@ describe('cancellation after a tool returned its receipt', () => {
 		const run = await drainQuery({
 			turnId,
 			provider,
-			tools,
+			toolsets: [tools],
 			pluginManager: manager,
-			budget: SessionTokenBudget.create(100_000, { rootSessionId: sessionId, rootTurnId: turnId }),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: sessionId,
+				rootTurnId: turnId,
+			}),
 			sessionLog,
 			projectId: generateProjectId(),
 			sessionId,
@@ -107,7 +109,6 @@ describe('cancellation after a tool returned its receipt', () => {
 		async ({ success, hook }) => {
 			const caller = new AbortController()
 			const turnId = generateTurnId()
-			const tools = new ToolRegistry()
 			let executions = 0
 			const receipt = {
 				success,
@@ -115,19 +116,23 @@ describe('cancellation after a tool returned its receipt', () => {
 				...(!success ? { error: 'private cancelled-review diagnostic', retryable: true } : {}),
 				content: [{ type: 'text' as const, text: 'private model receipt' }],
 			}
-			tools.register({
-				name: 'commit',
-				description: 'Commit a transaction.',
-				inputSchema: z.object({}),
-				maxRetries: 1,
-				execute: async () => {
-					executions++
-					return receipt
-				},
+			const tools = new ToolManager({
+				toolsets: [
+					testToolset({
+						name: 'commit',
+						description: 'Commit a transaction.',
+						inputSchema: z.object({}),
+						maxRetries: 1,
+						execute: async () => {
+							executions++
+							return receipt
+						},
+					}),
+				],
+				messages: () => [],
 			})
 			const manager = new PluginLifecycleManager({
 				pluginRegistry: new PluginRegistry(),
-				toolRegistry: tools,
 				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: resolveLogger(undefined),
 			})
@@ -140,15 +145,20 @@ describe('cancellation after a tool returned its receipt', () => {
 				release = resolve
 			})
 			let hookCalls = 0
-			manager.registerHook('receipt_redactor' as PluginId, {
-				event: hook,
-				handler: async () => {
-					hookCalls++
-					if (hook === 'pre_tool_use' && hookCalls === 1) return { action: 'continue' }
-					enter()
-					return held
-				},
-			})
+			// The table varies the event at runtime, so the fixture cannot retain the
+			// event/verdict correlation of one static hook definition.
+			manager.registerHook(
+				'receipt_redactor' as PluginId,
+				{
+					event: hook,
+					handler: async () => {
+						hookCalls++
+						if (hook === 'pre_tool_use' && hookCalls === 1) return { action: 'continue' }
+						enter()
+						return held
+					},
+				} as unknown as PluginHookDefinition,
+			)
 			const events: SessionEvent[] = []
 			const logged: { message: string; data?: LogContext }[] = []
 			const record = (message: string, data?: LogContext) => {
@@ -172,7 +182,11 @@ describe('cancellation after a tool returned its receipt', () => {
 					env: {},
 					abortSignal: caller.signal,
 				},
-				new ActivityStore(turnId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+				new ActivityStore(turnId, {
+					enabled: false,
+					trackToolCalls: false,
+					trackLlmTurns: false,
+				}),
 				async (event) => {
 					events.push(event as SessionEvent)
 				},
@@ -221,7 +235,10 @@ describe('cancellation after a tool returned its receipt', () => {
 				} else {
 					// The first call's review completed before the second pre-hook
 					// began. Its actual output remains valid evidence.
-					expect(batch.results[0]).toMatchObject({ output: receipt.output, isError: false })
+					expect(batch.results[0]).toMatchObject({
+						output: receipt.output,
+						isError: false,
+					})
 					expect(JSON.stringify(batch.messages)).toContain('private model receipt')
 				}
 			} finally {

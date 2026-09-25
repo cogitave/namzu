@@ -1,5 +1,6 @@
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import { GENAI } from '../constants/telemetry/index.js'
+import type { ToolSourceRef } from '../toolsets/types.js'
 import type {
 	AuthorizationGateConfig,
 	AuthorizationPredicateCall,
@@ -23,6 +24,13 @@ export interface ToolCallContext {
 	 * `sh` dialect, which holds whichever shell runs it.
 	 */
 	readonly commandDialect?: ShellDialect
+	/**
+	 * Where `toolName` came from (`ToolManager.sourceOf`), when the caller
+	 * has a manager to ask. `allow_read_only` needs this to tell an
+	 * operator-trusted MCP server's read-only claim from an untrusted one's;
+	 * omitted, it is read the same as a host-defined tool.
+	 */
+	readonly toolSource?: ToolSourceRef
 }
 
 /**
@@ -53,6 +61,15 @@ export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredic
 			return `allowed by name (${rule.toolNames.join(', ')})`
 		case 'deny_by_name':
 			return `denied by name (${rule.toolNames.join(', ')}) — this tool is refused for this turn, so a different input will not change it`
+		case 'by_source': {
+			const verb =
+				rule.decision === 'deny'
+					? 'denied'
+					: rule.decision === 'review'
+						? 'sent for review'
+						: 'allowed'
+			return `${verb} by source (${rule.sources.join(', ')})`
+		}
 		case 'allow_by_category':
 			return `allowed by category (${rule.categories.join(', ')})`
 		case 'allow_by_tier':
@@ -237,7 +254,10 @@ export class AuthorizationGate {
 				ctx.toolDef,
 				this.compiledPatterns.get(i),
 				this.nameSets.get(i),
-				ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {},
+				{
+					...(ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {}),
+					...(ctx.toolSource !== undefined ? { toolSource: ctx.toolSource } : {}),
+				},
 			)
 
 			if (decision !== null) {

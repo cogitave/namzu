@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { DEFAULT_TOOL_RESULT_GUARDRAILS, ToolRegistry, wrapUntrusted } from '@namzu/sdk'
+import { DEFAULT_TOOL_RESULT_GUARDRAILS, ToolManager, toolset, wrapUntrusted } from '@namzu/sdk'
 import type { Message, ToolContext, ToolDefinition } from '@namzu/sdk'
 
 import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
@@ -88,7 +88,6 @@ function echoingConnectedTool(server = 'weather-co', tool = 'lookup'): ToolDefin
 		inputSchema: {
 			safeParse: (value: unknown) => ({ success: true, data: value }),
 		} as never,
-		provenance: { server, readOnlyHintTrusted: false },
 		async execute(input) {
 			return {
 				success: true,
@@ -103,6 +102,23 @@ function echoingConnectedTool(server = 'weather-co', tool = 'lookup'): ToolDefin
 			}
 		},
 	}
+}
+
+/**
+ * Wraps `echoingConnectedTool` in a toolset whose source carries the server
+ * name — the only place a tool's server lives now that `ToolDefinition` has
+ * no `provenance` field (plan.md v3 §3): `ToolManager.sourceOf` reads it from
+ * the OWNING toolset, and that is what the screening pipeline's passthrough
+ * matching and `connector-tool-result` framing both resolve against.
+ */
+function echoingConnectedToolset(
+	server = 'weather-co',
+	tool = 'lookup',
+): ReturnType<typeof toolset> {
+	return toolset(
+		{ id: `mcp:${server}`, kind: 'mcp_server', name: server, mcpServer: { name: server } },
+		[echoingConnectedTool(server, tool)],
+	)
 }
 
 /** What a turn hands the registry. See the executor's `buildToolContext`. */
@@ -126,14 +142,16 @@ async function sessionFor(screens: readonly ToolResultScreenConfig[] | undefined
 
 async function registryFor(
 	screens: readonly ToolResultScreenConfig[] | undefined,
-	...tools: readonly ToolDefinition[]
-): Promise<ToolRegistry> {
+	...extraToolsets: readonly ReturnType<typeof toolset>[]
+): Promise<ToolManager> {
 	await sessionFor(screens)
-	const registry = queryCalls[0]?.tools
-	if (!(registry instanceof ToolRegistry)) throw new Error('the turn ran with no tool registry')
-	registry.register(echoingConnectedTool())
-	if (tools.length > 0) registry.register([...tools])
-	return registry
+	const call = queryCalls[0]
+	if (!call) throw new Error('the turn never reached query()')
+	return new ToolManager({
+		toolsets: [echoingConnectedToolset(), ...extraToolsets],
+		resultGuardrails: call.toolResultGuardrails as never,
+		messages: () => [],
+	})
 }
 
 describe('toolResultScreens from the config', () => {
@@ -180,8 +198,8 @@ describe('a passthroughTools exemption from the config file', () => {
 		// and the connector whose answer IS its request is the exception.
 		const tools = await registryFor(
 			[{ name: 'correspondence', passthroughTools: ['login-echo:echo'] }],
-			echoingConnectedTool('login-echo', 'mcp_login-echo_echo'),
-			echoingConnectedTool('pricing', 'mcp_pricing_lookup'),
+			echoingConnectedToolset('login-echo', 'mcp_login-echo_echo'),
+			echoingConnectedToolset('pricing', 'mcp_pricing_lookup'),
 		)
 
 		const exempt = await tools.execute('mcp_login-echo_echo', { query: QUERY }, TURN_DEFAULT)

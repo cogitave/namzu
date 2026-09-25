@@ -17,7 +17,7 @@ import { join } from "node:path";
 import {
 	MockLLMProvider,
 	SessionPaths,
-	ToolRegistry,
+	toolset,
 	autoApproveHandler,
 	createSlidingWindowReducer,
 	customScorer,
@@ -35,20 +35,22 @@ import { z } from "zod";
 /** Long enough that a 2k window is comfortably exceeded. */
 const BULK = "the quick brown fox jumps over the lazy dog ".repeat(120);
 
-function registry() {
-	const tools = new ToolRegistry();
-	tools.register({
-		name: "fetch_a_lot",
-		description: "Return a large block of text.",
-		inputSchema: z.object({}),
-		category: "custom",
-		permissions: [],
-		readOnly: true,
-		destructive: false,
-		concurrencySafe: true,
-		execute: async () => ({ success: true, output: BULK }),
-	});
-	return tools;
+function toolsets() {
+	return [
+		toolset("test", [
+			{
+				name: "fetch_a_lot",
+				description: "Return a large block of text.",
+				inputSchema: z.object({}),
+				category: "custom",
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () => ({ success: true, output: BULK }),
+			},
+		]),
+	];
 }
 
 async function runCase(input) {
@@ -58,7 +60,7 @@ async function runCase(input) {
 	try {
 		const turn = await drainQuery({
 			provider: new MockLLMProvider({ turns: input.turns }),
-			tools: registry(),
+			toolsets: toolsets(),
 			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,

@@ -6,11 +6,12 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { BaseConnector } from '../../../connector/BaseConnector.js'
-import { ConnectorToolRouter } from '../../../connector/tools/router.js'
+import { connectorTools } from '../../../connector/tools/router.js'
 import { ConnectorManager } from '../../../manager/connector/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ConnectorRegistry } from '../../../registry/connector/definitions.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type {
 	ConnectionType,
 	ConnectorExecuteResult,
@@ -86,9 +87,8 @@ describe('connector method contracts reach a real query', () => {
 			outputSchema: z.object({ accepted: z.object({ canonical: z.string() }) }),
 		}
 		const { connector, manager, instance } = await connected([method])
-		const tools = new ToolRegistry()
-		const router = new ConnectorToolRouter({ manager })
-		const registered = router.registerTools(tools)
+		const tools = testToolset(...connectorTools(manager))
+		const registered = tools.tools().map((tool) => tool.name)
 		expect(registered).toEqual([`${CONNECTOR_ID}_canonicalize`])
 
 		const provider = new MockLLMProvider({
@@ -134,8 +134,7 @@ describe('connector method contracts reach a real query', () => {
 			inputSchema: z.object({ required: z.string() }),
 		}
 		const { connector, manager, instance } = await connected([method])
-		const tools = new ToolRegistry()
-		new ConnectorToolRouter({ manager, strategy: 'router' }).registerTools(tools)
+		const tools = testToolset(...connectorTools(manager, { strategy: 'router' }))
 		const provider = new MockLLMProvider({
 			turns: [
 				{
@@ -192,8 +191,7 @@ describe('connector method contracts reach a real query', () => {
 			}),
 		}
 		const { connector, manager } = await connected([method], () => ({ raw: leaked }))
-		const tools = new ToolRegistry()
-		new ConnectorToolRouter({ manager }).registerTools(tools)
+		const tools = testToolset(...connectorTools(manager))
 		const provider = new MockLLMProvider({
 			turns: [
 				{
@@ -240,12 +238,12 @@ describe('connector method contracts reach a real query', () => {
 		return { connector, manager, instance }
 	}
 
-	async function runConnectorQuery(provider: MockLLMProvider, tools: ToolRegistry) {
+	async function runConnectorQuery(provider: MockLLMProvider, tools: Toolset) {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-connector-contract-'))
 		workdirs.push(workingDirectory)
 		return drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,

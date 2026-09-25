@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -34,9 +35,8 @@ const dump = (i: number): MockTurn => ({
 	finishReason: 'tool_calls',
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function tools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'dump',
 			description: 'returns a lot',
@@ -52,7 +52,6 @@ function tools(): ToolRegistry {
 			}),
 		}),
 	)
-	return registry
 }
 
 describe('a turn under the salience strategy', () => {
@@ -63,7 +62,7 @@ describe('a turn under the salience strategy', () => {
 		const turns = Array.from({ length: 8 }, (_, i) => dump(i))
 		for await (const event of query({
 			provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-			tools: tools(),
+			toolsets: [tools()],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 500_000, maxIterations: 12 },
 			agentId: 'a',
 			agentName: 'A',

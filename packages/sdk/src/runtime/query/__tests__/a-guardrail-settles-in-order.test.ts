@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { OutputGuardrailSpec } from '../../../types/guardrail/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -80,7 +79,7 @@ async function runWithOutputGuardrail(opts: {
 	const result = await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: opts.responseText }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import type { SessionApprovalPolicy } from '../../../types/hitl/policy.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -43,8 +43,7 @@ async function runWithPolicy(opts: {
 }): Promise<{ events: SessionEvent[] }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-'))
 	dirs.push(workingDirectory)
-	const tools = new ToolRegistry()
-	tools.register(BashTool)
+	const tools = testToolset(BashTool)
 	const events: SessionEvent[] = []
 
 	await drainQuery(
@@ -52,7 +51,7 @@ async function runWithPolicy(opts: {
 			provider: new MockLLMProvider({
 				turns: (opts.turns ?? [{ text: 'nothing to do' }]) as never,
 			}),
-			tools,
+			toolsets: [tools],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
@@ -221,7 +220,7 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 		const seen: Array<{ checkpointId: string; planId: string | undefined }> = []
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] as never }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
@@ -280,7 +279,7 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] as never }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
@@ -334,8 +333,7 @@ describe('the model is told, in the slot it already reads', () => {
 		// waiting on permission nobody is left to give.
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-notice-'))
 		dirs.push(workingDirectory)
-		const tools = new ToolRegistry()
-		tools.register(BashTool)
+		const tools = testToolset(BashTool)
 		let policyBox: SessionApprovalPolicy | undefined
 		let swapped = false
 
@@ -363,7 +361,7 @@ describe('the model is told, in the slot it already reads', () => {
 
 		await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',
@@ -417,7 +415,7 @@ describe('the model is told, in the slot it already reads', () => {
 
 		await drainQuery({
 			provider: new Capturing({ turns: [{ text: 'done' }] as never }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',

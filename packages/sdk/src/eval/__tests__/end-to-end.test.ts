@@ -4,12 +4,12 @@ import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolExecutor } from '../../runtime/query/executor.js'
 import { IterationOrchestrator } from '../../runtime/query/iteration/index.js'
 import { ActivityStore } from '../../store/activity/memory.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { SessionEvent } from '../../types/session/index.js'
 import { hasToolCall } from '../../types/session/step.js'
 import type { Turn } from '../../types/session/turn.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
 import { generateSessionId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { runExperiment } from '../experiment.js'
@@ -54,11 +54,12 @@ async function driveAgent(turns: unknown[]): Promise<Turn> {
 		execute: vi.fn(async (name: string) => ({ success: true, output: `${name} ok` })),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(() => 'active'),
+		availability: vi.fn(() => 'active'),
+		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		toLLMTools: vi.fn(() => []),
 		register: vi.fn(),
 		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+	} as unknown as ToolManager
 
 	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,

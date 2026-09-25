@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
+import type { ToolResult } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { SPILL_MARKER } from '../tool-output-budget.js'
@@ -65,10 +66,8 @@ function bootstrapReturning(
 		execute: vi.fn(async () => result),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(() => 'active'),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 
 	return ToolingBootstrap.init(
 		{

@@ -469,9 +469,47 @@ export function mcpToolToToolDefinition(
 	 * never lowers it. See `isTrustedReadOnly`.
 	 */
 	readOnlyHintTrusted = false,
+	/**
+	 * In-loop retry budget for every tool this server contributes. Unset
+	 * (the default) keeps today's behaviour byte-for-byte: `maxRetries`
+	 * absent on the returned `ToolDefinition`, so the executor's own
+	 * default (0) applies.
+	 *
+	 * Even with this set, a failure is only retried if `execute` also
+	 * marked it {@link ToolResult.retryable}, which below is true only for
+	 * the two outcomes this adapter already knows never reached the
+	 * server's side effect (`mcp_tool_input_required`,
+	 * `mcp_tool_missing_client_capability`) — never for
+	 * `mcp_tool_outcome_unknown` or a raw transport error, where whether
+	 * the call landed is exactly what is not known.
+	 */
+	maxRetries?: number,
 ): ToolDefinition {
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
 	const toolName = `mcp_${serverName}_${tool.name}`
+
+	// Everything the server's own annotations carry that `isReadOnly`/
+	// `isDestructive` do not already have a typed home for — `title`,
+	// `idempotentHint`, `openWorldHint` — plus any `_meta` on the listing
+	// entry itself. Never sent back to the model (ToolDefinition.metadata is
+	// wire-excluded); a host, capability or toolset wrapper reads it with
+	// `matchesToolSelector` or by hand.
+	const mcpMetadata: Record<string, unknown> = {}
+	if (tool.annotations?.title !== undefined) mcpMetadata.title = tool.annotations.title
+	if (tool.annotations?.idempotentHint !== undefined) {
+		mcpMetadata.idempotentHint = tool.annotations.idempotentHint
+	}
+	if (tool.annotations?.openWorldHint !== undefined) {
+		mcpMetadata.openWorldHint = tool.annotations.openWorldHint
+	}
+	if (tool._meta !== undefined) mcpMetadata._meta = tool._meta
+	// Advisory only, NOT a security boundary: the gate that actually decides
+	// (`isTrustedReadOnly`, `tools/trusted-read-only.ts`) reads the OWNING
+	// TOOLSET's source (`ToolManager.sourceOf`), which whoever wraps this
+	// definition sets — `plugin/lifecycle.ts` or `mcpToolset`. Kept here too so a definition inspected on its
+	// own (a probe, a test, `matchesToolSelector`) can still see what the
+	// caller passed, now that `ToolDefinition.provenance` is gone.
+	mcpMetadata.readOnlyHintTrusted = readOnlyHintTrusted
 
 	return {
 		name: toolName,
@@ -488,14 +526,21 @@ export function mcpToolToToolDefinition(
 			: {}),
 		category: 'network',
 		permissions: ['network_access'],
+		...(maxRetries === undefined ? {} : { maxRetries }),
 		// Reports what the SERVER said, faithfully. The outbound re-export
 		// and the destructive label a human is shown both need the server's
-		// own answer; whether a gate may act on it is decided separately, by
-		// `isTrustedReadOnly` reading `provenance` below.
+		// own answer; whether a gate may act on it is decided separately,
+		// from the OWNING TOOLSET's source (`ToolManager.sourceOf`,
+		// `toolsets/manager.ts`) — a definition cannot claim its own source,
+		// so `readOnlyHintTrusted` is carried only as advisory metadata here.
+		// See `tools/trusted-read-only.ts`. Whoever wraps this definition into a
+		// toolset (`plugin/lifecycle.ts` or `mcpToolset`)
+		// gives it `source.kind: 'mcp_server'`, `source.mcpServer.name:
+		// serverName` and this same `readOnlyHintTrusted`.
 		isReadOnly: () => tool.annotations?.readOnlyHint ?? false,
 		isDestructive: () => tool.annotations?.destructiveHint ?? false,
 		isConcurrencySafe: () => true,
-		provenance: { server: serverName, readOnlyHintTrusted },
+		...(Object.keys(mcpMetadata).length > 0 ? { metadata: mcpMetadata } : {}),
 
 		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
 			try {
@@ -533,6 +578,12 @@ export function mcpToolToToolDefinition(
 							success: false,
 							output: '',
 							error: `MCP tool "${tool.name}" on server "${serverName}" asked for input this client has no way to supply${requested.length > 0 ? ` (${requested.join(', ')})` : ''}.`,
+							// No side effect is known to have happened (see the
+							// comment above), so a retry — of this tool, or a
+							// different approach entirely — is safe. Only
+							// meaningful when the definition also opted into
+							// `maxRetries`; see this function's parameter.
+							retryable: true,
 							data: {
 								code: 'mcp_tool_input_required',
 								server: serverName,
@@ -555,6 +606,10 @@ export function mcpToolToToolDefinition(
 							success: false,
 							output: '',
 							error: `MCP tool "${tool.name}" on server "${serverName}" requires client capabilities this client did not declare${requiredCapabilities.length > 0 ? ` (${requiredCapabilities.join(', ')})` : ''}.`,
+							// The server refused before running the tool, so
+							// nothing ran; safe to retry the same way
+							// `mcp_tool_input_required` above is.
+							retryable: true,
 							data: {
 								code: 'mcp_tool_missing_client_capability',
 								server: serverName,

@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -100,7 +99,7 @@ async function runFixture(
 	const run = await drainQuery(
 		{
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			retry: { maxRetries: 0 },
 			turnConfig: {
 				model: 'vision-model',
@@ -161,7 +160,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		const run = await drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				sessionLog,
 				retry: { maxRetries: 0 },
 				turnConfig: {
@@ -233,7 +232,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		const continued = await drainQuery(
 			{
 				provider: next,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				// Same session as `run`: `messages` below carries the ids that
 				// session's log gave them, and a fresh, unrelated session would
 				// not recognise them (`stale_cached_history`, correctly — see
@@ -430,7 +429,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 				turnId,
 				budget,
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				retry: { maxRetries: 0 },
 				turnConfig: {
 					model: 'vision-model',

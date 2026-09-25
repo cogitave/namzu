@@ -188,6 +188,7 @@ describe('sharing the screen', () => {
 							capturesScreen: (input: unknown) => (input as { type: string }).type === 'screenshot',
 						} as never)
 					: undefined,
+			sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
 		}
 		const handler = createReviewHandler({
 			mode: 'prompt',

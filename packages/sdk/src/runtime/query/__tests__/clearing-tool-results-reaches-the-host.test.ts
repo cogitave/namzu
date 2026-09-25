@@ -7,7 +7,6 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
@@ -67,7 +66,7 @@ async function runWith(opts: {
 	const run = await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,

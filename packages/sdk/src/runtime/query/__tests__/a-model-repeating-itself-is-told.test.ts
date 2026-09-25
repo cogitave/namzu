@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { toolResultToText } from '../../../types/message/content.js'
 import { createToolMessage, createUserMessage } from '../../../types/message/index.js'
@@ -50,9 +51,8 @@ const call = (args: Record<string, unknown>, id: string): MockTurn => ({
 	finishReason: 'tool_calls',
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function tools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'probe',
 			description: 'answers the same way every time',
@@ -69,7 +69,6 @@ function tools(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'same answer' }),
 		}),
 	)
-	return registry
 }
 
 /**
@@ -78,9 +77,8 @@ function tools(): ToolRegistry {
  * `attachRepeatNotice`'s inline slot only exists for a plain-string result,
  * so this is what exercises its fallback delivery.
  */
-function structuredContentTools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function structuredContentTools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'probe',
 			description: 'answers the same way every time, as structured content',
@@ -101,7 +99,6 @@ function structuredContentTools(): ToolRegistry {
 			}),
 		}),
 	)
-	return registry
 }
 
 async function run(opts: {
@@ -113,7 +110,7 @@ async function run(opts: {
 
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...opts.turns, { text: 'done' }] }),
-		tools: tools(),
+		toolsets: [tools()],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
 		agentId: 'a',
 		agentName: 'A',
@@ -135,7 +132,7 @@ async function run(opts: {
  */
 async function runWithProvider(opts: {
 	readonly turns: readonly MockTurn[]
-	readonly toolRegistry?: ToolRegistry
+	readonly toolset?: Toolset
 }): Promise<{ messages: readonly Message[]; provider: MockLLMProvider }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-repeat-'))
 	dirs.push(workingDirectory)
@@ -143,7 +140,7 @@ async function runWithProvider(opts: {
 	const provider = new MockLLMProvider({ turns: [...opts.turns, { text: 'done' }] })
 	const result = await drainQuery({
 		provider,
-		tools: opts.toolRegistry ?? tools(),
+		toolsets: [opts.toolset ?? tools()],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
 		agentId: 'a',
 		agentName: 'A',
@@ -285,7 +282,7 @@ describe('the notice survives a result the inline slot cannot hold', () => {
 		const same = { q: 'x' }
 		const { messages } = await runWithProvider({
 			turns: [call(same, 'c1'), call(same, 'c2'), call(same, 'c3')],
-			toolRegistry: structuredContentTools(),
+			toolset: structuredContentTools(),
 		})
 
 		expect(
@@ -296,11 +293,11 @@ describe('the notice survives a result the inline slot cannot hold', () => {
 
 	it.each([['string', tools()] as const, ['structured', structuredContentTools()] as const])(
 		'reaches the very next provider request after the threshold (%s content)',
-		async (_label, toolRegistry) => {
+		async (_label, toolset) => {
 			const same = { q: 'x' }
 			const { provider } = await runWithProvider({
 				turns: [call(same, 'c1'), call(same, 'c2'), call(same, 'c3')],
-				toolRegistry,
+				toolset,
 			})
 
 			// One request per turn played, plus the final request that reads the

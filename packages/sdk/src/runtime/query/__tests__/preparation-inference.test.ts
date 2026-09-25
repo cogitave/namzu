@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { LLMProvider, MockTurn } from '../../../types/provider/index.js'
@@ -39,7 +38,7 @@ async function run(
 	const provider = new MockLLMProvider({ turns })
 	const result = await drainQuery({
 		provider: extras.provider ?? provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		prepareStep,
 		...(extras.fallback
 			? { fallbackProviders: [{ provider: extras.fallback, model: 'fallback-model' }] }

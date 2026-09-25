@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SupervisorAgentConfig } from '../../types/agent/supervisor.js'
@@ -87,7 +86,7 @@ describe('agent front doors preserve live project policy', () => {
 		})
 		const config = {
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,

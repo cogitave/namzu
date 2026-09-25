@@ -5,11 +5,11 @@ import {
 	type PromptContributionRegistry,
 	SKILLS_CONTRIBUTION_ID,
 } from '../../prompt/contributions.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 export interface PromptSegments {
 	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a turn. */
@@ -27,7 +27,7 @@ export interface PromptBuilderConfig {
 
 	basePrompt?: string
 
-	tools: ToolRegistryContract
+	tools: ToolManager
 	allowedTools?: string[]
 	runtimeContext?: AgentRuntimeContext
 	/**
@@ -79,7 +79,7 @@ Resolve relative paths against the working directory above; use supplied absolut
 		const canGlob =
 			tools.has('glob') &&
 			(!allowedTools || allowedTools.includes('glob')) &&
-			tools.getAvailability('glob') === 'active'
+			tools.availability('glob') === 'active'
 		lines.push(
 			canGlob
 				? "For an immediate directory overview, use glob with pattern '*' or an available directory listing tool. Use '**' only when recursive discovery is needed."
@@ -106,7 +106,7 @@ Resolve relative paths against the working directory above; use supplied absolut
  *
  * The name set is kept as a fallback for tools that declare neither.
  */
-function hasFilesystemTools(tools: ToolRegistryContract, allowedTools?: string[]): boolean {
+function hasFilesystemTools(tools: ToolManager, allowedTools?: string[]): boolean {
 	const activeTools = allowedTools ?? tools.listNames()
 	return activeTools.some((name) => {
 		if (FILESYSTEM_TOOLS.has(name)) return true

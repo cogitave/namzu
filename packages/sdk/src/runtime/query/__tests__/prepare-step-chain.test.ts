@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -34,7 +33,7 @@ async function run(prepareStep: PrepareStepChain) {
 	const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 	await drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: {
 			model: 'base-model',
 			timeoutMs: 10_000,

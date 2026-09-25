@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	InMemorySessionTokenBudgetStore,
 	SessionTokenBudget,
@@ -54,7 +53,7 @@ async function fixture(limit = 1_000) {
 	const base = {
 		...scope,
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		resumeHandler: autoApproveHandler,
 		tokenBudgetStore: store,
 		workingDirectory,

@@ -6,8 +6,9 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { CheckpointSummary, HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { generateTurnId } from '../../../utils/id.js'
@@ -40,9 +41,8 @@ afterEach(async () => {
 })
 
 /** A read-only tool the gate approves, so the only park is the cadence one. */
-function echoRegistry(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(
+function echoToolset(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes the text back',
@@ -55,7 +55,6 @@ function echoRegistry(): ToolRegistry {
 			execute: async () => ({ success: true, output: 'hi' }),
 		}),
 	)
-	return tools
 }
 
 function oneToolTurn(): MockLLMProvider {
@@ -91,7 +90,7 @@ async function runUntilPaused(): Promise<{
 	const run = await drainQuery(
 		{
 			provider: oneToolTurn(),
-			tools: echoRegistry(),
+			toolsets: [echoToolset()],
 			...session,
 			agentId: 'agent_cadence_pause',
 			agentName: 'Cadence pause agent',
@@ -146,7 +145,7 @@ async function resumeParamsFor(
 		projectId: scope.projectId,
 		tenantId: scope.tenantId,
 		provider: oneToolTurn(),
-		tools: echoRegistry(),
+		toolsets: [echoToolset()],
 		agentId: 'agent_cadence_pause',
 		agentName: 'Cadence pause agent',
 		workingDirectory,

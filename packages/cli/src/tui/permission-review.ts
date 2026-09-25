@@ -96,7 +96,7 @@ class ReviewShapeError extends Error {}
 /**
  * Serialize the exact executable batch without invoking getters or `toJSON`.
  *
- * `ToolRegistry.prepareExecution()` already publishes detached JSON values,
+ * `ToolManager.prepareExecution()` already publishes detached JSON values,
  * but this is a host boundary and structural SDK implementations can still
  * supply `unknown`. Ordinary `JSON.stringify` would execute an accessor and
  * could silently turn a Date/Map/custom object into something other than the

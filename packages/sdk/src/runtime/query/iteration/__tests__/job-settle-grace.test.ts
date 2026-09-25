@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../../provider/mock.js'
-import { ToolRegistry } from '../../../../registry/tool/execute.js'
+import { testToolset } from '../../../../test-support/toolset.js'
 import { WaitForJobTool } from '../../../../tools/builtins/wait-for-job.js'
 import { DELEGATION_TIMEOUT_MS } from '../../../../tools/coordinator/index.js'
 import { defineTool } from '../../../../tools/defineTool.js'
+import type { Toolset } from '../../../../toolsets/types.js'
 import type { MockTurn } from '../../../../types/provider/index.js'
 import {
 	generateProjectId,
@@ -49,11 +50,8 @@ const StartTool = defineTool({
 	},
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(StartTool)
-	registry.register(WaitForJobTool)
-	return registry
+function tools(): Toolset {
+	return testToolset(StartTool, WaitForJobTool)
 }
 
 afterEach(() => {
@@ -79,7 +77,7 @@ async function run(options: {
 	const startedAt = Date.now()
 	const result = await drainQuery({
 		provider,
-		tools: tools(),
+		toolsets: [tools()],
 		agentId: 'job-hold-fixture',
 		agentName: 'Job hold fixture',
 		messages: [{ role: 'user', content: 'start the job' }],

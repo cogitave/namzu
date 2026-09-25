@@ -32,7 +32,7 @@ import { z } from 'zod'
 import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type {
@@ -41,6 +41,7 @@ import type {
 	StreamChunk,
 } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /** A provider that always fails the way `status` says, before any chunk. */
@@ -74,8 +75,8 @@ function healthyThenFailing(id: string, okTurns: number, status: number): LLMPro
 	} as unknown as LLMProvider
 }
 
-function registerEcho(tools: ToolRegistry): void {
-	tools.register({
+function registerEcho(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string().optional() }),
@@ -85,13 +86,13 @@ function registerEcho(tools: ToolRegistry): void {
 
 function baseParams(
 	provider: LLMProvider,
-	tools: ToolRegistry,
+	tools: ToolDefinition[],
 	workingDirectory: string,
 	maxIterations = 1,
 ) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		turnConfig: {
 			model: 'primary-model',
 			timeoutMs: 5_000,
@@ -134,7 +135,7 @@ describe('the turn record names the member that served', () => {
 				{ text: 'answered' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -185,7 +186,7 @@ describe('the turn record names the member that served', () => {
 		}
 
 		const run = await drainQuery({
-			...baseParams(failing('primary', 401), new ToolRegistry(), await mkWorkdir()),
+			...baseParams(failing('primary', 401), [], await mkWorkdir()),
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			messages: [createUserMessage('hello')],
 		})
@@ -271,7 +272,7 @@ describe('the turn record names the member that served', () => {
 				}
 			},
 		}
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 		const base = baseParams(failing('anthropic', 401), tools, await mkWorkdir(), 10)
 		const run = await drainQuery({
@@ -310,7 +311,7 @@ describe('the turn record names the member that served', () => {
 		const fallback = new MockLLMProvider({ turns: [{ text: 'ok' }] })
 
 		const run = await drainQuery({
-			...baseParams(primary, new ToolRegistry(), await mkWorkdir()),
+			...baseParams(primary, [], await mkWorkdir()),
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			messages: [createUserMessage('hello')],
 		})
@@ -327,7 +328,7 @@ describe('the turn record names the member that served', () => {
 		const secondary = failing('secondary', 503)
 
 		const run = await drainQuery({
-			...baseParams(primary, new ToolRegistry(), await mkWorkdir()),
+			...baseParams(primary, [], await mkWorkdir()),
 			fallbackProviders: [{ provider: secondary }],
 			messages: [createUserMessage('hello')],
 		})
@@ -361,7 +362,7 @@ describe('the turn record names the member that served', () => {
 				{ text: 'done' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -390,7 +391,7 @@ describe('the turn record names the member that served', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ id: 'c1', name: 'echo', rawArguments: '{}' }] }, { text: 'ok' }],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -422,7 +423,7 @@ describe('the turn record names the member that served', () => {
 				{ text: 'done' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({

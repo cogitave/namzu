@@ -28,6 +28,12 @@ export type AuthorizationRule =
 	| { type: 'allow_by_name'; toolNames: string[] }
 	| { type: 'deny_by_name'; toolNames: string[] }
 	| {
+			/** Match the owning toolset's host-assigned source id, never tool input or MCP metadata. */
+			type: 'by_source'
+			sources: string[]
+			decision: GateDecision
+	  }
+	| {
 			/**
 			 * Match a regular expression against the tool's NAME, the
 			 * serialised arguments, or both concatenated.
@@ -169,6 +175,11 @@ const DenyByNameSchema = z.object({
 	type: z.literal('deny_by_name'),
 	toolNames: z.array(z.string()),
 })
+const BySourceSchema = z.object({
+	type: z.literal('by_source'),
+	sources: z.array(z.string().min(1)).min(1),
+	decision: z.enum(['allow', 'deny', 'review']),
+})
 const CustomPatternSchema = z.object({
 	type: z.literal('custom_pattern'),
 	pattern: z.string().max(MAX_CUSTOM_PATTERN_LENGTH),
@@ -212,6 +223,7 @@ export const AuthorizationRuleSchema = z.discriminatedUnion('type', [
 	AllowByCategorySchema,
 	AllowByNameSchema,
 	DenyByNameSchema,
+	BySourceSchema,
 	CustomPatternSchema,
 	ArgumentPatternSchema,
 	AllowByTierSchema,

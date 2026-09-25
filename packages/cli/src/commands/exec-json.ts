@@ -86,7 +86,7 @@ import {
 import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
-import { compilePermissions } from '../permissions/rules.js'
+import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import type { TerminationHandling } from '../termination.js'
 import type { AgentEvent } from '../tui/agent.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
@@ -302,6 +302,7 @@ export async function execJson(
 	})
 	if ('error' in modeResult) return fail(modeResult.error)
 
+	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 	for (const d of permissions.diagnostics) {
 		const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
@@ -388,6 +389,27 @@ export async function execJson(
 	for (const notice of session.configNotices) {
 		write({ kind: 'notice', message: notice })
 	}
+	const reportedMcpDiscoveries = new Set<string>()
+	const reportMcpDiscoveries = () => {
+		for (const server of session.mcpStatus?.().connected ?? session.mcpConnected) {
+			const notices = [
+				...(server.drift?.added.map((name) => `tool added: ${name}`) ?? []),
+				...(server.drift?.removed.map((name) => `tool removed: ${name}`) ?? []),
+				...(server.drift?.changed.map((name) => `tool changed; earlier definition held: ${name}`) ??
+					[]),
+				...(server.refused?.map(
+					(item) => `${item.kind} name refused by policy: ${item.name} (${item.reason})`,
+				) ?? []),
+			]
+			for (const detail of notices) {
+				const message = `tool server "${server.name}": ${detail}`
+				if (reportedMcpDiscoveries.has(message)) continue
+				reportedMcpDiscoveries.add(message)
+				write({ kind: 'notice', message })
+			}
+		}
+	}
+	reportMcpDiscoveries()
 
 	// --skills <a,b,c>: load the named skills' bodies and inject them as the
 	// turn's extra system context (the same channel the TUI's /skill uses).
@@ -464,6 +486,7 @@ export async function execJson(
 	} catch (err) {
 		// The signal handler closes the session and ends the process.
 		if (stopped) return EXIT_OK
+		reportMcpDiscoveries()
 		const message = err instanceof Error ? err.message : String(err)
 		settled = {
 			last: { kind: 'done' },
@@ -476,6 +499,7 @@ export async function execJson(
 		return fail(message)
 	}
 	if (stopped) return EXIT_OK
+	reportMcpDiscoveries()
 	settled = busy
 		? {
 				// Nothing was begun, so nothing was recorded: the conversation's

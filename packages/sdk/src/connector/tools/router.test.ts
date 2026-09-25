@@ -1,21 +1,15 @@
 /**
- * Current-code invariants asserted (2026-04-21, ses_006 Phase 2):
+ * Connector tool snapshots are derived from connected instances.
  *
- *   - `new ConnectorToolRouter({ manager })` defaults strategy to
- *     `'per-method'`.
- *   - `getTools()` with strategy `'router'`:
+ *   - `connectorTools(manager)` defaults strategy to `'per-method'`.
+ *   - With strategy `'router'`:
  *     - Returns `[]` when there are no connected instances.
  *     - Returns a single `connector_execute` routing tool otherwise.
- *   - `getTools()` with strategy `'per-method'`:
+ *   - With strategy `'per-method'`:
  *     - Emits one tool per method per connected instance.
  *     - Catches errors per-instance (logs + skips) — a broken instance
  *       does not poison the entire tool list.
- *   - `registerTools(registry)` delegates to `registry.register` for
- *     every tool and returns the list of names.
- *   - `unregisterTools(registry, names)` calls `registry.unregister`
- *     for each name.
- *   - `refreshTools(registry, previous)` is unregister-then-register in
- *     one call; returns the new names list.
+ *   - A fresh call reflects the manager's current connected instances.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -25,9 +19,7 @@ import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type { ConnectorDefinition, ConnectorInstance } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
-
-import { ConnectorToolRouter } from './router.js'
+import { connectorTools } from './router.js'
 
 const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
 const IID1 = 'ef160288-fb1d-4d84-8b1f-a5c5569d10d2' as ConnectorInstanceId
@@ -74,44 +66,24 @@ function makeManager(instances: ConnectorInstance[]): ConnectorManager {
 	} as unknown as ConnectorManager
 }
 
-function makeToolRegistry(): ToolRegistryContract {
-	return {
-		register: vi.fn(),
-		unregister: vi.fn(() => true),
-		clear: vi.fn(),
-	} as unknown as ToolRegistryContract
-}
-
-describe('ConnectorToolRouter', () => {
+describe('connectorTools', () => {
 	it('defaults strategy to per-method', () => {
-		const router = new ConnectorToolRouter({ manager: makeManager([makeInstance(IID1)]) })
-		const tools = router.getTools()
+		const tools = connectorTools(makeManager([makeInstance(IID1)]))
 		expect(tools.map((t) => t.name)).toEqual([`${CID}_request`, `${CID}_send`])
 	})
 
 	it('router strategy with connected instances emits one connector_execute tool', () => {
-		const router = new ConnectorToolRouter({
-			manager: makeManager([makeInstance(IID1)]),
-			strategy: 'router',
-		})
-		const tools = router.getTools()
+		const tools = connectorTools(makeManager([makeInstance(IID1)]), { strategy: 'router' })
 		expect(tools).toHaveLength(1)
 		expect(tools[0]?.name).toBe('connector_execute')
 	})
 
 	it('router strategy with no connected instances returns empty array', () => {
-		const router = new ConnectorToolRouter({
-			manager: makeManager([]),
-			strategy: 'router',
-		})
-		expect(router.getTools()).toEqual([])
+		expect(connectorTools(makeManager([]), { strategy: 'router' })).toEqual([])
 	})
 
 	it('per-method strategy with multiple instances emits methods per-instance', () => {
-		const router = new ConnectorToolRouter({
-			manager: makeManager([makeInstance(IID1), makeInstance(IID2)]),
-		})
-		const tools = router.getTools()
+		const tools = connectorTools(makeManager([makeInstance(IID1), makeInstance(IID2)]))
 		expect(tools).toHaveLength(4) // 2 methods * 2 instances
 	})
 
@@ -121,41 +93,21 @@ describe('ConnectorToolRouter', () => {
 		const manager = makeManager([good, bad])
 		// make instance IID2 "not found" by overriding getInstance
 		vi.mocked(manager.getInstance).mockImplementation((id) => (id === IID1 ? good : undefined))
-		const router = new ConnectorToolRouter({ manager })
-		const tools = router.getTools()
+		const tools = connectorTools(manager)
 		// 2 from IID1; IID2 threw + got caught
 		expect(tools.map((t) => t.name)).toEqual([`${CID}_request`, `${CID}_send`])
 	})
 })
 
-describe('ConnectorToolRouter.registerTools', () => {
-	it('registers every tool and returns the names', () => {
-		const router = new ConnectorToolRouter({ manager: makeManager([makeInstance(IID1)]) })
-		const reg = makeToolRegistry()
-		const names = router.registerTools(reg)
-		expect(names).toEqual([`${CID}_request`, `${CID}_send`])
-		expect(reg.register).toHaveBeenCalledTimes(2)
-	})
-})
-
-describe('ConnectorToolRouter.unregisterTools', () => {
-	it('unregisters each named tool', () => {
-		const router = new ConnectorToolRouter({ manager: makeManager([]) })
-		const reg = makeToolRegistry()
-		router.unregisterTools(reg, ['a', 'b'])
-		expect(reg.unregister).toHaveBeenCalledWith('a')
-		expect(reg.unregister).toHaveBeenCalledWith('b')
-		expect(reg.unregister).toHaveBeenCalledTimes(2)
-	})
-})
-
-describe('ConnectorToolRouter.refreshTools', () => {
-	it('unregisters previous names then registers new ones', () => {
-		const router = new ConnectorToolRouter({ manager: makeManager([makeInstance(IID1)]) })
-		const reg = makeToolRegistry()
-		const newNames = router.refreshTools(reg, [`${CID}_old_method`])
-		expect(reg.unregister).toHaveBeenCalledWith(`${CID}_old_method`)
-		expect(newNames).toEqual([`${CID}_request`, `${CID}_send`])
-		expect(reg.register).toHaveBeenCalledTimes(2)
+describe('connected instance changes', () => {
+	it('derives a fresh snapshot after the manager changes', () => {
+		const instances = [makeInstance(IID1)]
+		const manager = makeManager(instances)
+		expect(connectorTools(manager).map((tool) => tool.name)).toEqual([
+			`${CID}_request`,
+			`${CID}_send`,
+		])
+		instances.push(makeInstance(IID2))
+		expect(connectorTools(manager).map((tool) => tool.name)).toHaveLength(4)
 	})
 })

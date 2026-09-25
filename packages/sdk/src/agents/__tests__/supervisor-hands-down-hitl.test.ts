@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { AgentTaskContext } from '../../types/agent/task.js'
 import type { ResumeHandler } from '../../types/hitl/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
@@ -93,7 +92,7 @@ async function runSupervisor(resumeHandler?: ResumeHandler, depth?: number) {
 				provider,
 				agentIds: ['worker'],
 				agentManager: manager,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				systemPrompt: 'You coordinate.',
 				model: 'mock-model',
 				tokenBudget: 100_000,

@@ -1,9 +1,10 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type ChatCompletionParams, type LLMProvider, ToolRegistry } from '@namzu/sdk'
+import type { ChatCompletionParams, LLMProvider, Toolset } from '@namzu/sdk'
 import { expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createWebSearchTool } from '../../web/search.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
@@ -44,19 +45,14 @@ it('carries the child-selected hosted search through ReactiveAgent into the prov
 		model: 'child-model',
 		resolveParent: parent.resolveParent,
 		buildProvider: () => provider,
-		buildTools: () => {
-			const r = new ToolRegistry()
-			r.register(createWebSearchTool())
-			return r
-		},
-		configureWebSearch: (selected, model, tools) => {
+		buildTools: (): readonly Toolset[] => [testToolset(createWebSearchTool())],
+		configureWebSearch: (selected, model, toolsets) => {
 			events.push({
 				phase: 'configure',
 				same: selected === provider,
 				model,
-				names: tools.listNames(),
+				names: toolsets.flatMap((ts) => ts.tools()).map((tool) => tool.name),
 			})
-			tools.unregister('web_search')
 			return { mode: 'live' }
 		},
 	})
