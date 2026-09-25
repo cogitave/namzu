@@ -470,6 +470,7 @@ export {
 	defineAgent,
 	InvocationLock,
 	PipelineAgent,
+	QueryAgent,
 	ReactiveAgent,
 	RouterAgent,
 	// The short path: provider + model + prompt. Assembles the identity and

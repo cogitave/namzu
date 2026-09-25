@@ -13,12 +13,19 @@ folklore.
 
 ## What lives here
 
-Orchestration primitives, all **developer-authored**.
+The `Agent` contract, `runAgent`/`query` entry points, and an optional
+`QueryAgent` adapter are SDK infrastructure. Applications own their agent
+identity and orchestration. The CLI's delegated agent lives in
+`packages/cli/src/integrations/subagents/NamzuCliAgent.ts`.
 
-- **`PipelineAgent.ts`** — a fixed step list the developer wrote. The steps
+`examples/` holds developer-authored orchestration patterns. Their former
+exports remain as deprecated compatibility names; they do not define a closed
+list of agent kinds.
+
+- **`examples/PipelineAgent.ts`** — a fixed step list the developer wrote. The steps
   run with **zero model turns between them**: the control flow is code, and
   the model is called only where a step calls it.
-- **`SupervisorAgent.ts`** — delegation driven by the model emitting
+- **`examples/SupervisorAgent.ts`** — delegation driven by the model emitting
   `create_task` tool calls. Note what this already does: **N `create_task`
   blocks in one assistant turn run concurrently**, so fan-out costs one turn
   for N children, not N turns. The mechanism, checked rather than assumed:
@@ -82,10 +89,10 @@ first one got lost.
 
 ## Working here
 
-- An agent's capabilities are **declared** on its metadata and honoured by the
-  runtime. Adding a capability means declaring it and driving it in the same
-  change; a declared capability nothing reads is the
-  `declared-but-undriven` defect this repo has a convention page about.
+- `AgentCapabilities` is descriptive metadata. The manager does not enforce
+  its booleans. A host enforces tool access, subagent admission and concurrency
+  through its toolsets, authorization gate, manager and per-instance locking.
+  Do not treat a declared capability as permission or claim it is a runtime gate.
 - `AbstractAgent` takes an injected `Logger`. Do not reach for
   `getRootLogger()` here — see the log-standard gate,
   which counts every call site.

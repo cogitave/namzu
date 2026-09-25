@@ -139,7 +139,7 @@ checkpoints. The session is recorded in one append-only log under
 and nothing is written under the working directory; see the
 [session log](https://github.com/cogitave/namzu/blob/main/docs/sdk/session-log.md).
 A session has at most one active turn: starting another while one is running
-or paused throws `TurnInProgressError`. `ReactiveAgent` exposes additional
+or paused throws `TurnInProgressError`. `QueryAgent` exposes additional
 configuration such as compaction and where the session is stored; the config
 passed to its `run` method requires `sessionId`, `topicId`, `projectId` and
 `tenantId`. OS isolation is explicit rather than ambient: supply a
@@ -184,7 +184,7 @@ carries its durable trace parent into the cancelled turn, preserving one
 cross-process timeline without a second checkpoint read.
 
 Hosts that discover scoped repository policy can supply a
-`ProjectInstructionContext` to `query`, `runAgent`, `ReactiveAgent`, or
+`ProjectInstructionContext` to `query`, `runAgent`, `QueryAgent`, or
 `SupervisorAgent`. Its first-request snapshot is structurally tagged and
 retained; completed registry calls, including nested dispatch, can publish a
 replacement immediately after the complete tool-result batch. Each callback
@@ -196,7 +196,7 @@ predicate cannot strand the update. Canonical project-relative `AGENTS.md`
 provenance survives compaction and lets a reconstructed host re-read disk
 authority rather than trusting persisted policy text.
 
-High-level `ReactiveAgent` and `SupervisorAgent` configurations also accept
+The `QueryAgent` configuration and the compatibility `SupervisorAgent` configuration also accept
 `paths`, a `SessionPaths`. Supplying one puts the session log, its child
 sessions, checkpoints, token ledger and task state under that root instead of
 `resolveNamzuHome()`. A project id is minted once per working directory into

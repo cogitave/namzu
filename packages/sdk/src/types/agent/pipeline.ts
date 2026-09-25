@@ -24,6 +24,7 @@ export interface PipelineStep<TInput = unknown, TOutput = unknown> {
 	validate?(input: TInput): boolean
 }
 
+/** @deprecated Configuration for the pipeline example; define application orchestration as needed. */
 export interface PipelineAgentConfig extends BaseAgentConfig {
 	steps: PipelineStep[]
 	provider?: LLMProvider
@@ -38,6 +39,7 @@ export interface PipelineStepResult {
 	durationMs: number
 }
 
+/** @deprecated Result of the pipeline example. */
 export interface PipelineAgentResult extends BaseAgentResult {
 	stepResults: PipelineStepResult[]
 	completedSteps: number

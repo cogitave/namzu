@@ -39,6 +39,7 @@ The kernel.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
 
 * [Run the kernel](quick-start.md) - An offline SDK turn, real tool execution, conversation identity and where the session is recorded.
+* [Agent ownership](agent-ownership.md) - The SDK agent contract, the CLI's agent and example orchestration patterns.
 * [AG-UI clients](ag-ui.md) - Explicit host admission, backend and frontend tools, interrupts and resume, shared UI state and CopilotKit connection.
 * [Kubernetes sandboxes](kubernetes-sandbox.md) - Warm-pool claims on an agent-sandbox cluster, the pristine-claim rule, the per-instance agent credential, persistent block-disk workspaces and what is not built yet.
 * [Firecracker sandboxes](firecracker-sandbox.md) - The Firecracker microvm tier against a self-hosted orchestrator, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.

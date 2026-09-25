@@ -8,6 +8,12 @@ tags: [cli, agents, concurrency]
 
 # Delegated work
 
+The CLI builds its delegated turns with its own `NamzuCliAgent` in
+`packages/cli/src/integrations/subagents/`. It uses the SDK's `QueryAgent`
+adapter and `AgentManager`; the CLI chooses the child identity, prompt,
+provider, tools and policy for each launch. The SDK's deprecated
+`ReactiveAgent` name is not the CLI's agent taxonomy.
+
 When the parent mounts independent `web_search` (Exa), delegated agents receive
 the same search tool, including read-only `explore` agents. Each call owns its
 connection and cancellation. Search remains subject to the parent’s authorization

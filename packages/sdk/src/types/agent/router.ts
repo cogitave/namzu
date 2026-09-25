@@ -28,6 +28,7 @@ export interface RouteDefinition {
 	matchPatterns?: string[]
 }
 
+/** @deprecated Configuration for the router example; define application routing as needed. */
 export interface RouterAgentConfig extends BaseAgentConfig {
 	routes: RouteDefinition[]
 	provider: LLMProvider
@@ -37,6 +38,7 @@ export interface RouterAgentConfig extends BaseAgentConfig {
 	maxRoutingRetries?: number
 }
 
+/** @deprecated Result of the router example. */
 export interface RouterAgentResult extends BaseAgentResult {
 	selectedRoute: string
 	routingDecision: RoutingDecision

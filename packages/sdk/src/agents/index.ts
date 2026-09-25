@@ -1,4 +1,6 @@
 export { AbstractAgent } from './AbstractAgent.js'
+export { QueryAgent } from './QueryAgent.js'
+// Compatibility exports. These are example orchestration patterns, not SDK agent kinds.
 export { ReactiveAgent } from './ReactiveAgent.js'
 export { PipelineAgent } from './PipelineAgent.js'
 export { RouterAgent } from './RouterAgent.js'

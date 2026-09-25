@@ -319,5 +319,5 @@ literally named `search_tools`) — the pre-toolsets registry checked
 `!registry.has('search_tools')` first; the toolsets rewrite had dropped
 that check, so such a caller hit `ToolsetConflictError` at construction.
 Both are `packages/sdk/src/runtime/query/index.ts` and
-`packages/sdk/src/agents/SupervisorAgent.ts`, `.changeset/toolsets-cli.md`,
+`packages/sdk/src/agents/examples/SupervisorAgent.ts`, `.changeset/toolsets-cli.md`,
 **patch** for `@namzu/sdk`.

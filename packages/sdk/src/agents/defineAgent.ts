@@ -21,7 +21,13 @@ export interface DefineAgentOptions<
 	category: string
 	description: string
 	capabilities?: Partial<AgentCapabilities>
-	run(input: AgentInput, config: TConfig, listener?: SessionEventListener): Promise<TResult>
+	/** The signal is scoped to this instance; observe it to stop work on cancel. */
+	run(
+		input: AgentInput,
+		config: TConfig,
+		listener: SessionEventListener | undefined,
+		signal: AbortSignal,
+	): Promise<TResult>
 	cancel?(): Promise<void>
 }
 
@@ -44,13 +50,18 @@ export function defineAgent<
 	return {
 		type: options.type,
 		metadata,
+		// AgentManager asks for a fresh shell per delegated turn. Reusing one
+		// controller would make a cancelled sibling abort another sibling's work.
+		forTurn(): Agent<TConfig, TResult> {
+			return defineAgent(options)
+		},
 
 		async run(
 			input: AgentInput,
 			config: TConfig,
 			listener?: SessionEventListener,
 		): Promise<TResult> {
-			return options.run(input, config, listener)
+			return options.run(input, config, listener, abortController.signal)
 		},
 
 		async cancel(): Promise<void> {

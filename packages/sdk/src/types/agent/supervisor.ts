@@ -15,6 +15,7 @@ import type { AgentManagerContract } from './manager.js'
 import type { SiblingFailurePolicy, TaskScheduler } from './scheduler.js'
 import type { WorkingMemoryProvider } from './working-memory.js'
 
+/** @deprecated Configuration for the supervisor example; hosts own their orchestration. */
 export interface SupervisorAgentConfig extends BaseAgentConfig {
 	provider: LLMProvider
 
@@ -235,6 +236,7 @@ export interface AgentTaskResult {
 	taskIndex: number
 }
 
+/** @deprecated Result of the supervisor example. */
 export interface SupervisorAgentResult extends BaseAgentResult {
 	taskResults: AgentTaskResult[]
 	completedTasks: number

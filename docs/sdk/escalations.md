@@ -21,7 +21,7 @@ query({
 })
 ```
 
-Both default to `'refuse'`, and `ReactiveAgentConfig` carries the same two fields for a child.
+Both default to `'refuse'`, and `QueryAgentConfig` carries the same two fields for a child.
 
 ## How a call becomes escalated
 

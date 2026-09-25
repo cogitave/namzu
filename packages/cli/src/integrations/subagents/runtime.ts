@@ -43,8 +43,6 @@ import {
 	LocalTaskScheduler,
 	type Project,
 	type ProjectInstructionContext,
-	ReactiveAgent,
-	type ReactiveAgentConfig,
 	type ReasoningEffort,
 	type ResumeHandler,
 	type SandboxProvider,
@@ -83,6 +81,7 @@ import type { TurnLimitsConfig } from '../../config/schema.js'
 import { resolveTurnGuards } from '../../config/turn-guards.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
+import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
@@ -239,7 +238,7 @@ export interface SubagentRuntimeOptions {
 		provider: LLMProvider,
 		model: string,
 		toolsets: readonly Toolset[],
-	) => ReactiveAgentConfig['webSearch']
+	) => NamzuCliAgentConfig['webSearch']
 	readonly authorizationGate?: AuthorizationGateConfig
 	/**
 	 * Resolve the interactive authority owned by the parent turn that invoked
@@ -1595,7 +1594,7 @@ function buildDefinition(
 	model: string = opts.model,
 	selection?: DelegatedModel,
 ): AgentDefinition {
-	const agent = new ReactiveAgent({
+	const agent = new NamzuCliAgent({
 		id,
 		name: id,
 		version: '1.0.0',
@@ -1617,10 +1616,10 @@ function buildDefinition(
 			tools: [],
 			defaults: { model, tokenBudget: opts.tokenBudget ?? 0 },
 		},
-		// ReactiveAgent is Agent<ReactiveAgentConfig,…>; the registry stores the
+		// NamzuCliAgent is Agent<NamzuCliAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
-		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
+		configBuilder: async (options): Promise<NamzuCliAgentConfig> => {
 			const limits = resolveTurnGuards(
 				opts,
 				options.parentTurnId ? opts.resolveLimits?.(asTurnId(options.parentTurnId)) : undefined,

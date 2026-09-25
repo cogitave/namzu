@@ -38,7 +38,7 @@ these records for bounded recovery across explicitly authorized settled turns.
 
 `QueryParams.retainedToolPreviewChars` optionally separates the spill threshold
 from the size of its retained preview. It is also accepted by `resumeSession` and
-`ReactiveAgentConfig`. The ordinary `maxToolOutputChars` cap (default 40,000)
+`QueryAgentConfig`. The ordinary `maxToolOutputChars` cap (default 40,000)
 still decides whether text overflows; results below it pass through unchanged.
 After the full host output and its integrity manifest are saved, a positive
 preview setting can reduce the head/tail text carried on subsequent requests.

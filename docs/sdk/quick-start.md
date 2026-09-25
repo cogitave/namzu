@@ -61,9 +61,15 @@ To continue a conversation, spread the returned `identity` into the next
 a new session in the working directory's Project.
 
 For inference, install a provider driver and select its model explicitly.
-For more runtime configuration, use `ReactiveAgent` or `query`. Unlike
+For more runtime configuration, use `QueryAgent` or `query`. Unlike
 `runAgent`, those entry points take the four identity fields explicitly and
 do not generate missing identity.
+
+`QueryAgent` is an optional adapter for hosts that need an `Agent` instance
+inside `AgentManager`. For an application-specific agent, implement the SDK's
+`Agent` contract or use `defineAgent`; choose any `type` string. See
+[Agent ownership](agent-ownership.md) for the division between the SDK, CLI
+and example orchestration patterns.
 
 ## Where the session is recorded
 

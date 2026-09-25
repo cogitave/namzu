@@ -16,7 +16,8 @@ import type { TurnExecutionStatus } from '../session/turn.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
 
-export type AgentType = 'reactive' | 'pipeline' | 'router' | 'supervisor'
+/** Application-owned agent kind; the SDK does not prescribe an agent taxonomy. */
+export type AgentType = string
 
 export type AgentContextLevel = 'full' | 'standard' | 'minimal'
 
@@ -389,6 +390,7 @@ export interface BaseAgentResult {
 	lastError?: string
 }
 
+/** Descriptive metadata. Access and concurrency are enforced by the host and runtime seams. */
 export interface AgentCapabilities {
 	supportsTools: boolean
 	supportsStreaming: boolean
