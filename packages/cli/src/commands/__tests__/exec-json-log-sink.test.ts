@@ -48,6 +48,13 @@ function ctxAt(level: 'debug' | 'info' | 'warn'): CommandContext {
 	} as unknown as CommandContext
 }
 
+function ctxWithLegacyMcpPermission(): CommandContext {
+	return {
+		...ctxAt('info'),
+		config: { permissions: { mcp_legacyjsonfixture_lookup: 'allow' } },
+	} as CommandContext
+}
+
 let stdinWasTTY: boolean | undefined
 
 beforeEach(() => {
@@ -104,6 +111,33 @@ describe('namzu exec --json installs a live stderr sink instead of silencing the
 		const quiet = await stdoutFor('info')
 		const verbose = await stdoutFor('debug')
 		expect(verbose).toBe(quiet)
+	})
+
+	it('keeps a former MCP permission warning parseable on stderr', async () => {
+		const chunks: string[] = []
+		const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+			chunks.push(String(chunk))
+			return true
+		})
+		try {
+			await execJsonCommand.handler({ ctx: ctxWithLegacyMcpPermission(), rawArgs: ['hi'] })
+			const records = chunks
+				.join('')
+				.trim()
+				.split('\n')
+				.map((line) => JSON.parse(line))
+			expect(records).toContainEqual(
+				expect.objectContaining({
+					severityText: 'warn',
+					body: expect.stringContaining('mcp__<server>__<tool>'),
+					attributes: expect.objectContaining({
+						'namzu.permission.tool_name': 'mcp_legacyjsonfixture_lookup',
+					}),
+				}),
+			)
+		} finally {
+			spy.mockRestore()
+		}
 	})
 })
 
