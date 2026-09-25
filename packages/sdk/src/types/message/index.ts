@@ -551,6 +551,13 @@ export type ToolResultBlock =
  */
 export type ToolResultContent = string | readonly ToolResultBlock[]
 
+/** A schema reveal bound to the source that contributed that exact tool. */
+export interface ToolRevealReceipt {
+	readonly name: string
+	readonly sourceId: string
+	readonly sourceKind: import('../toolset/index.js').ToolSourceKind
+}
+
 export interface ToolMessage extends BaseMessage {
 	role: 'tool'
 	content: ToolResultContent
@@ -567,18 +574,18 @@ export interface ToolMessage extends BaseMessage {
 	 */
 	isError?: boolean
 	/**
-	 * Names this result made callable for the rest of the turn — the
-	 * persisted form of {@link ToolResult.reveals} (`types/tool/index.ts`),
-	 * written by the executor onto the message it built from that result.
+	 * Source-bound receipts for deferred schemas loaded by a successful
+	 * {@link ToolResult.reveals} (`types/tool/index.ts`). The executor writes
+	 * these onto the message it built from that result.
 	 *
 	 * This is what `ToolManager.availability` (`toolsets/manager.ts`) scans
 	 * the post-compaction history for, instead of a mutable activation map:
-	 * a deferred tool is active once a tool message revealing it appears
-	 * after the last compaction summary. Persisted like any other message
-	 * field — a session log or checkpoint that already carries this message
+	 * a deferred tool is active once a matching receipt appears after the
+	 * last compaction summary and the host still reports it ready. Persisted
+	 * like any other message field — a session log or checkpoint already
 	 * carries this too, with nothing extra to serialize.
 	 */
-	revealedTools?: readonly string[]
+	revealedTools?: readonly ToolRevealReceipt[]
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
@@ -658,7 +665,7 @@ export function createToolMessage(
 	content: ToolResultContent,
 	toolCallId: string,
 	isError?: boolean,
-	revealedTools?: readonly string[],
+	revealedTools?: readonly ToolRevealReceipt[],
 ): ToolMessage {
 	return {
 		role: 'tool',

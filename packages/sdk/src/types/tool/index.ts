@@ -731,18 +731,16 @@ export interface ToolResult {
 	 */
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
 	/**
-	 * Names of tools this result makes callable for the rest of the turn —
-	 * the same activation `search_tools` performs (`ToolRegistry.activate`),
-	 * offered to any tool's own result instead of only the search built-in.
-	 * For a "connect to project X" call whose dozen further tools should
-	 * appear only once that connection is made, not be found by lexical
-	 * search or exposed eagerly from the start.
+	 * Names of deferred tool schemas this successful result loads, like
+	 * `search_tools`. This is a discovery receipt, not proof that an external
+	 * connection or capability is ready. Use `readyWhen(toolset, check)` for
+	 * a host-owned prerequisite; search cannot satisfy that check.
 	 *
-	 * Only a name currently `'deferred'` in the registry is activated, and
+	 * Only a name currently `'deferred'` in the manager is loaded, and
 	 * only when it is also inside `ToolContext.allowedTools` when that turn
 	 * is narrowed to an allow-list. Every other name — unknown, already
 	 * active, suspended, or outside the allow-list — is silently ignored:
-	 * this can never throw, resurrect a tool a host suspended on purpose, or
+	 * this can never throw, resurrect a tool a host marked unready, or
 	 * widen what a narrowed turn may call.
 	 */
 	reveals?: readonly string[]
@@ -1122,14 +1120,10 @@ export interface LLMToolSchema {
 }
 
 /**
- * `'suspended'` is reserved, not live: nothing in this package assigns or
- * reads it since `ToolRegistry.suspendAll`/`.hasSuspended` were removed
- * (plan.md v3 §2) — `ToolManager.availability` (and this file's
- * `ToolsView.availability`) only ever returns `'deferred'` or `'active'`,
- * derived rather than stored. Kept in the union rather than narrowed
- * (a breaking change) pending a future session-level suspend mechanism;
- * `RuntimeToolOverrides` still accepts it as a value with no observable
- * effect.
+ * `'suspended'` means the owning toolset's host-owned readiness check is
+ * false. Such tools are excluded from discovery and execution even if a
+ * deferred-schema receipt exists. `RuntimeToolOverrides` still does not
+ * implement session-level suspension.
  */
 export type ToolAvailability = 'deferred' | 'active' | 'suspended'
 

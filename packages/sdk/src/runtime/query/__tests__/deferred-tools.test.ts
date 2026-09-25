@@ -50,6 +50,34 @@ describe('query deferred tool discovery', () => {
 		workdirs = []
 	})
 
+	it('rejects a deferred caller-provided search_tools instead of silently deadlocking discovery', async () => {
+		const provider = capturingProvider()
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-deferred-tools-'))
+		workdirs.push(workingDirectory)
+		await expect(
+			drainQuery({
+				provider,
+				toolsets: [deferred(testToolset(SearchToolsTool)), deferredDocumentTool()],
+				turnConfig: {
+					model: 'mock-model',
+					timeoutMs: 5_000,
+					tokenBudget: 100_000,
+					maxIterations: 1,
+					maxResponseTokens: 256,
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('find a document tool')],
+				workingDirectory,
+				sessionId: '5df50119-0604-4efb-9ce9-ec54a635b257' as SessionId,
+				topicId: '2d636b87-b749-4b32-9f0b-5cc6dec1cd13' as TopicId,
+				projectId: 'f8135875-706b-426d-8012-26fccc63ec88' as ProjectId,
+				tenantId: '89016fd9-b650-4aea-9ce4-a7c85ccb789d' as TenantId,
+			}),
+		).rejects.toThrow(/search_tools must be active and ready/)
+		expect(provider.requests).toHaveLength(0)
+	})
+
 	it('auto-exposes search_tools when deferred tools are registered', async () => {
 		const provider = capturingProvider()
 		const tools = deferredDocumentTool()
@@ -223,7 +251,14 @@ describe('query deferred tool discovery', () => {
 			count: 5,
 			nearMisses: ['invoice_f', 'invoice_g', 'invoice_h'],
 		})
-		messages.push(createToolMessage(result.output, 'search-invoice', false, result.reveals))
+		messages.push(
+			createToolMessage(
+				result.output,
+				'search-invoice',
+				false,
+				result.reveals?.map((name) => tools.revealReceipt(name)),
+			),
+		)
 		for (const name of ['invoice_a', 'invoice_b', 'invoice_c', 'invoice_d', 'invoice_e']) {
 			expect(tools.availability(name)).toBe('active')
 		}

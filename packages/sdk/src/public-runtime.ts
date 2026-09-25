@@ -585,6 +585,7 @@ export {
 	mapTools,
 	prefixed,
 	renamed,
+	readyWhen,
 	requireApproval,
 	withMetadata,
 } from './toolsets/wrappers.js'

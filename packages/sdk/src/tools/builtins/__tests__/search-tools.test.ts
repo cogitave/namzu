@@ -55,10 +55,21 @@ describe('search_tools receipts', () => {
 		)
 		const result = await SearchToolsTool.execute({ query: ' READ ' }, context(manager))
 
-		expect(result.data).toEqual({ activated: ['read'], count: 1, nearMisses: [] })
+		expect(result.data).toEqual({
+			activated: ['read'],
+			count: 1,
+			nearMisses: [],
+		})
 		expect(result.reveals).toEqual(['read'])
 		expect(manager.availability('read')).toBe('deferred')
-		messages.push(createToolMessage(result.output, 'search-read', false, result.reveals))
+		messages.push(
+			createToolMessage(
+				result.output,
+				'search-read',
+				false,
+				result.reveals?.map((name) => manager.revealReceipt(name)),
+			),
+		)
 		expect(manager.availability('read')).toBe('active')
 		expect(manager.availability('read_something')).toBe('deferred')
 		const second = await SearchToolsTool.execute({ query: 'READ' }, context(manager))

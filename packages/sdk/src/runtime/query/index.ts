@@ -41,7 +41,7 @@ import { createStructuredOutputTool } from '../../tools/builtins/structuredOutpu
 import { buildTaskTools } from '../../tools/task/index.js'
 import { ToolManager } from '../../toolsets/manager.js'
 import { toolset } from '../../toolsets/toolset.js'
-import type { Toolset } from '../../toolsets/types.js'
+import { type Toolset, toolsetIsReady } from '../../toolsets/types.js'
 import { deferred } from '../../toolsets/wrappers.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
@@ -1106,9 +1106,28 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const callerHasDeferredToolset = params.toolsets.some(
 			(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
 		)
-		const callerHasSearchTools = params.toolsets.some((ts) =>
+		const callerSearchToolset = params.toolsets.find((ts) =>
 			ts.tools().some((tool) => tool.name === SearchToolsTool.name),
 		)
+		const callerHasSearchTools = callerSearchToolset !== undefined
+		if (
+			(runtimeDeferredTools.length > 0 || callerHasDeferredToolset) &&
+			callerSearchToolset &&
+			(callerSearchToolset.availability === 'deferred' || !toolsetIsReady(callerSearchToolset))
+		) {
+			throw new Error(
+				'A caller-provided search_tools must be active and ready when deferred tools are present.',
+			)
+		}
+		if (
+			(runtimeDeferredTools.length > 0 || callerHasDeferredToolset) &&
+			!callerHasSearchTools &&
+			['deferred', 'suspended'].includes(runtimeToolOverrides?.[SearchToolsTool.name] ?? '')
+		) {
+			throw new Error(
+				'runtimeToolOverrides.search_tools must be active or disabled when deferred tools are present.',
+			)
+		}
 		if ((runtimeDeferredTools.length > 0 || callerHasDeferredToolset) && !callerHasSearchTools) {
 			addRuntimeTool(SearchToolsTool, 'active')
 		}
@@ -2185,7 +2204,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				if (params.pluginManager) {
 					const hookResults = await params.pluginManager.executeHooks(
 						'turn_start',
-						{ sessionId: ctx.sessionId, turnId: ctx.turnId, signal: ctx.abortController.signal },
+						{
+							sessionId: ctx.sessionId,
+							turnId: ctx.turnId,
+							signal: ctx.abortController.signal,
+						},
 						eventTranslator.emitEvent,
 					)
 					applyLifecycleHookResults('turn_start', hookResults)
@@ -2507,7 +2530,9 @@ async function settleAbandonedTurn(
 	try {
 		if (recorder.isClosed || recorder.isPaused || !recorder.isActive) return
 		await recorder.flush()
-		const parked = await findPendingCheckpoint(recorder.log, { turnId: recorder.turnId })
+		const parked = await findPendingCheckpoint(recorder.log, {
+			turnId: recorder.turnId,
+		})
 		if (parked) {
 			recorder.setStopReason('paused')
 			await eventTranslator.emitEvent({

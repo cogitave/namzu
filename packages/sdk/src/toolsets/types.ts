@@ -12,10 +12,8 @@ export type { ToolSource, ToolSourceKind }
  * A toolset's own default for the tools it contributes.
  *
  * Deliberately narrower than {@link ToolAvailability} (`'active' |
- * 'deferred' | 'suspended'`): `'suspended'` names runtime state a session
- * would enter and leave, not something a tool source declares about
- * itself — and it is currently reserved rather than implemented (see
- * `ToolAvailability`'s own doc comment). Absent means `'active'`.
+ * 'deferred' | 'suspended'`): `'suspended'` is derived from a host readiness
+ * check, not a static declaration. Absent means `'active'`.
  */
 export type ToolsetAvailability = 'active' | 'deferred'
 
@@ -45,6 +43,12 @@ export interface Toolset {
 	 */
 	readonly availability?: ToolsetAvailability
 	/**
+	 * Host-owned readiness, independent of whether the model has loaded a
+	 * deferred schema. A false (or throwing) check keeps every tool in this
+	 * source out of discovery, prompts and execution. Read fresh on each use.
+	 */
+	readonly isReady?: () => boolean
+	/**
 	 * Subscribe to "the next `tools()` call may return something different"
 	 * — an MCP server's `list_changed`, for instance. Returns the
 	 * unsubscribe function. Absent means this toolset never changes on its
@@ -58,6 +62,15 @@ export interface Toolset {
 	onChange?(listener: () => void): () => void
 	/** Release whatever this toolset holds open (a connection, a watcher). */
 	close?(): Promise<void>
+}
+
+/** A broken readiness check must never expose the tools it guards. */
+export function toolsetIsReady(ts: Toolset): boolean {
+	try {
+		return ts.isReady?.() ?? true
+	} catch {
+		return false
+	}
 }
 
 /**

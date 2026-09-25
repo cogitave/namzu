@@ -17,7 +17,7 @@ import { ToolsetConflictError } from './combine.js'
 import { ToolManager } from './manager.js'
 import { toolset } from './toolset.js'
 import type { Toolset } from './types.js'
-import { deferred } from './wrappers.js'
+import { deferred, readyWhen } from './wrappers.js'
 
 function makeTool(name: string, overrides: Partial<ToolDefinition> = {}): ToolDefinition {
 	return {
@@ -132,6 +132,16 @@ describe('ToolManager — resolution', () => {
 })
 
 describe('ToolManager — availability (derived)', () => {
+	const hiddenReceipt = {
+		name: 'hidden',
+		sourceId: 'a',
+		sourceKind: 'host_tool' as const,
+	}
+	const otherReceipt = {
+		name: 'other',
+		sourceId: 'a',
+		sourceKind: 'host_tool' as const,
+	}
 	it("a plain toolset's tools default to active", () => {
 		const m = manager([toolset('a', [makeTool('read')])])
 		expect(m.availability('read')).toBe('active')
@@ -143,42 +153,102 @@ describe('ToolManager — availability (derived)', () => {
 	})
 
 	it('becomes active once a tool message in history reveals it', () => {
-		const messages: Message[] = [createToolMessage('ok', 'call-1', false, ['hidden'])]
-		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], { messages: () => messages })
+		const messages: Message[] = [createToolMessage('ok', 'call-1', false, [hiddenReceipt])]
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
 		expect(m.availability('hidden')).toBe('active')
 	})
 
 	it('a reveal for a DIFFERENT name does not activate this one', () => {
-		const messages: Message[] = [createToolMessage('ok', 'call-1', false, ['other'])]
-		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], { messages: () => messages })
+		const messages: Message[] = [createToolMessage('ok', 'call-1', false, [otherReceipt])]
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
 		expect(m.availability('hidden')).toBe('deferred')
 	})
 
 	it('a reveal BEFORE the last compaction summary no longer counts', () => {
 		const messages: Message[] = [
-			createToolMessage('ok', 'call-1', false, ['hidden']),
+			createToolMessage('ok', 'call-1', false, [hiddenReceipt]),
 			buildCompactionMessage('summary body'),
 			createUserMessage('continuing'),
 		]
-		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], { messages: () => messages })
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
 		expect(m.availability('hidden')).toBe('deferred')
 	})
 
 	it('a reveal AFTER the last compaction summary still counts', () => {
 		const messages: Message[] = [
 			buildCompactionMessage('summary body'),
-			createToolMessage('ok', 'call-1', false, ['hidden']),
+			createToolMessage('ok', 'call-1', false, [hiddenReceipt]),
 		]
-		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], { messages: () => messages })
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
 		expect(m.availability('hidden')).toBe('active')
 	})
 
 	it('recomputes fresh on every call — no caching of a stale reveal', () => {
 		let messages: Message[] = []
-		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], { messages: () => messages })
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
 		expect(m.availability('hidden')).toBe('deferred')
-		messages = [createToolMessage('ok', 'call-1', false, ['hidden'])]
+		messages = [createToolMessage('ok', 'call-1', false, [hiddenReceipt])]
 		expect(m.availability('hidden')).toBe('active')
+	})
+
+	it('a receipt from another source cannot activate a tool with the same name', () => {
+		const messages: Message[] = [createToolMessage('ok', 'call-1', false, [hiddenReceipt])]
+		const m = manager([deferred(toolset('replacement', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
+		expect(m.availability('hidden')).toBe('deferred')
+	})
+
+	it('a failed historical tool message cannot activate a deferred tool', () => {
+		const messages: Message[] = [createToolMessage('failed', 'call-1', true, [hiddenReceipt])]
+		const m = manager([deferred(toolset('a', [makeTool('hidden')]))], {
+			messages: () => messages,
+		})
+		expect(m.availability('hidden')).toBe('deferred')
+	})
+
+	it('host readiness gates discovery, prompts, execution and prior reveals', async () => {
+		let ready = false
+		let executions = 0
+		const guarded = readyWhen(
+			deferred(
+				toolset('a', [
+					makeTool('hidden', {
+						async execute() {
+							executions += 1
+							return { success: true, output: 'done' }
+						},
+					}),
+				]),
+			),
+			() => ready,
+		)
+		const messages: Message[] = []
+		const m = manager([guarded], { messages: () => messages })
+		expect(m.availability('hidden')).toBe('suspended')
+		expect(m.searchDeferred('hidden')).toEqual([])
+		expect(m.toPromptSection()).not.toContain('hidden')
+		expect((await m.execute('hidden', {}, makeContext())).success).toBe(false)
+		expect(executions).toBe(0)
+
+		ready = true
+		expect(m.searchDeferred('hidden').map((tool) => tool.name)).toEqual(['hidden'])
+		messages.push(createToolMessage('loaded', 'search-1', false, [m.revealReceipt('hidden')]))
+		expect(m.availability('hidden')).toBe('active')
+		ready = false
+		expect(m.availability('hidden')).toBe('suspended')
+		expect((await m.execute('hidden', {}, makeContext())).success).toBe(false)
+		expect(executions).toBe(0)
 	})
 })
 
@@ -199,7 +269,12 @@ describe('ToolManager — refresh()', () => {
 		const m = manager([live.toolset])
 		live.setTools([a1, fixtureTool('a2')])
 		const report = m.refresh()
-		expect(report).toEqual({ added: ['a2'], removed: [], drifted: [], refused: [] })
+		expect(report).toEqual({
+			added: ['a2'],
+			removed: [],
+			drifted: [],
+			refused: [],
+		})
 		expect(m.has('a2')).toBe(true)
 	})
 
@@ -209,7 +284,12 @@ describe('ToolManager — refresh()', () => {
 		const m = manager([live.toolset])
 		live.setTools([a1])
 		const report = m.refresh()
-		expect(report).toEqual({ added: [], removed: ['a2'], drifted: [], refused: [] })
+		expect(report).toEqual({
+			added: [],
+			removed: ['a2'],
+			drifted: [],
+			refused: [],
+		})
 		expect(m.has('a2')).toBe(false)
 	})
 
@@ -220,7 +300,12 @@ describe('ToolManager — refresh()', () => {
 		const replacement = fixtureTool('a1', { description: 'a new description' })
 		live.setTools([replacement])
 		const report = m.refresh()
-		expect(report).toEqual({ added: [], removed: [], drifted: ['a1'], refused: [] })
+		expect(report).toEqual({
+			added: [],
+			removed: [],
+			drifted: ['a1'],
+			refused: [],
+		})
 		expect(m.get('a1')).toBe(original)
 		expect(m.get('a1')).not.toBe(replacement)
 	})
@@ -235,7 +320,12 @@ describe('ToolManager — refresh()', () => {
 		// a1 drifts once; reported, and held at its original identity.
 		const replacement = fixtureTool('a1', { description: 'a new description' })
 		liveA.setTools([replacement])
-		expect(m.refresh()).toEqual({ added: [], removed: [], drifted: ['a1'], refused: [] })
+		expect(m.refresh()).toEqual({
+			added: [],
+			removed: [],
+			drifted: ['a1'],
+			refused: [],
+		})
 
 		// A is left completely alone from here on (same `replacement` object
 		// every time it would be asked again). B changes independently,
@@ -243,7 +333,12 @@ describe('ToolManager — refresh()', () => {
 		const b2 = fixtureTool('b2')
 		liveB.setTools([b1, b2])
 		const report = m.refresh()
-		expect(report).toEqual({ added: ['b2'], removed: [], drifted: [], refused: [] })
+		expect(report).toEqual({
+			added: ['b2'],
+			removed: [],
+			drifted: [],
+			refused: [],
+		})
 		expect(m.get('a1')).toBe(original)
 	})
 
@@ -267,7 +362,12 @@ describe('ToolManager — refresh()', () => {
 		// b starts empty; nobody else contests `shared` while a still serves it.
 		live.setTools([])
 		const report = m.refresh()
-		expect(report).toEqual({ added: [], removed: ['shared'], drifted: [], refused: [] })
+		expect(report).toEqual({
+			added: [],
+			removed: ['shared'],
+			drifted: [],
+			refused: [],
+		})
 		expect(m.has('shared')).toBe(false)
 	})
 
@@ -314,9 +414,13 @@ describe('ToolManager — searchDeferred', () => {
 		const m = manager([
 			deferred(
 				toolset('a', [
-					makeTool('deploy_app', { description: 'Deploy the app to production' }),
+					makeTool('deploy_app', {
+						description: 'Deploy the app to production',
+					}),
 					makeTool('list_deploys', { description: 'List recent deploys' }),
-					makeTool('unrelated', { description: 'Does something else entirely' }),
+					makeTool('unrelated', {
+						description: 'Does something else entirely',
+					}),
 				]),
 			),
 		])
@@ -340,7 +444,11 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		const m = manager([
 			toolset('a', [makeTool('read')]),
 			deferred(
-				toolset('b', [makeTool('hidden', { description: 'Do the hidden thing. More detail.' })]),
+				toolset('b', [
+					makeTool('hidden', {
+						description: 'Do the hidden thing. More detail.',
+					}),
+				]),
 			),
 		])
 		const section = m.toPromptSection()
@@ -428,7 +536,10 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		callerOwned.nested.force = true
 		await m.executePrepared(result.prepared, makeContext())
 
-		expect(result.prepared.input).toEqual({ command: 'status', nested: { force: false } })
+		expect(result.prepared.input).toEqual({
+			command: 'status',
+			nested: { force: false },
+		})
 		expect(executed).toEqual([{ command: 'status', nested: { force: false } }])
 	})
 
@@ -619,7 +730,11 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 
 	it('validation hint reports when there are no required params', async () => {
 		const m = manager([
-			toolset('a', [makeTool('opt', { inputSchema: z.object({ k: z.string().optional() }) })]),
+			toolset('a', [
+				makeTool('opt', {
+					inputSchema: z.object({ k: z.string().optional() }),
+				}),
+			]),
 		])
 		const result = await m.execute('opt', { k: 123 }, makeContext())
 		expect(result.success).toBe(false)
@@ -738,7 +853,10 @@ describe('ToolManager — result screening (resultGuardrails)', () => {
 				resultGuardrails: [
 					{
 						name: 'injection',
-						check: () => ({ action: 'refuse' as const, reason: 'looks like an instruction' }),
+						check: () => ({
+							action: 'refuse' as const,
+							reason: 'looks like an instruction',
+						}),
 					},
 				],
 			},
@@ -770,7 +888,10 @@ describe('ToolManager — result screening (resultGuardrails)', () => {
 			resultGuardrails: [
 				{
 					name: 'exfil',
-					check: () => ({ action: 'halt' as const, reason: 'credential in output' }),
+					check: () => ({
+						action: 'halt' as const,
+						reason: 'credential in output',
+					}),
 				},
 			],
 		})

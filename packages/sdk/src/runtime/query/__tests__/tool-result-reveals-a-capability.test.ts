@@ -9,7 +9,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { Toolset } from '../../../toolsets/types.js'
-import { deferred, filtered } from '../../../toolsets/wrappers.js'
+import { deferred, filtered, readyWhen } from '../../../toolsets/wrappers.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -19,11 +19,9 @@ import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * `ToolResult.reveals`: the same activation `search_tools` performs
- * (derived by ToolManager from tool messages), offered to any tool's own result — a "connect
- * to project X" call whose further tools should appear only once the
- * connection is made, rather than be found by lexical search or exposed
- * eagerly. See `types/tool/index.ts`'s `reveals` doc and
+ * `ToolResult.reveals` loads deferred schemas through the same receipt path
+ * as `search_tools`. A host-owned readiness check is a separate prerequisite
+ * for a connection-dependent tool. See `types/tool/index.ts` and
  * `runtime/query/executor.ts`'s finalize step.
  */
 
@@ -151,9 +149,12 @@ describe('ToolResult.reveals activates a curated capability', () => {
 			openDoorResult && 'revealedTools' in openDoorResult
 				? openDoorResult.revealedTools
 				: undefined,
-		).toEqual(['room_tool'])
+		).toEqual([{ name: 'room_tool', sourceId: 'test', sourceKind: 'host_tool' }])
 		expect(
-			new ToolManager({ toolsets: tools, messages: () => messages }).availability('room_tool'),
+			new ToolManager({
+				toolsets: tools,
+				messages: () => messages,
+			}).availability('room_tool'),
 		).toBe('active')
 	})
 
@@ -172,6 +173,68 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).not.toContain(
 			'room_tool',
 		)
+	})
+
+	it('keeps a connected capability out of search until the host reports ready', async () => {
+		let connected = false
+		let entered = false
+		const connector: ToolDefinition = {
+			...openDoorTool(['room_tool']),
+			async execute() {
+				connected = true
+				return { success: true, output: 'connected', reveals: ['room_tool'] }
+			},
+		}
+		const room: ToolDefinition = {
+			...roomTool(),
+			async execute() {
+				entered = true
+				return { success: true, output: 'entered' }
+			},
+		}
+		const tools = [testToolset(connector), readyWhen(deferred(testToolset(room)), () => connected)]
+		const { provider, status } = await runOpenDoor(tools, [
+			{
+				toolCalls: [{ id: 's', name: 'search_tools', args: { query: 'room_tool' } }],
+			},
+			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
+			{ toolCalls: [{ id: 'b', name: 'room_tool', args: {} }] },
+			{ text: 'done' },
+		])
+		expect(status).toBe('completed')
+		expect(entered).toBe(true)
+		expect(provider.requests[0]?.tools?.map((tool) => tool.function.name)).not.toContain(
+			'room_tool',
+		)
+		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).not.toContain(
+			'room_tool',
+		)
+		expect(provider.requests[2]?.tools?.map((tool) => tool.function.name)).toContain('room_tool')
+	})
+
+	it('does not make a deferred tool callable when its revealing call fails', async () => {
+		const failingDoor: ToolDefinition = {
+			...openDoorTool(['room_tool']),
+			execute: async () => ({
+				success: false,
+				output: 'offline',
+				error: 'offline',
+				reveals: ['room_tool'],
+			}),
+		}
+		const tools = [testToolset(failingDoor), deferred(testToolset(roomTool()))]
+		const { status, messages } = await runOpenDoorWithMessages(tools, [
+			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
+			{ text: 'done' },
+		])
+		expect(status).toBe('completed')
+		expect(messages.find((message) => message.role === 'tool')?.revealedTools).toBeUndefined()
+		expect(
+			new ToolManager({
+				toolsets: tools,
+				messages: () => messages,
+			}).availability('room_tool'),
+		).toBe('deferred')
 	})
 
 	it('silently ignores an unknown or misspelled name, without throwing or failing the call', async () => {

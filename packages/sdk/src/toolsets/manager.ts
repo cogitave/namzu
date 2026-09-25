@@ -10,11 +10,12 @@ import { recordToolCall } from '../telemetry/metrics.js'
 import { getTracer } from '../telemetry/runtime-accessors.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { ToolResultGuardrailSpec } from '../types/guardrail/index.js'
-import type { Message } from '../types/message/index.js'
+import type { Message, ToolRevealReceipt } from '../types/message/index.js'
 import { PLAN_MODE_REFUSAL } from '../types/permission/index.js'
 import type {
 	LLMToolSchema,
 	PreparedToolExecution,
+	ToolAvailability,
 	ToolContext,
 	ToolDefinition,
 	ToolExecutionResult,
@@ -29,7 +30,7 @@ import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { ToolsetConflictError } from './combine.js'
 import type { ToolSourceRef, Toolset, ToolsetAvailability } from './types.js'
-import { toToolSourceRef } from './types.js'
+import { toToolSourceRef, toolsetIsReady } from './types.js'
 
 export type { ToolExecutionResult }
 
@@ -55,7 +56,10 @@ export interface ToolsetChangeReport {
 	 */
 	readonly drifted: readonly string[]
 	/** A new contributor for a name some other toolset already serves. Refused, not applied. */
-	readonly refused: readonly { readonly name: string; readonly reason: string }[]
+	readonly refused: readonly {
+		readonly name: string
+		readonly reason: string
+	}[]
 }
 
 export interface ToolManagerConfig {
@@ -119,9 +123,9 @@ const SEARCH_WEIGHT_ARGUMENT = 3
  * hit.
  *
  * Availability has no stored, mutable map (unlike `ToolRegistry.availability`).
- * It is DERIVED: a tool is `'deferred'` iff its owning toolset declared
- * `'deferred'` (see `deferred()` in `./wrappers.ts`) and no tool message in
- * the turn's post-compaction history has revealed it. See
+ * It is DERIVED: an unready source is suspended; otherwise a tool is
+ * deferred iff its owner declared `deferred()` and no source-bound receipt
+ * in the turn's post-compaction history has loaded its schema. See
  * {@link ToolManager.availability}.
  *
  * The execution pipeline below (`prepareExecution`/`executePrepared`/
@@ -276,7 +280,10 @@ export class ToolManager {
 		if (!this.dirty) return undefined
 		this.dirty = false
 
-		const current = this.toolsets.map((toolset) => ({ toolset, tools: toolset.tools() }))
+		const current = this.toolsets.map((toolset) => ({
+			toolset,
+			tools: toolset.tools(),
+		}))
 		const nextToolsByName = new Map<string, ToolDefinition>()
 		const nextOwnerByName = new Map<string, Toolset>()
 		const nextDefaultAvailabilityByName = new Map<string, ToolsetAvailability>()
@@ -373,9 +380,9 @@ export class ToolManager {
 	// ---- Availability (derived) -------------------------------------------
 
 	/**
-	 * `'deferred'` iff `name`'s owning toolset declared `'deferred'` AND no
-	 * tool message in the current post-compaction history has revealed it.
-	 * Otherwise `'active'`.
+	 * `'suspended'` when the owning toolset is unready; otherwise `'deferred'`
+	 * when it declared deferred and no matching receipt exists in the
+	 * post-compaction history; otherwise `'active'`.
 	 *
 	 * Nothing here is stored: this is a pure read of the toolset's own
 	 * declaration plus a scan of `messages()`, recomputed on every call — the
@@ -392,22 +399,42 @@ export class ToolManager {
 	 * no separate store to keep in sync, restore on resume, or lose across a
 	 * fork.
 	 */
-	availability(name: string): ToolsetAvailability {
+	availability(name: string): ToolAvailability {
+		const owner = this.ownerToolsetByName.get(name)
+		if (owner && !toolsetIsReady(owner)) return 'suspended'
 		const declared = this.defaultAvailabilityByName.get(name) ?? 'active'
 		if (declared === 'active') return 'active'
 		return this.wasRevealed(name) ? 'active' : 'deferred'
 	}
 
 	private wasRevealed(name: string): boolean {
+		const owner = this.ownerToolsetByName.get(name)
+		if (!owner) return false
 		const window = postCompactionWindow(this.messagesAccessor())
 		for (const message of window) {
-			if (message.role === 'tool' && message.revealedTools?.includes(name)) return true
+			if (
+				message.role === 'tool' &&
+				!message.isError &&
+				message.revealedTools?.some(
+					(receipt) =>
+						receipt.name === name &&
+						receipt.sourceId === owner.source.id &&
+						receipt.sourceKind === owner.source.kind,
+				)
+			)
+				return true
 		}
 		return false
 	}
 
+	/** Bind a reveal to the source currently serving the named tool. */
+	revealReceipt(name: string): ToolRevealReceipt {
+		const source = this.sourceOf(name)
+		return { name, sourceId: source.id, sourceKind: source.kind }
+	}
+
 	private getByAvailability(
-		states: readonly ToolsetAvailability[],
+		states: readonly ToolAvailability[],
 		filter?: readonly string[],
 	): ToolDefinition[] {
 		const candidates = filter
@@ -629,7 +656,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[NAMZU.TOOL_SUCCESS]: false,
 					[NAMZU.TOOL_ERROR]: toErrorMessage(err),
 				})
-				span.setStatus({ code: SpanStatusCode.ERROR, message: toErrorMessage(err) })
+				span.setStatus({
+					code: SpanStatusCode.ERROR,
+					message: toErrorMessage(err),
+				})
 				throw err
 			} finally {
 				span.end()

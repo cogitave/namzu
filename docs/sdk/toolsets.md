@@ -32,6 +32,10 @@ call may return something different" — an MCP server's `list_changed`, for
 instance — and returns the unsubscribe function; it is absent when a
 toolset never changes on its own, which is true of every plain `toolset()`.
 `Toolset.close()` releases whatever the toolset holds open.
+`Toolset.isReady()` is an optional, synchronous host check. When it is false
+or throws, the manager suspends that toolset's tools. It reads the check
+again before discovery and execution, so an old schema receipt does not
+stand in for a live connection.
 
 `toolset(source, tools)` builds the plain, static case: a fixed list of
 tools from one source, snapshotted once at construction so a caller
@@ -78,6 +82,11 @@ the tool carried.
   to keep it out.
 - `deferred(toolset)` — sets `availability` to `'deferred'` without
   touching the tools themselves.
+- `readyWhen(toolset, check)` — makes the host's current prerequisite a
+  separate gate. `search_tools` cannot make an unready source callable.
+  Wrappers retain and combine readiness checks; a combined toolset is ready
+  only when every input is ready, so keep independent readiness groups as
+  separate entries when one should remain usable without another.
 - `requireApproval(toolset, selector?)` — sets
   `ToolDefinition.requiresApproval` to an always-`true` predicate on the
   tools `selector` admits (every tool, when omitted). This only declares
@@ -192,26 +201,22 @@ costs nothing when idle), or a `ToolsetChangeReport`:
 
 ### Availability is derived, not stored
 
-`ToolManager.availability(name)` returns `'active'` or `'deferred'` —
-there is no `'suspended'` state and no mutable map. A tool is `'deferred'`
-iff its owning toolset declared `'deferred'` (`deferred(toolset)`, above)
-AND no tool message in the turn's history, after the last compaction
-summary, has revealed it. "After the last compaction summary" is namzu's
+`ToolManager.availability(name)` returns `'suspended'` when the owner is
+unready, otherwise `'active'` or `'deferred'`. A ready tool is `'deferred'`
+iff its owner declared `deferred(toolset)` and no matching source-bound
+schema receipt exists after the last compaction summary. That window is namzu's
 `post_compaction_window`: `compaction/summary.ts`'s `isCompactionMessage`
 marks the one message a compacted history carries (a system message whose
 content starts with `COMPACTION_HEADER`); everything after it — or the
 whole history, if compaction never ran — is the window `availability`
 scans.
 
-A tool message reveals a name through `ToolMessage.revealedTools` — the
-persisted form of `ToolResult.reveals` (see [Tool result reveals a
-capability](tool-discovery.md)), written by the executor onto the tool
-message it builds from that result, exactly like `isError` or any other
-message field. Nothing is stored separately: resuming a session, forking
-it, or replaying it for an eval reproduces the same reveal set for free as
-long as the history up to the last compaction is intact, because the set is
-a pure read of that history rather than a registry instance's private
-state.
+A successful tool result can load deferred schemas through
+`ToolResult.reveals`; the executor stores source-bound receipts in
+`ToolMessage.revealedTools` (see [Tool discovery](tool-discovery.md)).
+This history preserves schema discovery across resume and fork, while
+`isReady()` remains a fresh host check on every use. Old name-only receipts
+must be rediscovered after upgrading.
 
 `toLLMTools`, `toPromptSection`, `toTierGuidance` and `searchDeferred(query,
 limit?)` render from the derivation above. `sourceOf(name)` returns the
@@ -258,10 +263,11 @@ Pass `toolsets: [toolset('host', definitions)]` to `query()` or an agent
 instead of passing a `ToolRegistry` as `tools`. Use `deferred(toolset(...))`
 for tools the model should discover later. For a different roster on one
 turn, pass a different toolsets array; do not fork or mutate a shared
-registry. A tool that previously called `activate(names)` returns
-`ToolResult.reveals: names` instead. The runtime records admitted names in
-tool messages, so they remain available on later sends and resume until
-compaction. `ToolContext.toolRegistry` now exposes only `has`,
+registry. A tool that previously called `activate(names)` can return
+`ToolResult.reveals: names` to load deferred schemas. The runtime stores
+source-bound receipts in tool messages, so they can remain loaded on later
+sends and resume until compaction while the host reports ready.
+`ToolContext.toolRegistry` now exposes only `has`,
 `availability` and `searchDeferred`; a host needing the full roster can
 construct `ToolManager` directly. See [Tool discovery](tool-discovery.md)
 for reveal and allow-list behaviour.

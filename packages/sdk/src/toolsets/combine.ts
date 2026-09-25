@@ -74,6 +74,9 @@ export function combineToolsets(
 		source: resolvedSource,
 		tools: () => mergeTools(toolsets),
 		...(availability === 'deferred' ? { availability } : {}),
+		...(toolsets.some((inner) => inner.isReady)
+			? { isReady: () => toolsets.every((inner) => inner.isReady?.() ?? true) }
+			: {}),
 	}
 
 	const liveOnChange = toolsets
@@ -119,7 +122,10 @@ function uniformAvailability(
 	toolsets: readonly Toolset[],
 ): ToolsetAvailability | undefined {
 	let agreed:
-		| { readonly availability: ToolsetAvailability; readonly source: ToolSource }
+		| {
+				readonly availability: ToolsetAvailability
+				readonly source: ToolSource
+		  }
 		| undefined
 	for (const inner of toolsets) {
 		const availability = inner.availability ?? 'active'

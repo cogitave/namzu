@@ -23,12 +23,14 @@ function deriveToolset(
 	overrides: {
 		tools?: () => readonly ToolDefinition[]
 		availability?: ToolsetAvailability
+		isReady?: () => boolean
 	},
 ): Toolset {
 	const derived: Toolset = {
 		source: ts.source,
 		tools: overrides.tools ?? (() => ts.tools()),
 		availability: overrides.availability ?? ts.availability,
+		isReady: overrides.isReady ?? ts.isReady,
 	}
 	if (ts.onChange) {
 		// A direct forward: calling the derived toolset's `onChange` subscribes
@@ -96,7 +98,9 @@ export function renamed(ts: Toolset, names: Readonly<Record<string, string>>): T
 export function filtered(ts: Toolset, selector: ToolFilterSelector | ToolPredicate): Toolset {
 	const predicate = toPredicate(ts, selector)
 	const source = toToolSourceRef(ts.source)
-	return deriveToolset(ts, { tools: () => ts.tools().filter((tool) => predicate(tool, source)) })
+	return deriveToolset(ts, {
+		tools: () => ts.tools().filter((tool) => predicate(tool, source)),
+	})
 }
 
 function toPredicate(ts: Toolset, selector: ToolFilterSelector | ToolPredicate): ToolPredicate {
@@ -129,6 +133,17 @@ function toPredicate(ts: Toolset, selector: ToolFilterSelector | ToolPredicate):
  */
 export function deferred(ts: Toolset): Toolset {
 	return deriveToolset(ts, { availability: 'deferred' })
+}
+
+/**
+ * Keep tools unavailable until the host confirms their prerequisite is ready.
+ * This guard is independent of `deferred`: search cannot grant readiness.
+ * The callback must read current host state and return synchronously.
+ */
+export function readyWhen(ts: Toolset, isReady: () => boolean): Toolset {
+	return deriveToolset(ts, {
+		isReady: () => (ts.isReady?.() ?? true) && isReady(),
+	})
 }
 
 /**
@@ -169,5 +184,8 @@ export function requireApproval(
  * whatever metadata a tool already carries (last write wins per key).
  */
 export function withMetadata(ts: Toolset, metadata: Readonly<Record<string, unknown>>): Toolset {
-	return mapTools(ts, (tool) => ({ ...tool, metadata: { ...tool.metadata, ...metadata } }))
+	return mapTools(ts, (tool) => ({
+		...tool,
+		metadata: { ...tool.metadata, ...metadata },
+	}))
 }

@@ -25,6 +25,7 @@ import {
 	type Message,
 	type ToolCall,
 	type ToolResultContent,
+	type ToolRevealReceipt,
 	createToolMessage,
 } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
@@ -496,14 +497,14 @@ export interface ToolCallOutcome {
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
 	/**
-	 * Names this call actually revealed (`ToolResult.reveals`, filtered to
-	 * deferred names inside any active allow-list — see the `reveals`
-	 * handling in `executeSingle`). Carried onto the persisted tool message
+	 * Source-bound receipts for names this successful call revealed
+	 * (`ToolResult.reveals`, filtered to deferred names inside any active
+	 * allow-list). Carried onto the persisted tool message
 	 * (`ToolMessage.revealedTools`) so `ToolManager.availability`
 	 * (`toolsets/manager.ts`) can derive activation from history instead of
 	 * a mutable map.
 	 */
-	revealedTools?: readonly string[]
+	revealedTools?: readonly ToolRevealReceipt[]
 }
 
 export interface ToolExecutionBatch {
@@ -818,7 +819,11 @@ export class ToolExecutor {
 	 */
 	commandDialect(toolName: string): ShellDialect {
 		const tool = this.config.tools.get(toolName)
-		return tool?.commandDialect?.({ sandboxed: this.config.sandbox !== undefined }) ?? 'sh'
+		return (
+			tool?.commandDialect?.({
+				sandboxed: this.config.sandbox !== undefined,
+			}) ?? 'sh'
+		)
 	}
 
 	/**
@@ -1381,7 +1386,10 @@ export class ToolExecutor {
 				input: preparedInput,
 				...(via ? { via } : {}),
 			},
-			buildProbeContext({ sessionId: this.config.sessionId, turnId: this.config.turnId }),
+			buildProbeContext({
+				sessionId: this.config.sessionId,
+				turnId: this.config.turnId,
+			}),
 		)
 		if (vetoOutcome.action === 'deny') {
 			const probeName = vetoOutcome.probeName ?? 'unnamed'
@@ -1481,7 +1489,13 @@ export class ToolExecutor {
 			// cannot tell apart from the result text alone.
 			if (!result.success) {
 				return view?.kind === 'generic' && view.outcome === 'cancelled'
-					? { presentation: { kind: 'generic', label: view.label, outcome: 'cancelled' } as const }
+					? {
+							presentation: {
+								kind: 'generic',
+								label: view.label,
+								outcome: 'cancelled',
+							} as const,
+						}
 					: {}
 			}
 			if (view?.kind !== 'diff') return {}
@@ -1747,7 +1761,10 @@ export class ToolExecutor {
 				toolName,
 				input,
 			},
-			buildProbeContext({ sessionId: this.config.sessionId, turnId: this.config.turnId }),
+			buildProbeContext({
+				sessionId: this.config.sessionId,
+				turnId: this.config.turnId,
+			}),
 		)
 		if (vetoOutcome.action === 'deny') {
 			const probeName = vetoOutcome.probeName ?? 'unnamed'
@@ -1953,7 +1970,10 @@ export class ToolExecutor {
 		const modelContent =
 			selectedContent === undefined
 				? undefined
-				: this.budgetContent(selectedContent, toolName, toolCall.id, { sourceOutput, budgeted })
+				: this.budgetContent(selectedContent, toolName, toolCall.id, {
+						sourceOutput,
+						budgeted,
+					})
 
 		// A failed call, or an override that says the call failed. A `replace`
 		// says the opposite, and reading it as a failure is what made redaction
@@ -1968,15 +1988,11 @@ export class ToolExecutor {
 			}
 		}
 
-		// `reveals`: a curated set of names this call's own result makes
-		// callable, the same mechanism `search_tools` uses. `availability(name)
-		// === 'deferred'` is the one guard that makes an arbitrary
-		// tool/plugin/MCP-authored list safe to write unfiltered otherwise: an
-		// unregistered name reports `'active'` by default (never matching, so
-		// it can never be written as revealed), and an already-active name is
-		// left exactly where it is. The `allowedTools` check keeps a narrowed
-		// turn narrowed: a name outside it is never made callable no matter
-		// what a result claims.
+		// A reveal loads a deferred schema after a successful call. Host-owned
+		// readiness remains a separate gate: a suspended tool cannot be found
+		// or revealed, and a prior receipt cannot make it ready. Bind the
+		// receipt to the current owner so a later source reusing the same name
+		// does not inherit it.
 		//
 		// `revealedTools` is written onto the persisted tool message; nothing
 		// here mutates the manager itself, because `ToolManager.availability`
@@ -1984,15 +2000,15 @@ export class ToolExecutor {
 		// next time it reads the turn's post-compaction history — compaction
 		// is the one boundary that resets it. There is no `activate()` call
 		// to make: the manager has no mutable membership to activate.
-		let revealedTools: readonly string[] | undefined
-		if (!this.config.abortSignal.aborted && result.reveals && result.reveals.length > 0) {
+		let revealedTools: readonly ToolRevealReceipt[] | undefined
+		if (!this.config.abortSignal.aborted && !effectiveIsError && result.reveals?.length) {
 			const revealed = result.reveals.filter(
 				(name) =>
 					this.config.tools.availability(name) === 'deferred' &&
 					(toolContext.allowedTools === undefined || toolContext.allowedTools.includes(name)),
 			)
 			if (revealed.length > 0) {
-				revealedTools = revealed
+				revealedTools = revealed.map((name) => this.config.tools.revealReceipt(name))
 			}
 		}
 
@@ -2363,7 +2379,11 @@ export class ToolExecutor {
 				isError: true,
 			}
 		}
-		return { kind: 'ready', input: modified.prepared.input, prepared: modified.prepared }
+		return {
+			kind: 'ready',
+			input: modified.prepared.input,
+			prepared: modified.prepared,
+		}
 	}
 
 	/**
