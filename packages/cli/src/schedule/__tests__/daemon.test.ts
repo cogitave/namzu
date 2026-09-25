@@ -8,7 +8,7 @@
 
 import { readdirSync } from 'node:fs'
 import { DiskSessionLeaseStore, NOOP_LOGGER } from '@namzu/sdk'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildJob, confirmJob } from '../build.js'
 import {
 	type DaemonNotice,
@@ -379,8 +379,7 @@ describe('upgrades', () => {
 			monotonic: () => Date.now(),
 		})
 		const done = d.run()
-		await new Promise((r) => setTimeout(r, 80))
-		expect(spawned).toHaveLength(1)
+		await vi.waitFor(() => expect(spawned).toHaveLength(1), { timeout: 5_000, interval: 20 })
 		fingerprint = 'v2'
 		await new Promise((r) => setTimeout(r, 80))
 		let finished = false

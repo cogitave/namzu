@@ -241,7 +241,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// of the same session — so once turn 0 reveals `task_create`, turn
 				// 1's own first request already carries it active, unlike turn 0's.
 				expect(names(first)).toEqual(
-					(turn === 0 ? [...core, 'search_tools'] : [...core, 'search_tools', 'task_create']).sort(),
+					(turn === 0
+						? [...core, 'search_tools']
+						: [...core, 'search_tools', 'task_create']
+					).sort(),
 				)
 				expect(names(second)).toContain('task_create')
 				expect(names(third)).toContain('task_create')

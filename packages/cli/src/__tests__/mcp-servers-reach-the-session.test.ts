@@ -5,13 +5,13 @@
  * The chain has three places to break, in series, and `packages/cli` has been
  * cut by two of them before:
  *
- *   namzu.config.json → loadConfig() → createAgentSession() → the tool registry
- *                     ↑ the reader              ↑ the connect  ↑ the register
+ *   namzu.config.json → loadConfig() → createAgentSession() → the MCP toolset
+ *                     ↑ the reader              ↑ the connect  ↑ the compose
  *
  * `permissions` was dropped by the loader for its whole existence and again by
  * the turn, and every test at the time sat on one side or the other of a break.
  * So this one starts at a real config file and ends at `session.toolNames` —
- * the list `/tools` prints and the registry the turn is built from.
+ * the list `/tools` prints and the toolsets the turn is built from.
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -194,7 +194,13 @@ describe('a tool server declared in namzu.config.json', () => {
 			// answers "did it connect" where the operator's question is whether the
 			// tool they wanted is among them.
 			expect(session.mcpConnected).toEqual([
-				{ name: 'tickets', toolCount: 1, tools: ['mcp__tickets__create'] },
+				{
+					name: 'tickets',
+					toolCount: 1,
+					tools: ['mcp__tickets__create'],
+					drift: { added: [], changed: [], removed: [] },
+					refused: [],
+				},
 			])
 			// The load-bearing one. Connecting and adapting is not the feature —
 			// the model has to be able to see and call it.
