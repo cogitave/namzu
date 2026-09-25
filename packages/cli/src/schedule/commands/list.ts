@@ -7,6 +7,7 @@ import { describeSchedule, hostTimeZone } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
+import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import { callsCount, callsLine } from '../fire/calls.js'
 import { compileJobPolicy } from '../policy.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
@@ -14,6 +15,7 @@ import { foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, findJob, listJobs } from '../store/jobs.js'
 import { nextFireOf, readState } from '../store/state.js'
 import type { ScheduleHistoryRecord, ScheduleJob, ScheduleJobState } from '../types.js'
+import { visibleScheduleMessage } from '../visible-source.js'
 import { flag, has, parseArgs, parseCount, pathsFor } from './args.js'
 
 function tzOf(job: ScheduleJob): string {
@@ -44,6 +46,8 @@ export interface JobListing {
 	readonly schedule: string
 	readonly tz: string
 	readonly folder: string
+	/** Absent: `'agent'`, unchanged from before this field existed. */
+	readonly kind?: 'script' | 'script+agent'
 	readonly nextFireAt?: string
 	readonly lastRun?: ScheduleJobState['lastRun']
 	readonly activeRun?: {
@@ -64,6 +68,7 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 		schedule: describeSchedule(job.schedule, { tz: tzOf(job) }),
 		tz: tzOf(job),
 		folder: job.folder.canonical,
+		...(job.runKind && job.runKind !== 'agent' ? { kind: job.runKind } : {}),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastRun: state.lastRun } : {}),
 		...(state.activeRun
@@ -86,21 +91,29 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 export async function listCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ['home', 'json!'])
 	if (args.unknown.length > 0) {
-		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		ctx.formatter.error({
+			message: `unknown option: ${args.unknown.join(', ')}`,
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
 	const { jobs, errors } = listJobs(paths)
 	const rows = jobs.map((job) => listing(job, readState(paths, job.id)))
-	for (const error of errors) ctx.formatter.error({ message: error.message })
+	for (const error of errors)
+		ctx.formatter.error({ message: visibleScheduleMessage(error.message) })
 	if (has(args, 'json') || ctx.formatter.name !== 'text') {
 		const payload = { v: 1, jobs: rows }
 		ctx.formatter.print(ctx.formatter.name === 'text' ? JSON.stringify(payload, null, 2) : payload)
 		return EXIT_OK
 	}
 	if (rows.length === 0) {
+		// "No scheduled jobs" is only true when there is nothing at all;
+		// `errors` above already said why each such file could not be read,
+		// so this line says there is something, not nothing, to look at.
 		ctx.formatter.print(
-			'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.',
+			errors.length > 0
+				? `${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; see above.`
+				: 'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.',
 		)
 		return EXIT_OK
 	}
@@ -119,8 +132,13 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 				: 'running'
 			: ''
 		const tzWarning = r.tz !== host ? ` (host is ${host})` : ''
+		// `agent` (absent) is the common case and stays unmarked, as before;
+		// `script` costs no tokens at all — worth marking, since it is the
+		// reason to pick it over an agent job that would otherwise wake for a
+		// fixed, deterministic check every run.
+		const kind = r.kind === 'script' ? '  [script, 0 tokens]' : r.kind ? `  [${r.kind}]` : ''
 		return [
-			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}`,
+			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}${kind}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
 			`  ${r.folder}`,
 			...(r.activeRun?.resumeCommand
@@ -132,14 +150,21 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 				: []),
 		].join('\n')
 	})
-	ctx.formatter.print(lines.join('\n'))
+	ctx.formatter.print(visibleScheduleMessage(lines.join('\n')))
 	return EXIT_OK
 }
 
 function describeRecord(r: ScheduleHistoryRecord, tz: string): string {
 	switch (r.kind) {
-		case 'run':
-			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${r.reason ? `: ${r.reason}` : ''}${r.summary ? ` — ${r.summary}` : ''}${callsLine(r) ? `\n      ${callsLine(r)}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
+		case 'run': {
+			// `reason`/`summary` can carry a script's or a wake-gate's own
+			// (untrusted) output; made safe for this text view the same way a
+			// desktop notification already is, even though the producers of
+			// both fields should already have.
+			const reason = r.reason ? sanitizeLine(r.reason, 1_000) : undefined
+			const summary = r.summary ? sanitizeLine(r.summary, 1_000) : undefined
+			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${reason ? `: ${reason}` : ''}${summary ? ` — ${summary}` : ''}${callsLine(r) ? `\n      ${callsLine(r)}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
+		}
 		case 'skip':
 			return `${when(r.at, tz)}  skipped ${r.count > 1 ? `${r.count} occurrences` : when(r.scheduledFor, tz)}: ${r.reason}`
 		case 'missed':
@@ -152,7 +177,9 @@ function describeRecord(r: ScheduleHistoryRecord, tz: string): string {
 export async function showCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ['home', 'json!'])
 	if (args.unknown.length > 0 || !args.positionals[0]) {
-		ctx.formatter.error({ message: 'usage: namzu schedule show <job> [--json]' })
+		ctx.formatter.error({
+			message: 'usage: namzu schedule show <job> [--json]',
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
@@ -174,34 +201,53 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 		})
 		const tz = tzOf(job)
 		ctx.formatter.print(
-			[
-				`${job.name}  [${displayState(job)}]  id ${job.id}`,
-				`When        ${describeSchedule(job.schedule, { tz })}`,
-				`Next        ${when(state.nextFireAt, tz)}`,
-				`Folder      ${job.folder.canonical}`,
-				...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
-					? [
-							state.activeRun.handoff
-								? `Waiting     ${parkedRunWords(state.activeRun)}; when that is done, continue it: ${resumeCommand(job, state.activeRun.sessionId)}`
-								: `Waiting     for approval; answer it: ${resumeCommand(job, state.activeRun.sessionId)}`,
-						]
-					: []),
-				`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
-				`Budget      ${job.budget.tokenBudget} tokens, ${job.budget.maxIterations} iterations, ${Math.round(job.budget.timeoutMs / 60_000)} min`,
-				`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,
-				'Permissions',
-				...policy.lines.map((l) => `  ${l}`),
-				'Prompt',
-				...job.prompt.split('\n').map((l) => `  ${l}`),
-				'Recent',
-				...(history.length === 0
-					? ['  nothing yet']
-					: history.map((r) => `  ${describeRecord(r, tz)}`)),
-			].join('\n'),
+			visibleScheduleMessage(
+				[
+					`${job.name}  [${displayState(job)}]  id ${job.id}`,
+					`When        ${describeSchedule(job.schedule, { tz })}`,
+					`Next        ${when(state.nextFireAt, tz)}`,
+					`Folder      ${job.folder.canonical}`,
+					...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
+						? [
+								state.activeRun.handoff
+									? `Waiting     ${parkedRunWords(state.activeRun)}; when that is done, continue it: ${resumeCommand(job, state.activeRun.sessionId)}`
+									: `Waiting     for approval; answer it: ${resumeCommand(job, state.activeRun.sessionId)}`,
+							]
+						: []),
+					...(job.runKind === 'script'
+						? ['Model       none (script only)']
+						: [
+								`Model       ${job.model?.provider ?? '(missing)'}${job.model?.model ? `/${job.model.model}` : ''}`,
+							]),
+					...(job.runKind === 'script'
+						? [
+								`Budget      0 tokens; script timeout ${job.script?.timeoutMs ?? 'unknown'} ms per run`,
+							]
+						: [
+								`Budget      ${job.budget.tokenBudget} tokens, ${job.budget.maxIterations} iterations, ${Math.round(job.budget.timeoutMs / 60_000)} min`,
+							]),
+					`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,
+					'Permissions',
+					...policy.lines.map((l) => `  ${l}`),
+					...(job.runKind && job.runKind !== 'agent' && job.script
+						? [
+								job.runKind === 'script' ? 'Script' : 'Wake-gate script',
+								...job.script.body.split('\n').map((l) => `  ${l}`),
+							]
+						: []),
+					...(job.prompt.trim() ? ['Prompt', ...job.prompt.split('\n').map((l) => `  ${l}`)] : []),
+					'Recent',
+					...(history.length === 0
+						? ['  nothing yet']
+						: history.map((r) => `  ${describeRecord(r, tz)}`)),
+				].join('\n'),
+			),
 		)
 		return EXIT_OK
 	} catch (error) {
-		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+		ctx.formatter.error({
+			message: visibleScheduleMessage(error instanceof Error ? error.message : String(error)),
+		})
 		return 1
 	}
 }
@@ -212,7 +258,9 @@ export async function historyCommand(
 ): Promise<number> {
 	const args = parseArgs(argv, ['home', 'json!', 'limit'])
 	if (args.unknown.length > 0 || !args.positionals[0]) {
-		ctx.formatter.error({ message: 'usage: namzu schedule history <job> [--limit 20] [--json]' })
+		ctx.formatter.error({
+			message: 'usage: namzu schedule history <job> [--limit 20] [--json]',
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
@@ -229,13 +277,17 @@ export async function historyCommand(
 		}
 		const tz = tzOf(job)
 		ctx.formatter.print(
-			records.length === 0
-				? `${job.name} has no history yet.`
-				: records.map((r) => describeRecord(r, tz)).join('\n'),
+			visibleScheduleMessage(
+				records.length === 0
+					? `${job.name} has no history yet.`
+					: records.map((r) => describeRecord(r, tz)).join('\n'),
+			),
 		)
 		return EXIT_OK
 	} catch (error) {
-		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+		ctx.formatter.error({
+			message: visibleScheduleMessage(error instanceof Error ? error.message : String(error)),
+		})
 		return 1
 	}
 }

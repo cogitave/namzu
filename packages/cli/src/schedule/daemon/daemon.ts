@@ -74,18 +74,19 @@ import {
 	updateJob,
 } from '../store/jobs.js'
 import { readState, withoutUndefined, writeState } from '../store/state.js'
-import type {
-	ActiveRun,
-	ScheduleJob,
-	ScheduleJobState,
-	ScheduleRunResult,
-	ScheduleRunStatus,
-	ScheduleRunTrigger,
+import {
+	type ActiveRun,
+	type ScheduleJob,
+	type ScheduleJobState,
+	type ScheduleRunResult,
+	type ScheduleRunStatus,
+	type ScheduleRunTrigger,
+	runResultVersion,
 } from '../types.js'
 import { type EndpointServer, startEndpoint } from './endpoint.js'
 import { EXIT_STOP_REQUESTED } from './exit.js'
 import { pruneDaemonLogs } from './log.js'
-import { type NoticeKind, failureSignature, noticeText } from './notify.js'
+import { type NoticeKind, failureSignature, noticeText, scriptSummaryOf } from './notify.js'
 import { archiveOldRuns } from './retention.js'
 import { abandonParkedTurn, sessionFacts, sessionLeaseLive, turnOutcome } from './sessions.js'
 
@@ -964,7 +965,8 @@ export class ScheduleDaemon {
 			status === 'blocked-config' ||
 			status === 'timed-out' ||
 			status === 'interrupted' ||
-			status === 'approval-expired'
+			status === 'approval-expired' ||
+			status === 'check-failed'
 		const counters = {
 			runs: current.counters.runs + (status === 'awaiting-approval' ? 0 : 1),
 			failures: current.counters.failures + (failed ? 1 : 0),
@@ -1030,7 +1032,9 @@ export class ScheduleDaemon {
 							? 'timed-out'
 							: status === 'interrupted'
 								? 'interrupted'
-								: 'failed'
+								: status === 'check-failed'
+									? 'check-failed'
+									: 'failed'
 				incident = { signature, at }
 			}
 		}
@@ -1070,11 +1074,13 @@ export class ScheduleDaemon {
 		}
 		const notices: Promise<void>[] = []
 		if (tell) {
+			const summary = result.summary ?? scriptSummaryOf(result)
 			notices.push(
 				this.#notice(tell, job, {
 					at: new Date(now),
-					...(result.summary ? { summary: result.summary } : {}),
+					...(summary ? { summary } : {}),
 					...(result.refusedCalls ? { refused: result.refusedCalls } : {}),
+					...(tell === 'check-failed' && result.reason ? { reason: result.reason } : {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
 						: {}),
@@ -1314,7 +1320,11 @@ export function appendRunRecord(
 ): void {
 	const status: ScheduleRunStatus = result.status === 'running' ? 'interrupted' : result.status
 	appendHistory(paths, jobId, {
-		v: 1,
+		v: runResultVersion({
+			status,
+			gateResult: result.gateResult,
+			scriptOutput: result.scriptOutput,
+		}),
 		kind: 'run',
 		at,
 		runId: run.runId,
@@ -1335,6 +1345,8 @@ export function appendRunRecord(
 		...(result.warnings ? { warnings: result.warnings } : {}),
 		...(result.refusedCalls ? { refusedCalls: result.refusedCalls } : {}),
 		...(result.failedCalls ? { failedCalls: result.failedCalls } : {}),
+		...(result.gateResult ? { gateResult: result.gateResult } : {}),
+		...(result.scriptOutput ? { scriptOutput: result.scriptOutput } : {}),
 	})
 }
 

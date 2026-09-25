@@ -70,6 +70,14 @@ export interface ShellWord {
 	readonly expands: boolean
 	/** True when any part of the word was quoted or escaped. */
 	readonly quoted: boolean
+	/**
+	 * True when the word reads a `$(…)` or backtick substitution. Read by
+	 * `redirectionTarget()`: an unquoted substitution used as a `<`/`>`
+	 * redirection target can run twice (measured, bash 5.2.21 and 5.3.15,
+	 * for a `${var:-…}`-style default value that turns out ambiguous), so
+	 * such a target is opaque rather than trusted to run once.
+	 */
+	readonly substitutes: boolean
 }
 
 /** A redirection: `2>&1`, `> file`, `<<EOF` and the rest. */
@@ -145,15 +153,7 @@ export interface ShellLexResult {
  * payload is decoded as bash reads it; for `dash` and friends the bash reading
  * is a close approximation, and the line is only as exact as that.
  */
-export const NESTED_SHELLS: ReadonlySet<string> = new Set([
-	'sh',
-	'bash',
-	'zsh',
-	'dash',
-	'ksh',
-	'ash',
-	'mksh',
-])
+export const NESTED_SHELLS: ReadonlySet<string> = PLAIN_SHELL_NAMES
 
 /** What {@link nestedShellCommand} found: the payload the lexer reads, or why it could not. */
 export type NestedShellCommand =
@@ -171,10 +171,17 @@ export type NestedShellCommand =
 /**
  * Whether the lexer reads a simple command's payload as a command line of
  * its own: `words` are the command's words without its leading assignments.
- * The command must start a shell in {@link NESTED_SHELLS} by basename,
- * exactly as written (`bash`, `/bin/sh`; not `bash.exe`, `BASH` or `fish`),
- * or `busybox` running one, with `-c` among its options; the payload is the
- * first argument that is not an option. `null` when it reads no payload.
+ * The command must, after unwrapping a chain of re-exec wrappers this
+ * recognises (`sudo`, `env`, `nice`, `timeout`, … — {@link unwrapReexecChain}
+ * in `reexec-wrapper.ts`, shared with `program.ts` so the two can never
+ * quietly disagree about where one ends), start a shell in
+ * {@link NESTED_SHELLS} by basename, exactly as written (`bash`, `/bin/sh`;
+ * not `bash.exe`, `BASH` or `fish`), or `busybox`/`toybox` running one, with
+ * `-c` among its options (clustered short forms included, `-ec`, `-lc`); the
+ * payload is the first argument that is not an option. `null` when it reads
+ * no payload — including when a wrapper consumed the whole line (`chroot
+ * /mnt` alone) or hit an option it does not recognise, in which case the
+ * whole line is opaque instead (below), not silently read as unremarkable.
  *
  * A host deciding on {@link lexShellCommandLine}'s reading uses this to know
  * which text that reading already includes. Every other text a program runs
@@ -182,43 +189,16 @@ export type NestedShellCommand =
  * — is not in it.
  */
 export function nestedShellCommand(words: readonly ShellWord[]): NestedShellCommand | null {
-	const head = words[0]
-	if (head === undefined || head.expands) return null
-	const name = basename(head.value)
-	if (name === 'busybox') {
-		const next = words[1]
-		return next !== undefined && !next.expands && NESTED_SHELLS.has(basename(next.value))
-			? nestedShellCommand(words.slice(1))
-			: null
-	}
-	if (!NESTED_SHELLS.has(name)) return null
-	let command = false
-	let payload: ShellWord | undefined
-	for (let i = 1; i < words.length; i += 1) {
-		const word = words[i] as ShellWord
-		if (word.expands) return { opaque: 'nested shell option' }
-		const value = word.value
-		if (value === '--' || value === '-') {
-			payload = words[i + 1]
-			break
-		}
-		if (value.startsWith('--')) {
-			if (value === '--rcfile' || value === '--init-file') i += 1
-			continue
-		}
-		if (/^[-+][A-Za-z]+$/.test(value)) {
-			if (value.startsWith('-') && value.includes('c')) command = true
-			// `-o name`, `-O name`: the option takes the next word.
-			if (/[oO]$/.test(value)) i += 1
-			continue
-		}
-		payload = word
-		break
-	}
-	if (!command) return null
-	if (payload === undefined) return { opaque: 'nested shell without a command' }
-	if (payload.expands) return { opaque: 'nested shell command is expanded at runtime' }
-	return { shell: name, payload }
+	if (words.length === 0) return null
+	const chained = unwrapReexecChain(words)
+	if ('unknown' in chained) return { opaque: chained.unknown }
+	if ('none' in chained) return null
+	const invocation = shellInvocation(chained.rest)
+	if (invocation === null) return null
+	const found = shellDashC(invocation.rest)
+	if ('unknown' in found) return { opaque: found.unknown }
+	if ('none' in found) return null
+	return { shell: invocation.shell, payload: found.payload }
 }
 
 /** How many `bash -c` payloads deep the lexer follows before it gives up. */
@@ -227,6 +207,13 @@ const MAX_SHELL_DEPTH = 4
 const MAX_NESTING = 100
 
 import type { ShellDialect } from '../types/tool/index.js'
+import {
+	PLAIN_SHELL_NAMES,
+	REEXEC_WRAPPER_NAMES,
+	shellDashC,
+	shellInvocation,
+	unwrapReexecChain,
+} from './reexec-wrapper.js'
 
 export type { ShellDialect }
 
@@ -456,6 +443,14 @@ class WordBuilder {
 	quoted = false
 	/** A brace expansion, which POSIX shells do not perform. */
 	brace = false
+	/**
+	 * A `$(…)` or backtick substitution read in this word. Brace expansion
+	 * happens on the word's raw text BEFORE any expansion runs, so `{a,b}`
+	 * beside one duplicates it — `$(cmd){a,b}` runs `cmd` once per brace
+	 * alternative, not once — which the recursive read below does not
+	 * model; `brace && substitutes` together are opaque instead of trusted.
+	 */
+	substitutes = false
 	/** Unquoted `{` seen, and whether a `,` or `..` followed it: brace expansion. */
 	private braceOpen = false
 	private braceSeparator = false
@@ -500,6 +495,12 @@ class WordBuilder {
 		this.previous = ''
 		this.value += text
 		this.empty = false
+	}
+
+	/** A `$(…)` or backtick substitution, kept as written. */
+	substitution(text: string): void {
+		this.substitutes = true
+		this.expansion(text)
 	}
 }
 
@@ -1204,6 +1205,21 @@ class Parser {
 			// Ubuntu ship).
 			this.context.opaque('quoted or expanding target of >& or <&')
 		}
+		if (
+			['<', '>', '<>', '>>', '>|'].includes(operator.op) &&
+			!target.word.quoted &&
+			target.word.substitutes
+		) {
+			// A `<`/`>`-family target must be exactly one word; when it is not
+			// (empty, or several), bash reports "ambiguous redirect" — and for
+			// a `${var:-…}`-style default value, running that check evaluates
+			// the substitution in it a SECOND time (measured, bash 5.2.21 and
+			// 5.3.15: `<${a:-$(a)}` and `>${a:-$(a)}` both run `a` twice, a
+			// bare `<$(a)` or `<a$(a)` only once). Whether the default branch
+			// even runs depends on whether the variable is set at runtime, so
+			// this is opaque rather than trusted to run once.
+			this.context.opaque('unquoted substitution in a redirection target')
+		}
 		const redirection: { -readonly [K in keyof ShellRedirection]: ShellRedirection[K] } = {
 			operator: operator.op,
 			...(operator.fd !== undefined ? { fd: operator.fd } : {}),
@@ -1244,8 +1260,8 @@ class Parser {
 			name !== 'shopt' &&
 			name !== 'enable' &&
 			name !== 'set' &&
-			name !== 'busybox' &&
-			!NESTED_SHELLS.has(name)
+			!NESTED_SHELLS.has(name) &&
+			!REEXEC_WRAPPER_NAMES.has(name)
 		)
 			return
 		const words = command.words.slice(command.assignments)
@@ -1454,7 +1470,7 @@ class Parser {
 					kind: 'word',
 					start,
 					end: start + 1,
-					word: { text: '-', value: '-', expands: false, quoted: false },
+					word: { text: '-', value: '-', expands: false, quoted: false, substitutes: false },
 					reservedOk: false,
 				}
 			}
@@ -1842,11 +1858,19 @@ class Parser {
 		}
 		this.pos = i
 		if (builder.brace) this.bashOnly('brace expansion')
+		// Brace expansion runs on the word's raw text before any substitution
+		// does, so `$(cmd){a,b}` duplicates `$(cmd)` into two copies that
+		// each run `cmd` — the commands pushed while reading this word are
+		// not the one-time account the recursive read otherwise gives.
+		if (builder.brace && builder.substitutes) {
+			this.context.opaque('command substitution duplicated by brace expansion')
+		}
 		const word: ShellWord = {
 			text: src.slice(start, i),
 			value: builder.value,
 			expands: builder.expands,
 			quoted: builder.quoted,
+			substitutes: builder.substitutes,
 		}
 		// A descriptor before a redirection operator: `2>`, `{fd}>`.
 		const next = src[i]
@@ -2019,7 +2043,7 @@ class Parser {
 				builder.expansion(src.slice(at, end))
 				return end
 			}
-			const end = this.parameterBraces(n + 1, inDouble)
+			const end = this.parameterBraces(n + 1, inDouble, builder)
 			builder.expansion(src.slice(at, end))
 			return end
 		}
@@ -2033,7 +2057,18 @@ class Parser {
 					return end
 				}
 			}
-			this.context.opaque('command substitution')
+			// `$(…)`'s body is read as a command list of its own, the same
+			// way `nestedShell()` reads a `bash -c` payload: each command
+			// found inside it is pushed to the shared `context.commands`
+			// (marked `origin: 'substitution'`), checked by the same deny
+			// rules, instead of the containing line being called opaque
+			// outright. Finding the matching `)` requires the parse to
+			// succeed — a `)` inside a quoted string or a `case` pattern is
+			// not it — so a substitution that does not parse throws all the
+			// way to `lexShellCommandLine`'s own catch, which is the only
+			// sound way to be wrong about its extent, and marks the whole
+			// line opaque (`internal error`) exactly as any other
+			// unmodeled construct does.
 			const inner = new Parser(
 				src,
 				n + 1,
@@ -2043,7 +2078,7 @@ class Parser {
 				this.nestingNow + 1,
 			)
 			const end = inner.substitution()
-			builder.expansion(src.slice(at, end))
+			builder.substitution(src.slice(at, end))
 			return end
 		}
 		if (next === '[') {
@@ -2112,7 +2147,7 @@ class Parser {
 	 * (indirection, a subscript or offset evaluated as arithmetic, a
 	 * transformation) is opaque.
 	 */
-	private parameterBraces(from: number, inDouble: boolean): number {
+	private parameterBraces(from: number, inDouble: boolean, builder: WordBuilder): number {
 		const src = this.src
 		let i = from
 		const scratch = new WordBuilder()
@@ -2162,6 +2197,11 @@ class Parser {
 		const content = src.slice(from, i).replace(/\\\n/g, '')
 		if (!SAFE_PARAMETER.test(content)) this.context.opaque('parameter expansion')
 		else if (!POSIX_PARAMETER.test(content)) this.bashOnly('parameter expansion')
+		// A substitution inside the default-value expression (`${a:-$(cmd)}`)
+		// is read into a scratch builder discarded above; propagate whether
+		// it happened onto the enclosing word, which is what the caller's
+		// own brace-expansion check reads.
+		if (scratch.substitutes) builder.substitutes = true
 		return i + 1
 	}
 
@@ -2296,8 +2336,12 @@ class Parser {
 			body += char
 			i += 1
 		}
-		this.context.opaque('command substitution')
-		builder.expansion(src.slice(at, i + 1))
+		// Backtick's extent is found lexically, above — unlike `$(…)`, its
+		// boundary does not depend on the body parsing as commands. So a
+		// body that fails to parse is caught here, the same way a `bash -c`
+		// payload's own failure is (`nestedShell()`): the rest of the LINE
+		// is still read, only this substitution's own commands are unknown.
+		builder.substitution(src.slice(at, i + 1))
 		this.context.rescan(body.length)
 		this.inherit(body)
 		const inner = new Parser(body, 0, this.context, 'substitution', this.depth, this.nestingNow + 1)
@@ -2305,6 +2349,7 @@ class Parser {
 			inner.program()
 		} catch (error) {
 			if (!(error instanceof Stop)) throw error
+			this.context.opaque(`command substitution: ${error.reason}`)
 		}
 		return i + 1
 	}

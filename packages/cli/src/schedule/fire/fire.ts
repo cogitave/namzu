@@ -25,11 +25,15 @@
 
 import { hostname } from 'node:os'
 import {
+	type CommandShell,
 	TurnCancelled,
 	asSessionId,
 	describeSchedule,
 	hostTimeZone,
+	installedCommandShellForDialect,
 	releaseHeldSessionLeases,
+	revealHiddenCharacters,
+	scanSchedulePrompt,
 } from '@namzu/sdk'
 import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
@@ -46,22 +50,28 @@ import {
 import { cliLogger, createStderrSink, installCliLogging } from '../../logging.js'
 import type { AgentEvent } from '../../tui/agent.js'
 import { describeTurnInterruption, retryAfterMs } from '../../tui/turn-interruption.js'
+import { DEFAULT_WAKE_GATE_CONTEXT_CHARS } from '../build.js'
 import { readDaemonEnv } from '../env.js'
 import { checkJobFolder, folderReadable } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { compileJobPolicy, withheldTools } from '../policy.js'
+import { compileJobPolicy, compileScriptCheckPolicy, withheldTools } from '../policy.js'
+import { verifyScheduledScript } from '../script-check.js'
+import { scriptShellUnavailableReason } from '../script-shell.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
-import type {
-	ScheduleJob,
-	ScheduleRunResult,
-	ScheduleRunStatus,
-	ScheduleRunTrigger,
+import {
+	type ScheduleJob,
+	type ScheduleRunResult,
+	type ScheduleRunStatus,
+	type ScheduleRunTrigger,
+	runResultVersion,
 } from '../types.js'
 import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
 import { CallTally } from './calls.js'
 import { writeRunResult } from './result.js'
+import { capOutput, runScript } from './run-script.js'
 import { unattendedNote } from './unattended-note.js'
+import { parseWakeGateOutput } from './wake-gate.js'
 
 export const HOLD_REASON = 'Scheduled run: waiting for the operator to approve'
 /** How long past the turn's own timeout the child waits before it stops itself. */
@@ -107,21 +117,37 @@ export function parseFireArgs(argv: readonly string[]): FireArgs | { error: stri
 }
 
 /** Where a credential came from, in words, and whether it is another program's. */
-function credentialSource(source: { kind: string; envName?: string; path?: string }): {
+function credentialSource(source: {
+	kind: string
+	envName?: string
+	path?: string
+}): {
 	text: string
 	borrowed: boolean
 } {
 	switch (source.kind) {
 		case 'env':
-			return { text: `environment variable ${source.envName ?? ''}`.trim(), borrowed: false }
+			return {
+				text: `environment variable ${source.envName ?? ''}`.trim(),
+				borrowed: false,
+			}
 		case 'claude-file':
-			return { text: `Claude Code's sign-in (${source.path ?? ''})`, borrowed: true }
+			return {
+				text: `Claude Code's sign-in (${source.path ?? ''})`,
+				borrowed: true,
+			}
 		case 'codex-file':
 			return { text: `Codex's sign-in (${source.path ?? ''})`, borrowed: true }
 		case 'gemini-file':
-			return { text: `Gemini CLI's sign-in (${source.path ?? ''})`, borrowed: true }
+			return {
+				text: `Gemini CLI's sign-in (${source.path ?? ''})`,
+				borrowed: true,
+			}
 		case 'stored':
-			return { text: `namzu's credential store (${source.path ?? ''})`, borrowed: false }
+			return {
+				text: `namzu's credential store (${source.path ?? ''})`,
+				borrowed: false,
+			}
 		case 'keychain':
 			return { text: 'the system keychain', borrowed: true }
 		default:
@@ -172,6 +198,11 @@ export async function runFire(
 	const warnings: string[] = []
 	const found: { credential?: string } = {}
 	let calls = new CallTally()
+	// `script+agent` only: set once its gate has run, so every finish() from
+	// here on — whichever status the rest of this function reaches — carries
+	// it, the same way sessionId/turnId are threaded through `base()`.
+	let gateResult: { wake: boolean; contextChars: number } | undefined
+	let scriptOutput: { stdout: string; stderr: string } | undefined
 	const base = (): Omit<ScheduleRunResult, 'status' | 'exitCode'> => ({
 		v: 1,
 		kind: 'schedule-run-result',
@@ -183,6 +214,8 @@ export async function runFire(
 		...(turnId ? { turnId } : {}),
 		...(found.credential ? { credentialSource: found.credential } : {}),
 		...(warnings.length > 0 ? { warnings: [...warnings] } : {}),
+		...(gateResult ? { gateResult } : {}),
+		...(scriptOutput ? { scriptOutput } : {}),
 		...calls.tallies(),
 	})
 	// Once the watchdog has recorded the wall clock, nothing after it rewrites the result.
@@ -193,7 +226,14 @@ export async function runFire(
 		extra: Partial<ScheduleRunResult> = {},
 	): number => {
 		if (settledByWatchdog) return 1
-		writeRunResult(paths, { ...base(), status, exitCode, endedAt: now().toISOString(), ...extra })
+		const result: ScheduleRunResult = {
+			...base(),
+			status,
+			exitCode,
+			endedAt: now().toISOString(),
+			...extra,
+		}
+		writeRunResult(paths, { ...result, v: runResultVersion(result) })
 		log.info('scheduled run finished', {
 			'namzu.schedule.job_id': args.jobId,
 			'namzu.schedule.run_id': args.runId,
@@ -225,6 +265,16 @@ export async function runFire(
 			`job changed outside namzu since it was confirmed; run namzu schedule confirm ${job.name}`,
 		)
 	}
+	const runKind = job.runKind ?? 'agent'
+	if (runKind !== 'agent' && runKind !== 'script' && runKind !== 'script+agent') {
+		return blocked(`the job has an unknown run kind: ${String(runKind)}`)
+	}
+	if (runKind !== 'agent' && !job.script) {
+		return blocked(`the ${runKind} job has no script recorded`)
+	}
+	const model = job.model
+	if (runKind !== 'script' && !model)
+		return blocked('an agent job has no model; edit the job and confirm it again')
 
 	// ── the folder, as trusted ────────────────────────────────────────────
 	const folder = checkJobFolder(job.folder.path, { namzuHome: paths.home })
@@ -271,6 +321,117 @@ export async function runFire(
 		return blocked(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
 
+	// ── a pure script job: no model, no session, no browser or provider ────
+	// Everything above already re-verified the job is active, its
+	// confirmation still holds (which now covers the script's own text), its
+	// folder is the confirmed one and its project config has not drifted —
+	// exactly what an agent run checks before it opens a session. A script
+	// job stops here instead of going any further.
+	// `build.ts` already refuses to CREATE a script/script+agent job on
+	// native (non-WSL) Windows, but a job confirmed on WSL or Linux can still
+	// be fired by a daemon that later finds itself running on native Windows
+	// (a moved NAMZU_HOME, a machine re-imaged from WSL to a native install).
+	// The `sh` dialect label `verifyScheduledScript` checked the job's script
+	// against is shared by POSIX sh AND cmd.exe, so a dialect match alone
+	// does not mean the floor actually read what would run; refuse here too,
+	// the same way the dialect-mismatch check below refuses a changed shell.
+	if (runKind !== 'agent' && process.platform === 'win32') {
+		return blocked(
+			`a ${runKind} job cannot run on native Windows: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+		)
+	}
+	const selectedScriptShell =
+		runKind !== 'agent' && job.script
+			? installedCommandShellForDialect(job.script.shell)
+			: undefined
+	if (runKind !== 'agent' && job.script && !selectedScriptShell)
+		return blocked(scriptShellUnavailableReason(job.script.shell))
+	if (runKind !== 'agent' && job.script && selectedScriptShell) {
+		// The digest binds the script's own text and the job's OWN rules, but
+		// not a config file's `deny` rules — those can gain a new one after
+		// confirmation without the digest ever changing. An agent phase would
+		// see that new deny on its very next live call; a script has no live
+		// calls to see it with, so it is re-verified fresh, every fire, the
+		// same way a moved folder or a changed project config already is.
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(
+			job.script.body,
+			selectedScriptShell.dialect,
+			scriptPolicy,
+		)
+		if (!checked.ok) {
+			return blocked(
+				`the ${runKind === 'script' ? 'script' : 'wake-gate script'} is no longer allowed: ${checked.reason}; run namzu schedule confirm ${job.name} once it is fixed`,
+			)
+		}
+	}
+	if (runKind === 'script') {
+		return runScriptJob(
+			job,
+			folder.canonical,
+			paths,
+			deps,
+			selectedScriptShell as CommandShell,
+			finish,
+			blocked,
+		)
+	}
+	if (!model) return blocked('an agent job has no model; edit the job and confirm it again')
+
+	// ── script+agent's wake-gate: a cheap script decides whether the
+	// (expensive) agent phase is worth running at all ─────────────────────
+	let wakeGateContext: string | undefined
+	if (runKind === 'script+agent') {
+		const script = job.script
+		if (!script) return blocked(`${job.name} is a script+agent job with no wake-gate recorded`)
+		const gateEnv = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+		const gate = await runScript(script.body, script.shell, {
+			cwd: folder.canonical,
+			env: gateEnv,
+			timeoutMs: script.timeoutMs,
+			resolvedShell: selectedScriptShell,
+		})
+		if (gate.shellUnavailable) return blocked(scriptShellUnavailableReason(gate.shellUnavailable))
+		if (gate.dialectMismatch) {
+			return blocked(
+				`the wake-gate script was confirmed for ${gate.dialectMismatch.expected}, but this host now runs commands as ${gate.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
+			)
+		}
+		scriptOutput = {
+			stdout: capOutput(gate.stdout),
+			stderr: capOutput(gate.stderr),
+		}
+		if (gate.timedOut) {
+			return finish('check-failed', 1, {
+				reason: `the wake-gate script exceeded its ${script.timeoutMs} ms timeout`,
+			})
+		}
+		if (gate.exitCode !== 0) {
+			return finish('check-failed', 1, {
+				reason: `the wake-gate script exited ${gate.exitCode ?? 'without a code'}`,
+			})
+		}
+		const parsed = parseWakeGateOutput(
+			gate.stdout,
+			job.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
+		)
+		if (!parsed.ok) return finish('check-failed', 1, { reason: parsed.reason })
+		gateResult = {
+			wake: parsed.result.wake,
+			contextChars: parsed.result.context.length,
+		}
+		if (!parsed.result.wake) return finish('completed', 0, {})
+		// A warning only: runtime output is not something anyone confirms in
+		// advance, so this never blocks the way the same scan can gate a
+		// proposed prompt.
+		const findings = scanSchedulePrompt(parsed.result.context)
+		if (findings.length > 0) warnings.push(...findings.map((f) => `wake-gate context: ${f}`))
+		wakeGateContext = revealHiddenCharacters(parsed.result.context)
+	}
 	// ── the browser, when the job has one ─────────────────────────────────
 	const grant = job.permissions.browser
 	let browser: Extract<BrowserPreflight, { ok: true }> | undefined
@@ -289,10 +450,10 @@ export async function runFire(
 	const discoveryEnv = { ...(deps.env ?? process.env), ...daemonEnv.values }
 	const agent = deps.agent ?? (await import('../../tui/agent.js'))
 	const probe = await agent.probeAgentSession({ env: discoveryEnv })
-	const detected = probe.detected.find((d) => d.entry.id === job.model.provider)
+	const detected = probe.detected.find((d) => d.entry.id === model.provider)
 	if (!detected) {
 		return blocked(
-			`no credential for ${job.model.provider} in the scheduler's environment; run namzu login, or put the key in ${paths.daemonEnv}`,
+			`no credential for ${model.provider} in the scheduler's environment; run namzu login, or put the key in ${paths.daemonEnv}`,
 		)
 	}
 	const source = credentialSource(detected.source as { kind: string })
@@ -302,8 +463,8 @@ export async function runFire(
 		version: 3,
 		providers: [
 			{
-				id: job.model.provider as ProviderId,
-				...(job.model.model ? { model: job.model.model } : {}),
+				id: model.provider as ProviderId,
+				...(model.model ? { model: model.model } : {}),
 			},
 		],
 		subagents: { active: [] },
@@ -472,8 +633,9 @@ export async function runFire(
 					browser: grant !== undefined,
 					now: now(),
 					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
+					...(wakeGateContext !== undefined ? { wakeGateContext } : {}),
 				}),
-				...(job.model.effort ? { effort: job.model.effort as never } : {}),
+				...(model.effort ? { effort: model.effort as never } : {}),
 			}),
 		)
 		// A provider pause is waited out inside the job's budget, from the
@@ -536,7 +698,11 @@ export async function runFire(
 		})
 	}
 	if (failed)
-		return finish('failed', 1, { reason: failed, ...(summary ? { summary } : {}), ...withUsage })
+		return finish('failed', 1, {
+			reason: failed,
+			...(summary ? { summary } : {}),
+			...withUsage,
+		})
 	if (stopReason === 'timeout') {
 		return finish('timed-out', 1, {
 			reason: `the turn reached its ${job.budget.timeoutMs} ms time limit`,
@@ -551,7 +717,64 @@ export async function runFire(
 			...withUsage,
 		})
 	}
-	return finish('completed', 0, { ...(summary ? { summary } : {}), ...withUsage })
+	return finish('completed', 0, {
+		...(summary ? { summary } : {}),
+		...withUsage,
+	})
+}
+
+/**
+ * Run a pure `script` job's body on the host and map the outcome to a
+ * status: `completed` (exit 0), `failed` (non-zero exit), `timed-out` (the
+ * script's own `timeoutMs`, a separate clock from `budget.timeoutMs`).
+ * `blocked-config` only for what stops the script before it could even
+ * start — here, the host's shell no longer matching the dialect the script
+ * was verified in. Never `awaiting-approval`/`approval-expired`/
+ * `interrupted` in the tool-parking sense: nothing about a script can park.
+ */
+async function runScriptJob(
+	job: ScheduleJob,
+	cwd: string,
+	paths: SchedulePaths,
+	deps: FireDependencies,
+	selectedShell: CommandShell,
+	finish: (
+		status: ScheduleRunStatus,
+		exitCode: number,
+		extra?: Partial<ScheduleRunResult>,
+	) => number,
+	blocked: (reason: string, exitCode?: number) => number,
+): Promise<number> {
+	const script = job.script
+	if (!script) return blocked(`${job.name} is a script job with no script recorded`)
+	const env = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+	const result = await runScript(script.body, script.shell, {
+		cwd,
+		env,
+		timeoutMs: script.timeoutMs,
+		resolvedShell: selectedShell,
+	})
+	if (result.shellUnavailable) return blocked(scriptShellUnavailableReason(result.shellUnavailable))
+	if (result.dialectMismatch) {
+		return blocked(
+			`the script was confirmed for ${result.dialectMismatch.expected}, but this host now runs commands as ${result.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
+		)
+	}
+	const scriptOutput = {
+		stdout: capOutput(result.stdout),
+		stderr: capOutput(result.stderr),
+	}
+	if (result.timedOut) {
+		return finish('timed-out', 1, {
+			reason: `the script exceeded its ${script.timeoutMs} ms timeout`,
+			scriptOutput,
+		})
+	}
+	if (result.exitCode === 0) return finish('completed', 0, { scriptOutput })
+	return finish('failed', result.exitCode ?? 1, {
+		reason: `the script exited ${result.exitCode ?? 'without a code'}`,
+		scriptOutput,
+	})
 }
 
 /**

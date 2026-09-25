@@ -9,7 +9,17 @@
 import type { ScheduleBrowserGrant, ScheduleJobLifecycle, ScheduleSpec } from '@namzu/sdk'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
-export const SCHEDULE_FORMAT_VERSION = 1
+/** The format before `runKind`/`script`/`check-failed` existed. Always readable. */
+export const SCHEDULE_FORMAT_VERSION_LEGACY = 1
+/**
+ * The current format. A job/run-result/history record is written at this
+ * version only when it actually carries what a `SCHEDULE_FORMAT_VERSION_LEGACY`
+ * reader cannot interpret (`runKind !== 'agent'`, a `script` block, a
+ * `check-failed` status, `gateResult` or `scriptOutput`); everything else is
+ * still written at the legacy version, unchanged, so an old namzu keeps
+ * reading every job and record it always could.
+ */
+export const SCHEDULE_FORMAT_VERSION = 2
 
 /** What a scheduled run may do. Required on every job; there is no default. */
 export interface SchedulePermissionSet {
@@ -54,16 +64,39 @@ export interface ProjectDigest {
 
 export type ConfirmationSurface = 'cli-tty' | 'tui' | 'tool-confirmed' | 'cli-noninteractive'
 
+/** What a run does. Absent (a `v:1` file): `'agent'`. */
+export type ScheduleRunKind = 'agent' | 'script' | 'script+agent'
+
 export interface ScheduleJob {
-	readonly v: 1
+	readonly v: 1 | 2
 	readonly kind: 'schedule-job'
 	readonly id: string
 	readonly name: string
 	readonly revision: number
 	readonly createdAt: string
 	readonly updatedAt: string
-	readonly createdBy: { readonly surface: 'cli' | 'tui' | 'tool'; readonly sessionId?: string }
+	readonly createdBy: {
+		readonly surface: 'cli' | 'tui' | 'tool'
+		readonly sessionId?: string
+	}
+	/** The operator's instruction to the model. Empty for a pure `script` job. */
 	readonly prompt: string
+	/** What this job does. Absent on a `v:1` file, which is read as `'agent'`. */
+	readonly runKind?: ScheduleRunKind
+	/** Present for `runKind: 'script'` and as the wake-gate for `'script+agent'`. */
+	readonly script?: {
+		/** The confirmed script text, verbatim. */
+		readonly body: string
+		/** No default: chosen when the script was proposed. */
+		readonly shell: 'bash' | 'sh'
+		/** Separate from `budget.timeoutMs`. */
+		readonly timeoutMs: number
+	}
+	/** Present only for `runKind: 'script+agent'`. */
+	readonly wakeGate?: {
+		/** Cap on the gate's `context` string, cut with an explicit marker. */
+		readonly maxContextChars: number
+	}
 	readonly folder: { readonly path: string; readonly canonical: string }
 	readonly trust: {
 		readonly canonical: string
@@ -73,7 +106,12 @@ export interface ScheduleJob {
 	readonly schedule: ScheduleSpec
 	readonly permissions: SchedulePermissionSet
 	readonly budget: ScheduleBudget
-	readonly model: { readonly provider: string; readonly model?: string; readonly effort?: string }
+	/** Required for agent and script+agent jobs; unused and absent on new pure script jobs. */
+	readonly model?: {
+		readonly provider: string
+		readonly model?: string
+		readonly effort?: string
+	}
 	readonly catchUp: { readonly windowMs: number }
 	readonly notify: {
 		readonly finished: boolean
@@ -108,6 +146,33 @@ export type ScheduleRunStatus =
 	| 'timed-out'
 	| 'blocked-config'
 	| 'cancelled'
+	/**
+	 * `runKind: 'script'` or `'script+agent'` only: the script (or the
+	 * wake-gate) itself malfunctioned — non-zero exit, its own timeout, or
+	 * stdout that is not the wake-gate's contract. Independent of whether an
+	 * agent phase would have succeeded.
+	 */
+	| 'check-failed'
+
+/** `v:2` only when the job actually uses what a `v:1` reader cannot interpret. */
+export function jobFormatVersion(job: Pick<ScheduleJob, 'runKind'>): 1 | 2 {
+	return job.runKind !== undefined && job.runKind !== 'agent'
+		? SCHEDULE_FORMAT_VERSION
+		: SCHEDULE_FORMAT_VERSION_LEGACY
+}
+
+/** `v:2` only when the record carries what a `v:1` reader cannot interpret. */
+export function runResultVersion(fields: {
+	readonly status: ScheduleRunStatus
+	readonly gateResult?: unknown
+	readonly scriptOutput?: unknown
+}): 1 | 2 {
+	return fields.status === 'check-failed' ||
+		fields.gateResult !== undefined ||
+		fields.scriptOutput !== undefined
+		? SCHEDULE_FORMAT_VERSION
+		: SCHEDULE_FORMAT_VERSION_LEGACY
+}
 
 export type ScheduleRunTrigger = 'scheduled' | 'late' | 'catch-up' | 'manual'
 
@@ -187,7 +252,7 @@ export interface ScheduleJobState {
 
 export type ScheduleHistoryRecord =
 	| {
-			readonly v: 1
+			readonly v: 1 | 2
 			readonly kind: 'run'
 			readonly at: string
 			readonly runId: string
@@ -203,10 +268,23 @@ export type ScheduleHistoryRecord =
 			readonly reason?: string
 			readonly exitCode?: number
 			readonly summary?: string
-			readonly usage?: { readonly totalTokens?: number; readonly costUsd?: number }
+			readonly usage?: {
+				readonly totalTokens?: number
+				readonly costUsd?: number
+			}
 			readonly warnings?: readonly string[]
 			readonly refusedCalls?: ScheduleCallTally
 			readonly failedCalls?: ScheduleCallTally
+			/** `runKind: 'script+agent'` only: what its wake-gate decided. */
+			readonly gateResult?: {
+				readonly wake: boolean
+				readonly contextChars: number
+			}
+			/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
+			readonly scriptOutput?: {
+				readonly stdout: string
+				readonly stderr: string
+			}
 	  }
 	| {
 			readonly v: 1
@@ -251,7 +329,7 @@ export type ScheduleHistoryRecord =
 
 /** What a fire child leaves behind. Authoritative over its exit code. */
 export interface ScheduleRunResult {
-	readonly v: 1
+	readonly v: 1 | 2
 	readonly kind: 'schedule-run-result'
 	readonly runId: string
 	readonly jobId: string
@@ -282,6 +360,13 @@ export interface ScheduleRunResult {
 	readonly refusedCalls?: ScheduleCallTally
 	/** Calls that ran and returned an error. */
 	readonly failedCalls?: ScheduleCallTally
+	/** `runKind: 'script+agent'` only: what its wake-gate decided. */
+	readonly gateResult?: {
+		readonly wake: boolean
+		readonly contextChars: number
+	}
+	/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
+	readonly scriptOutput?: { readonly stdout: string; readonly stderr: string }
 	readonly startedAt: string
 	readonly endedAt?: string
 }

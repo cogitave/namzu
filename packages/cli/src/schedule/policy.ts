@@ -349,6 +349,68 @@ export function compileJobPolicy(
 	}
 }
 
+export interface ScriptCheckPolicy {
+	/** The scheduled-run floor, exactly as the agent path gets it. */
+	readonly floorRules: readonly AuthorizationRule[]
+	/**
+	 * Only what can ever say `deny` for a script: every config file's deny
+	 * rules, and the job's OWN rules narrowed to their `deny` entries.
+	 * `allow`/`ask` rules and `unmatched` are never in here — a script is not
+	 * a call a model improvises that something needs to allow; it is the
+	 * exact, human-confirmed, digest-bound text, and that confirmation is
+	 * its allowance. What is here can only narrow it further.
+	 */
+	readonly denyRules: readonly AuthorizationRule[]
+	readonly diagnostics: readonly string[]
+}
+
+/**
+ * The policy a `script`/`script+agent` job's SCRIPT BODY is checked
+ * against — never {@link compileJobPolicy}'s full set, which also carries
+ * `allow`/`ask` rules and `unmatched` that exist to referee a model
+ * improvising calls one at a time. A script has no such referee: it is
+ * fixed text an operator read and confirmed. Requiring an `allow` rule for
+ * it to pass duplicates that confirmation with a second, laxer one (a
+ * blanket `bash: allow` was the shape this forced), and because a
+ * `script+agent` job has only one permission set, that same blanket rule
+ * then governed the model's OWN bash calls in the agent phase too. Dropping
+ * `allow`/`ask`/`unmatched` from the script's own check removes the reason
+ * to ever write one: only `deny` rules (the operator's, or any config
+ * file's) and the floor can still refuse a confirmed script.
+ *
+ * The job's `unmatched`/`rules` (with `allow`/`ask` included) still govern
+ * the AGENT phase exactly as {@link compileJobPolicy} always has — this
+ * function changes nothing about that path.
+ */
+export function compileScriptCheckPolicy(
+	set: SchedulePermissionSet,
+	options: {
+		readonly layers: readonly PermissionLayer[]
+		readonly namzuHome: string
+		readonly folder?: { readonly path: string; readonly canonical: string }
+	},
+): ScriptCheckPolicy {
+	const diagnostics: string[] = []
+	const configDenies: AuthorizationRule[] = []
+	for (const layer of options.layers) {
+		const compiled = compilePermissions(denialsOf(layer.permissions))
+		configDenies.push(...compiled.rules)
+		for (const d of compiled.diagnostics)
+			diagnostics.push(`${layer.path}: ${describeDiagnostic(d)}`)
+	}
+	const ownDenies = compilePermissions(denialsOf(set.rules))
+	for (const d of ownDenies.diagnostics) diagnostics.push(`job: ${describeDiagnostic(d)}`)
+	return {
+		floorRules: scheduledRunFloor(
+			options.namzuHome,
+			homedir(),
+			options.folder ? [options.folder.path, options.folder.canonical] : [],
+		),
+		denyRules: [...configDenies, ...ownDenies.rules],
+		diagnostics,
+	}
+}
+
 const GRANT_WORDS: Record<ScheduleBrowserSiteLevel, string> = {
 	read: 'open and read, never change',
 	ask: 'open and read; each change waits for you',

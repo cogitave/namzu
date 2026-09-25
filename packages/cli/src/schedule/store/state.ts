@@ -20,7 +20,7 @@ export function emptyState(jobId: string): ScheduleJobState {
 
 export function readState(paths: SchedulePaths, jobId: string): ScheduleJobState {
 	return (
-		readVersioned<ScheduleJobState>(paths.stateOf(jobId), 'schedule-state') ?? emptyState(jobId)
+		readVersioned<ScheduleJobState>(paths.stateOf(jobId), 'schedule-state', 1) ?? emptyState(jobId)
 	)
 }
 

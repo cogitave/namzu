@@ -11,10 +11,29 @@
 /** A rule effect, in the vocabulary of the CLI's `[permissions]` table. */
 export type ScheduleRuleEffect = 'allow' | 'ask' | 'deny'
 
-/** What the model proposes. Validated by the tool's schema, then by the host. */
+/**
+ * What the model proposes. Validated by the tool's schema, then by the host.
+ *
+ * `runKind` absent means `'agent'`, unchanged from before this field
+ * existed — every existing host keeps compiling and behaving the same.
+ * `prompt` is optional ONLY because a pure `'script'` draft has none; a
+ * `ScheduleToolHost` that read it as a bare `string` before this field
+ * existed now needs a null check under `strictNullChecks` (see the SDK's
+ * changeset for this release: this is a breaking change to the type, not a
+ * free widening).
+ */
 export interface ScheduleJobDraft {
 	readonly name: string
-	readonly prompt: string
+	/** Required unless `runKind` is `'script'`, whose prompt is unused. */
+	readonly prompt?: string
+	/** Absent: `'agent'`. */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/** Required when `runKind` is `'script'` or `'script+agent'` (the wake-gate). */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs?: number
+	}
 	/** Schedule words: `every 30m`, `0 9 * * 1-5`, `at 09:00`, `in 2h`. */
 	readonly when: string
 	/** Folder the job runs in. Absent: the session's working directory. */
@@ -78,7 +97,16 @@ export interface ScheduleJobPreview {
 	readonly folder: string
 	/** True when `folder` is outside the session's working directory and added directories. */
 	readonly outsideSessionRoots: boolean
+	/** Empty for a pure `'script'` job, whose prompt is unused. */
 	readonly prompt: string
+	/** Absent: `'agent'`. */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/** Present for `runKind: 'script'`/`'script+agent'`: the exact confirmed text. */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs: number
+	}
 	/** The schedule in words, with its zone. */
 	readonly schedule: string
 	/** The next fire times, ISO-8601 UTC. */
@@ -87,8 +115,11 @@ export interface ScheduleJobPreview {
 	readonly rules: readonly string[]
 	readonly unmatched: 'park' | 'deny' | 'allow'
 	readonly execution: 'host' | 'sandbox'
-	/** A rule lets the run reach the network. */
+	/** The run can reach the network, including through a fixed host script. */
 	readonly networkAccess: boolean
+	/** Web/browser permissions grant network access, separate from a script's own capability. */
+	readonly networkGrantAccess?: boolean
+	/** Effective run limits. A pure script has zero model iterations/tokens and its script timeout. */
 	readonly budget: {
 		readonly maxIterations: number
 		readonly tokenBudget: number
@@ -96,8 +127,8 @@ export interface ScheduleJobPreview {
 	}
 	/** Runs per day at most, times the token budget. Absent for a one-shot. */
 	readonly dailyTokenCeiling?: number
-	/** Provider and model the job is pinned to. */
-	readonly model: string
+	/** Provider and model the agent phase is pinned to. Absent for a pure script job. */
+	readonly model?: string
 	/** Where the run's credential comes from, in words. */
 	readonly credentialSource?: string
 	/** Anything the host wants said in the warning colour. */
@@ -135,6 +166,20 @@ export interface ScheduleJobChanges {
 	readonly tz?: string
 	readonly permissions?: ScheduleJobDraft['permissions']
 	readonly budget?: ScheduleJobDraft['budget']
+	/**
+	 * Changes what kind of run this is. Absent: keeps the job's current kind.
+	 * Moving to `'script'`/`'script+agent'` needs `script`; moving to
+	 * `'agent'` drops whatever script the job had, whether or not one is
+	 * given here — an agent job cannot carry one.
+	 */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/**
+	 * Replaces the whole script (or, for `'script+agent'`, wake-gate) body,
+	 * shell and timeout — never a partial edit of just one of them. Absent:
+	 * keeps the job's current script. Re-verified fresh against the
+	 * scheduled-run floor and every `deny` rule, the same as a new job's.
+	 */
+	readonly script?: ScheduleJobDraft['script']
 }
 
 /** A proposed change to a job, as the host computed it. */
@@ -205,7 +250,8 @@ export interface ScheduleToolHost {
 	 * folder's; a host may list every job regardless, marking the session
 	 * folder's with {@link ScheduleJobSummary.inSessionFolder}. The tool says
 	 * "No scheduled jobs." when this returns none, so a host that filters
-	 * says so only for its folder.
+	 * says so only for its folder. Throw on an unreadable job store: the tool
+	 * reports the error rather than claiming there are no jobs.
 	 */
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */

@@ -212,6 +212,18 @@ export const REQUIRES_APPROVAL_UNATTENDED_REFUSAL =
 	"Refused: a call in this batch is one the tool itself declared always needs a person's approval, and nobody can be asked in this session. Nothing in this batch ran. This cannot be granted by a rule, an automation mode, a remembered approval or a skill; run it in a session where a person can be asked."
 
 /**
+ * What the model is told when a batch runs a command whose own program name
+ * is decided at runtime and nobody can be asked.
+ *
+ * Refused rather than approved by `auto`: no rule, allow, grant or
+ * unattended setting can vouch for a program nobody can read the name of
+ * before it runs — unlike a sandbox escape, there is no equivalent
+ * "unattended allow" for this.
+ */
+export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
+	'Refused: a call in this batch runs a command whose own program name is decided at runtime (a substitution or a variable stands for it), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Write the program name literally; compute what needs computing in the arguments instead.'
+
+/**
  * What the model is told when a batch would show it the operator's screen for
  * the first time in a session and nobody can be asked.
  */
@@ -449,6 +461,9 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
 					return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
 				}
+				if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
+					return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
+				}
 				return { action: 'approve_tools', confirmedEscalations: escapes }
 			}
 			const answer = await ask()
@@ -488,6 +503,25 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// grant was ever an answer to IT specifically.
 		if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
 			if (!prompt) return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+			const answer = await ask()
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+				}
+			}
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools' }
+		}
+		// A command whose own program name is decided at runtime is a
+		// question for a person, every time, for the same reason: no rule, no
+		// remembered grant and no unattended mode can vouch for a program
+		// nobody can read the name of before it runs. There is no
+		// "unattended allow" setting for this the way there is for a sandbox
+		// escape — an operator who wants this can only write the program
+		// name literally.
+		if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
+			if (!prompt) return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {

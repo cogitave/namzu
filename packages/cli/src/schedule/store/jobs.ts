@@ -16,10 +16,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SchedulePaths } from '../paths.js'
-import type { ScheduleJob } from '../types.js'
+import { SCHEDULE_FORMAT_VERSION, type ScheduleJob, jobFormatVersion } from '../types.js'
 import {
 	ScheduleFormatError,
 	ensureDir,
@@ -63,9 +63,21 @@ export function stableStringify(value: unknown): string {
 /**
  * The digest of what a confirmation vouches for: the prompt, the folder and
  * its trust, the permissions, the schedule, the model, the budget, the
- * approval window and the pinned project config. Not a secret — a tripwire.
+ * approval window, the pinned project config, and — when the job runs one —
+ * the script's exact text, shell and timeout. Not a secret — a tripwire: a
+ * later change to the script needs re-confirmation exactly as a change to
+ * the prompt does, through this same digest, not a second mechanism.
+ *
+ * `runKind`/`script`/`wakeGate` are folded in only when the job actually has
+ * a non-`agent` `runKind`: an ordinary `agent` job's digest is byte-for-byte
+ * what it always was, so upgrading namzu never holds an already-confirmed
+ * `v:1` job that this design never touched.
  */
 export function jobSecurityDigest(job: ScheduleJob): string {
+	const script =
+		job.runKind !== undefined && job.runKind !== 'agent'
+			? { runKind: job.runKind, script: job.script ?? null, wakeGate: job.wakeGate ?? null }
+			: {}
 	return createHash('sha256')
 		.update(
 			stableStringify({
@@ -78,6 +90,7 @@ export function jobSecurityDigest(job: ScheduleJob): string {
 				budget: job.budget,
 				approvalTtlMs: job.approvalTtlMs,
 				projectDigest: job.projectDigest,
+				...script,
 			}),
 		)
 		.digest('hex')
@@ -89,13 +102,37 @@ export function confirmationHolds(job: ScheduleJob): boolean {
 }
 
 export function readJob(paths: SchedulePaths, id: string): ScheduleJob | undefined {
-	return readVersioned<ScheduleJob>(paths.job(id), 'schedule-job')
+	return readVersioned<ScheduleJob>(paths.job(id), 'schedule-job', SCHEDULE_FORMAT_VERSION)
 }
 
 export interface JobListing {
 	readonly jobs: ScheduleJob[]
-	/** Files that could not be read, with why. Never silently dropped. */
-	readonly errors: { readonly path: string; readonly message: string }[]
+	/**
+	 * Files that could not be read, with why. Never silently dropped. `id`/
+	 * `name` are filled in when the raw JSON has them as strings — read
+	 * leniently, without validating anything else about the file — so a job
+	 * `readVersioned` refused (a newer namzu's format, a hand-broken file)
+	 * is still nameable: `createJob`'s uniqueness check and `findJob` see it.
+	 */
+	readonly errors: {
+		readonly path: string
+		readonly message: string
+		readonly id?: string
+		readonly name?: string
+	}[]
+}
+
+/** `id`/`name` read straight off the raw JSON, ignoring everything else — for a file the real reader refused. */
+function identifyLeniently(path: string): { id?: string; name?: string } {
+	try {
+		const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+		return {
+			...(typeof raw.id === 'string' ? { id: raw.id } : {}),
+			...(typeof raw.name === 'string' ? { name: raw.name } : {}),
+		}
+	} catch {
+		return {}
+	}
 }
 
 export function listJobs(paths: SchedulePaths): JobListing {
@@ -111,33 +148,68 @@ export function listJobs(paths: SchedulePaths): JobListing {
 		if (!name.endsWith('.json') || name.startsWith('.')) continue
 		const path = join(paths.jobs, name)
 		try {
-			const job = readVersioned<ScheduleJob>(path, 'schedule-job')
+			const job = readVersioned<ScheduleJob>(path, 'schedule-job', SCHEDULE_FORMAT_VERSION)
 			if (job) jobs.push(job)
 		} catch (error) {
 			errors.push({
 				path,
 				message: error instanceof ScheduleFormatError ? error.message : String(error),
+				...identifyLeniently(path),
 			})
 		}
 	}
 	return { jobs: jobs.sort((a, b) => a.name.localeCompare(b.name)), errors }
 }
 
+/** How to tell one of several same-named or same-prefixed READABLE jobs from the rest. */
+function addressReadable(job: ScheduleJob): string {
+	return `${job.name} (id ${job.id}) — address it with the full id ${job.id} if its name ever collides again`
+}
+
+/** How to tell one of several same-named or same-prefixed UNREADABLE jobs from the rest. */
+function addressUnreadable(job: JobListing['errors'][number]): string {
+	return `id ${job.id ?? '(unknown, not recorded in the file)'} — its file could not be fully read (${job.message}); address it with the full id once it can be, or fix/remove the file`
+}
+
 /** A job by exact name or by an unambiguous id prefix (four characters at least). */
 export function findJob(paths: SchedulePaths, ref: string): ScheduleJob {
-	const { jobs } = listJobs(paths)
-	const byName = jobs.find((j) => j.name === ref)
-	if (byName) return byName
+	const { jobs, errors } = listJobs(paths)
+	const byName = jobs.filter((j) => j.name === ref)
+	const unreadableByName = errors.filter((e) => e.name === ref)
+	if (byName.length + unreadableByName.length > 1) {
+		throw ambiguity(ref, byName, unreadableByName)
+	}
+	if (byName.length === 1) return byName[0] as ScheduleJob
+	if (unreadableByName.length === 1) {
+		const only = unreadableByName[0] as NonNullable<(typeof unreadableByName)[number]>
+		throw new Error(`"${ref}" exists but its file could not be fully read: ${only.message}`)
+	}
 	if (ref.length >= 4) {
-		const matches = jobs.filter((j) => j.id.startsWith(ref.toLowerCase()))
-		if (matches.length === 1) return matches[0] as ScheduleJob
-		if (matches.length > 1) {
+		const lower = ref.toLowerCase()
+		const byId = jobs.filter((j) => j.id.startsWith(lower))
+		const unreadableById = errors.filter((e) => e.id?.toLowerCase().startsWith(lower))
+		if (byId.length + unreadableById.length > 1) {
+			throw ambiguity(ref, byId, unreadableById)
+		}
+		if (byId.length === 1) return byId[0] as ScheduleJob
+		if (unreadableById.length === 1) {
+			const only = unreadableById[0] as NonNullable<(typeof unreadableById)[number]>
 			throw new Error(
-				`"${ref}" matches ${matches.length} jobs (${matches.map((j) => j.name).join(', ')}); use the name.`,
+				`"${ref}" matches a job whose file could not be fully read (id ${only.id}): ${only.message}`,
 			)
 		}
 	}
 	throw new ScheduleJobNotFoundError(ref)
+}
+
+function ambiguity(
+	ref: string,
+	readable: readonly ScheduleJob[],
+	unreadable: readonly JobListing['errors'][number][],
+): Error {
+	const total = readable.length + unreadable.length
+	const parts = [...readable.map(addressReadable), ...unreadable.map(addressUnreadable)]
+	return new Error(`"${ref}" matches ${total} jobs: ${parts.join('; ')}.`)
 }
 
 function markerDir(paths: SchedulePaths, id: string): string {
@@ -189,9 +261,18 @@ export function createJob(paths: SchedulePaths, job: ScheduleJob): ScheduleJob {
 			`"${job.name}" is not a job name: lowercase letters, digits and dashes, starting with a letter or digit.`,
 		)
 	}
-	const { jobs } = listJobs(paths)
+	const { jobs, errors } = listJobs(paths)
 	if (jobs.some((j) => j.name === job.name)) {
 		throw new Error(`A job named "${job.name}" already exists.`)
+	}
+	// A file `readVersioned` could not fully parse is still a real job with
+	// this name as far as uniqueness goes — leniently read, so it is not
+	// invisible to this check just because the real reader refused it.
+	const unreadable = errors.find((e) => e.name === job.name)
+	if (unreadable) {
+		throw new Error(
+			`A job named "${job.name}" already exists, in a file that could not be fully read (${unreadable.message}); rename this one, or fix/remove ${unreadable.path} first.`,
+		)
 	}
 	ensureDir(paths.jobs)
 	claimRevision(paths, job.id, 0)
@@ -215,10 +296,16 @@ export function updateJob(
 	if (!current) throw new ScheduleJobNotFoundError(id)
 	if (current.revision !== expectedRevision) throw new ScheduleConflictError(id)
 	const revision = claimRevision(paths, id, current.revision)
+	const mutated = mutate(current)
 	const next: ScheduleJob = {
-		...mutate(current),
+		...mutated,
 		id: current.id,
-		v: 1,
+		// A job that does not touch `runKind`/`script` keeps its file at
+		// whatever version it already read at (usually `v:1`), so an
+		// unrelated edit never forces a re-confirmation cycle a v:1 job never
+		// needed. One that gains a non-`agent` runKind is written at the
+		// current version from here on.
+		v: jobFormatVersion(mutated),
 		kind: 'schedule-job',
 		revision,
 		updatedAt: now.toISOString(),

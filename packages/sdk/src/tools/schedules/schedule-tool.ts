@@ -9,6 +9,7 @@ import type {
 	ScheduleBrowserSiteLevel,
 	ScheduleJobChanges,
 	ScheduleJobDraft,
+	ScheduleJobSummary,
 	ScheduleJobUpdateProposal,
 	ScheduleToolHost,
 } from './types.js'
@@ -42,12 +43,30 @@ const inputSchema = z.object({
 		.regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
 		.optional()
 		.describe('create: job name, lowercase letters, digits and dashes'),
+	kind: z
+		.enum(['agent', 'script', 'script+agent'])
+		.optional()
+		.describe(
+			'create: what the run does. agent (default): the model runs prompt. script: a fixed shell script runs unattended, no model call, no prompt. script+agent: a cheap gate script decides whether to wake the model; wake:false costs nothing. Prefer script/script+agent for a fixed, deterministic check that would otherwise cost tokens for no reason.',
+		),
+	script: z
+		.object({
+			body: z.string().min(1).describe('The exact script text, run verbatim once confirmed'),
+			shell: z.enum(['bash', 'sh']).describe('Which shell reads it; no default'),
+			timeoutMs: z.number().int().positive().optional().describe('The script’s own wall clock'),
+		})
+		.optional()
+		.describe(
+			'create: required when kind is script or script+agent. For script+agent this is the wake-gate: its stdout must be exactly one JSON line, {"wake": boolean, "context": string}.',
+		),
 	prompt: z
 		.string()
 		.min(1)
 		.max(20_000)
 		.optional()
-		.describe('create, update: what the run is asked to do'),
+		.describe(
+			'create, update: what the model run is asked to do. Required for agent and script+agent; refused for a pure script. For script+agent this is handed to the model only when the wake-gate says wake: true.',
+		),
 	when: z
 		.string()
 		.optional()
@@ -101,7 +120,7 @@ const inputSchema = z.object({
 		})
 		.optional()
 		.describe(
-			'create: REQUIRED explicit permission set; there is no default. update: the whole new set, only when the permissions change',
+			'create: REQUIRED explicit permission set; there is no default. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
 		),
 	budget: z
 		.object({
@@ -126,10 +145,12 @@ const inputSchema = z.object({
 				.int()
 				.positive()
 				.optional()
-				.describe('Wall clock of one run, in milliseconds'),
+				.describe('Wall clock of one agent phase, in milliseconds'),
 		})
 		.optional()
-		.describe('Limits of ONE run; omit to use the defaults'),
+		.describe(
+			'Agent-phase limits; omit to use the defaults. Refused for a pure script; use script.timeoutMs instead.',
+		),
 	job: z.string().optional().describe('update/pause/resume/delete: job name'),
 	allFolders: z.boolean().optional().describe('list: include jobs of other folders (names only)'),
 })
@@ -150,6 +171,14 @@ function effectsOf(rule: unknown): string[] {
  * Refuse a network tool beside a shell that runs on the host: a scheduled run
  * that can both read the machine and reach the internet, unattended, is the
  * exfiltration shape, and only the operator can choose it.
+ *
+ * For `runKind: 'script'`/`'script+agent'` the "shell" isn't a rule the model
+ * could reach at some later live call — it's the confirmed script's own
+ * body, which unconditionally runs shell commands whenever it runs at all.
+ * The `bash` rule heuristic below answers a question ("could a live call
+ * reach bash") that isn't the one being asked here, so a script/script+agent
+ * job on the host is treated as reaching a shell outright, whatever its
+ * rules say about `bash`.
  */
 function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 	const rules = draft.permissions.rules ?? {}
@@ -157,6 +186,8 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 		draft.permissions.browser !== undefined ||
 		NETWORK_TOOLS.some((t) => effectsOf(rules[t]).some((e) => e === 'allow' || e === 'ask'))
 	if (!network) return false
+	const onHost = (draft.permissions.execution ?? 'host') === 'host'
+	if ((draft.runKind ?? 'agent') !== 'agent') return onHost
 	const bashEffects = effectsOf(rules.bash)
 	// The read-only preset denies bash; its rules are expanded by the host,
 	// so the draft carries only its name.
@@ -164,7 +195,7 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 		bashEffects.length > 0
 			? bashEffects.some((e) => e !== 'deny')
 			: draft.permissions.preset !== 'read-only' && draft.permissions.unmatched !== 'deny'
-	return shellPossible && (draft.permissions.execution ?? 'host') === 'host'
+	return shellPossible && onHost
 }
 
 /**
@@ -246,21 +277,38 @@ async function create(
 	input: Input,
 	signal: AbortSignal | undefined,
 ): Promise<ToolResult> {
-	const missing = (['name', 'prompt', 'when', 'permissions'] as const).filter(
+	const runKind = input.kind ?? 'agent'
+	const required: string[] = (['name', 'when', 'permissions'] as const).filter(
 		(k) => input[k] === undefined,
 	)
-	if (missing.length > 0) {
+	if (runKind !== 'script' && input.prompt === undefined) required.push('prompt')
+	if (runKind !== 'agent' && input.script === undefined) required.push('script')
+	if (required.length > 0) {
 		return refuse(
-			`create needs ${missing.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
+			`create needs ${required.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
 		)
 	}
+	if (runKind === 'agent' && input.script !== undefined) {
+		return refuse('an agent job has no script; omit kind (or set it to agent) to use one')
+	}
+	if (runKind === 'script' && input.prompt !== undefined)
+		return refuse('a pure script job has no prompt; remove prompt')
+	if (runKind === 'script' && input.budget !== undefined) {
+		return refuse(
+			'a pure script job has no agent budget; remove budget and use script.timeoutMs for its timeout',
+		)
+	}
+	if (runKind === 'script' && input.permissions?.browser !== undefined)
+		return refuse('a pure script job cannot use a browser grant; remove permissions.browser')
 	const checked = checkPermissions(host, input.permissions as NonNullable<Input['permissions']>)
 	if (!checked.ok) return refuse(checked.error)
 	const permissions = checked.permissions
 	const draft: ScheduleJobDraft = {
 		name: input.name as string,
-		prompt: input.prompt as string,
 		when: input.when as string,
+		...(runKind !== 'agent' ? { runKind } : {}),
+		...(input.script ? { script: input.script } : {}),
+		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		permissions,
@@ -302,7 +350,9 @@ async function create(
 	const said =
 		answer === 'create-paused'
 			? `Job "${created.name}" was created paused. The operator can resume it with /schedule.`
-			: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
+			: runKind === 'script'
+				? `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results are recorded in its history and may arrive as a notification. It creates no session.`
+				: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
 	return {
 		success: true,
 		output: created.note ? `${said} ${created.note}` : said,
@@ -311,7 +361,12 @@ async function create(
 }
 
 async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
-	const jobs = await host.list({ allFolders: input.allFolders === true })
+	let jobs: readonly ScheduleJobSummary[]
+	try {
+		jobs = await host.list({ allFolders: input.allFolders === true })
+	} catch (error) {
+		return refuse(error instanceof Error ? error.message : String(error))
+	}
 	if (jobs.length === 0) return { success: true, output: 'No scheduled jobs.', data: { jobs: [] } }
 	const lines = jobs.map(
 		(j) =>
@@ -321,7 +376,16 @@ async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
 }
 
 /** The fields `update` may change, as the model set them. */
-const CHANGEABLE = ['prompt', 'when', 'folder', 'tz', 'permissions', 'budget'] as const
+const CHANGEABLE = [
+	'prompt',
+	'when',
+	'folder',
+	'tz',
+	'permissions',
+	'budget',
+	'kind',
+	'script',
+] as const
 
 async function update(
 	host: ScheduleToolHost,
@@ -343,12 +407,31 @@ async function update(
 	if (given.length === 0) {
 		return refuse(`update needs at least one of ${CHANGEABLE.join(', ')} to change.`)
 	}
+	if (input.kind === 'agent' && input.script !== undefined) {
+		return refuse(
+			'update cannot set kind to agent while also giving a script; drop script to make it an agent job, or leave kind unset (or as script/script+agent) to keep one.',
+		)
+	}
 	let permissions: ScheduleJobDraft['permissions'] | undefined
 	if (input.permissions) {
 		const checked = checkPermissions(host, input.permissions)
 		if (!checked.ok) return refuse(checked.error)
 		permissions = checked.permissions
-		if (networkWithHostShell({ name: '', prompt: '', when: '', permissions }))
+		// The same guard `create` applies, against whatever THIS call
+		// changes: a kind given here is read too, since a script/script+agent
+		// job is refused this combination even where an agent job is not (no
+		// live turn reviews a script's calls one at a time). A kind changed
+		// with the existing permissions is checked on the effective preview
+		// after the host has applied all changes below.
+		if (
+			networkWithHostShell({
+				name: '',
+				prompt: '',
+				when: '',
+				...(input.kind !== undefined ? { runKind: input.kind } : {}),
+				permissions,
+			})
+		)
 			return refuse(NETWORK_WITH_HOST_SHELL)
 	}
 	const changes: ScheduleJobChanges = {
@@ -358,12 +441,22 @@ async function update(
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		...(permissions ? { permissions } : {}),
 		...(input.budget ? { budget: input.budget } : {}),
+		...(input.kind !== undefined ? { runKind: input.kind } : {}),
+		...(input.script !== undefined ? { script: input.script } : {}),
 	}
 	let proposal: ScheduleJobUpdateProposal
 	try {
 		proposal = await host.previewUpdate(input.job, changes)
 	} catch (error) {
 		return refuse(error instanceof Error ? error.message : String(error))
+	}
+	const effectiveKind = input.kind ?? proposal.preview.runKind ?? 'agent'
+	if (
+		(effectiveKind === 'script' || effectiveKind === 'script+agent') &&
+		proposal.preview.execution === 'host' &&
+		(proposal.preview.networkGrantAccess ?? proposal.preview.networkAccess)
+	) {
+		return refuse(NETWORK_WITH_HOST_SHELL)
 	}
 	let confirmed = false
 	try {
@@ -450,7 +543,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: model prompts or fixed scripts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). agent and script+agent also need prompt; script and script+agent also need script. A pure script has no prompt, model, agent budget, browser grant or session; set script.timeoutMs to limit it. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

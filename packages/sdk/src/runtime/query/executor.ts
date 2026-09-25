@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
+import { unknownProgramInLine } from '../../authorization/program.js'
 import { type SkillGrantSet, compileSkillGrant } from '../../authorization/skill-grant.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
@@ -41,6 +42,7 @@ import type {
 	ShellDialect,
 	SkillRegistryRef,
 	ToolContext,
+	ToolDefinition,
 	ToolDispatchOptions,
 	ToolHandoff,
 	ToolResult,
@@ -890,11 +892,35 @@ export class ToolExecutor {
 			sandboxed &&
 			tool.sandboxEscapeArgument !== undefined &&
 			input[tool.sandboxEscapeArgument] === true
-		if (!outsidePaths && !sandboxEscape) return undefined
+		const unknownProgram = this.unknownProgramOf(tool, input, sandboxed)
+		if (!outsidePaths && !sandboxEscape && unknownProgram === undefined) return undefined
 		return {
 			...(outsidePaths ? { outsidePaths } : {}),
 			...(sandboxEscape ? { sandboxEscape: true as const } : {}),
+			...(unknownProgram !== undefined ? { unknownProgram } : {}),
 		}
+	}
+
+	/**
+	 * Why a command's own program name is not knowable ahead of running it,
+	 * in a tool's `commandArgument`, or undefined. Delegates to
+	 * {@link unknownProgramInLine} — the SDK's one answer to this question,
+	 * shared with that function's own tests so they cannot drift from what
+	 * this method actually calls the way an independent test mirror once
+	 * did. Checked whether or not the turn is sandboxed: a program nobody
+	 * can name before it runs is exactly as unverifiable inside a sandbox as
+	 * outside one.
+	 */
+	private unknownProgramOf(
+		tool: { commandArgument?: string; commandDialect?: ToolDefinition['commandDialect'] },
+		input: Record<string, unknown>,
+		sandboxed: boolean,
+	): string | undefined {
+		if (tool.commandArgument === undefined) return undefined
+		const value = input[tool.commandArgument]
+		if (typeof value !== 'string') return undefined
+		const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
+		return unknownProgramInLine(value, dialect)
 	}
 
 	/** Re-prepare only calls whose raw input a reviewer actually changed. */
