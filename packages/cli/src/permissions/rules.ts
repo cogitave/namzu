@@ -15,11 +15,13 @@ import {
 	AuthorizationGate,
 	type AuthorizationPredicateCall,
 	type AuthorizationRule,
+	type Logger,
 	NOOP_LOGGER,
 	builtinCommandArguments,
 	permissionPatternToRegExpSource,
 } from '@namzu/sdk'
 
+import { cliLogger } from '../logging.js'
 import { type PermissionChecksConfig, verifyPermissionChecks } from './checks.js'
 
 /** What the operator wants to happen when a rule matches. */
@@ -51,12 +53,18 @@ export function legacyMcpPermissionNames(config: PermissionsConfig | undefined):
 const warnedLegacyMcpNames = new Set<string>()
 
 /** Say the migration warning once per name and process, including resident steps. */
-export function warnLegacyMcpPermissionNames(config: PermissionsConfig | undefined): void {
+export function warnLegacyMcpPermissionNames(
+	config: PermissionsConfig | undefined,
+	log: Pick<Logger, 'warn'> = cliLogger(),
+): void {
 	for (const name of legacyMcpPermissionNames(config)) {
 		if (warnedLegacyMcpNames.has(name)) continue
 		warnedLegacyMcpNames.add(name)
-		process.stderr.write(
-			`Warning: permissions.${JSON.stringify(name)} uses the former MCP tool naming scheme. Update it to the corresponding mcp__<server>__<tool> name; this rule will not match the new name.\n`,
+		log.warn(
+			'Former MCP permission name does not match the current mcp__<server>__<tool> naming scheme',
+			{
+				'namzu.permission.tool_name': name,
+			},
 		)
 	}
 }

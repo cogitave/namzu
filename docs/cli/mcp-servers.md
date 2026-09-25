@@ -12,7 +12,7 @@ generated: { by: process:claude-code, at: 2026-09-16T00:00:00Z }
 
 An external tool server is declared under `mcpServers` in `namzu.config.json`, one entry per server, keyed by the name its tools will carry (`mcp__<name>__<tool>`). Every server is connected before the first turn. Its tools, prompts and resources enter live toolsets that update after a supported `list_changed` notification or reconnect. A server that does not work is named with a reason rather than silently absent.
 
-Tool names used to start `mcp_<name>_<tool>`. At startup the CLI warns once for each configured permission rule still using that form, naming the old rule. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
+Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
 
 ## One entry
 

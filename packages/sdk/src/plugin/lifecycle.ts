@@ -736,7 +736,8 @@ export class PluginLifecycleManager {
 			try {
 				await client.disconnect()
 			} catch (error) {
-				this.log.warn(`MCP disconnect failed during ${operation}`, {
+				this.log.warn('MCP disconnect failed', {
+					'namzu.plugin.operation': operation,
 					'namzu.mcp.client_id': client.id,
 					'exception.message': toErrorMessage(error),
 				})

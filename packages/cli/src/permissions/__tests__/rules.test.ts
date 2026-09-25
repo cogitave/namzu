@@ -86,16 +86,13 @@ describe('compiling a permissions table', () => {
 			sources: { 'mcp:legacyfixture': 'deny' },
 		} as const
 		expect(legacyMcpPermissionNames(config)).toEqual(['mcp_legacyfixture_create'])
-		const output = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-		try {
-			warnLegacyMcpPermissionNames(config)
-			warnLegacyMcpPermissionNames(config)
-			expect(output).toHaveBeenCalledTimes(1)
-			expect(output.mock.calls[0]?.[0]).toContain('mcp_legacyfixture_create')
-			expect(output.mock.calls[0]?.[0]).toContain('mcp__<server>__<tool>')
-		} finally {
-			output.mockRestore()
-		}
+		const warn = vi.fn()
+		warnLegacyMcpPermissionNames(config, { warn })
+		warnLegacyMcpPermissionNames(config, { warn })
+		expect(warn).toHaveBeenCalledOnce()
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('mcp__<server>__<tool>'), {
+			'namzu.permission.tool_name': 'mcp_legacyfixture_create',
+		})
 	})
 
 	it('compiles source policy and keeps source denials ahead of name allowances', () => {
