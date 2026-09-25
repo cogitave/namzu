@@ -1,7 +1,8 @@
 import { drainQuery } from '../runtime/query/index.js'
 import type {
-	AgentInput,
+	AgentInvocationScope,
 	AgentMetadata,
+	ManagedAgentInput,
 	QueryAgentConfig,
 	QueryAgentResult,
 } from '../types/agent/index.js'
@@ -93,6 +94,56 @@ type RoutedKeys<TDestination extends 'query' | 'turn'> = {
 type QueryFields = Pick<Parameters<typeof drainQuery>[0], RoutedKeys<'query'>>
 type TurnFields = Pick<TurnConfig, RoutedKeys<'turn'>>
 
+const SCOPE_FIELDS = ['sessionId', 'topicId', 'projectId', 'tenantId'] as const
+
+function invocationScope(input: ManagedAgentInput, config: QueryAgentConfig): AgentInvocationScope {
+	if (input.managedScope !== undefined) {
+		const scope = input.managedScope
+		if (
+			typeof scope !== 'object' ||
+			scope === null ||
+			Array.isArray(scope) ||
+			scope.kind !== 'managed'
+		) {
+			throw new Error('QueryAgent requires a managed invocation scope.')
+		}
+		const missing = SCOPE_FIELDS.filter(
+			(field) => typeof scope[field] !== 'string' || scope[field].trim().length === 0,
+		)
+		if (missing.length > 0) {
+			throw new Error(`QueryAgent: input.managedScope is missing: ${missing.join(', ')}.`)
+		}
+		const conflicts = SCOPE_FIELDS.filter(
+			(field) => config[field] !== undefined && config[field] !== scope[field],
+		)
+		if (conflicts.length > 0) {
+			throw new Error(
+				`QueryAgent: input.managedScope conflicts with legacy config fields: ${conflicts.join(', ')}.`,
+			)
+		}
+		return scope
+	}
+	if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
+		throw new Error(
+			'QueryAgent requires sessionId, topicId, projectId, and tenantId in input.managedScope or legacy config.',
+		)
+	}
+	const invalid = SCOPE_FIELDS.filter((field) => {
+		const value = config[field]
+		return typeof value !== 'string' || value.trim().length === 0
+	})
+	if (invalid.length > 0) {
+		throw new Error(`QueryAgent: legacy config has invalid scope fields: ${invalid.join(', ')}.`)
+	}
+	return {
+		kind: 'managed',
+		sessionId: config.sessionId,
+		topicId: config.topicId,
+		projectId: config.projectId,
+		tenantId: config.tenantId,
+	}
+}
+
 export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult> {
 	readonly type: string
 
@@ -123,28 +174,37 @@ export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
-		input: AgentInput,
+		input: ManagedAgentInput,
 		config: QueryAgentConfig,
 		listener?: SessionEventListener,
 	): Promise<QueryAgentResult> {
-		return await this.underIdempotencyKey(config.idempotencyKey, () =>
-			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		// Resolve before deduplication: an invalid or conflicting scope must never
+		// receive another caller's in-flight result under the same raw key.
+		const scope = invocationScope(input, config)
+		const scopedKey = config.idempotencyKey
+			? JSON.stringify([
+					scope.kind,
+					scope.tenantId,
+					scope.projectId,
+					scope.topicId,
+					scope.sessionId,
+					config.idempotencyKey,
+				])
+			: undefined
+		return await this.underIdempotencyKey(scopedKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, scope, listener)),
 		)
 	}
 
 	private async runExclusive(
-		input: AgentInput,
+		input: ManagedAgentInput,
 		config: QueryAgentConfig,
+		scope: AgentInvocationScope,
 		listener?: SessionEventListener,
 	): Promise<QueryAgentResult> {
 		const startTime = Date.now()
-		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
-			throw new Error(
-				'QueryAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
-			)
-		}
 		const turnId = this.createTurnId()
-		this.bindTurn(config.sessionId, turnId, config.logger)
+		this.bindTurn(scope.sessionId, turnId, config.logger)
 		const queryFields: QueryFields = pickRoutedOptions(config, configRoutes, 'query')
 		const turnFields: TurnFields = pickRoutedOptions(config, configRoutes, 'turn')
 
@@ -161,10 +221,10 @@ export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,
 				workingDirectory: input.workingDirectory,
-				sessionId: config.sessionId,
-				topicId: config.topicId,
-				projectId: config.projectId,
-				tenantId: config.tenantId,
+				sessionId: scope.sessionId,
+				topicId: scope.topicId,
+				projectId: scope.projectId,
+				tenantId: scope.tenantId,
 				turnId,
 				messages: input.messages,
 				signal: input.signal,

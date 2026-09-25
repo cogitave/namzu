@@ -205,6 +205,9 @@ stream; a duplex turn calls it when the session closes or connection fails.
 The CLI releases its session and turn managers at their respective boundaries.
 A host that constructs a `ToolManager` directly must call `dispose()`
 when finished; it does not close the caller's toolsets or their connections.
+`combineToolsets` releases listeners it already acquired if a later inner
+toolset fails to subscribe. Its unsubscribe attempts every inner cleanup even
+if one throws, so one faulty source cannot keep the others subscribed.
 
 ### Availability is derived, not stored
 

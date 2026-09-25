@@ -79,15 +79,39 @@ export function combineToolsets(
 			: {}),
 	}
 
-	const liveOnChange = toolsets
-		.map((inner) => inner.onChange)
-		.filter((onChange): onChange is NonNullable<typeof onChange> => onChange !== undefined)
+	const liveOnChange = toolsets.filter(
+		(inner): inner is Toolset & { onChange(listener: () => void): () => void } =>
+			inner.onChange !== undefined,
+	)
 	if (liveOnChange.length > 0) {
 		combined.onChange = (listener) => {
-			const unsubscribes = liveOnChange.map((onChange) => onChange(listener))
-			return () => {
-				for (const unsubscribe of unsubscribes) unsubscribe()
+			const unsubscribes: (() => void)[] = []
+			const unsubscribeAll = () => {
+				const errors: unknown[] = []
+				for (const unsubscribe of unsubscribes.splice(0).reverse()) {
+					try {
+						unsubscribe()
+					} catch (error) {
+						errors.push(error)
+					}
+				}
+				if (errors.length === 1) throw errors[0]
+				if (errors.length > 1) throw new AggregateError(errors, 'Toolset listener cleanup failed.')
 			}
+			try {
+				for (const inner of liveOnChange) unsubscribes.push(inner.onChange(listener))
+			} catch (error) {
+				try {
+					unsubscribeAll()
+				} catch (cleanupError) {
+					throw new AggregateError(
+						[error, cleanupError],
+						'Toolset subscription and cleanup failed.',
+					)
+				}
+				throw error
+			}
+			return unsubscribeAll
 		}
 	}
 

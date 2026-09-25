@@ -63,8 +63,10 @@ a new session in the working directory's Project.
 
 For inference, install a provider driver and select its model explicitly.
 For more runtime configuration, use `QueryAgent` or `query`. Unlike
-`runAgent`, those entry points take the four identity fields explicitly and
-do not generate missing identity.
+`runAgent`, they do not generate missing identity: `query` takes the four
+fields explicitly, and a managed `QueryAgent` takes their complete scope on
+`ManagedAgentInput.managedScope` (with the config fields still accepted for existing
+callers).
 
 `QueryAgent` is an optional adapter for hosts that need an `Agent` instance
 inside `AgentManager`. For an application-specific agent, implement the SDK's

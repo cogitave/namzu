@@ -16,7 +16,7 @@ The kernel.
 * [Environment exploration before learning](resident-exploration.md) - Active tool experiments and retained observations before independent skill evaluation.
 * [Evaluating exploration policies](exploration-policies.md) - Purpose-bound learning instructions and independent measurement of evidence acquisition.
 
-* [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
+* [Tool discovery](tool-discovery.md) - Deferred tool search, host readiness, source-bound receipts and allowed-tool filtering.
 * [Toolsets](toolsets.md) - The unit every tool comes from, its composable wrappers, and combineToolsets's atomic conflict detection.
 * [Host capabilities](host-capabilities.md) - Reusable per-run instructions, toolsets, guardrails, prompt contributions and model settings for runAgent.
 * [Plugin toolsets and lifecycle](plugins.md) - File and in-code plugins, source ownership, MCP servers, request context and revocation.

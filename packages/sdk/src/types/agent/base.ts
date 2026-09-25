@@ -332,6 +332,15 @@ export interface AgentRuntimeContext {
 	notes?: readonly string[]
 }
 
+/** Host-owned scope for a managed invocation, separate from agent configuration. */
+export interface AgentInvocationScope {
+	readonly kind: 'managed'
+	readonly sessionId: SessionId
+	readonly topicId: TopicId
+	readonly projectId: ProjectId
+	readonly tenantId: TenantId
+}
+
 export interface AgentInput {
 	messages: Message[]
 	workingDirectory: string
@@ -344,6 +353,15 @@ export interface AgentInput {
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext
+}
+
+/** Input for an adapter that runs a managed session through the query kernel. */
+export type ManagedAgentInput = AgentInput & {
+	/**
+	 * Host-owned session attribution. `AgentManager` sets this from the admitted
+	 * child session, so the reusable agent config need not own its identity.
+	 */
+	readonly managedScope?: AgentInvocationScope
 }
 
 export interface BaseAgentResult {

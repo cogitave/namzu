@@ -1555,6 +1555,15 @@ export class AgentManager {
 		const input = {
 			...options.input,
 			signal: agentTask.childAbortController.signal,
+			// The admitted child session is the authority. A caller-supplied input
+			// cannot redirect its turn to another tenant, project, topic or session.
+			managedScope: {
+				kind: 'managed' as const,
+				sessionId: agentTask.context.sessionId,
+				topicId: agentTask.context.topicId,
+				projectId: agentTask.context.projectId,
+				tenantId: agentTask.context.tenantId,
+			},
 		}
 
 		const spawnRecord = this.spawnRecords.get(agentTask.taskId)

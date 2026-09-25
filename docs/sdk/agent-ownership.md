@@ -21,13 +21,16 @@ For a direct turn, call `runAgent`. For a managed instance, implement `Agent`
 or call `defineAgent({ type, run, ... })`. The `run` callback receives an
 instance-scoped `AbortSignal` as its fourth argument; observe it to stop work
 on `cancel()`. `defineAgent` creates a fresh shell for each delegated turn.
-`QueryAgent` is an optional adapter
-when the instance's `run` should execute one ordinary SDK query. Its config
-currently requires the caller's tenant, project, topic and session identity
-because it passes a managed turn into the recorder and checkpoint contracts.
-Those IDs are host storage and correlation scope, not properties every
-application agent must own. `BaseAgentConfig` keeps them optional; a
-store-backed `AgentManager` supplies real scope to delegated turns.
+`QueryAgent` is an optional adapter when the instance's `run` should execute
+one ordinary SDK query. A managed host supplies `{ kind: 'managed', sessionId,
+topicId, projectId, tenantId }` as `ManagedAgentInput.managedScope` for that invocation;
+`AgentManager` supplies the admitted child session's scope itself, regardless
+of caller input. `QueryAgent` requires this complete scope because its query
+uses the recorder and checkpoint contracts. The four older fields on
+`QueryAgentConfig` remain supported for direct callers; if both forms are
+present, they must agree. The general `AgentInput` and other Agent contracts
+stay open for application-owned data. General application agents need no scope
+unless their own host or storage requires it.
 `runAgent` also accepts all four optionally and resolves absent values for
 its current recorder. Generated labels do not create tenant, topic or project
 records and do not grant authority. The host still owns the provider,

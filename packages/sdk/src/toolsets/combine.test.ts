@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { liveToolset, tool } from './__fixtures__/toolsets.js'
 import { ToolsetConflictError, combineToolsets } from './combine.js'
+import { ToolManager } from './manager.js'
 import { toolset } from './toolset.js'
 import { deferred, prefixed } from './wrappers.js'
 
@@ -144,6 +145,43 @@ describe('combineToolsets', () => {
 			unsubscribe?.()
 			expect(liveA.listenerCount()).toBe(0)
 			expect(liveB.listenerCount()).toBe(0)
+		})
+
+		it('rolls back earlier subscriptions if a later source fails to subscribe', () => {
+			const live = liveToolset('mcp:a', [tool('a1')])
+			const failure = new Error('subscription failed')
+			const broken = {
+				...toolset('broken', []),
+				onChange: () => {
+					throw failure
+				},
+			}
+			const combined = combineToolsets('all', [live.toolset, broken])
+			let caught: unknown
+			try {
+				new ToolManager({ toolsets: [combined], messages: () => [] })
+			} catch (error) {
+				caught = error
+			}
+			expect(caught).toBe(failure)
+			expect(live.listenerCount()).toBe(0)
+		})
+
+		it('releases every inner listener even if one unsubscribe throws', () => {
+			const live = liveToolset('mcp:a', [tool('a1')])
+			const broken = {
+				...toolset('broken', []),
+				onChange: () => () => {
+					throw new Error('unsubscribe failed')
+				},
+			}
+			const manager = new ToolManager({
+				toolsets: [combineToolsets('all', [live.toolset, broken])],
+				messages: () => [],
+			})
+			expect(live.listenerCount()).toBe(1)
+			expect(() => manager.dispose()).not.toThrow()
+			expect(live.listenerCount()).toBe(0)
 		})
 
 		it('has no onChange when none of the inner toolsets have one', () => {

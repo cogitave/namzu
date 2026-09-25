@@ -19,6 +19,7 @@ import type {
 	AgentMetadata,
 	BaseAgentConfig,
 	BaseAgentResult,
+	ManagedAgentInput,
 } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -243,6 +244,43 @@ async function waitForTask(
 }
 
 describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
+	it('hands the admitted child scope to its invocation, overriding a caller-supplied scope', async () => {
+		const seen: ManagedAgentInput[] = []
+		const childAgent = makeAgent('child-scope', async (input) => {
+			seen.push(input as ManagedAgentInput)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const options = buildOptions('child-scope', harness.parentSession.id, harness.projectId)
+		const spoofedInput: ManagedAgentInput = {
+			...options.input,
+			managedScope: {
+				kind: 'managed',
+				sessionId: generateSessionId(),
+				topicId: harness.topicId,
+				projectId: harness.projectId,
+				tenantId: otherTenant,
+			},
+		}
+		const task = await harness.manager.sendMessage(
+			{
+				...options,
+				input: spoofedInput,
+			},
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.managedScope).toEqual({
+			kind: 'managed',
+			sessionId: task.context.sessionId,
+			topicId: harness.topicId,
+			projectId: harness.projectId,
+			tenantId: tenant,
+		})
+	})
+
 	it('happy path: SubSession + Session + Summary, lineage stamped, status idle', async () => {
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)
