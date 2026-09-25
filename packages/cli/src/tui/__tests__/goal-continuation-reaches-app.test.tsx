@@ -244,11 +244,15 @@ async function submit(
 ): Promise<void> {
 	// Durable scope/goal updates can precede the render that enables input.
 	await until(
-		() => harness.lastFrame()?.includes('Type a message') === true,
+		() => harness.lastFrame()?.includes('› Type a message') === true,
 		'the composer is not ready for input',
 	)
 	harness.stdin.write(text)
-	await tick()
+	// Ink can process Enter before the preceding text event under full-suite load.
+	await until(
+		() => harness.lastFrame()?.includes(`› ${text}`) === true,
+		'the composer did not render the input before submit',
+	)
 	harness.stdin.write('\r')
 	await tick(40)
 }
@@ -486,28 +490,26 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 	const { root, harness } = await mountedApp('namzu-goal-app-failure-')
 	await submit(harness, '/goal recover only when asked')
 	await until(() => calls === 1, 'the first goal round never started')
-	await tick(120)
-	expect(calls).toBe(1)
 
 	const sessions = await openSessions(root)
-	await submit(harness, '/goal pause')
 	await untilAsync(
 		async () =>
-			(await sessions.goals.getGoal(scope!.sessionId, sessions.tenantId))?.phase === 'paused',
-		'the pause command did not reach durable goal state',
+			(await sessions.goals.getGoal(scope!.sessionId, sessions.tenantId))?.phase === 'active',
+		'the abnormal turn did not leave the goal active for explicit resume',
 	)
 	await until(
 		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
-		'the durable paused goal did not reach the footer',
+		'the disarmed goal did not reach the footer',
 	)
 	const statusFrame = harness.frames.length
 	await submit(harness, '/goal status')
 	await until(
 		() =>
-			/\bGoal\s*\n\s*Status: paused/.test(harness.frames.slice(statusFrame).join('\n')) &&
+			/\bGoal\s*\n\s*Status: active/.test(harness.frames.slice(statusFrame).join('\n')) &&
 			harness.frames.slice(statusFrame).join('\n').includes('Automatic continuation: paused'),
 		'the abnormal turn did not expose its disarmed state',
 	)
+	expect(calls).toBe(1)
 	const resumeFrame = harness.frames.length
 	await submit(harness, '/goal resume')
 	await until(
@@ -515,7 +517,11 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 		'the explicit resume command did not reach durable state',
 	)
 	await until(() => calls === 2, 'explicit resume did not admit another round')
-	await tick(100)
+	await untilAsync(
+		async () =>
+			(await sessions.goals.getGoal(scope!.sessionId, sessions.tenantId))?.phase === 'complete',
+		'the resumed goal did not complete',
+	)
 	expect(calls).toBe(2)
 }, 30_000)
 
