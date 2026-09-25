@@ -54,6 +54,14 @@ const approvalWrite: ToolCallSummary = {
 	requiresApproval: true,
 }
 
+const escapeCall: ToolCallSummary = {
+	id: 'b1',
+	name: 'bash',
+	input: { command: 'echo ok', dangerously_disable_sandbox: true },
+	isDestructive: false,
+	escalation: { sandboxEscape: true },
+}
+
 /** Everything read-only is exempt, as the shipped exemption says of `read_secret`. */
 const exemptReads = (name: string) => name === 'read_secret'
 
@@ -136,5 +144,36 @@ describe('a call the tool declared always needs approval', () => {
 			action: 'reject_tools',
 			feedback: 'no thanks',
 		})
+	})
+
+	it('is not waived by unattended sandbox escape approval on the same call', async () => {
+		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
+		expect(await handler(review({ ...escapeCall, requiresApproval: true }))).toEqual({
+			action: 'reject_tools',
+			feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
+		})
+	})
+
+	it('is not waived by unattended sandbox escape approval in a mixed batch', async () => {
+		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
+		expect(await handler(review(escapeCall, approvalWrite))).toEqual({
+			action: 'reject_tools',
+			feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
+		})
+	})
+
+	it('is shown with the escape in one prompt and confirms the escape by id', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const handler = createReviewHandler({
+			mode: 'auto',
+			prompt,
+			unattendedSandboxEscape: 'allow',
+		})
+		expect(await handler(review({ ...escapeCall, requiresApproval: true }))).toEqual({
+			action: 'approve_tools',
+			confirmedEscalations: ['b1'],
+		})
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.requiresApproval).toBe(true)
 	})
 })

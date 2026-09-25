@@ -437,9 +437,19 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			.map((tc) => tc.id)
 		if (escapes.length > 0) {
 			if (!prompt) {
-				return options.unattendedSandboxEscape === 'allow'
-					? { action: 'approve_tools', confirmedEscalations: escapes }
-					: { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+				if (options.unattendedSandboxEscape !== 'allow') {
+					return { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+				}
+				// This opt-in confirms only the sandbox escape. A different call in
+				// the batch, or another boundary on this same call, still needs a
+				// person; the early return must not approve that boundary too.
+				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
+					return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
+				}
+				if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
+					return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+				}
+				return { action: 'approve_tools', confirmedEscalations: escapes }
 			}
 			const answer = await ask()
 			if (answer.kind === 'reject') {

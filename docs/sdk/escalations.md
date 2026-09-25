@@ -42,6 +42,8 @@ For `outsidePaths`, `createReviewHandler` asks its `prompt` in every mode that g
 
 For `sandboxEscape` an approval is not enough. The decision must list the call's id in `confirmedEscalations` (on `approve_tools` or `modify_tools`); a call it does not list is refused and the rest of the batch runs. `createReviewHandler` fills it only after its `prompt` said yes — it asks in every mode that got that far, `auto` and a remembered "approve all" included — or, with no `prompt`, when `unattendedSandboxEscape: 'allow'`. Otherwise it refuses the batch with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`. A host's own handler that answers `approve_tools` to everything therefore cannot release an escape by accident.
 
+That unattended setting confirms only the escape. An outside-root path or a tool's `requiresApproval` declaration in the same call or batch still needs a person; without a prompt, the whole batch is refused with that boundary's reason.
+
 ## What the tool is handed
 
 For each call that was not denied, the executor sets, on that call's context only:

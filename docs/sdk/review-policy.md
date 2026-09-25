@@ -99,6 +99,8 @@ A skill loaded earlier in the turn can pre-approve calls through its `allowed-to
 
 A call carrying `ToolCallSummary.escalation` — a path outside the turn's roots, or a request to leave the sandbox — is always reviewed: `batchNeedsReview` is true for it and `accept-edits` does not approve it alone. A path outside the roots is asked about in every mode that does not refuse it, `auto` and a remembered `approve-all` included, and refused with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL` when there is no `prompt`. A sandbox escape is asked about in every mode that does not refuse it, `auto` and a remembered `approve-all` included, and approved only with its id in `confirmedEscalations`; with no `prompt` it is refused with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL` unless `unattendedSandboxEscape: 'allow'`. See [Crossing the tool boundary](escalations.md).
 
+`unattendedSandboxEscape: 'allow'` confirms only the sandbox escape. If the same call or batch also crosses an outside-root path or declares `requiresApproval`, an unattended run refuses the whole batch with that boundary's refusal reason.
+
 # A call the tool itself declares always needs approval
 
 `ToolDefinition.requiresApproval(input)` (`defineTool({ requiresApproval })`) is a tool author's own declaration that this exact call needs a person's approval, independent of destructiveness and of how the host configured its rules. It exists for a call that is sensitive for a reason other than being destructive — it costs money, it leaves an audit trail somewhere else, it is policy-sensitive — so an author stops having to misdeclare `isDestructive` on a call that does not destroy anything just to get a review the host might not otherwise configure.

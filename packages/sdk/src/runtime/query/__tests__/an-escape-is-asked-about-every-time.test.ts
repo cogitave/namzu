@@ -99,6 +99,14 @@ describe('a sandbox escape', () => {
 			confirmedEscalations: ['b1'],
 		})
 	})
+
+	it('does not let the unattended escape opt-in approve another call outside the roots', async () => {
+		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
+		expect(await handler(review(escapeCall, outsideRead))).toEqual({
+			action: 'reject_tools',
+			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+		})
+	})
 })
 
 describe('a path outside the working directory', () => {
