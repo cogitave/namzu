@@ -166,6 +166,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 	const beginClose = (reason: unknown, closeTransport: boolean): void => {
 		if (!closed) {
 			closed = true
+			toolManager.dispose()
 			lifetime.abort(reason)
 			wake?.()
 		}
@@ -221,6 +222,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 	} catch (error) {
 		removeConnectAbort?.()
 		params.signal?.removeEventListener('abort', onCallerAbort)
+		toolManager.dispose()
 		if (lifetime.signal.aborted) {
 			void connecting.catch(() => undefined)
 			throw lifetime.signal.reason

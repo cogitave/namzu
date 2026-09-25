@@ -47,8 +47,9 @@ also contains a complete example that executes a local tool through this loop.
 `<NAMZU_HOME>/projects/<slug>/project.json` by `ensureProject` and adopted by
 every later call there, so every session in one directory is filed under one
 Project, in one tree. None of this creates Project, Topic or Session records in a session
-store. A host using store-backed delegation supplies the identity from its
-actual records.
+store. These generated IDs are correlation and storage labels, not ownership
+or permission claims. A host using store-backed delegation supplies the
+identity from its actual records.
 
 `runAgent` defaults to 16 main-loop iterations, 200,000 cumulative tokens and
 five minutes. Set `maxIterations: 0`, `tokenBudget: 0` and `timeoutMs: 0` to

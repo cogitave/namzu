@@ -25,7 +25,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { readParks } from '../checkpoint.js'
-import { type QueryParams, drainQuery } from '../index.js'
+import { type QueryParams, drainQuery, query } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
 import type { TurnStateScope } from '../turn-state.js'
 import { turnCheckpoints } from './support/session.js'
@@ -157,6 +157,56 @@ describe('the process handlers a turn leaves behind', () => {
 		// the rest of the process's life.
 		expect(process.listenerCount('SIGTERM')).toBe(before)
 		expect(process.listenerCount('SIGINT')).toBe(0)
+	})
+})
+
+describe('the live toolset listener a turn borrows', () => {
+	it('does not accumulate across turns that reuse the same toolset', async () => {
+		const listeners = new Set<() => void>()
+		let subscriptions = 0
+		let unsubscriptions = 0
+		const live: Toolset = {
+			...echoRegistry(),
+			onChange(listener) {
+				expect(listeners.size).toBe(0)
+				subscriptions += 1
+				listeners.add(listener)
+				return () => {
+					unsubscriptions += 1
+					listeners.delete(listener)
+				}
+			},
+		}
+
+		for (let turn = 1; turn <= 3; turn += 1) {
+			const result = await drainQuery(await baseParams({ toolsets: [live] }))
+			expect(result.status).toBe('completed')
+			expect(subscriptions).toBe(turn)
+			expect(unsubscriptions).toBe(turn)
+			expect(listeners.size).toBe(0)
+		}
+	})
+
+	it('releases the listener when a caller abandons the event stream', async () => {
+		const listeners = new Set<() => void>()
+		const live: Toolset = {
+			...echoRegistry(),
+			onChange(listener) {
+				listeners.add(listener)
+				return () => {
+					listeners.delete(listener)
+				}
+			},
+		}
+
+		let receivedEvent = false
+		for await (const _event of query(await baseParams({ toolsets: [live] }))) {
+			receivedEvent = true
+			expect(listeners.size).toBe(1)
+			break
+		}
+		expect(receivedEvent).toBe(true)
+		expect(listeners.size).toBe(0)
 	})
 })
 

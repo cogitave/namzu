@@ -199,6 +199,13 @@ costs nothing when idle), or a `ToolsetChangeReport`:
   serves. The incumbent wins regardless of toolset order; the newcomer
   never reaches the manager.
 
+The manager owns those `onChange` subscriptions and releases them with
+`dispose()`. `query()` calls it when the turn ends, including an abandoned
+stream; a duplex turn calls it when the session closes or connection fails.
+The CLI releases its session and turn managers at their respective boundaries.
+A host that constructs a `ToolManager` directly must call `dispose()`
+when finished; it does not close the caller's toolsets or their connections.
+
 ### Availability is derived, not stored
 
 `ToolManager.availability(name)` returns `'suspended'` when the owner is

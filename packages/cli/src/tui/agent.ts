@@ -2934,7 +2934,7 @@ export async function createAgentSession(
 		// no longer the cleanup right below. The same admission checks
 		// `registry.register(...)` used to run immediately after
 		// construction (a legal name among them).
-		new ToolManager({ toolsets: agentToolsets, messages: () => [] })
+		new ToolManager({ toolsets: agentToolsets, messages: () => [] }).dispose()
 		toolsets.push(...agentToolsets)
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
@@ -3266,6 +3266,7 @@ export async function createAgentSession(
 	})
 	const operations = new SessionOperationOwner(async () => {
 		const results = await Promise.allSettled([
+			Promise.resolve().then(() => manager.dispose()),
 			options.conversationSessions
 				? releaseConversationEvidence(options.conversationSessions, scope.sessionId)
 				: undefined,
@@ -4290,6 +4291,7 @@ export async function createAgentSession(
 							}
 						}
 					} finally {
+						if (runManager !== manager) runManager.dispose()
 						liveModeControls.delete(modeControl)
 						recordedModes.set(String(turnScope.sessionId), modeControl.current())
 						for (const turnId of claimed) {
@@ -5196,6 +5198,8 @@ async function* runTurn({
 			kind: 'error',
 			message: err instanceof Error ? err.message : String(err),
 		}
+	} finally {
+		turnManager.dispose()
 	}
 }
 

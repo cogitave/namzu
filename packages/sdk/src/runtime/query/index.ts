@@ -987,6 +987,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 	// provider lacks, a sandbox mode it does not offer); the lease the
 	// prelude took is given back on the way out.
 	let unsubscribeChildSessions: (() => void) | undefined
+	let disposeToolManager: (() => void) | undefined
 	try {
 		const unsubscribeTaskStore = params.taskStore
 			? eventTranslator.wireTaskStore(params.taskStore, ctx.sessionId)
@@ -1164,6 +1165,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// post-compaction history, which grows as the turn proceeds.
 			messages: () => ctx.recorder.messages,
 		})
+		disposeToolManager = () => toolManager.dispose()
 
 		// ─── Provider capability negotiation (before tooling bootstrap) ────────
 		// Compare what the request asks for with what the DRIVER declared it
@@ -2496,10 +2498,14 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			if (!settled) await settleAbandonedTurn(ctx.recorder, eventTranslator, ctx.log)
 		}
 	} finally {
-		unsubscribeChildSessions?.()
-		// The lease `open()` took in the prelude; a caller-supplied lease is the
-		// caller's to give back.
-		await ctx.recorder.release()
+		try {
+			disposeToolManager?.()
+		} finally {
+			unsubscribeChildSessions?.()
+			// The lease `open()` took in the prelude; a caller-supplied lease is the
+			// caller's to give back.
+			await ctx.recorder.release()
+		}
 	}
 }
 

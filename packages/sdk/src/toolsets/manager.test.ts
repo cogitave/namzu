@@ -396,6 +396,56 @@ describe('ToolManager — refresh()', () => {
 	})
 })
 
+describe('ToolManager — live subscription lifetime', () => {
+	it('releases each subscription between managers without closing the host-owned toolset', () => {
+		const original = fixtureTool('original')
+		const live = liveToolset('mcp:shared', [original])
+
+		for (let turn = 0; turn < 3; turn += 1) {
+			const m = manager([live.toolset])
+			expect(live.listenerCount()).toBe(1)
+
+			const added = fixtureTool(`added_${turn}`)
+			live.setTools([original, added])
+			expect(m.refresh()?.added).toEqual([added.name])
+
+			m.dispose()
+			m.dispose()
+			expect(live.listenerCount()).toBe(0)
+		}
+
+		expect(live.closeCalls()).toBe(0)
+	})
+
+	it('releases earlier subscriptions if a later live toolset fails to subscribe', () => {
+		const live = liveToolset('mcp:shared', [fixtureTool('original')])
+		const broken: Toolset = {
+			...toolset('broken', []),
+			onChange() {
+				throw new Error('subscription failed')
+			},
+		}
+
+		expect(() => manager([live.toolset, broken])).toThrow('subscription failed')
+		expect(live.listenerCount()).toBe(0)
+		expect(live.closeCalls()).toBe(0)
+	})
+
+	it('releases every listener even if one unsubscribe throws', () => {
+		const first = liveToolset('mcp:first', [fixtureTool('first')])
+		const broken: Toolset = {
+			...toolset('broken', []),
+			onChange: () => () => {
+				throw new Error('unsubscribe failed')
+			},
+		}
+		const m = manager([first.toolset, broken])
+		expect(first.listenerCount()).toBe(1)
+		m.dispose()
+		expect(first.listenerCount()).toBe(0)
+	})
+})
+
 describe('ToolManager — view()', () => {
 	it('exposes only has / availability / searchDeferred', () => {
 		const m = manager([

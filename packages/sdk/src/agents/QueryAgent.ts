@@ -6,9 +6,92 @@ import type {
 	QueryAgentResult,
 } from '../types/agent/index.js'
 import type { AssistantMessage } from '../types/message/index.js'
+import type { TurnConfig } from '../types/session/config.js'
 import type { SessionEventListener } from '../types/session/events.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
+import { pickRoutedOptions } from './forward-options.js'
+
+/** Every config field has one destination, or a deliberately explicit transform. */
+const configRoutes = {
+	model: 'turn',
+	tokenBudget: 'turn',
+	budget: 'query',
+	timeoutMs: 'turn',
+	streamIdleTimeoutMs: 'turn',
+	maxRequestRichContentBytes: 'turn',
+	attachmentResolveTimeoutMs: 'query',
+	maxIterations: 'turn',
+	temperature: 'turn',
+	maxResponseTokens: 'turn',
+	costLimitUsd: 'turn',
+	permissionMode: 'turn',
+	pruneKeepLast: 'turn',
+	paths: 'query',
+	sessionLog: 'query',
+	checkpointStore: 'query',
+	sandbox: 'turn',
+	inboundMessages: 'query',
+	projectInstructionContext: 'query',
+	allowedTools: 'special',
+	toolResultGuardrails: 'query',
+	deniedTools: 'special',
+	persona: 'query',
+	logger: 'special',
+	env: 'turn',
+	thinking: 'turn',
+	effort: 'turn',
+	idempotencyKey: 'special',
+	projectId: 'special',
+	topicId: 'special',
+	sessionId: 'special',
+	tenantId: 'special',
+	parentSessionId: 'query',
+	parentTurnId: 'query',
+	depth: 'query',
+	contextLevel: 'query',
+	invocationState: 'query',
+	parentSpan: 'query',
+	resumeHandler: 'query',
+	reviewAllowedCalls: 'query',
+	systemPrompt: 'query',
+	webSearch: 'turn',
+	steering: 'query',
+	skills: 'query',
+	basePrompt: 'query',
+	provider: 'query',
+	toolsets: 'query',
+	advisory: 'query',
+	authorizationGate: 'query',
+	sandboxProvider: 'query',
+	sandboxTeardownTimeoutMs: 'query',
+	outsideRootAccess: 'query',
+	sandboxEscape: 'query',
+	compactionConfig: 'query',
+	workingMemoryProvider: 'query',
+	retry: 'query',
+	toolTimeoutMs: 'query',
+	toolRetryBackoff: 'query',
+	maxToolConcurrency: 'query',
+	maxToolOutputChars: 'query',
+	retainedToolPreviewChars: 'query',
+	maxToolContentBytes: 'query',
+	repairToolCall: 'query',
+	stopWhen: 'query',
+	onStepFinish: 'query',
+	prepareStep: 'query',
+	beforeStep: 'query',
+	structuredOutput: 'query',
+	inputGuardrails: 'query',
+	outputGuardrails: 'query',
+} as const satisfies { readonly [K in keyof QueryAgentConfig]: 'query' | 'turn' | 'special' }
+
+type RoutedKeys<TDestination extends 'query' | 'turn'> = {
+	[K in keyof typeof configRoutes]: (typeof configRoutes)[K] extends TDestination ? K : never
+}[keyof typeof configRoutes]
+
+type QueryFields = Pick<Parameters<typeof drainQuery>[0], RoutedKeys<'query'>>
+type TurnFields = Pick<TurnConfig, RoutedKeys<'turn'>>
 
 export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult> {
 	readonly type: string
@@ -62,106 +145,18 @@ export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult
 		}
 		const turnId = this.createTurnId()
 		this.bindTurn(config.sessionId, turnId, config.logger)
+		const queryFields: QueryFields = pickRoutedOptions(config, configRoutes, 'query')
+		const turnFields: TurnFields = pickRoutedOptions(config, configRoutes, 'turn')
 
 		const turn = await drainQuery(
 			{
-				systemPrompt: config.systemPrompt,
-				persona: config.persona,
-				skills: config.skills,
-				basePrompt: config.basePrompt,
-				provider: config.provider,
-				...(config.budget ? { budget: config.budget } : {}),
-				toolsets: config.toolsets,
+				...queryFields,
 				...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
-				...(config.attachmentResolveTimeoutMs !== undefined
-					? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
-					: {}),
-				...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
-				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
-				...(config.sandboxTeardownTimeoutMs !== undefined
-					? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
-					: {}),
-				...(config.outsideRootAccess ? { outsideRootAccess: config.outsideRootAccess } : {}),
-				...(config.sandboxEscape ? { sandboxEscape: config.sandboxEscape } : {}),
-				// Working-memory / compaction seam (optional; absent => unchanged run path).
-				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
-				...(config.workingMemoryProvider
-					? { workingMemoryProvider: config.workingMemoryProvider }
-					: {}),
-				// Forward the same loop-control and resilience settings a direct
-				// `query()` caller can supply. An `AgentManager` host should not lose
-				// them just because it uses an Agent instance for delegation.
-				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-				// The switch that sends rule-allowed and grant-covered batches to
-				// that handler (plan mode). A delegated child inherits it from the
-				// manager; dropped here, the child would run them past the handler.
-				...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
-				...(config.retry !== undefined ? { retry: config.retry } : {}),
-				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
-				...(config.toolRetryBackoff !== undefined
-					? { toolRetryBackoff: config.toolRetryBackoff }
-					: {}),
-				...(config.maxToolConcurrency !== undefined
-					? { maxToolConcurrency: config.maxToolConcurrency }
-					: {}),
-				...(config.maxToolOutputChars !== undefined
-					? { maxToolOutputChars: config.maxToolOutputChars }
-					: {}),
-				...(config.toolResultGuardrails !== undefined
-					? { toolResultGuardrails: config.toolResultGuardrails }
-					: {}),
-				...(config.retainedToolPreviewChars !== undefined
-					? { retainedToolPreviewChars: config.retainedToolPreviewChars }
-					: {}),
-				...(config.maxToolContentBytes !== undefined
-					? { maxToolContentBytes: config.maxToolContentBytes }
-					: {}),
-				...(config.repairToolCall ? { repairToolCall: config.repairToolCall } : {}),
-				...(config.stopWhen ? { stopWhen: config.stopWhen } : {}),
-				...(config.onStepFinish ? { onStepFinish: config.onStepFinish } : {}),
-				...(config.prepareStep ? { prepareStep: config.prepareStep } : {}),
-				...(config.beforeStep ? { beforeStep: config.beforeStep } : {}),
 				...(config.allowedTools ? { allowedTools: [...config.allowedTools] } : {}),
 				...(config.deniedTools ? { deniedTools: [...config.deniedTools] } : {}),
-				...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
-				...(config.projectInstructionContext
-					? { projectInstructionContext: config.projectInstructionContext }
-					: {}),
-				...(config.steering ? { steering: config.steering } : {}),
-				...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
-				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),
-				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
-				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
-				...(config.paths ? { paths: config.paths } : {}),
-				// Forwarded so a session log in memory keeps the whole session
-				// there; dropped here, the turn would build a disk log instead.
-				...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
-				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
 				turnConfig: {
-					model: config.model,
-					...(config.webSearch ? { webSearch: config.webSearch } : {}),
-					tokenBudget: config.tokenBudget,
-					timeoutMs: config.timeoutMs,
-					...(config.sandbox ? { sandbox: config.sandbox } : {}),
-					...(config.streamIdleTimeoutMs !== undefined
-						? { streamIdleTimeoutMs: config.streamIdleTimeoutMs }
-						: {}),
-					...(config.maxRequestRichContentBytes !== undefined
-						? { maxRequestRichContentBytes: config.maxRequestRichContentBytes }
-						: {}),
-					maxIterations: config.maxIterations,
-					temperature: config.temperature,
-					maxResponseTokens: config.maxResponseTokens,
-					...(config.pruneKeepLast !== undefined ? { pruneKeepLast: config.pruneKeepLast } : {}),
-					costLimitUsd: config.costLimitUsd,
-					permissionMode: config.permissionMode,
-					env: config.env,
+					...turnFields,
 					logger: this.log,
-					// Hand-listed, so anything not named here is dropped in silence.
-					// That is how both of these came to be unreachable from every
-					// entry point except the raw kernel one.
-					...(config.thinking ? { thinking: config.thinking } : {}),
-					...(config.effort ? { effort: config.effort } : {}),
 				},
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,
@@ -171,17 +166,11 @@ export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult
 				projectId: config.projectId,
 				tenantId: config.tenantId,
 				turnId,
-				...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
-				...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
-				depth: config.depth,
-				contextLevel: config.contextLevel,
 				messages: input.messages,
 				signal: input.signal,
 				taskStore: input.taskStore,
 				runtimeToolOverrides: input.runtimeToolOverrides,
 				runtimeContext: input.runtimeContext,
-				advisory: config.advisory,
-				invocationState: config.invocationState,
 			},
 			listener,
 		)

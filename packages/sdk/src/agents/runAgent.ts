@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { resolveCapabilities } from '../capabilities/index.js'
 import type { AgentCapability } from '../capabilities/index.js'
 import type { PluginLifecycleManager } from '../plugin/lifecycle.js'
@@ -14,6 +15,7 @@ import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 import type { SandboxProvider } from '../types/sandbox/index.js'
+import type { TurnConfig } from '../types/session/config.js'
 import type { SessionEventListener } from '../types/session/events.js'
 import type { Turn } from '../types/session/turn.js'
 import type { Skill } from '../types/skills/index.js'
@@ -24,6 +26,7 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../utils/id.js'
+import { pickRoutedOptions } from './forward-options.js'
 
 /**
  * The session a turn belongs to.
@@ -42,6 +45,10 @@ import {
  * delegation limits live on the project, and a missing project has no limits
  * to read. A turn that has to delegate should be given the id returned by
  * `store.createProject()`.
+ *
+ * Optional host correlation and storage scope, not fields an Agent must own.
+ * `runAgent` resolves absent values only because its current recorder and
+ * checkpoint contracts require a complete scope internally.
  */
 export interface AgentIdentity {
 	sessionId?: SessionId
@@ -229,6 +236,69 @@ export interface RunAgentResult {
 }
 
 /**
+ * Every public option must have a route. A newly added option therefore
+ * requires an explicit decision here, rather than silently vanishing between
+ * this front door and `drainQuery`. Direct routes are type-checked against
+ * their destination; transformed values stay in the function below.
+ */
+type RunAgentOptionRoutes = {
+	readonly [K in keyof RunAgentOptions]:
+		| 'special'
+		| (K extends keyof QueryParams
+				? RunAgentOptions[K] extends QueryParams[K]
+					? 'query'
+					: never
+				: never)
+		| (K extends keyof TurnConfig
+				? RunAgentOptions[K] extends TurnConfig[K]
+					? 'turn'
+					: never
+				: never)
+}
+
+const RUN_AGENT_OPTION_ROUTES = {
+	sessionId: 'special',
+	topicId: 'special',
+	projectId: 'special',
+	tenantId: 'special',
+	provider: 'special',
+	prompt: 'special',
+	instructions: 'special',
+	model: 'special',
+	toolsets: 'special',
+	capabilities: 'special',
+	pluginManager: 'special',
+	inputGuardrails: 'special',
+	outputGuardrails: 'special',
+	toolResultGuardrails: 'query',
+	sandboxProvider: 'query',
+	sandbox: 'turn',
+	sandboxTeardownTimeoutMs: 'query',
+	skills: 'query',
+	verificationGate: 'special',
+	authorizationGate: 'query',
+	workingDirectory: 'special',
+	paths: 'special',
+	sessionLog: 'query',
+	checkpointStore: 'query',
+	maxIterations: 'special',
+	tokenBudget: 'special',
+	timeoutMs: 'special',
+	streamIdleTimeoutMs: 'turn',
+	maxRequestRichContentBytes: 'turn',
+	attachmentResolveTimeoutMs: 'query',
+	attachmentStore: 'query',
+	temperature: 'special',
+	structuredOutput: 'query',
+	thinking: 'special',
+	effort: 'special',
+	name: 'special',
+	signal: 'query',
+	listener: 'special',
+	projectInstructionContext: 'query',
+} as const satisfies RunAgentOptionRoutes
+
+/**
  * Defaults chosen to be safe rather than generous.
  *
  * A front door exists so a first turn works without a decision, and the cost of
@@ -283,6 +353,14 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  * ```
  */
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
+	if (
+		options.verificationGate &&
+		options.authorizationGate &&
+		!isDeepStrictEqual(options.verificationGate, options.authorizationGate)
+	) {
+		throw new Error('runAgent: verificationGate and authorizationGate must name the same policy.')
+	}
+	const authorizationGate = options.authorizationGate ?? options.verificationGate
 	const workingDirectory = options.workingDirectory ?? process.cwd()
 	const layout = await resolveLayout(options, workingDirectory)
 	const identity: Required<AgentIdentity> = {
@@ -326,9 +404,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 	const turn = await drainQuery(
 		{
 			provider: options.provider,
+			...pickRoutedOptions(options, RUN_AGENT_OPTION_ROUTES, 'query'),
+			...(authorizationGate ? { authorizationGate } : {}),
 			...(layout.paths ? { paths: layout.paths } : {}),
-			...(options.sessionLog ? { sessionLog: options.sessionLog } : {}),
-			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
 			toolsets: [
 				...(options.toolsets ?? []),
 				...(resolvedCapabilities?.toolsets ?? []),
@@ -352,31 +430,14 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 						],
 					}
 				: {}),
-			...(options.toolResultGuardrails !== undefined
-				? { toolResultGuardrails: options.toolResultGuardrails }
-				: {}),
-			...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
-			...(options.attachmentResolveTimeoutMs !== undefined
-				? { attachmentResolveTimeoutMs: options.attachmentResolveTimeoutMs }
-				: {}),
-			...(options.sandboxProvider ? { sandboxProvider: options.sandboxProvider } : {}),
-			...(options.sandboxTeardownTimeoutMs !== undefined
-				? { sandboxTeardownTimeoutMs: options.sandboxTeardownTimeoutMs }
-				: {}),
 			messages,
 			workingDirectory,
 			turnConfig: {
 				model: options.model,
-				...(options.sandbox ? { sandbox: options.sandbox } : {}),
+				...pickRoutedOptions(options, RUN_AGENT_OPTION_ROUTES, 'turn'),
 				maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 				tokenBudget: options.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-				...(options.streamIdleTimeoutMs !== undefined
-					? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
-					: {}),
-				...(options.maxRequestRichContentBytes !== undefined
-					? { maxRequestRichContentBytes: options.maxRequestRichContentBytes }
-					: {}),
 				...((options.temperature ?? capabilitySettings?.temperature) !== undefined
 					? { temperature: options.temperature ?? capabilitySettings?.temperature }
 					: {}),
@@ -395,14 +456,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			agentId: options.name ?? 'agent',
 			agentName: options.name ?? 'Agent',
 			...(options.instructions ? { systemPrompt: options.instructions } : {}),
-			...(options.signal ? { signal: options.signal } : {}),
-			...(options.skills ? { skills: options.skills } : {}),
-			...(options.verificationGate ? { verificationGate: options.verificationGate } : {}),
-			...(options.authorizationGate ? { authorizationGate: options.authorizationGate } : {}),
-			...(options.structuredOutput ? { structuredOutput: options.structuredOutput } : {}),
-			...(options.projectInstructionContext
-				? { projectInstructionContext: options.projectInstructionContext }
-				: {}),
 			...identity,
 		},
 		options.listener,

@@ -190,6 +190,43 @@ describe('a session with no turn boundary', () => {
 		await run.close()
 	})
 
+	it('releases live toolset listeners when the duplex run closes', async () => {
+		const { tools, provider } = open()
+		const unsubscribe = vi.fn()
+		const live: Toolset = { ...tools[0]!, onChange: () => unsubscribe }
+		const run = await startBidiTurn({
+			provider,
+			toolsets: [live],
+			connect: { model: 'mock' },
+			workingDirectory: process.cwd(),
+		})
+		await run.close()
+		expect(unsubscribe).toHaveBeenCalledOnce()
+		await run.close()
+		expect(unsubscribe).toHaveBeenCalledOnce()
+	})
+
+	it('releases live toolset listeners if provider connection fails', async () => {
+		const { tools } = open()
+		const unsubscribe = vi.fn()
+		const live: Toolset = { ...tools[0]!, onChange: () => unsubscribe }
+		const provider: BidiProvider = {
+			id: 'failed-connect',
+			connect: async () => {
+				throw new Error('connection failed')
+			},
+		}
+		await expect(
+			startBidiTurn({
+				provider,
+				toolsets: [live],
+				connect: { model: 'mock' },
+				workingDirectory: process.cwd(),
+			}),
+		).rejects.toThrow('connection failed')
+		expect(unsubscribe).toHaveBeenCalledOnce()
+	})
+
 	it('answers a tool call on the same session', async () => {
 		const { tools, provider } = open()
 		const run = await startBidiTurn({

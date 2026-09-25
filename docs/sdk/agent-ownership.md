@@ -23,8 +23,15 @@ instance-scoped `AbortSignal` as its fourth argument; observe it to stop work
 on `cancel()`. `defineAgent` creates a fresh shell for each delegated turn.
 `QueryAgent` is an optional adapter
 when the instance's `run` should execute one ordinary SDK query. Its config
-requires the caller's tenant, project, topic and session identity. The host
-still owns the provider, toolsets, authorization and cancellation decisions.
+currently requires the caller's tenant, project, topic and session identity
+because it passes a managed turn into the recorder and checkpoint contracts.
+Those IDs are host storage and correlation scope, not properties every
+application agent must own. `BaseAgentConfig` keeps them optional; a
+store-backed `AgentManager` supplies real scope to delegated turns.
+`runAgent` also accepts all four optionally and resolves absent values for
+its current recorder. Generated labels do not create tenant, topic or project
+records and do not grant authority. The host still owns the provider,
+toolsets, authorization and cancellation decisions.
 
 The CLI's delegated implementation is `NamzuCliAgent` in
 `packages/cli/src/integrations/subagents/`. It derives from `QueryAgent` and

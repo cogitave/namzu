@@ -157,6 +157,8 @@ export class ToolManager {
 	 */
 	private lastObservedByName = new Map<string, ToolDefinition>()
 	private dirty = false
+	private readonly unsubscribeToolsetChanges: (() => void)[] = []
+	private disposed = false
 
 	private readonly preparations = new WeakMap<
 		PreparedToolExecution,
@@ -175,10 +177,34 @@ export class ToolManager {
 
 		this.resolveInitial()
 
-		for (const toolset of this.toolsets) {
-			toolset.onChange?.(() => {
-				this.dirty = true
-			})
+		try {
+			for (const toolset of this.toolsets) {
+				const unsubscribe = toolset.onChange?.(() => {
+					if (!this.disposed) this.dirty = true
+				})
+				if (unsubscribe) this.unsubscribeToolsetChanges.push(unsubscribe)
+			}
+		} catch (error) {
+			// A later subscription can fail after earlier live toolsets subscribed.
+			this.dispose()
+			throw error
+		}
+	}
+
+	/** Stop observing live toolsets when this manager's owner finishes; the host owns their connections. */
+	dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
+		for (const unsubscribe of this.unsubscribeToolsetChanges.splice(0).reverse()) {
+			try {
+				unsubscribe()
+			} catch (error) {
+				// A broken source must not prevent the other listeners (or the
+				// turn's recorder) from being released.
+				this.log.warn('Toolset change listener cleanup failed', {
+					'exception.message': toErrorMessage(error),
+				})
+			}
 		}
 	}
 

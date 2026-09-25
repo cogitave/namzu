@@ -226,30 +226,23 @@ export interface BaseAgentConfig {
 	idempotencyKey?: string
 
 	/**
-	 * Long-lived goal scope for the turn. Required at runtime — agents reject
-	 * configs missing this (`'X requires sessionId, projectId, and tenantId
-	 * in config'`).
-	 *
-	 * Kept optional at the TYPE level because {@link AgentManager} stamps
-	 * this field AFTER `configBuilder` returns (manager/agent/lifecycle.ts).
-	 * Tightening to required is a separate task alongside
-	 * `AgentFactoryOptions` carrying the triple.
+	 * Project scope for a store-backed turn. Optional on the general Agent
+	 * contract: {@link AgentManager} supplies the real project to delegated
+	 * agents after `configBuilder` returns. A standalone application agent need
+	 * not take its identity from a project store.
 	 */
 	projectId?: ProjectId
 
 	/**
-	 * Topic the turn belongs to. Optional at the TYPE level for the same
-	 * reason as `projectId` — {@link AgentManager} stamps this field after
-	 * `configBuilder` returns so `configBuilder` implementations do not
-	 * need to be updated before this tightens. Tightening to required
-	 * lands with the `AgentFactoryOptions` triple refactor.
+	 * Optional topic scope. A host with topics supplies it for its own session
+	 * and delegation records; it is not intrinsic to an Agent implementation.
 	 */
 	topicId?: TopicId
 
-	/** Session under which the turn executes. See `projectId` for the tightening plan. */
+	/** Session correlation for a persisted turn; a host may resolve it at invocation. */
 	sessionId?: SessionId
 
-	/** Isolation boundary (Convention #17). See `projectId` for the tightening plan. */
+	/** Host tenancy scope; store-backed delegation needs a real tenant owner. */
 	tenantId?: TenantId
 
 	/** Present on a child session: the session that delegated it. */
