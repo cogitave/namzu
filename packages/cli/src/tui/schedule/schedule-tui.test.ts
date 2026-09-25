@@ -4,9 +4,22 @@
  * timing, and the startup line.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
-import { NOOP_LOGGER, buildScheduleTools, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
+import {
+	NOOP_LOGGER,
+	buildScheduleTools,
+	defineTool,
+	hostCommandShell,
+	mcpJsonSchemaToZod,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
@@ -30,7 +43,7 @@ import {
 	type UserQuestion,
 	createAgentSession,
 } from '../agent.js'
-import { listScheduleJobs } from './host-commands.js'
+import { listScheduleJobs, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
 import {
 	type ScheduledResumeParams,
@@ -501,6 +514,80 @@ describe('answering a parked scheduled run', () => {
 	})
 })
 
+describe('/schedule confirm for a script job', () => {
+	it.each(['script', 'script+agent'] as const)(
+		'shows the exact %s body and shell before binding its confirmation',
+		async (runKind) => {
+			const name = runKind === 'script' ? 'pending-script' : 'pending-gate'
+			const shell = hostCommandShell().dialect
+			const body = 'echo first\necho second'
+			const original = confirmedJob(sb, {
+				name,
+				runKind,
+				script: { body, shell },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			})
+			updateJob(sb.paths, original.id, original.revision, (job) => ({
+				...job,
+				state: 'pending-confirmation',
+				confirmation: null,
+			}))
+			const said: string[] = []
+			let asked = 0
+			await runScheduleCommand(['confirm', name], {
+				home: sb.home,
+				cwd: sb.project,
+				config: {},
+				say: (text) => said.push(text),
+				ask: async () => {
+					asked++
+					expect(said[0]).toContain(
+						`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${shell}`,
+					)
+					expect(said[0]).toContain('  │ echo first\n  │ echo second')
+					if (runKind === 'script') expect(said[0]).not.toContain('\nPrompt\n')
+					else expect(said[0]).toContain('Prompt (used only when the wake-gate says wake: true)')
+					return { kind: 'answer', selectedOptionIds: ['create'] }
+				},
+			})
+			expect(asked).toBe(1)
+			const confirmed = readJob(sb.paths, original.id)
+			expect(confirmed?.state).toBe('active')
+			expect(confirmed && confirmationHolds(confirmed)).toBe(true)
+		},
+	)
+
+	it('refuses a hand-edited dangerous script before asking for confirmation', async () => {
+		const original = confirmedJob(sb, {
+			name: 'unsafe-script',
+			runKind: 'script',
+			script: { body: 'echo safe', shell: hostCommandShell().dialect },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const path = sb.paths.job(original.id)
+		const edited = JSON.parse(readFileSync(path, 'utf8'))
+		edited.script.body = 'systemctl --user stop namzu-scheduler'
+		writeFileSync(path, JSON.stringify(edited))
+		const said: string[] = []
+		let asked = 0
+		await runScheduleCommand(['confirm', original.name], {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: (text) => said.push(text),
+			ask: async () => {
+				asked++
+				return { kind: 'answer', selectedOptionIds: ['create'] }
+			},
+		})
+		expect(asked).toBe(0)
+		expect(said.join('\n')).toMatch(/script was refused.*scheduled-run floor refused/is)
+		expect(
+			confirmationHolds(readJob(sb.paths, original.id) as NonNullable<ReturnType<typeof readJob>>),
+		).toBe(false)
+	})
+})
+
 describe('the schedule tool’s host', () => {
 	function host(answer: string, cwd = () => sb.project) {
 		const said: string[] = []
@@ -521,7 +608,7 @@ describe('the schedule tool’s host', () => {
 			},
 		})
 		const [tool] = buildScheduleTools(h)
-		return { tool: tool as NonNullable<typeof tool>, said, questions }
+		return { host: h, tool: tool as NonNullable<typeof tool>, said, questions }
 	}
 	const input = {
 		action: 'create',
@@ -581,6 +668,25 @@ describe('the schedule tool’s host', () => {
 		symlinkSync(sb.project, link)
 		const viaLink = await host('create', () => link).tool.execute({ action: 'list' }, {} as never)
 		expect(viaLink.output).toMatch(/^here · .*\(this folder\)$/m)
+	})
+
+	it('reports unreadable job files in both the TUI list and model-facing list', async () => {
+		mkdirSync(sb.paths.jobs, { recursive: true })
+		writeFileSync(join(sb.paths.jobs, 'broken.json'), '{')
+		const shown = await listScheduleJobs({
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: () => {},
+			ask: async () => ({ kind: 'skip' }),
+		})
+		expect(shown).toContain('No readable scheduled jobs.')
+		expect(shown).toContain('1 job file could not be read')
+		expect(shown).not.toContain('No scheduled jobs.')
+		const listed = await host('create').tool.execute({ action: 'list' }, {} as never)
+		expect(listed.success).toBe(false)
+		expect(listed.error).toContain('1 job file could not be read')
+		expect(listed.output).not.toContain('No scheduled jobs.')
 	})
 
 	describe('update', () => {
@@ -729,17 +835,64 @@ describe('the schedule tool’s host', () => {
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		}
 
+		it('previews effective zero model budget and the script timeout', async () => {
+			const { host: scheduleHost } = host('cancel')
+			const preview = await scheduleHost.preview({
+				name: 'ticker',
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
+				when: 'every 1m',
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			})
+			expect(preview.budget).toEqual({
+				maxIterations: 0,
+				tokenBudget: 0,
+				timeoutMs: 7_000,
+			})
+			expect(preview.model).toBeUndefined()
+			expect(preview.networkAccess).toBe(true)
+			expect(preview.networkGrantAccess).toBe(false)
+			expect(preview.warnings).toContain('This run can reach the network.')
+			expect(preview.credentialSource).toBeUndefined()
+			expect(preview.dailyTokenCeiling).toBeUndefined()
+			expect(listJobs(sb.paths).jobs).toHaveLength(0)
+			await expect(
+				scheduleHost.preview({
+					name: 'ticker',
+					runKind: 'script',
+					script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
+					when: 'every 1m',
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+					budget: { tokenBudget: 10_000 },
+				}),
+			).rejects.toThrow(/pure script job has no agent budget/)
+			const shellAgent = await scheduleHost.preview({
+				name: 'shell-agent',
+				prompt: 'Check status',
+				when: 'every 1m',
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			})
+			expect(shellAgent.networkAccess).toBe(true)
+			expect(shellAgent.networkGrantAccess).toBe(false)
+		})
+
 		it('shows the exact script text on its own confirmation screen, verified before it is shown', async () => {
 			const { tool, said } = host('create')
 			const result = await tool.execute(scriptInput, {} as never)
 			expect(result.success).toBe(true)
 			expect(said[0]).toContain('Script (exactly as it will run, bash')
 			expect(said[0]).toContain('echo hi')
+			expect(said[0]).toContain('the scheduled-run floor and every deny rule apply to this script')
 			expect(said[0]).not.toContain('Prompt (exactly as the run will read it)')
 			const [job] = listJobs(sb.paths).jobs
 			expect(job?.runKind).toBe('script')
 			expect(job?.script).toMatchObject({ body: 'echo hi', shell: 'bash' })
 			expect(job?.prompt).toBe('')
+			const rejected = await tool.execute(
+				{ action: 'update', job: 'ticker', budget: { tokenBudget: 10_000 } },
+				{} as never,
+			)
+			expect(rejected.error).toMatch(/pure script job has no agent budget/)
 		})
 
 		it('refuses a script the floor denies before any confirmation is shown, the same as schedule add', async () => {
@@ -837,6 +990,60 @@ describe('the schedule tool’s host', () => {
 			expect(stored?.runKind).toBe('script+agent')
 			expect(stored?.prompt).toBe('summarise what changed')
 			expect(stored?.wakeGate).toMatchObject({ maxContextChars: expect.any(Number) })
+		})
+
+		it('converts an agent job to a model-free script without carrying its prompt', async () => {
+			expect((await host('create').tool.execute(input, {} as never)).success).toBe(true)
+			const { tool } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'proposed',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			const stored = readJob(sb.paths, listJobs(sb.paths).jobs[0]?.id as string)
+			expect(stored?.runKind).toBe('script')
+			expect(stored?.prompt).toBe('')
+			expect(stored).not.toHaveProperty('model')
+		})
+
+		it('refuses kind-only conversion when the inherited host permissions reach the network', async () => {
+			for (const kind of ['script', 'script+agent'] as const) {
+				const name = kind === 'script' ? 'network-script' : 'network-gate'
+				const created = await host('create').tool.execute(
+					{
+						...input,
+						name,
+						permissions: {
+							rules: { web_fetch: 'allow', bash: { 'rm*': 'deny' } },
+							unmatched: 'deny',
+						},
+					},
+					{} as never,
+				)
+				expect(created.success, kind).toBe(true)
+				const { tool, said } = host('save')
+				const result = await tool.execute(
+					{
+						action: 'update',
+						job: name,
+						kind,
+						script: { body: 'echo hi', shell: 'bash' },
+					},
+					{} as never,
+				)
+				expect(result.error, kind).toMatch(
+					/cannot combine web or browser access with a shell on the host/,
+				)
+				expect(said, kind).toEqual([])
+				const job = listJobs(sb.paths).jobs.find((j) => j.name === name)
+				expect(job?.runKind, kind).toBeUndefined()
+			}
 		})
 
 		it('the /schedule list marks a zero-token script job and a script+agent one', async () => {

@@ -64,12 +64,12 @@ export function recordingContext(
 export function jobRequest(sb: Sandbox, over: Partial<JobRequest> = {}): JobRequest {
 	return {
 		name: 'nightly',
-		prompt: 'Check the dependencies.',
+		prompt: over.runKind === 'script' ? '' : 'Check the dependencies.',
 		when: '0 3 * * *',
 		folder: sb.project,
 		tz: 'UTC',
 		permissions: { preset: 'read-only' },
-		model: 'deepseek/deepseek-chat',
+		...(over.runKind === 'script' ? {} : { model: 'deepseek/deepseek-chat' }),
 		createdBy: { surface: 'cli' },
 		...over,
 	}
@@ -118,7 +118,10 @@ export function completion(tool?: {
 									index: 0,
 									id: tool.id ?? 'call_1',
 									type: 'function',
-									function: { name: tool.name, arguments: JSON.stringify(tool.input) },
+									function: {
+										name: tool.name,
+										arguments: JSON.stringify(tool.input),
+									},
 								},
 							],
 						}

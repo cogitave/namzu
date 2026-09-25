@@ -36,7 +36,12 @@ import {
 } from '../integrations/providers/index.js'
 import { checkJobFolder } from './folder.js'
 import type { SchedulePaths } from './paths.js'
-import { type CompiledJobPolicy, type PermissionInput, expandPermissions } from './policy.js'
+import {
+	type CompiledJobPolicy,
+	type PermissionInput,
+	allowsCommands,
+	expandPermissions,
+} from './policy.js'
 import { computeProjectDigest } from './store/digest.js'
 import { JOB_NAME, jobSecurityDigest } from './store/jobs.js'
 import type { ConfirmationSurface, ScheduleBudget, ScheduleJob, ScheduleRunKind } from './types.js'
@@ -103,7 +108,10 @@ function positive(label: string, value: number | undefined, fallback: number): n
 }
 
 /** The model a job pins: `provider[/model]`, or the configured primary. */
-export function resolveJobModel(spec: string | undefined, home?: string): ScheduleJob['model'] {
+export function resolveJobModel(
+	spec: string | undefined,
+	home?: string,
+): NonNullable<ScheduleJob['model']> {
 	if (spec) {
 		const [provider = '', ...rest] = spec.split('/')
 		if (!(provider in PROVIDER_REGISTRY)) {
@@ -145,6 +153,13 @@ export function buildJob(
 		)
 	}
 	const runKind = request.runKind ?? 'agent'
+	if (runKind === 'script' && (request.model !== undefined || request.effort !== undefined)) {
+		throw new JobRequestError(
+			'a pure script job has no model or effort; remove --model and --effort',
+		)
+	}
+	if (runKind === 'script' && request.prompt.trim())
+		throw new JobRequestError('a pure script job has no prompt; remove the prompt')
 	if (runKind === 'agent' && request.script !== undefined) {
 		throw new JobRequestError('an agent job has no script; pass --kind script or script+agent')
 	}
@@ -281,12 +296,19 @@ export function buildJob(
 		folder: { path: request.folder, canonical: folder.canonical },
 		trust: null,
 		schedule: spec,
-		permissions: { ...permissions, ...(extra.length > 0 ? { additionalDirectories: extra } : {}) },
-		budget,
-		model: {
-			...resolveJobModel(request.model, context.paths.home),
-			...(request.effort ? { effort: request.effort } : {}),
+		permissions: {
+			...permissions,
+			...(extra.length > 0 ? { additionalDirectories: extra } : {}),
 		},
+		budget,
+		...(runKind === 'script'
+			? {}
+			: {
+					model: {
+						...resolveJobModel(request.model, context.paths.home),
+						...(request.effort ? { effort: request.effort } : {}),
+					},
+				}),
 		catchUp: { windowMs: SCHEDULE_CATCH_UP_WINDOW_MS },
 		notify: {
 			finished: true,
@@ -321,7 +343,11 @@ export function confirmJob(
 	const at = now.toISOString()
 	const trusted: ScheduleJob = {
 		...job,
-		trust: { canonical: job.folder.canonical, grantedAt: at, by: 'operator-confirmation' },
+		trust: {
+			canonical: job.folder.canonical,
+			grantedAt: at,
+			by: 'operator-confirmation',
+		},
 		projectDigest: computeProjectDigest(job.folder.canonical),
 	}
 	return {
@@ -349,7 +375,10 @@ export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJ
 		schedule: rebuilt.schedule,
 		permissions: rebuilt.permissions,
 		budget: rebuilt.budget,
-		model: rebuilt.model,
+		// Keep an older pure script's real (unused) model field across edits,
+		// so a fresh confirmation still binds that field. New scripts omit it.
+		model:
+			rebuilt.runKind === 'script' && current.runKind === 'script' ? current.model : rebuilt.model,
 		notify: rebuilt.notify,
 		failurePolicy: rebuilt.failurePolicy,
 		retention: rebuilt.retention,
@@ -388,40 +417,57 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		}).format(t),
 	)
 	const perDay = runsPerDay(job.schedule, now)
+	const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
+	const networkCapable =
+		policy.network ||
+		(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
 	return [
 		`Job         ${job.name}`,
 		`Folder      ${job.folder.canonical}`,
 		`When        ${describeSchedule(job.schedule, { tz })}`,
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
-		`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}${job.model.effort ? ` (${job.model.effort})` : ''}`,
-		`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+		...(job.runKind === 'script'
+			? [
+					'Model       none (script only)',
+					`Budget      0 tokens; script timeout ${job.script ? duration(job.script.timeoutMs) : 'unknown'} per run`,
+				]
+			: [
+					`Model       ${job.model?.provider ?? '(missing)'}${job.model?.model ? `/${job.model.model}` : ''}${job.model?.effort ? ` (${job.model.effort})` : ''}`,
+					`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+				]),
 		// A proposal once set 1, read as "one post per run": the first run
 		// stopped after its first model call, with nothing done.
-		...(job.budget.maxIterations < FEW_ITERATIONS
+		...(job.runKind !== 'script' && job.budget.maxIterations < FEW_ITERATIONS
 			? [
 					`Warning     ${job.budget.maxIterations} iteration${job.budget.maxIterations === 1 ? '' : 's'} is one model call${job.budget.maxIterations === 1 ? '' : ' each'} with its tool calls; most tasks need more (the default is ${DEFAULT_MAX_ITERATIONS}), and a run that runs out stops unfinished`,
 				]
 			: []),
 		// A proposal once set 4,000 tokens for a job whose runs each took
 		// about 110,000: every model call resends the whole prompt.
-		...(job.budget.tokenBudget < FEW_TOKENS
+		...(job.runKind !== 'script' && job.budget.tokenBudget < FEW_TOKENS
 			? [
 					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is ${DEFAULT_TOKEN_BUDGET.toLocaleString('en-US')})`,
 				]
 			: []),
-		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
+		...(job.runKind === 'script'
+			? []
+			: [
+					`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
+				]),
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
-		...(policy.network ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
-		...(job.permissions.browser
+		...(networkCapable ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
+		...(job.permissions.browser && job.runKind !== 'script'
 			? [
 					`Browser     SIGNED IN AS YOU: profile ${job.permissions.browser.profile}, only ${Object.keys(job.permissions.browser.sites).join(', ')}`,
 				]
 			: []),
-		...(job.permissions.unmatched === 'allow'
+		...(job.runKind !== 'script' && job.permissions.unmatched === 'allow'
 			? ['Unmatched   CALLS NO RULE COVERS RUN WITHOUT ASKING']
 			: []),
 		'Permissions',
 		...policy.lines.map((line) => `  ${line}`),
-		`Approvals   a call that waits for you expires after ${duration(job.approvalTtlMs)}`,
+		...(job.runKind === 'script'
+			? []
+			: [`Approvals   a call that waits for you expires after ${duration(job.approvalTtlMs)}`]),
 	]
 }

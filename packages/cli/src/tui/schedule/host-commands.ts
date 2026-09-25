@@ -17,8 +17,9 @@ import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
 import { schedulePaths } from '../../schedule/paths.js'
-import { compileJobPolicy, isPresetName } from '../../schedule/policy.js'
+import { compileJobPolicy, compileScriptCheckPolicy, isPresetName } from '../../schedule/policy.js'
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
+import { verifyScheduledScript } from '../../schedule/script-check.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
@@ -77,7 +78,7 @@ function when(iso: string | undefined, tz: string): string {
 
 export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<string> {
 	const paths = schedulePaths(ctx.home)
-	const { jobs } = listJobs(paths)
+	const { jobs, errors } = listJobs(paths)
 	const lines: string[] = []
 	for (const job of jobs) {
 		const tz = job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone()
@@ -118,8 +119,15 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 	}
 	return [
 		jobs.length === 0
-			? 'No scheduled jobs. Ask for one ("run this every night at 3"), or /schedule add.'
+			? errors.length > 0
+				? 'No readable scheduled jobs.'
+				: 'No scheduled jobs. Ask for one ("run this every night at 3"), or /schedule add.'
 			: lines.join('\n'),
+		...(errors.length > 0
+			? [
+					`${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; inspect or repair the files under NAMZU_HOME.`,
+				]
+			: []),
 		await schedulerLine(ctx.home),
 	].join('\n')
 }
@@ -130,8 +138,9 @@ async function confirmInTui(
 	verb: string,
 ): Promise<'create' | 'create-paused' | 'cancel'> {
 	const paths = schedulePaths(ctx.home)
+	const layers = readPermissionLayers({ cwd: job.folder.canonical })
 	const policy = compileJobPolicy(job.permissions, {
-		layers: readPermissionLayers({ cwd: job.folder.canonical }),
+		layers,
 		namzuHome: paths.home,
 		folder: job.folder,
 	})
@@ -139,12 +148,49 @@ async function confirmInTui(
 		ctx.say(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
 		return 'cancel'
 	}
+	const runKind = job.runKind ?? 'agent'
+	if (runKind !== 'agent' && runKind !== 'script' && runKind !== 'script+agent') {
+		ctx.say(`The job has an unknown run kind: ${String(runKind)}`)
+		return 'cancel'
+	}
+	if (runKind !== 'agent') {
+		if (!job.script) {
+			ctx.say(`The ${runKind} job has no script recorded.`)
+			return 'cancel'
+		}
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(job.script.body, job.script.shell, scriptPolicy)
+		if (!checked.ok) {
+			ctx.say(
+				`The ${runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+			)
+			return 'cancel'
+		}
+	}
+	const scriptSection =
+		runKind !== 'agent' && job.script
+			? [
+					`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}; verified against the scheduled-run floor and every deny rule)`,
+					...job.script.body.split('\n').map((line) => `  │ ${line}`),
+				]
+			: []
 	ctx.say(
 		[
 			...previewLines(job, policy, new Date()),
 			...changesBlock(changesSinceConfirmed(readHistory(paths, job.id))),
-			'Prompt',
-			...job.prompt.split('\n').map((l) => `  │ ${l}`),
+			...scriptSection,
+			...(runKind === 'script'
+				? []
+				: [
+						runKind === 'script+agent'
+							? 'Prompt (used only when the wake-gate says wake: true)'
+							: 'Prompt',
+						...job.prompt.split('\n').map((l) => `  │ ${l}`),
+					]),
 		].join('\n'),
 	)
 	const answer = await ctx.ask({

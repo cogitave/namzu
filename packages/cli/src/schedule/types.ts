@@ -75,7 +75,10 @@ export interface ScheduleJob {
 	readonly revision: number
 	readonly createdAt: string
 	readonly updatedAt: string
-	readonly createdBy: { readonly surface: 'cli' | 'tui' | 'tool'; readonly sessionId?: string }
+	readonly createdBy: {
+		readonly surface: 'cli' | 'tui' | 'tool'
+		readonly sessionId?: string
+	}
 	/** The operator's instruction to the model. Empty for a pure `script` job. */
 	readonly prompt: string
 	/** What this job does. Absent on a `v:1` file, which is read as `'agent'`. */
@@ -103,7 +106,12 @@ export interface ScheduleJob {
 	readonly schedule: ScheduleSpec
 	readonly permissions: SchedulePermissionSet
 	readonly budget: ScheduleBudget
-	readonly model: { readonly provider: string; readonly model?: string; readonly effort?: string }
+	/** Required for agent and script+agent jobs; unused and absent on new pure script jobs. */
+	readonly model?: {
+		readonly provider: string
+		readonly model?: string
+		readonly effort?: string
+	}
 	readonly catchUp: { readonly windowMs: number }
 	readonly notify: {
 		readonly finished: boolean
@@ -260,14 +268,23 @@ export type ScheduleHistoryRecord =
 			readonly reason?: string
 			readonly exitCode?: number
 			readonly summary?: string
-			readonly usage?: { readonly totalTokens?: number; readonly costUsd?: number }
+			readonly usage?: {
+				readonly totalTokens?: number
+				readonly costUsd?: number
+			}
 			readonly warnings?: readonly string[]
 			readonly refusedCalls?: ScheduleCallTally
 			readonly failedCalls?: ScheduleCallTally
 			/** `runKind: 'script+agent'` only: what its wake-gate decided. */
-			readonly gateResult?: { readonly wake: boolean; readonly contextChars: number }
+			readonly gateResult?: {
+				readonly wake: boolean
+				readonly contextChars: number
+			}
 			/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
-			readonly scriptOutput?: { readonly stdout: string; readonly stderr: string }
+			readonly scriptOutput?: {
+				readonly stdout: string
+				readonly stderr: string
+			}
 	  }
 	| {
 			readonly v: 1
@@ -344,7 +361,10 @@ export interface ScheduleRunResult {
 	/** Calls that ran and returned an error. */
 	readonly failedCalls?: ScheduleCallTally
 	/** `runKind: 'script+agent'` only: what its wake-gate decided. */
-	readonly gateResult?: { readonly wake: boolean; readonly contextChars: number }
+	readonly gateResult?: {
+		readonly wake: boolean
+		readonly contextChars: number
+	}
 	/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
 	readonly scriptOutput?: { readonly stdout: string; readonly stderr: string }
 	readonly startedAt: string

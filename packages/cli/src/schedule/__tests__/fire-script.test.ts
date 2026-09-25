@@ -9,10 +9,11 @@ import { join } from 'node:path'
 import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
+import { confirmJob } from '../build.js'
 import { runFire } from '../fire/fire.js'
 import { readRunResult } from '../fire/result.js'
 import { claimOccurrence } from '../store/claims.js'
-import { readJob } from '../store/jobs.js'
+import { readJob, updateJob } from '../store/jobs.js'
 import type { ScheduleJob } from '../types.js'
 import { type Sandbox, confirmedJob, recordingContext, sandbox } from './fixtures.js'
 
@@ -98,7 +99,10 @@ describe('a script job, fired', () => {
 	})
 
 	it('records its own timeout, separate from the job’s (much longer) budget.timeoutMs', async () => {
-		const job = scriptJob('sleep 5', { scriptTimeoutMs: 200, budgetTimeoutMs: 60_000 })
+		const job = scriptJob('sleep 5', {
+			scriptTimeoutMs: 200,
+			budgetTimeoutMs: 60_000,
+		})
 		const { result } = await fire(job)
 		expect(result?.status).toBe('timed-out')
 		expect(result?.reason).toMatch(/200 ms/)
@@ -125,6 +129,49 @@ describe('a script job, fired', () => {
 		const { result } = await fire(reread)
 		expect(result?.status).toBe('blocked-config')
 		expect(result?.reason).toMatch(/changed outside namzu/)
+	})
+
+	it('refuses an unknown run kind or a missing script before executing anything', async () => {
+		for (const malformed of ['unknown-kind', 'missing-script'] as const) {
+			const original = confirmedJob(sb, {
+				name: malformed,
+				runKind: 'script',
+				script: { body: 'echo should-not-run', shell: host.dialect },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			})
+			const changed = updateJob(sb.paths, original.id, original.revision, (job) => {
+				const altered =
+					malformed === 'unknown-kind'
+						? { ...job, runKind: 'other' as ScheduleJob['runKind'] }
+						: { ...job, script: undefined }
+				return confirmJob(altered, 'cli-tty', new Date())
+			})
+			const { result } = await fire(changed)
+			expect(result?.status, malformed).toBe('blocked-config')
+			expect(result?.scriptOutput, malformed).toBeUndefined()
+			expect(result?.reason, malformed).toMatch(
+				malformed === 'unknown-kind' ? /unknown run kind/ : /has no script recorded/,
+			)
+		}
+	})
+
+	it('refuses a modeled run missing its stored model before its agent or wake-gate starts', async () => {
+		for (const runKind of ['agent', 'script+agent'] as const) {
+			const original = confirmedJob(sb, {
+				name: `missing-model-${runKind.replace('+', '-')}`,
+				runKind,
+				...(runKind === 'script+agent'
+					? { script: { body: 'echo should-not-run', shell: host.dialect } }
+					: {}),
+			})
+			const changed = updateJob(sb.paths, original.id, original.revision, (job) =>
+				confirmJob({ ...job, model: undefined }, 'cli-tty', new Date()),
+			)
+			const { result } = await fire(changed)
+			expect(result?.status, runKind).toBe('blocked-config')
+			expect(result?.reason, runKind).toMatch(/agent job has no model/)
+			expect(result?.scriptOutput, runKind).toBeUndefined()
+		}
 	})
 
 	it('re-verifies the script against config-file deny rules ADDED after confirmation (not covered by the digest)', async () => {
@@ -158,7 +205,10 @@ describe('a script job, fired', () => {
 		// (a moved NAMZU_HOME, a machine re-imaged from WSL to native).
 		const job = scriptJob('echo hi', { shell: host.dialect })
 		const real = process.platform
-		Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+		Object.defineProperty(process, 'platform', {
+			value: 'win32',
+			configurable: true,
+		})
 		try {
 			const { result } = await fire(job)
 			expect(result?.status).toBe('blocked-config')

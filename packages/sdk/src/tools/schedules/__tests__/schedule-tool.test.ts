@@ -195,6 +195,18 @@ describe('schedule tool', () => {
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
 	})
 
+	it('reports a host list read error instead of claiming there are no jobs', async () => {
+		const { host } = fakeHost('create', {
+			list: async () => {
+				throw new Error('2 job files could not be read')
+			},
+		})
+		const result = await tool(host).execute({ action: 'list' }, context)
+		expect(result.success).toBe(false)
+		expect(result.error).toBe('2 job files could not be read')
+		expect(result.output).not.toContain('No scheduled jobs.')
+	})
+
 	describe('update', () => {
 		const proposal = {
 			preview: PREVIEW,
@@ -363,6 +375,60 @@ describe('schedule tool: kind and script', () => {
 		)
 	})
 
+	it('describes a created pure script as having history but no session', async () => {
+		const { host } = fakeHost('create', {
+			preview: async () => ({
+				...PREVIEW,
+				runKind: 'script',
+				prompt: '',
+				script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
+				budget: { maxIterations: 0, tokenBudget: 0, timeoutMs: 7_000 },
+				model: undefined,
+				credentialSource: undefined,
+				dailyTokenCeiling: undefined,
+			}),
+		})
+		const result = await tool(host).execute(scriptInput as never, context)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('results are recorded in its history')
+		expect(result.output).toContain('It creates no session.')
+	})
+
+	it('refuses an agent budget on a pure script before asking the host', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{ ...scriptInput, budget: { tokenBudget: 42 } },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/pure script job has no agent budget/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses a prompt or browser grant on a pure script', async () => {
+		const { host } = fakeHost('create')
+		for (const added of [
+			{ prompt: 'silently ignored' },
+			{
+				permissions: {
+					unmatched: 'deny',
+					browser: { profile: 'main', sites: { 'https://example.com': 'read' } },
+				},
+			},
+		]) {
+			const result = await tool(host).execute({ ...scriptInput, ...added }, context)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/pure script job/)
+		}
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('describes script requirements without requiring a prompt for them', () => {
+		const description = tool(fakeHost('create').host).description
+		expect(description).toContain('agent and script+agent also need prompt')
+		expect(description).toContain('script and script+agent also need script')
+	})
+
 	it('refuses kind: script with no script, naming the field', async () => {
 		const { host } = fakeHost('create')
 		const result = await tool(host).execute({ ...scriptInput, script: undefined }, context)
@@ -526,6 +592,90 @@ describe('schedule tool: kind and script', () => {
 			expect(result.success).toBe(false)
 			expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
 			expect(host.previewUpdate).not.toHaveBeenCalled()
+		})
+
+		it.each(['script', 'script+agent'] as const)(
+			'refuses a kind-only conversion to %s when the effective host job has network access',
+			async (kind) => {
+				const host = updatingHost({
+					previewUpdate: vi.fn(async () => ({
+						...proposal,
+						preview: {
+							...PREVIEW,
+							runKind: kind,
+							networkAccess: true,
+							execution: 'host',
+						} satisfies ScheduleJobPreview,
+					})),
+				})
+				const result = await tool(host).execute(
+					{
+						action: 'update',
+						job: 'ticker',
+						kind,
+						script: { body: 'echo hi', shell: 'bash' },
+					},
+					context,
+				)
+				expect(result.success).toBe(false)
+				expect(result.error).toMatch(
+					/cannot combine web or browser access with a shell on the host/,
+				)
+				expect(host.confirmUpdate).not.toHaveBeenCalled()
+				expect(host.update).not.toHaveBeenCalled()
+			},
+		)
+
+		it('uses the requested kind when a custom host omits it from its preview', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => ({
+					...proposal,
+					preview: {
+						...PREVIEW,
+						// Older custom hosts may not populate this newly optional field.
+						runKind: undefined,
+						networkAccess: true,
+						execution: 'host',
+					} satisfies ScheduleJobPreview,
+				})),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+			expect(host.confirmUpdate).not.toHaveBeenCalled()
+		})
+
+		it('allows a script conversion whose network capability comes only from its own shell', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => ({
+					...proposal,
+					preview: {
+						...PREVIEW,
+						runKind: 'script',
+						networkAccess: true,
+						networkGrantAccess: false,
+						execution: 'host',
+					} satisfies ScheduleJobPreview,
+				})),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(host.confirmUpdate).toHaveBeenCalled()
 		})
 	})
 })
@@ -743,7 +893,7 @@ describe('schedule tool: browser grant', () => {
 })
 
 describe('schedule tool: budget words', () => {
-	it('says a budget is one run’s, and that an iteration is a model step, not a repetition', () => {
+	it('says a budget limits one agent phase, and an iteration is a model step', () => {
 		const t = tool(fakeHost('create').host)
 		const budget = (
 			t.inputSchema as unknown as {
@@ -755,7 +905,8 @@ describe('schedule tool: budget words', () => {
 				}
 			}
 		).shape.budget
-		expect(budget.description).toContain('Limits of ONE run')
+		expect(budget.description).toContain('Agent-phase limits')
+		expect(budget.description).toContain('Refused for a pure script')
 		expect(budget.unwrap().shape.maxIterations.description).toContain(
 			'not how many times the job runs',
 		)

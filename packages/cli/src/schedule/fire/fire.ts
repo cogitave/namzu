@@ -114,21 +114,37 @@ export function parseFireArgs(argv: readonly string[]): FireArgs | { error: stri
 }
 
 /** Where a credential came from, in words, and whether it is another program's. */
-function credentialSource(source: { kind: string; envName?: string; path?: string }): {
+function credentialSource(source: {
+	kind: string
+	envName?: string
+	path?: string
+}): {
 	text: string
 	borrowed: boolean
 } {
 	switch (source.kind) {
 		case 'env':
-			return { text: `environment variable ${source.envName ?? ''}`.trim(), borrowed: false }
+			return {
+				text: `environment variable ${source.envName ?? ''}`.trim(),
+				borrowed: false,
+			}
 		case 'claude-file':
-			return { text: `Claude Code's sign-in (${source.path ?? ''})`, borrowed: true }
+			return {
+				text: `Claude Code's sign-in (${source.path ?? ''})`,
+				borrowed: true,
+			}
 		case 'codex-file':
 			return { text: `Codex's sign-in (${source.path ?? ''})`, borrowed: true }
 		case 'gemini-file':
-			return { text: `Gemini CLI's sign-in (${source.path ?? ''})`, borrowed: true }
+			return {
+				text: `Gemini CLI's sign-in (${source.path ?? ''})`,
+				borrowed: true,
+			}
 		case 'stored':
-			return { text: `namzu's credential store (${source.path ?? ''})`, borrowed: false }
+			return {
+				text: `namzu's credential store (${source.path ?? ''})`,
+				borrowed: false,
+			}
 		case 'keychain':
 			return { text: 'the system keychain', borrowed: true }
 		default:
@@ -246,6 +262,16 @@ export async function runFire(
 			`job changed outside namzu since it was confirmed; run namzu schedule confirm ${job.name}`,
 		)
 	}
+	const runKind = job.runKind ?? 'agent'
+	if (runKind !== 'agent' && runKind !== 'script' && runKind !== 'script+agent') {
+		return blocked(`the job has an unknown run kind: ${String(runKind)}`)
+	}
+	if (runKind !== 'agent' && !job.script) {
+		return blocked(`the ${runKind} job has no script recorded`)
+	}
+	const model = job.model
+	if (runKind !== 'script' && !model)
+		return blocked('an agent job has no model; edit the job and confirm it again')
 
 	// ── the folder, as trusted ────────────────────────────────────────────
 	const folder = checkJobFolder(job.folder.path, { namzuHome: paths.home })
@@ -298,7 +324,6 @@ export async function runFire(
 	// folder is the confirmed one and its project config has not drifted —
 	// exactly what an agent run checks before it opens a session. A script
 	// job stops here instead of going any further.
-	const runKind = job.runKind ?? 'agent'
 	// `build.ts` already refuses to CREATE a script/script+agent job on
 	// native (non-WSL) Windows, but a job confirmed on WSL or Linux can still
 	// be fired by a daemon that later finds itself running on native Windows
@@ -334,6 +359,7 @@ export async function runFire(
 	if (runKind === 'script') {
 		return runScriptJob(job, folder.canonical, paths, deps, finish, blocked)
 	}
+	if (!model) return blocked('an agent job has no model; edit the job and confirm it again')
 
 	// ── script+agent's wake-gate: a cheap script decides whether the
 	// (expensive) agent phase is worth running at all ─────────────────────
@@ -352,7 +378,10 @@ export async function runFire(
 				`the wake-gate script was confirmed for ${gate.dialectMismatch.expected}, but this host now runs commands as ${gate.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
 			)
 		}
-		scriptOutput = { stdout: capOutput(gate.stdout), stderr: capOutput(gate.stderr) }
+		scriptOutput = {
+			stdout: capOutput(gate.stdout),
+			stderr: capOutput(gate.stderr),
+		}
 		if (gate.timedOut) {
 			return finish('check-failed', 1, {
 				reason: `the wake-gate script exceeded its ${script.timeoutMs} ms timeout`,
@@ -368,7 +397,10 @@ export async function runFire(
 			job.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
 		)
 		if (!parsed.ok) return finish('check-failed', 1, { reason: parsed.reason })
-		gateResult = { wake: parsed.result.wake, contextChars: parsed.result.context.length }
+		gateResult = {
+			wake: parsed.result.wake,
+			contextChars: parsed.result.context.length,
+		}
 		if (!parsed.result.wake) return finish('completed', 0, {})
 		// A warning only: runtime output is not something anyone confirms in
 		// advance, so this never blocks the way the same scan can gate a
@@ -377,7 +409,6 @@ export async function runFire(
 		if (findings.length > 0) warnings.push(...findings.map((f) => `wake-gate context: ${f}`))
 		wakeGateContext = revealHiddenCharacters(parsed.result.context)
 	}
-
 	// ── the browser, when the job has one ─────────────────────────────────
 	const grant = job.permissions.browser
 	let browser: Extract<BrowserPreflight, { ok: true }> | undefined
@@ -396,10 +427,10 @@ export async function runFire(
 	const discoveryEnv = { ...(deps.env ?? process.env), ...daemonEnv.values }
 	const agent = deps.agent ?? (await import('../../tui/agent.js'))
 	const probe = await agent.probeAgentSession({ env: discoveryEnv })
-	const detected = probe.detected.find((d) => d.entry.id === job.model.provider)
+	const detected = probe.detected.find((d) => d.entry.id === model.provider)
 	if (!detected) {
 		return blocked(
-			`no credential for ${job.model.provider} in the scheduler's environment; run namzu login, or put the key in ${paths.daemonEnv}`,
+			`no credential for ${model.provider} in the scheduler's environment; run namzu login, or put the key in ${paths.daemonEnv}`,
 		)
 	}
 	const source = credentialSource(detected.source as { kind: string })
@@ -409,8 +440,8 @@ export async function runFire(
 		version: 3,
 		providers: [
 			{
-				id: job.model.provider as ProviderId,
-				...(job.model.model ? { model: job.model.model } : {}),
+				id: model.provider as ProviderId,
+				...(model.model ? { model: model.model } : {}),
 			},
 		],
 		subagents: { active: [] },
@@ -581,7 +612,7 @@ export async function runFire(
 					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
 					...(wakeGateContext !== undefined ? { wakeGateContext } : {}),
 				}),
-				...(job.model.effort ? { effort: job.model.effort as never } : {}),
+				...(model.effort ? { effort: model.effort as never } : {}),
 			}),
 		)
 		// A provider pause is waited out inside the job's budget, from the
@@ -644,7 +675,11 @@ export async function runFire(
 		})
 	}
 	if (failed)
-		return finish('failed', 1, { reason: failed, ...(summary ? { summary } : {}), ...withUsage })
+		return finish('failed', 1, {
+			reason: failed,
+			...(summary ? { summary } : {}),
+			...withUsage,
+		})
 	if (stopReason === 'timeout') {
 		return finish('timed-out', 1, {
 			reason: `the turn reached its ${job.budget.timeoutMs} ms time limit`,
@@ -659,7 +694,10 @@ export async function runFire(
 			...withUsage,
 		})
 	}
-	return finish('completed', 0, { ...(summary ? { summary } : {}), ...withUsage })
+	return finish('completed', 0, {
+		...(summary ? { summary } : {}),
+		...withUsage,
+	})
 }
 
 /**
@@ -696,7 +734,10 @@ async function runScriptJob(
 			`the script was confirmed for ${result.dialectMismatch.expected}, but this host now runs commands as ${result.dialectMismatch.actual}; run namzu schedule confirm ${job.name} to verify it in the shell that will actually run it`,
 		)
 	}
-	const scriptOutput = { stdout: capOutput(result.stdout), stderr: capOutput(result.stderr) }
+	const scriptOutput = {
+		stdout: capOutput(result.stdout),
+		stderr: capOutput(result.stderr),
+	}
 	if (result.timedOut) {
 		return finish('timed-out', 1, {
 			reason: `the script exceeded its ${script.timeoutMs} ms timeout`,

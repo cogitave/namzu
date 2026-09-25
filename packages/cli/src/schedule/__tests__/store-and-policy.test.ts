@@ -335,8 +335,15 @@ describe('building a script/script+agent job', () => {
 		expect(job.script).toBeUndefined()
 	})
 
-	it('a script job requires a non-empty script, and its prompt is unused', () => {
+	it('a script job requires a non-empty script and refuses a prompt', () => {
 		expect(() => build({ runKind: 'script' })).toThrow(/script is empty/)
+		expect(() =>
+			build({
+				runKind: 'script',
+				prompt: 'silently dropped before',
+				script: { body: 'echo hi', shell: 'bash' },
+			}),
+		).toThrow(/pure script job has no prompt/)
 		const job = build({
 			runKind: 'script',
 			script: { body: 'echo hi', shell: 'bash' },

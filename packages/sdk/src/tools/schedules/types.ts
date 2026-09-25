@@ -115,8 +115,11 @@ export interface ScheduleJobPreview {
 	readonly rules: readonly string[]
 	readonly unmatched: 'park' | 'deny' | 'allow'
 	readonly execution: 'host' | 'sandbox'
-	/** A rule lets the run reach the network. */
+	/** The run can reach the network, including through a fixed host script. */
 	readonly networkAccess: boolean
+	/** Web/browser permissions grant network access, separate from a script's own capability. */
+	readonly networkGrantAccess?: boolean
+	/** Effective run limits. A pure script has zero model iterations/tokens and its script timeout. */
 	readonly budget: {
 		readonly maxIterations: number
 		readonly tokenBudget: number
@@ -124,8 +127,8 @@ export interface ScheduleJobPreview {
 	}
 	/** Runs per day at most, times the token budget. Absent for a one-shot. */
 	readonly dailyTokenCeiling?: number
-	/** Provider and model the job is pinned to. */
-	readonly model: string
+	/** Provider and model the agent phase is pinned to. Absent for a pure script job. */
+	readonly model?: string
 	/** Where the run's credential comes from, in words. */
 	readonly credentialSource?: string
 	/** Anything the host wants said in the warning colour. */
@@ -247,7 +250,8 @@ export interface ScheduleToolHost {
 	 * folder's; a host may list every job regardless, marking the session
 	 * folder's with {@link ScheduleJobSummary.inSessionFolder}. The tool says
 	 * "No scheduled jobs." when this returns none, so a host that filters
-	 * says so only for its folder.
+	 * says so only for its folder. Throw on an unreadable job store: the tool
+	 * reports the error rather than claiming there are no jobs.
 	 */
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */

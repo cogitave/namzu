@@ -9,6 +9,7 @@ import type {
 	ScheduleBrowserSiteLevel,
 	ScheduleJobChanges,
 	ScheduleJobDraft,
+	ScheduleJobSummary,
 	ScheduleJobUpdateProposal,
 	ScheduleToolHost,
 } from './types.js'
@@ -64,7 +65,7 @@ const inputSchema = z.object({
 		.max(20_000)
 		.optional()
 		.describe(
-			'create, update: what the run is asked to do. Required unless kind is script (unused there); for script+agent this is the instruction handed to the model only when the wake-gate says wake: true.',
+			'create, update: what the model run is asked to do. Required for agent and script+agent; refused for a pure script. For script+agent this is handed to the model only when the wake-gate says wake: true.',
 		),
 	when: z
 		.string()
@@ -119,7 +120,7 @@ const inputSchema = z.object({
 		})
 		.optional()
 		.describe(
-			'create: REQUIRED explicit permission set; there is no default. update: the whole new set, only when the permissions change',
+			'create: REQUIRED explicit permission set; there is no default. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
 		),
 	budget: z
 		.object({
@@ -144,10 +145,12 @@ const inputSchema = z.object({
 				.int()
 				.positive()
 				.optional()
-				.describe('Wall clock of one run, in milliseconds'),
+				.describe('Wall clock of one agent phase, in milliseconds'),
 		})
 		.optional()
-		.describe('Limits of ONE run; omit to use the defaults'),
+		.describe(
+			'Agent-phase limits; omit to use the defaults. Refused for a pure script; use script.timeoutMs instead.',
+		),
 	job: z.string().optional().describe('update/pause/resume/delete: job name'),
 	allFolders: z.boolean().optional().describe('list: include jobs of other folders (names only)'),
 })
@@ -288,6 +291,15 @@ async function create(
 	if (runKind === 'agent' && input.script !== undefined) {
 		return refuse('an agent job has no script; omit kind (or set it to agent) to use one')
 	}
+	if (runKind === 'script' && input.prompt !== undefined)
+		return refuse('a pure script job has no prompt; remove prompt')
+	if (runKind === 'script' && input.budget !== undefined) {
+		return refuse(
+			'a pure script job has no agent budget; remove budget and use script.timeoutMs for its timeout',
+		)
+	}
+	if (runKind === 'script' && input.permissions?.browser !== undefined)
+		return refuse('a pure script job cannot use a browser grant; remove permissions.browser')
 	const checked = checkPermissions(host, input.permissions as NonNullable<Input['permissions']>)
 	if (!checked.ok) return refuse(checked.error)
 	const permissions = checked.permissions
@@ -338,7 +350,9 @@ async function create(
 	const said =
 		answer === 'create-paused'
 			? `Job "${created.name}" was created paused. The operator can resume it with /schedule.`
-			: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
+			: runKind === 'script'
+				? `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results are recorded in its history and may arrive as a notification. It creates no session.`
+				: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
 	return {
 		success: true,
 		output: created.note ? `${said} ${created.note}` : said,
@@ -347,7 +361,12 @@ async function create(
 }
 
 async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
-	const jobs = await host.list({ allFolders: input.allFolders === true })
+	let jobs: readonly ScheduleJobSummary[]
+	try {
+		jobs = await host.list({ allFolders: input.allFolders === true })
+	} catch (error) {
+		return refuse(error instanceof Error ? error.message : String(error))
+	}
 	if (jobs.length === 0) return { success: true, output: 'No scheduled jobs.', data: { jobs: [] } }
 	const lines = jobs.map(
 		(j) =>
@@ -402,10 +421,8 @@ async function update(
 		// changes: a kind given here is read too, since a script/script+agent
 		// job is refused this combination even where an agent job is not (no
 		// live turn reviews a script's calls one at a time). A kind changed
-		// here while permissions are left as they stand is not re-checked —
-		// the job's existing permissions already cleared this bar under
-		// whatever kind it had; the fresh re-verification at every `__fire`
-		// is the backstop for what this narrower, per-call check cannot see.
+		// with the existing permissions is checked on the effective preview
+		// after the host has applied all changes below.
 		if (
 			networkWithHostShell({
 				name: '',
@@ -432,6 +449,14 @@ async function update(
 		proposal = await host.previewUpdate(input.job, changes)
 	} catch (error) {
 		return refuse(error instanceof Error ? error.message : String(error))
+	}
+	const effectiveKind = input.kind ?? proposal.preview.runKind ?? 'agent'
+	if (
+		(effectiveKind === 'script' || effectiveKind === 'script+agent') &&
+		proposal.preview.execution === 'host' &&
+		(proposal.preview.networkGrantAccess ?? proposal.preview.networkAccess)
+	) {
+		return refuse(NETWORK_WITH_HOST_SHELL)
 	}
 	let confirmed = false
 	try {
@@ -518,7 +543,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: model prompts or fixed scripts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). agent and script+agent also need prompt; script and script+agent also need script. A pure script has no prompt, model, agent budget, browser grant or session; set script.timeoutMs to limit it. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

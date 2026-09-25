@@ -10,12 +10,13 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 
 # Scheduled tasks
 
-A scheduled job is a prompt that runs later, in a folder, while namzu is closed:
-every night at 03:00, every 30 minutes, once tomorrow at 09:00. Each run is its
-own conversation you can `/resume`, a desktop notification, and a line in the
-job's history. A job runs under a permission set you wrote down when you created
-it, and a call that set does not allow **waits for you or is refused — it is
-never approved on its own**.
+A scheduled job runs later, in a folder, while namzu is closed: every night at
+03:00, every 30 minutes, once tomorrow at 09:00. An `agent` run opens a
+conversation you can `/resume`; a pure `script` run uses no model or session.
+Each run gets a line in the job's history and may send a desktop notification.
+A model run uses the permission set you wrote down when you created it, and a
+call that set does not allow **waits for you or is refused — it is never
+approved on its own**.
 
 Jobs are run by one small scheduler process per `NAMZU_HOME`, installed once as a
 user service. [The scheduler service](scheduler-service.md) covers installing it
@@ -37,11 +38,12 @@ namzu schedule list
   otherwise, is about this kind.
 - **`script`** — a fixed shell script runs, no model call, zero tokens: give
   it `--script <text>` or `--script-file <file>` and `--shell bash|sh` (no
-  default; the operator picks the dialect). `--prompt` is unused and left
-  out. The motivating case is a job that woke an agent every couple of
+  default; the operator picks the dialect). `--prompt` is refused. The
+  motivating case is a job that woke an agent every couple of
   minutes only to read one number and decide there was nothing to report —
   real token cost for no judgement at all. A pure `script` job has no
-  session, spends no tokens, and cannot `park`: `--unmatched park` is
+  session, needs no configured provider or `--model`, spends no tokens, and
+  cannot `park`: `--unmatched park` is
   refused, since nothing can wait for the operator mid-script.
 - **`script+agent`** — a cheap "wake-gate" script runs first, on the same
   `--script`/`--shell`; only when it decides to wake does the agent phase
@@ -98,7 +100,7 @@ there is no default permission set.
 
 | Option | Meaning |
 |---|---|
-| `--prompt <text>` / `--prompt-file <file>` | What each run is asked to do. Required unless `--kind script` |
+| `--prompt <text>` / `--prompt-file <file>` | What a model run is asked to do. Required for `agent` and `script+agent`; refused for a pure `script` job |
 | `--kind agent\|script\|script+agent` | What the run does (above). Default `agent` |
 | `--script <text>` / `--script-file <file>` | The script (or, for `script+agent`, the wake-gate). Required unless `--kind agent` |
 | `--shell bash\|sh` | Which shell reads the script. Required with a script; no default |
@@ -109,11 +111,11 @@ there is no default permission set.
 | `--unmatched park\|deny\|allow` | A call no rule covers: wait for you, refuse, or run. `park` is refused for a pure `script` job |
 | `--execution host\|sandbox` | Where commands run. Default `host`; `sandbox` is refused for `script`/`script+agent` |
 | `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
-| `--model <provider>/<model>` | Pinned at creation. Default: your configured primary |
-| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 iterations or 50 000 tokens the confirmation warns that a run may stop unfinished, since every model call resends the whole prompt. For `script`/`script+agent` these still govern the agent phase only |
-| `--wait-for-provider 10m` | How long a run waits out a provider pause before giving up |
-| `--approval-ttl 7d` | How long a parked run waits for you before it is abandoned |
-| `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived |
+| `--model <provider>/<model>`, `--effort <level>` | Agent phase only, pinned at creation. The model defaults to your configured primary; a pure `script` job needs no model and rejects either flag |
+| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per agent phase. A token budget and a timeout are always stored (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 iterations or 50 000 tokens the confirmation warns that a model run may stop unfinished, since every model call resends the whole prompt. They govern the agent phase of `script+agent`; pure `script` rejects these flags and uses `--script-timeout` for its wall clock. Older script jobs may still store agent budget fields, but they have no effect on execution. |
+| `--wait-for-provider 10m` | How long a model run waits out a provider pause before giving up; refused for a pure `script` job |
+| `--approval-ttl 7d` | How long a parked model run waits for you before it is abandoned; refused for a pure `script` job |
+| `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived; refused for a pure `script` job, which opens no session |
 | `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never); `check-failed` counts as a failure |
 | `--add-dir <dir>` | Another directory the file tools may reach |
 | `--notify-summary` | Put the run's one-line summary in its notification |
@@ -121,12 +123,17 @@ there is no default permission set.
 | `--yes` | Do not ask. Without a terminal this creates the job **inert** (below) |
 | `--allow-unattended-host` | Required for `--unmatched allow` with host execution |
 
+A pure `script` job also refuses a browser grant: it never opens the SDK
+browser. An older script job that already stores one remains readable, but its
+grant has no effect on a script run.
+
 Before anything is written, `add` shows the job as it will run: the canonical
 folder, the schedule in words with the next three times in the job's zone, the
-model, the budget with the most tokens it can spend in a day (runs per day ×
-token budget), whether it can reach the network, and every rule in force —
+model and token budget for a model phase, or zero tokens and the script timeout
+for a pure script, whether it can reach the network, and every rule in force —
 including the denies it inherits from your config files. On a terminal it asks
-you to confirm.
+you to confirm. A host script, or an agent allowed to run host shell commands,
+is marked network-capable even when no web or browser tool is granted.
 
 ### Only a terminal or the TUI confirms a job
 
@@ -148,6 +155,15 @@ since the job was last confirmed, `+` for a line added and `-` for one removed
 (`Changed since it was last confirmed`). An edit saved with `--yes` records
 those lines in the job's history (`changes` on its `edited` record), so
 `schedule confirm` and `/schedule confirm` show them too.
+Both confirmation paths show the exact script text and shell for `script` and
+`script+agent` jobs, and recheck the current scheduled-run floor and deny rules
+before asking. A script that is no longer verifiable or allowed cannot be
+reconfirmed.
+
+On CLI text screens, control and invisible characters in a script, prompt,
+changed line or refusal reason appear as visible `\u{CODEPOINT}` escapes;
+literal backslashes are doubled in that escaped view. Newlines remain lines.
+The saved job and `--json` output preserve the original source text that runs.
 
 The confirmation records a digest of what was confirmed: the prompt, the folder
 and its trust, the permissions, the schedule, the model, the budget, and a
@@ -162,8 +178,10 @@ one), and the digest is a plain hash that such a program can recompute after
 writing a job file itself. They stop a job appearing from a script's or a
 model's ordinary shell call, and an edit that forgets the digest; they do not
 stop a program running under your account that sets out to get past them.
-What holds against a scheduled run is its permission set: nothing it asks
-beyond its rules is approved without you. The floor below, which refuses the
+What holds against an agent phase is its permission set: no model call beyond
+its rules is approved without you. A script phase runs the exact text the
+operator confirmed, after the scheduled-run floor and every deny rule check
+it; its `allow`/`ask` rules and `unmatched` do not authorize that text. The floor below, which refuses the
 scheduler's commands and paths into `NAMZU_HOME`, is a pattern check on the
 same footing as these tripwires: it catches the ordinary ways of writing them,
 not every way. A job whose rules allow `bash` without asking, or that uses
@@ -877,12 +895,14 @@ open session instead.
 
 Everything lives under `NAMZU_HOME/schedule/`; [Session storage](session-storage.md)
 lists each file and whether it is safe to delete. Nothing is written in the
-job's folder by the scheduler itself.
+job's folder by the scheduler itself. If a job file cannot be read, the CLI,
+TUI and model-facing `schedule list` report how many files are affected rather
+than claiming there are no jobs.
 
 ## Limits
 
 - Jobs run while you are logged on (macOS, Windows, WSL) or while the systemd
   user manager runs (Linux; `install --at-boot` keeps it running without a login).
 - No job wakes the machine.
-- There is no chaining, no delivery elsewhere than the notification and the
-  session, and no per-run worktree.
+- There is no chaining, no delivery elsewhere than the notification, run
+  history and (for model runs) session, and no per-run worktree.
