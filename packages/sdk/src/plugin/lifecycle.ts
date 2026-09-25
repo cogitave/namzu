@@ -193,7 +193,7 @@ export class PluginLifecycleManager {
 		PluginHookEvent,
 		Array<{
 			pluginId: PluginId
-			handler: PluginHookDefinition['handler']
+			handler: (context: PluginHookContext) => Promise<PluginHookResult>
 			priority: number
 			seq: number
 		}>
@@ -259,7 +259,11 @@ export class PluginLifecycleManager {
 			return () => this.toolsetChangeListeners.delete(listener)
 		}
 		const fileTools = deferred({
-			source: { id: `plugin:${pluginName}`, kind: 'plugin' as const, name: pluginName },
+			source: {
+				id: `plugin:${pluginName}`,
+				kind: 'plugin' as const,
+				name: pluginName,
+			},
 			tools: () =>
 				[...this.pluginFileTools.values()].filter((tool) =>
 					tool.name.startsWith(`${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}`),
@@ -428,7 +432,12 @@ export class PluginLifecycleManager {
 		this.pluginRegistry.register(definition)
 		this.pluginAdmissions.set(pluginId, admission)
 		this.registerToolsets(admission)
-		this.emit({ type: 'plugin_installed', pluginId, name: defined.name, scope })
+		this.emit({
+			type: 'plugin_installed',
+			pluginId,
+			name: defined.name,
+			scope,
+		})
 		return definition
 	}
 
@@ -517,7 +526,9 @@ export class PluginLifecycleManager {
 		// `installed`: a status that says the plugin is fine while it can
 		// never enable is how the next reader gets misled.
 		try {
-			assertEnableable(manifest, { skillsSupported: Boolean(this.skillRegistry) })
+			assertEnableable(manifest, {
+				skillsSupported: Boolean(this.skillRegistry),
+			})
 		} catch (err) {
 			this.pluginRegistry.register({
 				...this.definitionFrom(admission, 'error'),
@@ -559,7 +570,10 @@ export class PluginLifecycleManager {
 					for (const [index, tool] of mod.tools.entries()) {
 						assertPluginTool(tool, manifest.name, `"${toolPath}"`, index + 1)
 						const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + tool.name
-						const namespacedTool: ToolDefinition = { ...tool, name: namespacedName }
+						const namespacedTool: ToolDefinition = {
+							...tool,
+							name: namespacedName,
+						}
 						this.addFileTool(namespacedTool)
 						contributions.toolNames.push(namespacedName)
 					}
@@ -600,7 +614,9 @@ export class PluginLifecycleManager {
 				for (const hookPath of manifest.hooks) {
 					const absolutePath = await resolveWithinReal(admission.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
-					const mod = (await import(fileUrl)) as { hooks?: PluginHookDefinition[] }
+					const mod = (await import(fileUrl)) as {
+						hooks?: PluginHookDefinition[]
+					}
 
 					if (!mod.hooks || !Array.isArray(mod.hooks)) {
 						throw new Error(

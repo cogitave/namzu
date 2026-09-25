@@ -117,7 +117,9 @@ export interface ShellHookEntry {
 }
 
 /** Event → entries, the shape a host's config file carries. */
-export type ShellHooksConfig = { readonly [event in ShellHookEvent]?: readonly ShellHookEntry[] }
+export type ShellHooksConfig = {
+	readonly [event in ShellHookEvent]?: readonly ShellHookEntry[]
+}
 
 /** The plugin id host shell hooks register under when the host names none. */
 export const SHELL_HOOKS_PLUGIN_ID: PluginId = asPluginId('6d6f6bec-9d54-485b-90ca-52edbac1009d')
@@ -278,7 +280,13 @@ export function runShellHook(
 		const onAbort = () => killTree()
 		signal?.addEventListener('abort', onAbort, { once: true })
 		child.on('error', (error) => {
-			finish({ exitCode: null, timedOut, stdout, stderr, spawnError: error.message })
+			finish({
+				exitCode: null,
+				timedOut,
+				stdout,
+				stderr,
+				spawnError: error.message,
+			})
 		})
 		child.on('close', (code) => {
 			finish({ exitCode: code, timedOut, stdout, stderr })
@@ -319,9 +327,15 @@ export function shellHookVerdict(
 	outcome: ShellHookOutcome,
 	log: Logger = NOOP_LOGGER,
 ): PluginHookResult {
-	const attrs = { 'namzu.hook.event': event, 'namzu.hook.command': entry.command }
+	const attrs = {
+		'namzu.hook.event': event,
+		'namzu.hook.command': entry.command,
+	}
 	if (outcome.spawnError !== undefined) {
-		log.warn('hook could not start', { ...attrs, 'namzu.hook.error': outcome.spawnError })
+		log.warn('hook could not start', {
+			...attrs,
+			'namzu.hook.error': outcome.spawnError,
+		})
 		return { action: 'continue' }
 	}
 	if (outcome.timedOut) {
@@ -368,6 +382,8 @@ export function createShellHook(
 	options: ShellHookOptions,
 ): PluginHookDefinition {
 	const log = options.log ?? NOOP_LOGGER
+	// The shell verdict branches on `event`, but TypeScript cannot retain that
+	// correlation across the async handler closure and the union of events.
 	return {
 		event,
 		handler: async (context: PluginHookContext) => {
@@ -405,7 +421,7 @@ export function createShellHook(
 			)
 			return shellHookVerdict(event, entry, outcome, log)
 		},
-	}
+	} as PluginHookDefinition
 }
 
 /**

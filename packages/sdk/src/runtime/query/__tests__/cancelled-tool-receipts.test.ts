@@ -10,7 +10,7 @@ import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { PluginId } from '../../../types/ids/index.js'
-import type { PluginHookResult } from '../../../types/plugin/index.js'
+import type { PluginHookDefinition, PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -61,7 +61,10 @@ describe('cancellation after a tool returned its receipt', () => {
 			provider,
 			toolsets: [tools],
 			pluginManager: manager,
-			budget: SessionTokenBudget.create(100_000, { rootSessionId: sessionId, rootTurnId: turnId }),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: sessionId,
+				rootTurnId: turnId,
+			}),
 			sessionLog,
 			projectId: generateProjectId(),
 			sessionId,
@@ -142,15 +145,20 @@ describe('cancellation after a tool returned its receipt', () => {
 				release = resolve
 			})
 			let hookCalls = 0
-			manager.registerHook('receipt_redactor' as PluginId, {
-				event: hook,
-				handler: async () => {
-					hookCalls++
-					if (hook === 'pre_tool_use' && hookCalls === 1) return { action: 'continue' }
-					enter()
-					return held
-				},
-			})
+			// The table varies the event at runtime, so the fixture cannot retain the
+			// event/verdict correlation of one static hook definition.
+			manager.registerHook(
+				'receipt_redactor' as PluginId,
+				{
+					event: hook,
+					handler: async () => {
+						hookCalls++
+						if (hook === 'pre_tool_use' && hookCalls === 1) return { action: 'continue' }
+						enter()
+						return held
+					},
+				} as unknown as PluginHookDefinition,
+			)
 			const events: SessionEvent[] = []
 			const logged: { message: string; data?: LogContext }[] = []
 			const record = (message: string, data?: LogContext) => {
@@ -174,7 +182,11 @@ describe('cancellation after a tool returned its receipt', () => {
 					env: {},
 					abortSignal: caller.signal,
 				},
-				new ActivityStore(turnId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+				new ActivityStore(turnId, {
+					enabled: false,
+					trackToolCalls: false,
+					trackLlmTurns: false,
+				}),
 				async (event) => {
 					events.push(event as SessionEvent)
 				},
@@ -223,7 +235,10 @@ describe('cancellation after a tool returned its receipt', () => {
 				} else {
 					// The first call's review completed before the second pre-hook
 					// began. Its actual output remains valid evidence.
-					expect(batch.results[0]).toMatchObject({ output: receipt.output, isError: false })
+					expect(batch.results[0]).toMatchObject({
+						output: receipt.output,
+						isError: false,
+					})
 					expect(JSON.stringify(batch.messages)).toContain('private model receipt')
 				}
 			} finally {

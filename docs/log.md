@@ -2,6 +2,7 @@
 
 ## 2026-09-25
 
+- **Update** [Hook events](sdk/hooks.md): in-code hook definitions now tie each event to the verdicts the runtime can use, so invalid event/action pairs fail TypeScript checking. `PluginHookResultFor<Event>` names the narrower type; existing handlers returning the full `PluginHookResult` union must narrow their declared return type (`packages/sdk/src/types/plugin/index.ts`). [Host capabilities](sdk/host-capabilities.md) now states explicitly that human approval requires a configured `authorizationGate`. `.changeset/hook-event-verdict-types.md`, **major** for `@namzu/sdk`.
 - **Creation** [Host capabilities](sdk/host-capabilities.md): `defineCapability` and `dynamicCapability` compose host-authored instructions, toolsets, guardrails, prompt contributions and model settings for each `runAgent` invocation, with stable IDs and per-run factories (`packages/sdk/src/capabilities/index.ts`).
 - **Fix** [AG-UI clients](sdk/ag-ui.md): `@namzu/ag-ui` now requires SDK 48 because its adapter reads `QueryParams.toolsets`; SDK 45.1–47 provide only the removed `tools` shape. The existing `.changeset/agui-mcp-toolsets.md` now records a **major** release and tells hosts how to migrate.
 - **Fix** [Durable run storage](sdk/session-log.md): the `runtime-state-growth` benchmark now supplies a `toolset` to `drainQuery`; importing the removed `ToolRegistry` export had stopped the benchmark before it measured a turn (`scripts/benchmarks/runtime-state-growth.mjs`).

@@ -9,7 +9,7 @@ status: stable
 
 # Host capabilities
 
-`defineCapability` groups a host's instructions, toolsets, prompt contributions, input and output guardrails, and model settings under one stable `id`. Pass these declarations to `runAgent({ capabilities })`. The host constructs them in TypeScript; they are separate from file plugins, which have installation, enablement and trust rules. A capability keeps each toolset's original `ToolSource`, so its tools still receive the same admission, approval and result screening as other tools.
+`defineCapability` groups a host's instructions, toolsets, prompt contributions, input and output guardrails, and model settings under one stable `id`. Pass these declarations to `runAgent({ capabilities })`. The host constructs them in TypeScript; they are separate from file plugins, which have installation, enablement and trust rules. A capability keeps each toolset's original `ToolSource`, so its tools follow the same tool admission and result screening path as other tools. If calls require human approval, the host must configure `runAgent.authorizationGate`.
 
 The three units answer different questions: a `Toolset` says where tools come from; a host `Capability` says which reusable behaviors one agent invocation needs; a file `Plugin` says which installed code an operator has admitted and enabled. `AgentCapabilities` is older metadata about whether an agent supports tools, streaming, concurrency and children; it is not a behavior bundle. This separation keeps plugin discovery and model-chosen tool availability from silently granting authority. Host capabilities are resolved before the first model call; they are not loaded by a model mid-turn.
 
@@ -54,4 +54,4 @@ const projectContext = dynamicCapability('project-context', (ctx) =>
 void projectContext
 ```
 
-Capability IDs must be nonempty and unique in one invocation. A factory can choose whether to contribute, but it cannot install code or grant permission on its own. The operator's authorization gate still decides what a tool call may do. `runAgent` resolves the bundle anew each time; a long-lived session does not share its factory's returned object by default.
+Capability IDs must be nonempty and unique in one invocation. A factory can choose whether to contribute, but it cannot install code or grant permission on its own. When the host configures `authorizationGate`, that gate decides what a tool call may do. `runAgent` resolves the bundle anew each time; a long-lived session does not share its factory's returned object by default.
