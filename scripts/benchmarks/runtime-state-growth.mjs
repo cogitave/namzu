@@ -16,17 +16,17 @@
  * Reads the BUILT SDK (`packages/sdk/dist`), so run `pnpm -r build` first.
  */
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import {
 	CompactionConfigSchema,
 	MockLLMProvider,
 	SessionPaths,
-	ToolRegistry,
 	drainQuery,
 	registerMock,
+	toolset,
 } from "../../packages/sdk/dist/index.js";
 
 // zod is the SDK's dependency, not the repository root's.
@@ -52,20 +52,23 @@ await mkdir(stateRoot, { recursive: true });
 // the session's checkpoints, ledgers and tool results beside it.
 const paths = new SessionPaths({ home: stateRoot, slug: "bench" });
 
-const tools = new ToolRegistry();
-tools.register({
-	name: "inspect",
-	description: "Inspect one region of the board",
-	inputSchema: z.object({ region: z.number() }),
-	readOnly: true,
-	concurrencySafe: true,
-	execute: async ({ region }) => ({
-		success: true,
-		// ~4 KB, about what a file read or a shell listing returns.
-		output: `Region ${region}:\n${`cell ${region} `.repeat(400)}`,
-		workingState: [{ key: "region", text: `last inspected ${region}` }],
-	}),
-});
+const toolsets = [
+	toolset("bench", [
+		{
+			name: "inspect",
+			description: "Inspect one region of the board",
+			inputSchema: z.object({ region: z.number() }),
+			readOnly: true,
+			concurrencySafe: true,
+			execute: async ({ region }) => ({
+				success: true,
+				// ~4 KB, about what a file read or a shell listing returns.
+				output: `Region ${region}:\n${`cell ${region} `.repeat(400)}`,
+				workingState: [{ key: "region", text: `last inspected ${region}` }],
+			}),
+		},
+	]),
+];
 
 const turns = [];
 for (let i = 1; i < iterations; i++) {
@@ -87,7 +90,7 @@ const ids = {
 const started = Date.now();
 const turn = await drainQuery({
 	provider: new MockLLMProvider({ turns }),
-	tools,
+	toolsets,
 	agentId: "bench",
 	agentName: "Bench",
 	messages: [{ role: "user", content: "Inspect every region." }],
@@ -148,7 +151,8 @@ const report = {
 	},
 	// The session's one log: every message and event, which checkpoints name by seq.
 	log: {
-		files: files.filter((f) => f.path.endsWith(`${ids.sessionId}.jsonl`)).length,
+		files: files.filter((f) => f.path.endsWith(`${ids.sessionId}.jsonl`))
+			.length,
 		bytes: files
 			.filter((f) => f.path.endsWith(`${ids.sessionId}.jsonl`))
 			.reduce((n, f) => n + f.bytes, 0),
@@ -174,7 +178,9 @@ else {
 	console.log(
 		`checkpoints: ${report.checkpoints.count} files, ${report.checkpoints.bytes} bytes (largest ${report.checkpoints.largest})`,
 	);
-	console.log(`session log: ${report.log.files} files, ${report.log.bytes} bytes`);
+	console.log(
+		`session log: ${report.log.files} files, ${report.log.bytes} bytes`,
+	);
 	for (const [kind, v] of Object.entries(report.byKind))
 		console.log(
 			`  ${kind.padEnd(28)} ${String(v.files).padStart(4)} files ${String(v.bytes).padStart(10)} bytes`,
