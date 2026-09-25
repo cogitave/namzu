@@ -3,6 +3,7 @@ import type { CheckpointId } from '../../../../types/hitl/index.js'
 import type { ToolCallId } from '../../../../types/ids/index.js'
 import type { AssistantMessage, Message, ToolMessage } from '../../../../types/message/index.js'
 import type { Mutation } from '../../../../types/session/fork.js'
+import { TEST_SCOPE } from '../../__tests__/support/session.js'
 import {
 	type CheckpointedSession,
 	addCheckpoint,
@@ -13,7 +14,11 @@ import { prepareForkState } from '../prepare.js'
 
 /** What a fork reads: the source session's log, its checkpoints and the turn. */
 function source(session: CheckpointedSession) {
-	return { sessionLog: session.log, checkpointStore: session.store, scope: session.scope }
+	return {
+		sessionLog: session.log,
+		checkpointStore: session.store,
+		scope: { ...session.scope, topicId: TEST_SCOPE.topicId },
+	}
 }
 
 describe('prepareForkState', () => {

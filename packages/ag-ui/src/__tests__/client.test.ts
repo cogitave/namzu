@@ -879,10 +879,17 @@ describe('an AG-UI thread is a namzu session, a run one turn of it (golden strea
 			}
 		}
 		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const owner = {
+			topicId: generateTopicId(),
+			projectId: generateProjectId(),
+			tenantId: generateTenantId(),
+		}
 		const onError = vi.fn()
 		const adapter = new AGUIAdapter({
-			createQuery: async ({ input, signal }) =>
-				queryParams(input, signal, new HeldProvider(), [], sessionLog),
+			createQuery: async ({ input, signal }) => ({
+				...(await queryParams(input, signal, new HeldProvider(), [], sessionLog)),
+				...owner,
+			}),
 			onError,
 		})
 		const first = new AbortController()
@@ -928,5 +935,52 @@ describe('an AG-UI thread is a namzu session, a run one turn of it (golden strea
 		first.abort()
 		release.resolve()
 		await running
+	})
+
+	it('refuses a reused session under a different tenant before sending history to a model', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const owner = {
+			topicId: generateTopicId(),
+			projectId: generateProjectId(),
+			tenantId: generateTenantId(),
+		}
+		const provider = new MockLLMProvider({ responseText: 'private first response' })
+		const onError = vi.fn()
+		let calls = 0
+		const adapter = new AGUIAdapter({
+			createQuery: async ({ input, signal }) => ({
+				...(await queryParams(input, signal, provider, [], sessionLog)),
+				...owner,
+				tenantId: ++calls === 1 ? owner.tenantId : generateTenantId(),
+			}),
+			onError,
+		})
+		const eventsFor = async (runId: string): Promise<BaseEvent[]> => {
+			const events: BaseEvent[] = []
+			for await (const event of adapter.run({
+				threadId: 'attributed-thread',
+				runId,
+				messages: [{ id: `user-${runId}`, role: 'user', content: runId }],
+				tools: [],
+				context: [],
+				state: {},
+				forwardedProps: {},
+			}))
+				events.push(event)
+			return events
+		}
+
+		expect((await eventsFor('first')).at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
+		expect((await eventsFor('second')).at(-1)).toMatchObject({
+			type: EventType.RUN_ERROR,
+			code: 'NAMZU_TURN_ERROR',
+		})
+		expect(onError).toHaveBeenCalledOnce()
+		expect(onError.mock.calls[0]?.[0]).toMatchObject({
+			code: 'invalid_config',
+			details: { fields: ['tenantId'] },
+		})
+		expect(provider.requests).toHaveLength(1)
+		expect(JSON.stringify(provider.requests)).not.toContain('second')
 	})
 })

@@ -1,6 +1,8 @@
+import { assertSessionLogAttribution } from '../../../manager/session/attribution.js'
 import type { CheckpointScope, SessionCheckpointStore } from '../../../store/checkpoint/index.js'
 import type { SessionLog } from '../../../store/session-log/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
+import type { TopicId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Checkpoint } from '../../../types/session/checkpoint.js'
 import type { Mutation } from '../../../types/session/fork.js'
@@ -18,7 +20,7 @@ export interface PrepareForkInput {
 	/** The store the source turn's checkpoints are in. */
 	readonly checkpointStore: SessionCheckpointStore
 	/** The source turn, across the full attribution. */
-	readonly scope: CheckpointScope
+	readonly scope: CheckpointScope & { readonly topicId: TopicId }
 	/** Which checkpoint to fork at. */
 	readonly fromCheckpoint: CheckpointSelector
 	/** Mutations applied at the fork point before the caller hands the state to `query()`. */
@@ -55,6 +57,9 @@ export interface PreparedForkState {
  * covers must be intact.
  */
 export async function prepareForkState(input: PrepareForkInput): Promise<PreparedForkState> {
+	// A checkpoint address alone cannot authorize reading the source session's
+	// conversation. The log owner must agree before touching its checkpoints.
+	await assertSessionLogAttribution(input.sessionLog, input.scope, { requireStarted: true })
 	const sourceCheckpoint = await resolveCheckpoint(input)
 	const restored = await restoreCheckpointContext(input.sessionLog, sourceCheckpoint)
 	const mutations = input.mutate ?? []

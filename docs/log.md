@@ -2,6 +2,7 @@
 
 ## 2026-09-25
 
+- **Update** [Session log](sdk/session-log.md), [Run the kernel](sdk/quick-start.md) and [Agent ownership](sdk/agent-ownership.md): an existing session's project, tenant and topic must match its `session_started` owner before a new turn, resume, turn-state load or fork reads history or checkpoints. Legacy logs without tenant or topic remain readable but cannot be continued; the session log page gives the migration. The session-log conformance contract advances to version 2 for deferred repair on owner admission. `.changeset/strict-session-attribution.md`, **major** for `@namzu/sdk`.
 - **Update** [Agent ownership](sdk/agent-ownership.md) and [Run the kernel](sdk/quick-start.md): managed session attribution can be supplied through `ManagedAgentInput.managedScope` for `QueryAgent`; `AgentManager` stamps the admitted child's scope and the older flat config IDs remain supported. Conflicting sources are refused before the model runs, and idempotent calls are isolated by managed scope. `.changeset/agent-invocation-scope.md`, **minor** for `@namzu/sdk`.
 - **Fix** [Toolsets](sdk/toolsets.md): `combineToolsets` now cleans up inner change listeners when a later subscription fails, and attempts every unsubscribe even if one fails. `.changeset/combined-toolset-listener-cleanup.md`, **patch** for `@namzu/sdk`.
 - **Update** [Framework gap audit](sdk/framework-gap-audit.md) and [SDK index](sdk/index.md): corrected stale tool-discovery claims against the current deferred-search behavior.

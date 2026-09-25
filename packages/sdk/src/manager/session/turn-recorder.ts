@@ -53,6 +53,7 @@ import {
 } from '../../utils/cost.js'
 import { asCheckpointId, generateAuditEventId, generateMessageId } from '../../utils/id.js'
 import { childSessionEnded } from '../agent/child-session.js'
+import { assertSessionLogAttribution } from './attribution.js'
 
 /** Which provider and model a cost is priced against. */
 export interface PricingSubject {
@@ -88,6 +89,8 @@ function stampMessageId(message: Message, id: MessageId | undefined): void {
 export interface TurnRecorderOpenOptions {
 	/** A lease the caller already holds. Absent: the recorder claims one and releases it at the end. */
 	readonly lease?: SessionLease
+	/** A lease claimed by the query prelude, transferred to the recorder for release. */
+	readonly ownLease?: boolean
 	/** The holder name for a lease the recorder claims. */
 	readonly holder?: string
 	/** Lease time-to-live for a lease the recorder claims. Renewed while the turn runs. */
@@ -215,6 +218,9 @@ export class TurnRecorder {
 	#released = false
 	#leaseHolder = ''
 	#leaseTtlMs = DEFAULT_TURN_LEASE_TTL_MS
+	#leaseHeartbeat: ReturnType<typeof setInterval> | undefined
+	#leaseRenewal: Promise<void> = Promise.resolve()
+	#leaseRenewalError: unknown
 	#chain: Promise<void> = Promise.resolve()
 	#failure: unknown = undefined
 	#view: ViewEntry[] = []
@@ -251,7 +257,10 @@ export class TurnRecorder {
 			throw new NamzuError({
 				code: 'invalid_config',
 				message: `The session log belongs to session ${config.sessionLog.sessionId}, not ${config.sessionId}.`,
-				details: { sessionId: config.sessionId, logSessionId: config.sessionLog.sessionId },
+				details: {
+					sessionId: config.sessionId,
+					logSessionId: config.sessionLog.sessionId,
+				},
 			})
 		}
 		this.#turn = {
@@ -362,7 +371,10 @@ export class TurnRecorder {
 	get costInfo(): CostInfo {
 		const unpriced = Math.max(0, this.tokenUsage.totalTokens - this.#turn.tokenUsage.totalTokens)
 		return unpriced > 0
-			? { ...this.#turn.costInfo, unpricedTokens: this.#turn.costInfo.unpricedTokens + unpriced }
+			? {
+					...this.#turn.costInfo,
+					unpricedTokens: this.#turn.costInfo.unpricedTokens + unpriced,
+				}
 			: this.#turn.costInfo
 	}
 
@@ -588,60 +600,114 @@ export class TurnRecorder {
 	async open(options: TurnRecorderOpenOptions): Promise<RecordedMessage[]> {
 		if (this.#phase !== 'new') throw new Error('TurnRecorder.open was already called.')
 		this.#leaseTtlMs = options.leaseTtlMs ?? DEFAULT_TURN_LEASE_TTL_MS
-		this.#leaseHolder = options.holder ?? `namzu:${process.pid}:${this.turnId}`
-		if (options.lease) {
-			this.#lease = options.lease
-		} else {
-			const lease = await this.log.claim({ holder: this.#leaseHolder, ttlMs: this.#leaseTtlMs })
-			if (lease === null) {
-				const active = await this.log.activeTurn()
-				if (active) {
-					throw new TurnInProgressError({
-						sessionId: this.sessionId,
-						activeTurnId: active.turnId,
-						state: 'running',
+		this.#leaseHolder =
+			options.holder ?? options.lease?.holder ?? `namzu:${process.pid}:${this.turnId}`
+		try {
+			if (options.lease) {
+				this.#lease = options.lease
+				this.#ownsLease = options.ownLease === true
+			}
+			// Claiming a log may repair a torn tail. Refuse a foreign owner
+			// before that mutation, then recheck under the lease below.
+			await assertSessionLogAttribution(this.log, this.#config)
+			if (!options.lease) {
+				const lease = await this.log.claim({
+					holder: this.#leaseHolder,
+					ttlMs: this.#leaseTtlMs,
+					repairTornTail: false,
+				})
+				if (lease === null) {
+					const active = await this.log.activeTurn()
+					if (active) {
+						throw new TurnInProgressError({
+							sessionId: this.sessionId,
+							activeTurnId: active.turnId,
+							state: 'running',
+						})
+					}
+					throw new NamzuError({
+						code: 'invalid_config',
+						message: `Session ${this.sessionId} is leased by another writer; wait for it to finish or pass the lease you hold.`,
+						details: { sessionId: this.sessionId },
 					})
 				}
-				throw new NamzuError({
-					code: 'invalid_config',
-					message: `Session ${this.sessionId} is leased by another writer; wait for it to finish or pass the lease you hold.`,
-					details: { sessionId: this.sessionId },
-				})
+				this.#lease = lease
+				this.#ownsLease = true
 			}
-			this.#lease = lease
-			this.#ownsLease = true
+			const lease = this.#lease
+			if (!lease) throw new Error('TurnRecorder.open did not acquire a writer lease.')
+			if (this.#ownsLease) {
+				this.#leaseHeartbeat = setInterval(() => this.#queueLeaseRenewal(), this.#leaseTtlMs / 2)
+				this.#leaseHeartbeat.unref()
+			}
+			const head = await this.log.head()
+			if (head === null) {
+				this.#lastEntry = await this.log.append(lease, {
+					type: 'session_started',
+					projectId: this.projectId,
+					tenantId: this.tenantId,
+					topicId: this.topicId,
+					cwd: options.session.cwd,
+					agent: {
+						id: this.#config.agentId,
+						name: this.#config.agentName,
+						...(options.session.agentType ? { type: options.session.agentType } : {}),
+					},
+					...(options.session.origin ? { origin: options.session.origin } : {}),
+					...(options.session.forkedFrom ? { forkedFrom: options.session.forkedFrom } : {}),
+				})
+			} else {
+				await assertSessionLogAttribution(this.log, this.#config)
+			}
+			if (options.session.forkedFrom) {
+				this.#turn.forkedFrom = options.session.forkedFrom
+			}
+			this.#phase = 'open'
+			return await readFoldedHistory(this.log)
+		} catch (error) {
+			await this.release()
+			throw error
 		}
-		const head = await this.log.head()
-		if (head === null) {
-			this.#lastEntry = await this.log.append(this.#lease, {
-				type: 'session_started',
-				projectId: this.projectId,
-				tenantId: this.tenantId,
-				topicId: this.topicId,
-				cwd: options.session.cwd,
-				agent: {
-					id: this.#config.agentId,
-					name: this.#config.agentName,
-					...(options.session.agentType ? { type: options.session.agentType } : {}),
-				},
-				...(options.session.origin ? { origin: options.session.origin } : {}),
-				...(options.session.forkedFrom ? { forkedFrom: options.session.forkedFrom } : {}),
+	}
+
+	/** Serialize timer and write-triggered renewals so release uses the latest token. */
+	#queueLeaseRenewal(): void {
+		this.#leaseRenewal = this.#leaseRenewal
+			.then(async () => {
+				if (!this.#ownsLease || this.#released || this.#leaseRenewalError !== undefined) return
+				const current = this.#lease
+				if (!current) return
+				const renewed = await this.log.claim({
+					holder: this.#leaseHolder,
+					ttlMs: this.#leaseTtlMs,
+					repairTornTail: false,
+				})
+				if (renewed === null || renewed.fence !== current.fence) {
+					if (renewed !== null) await this.log.release(renewed).catch(() => undefined)
+					throw new NamzuError({
+						code: 'invalid_config',
+						message: `Session ${this.sessionId} lost its writer lease during the turn.`,
+						details: { sessionId: this.sessionId },
+					})
+				}
+				this.#lease = renewed
 			})
-		}
-		if (options.session.forkedFrom) {
-			this.#turn.forkedFrom = options.session.forkedFrom
-		}
-		this.#phase = 'open'
-		return readFoldedHistory(this.log)
+			.catch((error: unknown) => {
+				this.#leaseRenewalError ??= error
+			})
 	}
 
 	/** Renew a lease this recorder claimed when it is past half its life. */
 	async #leaseForWrite(): Promise<SessionLease> {
-		const lease = this.#lease
-		if (!lease) throw new Error('TurnRecorder.open must run before the turn writes.')
-		if (this.#ownsLease && lease.expiresAt - Date.now() < this.#leaseTtlMs / 2) {
-			const renewed = await this.log.claim({ holder: this.#leaseHolder, ttlMs: this.#leaseTtlMs })
-			if (renewed) this.#lease = renewed
+		if (!this.#lease) throw new Error('TurnRecorder.open must run before the turn writes.')
+		if (this.#ownsLease) {
+			await this.#leaseRenewal
+			if (this.#leaseRenewalError !== undefined) throw this.#leaseRenewalError
+			if (this.#lease.expiresAt - Date.now() < this.#leaseTtlMs / 2) {
+				this.#queueLeaseRenewal()
+				await this.#leaseRenewal
+				if (this.#leaseRenewalError !== undefined) throw this.#leaseRenewalError
+			}
 		}
 		return this.#lease as SessionLease
 	}
@@ -649,10 +715,12 @@ export class TurnRecorder {
 	/** Give up a lease the recorder claimed. Never throws. */
 	async release(): Promise<void> {
 		if (!this.#ownsLease || !this.#lease) return
-		const lease = this.#lease
-		this.#ownsLease = false
 		this.#released = true
-		await this.log.release(lease).catch(() => undefined)
+		if (this.#leaseHeartbeat !== undefined) clearInterval(this.#leaseHeartbeat)
+		this.#leaseHeartbeat = undefined
+		await this.#leaseRenewal
+		this.#ownsLease = false
+		await this.log.release(this.#lease).catch(() => undefined)
 	}
 
 	#enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -860,7 +928,9 @@ export class TurnRecorder {
 	recordChildSessionEvent(
 		event: Extract<
 			SessionEvent,
-			{ type: 'child_session_spawned' | 'child_session_messaged' | 'child_session_idled' }
+			{
+				type: 'child_session_spawned' | 'child_session_messaged' | 'child_session_idled'
+			}
 		>,
 		childLog?: SessionLog,
 	): Promise<SessionLogEntry | undefined> {
@@ -896,7 +966,11 @@ export class TurnRecorder {
 		const current = target.message as AssistantMessage
 		if (current.content === result) return
 		const targetMessageId = target.id
-		const replacement: AssistantMessage = { ...current, content: result, id: targetMessageId }
+		const replacement: AssistantMessage = {
+			...current,
+			content: result,
+			id: targetMessageId,
+		}
 		await this.#enqueue(() =>
 			this.#append({
 				type: 'message_replaced',
@@ -929,7 +1003,10 @@ export class TurnRecorder {
 	 */
 	pushMessage(
 		message: Message,
-		options: { readonly messageId?: MessageId; readonly transient?: boolean } = {},
+		options: {
+			readonly messageId?: MessageId
+			readonly transient?: boolean
+		} = {},
 	): void {
 		if (options.messageId) {
 			this.#ids.set(message, options.messageId)
@@ -1154,7 +1231,11 @@ export class TurnRecorder {
 			type: 'audit',
 			...(event.turnId ? { turnId: event.turnId } : {}),
 			auditId: event.id,
-			actor: { kind: 'agent', agentId: this.#turn.metadata.agentId, tenantId: this.tenantId },
+			actor: {
+				kind: 'agent',
+				agentId: this.#turn.metadata.agentId,
+				tenantId: this.tenantId,
+			},
 			...(input.persona !== undefined ? { persona: input.persona } : {}),
 			action: input.what.action,
 			...(input.what.tool !== undefined ? { tool: input.what.tool } : {}),

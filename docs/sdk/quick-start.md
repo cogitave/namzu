@@ -59,7 +59,9 @@ disable those guards explicitly. Usage and cancellation remain active; see
 To continue a conversation, spread the returned `identity` into the next
 `runAgent` call and pass the prior `turn.messages` plus a new user message as
 `prompt`. Reusing identity alone does not load history. Omitting identity starts
-a new session in the working directory's Project.
+a new session in the working directory's Project. If you reuse a `sessionId`,
+pass the same project, tenant and topic IDs too: an existing session refuses
+a turn attributed to a different scope.
 
 For inference, install a provider driver and select its model explicitly.
 For more runtime configuration, use `QueryAgent` or `query`. Unlike

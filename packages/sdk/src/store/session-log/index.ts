@@ -24,6 +24,7 @@ export {
 	type LogMedium,
 	type ReadSessionLogOptions,
 	type SessionLog,
+	type SessionLogClaimOptions,
 	SessionLogConflictError,
 	SessionLogCore,
 	type SessionLogCoreOptions,

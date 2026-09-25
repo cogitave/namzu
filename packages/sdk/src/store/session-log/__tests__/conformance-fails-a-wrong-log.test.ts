@@ -12,6 +12,7 @@ import {
 import type {
 	BeginTurnOptions,
 	ReadSessionLogOptions,
+	SessionLogClaimOptions,
 	SessionLogRead,
 	TurnStartedDraft,
 } from '../core.js'
@@ -129,6 +130,21 @@ class NeverRefuses extends InMemorySessionLog {
 	}
 }
 
+/** Ignores the admission option and repairs the log during claim. */
+class EagerlyHealsClaims extends InMemorySessionLog {
+	override claim(options: SessionLogClaimOptions) {
+		return super.claim({ ...options, repairTornTail: true })
+	}
+	override reopen(): EagerlyHealsClaims {
+		return new EagerlyHealsClaims({
+			sessionId: this.sessionId,
+			medium: this.medium,
+			leases: this.leaseStore,
+			spills: this.spillStore,
+		})
+	}
+}
+
 describe('the session-log conformance suite', () => {
 	it('passes the reference implementation', async () => {
 		const outcomes = await runConformance(
@@ -171,5 +187,12 @@ describe('the session-log conformance suite', () => {
 		expect(names).toEqual([
 			'refuses a flipped byte on a strict read, and a tolerant read stops before it',
 		])
+	})
+
+	it('fails a log that ignores deferred repair during owner admission', async () => {
+		const names = failed(
+			await runConformance(handleFor((sessionId) => new EagerlyHealsClaims({ sessionId }))),
+		)
+		expect(names).toEqual(['defers torn-tail repair on an admission claim until the first append'])
 	})
 })

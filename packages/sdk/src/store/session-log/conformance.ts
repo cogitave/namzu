@@ -33,7 +33,7 @@ import type { SessionLog, SessionRecordDraft } from './core.js'
 import type { SessionLease } from './lease.js'
 
 /** The contract revision these assertions express. A host declares the one it wrote against, as a literal. */
-export const SESSION_LOG_CONTRACT_VERSION = 1
+export const SESSION_LOG_CONTRACT_VERSION = 2
 
 /** Raw access to a backend's bytes, for the integrity cases. Omit it and those cases are skipped. */
 export interface SessionLogTamper {
@@ -447,6 +447,41 @@ export function defineSessionLogConformance(options: SessionLogConformanceOption
 				expect(repair.truncatedBytes).toBe(fragment.byteLength)
 				expect(repair.lastGoodSeq).toBe(2)
 				expect(repair.turnId).toBe(turnId)
+			})
+		})
+
+		it('defers torn-tail repair on an admission claim until the first append', async () => {
+			await withLog(async (handle) => {
+				if (handle.tamper === undefined) return
+				const first = await opened(handle.log)
+				await handle.log.release(first)
+				const bytes = await handle.tamper.bytes()
+				const fragment = new TextEncoder().encode('{"partial":')
+				const torn = new Uint8Array(bytes.byteLength + fragment.byteLength)
+				torn.set(bytes)
+				torn.set(fragment, bytes.byteLength)
+				await handle.tamper.overwrite(torn)
+				const next = handle.reopen()
+				const lease = await next.claim({
+					holder: 'writer-b',
+					ttlMs: TTL,
+					now: LATER,
+					repairTornTail: false,
+				})
+				if (lease === null) throw new Error('the admission claim could not take the lease')
+				expect(Array.from(await handle.tamper.bytes())).toEqual(Array.from(torn))
+				expect((await next.readAll({ mode: 'tolerant' })).tornBytes).toBe(fragment.byteLength)
+				await next.append(lease, {
+					type: 'session_updated',
+					title: 'authorized',
+				} as SessionRecordDraft)
+				const read = await next.readAll()
+				expect(read.tornBytes).toBe(0)
+				expect(read.entries.map((entry) => entry.record.type)).toEqual([
+					'session_started',
+					'log_repaired',
+					'session_updated',
+				])
 			})
 		})
 

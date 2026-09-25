@@ -31,6 +31,9 @@ uses the recorder and checkpoint contracts. The four older fields on
 present, they must agree. The general `AgentInput` and other Agent contracts
 stay open for application-owned data. General application agents need no scope
 unless their own host or storage requires it.
+On an existing session log, the supplied scope must also match the owner in
+`session_started`. This is checked before the next turn reads history or
+touches its budget and topic queue.
 `runAgent` also accepts all four optionally and resolves absent values for
 its current recorder. Generated labels do not create tenant, topic or project
 records and do not grant authority. The host still owns the provider,
