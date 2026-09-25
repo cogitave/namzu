@@ -20,6 +20,8 @@ The file-based `plugin.json` may include `instructions` as a nonempty string. Th
 
 For a plugin supplied by host code, `definePlugin({ name, tools, hooks, instructions, mcpServers })` validates and snapshots the declaration. Optional `version` defaults to `0.0.0`; optional `description` defaults to `In-code plugin <name>`. Install it with `manager.installDefined(plugin, scope?)`, then call `manager.enable(id)`, `disable(id)` and `uninstall(id)` as for a file plugin. `scope` defaults to `project`; no manifest file or dynamic import is read for an in-code plugin. `mcpServers` uses the same stdio server config as a file manifest. Hosts still own admission of the code they pass in.
 
+`runAgent({ pluginManager: manager })` now mounts the manager's toolsets, registers its enabled plugins' untrusted prompt contributions, and runs its hooks together. The manager remains caller-owned: `runAgent` does not enable plugins or close their connections. Instruction contributions present when the invocation starts join its prompt registry; disabling a plugin during the turn makes its captured renderer return nothing. A plugin whose contribution was absent at the start joins the next invocation. Toolsets retain their plugin source and deferred availability. A host that calls `drainQuery` directly still composes these parts itself.
+
 ```ts sketch
 const plugin = definePlugin({
   name: 'audit',

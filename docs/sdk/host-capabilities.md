@@ -13,6 +13,8 @@ status: stable
 
 The three units answer different questions: a `Toolset` says where tools come from; a host `Capability` says which reusable behaviors one agent invocation needs; a file `Plugin` says which installed code an operator has admitted and enabled. `AgentCapabilities` is older metadata about whether an agent supports tools, streaming, concurrency and children; it is not a behavior bundle. This separation keeps plugin discovery and model-chosen tool availability from silently granting authority. Host capabilities are resolved before the first model call; they are not loaded by a model mid-turn.
 
+An existing `PluginLifecycleManager` can be passed alongside host capabilities as `runAgent({ pluginManager })`. The front door mounts its toolsets, context contributions and hooks in one call. Plugin instructions keep their untrusted context placement; capability instructions keep their host-authored placement. The manager's lifetime stays with the caller.
+
 ```ts
 import { MockLLMProvider, defineCapability, runAgent, toolset } from '@namzu/sdk'
 

@@ -1,5 +1,7 @@
 import { resolveCapabilities } from '../capabilities/index.js'
 import type { AgentCapability } from '../capabilities/index.js'
+import type { PluginLifecycleManager } from '../plugin/lifecycle.js'
+import { PromptContributionRegistry } from '../prompt/contributions.js'
 import { type QueryParams, drainQuery } from '../runtime/query/index.js'
 import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
 import { resolveNamzuHome } from '../session/home.js'
@@ -81,6 +83,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	toolsets?: readonly Toolset[]
 	/** Reusable host behavior, resolved once per invocation before the model is called. */
 	capabilities?: readonly AgentCapability[]
+	/** Caller-owned plugin manager: mounts its toolsets, context and hooks for this turn. */
+	pluginManager?: PluginLifecycleManager
 	/** Additional turn guardrails, after those supplied by capabilities. */
 	inputGuardrails?: readonly InputGuardrailSpec[]
 	outputGuardrails?: readonly OutputGuardrailSpec[]
@@ -299,6 +303,14 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			})
 		: undefined
 	const capabilitySettings = resolvedCapabilities?.modelSettings
+	const promptContributions =
+		options.pluginManager || resolvedCapabilities ? new PromptContributionRegistry() : undefined
+	for (const contribution of options.pluginManager?.promptContributions ?? []) {
+		promptContributions?.register(contribution)
+	}
+	for (const contribution of resolvedCapabilities?.promptContributions.list() ?? []) {
+		promptContributions?.register(contribution)
+	}
 
 	const messages: Message[] =
 		typeof options.prompt === 'string'
@@ -317,10 +329,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(layout.paths ? { paths: layout.paths } : {}),
 			...(options.sessionLog ? { sessionLog: options.sessionLog } : {}),
 			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
-			toolsets: [...(options.toolsets ?? []), ...(resolvedCapabilities?.toolsets ?? [])],
-			...(resolvedCapabilities
-				? { promptContributions: resolvedCapabilities.promptContributions }
-				: {}),
+			toolsets: [
+				...(options.toolsets ?? []),
+				...(resolvedCapabilities?.toolsets ?? []),
+				...(options.pluginManager?.toolsets ?? []),
+			],
+			...(promptContributions ? { promptContributions } : {}),
+			...(options.pluginManager ? { pluginManager: options.pluginManager } : {}),
 			...((resolvedCapabilities?.inputGuardrails.length ?? 0) > 0 || options.inputGuardrails
 				? {
 						inputGuardrails: [
