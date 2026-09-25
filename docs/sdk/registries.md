@@ -9,8 +9,8 @@ status: stable
 
 # Registry collisions
 
-Every registry in the SDK — tool, agent, plugin, connector, provider, config
-namespace, invariant, probe, prompt contribution, read model, advisor,
+Every remaining registry in the SDK — agent, plugin, connector, provider,
+config namespace, invariant, probe, prompt contribution, read model, advisor,
 skill, tenant, environment, host command — answers the same question:
 what happens when a second item claims an id the registry already holds?
 Before this page, five different answers coexisted, undocumented, across

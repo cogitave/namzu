@@ -36,8 +36,8 @@ against other unsafe calls; concurrency-safe calls may overlap that chain.
 `concurrencySafe: true` still permits bounded parallel execution between barriers.
 A barrier takes precedence over either concurrency setting. SDK builtins keep
 their existing defaults; hosts can register `{ ...tool, executionBarrier: true }`
-to opt selected mutation tools into ordered verification. Wrappers and registry
-copies must retain this metadata.
+to opt selected mutation tools into ordered verification. Toolset wrappers
+must retain this metadata.
 
 A barrier orders settlement, not success. Failed, denied and recovered calls
 retain the boundary; subsequent calls can inspect unchanged or partial state.
@@ -62,22 +62,22 @@ metadata does not turn `Promise.all` into a sequential program.
 narrows one step; the step's list wins where it has one. The executor refuses a
 call outside it, including a call to a tool the model was not shown, with
 `Tool "X" is not available on this step. Available: …`. A call to a name the
-registry does not hold is answered `Unknown tool "X". Available: …`.
+`ToolManager` does not hold is answered `Unknown tool "X". Available: …`.
 
 Both lists name the same tools: the ones the current step can call, meaning
-registered now, `active`, and on the step's list when there is one, in
-registry order. `(none)` means the step can call nothing. The step's list is
-taken when the request is built. So a name on it may since have been
-unregistered (a connector that disconnected) or be deferred or suspended, and
-neither answer offers such a name. The unknown-tool answer does not list the
-whole registry, because on a narrowed step most of it would be refused. A model
+present in the manager now, `active`, and on the step's list when there is one,
+in toolset order. `(none)` means the step can call nothing. The step's list is
+taken when the request is built. A name on it may since have been removed by a
+live source or become deferred; neither answer offers such a name. The
+unknown-tool answer does not list the whole roster, because on a narrowed
+step most of it would be refused. A model
 that called whatever it was told was available used to be sent back and forth
 between the two answers until the run was stopped.
 
 The same answer covers a batch run without review preparation and a call a tool
 makes through `ToolContext.dispatchTool`, such as a `run_code` program's. A
 `repairToolCall` hook sees the new wording in `ToolCallRepairContext.message`;
-its `availableTools` is still every registered name.
+its `availableTools` is still every name the manager holds.
 
 ## Presenting observations
 

@@ -10,8 +10,8 @@ tags: [cli, plugins, tools, skills, hooks]
 
 Namzu's SDK plugin runtime is connected to the CLI. A plugin can contribute
 tools, skills, JavaScript hooks and stdio MCP servers. The CLI runs its plugin
-runtime in the main agent session; delegated agents have independent registries
-and do not inherit executable plugins.
+runtime in the main agent session; delegated agents receive separate toolset
+rosters and do not inherit executable plugins.
 
 ## Enable loading
 

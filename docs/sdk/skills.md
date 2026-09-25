@@ -87,7 +87,7 @@ allowed-tools:
 
 The frontmatter reader accepts a YAML list for `allowed-tools` only (`parseFrontmatter(raw, source, { lists: ['allowed-tools'] })`) and joins it into one comma-separated scalar. Every other key still refuses a list. A comma or space inside parentheses belongs to its entry.
 
-**Names** are matched case-insensitively against the turn's registry, through the aliases the format uses (`SKILL_TOOL_NAME_ALIASES`):
+**Names** are matched case-insensitively against the turn's tool roster, through the aliases the format uses (`SKILL_TOOL_NAME_ALIASES`):
 
 | Written | Tool here |
 | --- | --- |
