@@ -3,8 +3,8 @@
 ---
 
 `ToolRegistry` is removed. The runtime now resolves tools from `Toolset`s
-(plan.md v3 §2) through a `ToolManager` (`toolsets/manager.ts`, added in a
-prior release) that `query()`/`drainQuery` builds for itself, once per turn,
+(plan.md v3 §2) through a `ToolManager` (`toolsets/manager.ts`) that
+`query()`/`drainQuery` builds for itself, once per turn,
 from the `toolsets` you pass — it is never mutated by the runtime, and its
 own generated tools (task tools, `search_tools`, the structured-output tool,
 advisory tools) are combined in as a `runtime` toolset rather than injected
@@ -24,15 +24,13 @@ into your input.
 | `filterReadOnlyTools(registry)` / `filterToolsNamed(registry, names)` (`tools/roster.ts`) | `filtered(toolset, (tool, source) => isTrustedReadOnly(tool, undefined, source))` / `filtered(toolset, names)` (`toolsets/wrappers.ts`) — keeps the inner toolset's own `availability` and stays live over a live source, instead of freezing an always-`'active'` snapshot. `source` is the ONE toolset `filtered` runs on: filter each of a wider roster's contributing toolsets this way before combining them, never a toolset `combineToolsets` already merged from several sources (`tools/roster.ts` says why). |
 | `ConnectorToolRouter` class (`registerTools`/`unregisterTools`/`refreshTools` mutating a registry) | `connectorTools(manager, { strategy? })` (`connector/tools/router.js`) — a plain function returning `ToolDefinition[]`; wrap it in `toolset(...)` yourself. Never had a production caller. |
 | `mcp_<server>_<tool>` naming from the CLI's own MCP path | `mcp__<server>__<tool>`; update saved prompts, permissions and integrations that name these tools. The CLI now mounts `mcpToolset` entries for each server. `mcpToolToToolDefinition` no longer sets `.provenance`; source identity and read-only trust belong to the owning toolset. |
-| `PluginLifecycleManagerConfig.toolRegistry` | Removed. `PluginLifecycleManager` now owns its own tool contributions and exposes them as `.toolsets: readonly Toolset[]` (two fixed, live toolsets — file-declared tools and MCP/prompt-adapted tools) for a host to fold into its own `toolsets` array. |
+| `PluginLifecycleManagerConfig.toolRegistry` | Removed. `PluginLifecycleManager` owns its tool contributions and exposes `.toolsets: readonly Toolset[]` for a host to fold into its own `toolsets` array. Each plugin has its own live file-tool source and each plugin MCP server has its own source; see the `plugin-source-toolsets` changeset. |
 | `PluginResolver`'s second constructor argument | Was `ToolRegistryContract`; now `Pick<ToolManager, 'listNames' | 'has'>`. |
-| `ToolRegistryConfig`, `ToolCatalog` and companions | Already gone in a prior release; `ToolManagerConfig` (`toolsets/manager.ts`) is the manager's construction config. |
+| `ToolRegistryConfig`, `ToolCatalog` and companions | `ToolManagerConfig` (`toolsets/manager.ts`) is the manager's construction config. See the `remove-tool-catalog` changeset for the catalog removal. |
 
-**Not part of this change:** the CLI, `@namzu/live`'s duplex path callers,
-and every other package that still passes `tools`/imports `ToolRegistry`
-do not compile against this release — that migration is the next,
-separate change. `@namzu/ag-ui`, `@namzu/computer-use`, `@namzu/files`,
-`@namzu/lsp`, `@namzu/sandbox` are unaffected (no `ToolRegistry` reference).
+The CLI, AG-UI adapter and other affected workspace packages migrate in this
+same release; see their package changesets. `@namzu/files` and `@namzu/lsp`
+do not use the removed registry API.
 
 A caller toolset that contributes a name `query()` also generates internally
 (a task-tool name, `search_tools`, the structured-output tool's name, or an

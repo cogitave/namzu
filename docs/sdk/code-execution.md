@@ -24,10 +24,10 @@ const runCode = buildRunCodeTool({
 })
 ```
 
-Register the definition in the turn's tool registry. The model supplies an async
+Include the definition in a toolset passed to the turn. The model supplies an async
 JavaScript body and a list of intended tool names. Inside it, `await call(name,
 input)` invokes a tool, `print(...)` emits bounded text, and `return` supplies the
-result. `Promise.all` supports concurrency subject to runtime and registry limits.
+result. `Promise.all` supports concurrency subject to runtime and tool limits.
 
 ## Results and authority
 
@@ -39,7 +39,7 @@ The tool description tells the model which contract is active. Failed calls
 reject in both modes; partial data is not presented as a successful value.
 
 Every request goes through the turn-owned dispatch. Requested names are intersected
-with the turn's allowed tools. Registry authorization, invocation lineage and
+with the turn's allowed tools. Tool authorization, invocation lineage and
 cancellation still apply. The program cannot enlarge its grant. Nested requests
 needing an unresolved human decision fail closed; an executing parent cannot
 open another review turn. The parent is treated as potentially destructive.

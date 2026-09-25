@@ -108,17 +108,14 @@ with no `*` is an exact match.
 
 `toToolSourceRef(source, mcp?)` projects a `ToolSource` down to
 `ToolSourceRef` (`id`, `kind`, and — only for `kind: 'mcp_server'` —
-`server` and `readOnlyHintTrusted`): the lean shape a later item stamps
-onto each `ToolDefinition` as `source`, replacing today's
-`ToolDefinition.provenance`. Nothing in this module writes it onto a tool
-yet — there is nowhere on `ToolDefinition` for it to go until that wiring
-lands — so it exists here only because source ids and their glob matching
-are this module's concern.
+`server` and `readOnlyHintTrusted`). `ToolManager.sourceOf(name)` returns
+this reference for the tool's owning toolset; the reference is not stored
+on `ToolDefinition`.
 
 For an `mcp_server` source, `readOnlyHintTrusted` defaults to
 `source.mcpServer?.readOnlyHintTrusted` — the operator's per-server trust
-decision (one value per connected server, not per tool), which is where
-`mcpToolset` (a later item) will write it. The optional `mcp` argument
+decision (one value per connected server, not per tool), which `mcpToolset`
+sets on its source. The optional `mcp` argument
 overrides that default rather than being the only way to supply it, for a
 caller that already has the decision in hand some other way.
 
@@ -246,7 +243,7 @@ behaves across sends, resume and children under this model.
 
 `mcpToolset(client, options)` (`packages/sdk/src/connector/mcp/mcp-toolset.ts`) returns two live toolsets to mount together: tools and prompts under the configured availability, and resources always deferred. Names use `mcp__<server>__<rest>`; both entries react to `list_changed` and reconnection. See [The MCP toolset](mcp-toolset.md).
 
-## Not yet built
+## Approvals and metadata
 
 `requiresApproval` (a predicate of the tool's input, set by
 `requireApproval` as always-`true`) and `metadata` on `ToolDefinition` are
@@ -254,6 +251,20 @@ enforced and matched outside this module — see [The review
 policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
 and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
 `filtered`'s `{ metadata }` selector defers to.
+
+## Migrating from `ToolRegistry`
+
+Pass `toolsets: [toolset('host', definitions)]` to `query()` or an agent
+instead of passing a `ToolRegistry` as `tools`. Use `deferred(toolset(...))`
+for tools the model should discover later. For a different roster on one
+turn, pass a different toolsets array; do not fork or mutate a shared
+registry. A tool that previously called `activate(names)` returns
+`ToolResult.reveals: names` instead. The runtime records admitted names in
+tool messages, so they remain available on later sends and resume until
+compaction. `ToolContext.toolRegistry` now exposes only `has`,
+`availability` and `searchDeferred`; a host needing the full roster can
+construct `ToolManager` directly. See [Tool discovery](tool-discovery.md)
+for reveal and allow-list behaviour.
 
 ## The CLI's own composition
 

@@ -49,7 +49,7 @@ export class ToolsetConflictError extends RegistryCollisionError {
  * like any other change.
  *
  * Order is deterministic: toolset order (as given), then each toolset's own
- * tool order — the same rule plan.md gives `ToolRegistry.toLLMTools`.
+ * tool order — the same rule `ToolManager` uses.
  *
  * `onChange`/`close` are defined only if at least one inner toolset defines
  * them — this never fabricates a live capability none of its inputs have.

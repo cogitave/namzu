@@ -87,8 +87,7 @@ export function renamed(ts: Toolset, names: Readonly<Record<string, string>>): T
  *
  * See {@link ToolFilterSelector} for what a non-function selector can match
  * on. A `sourceIdGlob` selector is all-or-nothing per toolset — it tests
- * this toolset's own `source.id`, not a per-tool source, because no
- * per-tool source exists yet (plan.md §3, a later item). A function
+ * this toolset's own `source.id`, not a per-tool source. A function
  * `predicate` is handed `ts.source` (projected through
  * {@link toToolSourceRef}) as its second argument for the same reason —
  * see {@link ToolPredicate}'s note on what that source means, and does not

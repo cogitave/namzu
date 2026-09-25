@@ -375,8 +375,8 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 // §2, adapted only for construction (a toolset instead of a mutable
 // registry) and for the two scenarios (drift-holds-old, invalidated
 // preparation) that the derived-availability / held-drift model reshapes —
-// see the comments on those two tests. `execute.test.ts` keeps its own copy
-// until item B1b removes `ToolRegistry`.
+// see the comments on those two tests. The old `ToolRegistry` was removed
+// after these cases were migrated.
 describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 	it('prepares a detached review value once and executes the retained value', async () => {
 		let parses = 0

@@ -24,8 +24,7 @@ export type ToolsetAvailability = 'active' | 'deferred'
  *
  * A `Toolset` is a value, not a registration: `toolset()`, every wrapper
  * below, and `combineToolsets` all return one without touching any shared
- * state. Nothing "is registered" until a later item (`ToolRegistry` /
- * the `ToolManager` plan.md v3 describes) is handed one.
+ * state. The runtime resolves it through a `ToolManager` when a turn starts.
  */
 export interface Toolset {
 	/** Where these tools come from. Ownership and trust stay with this. */
@@ -62,14 +61,9 @@ export interface Toolset {
 }
 
 /**
- * A lean per-tool pointer back to the source that contributed it.
- *
- * This is what plan.md §3 (a later item, not this one) stamps onto
- * `ToolDefinition.source`, replacing today's `ToolDefinition.provenance`.
- * Defined here, ahead of that wiring, because item A1 owns "one notion of a
- * source id" and the glob matching over it ({@link matchesSourceIdGlob}); no
- * wrapper in this module writes it onto a `ToolDefinition` yet — there is
- * nowhere on `ToolDefinition` for it to go until that later item lands.
+ * A lean reference to the toolset that contributed a tool.
+ * `ToolManager.sourceOf(name)` derives it from the owning toolset; no source
+ * pointer is stored on the `ToolDefinition` itself.
  */
 export interface ToolSourceRef {
 	readonly id: string
@@ -85,8 +79,8 @@ export interface ToolSourceRef {
 }
 
 /**
- * Project a `ToolSource` down to the lean shape a later item stamps onto
- * each tool. Pure; reads nothing but its arguments.
+ * Project a `ToolSource` down to the lean reference returned by
+ * `ToolManager.sourceOf(name)`. Pure; reads nothing but its arguments.
  *
  * `readOnlyHintTrusted` defaults to `source.mcpServer?.readOnlyHintTrusted`
  * — the operator's per-server trust decision, wired by whatever built this
@@ -115,9 +109,9 @@ export function toToolSourceRef(
  * {@link requireApproval}.
  *
  * `source` is the CONTRIBUTING TOOLSET's own source (`ts.source` projected
- * through {@link toToolSourceRef}) — not a per-tool source, which does not
- * exist until a later item stamps one onto each `ToolDefinition` (see
- * {@link ToolFilterSelector}'s note on `sourceIdGlob`). A predicate that
+ * through {@link toToolSourceRef}) — not a source declared by a tool
+ * definition (see {@link ToolFilterSelector}'s note on `sourceIdGlob`). A
+ * predicate that
  * needs to tell a trusted MCP server's tool from an untrusted one's (the
  * `isTrustedReadOnly` recipe in `tools/roster.ts`) reads this — which is
  * correct for a plain, single-source toolset, and why that recipe must run
@@ -132,10 +126,9 @@ export type ToolPredicate = (tool: ToolDefinition, source: ToolSourceRef) => boo
  * What `filtered` (and `requireApproval`'s optional selector) may match on.
  *
  * `sourceIdGlob` matches the WHOLE toolset's own {@link ToolSource.id}
- * (glob syntax: {@link matchesSourceIdGlob}) — not a per-tool source, which
- * does not exist until a later item stamps {@link ToolSourceRef} onto each
- * `ToolDefinition`. A toolset is one source, so this keeps every tool the
- * toolset contributes when the glob matches, and none when it does not.
+ * (glob syntax: {@link matchesSourceIdGlob}) — not a per-tool source.
+ * A toolset is one source, so this keeps every tool the toolset contributes
+ * when the glob matches, and none when it does not.
  *
  * `metadata` is a deep-match against `ToolDefinition.metadata`: every key in
  * the pattern must be present and equal (or, for a nested plain object,

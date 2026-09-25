@@ -105,14 +105,10 @@ const SEARCH_WEIGHT_DESCRIPTION = 5
 const SEARCH_WEIGHT_ARGUMENT = 3
 
 /**
- * The runtime-owned resolver of {@link Toolset}s: plan.md v3 §2's
- * `ToolManager`, the analogue some other agent frameworks call a
- * "tool manager".
+ * The runtime-owned resolver of {@link Toolset}s.
  *
- * Where `ToolRegistry` (`registry/tool/execute.ts`) is a public mutable bag
- * a host registers tools into over time, a `ToolManager` is built once from
- * a fixed list of toolsets and never mutates its own membership: a toolset
- * changing live (`onChange`) is only ever adopted when the caller calls
+ * It is built once from a fixed list of toolsets and never mutates its own
+ * membership: a toolset changing live (`onChange`) is only adopted when the caller calls
  * {@link refresh}, at an iteration boundary the caller chooses — never
  * mid-call. This is what keeps `toLLMTools`'s wire rendering byte-stable
  * between refreshes: `toolWireSchema` (`registry/tool/schema.ts`) memoizes a
