@@ -610,7 +610,7 @@ run_install "$SDK_TARBALL" "$LIVE_TARBALL"
 cat > assert-live-runtime.mjs <<'EOF'
 import { LiveAgent, LiveSession, NamzuModel } from '@namzu/live'
 import {
-  InMemorySessionLog, MockLLMProvider, ToolRegistry,
+  InMemorySessionLog, MockLLMProvider,
   generateProjectId, generateSessionId, generateTenantId, generateTopicId,
 } from '@namzu/sdk'
 
@@ -644,7 +644,7 @@ await session.start(
         sessionLog,
         sessionId,
         tenantId: generateTenantId(),
-        tools: new ToolRegistry(),
+        toolsets: [],
         topicId: generateTopicId(),
         workingDirectory: process.cwd(),
       }),
