@@ -10,7 +10,11 @@
 import { closeSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { SchedulePaths } from '../paths.js'
-import type { ScheduleHistoryRecord } from '../types.js'
+import {
+	SCHEDULE_FORMAT_VERSION,
+	SCHEDULE_FORMAT_VERSION_LEGACY,
+	type ScheduleHistoryRecord,
+} from '../types.js'
 import { PRIVATE_FILE_MODE, ensureDir } from './atomic.js'
 
 const MAX_LINE = 4_000
@@ -65,7 +69,12 @@ export function readHistory(paths: SchedulePaths, jobId: string): ScheduleHistor
 		if (!line.trim()) continue
 		try {
 			const record = JSON.parse(line) as ScheduleHistoryRecord
-			if (record && record.v === 1 && typeof record.kind === 'string') out.push(record)
+			if (
+				record &&
+				(record.v === SCHEDULE_FORMAT_VERSION_LEGACY || record.v === SCHEDULE_FORMAT_VERSION) &&
+				typeof record.kind === 'string'
+			)
+				out.push(record)
 		} catch {}
 	}
 	return out

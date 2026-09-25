@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { JobRequestError, buildJob, confirmJob, runsPerDay } from '../build.js'
+import { JobRequestError, buildJob, confirmJob, editedJob, runsPerDay } from '../build.js'
 import { compileJobPolicy, expandPermissions, scheduledRunFloor } from '../policy.js'
 import { ScheduleFormatError, publishExclusive, readVersioned } from '../store/atomic.js'
 import { claimOccurrence, isClaimed } from '../store/claims.js'
@@ -91,9 +91,80 @@ describe('jobs', () => {
 
 	it('refuses a file written by a newer namzu, and leaves it alone', () => {
 		const path = join(sb.home, 'future.json')
-		writeFileSync(path, JSON.stringify({ v: 2, kind: 'schedule-job' }))
-		expect(() => readVersioned(path, 'schedule-job')).toThrow(ScheduleFormatError)
-		expect(JSON.parse(readFileSync(path, 'utf8')).v).toBe(2)
+		writeFileSync(path, JSON.stringify({ v: 99, kind: 'schedule-job' }))
+		expect(() => readVersioned(path, 'schedule-job', 2)).toThrow(ScheduleFormatError)
+		expect(JSON.parse(readFileSync(path, 'utf8')).v).toBe(99)
+	})
+
+	it('a v:2 job file is refused by a reader whose ceiling is v:1', () => {
+		const path = join(sb.home, 'v2.json')
+		writeFileSync(path, JSON.stringify({ v: 2, kind: 'schedule-job', runKind: 'script' }))
+		expect(() => readVersioned(path, 'schedule-job', 1)).toThrow(ScheduleFormatError)
+	})
+
+	it('a v:1 job with no runKind reads as an agent job', () => {
+		const job = confirmedJob(sb)
+		expect(job.v).toBe(1)
+		expect(job.runKind).toBeUndefined()
+		expect(readJob(sb.paths, job.id)?.runKind).toBeUndefined()
+	})
+
+	// A UX review found `createJob`'s uniqueness check and `findJob` both
+	// worked only from `listJobs`'s successfully PARSED jobs, so a job file
+	// `readVersioned` could not fully parse (written by a newer namzu, or
+	// hand-corrupted) was invisible to both: a name collision with it went
+	// undetected, and looking it up by its own name or id said "No scheduled
+	// job is named…" instead of the real reason it could not be read.
+	describe('a job file that cannot be fully read', () => {
+		function writeUnreadable(id: string, name: string): string {
+			const path = join(sb.paths.jobs, `${id}.json`)
+			writeFileSync(path, JSON.stringify({ v: 99, kind: 'schedule-job', id, name }))
+			return path
+		}
+
+		it('createJob refuses a name a readable job does not have, but an unreadable one does', () => {
+			confirmedJob(sb) // ensures paths.jobs exists
+			writeUnreadable('11111111-0000-0000-0000-000000000000', 'nightly-future')
+			expect(() => confirmedJob(sb, { name: 'nightly-future' })).toThrow(
+				/nightly-future.*already exists.*could not be fully read/is,
+			)
+		})
+
+		it('findJob by the exact name of an unreadable job reports the real reason, not "not found"', () => {
+			confirmedJob(sb)
+			writeUnreadable('22222222-0000-0000-0000-000000000000', 'from-the-future')
+			expect(() => findJob(sb.paths, 'from-the-future')).toThrow(
+				/from-the-future.*could not be fully read.*written by a newer namzu/is,
+			)
+		})
+
+		it('findJob by an id prefix only an unreadable job has reports the real reason', () => {
+			confirmedJob(sb)
+			const id = '33333333-0000-0000-0000-000000000000'
+			writeUnreadable(id, 'from-the-future-2')
+			expect(() => findJob(sb.paths, id.slice(0, 8))).toThrow(/could not be fully read/)
+		})
+
+		it('a name matching a readable and an unreadable job is an error naming both ids and how to address each', () => {
+			const job = confirmedJob(sb, { name: 'clashing' })
+			writeUnreadable('44444444-0000-0000-0000-000000000000', 'clashing')
+			expect(() => findJob(sb.paths, 'clashing')).toThrow(
+				new RegExp(`matches 2 jobs.*${job.id}.*44444444-0000.*could not be fully read`, 'is'),
+			)
+		})
+
+		it('list reports how many job files could not be read, not "No scheduled jobs", when none can be', async () => {
+			const { listCommand } = await import('../commands/list.js')
+			const { recordingContext } = await import('./fixtures.js')
+			mkdirSync(sb.paths.jobs, { recursive: true })
+			writeUnreadable('55555555-0000-0000-0000-000000000000', 'unreadable-1')
+			writeUnreadable('66666666-0000-0000-0000-000000000000', 'unreadable-2')
+			const ctx = recordingContext()
+			expect(await listCommand(ctx, ['--home', sb.home])).toBe(0)
+			const printed = ctx.out.printed.join('\n')
+			expect(printed).toMatch(/2 job files? could not be read/)
+			expect(printed).not.toMatch(/No scheduled jobs/)
+		})
 	})
 })
 
@@ -245,6 +316,153 @@ describe('building a job', () => {
 			1_440,
 		)
 		expect(runsPerDay({ kind: 'cron', expr: '0 9 * * 1-5', tz: 'UTC' }, now)).toBe(1)
+	})
+})
+
+describe('building a script/script+agent job', () => {
+	const build = (over: Parameters<typeof jobRequest>[1] = {}) =>
+		buildJob(jobRequest(sb, over), {
+			paths: sb.paths,
+			config: {},
+			now: new Date(),
+			osHome: sb.osHome,
+		})
+
+	it('an agent job is built exactly as before: v:1, no runKind, no script', () => {
+		const job = build()
+		expect(job.v).toBe(1)
+		expect(job.runKind).toBeUndefined()
+		expect(job.script).toBeUndefined()
+	})
+
+	it('a script job requires a non-empty script and refuses a prompt', () => {
+		expect(() => build({ runKind: 'script' })).toThrow(/script is empty/)
+		expect(() =>
+			build({
+				runKind: 'script',
+				prompt: 'silently dropped before',
+				script: { body: 'echo hi', shell: 'bash' },
+			}),
+		).toThrow(/pure script job has no prompt/)
+		const job = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		expect(job.prompt).toBe('')
+		expect(job.runKind).toBe('script')
+		expect(job.script).toEqual({ body: 'echo hi', shell: 'bash', timeoutMs: 120_000 })
+		expect(job.v).toBe(2)
+	})
+
+	it('a script+agent job requires both a gate script and a prompt', () => {
+		expect(() =>
+			build({ runKind: 'script+agent', script: { body: 'echo hi', shell: 'bash' }, prompt: '  ' }),
+		).toThrow(/prompt is empty/)
+		const job = build({
+			runKind: 'script+agent',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'park' },
+		})
+		expect(job.prompt).not.toBe('')
+		expect(job.wakeGate).toEqual({ maxContextChars: 4_000 })
+	})
+
+	it('an agent job cannot carry a script, and a wake-gate needs script+agent', () => {
+		expect(() => build({ script: { body: 'echo hi', shell: 'bash' } })).toThrow(/no script/)
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				wakeGate: { maxContextChars: 10 },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			}),
+		).toThrow(/wake-gate only applies to a script\+agent job/)
+	})
+
+	it('refuses unmatched: park on a pure script job: nothing can wait for the operator', () => {
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'park' },
+			}),
+		).toThrow(/unmatched: park/)
+	})
+
+	it('refuses execution: sandbox for a script/script+agent job in v1', () => {
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny', execution: 'sandbox' },
+			}),
+		).toThrow(/execution: sandbox is not yet supported/)
+	})
+
+	it('refuses a script/script+agent job on native (non-WSL) Windows', () => {
+		const real = process.platform
+		Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+		try {
+			expect(() =>
+				build({
+					runKind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				}),
+			).toThrow(/not supported on native Windows/)
+		} finally {
+			Object.defineProperty(process, 'platform', { value: real })
+		}
+	})
+
+	it('editedJob preserves runKind/script when the edit does not touch them', () => {
+		const current = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const rebuilt = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			when: '0 4 * * *',
+		})
+		const edited = editedJob(current, rebuilt)
+		expect(edited.runKind).toBe('script')
+		expect(edited.script).toEqual(current.script)
+	})
+})
+
+describe('the script digest', () => {
+	it('two jobs differing only in script.body produce different security digests', () => {
+		const base = (body: string) =>
+			buildJob(
+				jobRequest(sb, {
+					runKind: 'script',
+					script: { body, shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				}),
+				{ paths: sb.paths, config: {}, now: new Date(), osHome: sb.osHome },
+			)
+		const a = confirmJob(base('echo one'), 'cli-tty', new Date())
+		const b = confirmJob(base('echo two'), 'cli-tty', new Date())
+		expect(a.confirmation?.digest).not.toBe(b.confirmation?.digest)
+	})
+
+	it('editing the confirmed script invalidates confirmationHolds, like editing the prompt', () => {
+		const built = buildJob(
+			jobRequest(sb, {
+				runKind: 'script',
+				script: { body: 'echo one', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			}),
+			{ paths: sb.paths, config: {}, now: new Date(), osHome: sb.osHome },
+		)
+		const confirmed = confirmJob(built, 'cli-tty', new Date())
+		expect(confirmationHolds(confirmed)).toBe(true)
+		const tampered = { ...confirmed, script: { ...confirmed.script, body: 'echo tampered' } }
+		expect(confirmationHolds(tampered as never)).toBe(false)
 	})
 })
 

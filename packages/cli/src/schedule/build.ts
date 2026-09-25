@@ -24,6 +24,7 @@ import {
 	describeSchedule,
 	generateScheduleJobId,
 	hostTimeZone,
+	installedCommandShellForDialect,
 	parseScheduleSpec,
 	upcomingFireTimes,
 	validateTimeZone,
@@ -36,10 +37,17 @@ import {
 } from '../integrations/providers/index.js'
 import { checkJobFolder } from './folder.js'
 import type { SchedulePaths } from './paths.js'
-import { type CompiledJobPolicy, type PermissionInput, expandPermissions } from './policy.js'
+import {
+	type CompiledJobPolicy,
+	type PermissionInput,
+	allowsCommands,
+	expandPermissions,
+} from './policy.js'
+import { scriptShellUnavailableReason } from './script-shell.js'
 import { computeProjectDigest } from './store/digest.js'
 import { JOB_NAME, jobSecurityDigest } from './store/jobs.js'
-import type { ConfirmationSurface, ScheduleBudget, ScheduleJob } from './types.js'
+import type { ConfirmationSurface, ScheduleBudget, ScheduleJob, ScheduleRunKind } from './types.js'
+import { jobFormatVersion } from './types.js'
 
 export const DEFAULT_TOKEN_BUDGET = 500_000
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000
@@ -52,9 +60,14 @@ export const DEFAULT_WAIT_FOR_PROVIDER_MS = 10 * 60_000
 export const DEFAULT_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000
 export const DEFAULT_KEEP_SESSIONS = 20
 export const DEFAULT_PAUSE_AFTER_FAILURES = 5
+/** Separate from `budget.timeoutMs`, which governs the agent phase, not the script. */
+export const DEFAULT_SCRIPT_TIMEOUT_MS = 2 * 60_000
+/** Q4's number: a paragraph of "what changed", independent of the notification's own cap. */
+export const DEFAULT_WAKE_GATE_CONTEXT_CHARS = 4_000
 
 export interface JobRequest {
 	readonly name: string
+	/** Unused (kept empty) for a pure `script` job; the agent's instruction otherwise. */
 	readonly prompt: string
 	readonly when: string
 	/** A spec already parsed (an edit that keeps its schedule); `when` is then ignored. */
@@ -73,6 +86,16 @@ export interface JobRequest {
 	readonly createdBy: ScheduleJob['createdBy']
 	/** Only the CLI's `--allow-unattended-host` sets this. */
 	readonly allowUnattendedHost?: boolean
+	/** Absent: `'agent'`, unchanged from before this field existed. */
+	readonly runKind?: ScheduleRunKind
+	/** Required when `runKind` is `'script'` or `'script+agent'` (the wake-gate). */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs?: number
+	}
+	/** `runKind: 'script+agent'` only. */
+	readonly wakeGate?: { readonly maxContextChars?: number }
 }
 
 export class JobRequestError extends Error {
@@ -87,7 +110,10 @@ function positive(label: string, value: number | undefined, fallback: number): n
 }
 
 /** The model a job pins: `provider[/model]`, or the configured primary. */
-export function resolveJobModel(spec: string | undefined, home?: string): ScheduleJob['model'] {
+export function resolveJobModel(
+	spec: string | undefined,
+	home?: string,
+): NonNullable<ScheduleJob['model']> {
 	if (spec) {
 		const [provider = '', ...rest] = spec.split('/')
 		if (!(provider in PROVIDER_REGISTRY)) {
@@ -128,7 +154,47 @@ export function buildJob(
 			`"${request.name}" is not a job name: lowercase letters, digits and dashes, starting with a letter or digit`,
 		)
 	}
-	if (!request.prompt.trim()) throw new JobRequestError('the prompt is empty')
+	const runKind = request.runKind ?? 'agent'
+	if (runKind === 'script' && (request.model !== undefined || request.effort !== undefined)) {
+		throw new JobRequestError(
+			'a pure script job has no model or effort; remove --model and --effort',
+		)
+	}
+	if (runKind === 'script' && request.prompt.trim())
+		throw new JobRequestError('a pure script job has no prompt; remove the prompt')
+	if (runKind === 'agent' && request.script !== undefined) {
+		throw new JobRequestError('an agent job has no script; pass --kind script or script+agent')
+	}
+	if (runKind !== 'agent' && !request.script?.body.trim()) {
+		throw new JobRequestError(
+			runKind === 'script' ? 'the script is empty' : 'the wake-gate script is empty',
+		)
+	}
+	// A pure `script` job's prompt is unused; `script+agent`'s is the agent
+	// phase's instruction, needed exactly as an `agent` job's is.
+	if (runKind !== 'script' && !request.prompt.trim()) {
+		throw new JobRequestError('the prompt is empty')
+	}
+	if (request.wakeGate !== undefined && runKind !== 'script+agent') {
+		throw new JobRequestError('a wake-gate only applies to a script+agent job')
+	}
+	// Native (non-WSL) Windows resolves the `bash` tool's shell to `cmd.exe`,
+	// read only as a loose `sh`-dialect approximation — an acceptable bar for
+	// a human watching a live turn, not for a whole script body confirmed
+	// once and never reviewed again. WSL is unaffected: a WSL process reports
+	// `platform: 'linux'`, since `__fire` there runs inside the distro.
+	if (runKind !== 'agent' && process.platform === 'win32') {
+		throw new JobRequestError(
+			`a ${runKind} job is not supported on native Windows yet: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+		)
+	}
+	if (
+		runKind !== 'agent' &&
+		request.script &&
+		!installedCommandShellForDialect(request.script.shell)
+	) {
+		throw new JobRequestError(scriptShellUnavailableReason(request.script.shell))
+	}
 	const permissions = (() => {
 		try {
 			return expandPermissions(request.permissions)
@@ -143,6 +209,16 @@ export function buildJob(
 	) {
 		throw new JobRequestError(
 			'unmatched: allow with execution on the host lets an unattended run do anything no rule forbids; pass --allow-unattended-host to mean it, or use --execution sandbox',
+		)
+	}
+	if (runKind === 'script' && permissions.unmatched === 'park') {
+		throw new JobRequestError(
+			'a pure script job cannot use unmatched: park; nothing can wait for the operator while a script runs. Use unmatched: deny or allow (the floor and the job’s own rules still decide everything the script tries), or make this a script+agent job if a person should review something first',
+		)
+	}
+	if (runKind !== 'agent' && permissions.execution === 'sandbox') {
+		throw new JobRequestError(
+			`execution: sandbox is not yet supported for a ${runKind} job's script phase; use execution: host (a follow-up may add sandboxed scripts)`,
 		)
 	}
 	const folder = checkJobFolder(request.folder, {
@@ -187,9 +263,18 @@ export function buildJob(
 	}
 	if (budget.timeoutMs > 2_147_483_647 - 60_000)
 		throw new JobRequestError('the timeout is too long')
+	if (
+		request.script &&
+		request.script.timeoutMs !== undefined &&
+		(!Number.isSafeInteger(request.script.timeoutMs) || request.script.timeoutMs <= 0)
+	) {
+		throw new JobRequestError(
+			'the script timeout must be a whole number of milliseconds above zero',
+		)
+	}
 	const at = context.now.toISOString()
 	return {
-		v: 1,
+		v: jobFormatVersion({ runKind }),
 		kind: 'schedule-job',
 		id: generateScheduleJobId(),
 		name: request.name,
@@ -197,16 +282,42 @@ export function buildJob(
 		createdAt: at,
 		updatedAt: at,
 		createdBy: request.createdBy,
-		prompt: request.prompt,
+		prompt: runKind === 'script' ? '' : request.prompt,
+		...(runKind !== 'agent'
+			? {
+					runKind,
+					script: {
+						body: (request.script as NonNullable<JobRequest['script']>).body,
+						shell: (request.script as NonNullable<JobRequest['script']>).shell,
+						timeoutMs:
+							(request.script as NonNullable<JobRequest['script']>).timeoutMs ??
+							DEFAULT_SCRIPT_TIMEOUT_MS,
+					},
+				}
+			: {}),
+		...(runKind === 'script+agent'
+			? {
+					wakeGate: {
+						maxContextChars: request.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
+					},
+				}
+			: {}),
 		folder: { path: request.folder, canonical: folder.canonical },
 		trust: null,
 		schedule: spec,
-		permissions: { ...permissions, ...(extra.length > 0 ? { additionalDirectories: extra } : {}) },
-		budget,
-		model: {
-			...resolveJobModel(request.model, context.paths.home),
-			...(request.effort ? { effort: request.effort } : {}),
+		permissions: {
+			...permissions,
+			...(extra.length > 0 ? { additionalDirectories: extra } : {}),
 		},
+		budget,
+		...(runKind === 'script'
+			? {}
+			: {
+					model: {
+						...resolveJobModel(request.model, context.paths.home),
+						...(request.effort ? { effort: request.effort } : {}),
+					},
+				}),
 		catchUp: { windowMs: SCHEDULE_CATCH_UP_WINDOW_MS },
 		notify: {
 			finished: true,
@@ -241,7 +352,11 @@ export function confirmJob(
 	const at = now.toISOString()
 	const trusted: ScheduleJob = {
 		...job,
-		trust: { canonical: job.folder.canonical, grantedAt: at, by: 'operator-confirmation' },
+		trust: {
+			canonical: job.folder.canonical,
+			grantedAt: at,
+			by: 'operator-confirmation',
+		},
 		projectDigest: computeProjectDigest(job.folder.canonical),
 	}
 	return {
@@ -262,11 +377,17 @@ export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJ
 	return {
 		...current,
 		prompt: rebuilt.prompt,
+		runKind: rebuilt.runKind,
+		script: rebuilt.script,
+		wakeGate: rebuilt.wakeGate,
 		folder: rebuilt.folder,
 		schedule: rebuilt.schedule,
 		permissions: rebuilt.permissions,
 		budget: rebuilt.budget,
-		model: rebuilt.model,
+		// Keep an older pure script's real (unused) model field across edits,
+		// so a fresh confirmation still binds that field. New scripts omit it.
+		model:
+			rebuilt.runKind === 'script' && current.runKind === 'script' ? current.model : rebuilt.model,
 		notify: rebuilt.notify,
 		failurePolicy: rebuilt.failurePolicy,
 		retention: rebuilt.retention,
@@ -305,40 +426,57 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		}).format(t),
 	)
 	const perDay = runsPerDay(job.schedule, now)
+	const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
+	const networkCapable =
+		policy.network ||
+		(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
 	return [
 		`Job         ${job.name}`,
 		`Folder      ${job.folder.canonical}`,
 		`When        ${describeSchedule(job.schedule, { tz })}`,
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
-		`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}${job.model.effort ? ` (${job.model.effort})` : ''}`,
-		`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+		...(job.runKind === 'script'
+			? [
+					'Model       none (script only)',
+					`Budget      0 tokens; script timeout ${job.script ? duration(job.script.timeoutMs) : 'unknown'} per run`,
+				]
+			: [
+					`Model       ${job.model?.provider ?? '(missing)'}${job.model?.model ? `/${job.model.model}` : ''}${job.model?.effort ? ` (${job.model.effort})` : ''}`,
+					`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+				]),
 		// A proposal once set 1, read as "one post per run": the first run
 		// stopped after its first model call, with nothing done.
-		...(job.budget.maxIterations < FEW_ITERATIONS
+		...(job.runKind !== 'script' && job.budget.maxIterations < FEW_ITERATIONS
 			? [
 					`Warning     ${job.budget.maxIterations} iteration${job.budget.maxIterations === 1 ? '' : 's'} is one model call${job.budget.maxIterations === 1 ? '' : ' each'} with its tool calls; most tasks need more (the default is ${DEFAULT_MAX_ITERATIONS}), and a run that runs out stops unfinished`,
 				]
 			: []),
 		// A proposal once set 4,000 tokens for a job whose runs each took
 		// about 110,000: every model call resends the whole prompt.
-		...(job.budget.tokenBudget < FEW_TOKENS
+		...(job.runKind !== 'script' && job.budget.tokenBudget < FEW_TOKENS
 			? [
 					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is ${DEFAULT_TOKEN_BUDGET.toLocaleString('en-US')})`,
 				]
 			: []),
-		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
+		...(job.runKind === 'script'
+			? []
+			: [
+					`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
+				]),
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
-		...(policy.network ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
-		...(job.permissions.browser
+		...(networkCapable ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
+		...(job.permissions.browser && job.runKind !== 'script'
 			? [
 					`Browser     SIGNED IN AS YOU: profile ${job.permissions.browser.profile}, only ${Object.keys(job.permissions.browser.sites).join(', ')}`,
 				]
 			: []),
-		...(job.permissions.unmatched === 'allow'
+		...(job.runKind !== 'script' && job.permissions.unmatched === 'allow'
 			? ['Unmatched   CALLS NO RULE COVERS RUN WITHOUT ASKING']
 			: []),
 		'Permissions',
 		...policy.lines.map((line) => `  ${line}`),
-		`Approvals   a call that waits for you expires after ${duration(job.approvalTtlMs)}`,
+		...(job.runKind === 'script'
+			? []
+			: [`Approvals   a call that waits for you expires after ${duration(job.approvalTtlMs)}`]),
 	]
 }

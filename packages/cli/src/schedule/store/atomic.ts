@@ -119,11 +119,15 @@ export function publishExclusive(path: string, value: unknown): boolean {
 
 /**
  * Read a scheduler file of `kind`, or `undefined` when there is none.
- * Refuses a newer version or another kind, naming the file.
+ * Refuses a version newer than `maxVersion` or another kind, naming the
+ * file. `maxVersion` is this reader's own ceiling for this record kind, not
+ * a single global number: a job reader's ceiling moves independently of a
+ * claim reader's.
  */
 export function readVersioned<T extends { readonly v: number; readonly kind: string }>(
 	path: string,
 	kind: T['kind'],
+	maxVersion: number,
 ): T | undefined {
 	let text: string
 	try {
@@ -142,10 +146,10 @@ export function readVersioned<T extends { readonly v: number; readonly kind: str
 	if (typeof record !== 'object' || record === null || record.kind !== kind) {
 		throw new ScheduleFormatError(path, `is not a ${kind} file`)
 	}
-	if (typeof record.v !== 'number' || record.v > 1) {
+	if (typeof record.v !== 'number' || record.v > maxVersion) {
 		throw new ScheduleFormatError(
 			path,
-			`was written by a newer namzu (format ${String(record.v)}); this one reads format 1 and will not change it`,
+			`was written by a newer namzu (format ${String(record.v)}); this one reads up to format ${maxVersion} and will not change it`,
 		)
 	}
 	return parsed as T

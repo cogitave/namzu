@@ -178,6 +178,30 @@ export interface ToolCallEscalation {
 	 * `confirmedEscalations`.
 	 */
 	sandboxEscape?: true
+	/**
+	 * Why a command's own program name — where `programPositions` (the SDK's
+	 * shared resolver for where a command line actually execs a program;
+	 * `packages/sdk/src/authorization/program.ts`) says one is actually
+	 * exec'd, after unwrapping any `sudo`/`env`/`nice`/`timeout`/…
+	 * re-exec chain, and independently for each `find -exec` clause — is not
+	 * knowable ahead of running it: the word itself is decided at runtime
+	 * (`$(echo rm) -rf x`, `env $(echo git) push`, `"$HOME"/bin/tool`), an
+	 * option on a wrapper this does not recognise stood in the way, the
+	 * position is inherently unreadable (`eval`/`source`/`.`, an `xargs`
+	 * program that is a shell or a `{}` placeholder), or an earlier command
+	 * set `PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`, `ENV` or `IFS`
+	 * so even a literal name here cannot be trusted to resolve to what its
+	 * text says.
+	 *
+	 * No rule can be trusted to have matched a program whose name never
+	 * appears as such anywhere in the call's own text: `git push.*` does not
+	 * see `$(echo git) push`, and neither `env $(echo git) push` nor
+	 * `timeout 5 $(echo git) push` puts the program right after the wrapper's
+	 * own name. Present only for a tool that declares `commandArgument`.
+	 * Argument-level expansion alone does not set this — only a position
+	 * where a program name is actually decided.
+	 */
+	unknownProgram?: string
 }
 
 export interface ToolModification {

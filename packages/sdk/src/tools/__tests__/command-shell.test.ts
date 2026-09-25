@@ -16,6 +16,7 @@ import {
 	type CommandShellProbe,
 	SANDBOX_SHELL_LAUNCHER,
 	findCommandShell,
+	findCommandShellForDialect,
 	hostCommandShell,
 	hostShellSpawn,
 	sandboxShellSpawn,
@@ -46,6 +47,44 @@ afterEach(() => {
 })
 
 describe('resolution', () => {
+	it('resolves the requested sh even when automatic host resolution chooses bash', () => {
+		const shellProbe = probe(['/usr/bin/bash', '/bin/sh'])
+		expect(findCommandShell(shellProbe).dialect).toBe('bash')
+		expect(findCommandShellForDialect('sh', shellProbe)).toEqual({
+			path: '/bin/sh',
+			dialect: 'sh',
+			source: 'sh',
+		})
+	})
+
+	it('prefers a standard absolute interpreter over an earlier PATH entry for scheduled scripts', () => {
+		const shellProbe = probe(['/opt/tools/bash', '/bin/bash', '/opt/tools/sh', '/bin/sh'])
+		expect(findCommandShellForDialect('bash', shellProbe)?.path).toBe('/bin/bash')
+		expect(findCommandShellForDialect('sh', shellProbe)?.path).toBe('/bin/sh')
+		expect(findCommandShellForDialect('sh', probe(['/opt/tools/sh']))?.path).toBe('/opt/tools/sh')
+	})
+
+	it('refuses a missing requested interpreter or matching override instead of changing dialects', () => {
+		expect(findCommandShellForDialect('bash', probe(['/bin/sh']))).toBeUndefined()
+		expect(
+			findCommandShellForDialect(
+				'bash',
+				probe(['/usr/bin/bash'], { NAMZU_BASH_SHELL: '/gone/bash' }),
+			),
+		).toBeUndefined()
+		// A relative override could name one executable during confirmation
+		// and a different one after the scheduled run changes cwd.
+		expect(
+			findCommandShellForDialect(
+				'bash',
+				probe(['bash', '/usr/bin/bash'], { NAMZU_BASH_SHELL: 'bash' }),
+			),
+		).toBeUndefined()
+		expect(
+			findCommandShellForDialect('sh', { ...probe(['/bin/sh']), platform: 'win32' }),
+		).toBeUndefined()
+	})
+
 	it('takes the first bash on PATH', () => {
 		expect(findCommandShell(probe(['/usr/local/bin/bash', '/usr/bin/bash']))).toEqual({
 			path: '/usr/local/bin/bash',

@@ -35,7 +35,7 @@
  */
 
 import { constants, accessSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
 
 import type { ShellDialect } from '../types/tool/index.js'
 
@@ -57,6 +57,7 @@ export interface CommandShellProbe {
 }
 
 const WELL_KNOWN_BASH = ['/bin/bash', '/usr/bin/bash']
+const WELL_KNOWN_SH = ['/bin/sh', '/usr/bin/sh']
 
 /** Environment variables that change what a bash command line means. */
 const BASH_STARTUP_VARIABLES = new Set(['BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS'])
@@ -83,6 +84,41 @@ export function findCommandShell(probe: CommandShellProbe): CommandShell {
 	return { path: '/bin/sh', dialect: 'sh', source: 'sh' }
 }
 
+/**
+ * An explicitly requested interpreter for a host script. Unlike the live
+ * `bash` tool's automatic choice, this never substitutes bash for sh (or sh
+ * for bash). A matching `NAMZU_BASH_SHELL` override is authoritative: if it
+ * disappeared, an already-confirmed script must stop rather than silently
+ * switch to a different executable.
+ */
+export function findCommandShellForDialect(
+	dialect: 'bash' | 'sh',
+	probe: CommandShellProbe,
+): CommandShell | undefined {
+	if (probe.platform === 'win32') return undefined
+	const override = probe.env.NAMZU_BASH_SHELL
+	if (override) {
+		const name = override.slice(override.lastIndexOf('/') + 1)
+		if (name === dialect) {
+			return isAbsolute(override) && probe.isExecutable(override)
+				? { path: override, dialect, source: 'override' }
+				: undefined
+		}
+	}
+	const name = dialect
+	// A scheduled script's interpreter must not drift merely because the
+	// service's PATH gained another same-named binary after confirmation.
+	for (const candidate of dialect === 'bash' ? WELL_KNOWN_BASH : WELL_KNOWN_SH) {
+		if (probe.isExecutable(candidate)) return { path: candidate, dialect, source: dialect }
+	}
+	for (const directory of (probe.env.PATH ?? '').split(delimiter)) {
+		if (directory === '' || !directory.startsWith('/')) continue
+		const candidate = join(directory, name)
+		if (probe.isExecutable(candidate)) return { path: candidate, dialect, source: dialect }
+	}
+	return undefined
+}
+
 function isExecutable(path: string): boolean {
 	try {
 		accessSync(path, constants.X_OK)
@@ -103,6 +139,15 @@ export function hostCommandShell(): CommandShell {
 		resolved = findCommandShell({ env: process.env, platform: process.platform, isExecutable })
 	}
 	return resolved
+}
+
+/** Re-check the requested executable each time a job is confirmed or fired. */
+export function installedCommandShellForDialect(dialect: 'bash' | 'sh'): CommandShell | undefined {
+	return findCommandShellForDialect(dialect, {
+		env: process.env,
+		platform: process.platform,
+		isExecutable,
+	})
 }
 
 /** Replace the resolved host shell; `undefined` resolves again on next use. For tests. */

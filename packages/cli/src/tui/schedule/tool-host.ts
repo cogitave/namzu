@@ -23,7 +23,7 @@ import {
 	type ScheduleUpdateRequest,
 	describeSchedule,
 	hostTimeZone,
-	revealHiddenCharacters,
+	installedCommandShellForDialect,
 	upcomingFireTimes,
 	validateTimeZone,
 } from '@namzu/sdk'
@@ -54,8 +54,12 @@ import { schedulePaths } from '../../schedule/paths.js'
 import {
 	type CompiledJobPolicy,
 	type PermissionInput,
+	allowsCommands,
 	compileJobPolicy,
+	compileScriptCheckPolicy,
 } from '../../schedule/policy.js'
+import { verifyScheduledScript } from '../../schedule/script-check.js'
+import { scriptShellUnavailableReason } from '../../schedule/script-shell.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
@@ -68,6 +72,7 @@ import {
 } from '../../schedule/store/jobs.js'
 import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
+import { visibleScheduleMessage } from '../../schedule/visible-source.js'
 import type { QuestionFn } from '../agent.js'
 
 export interface ScheduleUi {
@@ -129,7 +134,11 @@ async function credentialText(provider: string): Promise<string> {
 		)
 		if (!found)
 			return `no ${provider} credential found here; the scheduler must find one (namzu login or daemon.env)`
-		const source = found.source as { kind: string; envName?: string; path?: string }
+		const source = found.source as {
+			kind: string
+			envName?: string
+			path?: string
+		}
 		return source.kind === 'env'
 			? `environment variable ${source.envName ?? ''} (a service does not see your shell's variables)`
 			: `${source.kind}${source.path ? ` (${source.path})` : ''}`
@@ -144,15 +153,31 @@ function confirmationBody(
 	findings: readonly string[],
 	lines: readonly string[],
 ): string[] {
+	const scriptSection =
+		p.runKind && p.runKind !== 'agent' && p.script
+			? [
+					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; verified against the scheduled-run floor and any deny rules)`,
+					...p.script.body.split('\n').map((l) => `  │ ${l}`),
+					p.runKind === 'script'
+						? 'Runs exactly as shown; the scheduled-run floor and every deny rule apply to this script'
+						: 'Runs exactly as shown; the scheduled-run floor and every deny rule apply to the gate, and the permission set governs the agent phase',
+				]
+			: []
+	const promptSection = p.prompt.trim()
+		? [
+				p.runKind === 'script+agent'
+					? 'Prompt (used only when the wake-gate says wake: true)'
+					: 'Prompt (exactly as the run will read it)',
+				...p.prompt.split('\n').map((l) => `  │ ${l}`),
+			]
+		: []
 	return [
 		...lines,
-		`Credential  ${p.credentialSource ?? 'unknown'}`,
+		...(p.runKind === 'script' ? [] : [`Credential  ${p.credentialSource ?? 'unknown'}`]),
 		...p.warnings.map((w) => `Warning     ${w}`),
 		...findings.map((f) => `Warning     ${f}`),
-		'Prompt (exactly as the run will read it)',
-		...revealHiddenCharacters(p.prompt)
-			.split('\n')
-			.map((l) => `  │ ${l}`),
+		...scriptSection,
+		...promptSection,
 	]
 }
 
@@ -161,10 +186,12 @@ export function renderConfirmation(
 	request: ScheduleConfirmRequest,
 	lines: readonly string[],
 ): string {
-	return [
-		'⏲ PROPOSED BY THE MODEL, NOT BY YOU — a scheduled job that runs later with nobody watching.',
-		...confirmationBody(request.preview, request.promptFindings, lines),
-	].join('\n')
+	return visibleScheduleMessage(
+		[
+			'⏲ PROPOSED BY THE MODEL, NOT BY YOU — a scheduled job that runs later with nobody watching.',
+			...confirmationBody(request.preview, request.promptFindings, lines),
+		].join('\n'),
+	)
 }
 
 /**
@@ -176,16 +203,18 @@ export function renderUpdateConfirmation(
 	request: ScheduleUpdateRequest,
 	lines: readonly string[],
 ): string {
-	return [
-		`⏲ PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job ${request.preview.name}, which runs later with nobody watching.`,
-		...changesBlock(request.changes),
-		...(request.permissionsChange
-			? [
-					'Warning     THE PERMISSIONS CHANGE: from its next run the job may do what the rules below allow.',
-				]
-			: []),
-		...confirmationBody(request.preview, request.promptFindings, lines),
-	].join('\n')
+	return visibleScheduleMessage(
+		[
+			`⏲ PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job ${request.preview.name}, which runs later with nobody watching.`,
+			...changesBlock(request.changes),
+			...(request.permissionsChange
+				? [
+						'Warning     THE PERMISSIONS CHANGE: from its next run the job may do what the rules below allow.',
+					]
+				: []),
+			...confirmationBody(request.preview, request.promptFindings, lines),
+		].join('\n'),
+	)
 }
 
 /**
@@ -198,6 +227,7 @@ export function updateRequest(
 	current: ScheduleJob,
 	changes: ScheduleJobChanges,
 	cwd: string,
+	fallbackModel?: { readonly provider: string; readonly model?: string },
 ): JobRequest {
 	const cron = current.schedule.kind === 'cron' ? current.schedule : undefined
 	let spec: ScheduleSpec | undefined
@@ -229,17 +259,52 @@ export function updateRequest(
 				...kept,
 				...(current.permissions.browser ? { browser: current.permissions.browser } : {}),
 			}
+	// A kind or script the tool did not touch carries the job's own forward
+	// unchanged, exactly as `editedJob` does for a terminal edit. Moving TO
+	// `'agent'` always drops the script — whether or not one was given here,
+	// since an agent job cannot carry one (`buildJob` refuses that
+	// combination outright) — and the wake-gate cap only ever applies to a
+	// `runKind` that stays (or becomes) `'script+agent'`.
+	const runKind = changes.runKind ?? current.runKind
+	if (runKind === 'script' && changes.prompt !== undefined)
+		throw new JobRequestError('a pure script job has no prompt; remove prompt')
+	if (runKind === 'script' && changes.budget !== undefined)
+		throw new JobRequestError(
+			'a pure script job has no agent budget; remove budget and use script.timeoutMs for its timeout',
+		)
+	if (
+		runKind === 'script' &&
+		permissions.browser &&
+		(current.runKind !== 'script' || changes.permissions !== undefined)
+	)
+		throw new JobRequestError(
+			'a pure script job cannot use a browser grant; remove permissions.browser',
+		)
+	const script = runKind === 'agent' ? undefined : (changes.script ?? current.script)
 	return {
 		name: current.name,
-		prompt: changes.prompt ?? current.prompt,
+		prompt: runKind === 'script' ? '' : (changes.prompt ?? current.prompt),
 		when: changes.when ?? '',
 		...(spec ? { spec } : {}),
 		folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
 		...(tz ? { tz } : {}),
+		...(runKind ? { runKind } : {}),
+		...(script ? { script } : {}),
+		...(runKind === 'script+agent' && current.wakeGate ? { wakeGate: current.wakeGate } : {}),
 		permissions,
 		budget: { ...current.budget, ...(changes.budget ?? {}) },
-		model: `${current.model.provider}${current.model.model ? `/${current.model.model}` : ''}`,
-		...(current.model.effort ? { effort: current.model.effort } : {}),
+		...(runKind === 'script'
+			? {}
+			: current.model
+				? {
+						model: `${current.model.provider}${current.model.model ? `/${current.model.model}` : ''}`,
+						...(current.model.effort ? { effort: current.model.effort } : {}),
+					}
+				: fallbackModel
+					? {
+							model: `${fallbackModel.provider}${fallbackModel.model ? `/${fallbackModel.model}` : ''}`,
+						}
+					: {}),
 		includeSummary: current.notify.includeSummary,
 		keepSessions: current.retention.keepSessions,
 		pauseAfterFailures: current.failurePolicy.pauseAfterFailures,
@@ -308,22 +373,48 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		extra: readonly string[],
 		now: Date,
 	): Promise<{ preview: ScheduleJobPreview; policy: CompiledJobPolicy }> => {
+		const layers = readPermissionLayers({ cwd: job.folder.canonical })
 		const policy = compileJobPolicy(job.permissions, {
-			layers: readPermissionLayers({ cwd: job.folder.canonical }),
+			layers,
 			namzuHome: ui.home(),
 			folder: job.folder,
 		})
 		if (policy.diagnostics.length > 0)
 			throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
+		if (job.runKind && job.runKind !== 'agent' && !job.script)
+			throw new Error(`The ${job.runKind} job has no script to preview.`)
+		// A model-proposed script/wake-gate gets the same static check
+		// `schedule add` runs before anything is shown, so a proposal the
+		// floor or a `deny` rule refuses never reaches this confirmation
+		// screen at all.
+		if (job.runKind && job.runKind !== 'agent' && job.script) {
+			const selectedShell = installedCommandShellForDialect(job.script.shell)
+			if (!selectedShell) throw new Error(scriptShellUnavailableReason(job.script.shell))
+			const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+				layers,
+				namzuHome: ui.home(),
+				folder: job.folder,
+			})
+			const checked = verifyScheduledScript(job.script.body, selectedShell.dialect, scriptPolicy)
+			if (!checked.ok) {
+				throw new Error(
+					`The ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+				)
+			}
+		}
 		const roots = [ui.cwd(), ...ui.extraRoots()]
 		const outside = !roots.some((root) => within(root, job.folder.canonical))
 		const perDay = runsPerDay(job.schedule, now)
+		const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
+		const networkCapable =
+			policy.network ||
+			(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
 		const warnings = [
 			...(outside
 				? ['The folder is outside this session’s working directory and added directories.']
 				: []),
-			...(policy.network ? ['This run can reach the network.'] : []),
-			...(job.permissions.browser
+			...(networkCapable ? ['This run can reach the network.'] : []),
+			...(job.permissions.browser && job.runKind !== 'script'
 				? [
 						`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
 					]
@@ -335,6 +426,8 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			folder: job.folder.canonical,
 			outsideSessionRoots: outside,
 			prompt: job.prompt,
+			...(job.runKind && job.runKind !== 'agent' ? { runKind: job.runKind } : {}),
+			...(job.script ? { script: job.script } : {}),
 			schedule: describeSchedule(job.schedule, {
 				tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
 			}),
@@ -342,15 +435,29 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			rules: policy.lines,
 			unmatched: job.permissions.unmatched,
 			execution: job.permissions.execution,
-			networkAccess: policy.network,
-			budget: {
-				maxIterations: job.budget.maxIterations,
-				tokenBudget: job.budget.tokenBudget,
-				timeoutMs: job.budget.timeoutMs,
-			},
-			...(job.schedule.kind === 'at' ? {} : { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
-			model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
-			credentialSource: await credentialText(job.model.provider),
+			networkAccess: networkCapable,
+			networkGrantAccess: policy.network,
+			budget:
+				job.runKind === 'script' && job.script
+					? {
+							maxIterations: 0,
+							tokenBudget: 0,
+							timeoutMs: job.script.timeoutMs,
+						}
+					: {
+							maxIterations: job.budget.maxIterations,
+							tokenBudget: job.budget.tokenBudget,
+							timeoutMs: job.budget.timeoutMs,
+						},
+			...(job.runKind === 'script' || job.schedule.kind === 'at'
+				? {}
+				: { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
+			...(job.runKind === 'script' || !job.model
+				? {}
+				: {
+						model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
+						credentialSource: await credentialText(job.model.provider),
+					}),
 			warnings,
 		}
 		return { preview, policy }
@@ -371,17 +478,27 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		// confirmation shows it line by line, so the model may propose one.
 		browserGrants: true,
 		async preview(draft: ScheduleJobDraft): Promise<ScheduleJobPreview> {
+			if (draft.runKind === 'script' && draft.budget !== undefined)
+				throw new JobRequestError(
+					'a pure script job has no agent budget; remove budget and use script.timeoutMs for its timeout',
+				)
+			if (draft.runKind === 'script' && draft.permissions.browser !== undefined)
+				throw new JobRequestError(
+					'a pure script job cannot use a browser grant; remove permissions.browser',
+				)
 			const model = ui.model()
-			if (!model)
+			if (!model && draft.runKind !== 'script')
 				throw new Error('This session has no model; a scheduled job runs on the session’s model.')
 			const now = new Date()
 			const folder = resolve(ui.cwd(), draft.folder ?? '.')
 			const job = buildJob(
 				{
 					name: draft.name,
-					prompt: draft.prompt,
+					prompt: draft.prompt ?? '',
 					when: draft.when,
 					folder,
+					...(draft.runKind ? { runKind: draft.runKind } : {}),
+					...(draft.script ? { script: draft.script } : {}),
 					...(draft.tz ? { tz: draft.tz } : {}),
 					permissions: {
 						...(draft.permissions.preset ? { preset: draft.permissions.preset } : {}),
@@ -391,7 +508,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 						...(draft.permissions.browser ? { browser: draft.permissions.browser } : {}),
 					},
 					...(draft.budget ? { budget: draft.budget } : {}),
-					model: `${model.provider}${model.model ? `/${model.model}` : ''}`,
+					...(model && draft.runKind !== 'script'
+						? {
+								model: `${model.provider}${model.model ? `/${model.model}` : ''}`,
+							}
+						: {}),
 					createdBy: {
 						surface: 'tool',
 						...(ui.sessionId() ? { sessionId: ui.sessionId() as string } : {}),
@@ -417,7 +538,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const answer = await ui.ask(
 				{
 					questionId: `schedule:${entry.job.id}`,
-					question: `Create the scheduled job "${entry.job.name}" the model proposed? (details above)`,
+					question: visibleScheduleMessage(
+						`Create the scheduled job "${entry.job.name}" the model proposed? (details above)`,
+					),
 					header: 'Proposed by the model',
 					options: [
 						{ id: 'cancel', label: 'Cancel', description: 'Create nothing' },
@@ -447,7 +570,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			if (!entry) throw new Error('That proposal is no longer current; propose it again.')
 			const job = createJob(
 				paths(),
-				confirmJob(entry.job, 'tool-confirmed', new Date(), { paused: options.paused }),
+				confirmJob(entry.job, 'tool-confirmed', new Date(), {
+					paused: options.paused,
+				}),
 			)
 			history(job, 'created')
 			// A job with no scheduler to run it does nothing, and the model's
@@ -456,7 +581,10 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			ui.say(
 				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
-			return { name: job.name, ...(installed ? {} : { note: NOT_INSTALLED_NOTE }) }
+			return {
+				name: job.name,
+				...(installed ? {} : { note: NOT_INSTALLED_NOTE }),
+			}
 		},
 
 		// A change is confirmed like a new job, whole, with what changes
@@ -469,7 +597,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const now = new Date()
 			const job = editedJob(
 				current,
-				buildJob(updateRequest(current, changes, ui.cwd()), {
+				buildJob(updateRequest(current, changes, ui.cwd(), ui.model()), {
 					paths: paths(),
 					config: ui.config(),
 					now,
@@ -495,7 +623,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				lines: previewLines(job, policy, now),
 				changes: lines,
 			})
-			return { preview, changes: lines, permissionsChange: permissionsChanged(current, job) }
+			return {
+				preview,
+				changes: lines,
+				permissionsChange: permissionsChanged(current, job),
+			}
 		},
 
 		async confirmUpdate(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<boolean> {
@@ -505,7 +637,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const answer = await ui.ask(
 				{
 					questionId: `schedule-update:${entry.current.id}`,
-					question: `Save the change the model proposed to the scheduled job "${entry.current.name}"? (details above)`,
+					question: visibleScheduleMessage(
+						`Save the change the model proposed to the scheduled job "${entry.current.name}"? (details above)`,
+					),
 					header: 'Proposed by the model',
 					options: [
 						{ id: 'cancel', label: 'Cancel', description: 'Change nothing' },
@@ -556,7 +690,10 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			ui.say(
 				`⏲ Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
-			return { name: next.name, ...(installed ? {} : { note: NOT_INSTALLED_NOTE }) }
+			return {
+				name: next.name,
+				...(installed ? {} : { note: NOT_INSTALLED_NOTE }),
+			}
 		},
 
 		// Every job, whatever `allFolders` says: a model that has just created
@@ -565,9 +702,12 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		// session folder's are marked, and only theirs carry the prompt.
 		async list() {
 			const cwd = canonicalCwd(ui.cwd())
-			return listJobs(paths()).jobs.map((job) =>
-				summary(job, job.folder.canonical === cwd, ui.home()),
-			)
+			const { jobs, errors } = listJobs(paths())
+			if (errors.length > 0)
+				throw new Error(
+					`${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; inspect or repair the files under NAMZU_HOME before listing scheduled jobs.`,
+				)
+			return jobs.map((job) => summary(job, job.folder.canonical === cwd, ui.home()))
 		},
 
 		async find(ref) {
@@ -583,11 +723,17 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const answer = await ui.ask(
 				{
 					questionId: `schedule-${action}:${job.name}`,
-					question: `${action === 'delete' ? 'Delete' : 'Resume'} the scheduled job "${job.name}" (${job.schedule}, in ${job.folder})? The model asked.`,
+					question: visibleScheduleMessage(
+						`${action === 'delete' ? 'Delete' : 'Resume'} the scheduled job "${job.name}" (${job.schedule}, in ${job.folder})? The model asked.`,
+					),
 					header: 'Proposed by the model',
 					options: [
 						{ id: 'no', label: 'No', description: 'Leave it as it is' },
-						{ id: 'yes', label: action === 'delete' ? 'Delete it' : 'Resume it', description: '' },
+						{
+							id: 'yes',
+							label: action === 'delete' ? 'Delete it' : 'Resume it',
+							description: '',
+						},
 					],
 					multiSelect: false,
 					allowFreeText: false,

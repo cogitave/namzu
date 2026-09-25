@@ -84,6 +84,9 @@ export async function findScheduledPark(
 		const run = readState(paths, job.id).activeRun
 		if (run?.status !== 'awaiting-approval' || run.sessionId !== sessionId || !run.projectSlug)
 			continue
+		// Pure scripts have no session or parked turn. A malformed agent job
+		// without a model cannot safely resume on an arbitrary TUI model.
+		if (job.runKind === 'script' || !job.model) continue
 		const log = DiskSessionLog.at(new SessionPaths({ home, slug: run.projectSlug }), {
 			sessionId: asSessionId(sessionId),
 		})
@@ -232,7 +235,13 @@ export function scheduledResumeMismatch(
 			'the job drives the browser and this session has none (check `browser.enabled` and `namzu doctor`)',
 		)
 	}
-	if (environment.providers && !environment.providers.includes(job.model.provider)) {
+	if (job.runKind !== 'script' && !job.model) {
+		reasons.push('the job has no model; edit and confirm it again')
+	} else if (
+		job.model &&
+		environment.providers &&
+		!environment.providers.includes(job.model.provider)
+	) {
 		reasons.push(
 			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this session has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
 		)

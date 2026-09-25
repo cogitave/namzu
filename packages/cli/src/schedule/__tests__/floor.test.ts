@@ -103,6 +103,99 @@ describe('the scheduler’s own commands', () => {
 			'echo namzu; ./schedule stop',
 		])
 	})
+
+	// A security review of the command-substitution fix (668557ae) found
+	// that `named()` read a wild (expanding) program-name word as NOT being
+	// `pkill`/`systemctl`/etc. unless its raw, unevaluated text happened to
+	// contain the tool's name as one contiguous run — `$(echo pk)ill` never
+	// does, since `)` sits between "pk" and "ill". The tripwire's own
+	// text-scan has the same gap for the same reason. A wild word in the
+	// program-name position (the head, or right after a `sudo`/`env`-style
+	// re-exec prefix) now counts as being every tool this checks for, never
+	// as being none of them.
+	it('reads a wild program name as possibly being the tool, however its raw text is split', () => {
+		denied([
+			'$(echo pk)ill -f node',
+			'$(echo pk)ill -f namzu',
+			'$(echo system)ctl stop namzu-scheduler.service',
+			'$(echo system)ctl stop $(echo namzu)-scheduler.service',
+			'`echo pk`ill -f node',
+			'sudo $(echo systemctl) stop namzu-scheduler',
+			'$(echo launch)ctl bootout gui/501/com.namzu.scheduler',
+			'$(echo sch)tasks -delete -tn namzu',
+			'$(echo bus)ctl call org.freedesktop.systemd1 /x y StopUnit ss namzu-scheduler.service fail',
+		])
+	})
+
+	// A second review of that fix found `heads` only ever placed the program
+	// one word after a fixed, one-hop list of wrapper names (`REEXEC_PREFIX`),
+	// so any wrapper with a MANDATORY argument of its own before the program
+	// — `timeout`'s duration, `stdbuf`'s buffering mode, `chrt`'s priority, an
+	// `env VAR=value` pair — put the program at the wrong index and reached
+	// it as an ordinary, unverified argument. `exec` and `command` were not
+	// in the list at all. `programPositions` (`packages/sdk/src/
+	// authorization/program.ts`) replaces the fixed-offset guess with each
+	// wrapper's own real option grammar, and follows a chain of several.
+	it('places the program correctly behind a wrapper that takes its own argument first', () => {
+		denied([
+			'timeout 5 $(echo systemctl) stop namzu-scheduler.service',
+			'timeout -s TERM 5 $(echo systemctl) stop namzu-scheduler.service',
+			'stdbuf -oL $(echo systemctl) stop namzu-scheduler.service',
+			'chrt 0 $(echo systemctl) stop namzu-scheduler.service',
+			'env NODE_ENV=production $(echo systemctl) stop namzu-scheduler.service',
+			'nice -n 10 $(echo systemctl) stop namzu-scheduler.service',
+			'ionice -c2 -n7 $(echo systemctl) stop namzu-scheduler.service',
+			'exec $(echo systemctl) stop namzu-scheduler.service',
+			'command $(echo systemctl) stop namzu-scheduler.service',
+			'timeout 5 $(echo pkill) -f namzu-scheduler',
+			'env NODE_ENV=production $(echo pkill) -f namzu-scheduler',
+			// Chained wrappers, followed all the way through — no longer
+			// stopping after one hop.
+			'sudo nice $(echo systemctl) stop namzu-scheduler.service',
+			'sudo env nice -n 5 $(echo systemctl) stop namzu-scheduler.service',
+		])
+		// A wrapper's idiomatic, attached-short-option spelling must not, on
+		// its own, make an otherwise ordinary command unverifiable: fail
+		// closed on an option this does not model, not on the everyday form
+		// of one it does.
+		allowed([
+			'ionice -c2 -n7 rsync -a /src /dst',
+			'nice -n10 make -j4',
+			'stdbuf -oL grep foo',
+			'taskset -c0-3 make -j4',
+		])
+	})
+
+	it('does not read a wild word as a program name where it plainly is not one', () => {
+		// Negative controls: a literal program name with substitutions only
+		// in its arguments still behaves exactly as before (allowed, or
+		// denied, on its own established grounds), and an ordinary wild
+		// word (a glob, a tilde, an unrelated substitution) in a command
+		// unrelated to these tools is not, on its own, read as reaching
+		// them — a wild word only stands for "could be this tool" in the
+		// program-name position, not anywhere a wild word appears.
+		allowed([
+			'rm -rf /tmp/*.log',
+			'echo $(date) > /tmp/x',
+			'ls ~/documents',
+			'sudo systemctl stop unrelated-service',
+			'find . -name "*.tmp" -delete',
+		])
+		// A wild PATTERN argument to a literal pkill/systemctl is a
+		// different, already-established rule (any wild pattern/unit is
+		// unverifiable) and stays denied, unaffected by this fix.
+		denied(['pkill -f $(echo node)', 'systemctl stop $(echo unrelated).service'])
+	})
+
+	it('reads a variable in the program path as unknown too, since its value is unknown', () => {
+		// `"$HOME"/bin/systemctl` is `expands: true` (it holds `$HOME`) even
+		// though the literal suffix already unambiguously says `systemctl`:
+		// this errs toward the safe side (still denied) rather than trying
+		// to read a partially-known program-name word more precisely. An
+		// unrelated variable-headed command is unaffected.
+		denied(['"$HOME"/bin/systemctl stop namzu-scheduler'])
+		allowed(['$MYTOOL --version'])
+	})
 })
 
 describe('text that another program runs', () => {
@@ -216,8 +309,18 @@ describe('the tripwire, on text a program runs as code', () => {
 		expect(detail(`python3 -c "import os; os.system('pkill node')"`)).toMatch(
 			/^`python3` runs text as code, and it holds `pkill` /,
 		)
-		expect(detail('$(echo namzu) schedule stop')).toMatch(
-			/^the floor cannot read the line \(command substitution\), and it holds `schedule stop`/,
+		// `$(echo namzu)` is now read as a nested command line, not opaque
+		// outright. A wild head word is now read as being every program name
+		// this checks for (a security-review fix: it used to be read as
+		// definitely not being `pkill`/`killall`, missing a wild head glued
+		// to nothing — see the "reaches the scheduler" describe block
+		// below), so this is caught earlier and more broadly, by the
+		// pkill/killall check (any word holding `namzu` or `schedul`,
+		// `schedule` included, after a head that could be either), rather
+		// than needing the narrower "unread text" path this test exercised
+		// before that fix.
+		expect(detail('$(echo namzu) schedule stop')).toBe(
+			"`$(echo namzu) schedule stop` has a pattern that could match the scheduler's process",
 		)
 		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
 			"`systemctl --user stop namzu-scheduler` stops or disables the scheduler's service",
@@ -273,6 +376,146 @@ describe('the tripwire, on text a program runs as code', () => {
 	})
 })
 
+describe("PowerShell's -EncodedCommand", () => {
+	// Real base64 of UTF-16LE `Write-Host hi`: unreadable text, denied
+	// whatever it decodes to, unlike `-Command '<literal>'`.
+	const ENCODED = 'VwByAGkAdABlAC0ASABvAHMAdAAgAGgAaQA='
+
+	it('is refused outright: the payload cannot be read at all, so it is never given the benefit of the tripwire finding nothing', () => {
+		denied([
+			`powershell.exe -EncodedCommand ${ENCODED}`,
+			`powershell -encodedcommand ${ENCODED}`,
+			`pwsh -EncodedCommand ${ENCODED}`,
+			`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${ENCODED}`,
+			`powershell -e ${ENCODED}`,
+			`powershell -en ${ENCODED}`,
+			`powershell -enc ${ENCODED}`,
+			`powershell -Enc ${ENCODED}`,
+			// Nested inside a followed shell, and inside unread text a program runs.
+			`bash -c "powershell.exe -EncodedCommand ${ENCODED}"`,
+			`sudo bash -c 'powershell -EncodedCommand ${ENCODED}'`,
+		])
+	})
+
+	it('does not deny -Command with literal text, which the tripwire can still read', () => {
+		allowed([`powershell.exe -NoProfile -Command "Write-Host hi"`])
+	})
+
+	it('names the rule that matched', () => {
+		expect(detail(`powershell.exe -EncodedCommand ${ENCODED}`)).toMatch(
+			/runs a base64-encoded script the floor cannot read at all/,
+		)
+	})
+})
+
+describe('trap', () => {
+	it('reads a trap action as a command line, against both protected targets', () => {
+		denied([
+			"trap 'rm -rf ~/.namzu' EXIT",
+			"trap 'cat ~/.namzu/schedule/daemon/endpoint.json' EXIT",
+			"trap 'systemctl --user stop namzu-scheduler' EXIT",
+			"trap 'namzu schedule stop' INT TERM",
+			// Flags before the action; the action is still the first non-flag word.
+			"trap -- 'namzu schedule remove nightly' EXIT",
+		])
+	})
+
+	it('does not deny a benign action, or a bare query/reset', () => {
+		allowed(['trap \'echo "cleaning up"\' EXIT', 'trap - EXIT', 'trap -p', 'trap -l'])
+	})
+
+	it('names the reason', () => {
+		expect(bash("trap 'rm -rf ~/.namzu' EXIT")).toBe('unread text mentions a protected name')
+	})
+})
+
+describe('find -exec/-execdir/-ok/-okdir', () => {
+	it('refuses {} standing for NAMZU_HOME: a broad or unknown root', () => {
+		denied([
+			'find / -name .namzu -exec rm -rf {} \\;',
+			'find ~ -maxdepth 2 -exec cat {}/schedule/daemon/endpoint.json \\;',
+			'find ~ -exec rm -rf {} +',
+			'find "$DIR" -exec rm -rf {} \\;',
+			'find / -iname "*.NAMZU*" -okdir rm -rf {} \\;',
+			'find / -path "*/.namzu/*" -exec cat {} \\;',
+		])
+	})
+
+	it('refuses {} beside a tool that can stop or remove a service, whatever the root', () => {
+		denied([
+			'find / -name "namzu-scheduler*" -exec systemctl stop {} \\;',
+			'find /proc -maxdepth 1 -exec systemctl stop {} \\;',
+			'find /proc -maxdepth 1 -exec env systemctl stop {} \\;',
+			'env find /proc -maxdepth 1 -exec env systemctl stop {} \\;',
+			'find /proc -maxdepth 1 -exec bash -c \'systemctl stop "$1"\' _ {} \\;',
+			'find /proc -exec pkill -f {} \\;',
+			'find / -name "*.plist" -execdir launchctl bootout {} \\;',
+		])
+	})
+
+	it('does not deny find confined to the job’s own folder, or with no {} placeholder at all', () => {
+		allowed([
+			'find . -name "*.txt" -exec grep -l TODO {} \\;',
+			'find . -exec cat {} \\;',
+			'find /tmp -exec cat {} \\;',
+			'find /tmp/build -type f -delete',
+			// No {}: whatever runs is fully static and already read normally.
+			'find / -exec echo hi \\;',
+			'find . -maxdepth 1 -name "*.log" -exec rm {} \\;',
+		])
+	})
+
+	it('names the reason', () => {
+		expect(bash('find / -name .namzu -exec rm -rf {} \\;')).toBe(
+			'find -exec reaches a protected target',
+		)
+		expect(bash('find /proc -maxdepth 1 -exec env systemctl stop {} \\;')).toBe(
+			'find -exec reaches a protected target',
+		)
+		expect(detail('find / -name .namzu -exec rm -rf {} \\;')).toContain(
+			'the floor cannot verify what {} will stand for',
+		)
+	})
+})
+
+describe('a file the script writes, then executes', () => {
+	it('refuses running a file written earlier in the SAME line, however it was written', () => {
+		denied([
+			'cp payload.sh run.sh; bash run.sh',
+			'mv staged.sh run.sh; sh run.sh',
+			'echo "$PAYLOAD" > run.sh; ./run.sh',
+			'printf "%s" "$PAYLOAD" >> run.sh; . run.sh',
+			'tee run.sh <<< "$PAYLOAD"; source run.sh',
+		])
+	})
+
+	it('is content-agnostic: refused whether the write looks like a scheduler attack or a NAMZU_HOME one', () => {
+		denied([
+			// The written content is opaque (an external file, a variable) —
+			// this refuses on the SHAPE alone, not on reading what run.sh holds.
+			'cp attacker-controlled.sh run.sh; bash run.sh',
+			'echo "$SECRET_PAYLOAD" > run.sh; bash run.sh',
+		])
+	})
+
+	it('does not deny writing a file and only reading it, or executing an UNRELATED file', () => {
+		allowed([
+			'echo hi > x.sh; cat x.sh',
+			'echo hi > x.sh; bash y.sh',
+			'cp a.txt b.txt; wc -l b.txt',
+			// A file already on disk before the script ran is not tracked as written.
+			'bash existing.sh',
+		])
+	})
+
+	it('names the reason', () => {
+		expect(bash('echo hi > run.sh; bash run.sh')).toBe('runs a file the script wrote earlier')
+		expect(detail('echo hi > run.sh; bash run.sh')).toContain(
+			'its content cannot be verified, so it is refused rather than run unattended',
+		)
+	})
+})
+
 describe('NAMZU_HOME', () => {
 	it('denies a word or redirection that resolves into it, however it is spelled', () => {
 		denied([
@@ -324,6 +567,22 @@ describe('NAMZU_HOME', () => {
 			'echo "$USER: namzu done"',
 			'notify-send "$JOB" "namzu finished"',
 		])
+	})
+
+	it('reaches inside a command substitution or backtick body, the same as it would read outside one', () => {
+		// `$(…)`/backtick content is read as a nested command line and
+		// checked by this same, structural resolution — not only by the
+		// tripwire's text scan, which a name split across two otherwise
+		// harmless-looking words (`D=~/.nam` then `${D}zu`, never ".namzu"
+		// as one substring anywhere in the line) would not catch.
+		denied([
+			'echo $(cat ../../.namzu/x)',
+			'echo `cat ../../.namzu/x`',
+			'echo $(D=~/.nam; ls ${D}zu)',
+			'x=$(cd /tmp && cat ../home/u/.namzu/x)',
+			'echo $(echo $(cat ~/.namzu/config.yaml))',
+		])
+		allowed(['echo $(cat .git/x)', 'echo `echo hi`', 'a=$(echo hi)', 'echo $(basename "$PWD")'])
 	})
 
 	it('reads a line in both dialects when the shell may be bash or sh', () => {

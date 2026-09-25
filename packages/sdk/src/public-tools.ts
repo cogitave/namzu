@@ -45,10 +45,29 @@ export { buildResidentHistoryTools } from './tools/resident-history.js'
 // input, which is how an `allow` for `git status*` came to approve
 // `git status && rm -rf ~`.
 export { builtinCommandArguments, commandArgumentOf } from './tools/command-arguments.js'
+// Which shell a host-side command runs in, and how to spawn it, so a host
+// that runs a command line outside the `bash` tool itself (a scheduled
+// job's own script, say) resolves the SAME shell the rules already read the
+// line in — never a second, drifting copy of this resolution.
+export {
+	type CommandShell,
+	type CommandShellProbe,
+	findCommandShell,
+	findCommandShellForDialect,
+	hostCommandShell,
+	hostShellSpawn,
+	installedCommandShellForDialect,
+	withoutBashStartup,
+} from './tools/command-shell.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
 export { EditTool } from './tools/builtins/edit.js'
-export { BashTool, SANDBOX_ESCAPE_NOT_APPROVED } from './tools/builtins/bash.js'
+export {
+	BashTool,
+	type ExecHostShellProgress,
+	SANDBOX_ESCAPE_NOT_APPROVED,
+	execHostShell,
+} from './tools/builtins/bash.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'

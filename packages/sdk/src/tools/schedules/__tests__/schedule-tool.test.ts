@@ -195,6 +195,18 @@ describe('schedule tool', () => {
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
 	})
 
+	it('reports a host list read error instead of claiming there are no jobs', async () => {
+		const { host } = fakeHost('create', {
+			list: async () => {
+				throw new Error('2 job files could not be read')
+			},
+		})
+		const result = await tool(host).execute({ action: 'list' }, context)
+		expect(result.success).toBe(false)
+		expect(result.error).toBe('2 job files could not be read')
+		expect(result.output).not.toContain('No scheduled jobs.')
+	})
+
 	describe('update', () => {
 		const proposal = {
 			preview: PREVIEW,
@@ -338,6 +350,333 @@ describe('schedule tool', () => {
 		const view = t.presentCall?.(createInput as never)
 		expect(JSON.stringify(view)).toContain('Propose scheduled job · nightly')
 		expect(JSON.stringify(view)).not.toMatch(/\{\\"/)
+	})
+})
+
+describe('schedule tool: kind and script', () => {
+	const scriptInput = {
+		action: 'create',
+		name: 'ticker',
+		kind: 'script',
+		script: { body: 'echo hi', shell: 'bash' },
+		when: 'every 1m',
+		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+	}
+
+	it('accepts a script draft with no prompt, and reaches host.preview with runKind set', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(scriptInput as never, context)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.objectContaining({ runKind: 'script', script: { body: 'echo hi', shell: 'bash' } }),
+		)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.not.objectContaining({ prompt: expect.anything() }),
+		)
+	})
+
+	it('describes a created pure script as having history but no session', async () => {
+		const { host } = fakeHost('create', {
+			preview: async () => ({
+				...PREVIEW,
+				runKind: 'script',
+				prompt: '',
+				script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
+				budget: { maxIterations: 0, tokenBudget: 0, timeoutMs: 7_000 },
+				model: undefined,
+				credentialSource: undefined,
+				dailyTokenCeiling: undefined,
+			}),
+		})
+		const result = await tool(host).execute(scriptInput as never, context)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('results are recorded in its history')
+		expect(result.output).toContain('It creates no session.')
+	})
+
+	it('refuses an agent budget on a pure script before asking the host', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{ ...scriptInput, budget: { tokenBudget: 42 } },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/pure script job has no agent budget/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses a prompt or browser grant on a pure script', async () => {
+		const { host } = fakeHost('create')
+		for (const added of [
+			{ prompt: 'silently ignored' },
+			{
+				permissions: {
+					unmatched: 'deny',
+					browser: { profile: 'main', sites: { 'https://example.com': 'read' } },
+				},
+			},
+		]) {
+			const result = await tool(host).execute({ ...scriptInput, ...added }, context)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/pure script job/)
+		}
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('describes script requirements without requiring a prompt for them', () => {
+		const description = tool(fakeHost('create').host).description
+		expect(description).toContain('agent and script+agent also need prompt')
+		expect(description).toContain('script and script+agent also need script')
+	})
+
+	it('refuses kind: script with no script, naming the field', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute({ ...scriptInput, script: undefined }, context)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/script/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses an agent job (the default) that also carries a script', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{ ...createInput, script: { body: 'echo hi', shell: 'bash' } },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/no script/)
+	})
+
+	it('script+agent needs both a gate script and a prompt', async () => {
+		const { host } = fakeHost('create')
+		const noPrompt = await tool(host).execute(
+			{ ...scriptInput, kind: 'script+agent', prompt: undefined },
+			context,
+		)
+		expect(noPrompt.success).toBe(false)
+		expect(noPrompt.error).toMatch(/prompt/)
+		const withPrompt = await tool(host).execute(
+			{ ...scriptInput, kind: 'script+agent', prompt: 'summarise what changed' },
+			context,
+		)
+		expect(withPrompt.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(expect.objectContaining({ runKind: 'script+agent' }))
+	})
+
+	it('refuses a script job on the host beside network access, the same as an agent job would be', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{
+				...scriptInput,
+				permissions: {
+					rules: { bash: 'allow', web_fetch: 'allow' },
+					unmatched: 'deny',
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('does not refuse a sandboxed script job beside network access', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{
+				...scriptInput,
+				permissions: {
+					rules: { bash: 'allow', web_fetch: 'allow' },
+					unmatched: 'deny',
+					execution: 'sandbox',
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(true)
+	})
+
+	describe('update', () => {
+		const proposal = {
+			preview: PREVIEW,
+			changes: ['- Script  echo hi', '+ Script  echo bye'],
+			permissionsChange: false,
+		}
+		function updatingHost(over: Partial<ScheduleToolHost> = {}) {
+			return fakeHost('create', {
+				previewUpdate: vi.fn(async () => proposal),
+				confirmUpdate: vi.fn(async () => true),
+				update: vi.fn(async () => ({ name: 'host-name' })),
+				...over,
+			}).host
+		}
+
+		// A UX/security review found `update` accepted `kind`/`script` in its
+		// schema but silently dropped both from what it actually asked the
+		// host to change, reporting success with no error or warning.
+		it('forwards kind and script to the host instead of dropping them', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo bye', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(host.previewUpdate).toHaveBeenCalledWith('ticker', {
+				runKind: 'script',
+				script: { body: 'echo bye', shell: 'bash' },
+			})
+		})
+
+		it('forwards script alone, keeping whatever kind the job already has', async () => {
+			const host = updatingHost()
+			await tool(host).execute(
+				{ action: 'update', job: 'ticker', script: { body: 'echo bye', shell: 'bash' } },
+				context,
+			)
+			expect(host.previewUpdate).toHaveBeenCalledWith('ticker', {
+				script: { body: 'echo bye', shell: 'bash' },
+			})
+		})
+
+		it('refuses kind: agent given together with a script, naming the conflict', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'agent',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot set kind to agent while also giving a script/)
+			expect(host.previewUpdate).not.toHaveBeenCalled()
+		})
+
+		it('a script/kind error from the host (the floor, a deny rule, an empty script) is surfaced, not swallowed', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => {
+					throw new Error('the scheduled-run floor refused this call: …')
+				}),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/scheduled-run floor refused/)
+		})
+
+		it('reads a kind given alongside permissions for the network-beside-host-shell guard', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow', web_fetch: 'allow' }, unmatched: 'deny' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+			expect(host.previewUpdate).not.toHaveBeenCalled()
+		})
+
+		it.each(['script', 'script+agent'] as const)(
+			'refuses a kind-only conversion to %s when the effective host job has network access',
+			async (kind) => {
+				const host = updatingHost({
+					previewUpdate: vi.fn(async () => ({
+						...proposal,
+						preview: {
+							...PREVIEW,
+							runKind: kind,
+							networkAccess: true,
+							execution: 'host',
+						} satisfies ScheduleJobPreview,
+					})),
+				})
+				const result = await tool(host).execute(
+					{
+						action: 'update',
+						job: 'ticker',
+						kind,
+						script: { body: 'echo hi', shell: 'bash' },
+					},
+					context,
+				)
+				expect(result.success).toBe(false)
+				expect(result.error).toMatch(
+					/cannot combine web or browser access with a shell on the host/,
+				)
+				expect(host.confirmUpdate).not.toHaveBeenCalled()
+				expect(host.update).not.toHaveBeenCalled()
+			},
+		)
+
+		it('uses the requested kind when a custom host omits it from its preview', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => ({
+					...proposal,
+					preview: {
+						...PREVIEW,
+						// Older custom hosts may not populate this newly optional field.
+						runKind: undefined,
+						networkAccess: true,
+						execution: 'host',
+					} satisfies ScheduleJobPreview,
+				})),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+			expect(host.confirmUpdate).not.toHaveBeenCalled()
+		})
+
+		it('allows a script conversion whose network capability comes only from its own shell', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => ({
+					...proposal,
+					preview: {
+						...PREVIEW,
+						runKind: 'script',
+						networkAccess: true,
+						networkGrantAccess: false,
+						execution: 'host',
+					} satisfies ScheduleJobPreview,
+				})),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(host.confirmUpdate).toHaveBeenCalled()
+		})
 	})
 })
 
@@ -557,7 +896,7 @@ describe('schedule tool: browser grant', () => {
 })
 
 describe('schedule tool: budget words', () => {
-	it('says a budget is one run’s, and that an iteration is a model step, not a repetition', () => {
+	it('says a budget limits one agent phase, and an iteration is a model step', () => {
 		const t = tool(fakeHost('create').host)
 		const budget = (
 			t.inputSchema as unknown as {
@@ -569,7 +908,8 @@ describe('schedule tool: budget words', () => {
 				}
 			}
 		).shape.budget
-		expect(budget.description).toContain('Limits of ONE run')
+		expect(budget.description).toContain('Agent-phase limits')
+		expect(budget.description).toContain('Refused for a pure script')
 		expect(budget.unwrap().shape.maxIterations.description).toContain(
 			'not how many times the job runs',
 		)

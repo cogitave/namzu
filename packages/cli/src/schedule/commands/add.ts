@@ -10,6 +10,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { installedCommandShellForDialect } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
@@ -30,10 +31,18 @@ import {
 } from '../changes.js'
 import { isPrivacyProtectedFolder } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { type PermissionInput, compileJobPolicy, isPresetName } from '../policy.js'
+import {
+	type PermissionInput,
+	compileJobPolicy,
+	compileScriptCheckPolicy,
+	isPresetName,
+} from '../policy.js'
+import { verifyScheduledScript } from '../script-check.js'
+import { scriptShellUnavailableReason } from '../script-shell.js'
 import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
-import type { ScheduleJob } from '../types.js'
+import type { ScheduleJob, ScheduleRunKind } from '../types.js'
+import { visibleScheduleMessage } from '../visible-source.js'
 import {
 	type ParsedArgs,
 	flag,
@@ -74,7 +83,29 @@ export const ADD_FLAGS = [
 	'browser-site',
 	'browser-headed!',
 	'no-browser!',
+	'kind',
+	'script',
+	'script-file',
+	'shell',
+	'script-timeout',
 ] as const
+
+const RUN_KINDS: readonly ScheduleRunKind[] = ['agent', 'script', 'script+agent']
+
+function isRunKind(value: string): value is ScheduleRunKind {
+	return (RUN_KINDS as readonly string[]).includes(value)
+}
+
+/** `--script`/`--script-file`, mutually exclusive, mirroring `--prompt`/`--prompt-file`. */
+function scriptBodyOf(args: ParsedArgs): string | undefined {
+	const inline = flag(args, 'script')
+	const file = flag(args, 'script-file')
+	if (inline !== undefined && file !== undefined) {
+		throw new JobRequestError('pass --script or --script-file, not both')
+	}
+	if (file !== undefined) return readFileSync(resolve(file), 'utf8')
+	return inline
+}
 
 /**
  * `--browser <profile>`, `--browser-site <site>=read|ask|act` (repeatable)
@@ -233,12 +264,16 @@ function promptOf(args: ParsedArgs): string {
 function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobRequest {
 	const budget = {
 		...(parseCount('--max-iterations', flag(args, 'max-iterations')) !== undefined
-			? { maxIterations: parseCount('--max-iterations', flag(args, 'max-iterations')) as number }
+			? {
+					maxIterations: parseCount('--max-iterations', flag(args, 'max-iterations')) as number,
+				}
 			: base
 				? { maxIterations: base.budget.maxIterations }
 				: {}),
 		...(parseCount('--token-budget', flag(args, 'token-budget')) !== undefined
-			? { tokenBudget: parseCount('--token-budget', flag(args, 'token-budget')) as number }
+			? {
+					tokenBudget: parseCount('--token-budget', flag(args, 'token-budget')) as number,
+				}
 			: base
 				? { tokenBudget: base.budget.tokenBudget }
 				: {}),
@@ -264,41 +299,121 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 	const model = flag(args, 'model')
 	const effort = flag(args, 'effort')
 	const tz = flag(args, 'tz') ?? (base?.schedule.kind === 'cron' ? base.schedule.tz : undefined)
+	const kindFlag = flag(args, 'kind')
+	if (kindFlag !== undefined && !isRunKind(kindFlag)) {
+		throw new JobRequestError(`--kind is ${RUN_KINDS.join(', ')}`)
+	}
+	const runKind: ScheduleRunKind = kindFlag ?? base?.runKind ?? 'agent'
+	if (runKind === 'script' && (model !== undefined || effort !== undefined)) {
+		throw new JobRequestError(
+			'a pure script job has no model or effort; remove --model and --effort',
+		)
+	}
+	if (runKind === 'script' && (has(args, 'prompt') || has(args, 'prompt-file')))
+		throw new JobRequestError('a pure script job has no prompt; remove --prompt and --prompt-file')
+	const agentOnlyFlag = (
+		[
+			'max-iterations',
+			'token-budget',
+			'timeout',
+			'wait-for-provider',
+			'approval-ttl',
+			'keep-sessions',
+		] as const
+	).find((name) => has(args, name))
+	if (runKind === 'script' && agentOnlyFlag) {
+		throw new JobRequestError(
+			`--${agentOnlyFlag} does not apply to a pure script job; use --script-timeout to limit the script itself`,
+		)
+	}
+	const shellFlag = flag(args, 'shell')
+	if (shellFlag !== undefined && shellFlag !== 'bash' && shellFlag !== 'sh') {
+		throw new JobRequestError('--shell is bash or sh')
+	}
+	const scriptGiven = has(args, 'script') || has(args, 'script-file')
+	const scriptBody = scriptGiven ? scriptBodyOf(args) : base?.script?.body
+	const shell = shellFlag ?? base?.script?.shell
+	if (runKind !== 'agent' && shell === undefined) {
+		throw new JobRequestError('--shell bash|sh is required for a script or script+agent job')
+	}
+	const scriptTimeoutMs =
+		parseMs('--script-timeout', flag(args, 'script-timeout')) ?? base?.script?.timeoutMs
+	const prompt = ((): string => {
+		if (runKind === 'script') return ''
+		if (has(args, 'prompt') || has(args, 'prompt-file')) return promptOf(args)
+		if (base) return base.prompt
+		return promptOf(args)
+	})()
+	const chosenPermissions = has(args, 'permissions')
+		? permissionInput(args, base?.permissions.browser)
+		: base
+			? (() => {
+					const browser = browserInput(args, base.permissions.browser)
+					const unmatched = flag(args, 'unmatched')
+					return {
+						rules: base.permissions.rules,
+						unmatched:
+							unmatched === 'park' || unmatched === 'deny' || unmatched === 'allow'
+								? unmatched
+								: base.permissions.unmatched,
+						execution: base.permissions.execution,
+						...(base.permissions.additionalDirectories
+							? {
+									additionalDirectories: base.permissions.additionalDirectories,
+								}
+							: {}),
+						...(browser ? { browser } : {}),
+					}
+				})()
+			: permissionInput(args)
+	if (
+		runKind === 'script' &&
+		chosenPermissions.browser &&
+		(base?.runKind !== 'script' ||
+			has(args, 'permissions') ||
+			has(args, 'browser') ||
+			has(args, 'browser-site') ||
+			has(args, 'browser-headed'))
+	) {
+		throw new JobRequestError(
+			'a pure script job cannot use a browser grant; remove --browser flags or the browser field in --permissions',
+		)
+	}
 	return {
 		name,
-		prompt:
-			flag(args, 'prompt') || flag(args, 'prompt-file') || !base ? promptOf(args) : base.prompt,
+		prompt,
+		...(runKind !== 'agent'
+			? {
+					runKind,
+					script: {
+						body: scriptBody ?? '',
+						shell: shell as 'bash' | 'sh',
+						...(scriptTimeoutMs !== undefined ? { timeoutMs: scriptTimeoutMs } : {}),
+					},
+				}
+			: {}),
 		when: flag(args, 'when') ?? '',
 		...(!flag(args, 'when') && !flag(args, 'tz') && base ? { spec: base.schedule } : {}),
 		folder: resolve(flag(args, 'folder') ?? base?.folder.path ?? process.cwd()),
 		...(tz ? { tz } : {}),
-		permissions: has(args, 'permissions')
-			? permissionInput(args, base?.permissions.browser)
-			: base
-				? (() => {
-						const browser = browserInput(args, base.permissions.browser)
-						const unmatched = flag(args, 'unmatched')
-						return {
-							rules: base.permissions.rules,
-							unmatched:
-								unmatched === 'park' || unmatched === 'deny' || unmatched === 'allow'
-									? unmatched
-									: base.permissions.unmatched,
-							execution: base.permissions.execution,
-							...(base.permissions.additionalDirectories
-								? { additionalDirectories: base.permissions.additionalDirectories }
-								: {}),
-							...(browser ? { browser } : {}),
-						}
-					})()
-				: permissionInput(args),
+		permissions: chosenPermissions,
 		budget,
-		...(model
-			? { model }
-			: base
-				? { model: `${base.model.provider}${base.model.model ? `/${base.model.model}` : ''}` }
-				: {}),
-		...(effort ? { effort } : base?.model.effort ? { effort: base.model.effort } : {}),
+		...(runKind === 'script'
+			? {}
+			: model
+				? { model }
+				: base?.model
+					? {
+							model: `${base.model.provider}${base.model.model ? `/${base.model.model}` : ''}`,
+						}
+					: {}),
+		...(runKind === 'script'
+			? {}
+			: effort
+				? { effort }
+				: base?.model?.effort
+					? { effort: base.model.effort }
+					: {}),
 		...(has(args, 'notify-summary')
 			? { includeSummary: true }
 			: base
@@ -342,15 +457,53 @@ async function confirmOnTerminal(
 	if (policy.diagnostics.length > 0) {
 		throw new JobRequestError(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
+	// Fail closed before anything is shown: a script that cannot be verified,
+	// or that the floor or a `deny` rule refuses, never reaches a preview or
+	// a confirmation prompt. Re-verified at every `__fire`, both through the
+	// digest (the exact text cannot change unnoticed) and freshly against
+	// current config-file denies (see `runFire`).
+	if (job.runKind && job.runKind !== 'agent' && job.script) {
+		const selectedShell = installedCommandShellForDialect(job.script.shell)
+		if (!selectedShell) throw new JobRequestError(scriptShellUnavailableReason(job.script.shell))
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(job.script.body, selectedShell.dialect, scriptPolicy)
+		if (!checked.ok) {
+			throw new JobRequestError(
+				`the ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+			)
+		}
+	}
 	const now = new Date()
-	ctx.formatter.info(previewLines(job, policy, now).join('\n'))
-	ctx.formatter.info(
-		`Prompt\n${job.prompt
+	ctx.formatter.info(visibleScheduleMessage(previewLines(job, policy, now).join('\n')))
+	const indented = (text: string) =>
+		text
 			.split('\n')
 			.map((l) => `  ${l}`)
-			.join('\n')}`,
-	)
-	if (changes.length > 0) ctx.formatter.info(changesBlock(changes).join('\n'))
+			.join('\n')
+	if (job.runKind && job.runKind !== 'agent' && job.script) {
+		const scriptRules =
+			job.runKind === 'script'
+				? 'the scheduled-run floor and every deny rule apply to this script'
+				: 'the scheduled-run floor and every deny rule apply to the gate, and the permission set governs the agent phase'
+		ctx.formatter.info(
+			visibleScheduleMessage(
+				`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (${job.script.shell}, verified clean)\n${indented(job.script.body)}\nThe stored source runs as entered; ${scriptRules}`,
+			),
+		)
+	}
+	if (job.prompt.trim()) {
+		ctx.formatter.info(
+			visibleScheduleMessage(
+				`${job.runKind === 'script+agent' ? 'Prompt (used only when the wake-gate says wake: true)' : 'Prompt'}\n${indented(job.prompt)}`,
+			),
+		)
+	}
+	if (changes.length > 0)
+		ctx.formatter.info(visibleScheduleMessage(changesBlock(changes).join('\n')))
 	if (process.platform === 'darwin' && isPrivacyProtectedFolder(job.folder.canonical)) {
 		ctx.formatter.info(
 			'Warning: this folder is under Documents, Desktop or Downloads; macOS may block the scheduler from reading it until you grant it Files and Folders access.',
@@ -372,7 +525,9 @@ async function confirmOnTerminal(
 export async function addCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ADD_FLAGS)
 	if (args.unknown.length > 0) {
-		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		ctx.formatter.error({
+			message: `unknown option: ${args.unknown.join(', ')}`,
+		})
 		return EXIT_USAGE
 	}
 	const name = args.positionals[0]
@@ -386,7 +541,11 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 	const paths = pathsFor(args)
 	try {
 		const now = new Date()
-		const built = buildJob(requestFrom(args, name), { paths, config: ctx.config, now })
+		const built = buildJob(requestFrom(args, name), {
+			paths,
+			config: ctx.config,
+			now,
+		})
 		const surface = await confirmOnTerminal(ctx, paths, built, args, 'create')
 		if (surface === null) {
 			ctx.formatter.info('Not created.')
@@ -417,7 +576,9 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 		}
 		return EXIT_OK
 	} catch (error) {
-		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+		ctx.formatter.error({
+			message: visibleScheduleMessage(error instanceof Error ? error.message : String(error)),
+		})
 		return error instanceof JobRequestError ? EXIT_USAGE : 1
 	}
 }
@@ -480,7 +641,9 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 		})
 		return EXIT_OK
 	} catch (error) {
-		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+		ctx.formatter.error({
+			message: visibleScheduleMessage(error instanceof Error ? error.message : String(error)),
+		})
 		return error instanceof JobRequestError ? EXIT_USAGE : 1
 	}
 }
@@ -491,7 +654,9 @@ export async function confirmCommand(
 ): Promise<number> {
 	const args = parseArgs(argv, ['home', 'paused!'])
 	if (args.unknown.length > 0 || !args.positionals[0]) {
-		ctx.formatter.error({ message: 'usage: namzu schedule confirm <job> [--paused]' })
+		ctx.formatter.error({
+			message: 'usage: namzu schedule confirm <job> [--paused]',
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
@@ -527,10 +692,15 @@ export async function confirmCommand(
 			action: 'confirmed',
 			by: 'cli-tty',
 		})
-		ctx.formatter.print({ text: `Confirmed ${next.name} (${next.state}).`, state: next.state })
+		ctx.formatter.print({
+			text: `Confirmed ${next.name} (${next.state}).`,
+			state: next.state,
+		})
 		return EXIT_OK
 	} catch (error) {
-		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+		ctx.formatter.error({
+			message: visibleScheduleMessage(error instanceof Error ? error.message : String(error)),
+		})
 		return error instanceof JobRequestError ? EXIT_USAGE : 1
 	}
 }

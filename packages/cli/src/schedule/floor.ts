@@ -95,6 +95,7 @@ import {
 	commandArgumentOf,
 	lexShellCommandLine,
 	nestedShellCommand,
+	programPositions,
 } from '@namzu/sdk'
 
 /** Scheduler verbs a run may use: they read, they change nothing. */
@@ -131,6 +132,9 @@ export type FloorReason =
 	| `loop or case word names ${FloorProtected}`
 	| 'opaque line mentions a protected name'
 	| 'unread text mentions a protected name'
+	| 'encoded command cannot be read at all'
+	| 'find -exec reaches a protected target'
+	| 'runs a file the script wrote earlier'
 	| 'too many spellings'
 
 /** Why the floor denied a call, and what in it matched. */
@@ -256,6 +260,19 @@ const STRING_OPTIONS: Readonly<Record<string, RegExp>> = {
 	env: /^-(?:[a-z]*s[a-z]*|-split-string(?:=.*)?)$/i,
 }
 
+/** PowerShell's two names, wherever the floor treats them as an unread shell. */
+const POWERSHELL_NAMES = new Set(['powershell', 'pwsh'])
+/**
+ * `-EncodedCommand` and every unambiguous prefix PowerShell itself accepts
+ * (`-e`, `-en`, `-enc`, …, up to the full name), case-insensitive. Unlike
+ * `-Command`/`-c`, whose literal text the tripwire can still read, the
+ * argument here is base64 of UTF-16LE: nothing in it can be read as text, so
+ * a line the tripwire finds nothing in front of proves nothing about what it
+ * runs.
+ */
+const ENCODED_COMMAND_FLAG =
+	/^-e(?:n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?$/i
+
 /** What a refusal says about a `schedule` verb that is not read-only. */
 const NOT_READ_ONLY = `a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}`
 
@@ -324,14 +341,53 @@ function wordsOf(command: ShellCommand, catalogue: boolean): Word[] {
  * before; for a question of "is there such a subsequence" that loses
  * nothing, and it is one pass.
  */
-function reachesScheduler(words: readonly Word[], daemonCommandLine: string): string | null {
+function reachesScheduler(
+	command: ShellCommand,
+	words: readonly Word[],
+	daemonCommandLine: string,
+	dialect: 'bash' | 'sh',
+): string | null {
 	const n = words.length
-	const find = (from: number, test: (w: Word) => boolean): number => {
-		for (let i = from; i < n; i++) if (test(words[i] as Word)) return i
+	const find = (from: number, test: (w: Word, i: number) => boolean): number => {
+		for (let i = from; i < n; i++) if (test(words[i] as Word, i)) return i
 		return -1
 	}
-	const named = (name: string) => (w: Word) =>
-		w.wild ? w.text.includes(name) : commandName(w.text) === name
+	// Where a program name could stand: `programPositions` — the SDK's one
+	// answer to "where does this command actually exec a program" — unwraps
+	// a chain of re-exec wrappers (`sudo`, `env`, `nice`, `timeout`, …) with
+	// each one's own real option grammar, rather than assuming the program
+	// sits right after the wrapper's name (`timeout 5 prog`, `stdbuf -oL
+	// prog` and `ionice -c2 -n7 prog` all take at least one word of their
+	// own first). `words`/`command.words` share indices, so a resolved
+	// position's word maps straight back to one. A position `programPositions`
+	// could not resolve because that word ITSELF expands (`sudo
+	// $(echo systemctl) stop x`) still carries the word, so it becomes a
+	// head here too — same as before, just correctly placed after however
+	// many wrapper words came first. A literal `source`/`.` with a literal
+	// path, or a literal `eval` whose literal payload lexes cleanly, is read
+	// the same way and adds its own resolved position(s) here too. A
+	// position it could not resolve for a structural reason with no wild
+	// word of its own (an option a wrapper does not recognise, too many
+	// wrappers, an opaque `eval` payload) carries no word and adds nothing
+	// here; that gap is not this fix's scope — an interpreter or unread
+	// construct is the tripwire's and `runsUnreadText`'s job, not this one's.
+	const heads = new Set<number>()
+	for (const position of programPositions(command, dialect)) {
+		if (position.word === undefined) continue
+		const idx = command.words.indexOf(position.word)
+		if (idx >= 0) heads.add(idx)
+	}
+	// A wild (expanding) word in one of those positions cannot be read as
+	// NOT being the tool in question — a substring check on its raw,
+	// unevaluated text (`$(echo pk)ill`) is defeated by gluing a literal
+	// suffix onto the substitution, which never contains the tool's name as
+	// one contiguous run. Unknown never passes: such a word counts as being
+	// every name checked here, the same way `namesNamzu`/a verb check
+	// already treats a wild argument. A wild word elsewhere (an argument, a
+	// path — `find ~/.namzu -exec …`'s `~/.namzu`) is not a program name and
+	// is read as what it actually is, an argument, by the checks below.
+	const named = (name: string) => (w: Word, i: number) =>
+		(w.wild && heads.has(i)) || commandName(w.text) === name
 	const namesNamzu = (w: Word) => w.wild || w.text.includes('namzu')
 
 	// systemctl <verb> <unit>
@@ -361,7 +417,7 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): st
 	}
 
 	// pkill / killall: a pattern that could match the daemon's process.
-	const killer = find(0, (w) => named('pkill')(w) || named('killall')(w))
+	const killer = find(0, (w, i) => named('pkill')(w, i) || named('killall')(w, i))
 	if (killer >= 0) {
 		const kills = "has a pattern that could match the scheduler's process"
 		const full = words
@@ -378,7 +434,7 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): st
 	}
 
 	// A D-Bus call to systemd naming the unit.
-	const dbus = find(0, (w) => DBUS_TOOLS.has(commandName(w.text)))
+	const dbus = find(0, (w, i) => (w.wild && heads.has(i)) || DBUS_TOOLS.has(commandName(w.text)))
 	if (dbus >= 0 && find(dbus + 1, namesNamzu) >= 0) return 'calls systemd about a namzu unit'
 
 	// The CLI, by name (`namzu`, a path to it, `npx @namzu/cli`) or through
@@ -430,6 +486,17 @@ function runsUnreadText(command: ShellCommand): string | null {
 		const program = shown((words[i] as ShellWord).value)
 		if (INTERPRETERS.test(name)) return `${program} runs text as code`
 		if (i === head && name === '.') return '`.` runs a file as commands'
+		if (i === head && name === 'trap') {
+			// `trap [-lp] [action] [sigspec...]`: the action, when given, runs as
+			// a command line when the signal fires — read the same way a nested
+			// shell's `-c` payload is, just later. `-l`/`-p`/`--` alone print or
+			// reset and run nothing.
+			const action = words
+				.slice(i + 1)
+				.find((w) => w.expands || (w.value !== '-l' && w.value !== '-p' && w.value !== '--'))
+			if (action !== undefined)
+				return `${program} runs its action as a command when the signal fires`
+		}
 		if (SHELLS.has(name) && !(i >= head && i <= readTo))
 			return `${program} runs commands the floor does not read`
 	}
@@ -437,6 +504,23 @@ function runsUnreadText(command: ShellCommand): string | null {
 		const flag = words.find((w) => !w.expands && option.test(w.value))
 		if (names.includes(program) && flag !== undefined)
 			return `\`${program} ${flag.value}\` runs a string as commands`
+	}
+	return null
+}
+
+/**
+ * `powershell`/`pwsh`, anywhere in the command, given `-EncodedCommand` (or
+ * an unambiguous prefix of it): the program word and the flag, or null.
+ */
+function encodedCommandCall(
+	command: ShellCommand,
+): { readonly program: ShellWord; readonly flag: ShellWord } | null {
+	const words = command.words
+	for (let i = command.assignments; i < words.length; i++) {
+		const word = words[i] as ShellWord
+		if (word.expands || !POWERSHELL_NAMES.has(commandName(word.value))) continue
+		const flag = words.slice(i + 1).find((w) => !w.expands && ENCODED_COMMAND_FLAG.test(w.value))
+		if (flag !== undefined) return { program: word, flag }
 	}
 	return null
 }
@@ -786,18 +870,14 @@ class Floor {
 	private lineVerdict(line: string, dialect: 'bash' | 'sh', depth = 0): FloorFinding | null {
 		// A line for a shell that may be bash or a POSIX shell is read both
 		// ways, and denied if either reading denies it.
-		const readings =
-			dialect === 'bash'
-				? [lexShellCommandLine(line, { dialect: 'bash' })]
-				: [
-						lexShellCommandLine(line, { dialect: 'sh' }),
-						lexShellCommandLine(line, { dialect: 'bash' }),
-					]
+		const dialects: readonly ('bash' | 'sh')[] = dialect === 'bash' ? ['bash'] : ['sh', 'bash']
+		const readings = dialects.map((d) => lexShellCommandLine(line, { dialect: d }))
 		const catalogue = /textdomain/i.test(line)
 		const loops = /\b(?:while|until|for|select)\b/.test(line)
 		let unaccounted: { readonly reason: FloorReason; readonly why: string } | null = null
-		for (const reading of readings) {
-			const finding = this.readingVerdict(reading, catalogue, loops)
+		for (let i = 0; i < readings.length; i += 1) {
+			const reading = readings[i] as ShellLexResult
+			const finding = this.readingVerdict(reading, catalogue, loops, dialects[i] as 'bash' | 'sh')
 			if (finding !== null) return finding
 			if (reading.opaque) {
 				unaccounted ??= {
@@ -935,9 +1015,23 @@ class Floor {
 		reading: ShellLexResult,
 		catalogue: boolean,
 		loops: boolean,
+		dialect: 'bash' | 'sh',
 	): FloorFinding | null {
 		for (const command of reading.commands) {
-			const does = reachesScheduler(wordsOf(command, catalogue), this.daemonCommandLine)
+			const encoded = encodedCommandCall(command)
+			if (encoded !== null)
+				return {
+					reason: 'encoded command cannot be read at all',
+					detail: `${shown(encoded.program.value)} ${shown(encoded.flag.value)} runs a base64-encoded script the floor cannot read at all, so it is refused outright whatever it decodes to; use -Command '<literal text>' instead`,
+				}
+		}
+		for (const command of reading.commands) {
+			const does = reachesScheduler(
+				command,
+				wordsOf(command, catalogue),
+				this.daemonCommandLine,
+				dialect,
+			)
 			if (does !== null)
 				return {
 					reason: 'scheduler command',
@@ -965,8 +1059,30 @@ class Floor {
 			for (const command of reading.commands)
 				cwd.after(command, (target) => this.spell(target, variables, cwd.current()), this.userHome)
 		const seen = new Set<ShellRedirection>()
+		/** Files an earlier command in this line wrote, resolved and normalized; content unverifiable. */
+		const written = new Set<string>()
 		for (const command of reading.commands) {
 			const here = cwd.current()
+			const findExec = this.findExecFinding(command, variables, here, dialect)
+			if (findExec !== null) return findExec
+			const executed = executedPath(command)
+			if (executed !== null && !executed.expands) {
+				for (const base of isAbsolute(executed.value) ? [''] : here.dirs) {
+					const path = base === '' ? normalize(executed.value) : join(base, executed.value)
+					if (written.has(path)) {
+						return {
+							reason: 'runs a file the script wrote earlier',
+							detail: `${shown(command.text)} runs ${shown(executed.text)}, which an earlier command in this script wrote; its content cannot be verified, so it is refused rather than run unattended`,
+						}
+					}
+				}
+			}
+			for (const target of writeTargets(command)) {
+				if (target.expands) continue
+				for (const base of isAbsolute(target.value) ? [''] : here.dirs) {
+					written.add(base === '' ? normalize(target.value) : join(base, target.value))
+				}
+			}
 			const check = (word: ShellWord) => this.wordNames(word, variables, here, expands)
 			const standalone = command.words.length === command.assignments && !exported
 			for (const [i, word] of command.words.entries()) {
@@ -1282,6 +1398,173 @@ class Floor {
 		}
 		return false
 	}
+
+	/**
+	 * `find … -exec|-execdir|-ok|-okdir … ;|+`: the clause runs on every path
+	 * `find` matches, substituted for `{}` — a placeholder no static reading
+	 * can resolve. Refused when `{}` stands in that clause AND the search
+	 * could plausibly reach a protected target: the root is unknown or is
+	 * NAMZU_HOME itself or an ancestor of it (so `find` would recurse THROUGH
+	 * it), a `-name`/`-iname`/`-path`/`-ipath` pattern could match NAMZU_HOME's
+	 * own folder name, or the clause's own program is a tool that can stop or
+	 * remove a service (`{}` there could name the scheduler's unit without
+	 * ever spelling it in the line the floor can read).
+	 */
+	private findExecFinding(
+		command: ShellCommand,
+		variables: ReadonlyMap<string, Alternatives>,
+		cwd: Cwd,
+		dialect: 'bash' | 'sh',
+	): FloorFinding | null {
+		const words = command.words
+		const findAt = programPositions(command, dialect)
+			.map((position) =>
+				position.word && !position.word.expands && commandName(position.word.value) === 'find'
+					? words.indexOf(position.word)
+					: -1,
+			)
+			.find((index) => index >= 0)
+		if (findAt === undefined) return null
+		const head = words[findAt] as ShellWord
+		const rootWords: ShellWord[] = []
+		let i = findAt + 1
+		while (i < words.length) {
+			const w = words[i] as ShellWord
+			if (!w.expands && (w.value.startsWith('-') || w.value === '(' || w.value === '!')) break
+			rootWords.push(w)
+			i++
+		}
+		const roots: readonly ShellWord[] =
+			rootWords.length > 0
+				? rootWords
+				: [{ text: '.', value: '.', expands: false, quoted: false, substitutes: false }]
+		const reachesHome = roots.some((root) => {
+			if (root.expands) return true
+			for (const spelling of this.spell(root, variables, cwd)) {
+				if (spelling.stop !== 'end') return true
+				const bases = isAbsolute(spelling.known) ? [''] : cwd.dirs.length > 0 ? cwd.dirs : ['']
+				for (const base of bases) {
+					const path = base === '' ? normalize(spelling.known) : join(base, spelling.known)
+					if (this.inside(path) || this.belowAncestor(path) !== null) return true
+				}
+			}
+			return false
+		})
+		let filterMatchesHome = false
+		for (let j = findAt; j < words.length; j++) {
+			const flag = words[j] as ShellWord
+			if (flag.expands || !/^-i?(?:name|path)$/.test(flag.value)) continue
+			const pattern = words[j + 1]
+			if (!pattern || pattern.expands) continue
+			if (this.homeSegments.some((seg) => mayBe(lower(pattern.value), seg.name))) {
+				filterMatchesHome = true
+				break
+			}
+		}
+		for (let j = findAt + 1; j < words.length; j++) {
+			const flag = words[j] as ShellWord
+			if (flag.expands || !/^-(?:exec|execdir|ok|okdir)$/.test(flag.value)) continue
+			let k = j + 1
+			let hasPlaceholder = false
+			const clauseStart = k
+			while (k < words.length) {
+				const w = words[k] as ShellWord
+				if (!w.expands && (w.value === ';' || w.value === '+')) break
+				if (!w.expands) {
+					if (w.value.includes('{}')) hasPlaceholder = true
+				}
+				k++
+			}
+			// Ask the shared resolver what this clause actually runs. The
+			// first word may be `env`/`sudo`/another wrapper, and a shell -c
+			// payload can itself name a service tool. Reusing a one-clause
+			// find command keeps the answer tied to this clause.
+			const clauseCommand: ShellCommand = {
+				...command,
+				words: [head, flag, ...words.slice(clauseStart, k)],
+				assignments: 0,
+			}
+			const toolIsSchedulerTool = programPositions(clauseCommand, dialect)
+				.slice(1)
+				.some(
+					(position) =>
+						position.unknown !== undefined ||
+						(position.word !== undefined &&
+							SCHEDULER_EXEC_TOOLS.has(commandName(position.word.value))),
+				)
+			if (hasPlaceholder && (reachesHome || filterMatchesHome || toolIsSchedulerTool)) {
+				const clauseText = words
+					.slice(clauseStart, k)
+					.map((w) => w.text)
+					.join(' ')
+				const why = toolIsSchedulerTool
+					? "its clause's own program can stop or remove a service"
+					: filterMatchesHome
+						? 'a -name/-iname/-path/-ipath pattern could match NAMZU_HOME’s own folder name'
+						: 'its search root is unknown, is NAMZU_HOME, or is an ancestor of it'
+				return {
+					reason: 'find -exec reaches a protected target',
+					detail: `${shown(command.text)} runs \`${flag.value} ${clauseText}\` on whatever it finds, and ${why}; the floor cannot verify what {} will stand for`,
+				}
+			}
+			j = k
+		}
+		return null
+	}
+}
+
+/** Tools whose `find -exec`/`-execdir`/`-ok`/`-okdir` clause the floor refuses outright: each can stop or remove a service. */
+const SCHEDULER_EXEC_TOOLS = new Set([
+	'systemctl',
+	'launchctl',
+	'schtasks',
+	'pkill',
+	'killall',
+	'busctl',
+	'dbus-send',
+	'gdbus',
+])
+
+/** A write target this command names: `>`/`>>` redirections, `tee`'s arguments, `cp`/`mv`'s destination. */
+function writeTargets(command: ShellCommand): readonly ShellWord[] {
+	const targets: ShellWord[] = []
+	for (const r of command.redirections) {
+		if (r.operator === '>' || r.operator === '>>') targets.push(r.target)
+	}
+	const words = command.words
+	const head = words[command.assignments]
+	if (!head || head.expands) return targets
+	const name = commandName(head.value)
+	const rest = words
+		.slice(command.assignments + 1)
+		.filter((w) => w.expands || !w.value.startsWith('-'))
+	if (name === 'tee') targets.push(...rest)
+	else if (name === 'cp' || name === 'mv') {
+		const last = rest.at(-1)
+		if (last) targets.push(last)
+	}
+	return targets
+}
+
+/**
+ * The path this command executes as a FILE — `./x.sh`, `some/dir/x.sh`,
+ * `sh x.sh`, `bash x.sh`, `. x.sh`, `source x.sh` — or null. A bare name on
+ * `PATH` (`x.sh` alone, no `/`) is not: that resolves to whatever `PATH`
+ * finds, not a file this line can be shown to have written.
+ */
+function executedPath(command: ShellCommand): ShellWord | null {
+	const words = command.words
+	const head = words[command.assignments]
+	if (!head || head.expands) return null
+	const name = commandName(head.value)
+	if (name === 'sh' || name === 'bash' || name === '.' || name === 'source') {
+		const rest = words
+			.slice(command.assignments + 1)
+			.filter((w) => w.expands || !w.value.startsWith('-'))
+		return rest[0] ?? null
+	}
+	if (!head.expands && head.value.includes('/')) return head
+	return null
 }
 
 /** `NAME=value`, `NAME+=value` or `--opt=value`: the value as a word of its own. */
@@ -1301,6 +1584,7 @@ function assignedValue(
 			value: word.value.slice(match[0].length),
 			expands: word.expands,
 			quoted: word.quoted,
+			substitutes: word.substitutes,
 		},
 	}
 }

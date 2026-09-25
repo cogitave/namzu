@@ -22,6 +22,24 @@ On the host the shell is resolved once per process (`hostCommandShell`, `package
 
 The command runs as `<shell> -c <command>`: non-interactive, not a login shell, no startup files. bash in its default mode, not POSIX mode. On Windows the tool keeps Node's platform shell.
 
+An application running a confirmed script can select an installed interpreter
+explicitly with `installedCommandShellForDialect('bash' | 'sh')`. The matching
+`findCommandShellForDialect(dialect, probe)` accepts an injected probe for a
+host's own resolution checks. Both return `undefined` when that interpreter
+is unavailable; neither substitutes one dialect for the other. Pass the
+returned `CommandShell` as `execHostShell(command, { ..., shell })` to use the
+same process supervision, output capture and environment handling as the
+live bash tool. Resolve it again before a later unattended run, since an
+interpreter can be removed after confirmation. Native Windows returns no
+explicit POSIX interpreter from these helpers. A matching
+`NAMZU_BASH_SHELL` override must name an absolute executable path for an
+explicitly selected script shell, so confirmation and fire cannot resolve a
+relative name from different working folders.
+When no matching override is set, explicit resolution prefers `/bin/bash`
+or `/usr/bin/bash` (and `/bin/sh` or `/usr/bin/sh` for `sh`) before looking
+through absolute `PATH` directories. This keeps a later `PATH` change from
+silently replacing a standard interpreter for a scheduled run.
+
 bash reads one startup file even non-interactively, the one `BASH_ENV` names, and it takes shell functions (`BASH_FUNC_*`) and parser options (`SHELLOPTS`, `BASHOPTS`) from its environment. Each of those could change what a line means after the rules read it: a function named `git` makes `git status` run something else, and `BASHOPTS=extglob` changes how `!(…)` parses. So they are removed from the environment of the spawned bash, together with `ENV`. `/bin/sh -c` never read them, so a command sees the same environment it did before, minus variables only bash acted on.
 
 Background jobs (`run_in_background`) run in the same shell (`packages/sdk/src/runtime/jobs/registry.ts`).

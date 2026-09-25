@@ -217,8 +217,10 @@ describe('here-documents', () => {
 		expect(words('cat <<EOF\na\nb')).toEqual([['cat']])
 	})
 
-	it('is opaque when an unquoted body substitutes, and not when quoted', () => {
-		expect(lexShellCommandLine('cat <<EOF\n$(x)\nEOF').opaque).toBe(true)
+	it('reads an unquoted body’s substitution as a nested command, and does not run one in a quoted body', () => {
+		const unquoted = lexShellCommandLine('cat <<EOF\n$(x)\nEOF')
+		expect(unquoted.opaque).toBe(false)
+		expect(unquoted.commands.map((c) => c.words[0]?.value)).toEqual(['x', 'cat'])
 		expect(lexShellCommandLine("cat <<'EOF'\n$(x)\nEOF").opaque).toBe(false)
 	})
 })
@@ -257,6 +259,10 @@ describe('nested shells', () => {
 		'bash --norc -c "git push" name arg',
 		'bash -c -- "git push"',
 		'busybox sh -c "git push"',
+		'env -i bash -c "git push"',
+		'nice -n 5 sh -ec "git push"',
+		'toybox sh -c "git push"',
+		'sudo env -i busybox ash -lc "git push"',
 	])('reads the payload of %j', (line) => {
 		const nested = commands(line).filter((command) => command.origin === 'shell')
 		expect(nested.map((command) => command.words.map((word) => word.value))).toEqual([
@@ -295,6 +301,8 @@ describe('nested shells', () => {
 			'bash -o pipefail -c "git push"',
 			'bash -c -- "git push"',
 			'busybox sh -c "git push"',
+			'env -i bash -c "git push"',
+			'toybox sh -c "git push"',
 			'A=1 sh -c "git push"',
 		])('the payload of %j', (line) => {
 			expect(payload(line)).toBe('git push')
@@ -322,15 +330,18 @@ describe('nested shells', () => {
 			})
 			expect(payload('bash -c')).toEqual({ opaque: 'nested shell without a command' })
 			expect(payload('bash $OPT -c x')).toEqual({ opaque: 'nested shell option' })
+			expect(payload('env -i bash -c "$CMD"')).toEqual({
+				opaque: 'nested shell option',
+			})
+			expect(payload('toybox sh -c "$CMD"')).toEqual({
+				opaque: 'nested shell option',
+			})
 		})
 	})
 })
 
 describe('opacity', () => {
 	it.each([
-		['a $(b)', 'command substitution'],
-		['a `b`', 'command substitution'],
-		['a "$(b)"', 'command substitution'],
 		['a ${ b; }', 'command substitution'],
 		['a <(b)', 'process substitution'],
 		['a ${x:-<(b)}', 'process substitution'],

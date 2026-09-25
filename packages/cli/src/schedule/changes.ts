@@ -27,8 +27,21 @@ export function permissionsChanged(before: ScheduleJob, after: ScheduleJob): boo
 
 /** The preview as compared: without the next fire times, which change by the minute. */
 export function confirmationView(job: ScheduleJob, policy: CompiledJobPolicy, now: Date): string[] {
+	const runKind = job.runKind ?? 'agent'
 	return [
 		...previewLines(job, policy, now).filter((line) => !line.startsWith('Next ')),
+		`Kind        ${runKind}`,
+		// Included so a `kind`/`script` change (the tool's `update`, or
+		// `schedule edit --kind`/`--script`) shows up in the "Changed since
+		// it was last confirmed" diff the same way every other field does,
+		// rather than only on the confirmation screen's separate script
+		// section, which shows the new text but never says it changed.
+		...(runKind !== 'agent' && job.script
+			? [
+					`Shell       ${job.script.shell}`,
+					...job.script.body.split('\n').map((line) => `Script  ${line}`),
+				]
+			: []),
 		...job.prompt.split('\n').map((line) => `Prompt  ${line}`),
 	]
 }

@@ -7,6 +7,7 @@ import { killTree } from '../../process/kill-tree.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import {
+	type CommandShell,
 	bashToolDialect,
 	hostShellSpawn,
 	sandboxShellSpawn,
@@ -132,20 +133,30 @@ function shellProgress(report?: (message: string) => void) {
 	}
 }
 
+/** A progress callback for {@link execHostShell}: one line, per stream, coalesced. */
+export type ExecHostShellProgress = (report: { stream: 'stdout' | 'stderr'; data: string }) => void
+
 /**
  * Keep the shell's process group until inherited pipes close. Node's exec
  * timeout/AbortSignal kills only the wrapper and closes its pipes immediately,
  * leaving the command and its descendants running after the promise settles.
+ *
+ * Exported so a host running a command line OUTSIDE a live turn — a
+ * scheduled job's own script — gets the exact same spawn, dialect,
+ * grace-period kill and capped-output behaviour the `bash` tool gives a
+ * model's call, rather than a second, drifting copy of it.
  */
-function execHostShell(
+export function execHostShell(
 	command: string,
 	options: {
 		cwd: string
 		env: NodeJS.ProcessEnv
 		timeout: number
 		maxBuffer: number
+		/** An interpreter selected and verified by the host for this command. */
+		shell?: CommandShell
 		signal?: AbortSignal
-		onOutput?: ReturnType<typeof shellProgress>
+		onOutput?: ExecHostShellProgress
 	},
 ): Promise<{ stdout: string; stderr: string }> {
 	options.signal?.throwIfAborted()
@@ -153,7 +164,7 @@ function execHostShell(
 		// bash where the host has it, `/bin/sh` where it does not; the
 		// permission rules read the line in the matching dialect. See
 		// `../command-shell.ts`.
-		const shell = hostShellSpawn(command, options.env)
+		const shell = hostShellSpawn(command, options.env, options.shell)
 		const spawnOptions = {
 			cwd: options.cwd,
 			env: shell.env,

@@ -9,7 +9,7 @@
  */
 
 import { resolve } from 'node:path'
-import { describeSchedule, hostTimeZone } from '@namzu/sdk'
+import { describeSchedule, hostTimeZone, installedCommandShellForDialect } from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { JobRequestError, buildJob, confirmJob, previewLines } from '../../schedule/build.js'
@@ -17,8 +17,10 @@ import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
 import { schedulePaths } from '../../schedule/paths.js'
-import { compileJobPolicy, isPresetName } from '../../schedule/policy.js'
+import { compileJobPolicy, compileScriptCheckPolicy, isPresetName } from '../../schedule/policy.js'
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
+import { verifyScheduledScript } from '../../schedule/script-check.js'
+import { scriptShellUnavailableReason } from '../../schedule/script-shell.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
@@ -31,6 +33,7 @@ import {
 } from '../../schedule/store/jobs.js'
 import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
+import { visibleScheduleMessage } from '../../schedule/visible-source.js'
 import type { QuestionFn } from '../agent.js'
 import { type SessionLoopScheduler, describeLoops } from './loop-host.js'
 
@@ -77,7 +80,7 @@ function when(iso: string | undefined, tz: string): string {
 
 export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<string> {
 	const paths = schedulePaths(ctx.home)
-	const { jobs } = listJobs(paths)
+	const { jobs, errors } = listJobs(paths)
 	const lines: string[] = []
 	for (const job of jobs) {
 		const tz = job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone()
@@ -94,8 +97,17 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 						: state.activeRun?.status === 'running'
 							? ' ● running'
 							: ''
+		// `agent` (absent) is the common case and stays unmarked; `script`
+		// costs no tokens at all, worth marking the same way `schedule list`
+		// does on the command line.
+		const kind =
+			job.runKind === 'script'
+				? '  [script, 0 tokens]'
+				: job.runKind === 'script+agent'
+					? '  [script+agent]'
+					: ''
 		lines.push(
-			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`⏲ ${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			const command = resumeCommand(job, state.activeRun.sessionId)
@@ -107,12 +119,21 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 			)
 		}
 	}
-	return [
-		jobs.length === 0
-			? 'No scheduled jobs. Ask for one ("run this every night at 3"), or /schedule add.'
-			: lines.join('\n'),
-		await schedulerLine(ctx.home),
-	].join('\n')
+	return visibleScheduleMessage(
+		[
+			jobs.length === 0
+				? errors.length > 0
+					? 'No readable scheduled jobs.'
+					: 'No scheduled jobs. Ask for one ("run this every night at 3"), or /schedule add.'
+				: lines.join('\n'),
+			...(errors.length > 0
+				? [
+						`${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; inspect or repair the files under NAMZU_HOME.`,
+					]
+				: []),
+			await schedulerLine(ctx.home),
+		].join('\n'),
+	)
 }
 
 async function confirmInTui(
@@ -120,27 +141,71 @@ async function confirmInTui(
 	job: ScheduleJob,
 	verb: string,
 ): Promise<'create' | 'create-paused' | 'cancel'> {
+	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const paths = schedulePaths(ctx.home)
+	const layers = readPermissionLayers({ cwd: job.folder.canonical })
 	const policy = compileJobPolicy(job.permissions, {
-		layers: readPermissionLayers({ cwd: job.folder.canonical }),
+		layers,
 		namzuHome: paths.home,
 		folder: job.folder,
 	})
 	if (policy.diagnostics.length > 0) {
-		ctx.say(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
+		say(`The rules do not compile: ${policy.diagnostics.join('; ')}`)
 		return 'cancel'
 	}
-	ctx.say(
+	const runKind = job.runKind ?? 'agent'
+	if (runKind !== 'agent' && runKind !== 'script' && runKind !== 'script+agent') {
+		say(`The job has an unknown run kind: ${String(runKind)}`)
+		return 'cancel'
+	}
+	if (runKind !== 'agent') {
+		if (!job.script) {
+			say(`The ${runKind} job has no script recorded.`)
+			return 'cancel'
+		}
+		const selectedShell = installedCommandShellForDialect(job.script.shell)
+		if (!selectedShell) {
+			say(scriptShellUnavailableReason(job.script.shell))
+			return 'cancel'
+		}
+		const scriptPolicy = compileScriptCheckPolicy(job.permissions, {
+			layers,
+			namzuHome: paths.home,
+			folder: job.folder,
+		})
+		const checked = verifyScheduledScript(job.script.body, selectedShell.dialect, scriptPolicy)
+		if (!checked.ok) {
+			say(
+				`The ${runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+			)
+			return 'cancel'
+		}
+	}
+	const scriptSection =
+		runKind !== 'agent' && job.script
+			? [
+					`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}; verified against the scheduled-run floor and every deny rule)`,
+					...job.script.body.split('\n').map((line) => `  │ ${line}`),
+				]
+			: []
+	say(
 		[
 			...previewLines(job, policy, new Date()),
 			...changesBlock(changesSinceConfirmed(readHistory(paths, job.id))),
-			'Prompt',
-			...job.prompt.split('\n').map((l) => `  │ ${l}`),
+			...scriptSection,
+			...(runKind === 'script'
+				? []
+				: [
+						runKind === 'script+agent'
+							? 'Prompt (used only when the wake-gate says wake: true)'
+							: 'Prompt',
+						...job.prompt.split('\n').map((l) => `  │ ${l}`),
+					]),
 		].join('\n'),
 	)
 	const answer = await ctx.ask({
 		questionId: `schedule-confirm:${job.id}`,
-		question: `${verb} the scheduled job "${job.name}"? (details above)`,
+		question: visibleScheduleMessage(`${verb} the scheduled job "${job.name}"? (details above)`),
 		header: 'Scheduled job',
 		options: [
 			{ id: 'cancel', label: 'Cancel', description: 'Change nothing' },
@@ -178,6 +243,7 @@ export async function runScheduleCommand(
 	args: readonly string[],
 	ctx: ScheduleCommandContext,
 ): Promise<void> {
+	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const paths = schedulePaths(ctx.home)
 	const [verb, ...rest] = args
 	try {
@@ -187,13 +253,13 @@ export async function runScheduleCommand(
 				ctx.say(await listScheduleJobs(ctx))
 				return
 			case 'help':
-				ctx.say(USAGE)
+				say(USAGE)
 				return
 			case 'confirm': {
 				const job = findJob(paths, rest[0] ?? '')
 				const answer = await confirmInTui(ctx, job, 'Confirm')
 				if (answer === 'cancel') {
-					ctx.say(`Not confirmed; ${job.name} stays ${job.state}.`)
+					say(`Not confirmed; ${job.name} stays ${job.state}.`)
 					return
 				}
 				const now = new Date()
@@ -207,14 +273,14 @@ export async function runScheduleCommand(
 					action: 'confirmed',
 					by: 'tui',
 				})
-				ctx.say(`Confirmed ${next.name} (${next.state}).`)
+				say(`Confirmed ${next.name} (${next.state}).`)
 				return
 			}
 			case 'pause':
 			case 'resume': {
 				const job = findJob(paths, rest[0] ?? '')
 				if (verb === 'resume' && !confirmationHolds(job)) {
-					ctx.say(`${job.name} changed since it was confirmed: /schedule confirm ${job.name}`)
+					say(`${job.name} changed since it was confirmed: /schedule confirm ${job.name}`)
 					return
 				}
 				const now = new Date()
@@ -230,7 +296,7 @@ export async function runScheduleCommand(
 					action: verb === 'pause' ? 'paused' : 'resumed',
 					by: 'operator',
 				})
-				ctx.say(`${job.name} ${verb === 'pause' ? 'paused' : 'resumed'}.`)
+				say(`${job.name} ${verb === 'pause' ? 'paused' : 'resumed'}.`)
 				return
 			}
 			case 'run': {
@@ -239,7 +305,7 @@ export async function runScheduleCommand(
 				const answer = endpoint
 					? await callEndpoint(endpoint, 'run-now', { jobId: job.id })
 					: undefined
-				ctx.say(
+				say(
 					answer
 						? answer.ok
 							? `${job.name} queued; /schedule shows it running.`
@@ -252,7 +318,9 @@ export async function runScheduleCommand(
 				const job = findJob(paths, rest[0] ?? '')
 				const answer = await ctx.ask({
 					questionId: `schedule-remove:${job.id}`,
-					question: `Remove the scheduled job "${job.name}"? Its history is kept.`,
+					question: visibleScheduleMessage(
+						`Remove the scheduled job "${job.name}"? Its history is kept.`,
+					),
 					options: [
 						{ id: 'no', label: 'No' },
 						{ id: 'yes', label: 'Remove it' },
@@ -269,19 +337,19 @@ export async function runScheduleCommand(
 					action: 'removed',
 					by: 'operator',
 				})
-				ctx.say(`Removed ${job.name}.`)
+				say(`Removed ${job.name}.`)
 				return
 			}
 			case 'add': {
 				const parsed = parseAddArgs(rest)
 				if (!parsed || !isPresetName(parsed.preset)) {
-					ctx.say(
+					say(
 						`Usage: /schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>\nFor anything else: namzu schedule add --help`,
 					)
 					return
 				}
 				if (!ctx.model) {
-					ctx.say('This session has no model yet; pick one first.')
+					say('This session has no model yet; pick one first.')
 					return
 				}
 				const now = new Date()
@@ -299,7 +367,7 @@ export async function runScheduleCommand(
 				)
 				const answer = await confirmInTui(ctx, job, 'Create')
 				if (answer === 'cancel') {
-					ctx.say('Not created.')
+					say('Not created.')
 					return
 				}
 				const created = createJob(
@@ -313,16 +381,14 @@ export async function runScheduleCommand(
 					action: 'created',
 					by: 'tui',
 				})
-				ctx.say(`Created ${created.name} (${created.state}).`)
+				say(`Created ${created.name} (${created.state}).`)
 				return
 			}
 			default:
-				ctx.say(USAGE)
+				say(USAGE)
 		}
 	} catch (error) {
-		ctx.say(
-			error instanceof JobRequestError || error instanceof Error ? error.message : String(error),
-		)
+		say(error instanceof JobRequestError || error instanceof Error ? error.message : String(error))
 	}
 }
 
@@ -331,20 +397,21 @@ export async function runLoopCommand(
 	loops: SessionLoopScheduler,
 	say: (text: string) => void,
 ): Promise<void> {
+	const display = (message: string) => say(visibleScheduleMessage(message))
 	const [first, ...rest] = args
 	try {
 		if (!first || first === 'list') {
-			say(describeLoops(loops.list()))
+			display(describeLoops(loops.list()))
 			return
 		}
 		if (first === 'stop') {
 			const id = rest[0]
 			if (!id) {
-				say('Usage: /loop stop <id>|all')
+				display('Usage: /loop stop <id>|all')
 				return
 			}
 			const stopped = await loops.delete(id)
-			say(
+			display(
 				stopped === 0
 					? `No loop has id ${id}.`
 					: `Stopped ${stopped} loop${stopped === 1 ? '' : 's'}.`,
@@ -356,14 +423,14 @@ export async function runLoopCommand(
 		const interval = cron ? args.slice(0, 5).join(' ') : first
 		const prompt = (cron ? args.slice(5) : rest).join(' ').trim()
 		if (!prompt) {
-			say('Usage: /loop <interval> <prompt or /command>   e.g. /loop 10m check the build')
+			display('Usage: /loop <interval> <prompt or /command>   e.g. /loop 10m check the build')
 			return
 		}
 		const loop = await loops.create({ interval, prompt, createdBy: 'operator' })
-		say(
+		display(
 			`↻ Loop ${loop.id}: ${loop.schedule}, between turns, for 7 days. /loop stop ${loop.id} ends it.`,
 		)
 	} catch (error) {
-		say(error instanceof Error ? error.message : String(error))
+		display(error instanceof Error ? error.message : String(error))
 	}
 }

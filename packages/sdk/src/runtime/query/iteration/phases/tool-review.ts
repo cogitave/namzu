@@ -18,6 +18,17 @@ interface VerificationAwareContext extends IterationContext {
 	readonly verificationGate?: AuthorizationGate
 }
 
+/** Why an escalated call cannot be waved through by the rule that would otherwise allow it. */
+function escalationReason(escalation: ToolCallSummary['escalation']): string {
+	if (escalation?.unknownProgram !== undefined) {
+		return `this call's program cannot be verified ahead of time (${escalation.unknownProgram})`
+	}
+	if (escalation?.sandboxEscape) return "this call asks to run outside the turn's sandbox"
+	if (escalation?.outsidePaths?.length)
+		return `this call reaches ${escalation.outsidePaths.length === 1 ? 'a path' : 'paths'} outside the turn's boundary`
+	return "this call reaches past the turn's boundary, which a rule cannot approve on its own"
+}
+
 export type ToolReviewDecision = 'executed' | 'rejected' | 'stop'
 
 /**
@@ -246,6 +257,13 @@ export async function* runToolReview(
 				reason,
 			})
 		}
+		if (tc.escalation?.unknownProgram !== undefined) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'unknown_program', tool: tc.name, resource: tc.escalation.unknownProgram },
+				outcome: 'refused',
+				reason,
+			})
+		}
 	}
 
 	// Gate-denied ids survive the whole function: a later human approval
@@ -295,7 +313,7 @@ export async function* runToolReview(
 				gr.gateResult = {
 					decision: 'review',
 					matchedRule: gr.gateResult.matchedRule,
-					reason: `${gr.gateResult.reason}; but this call reaches past the turn's boundary, which a rule cannot approve on its own`,
+					reason: `${gr.gateResult.reason}; but ${escalationReason(gr.toolCall.escalation)}`,
 				}
 			}
 			// Same override, for a call the tool itself declared always needs a
@@ -482,6 +500,17 @@ export async function* runToolReview(
 						action: 'outside_root_access',
 						tool: tc.name,
 						resource: path,
+					},
+					outcome: 'approved',
+					reason: "the turn's review approved this call",
+				})
+			}
+			if (tc.escalation?.unknownProgram !== undefined) {
+				await ctx.recorder.recordAudit({
+					what: {
+						action: 'unknown_program',
+						tool: tc.name,
+						resource: tc.escalation.unknownProgram,
 					},
 					outcome: 'approved',
 					reason: "the turn's review approved this call",
