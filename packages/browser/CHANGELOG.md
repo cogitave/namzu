@@ -1,5 +1,16 @@
 # @namzu/browser
 
+## 0.1.1
+
+### Patch Changes
+
+- 567ada8: Updated package examples and evaluation fixtures for the SDK's `ToolRegistry`
+  removal. Browser, computer-use and LSP documentation now show toolsets; the
+  evals use `toolsets` when they call the kernel. Provider changes are test
+  fixture migrations only, with no provider runtime API change. Consumers that
+  pass tools to the SDK should use `toolsets: readonly Toolset[]` and wrap their
+  definitions with `toolset(source, definitions)`.
+
 ## 0.1.0
 
 ### Minor Changes

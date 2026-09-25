@@ -1,6 +1,6 @@
 {
   "name": "@namzu/live",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A transport-agnostic live agent runtime for Namzu with pluggable speech, turn-detection, and audio-output drivers.",
   "license": "FSL-1.1-MIT",
   "engines": {

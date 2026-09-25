@@ -1,5 +1,44 @@
 # @namzu/sandbox
 
+## 23.0.0
+
+### Patch Changes
+
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [fbeac55]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+- Updated dependencies [567ada8]
+  - @namzu/sdk@48.0.0
+
 ## 22.0.0
 
 ### Patch Changes

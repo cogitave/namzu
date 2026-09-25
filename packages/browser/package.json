@@ -1,6 +1,6 @@
 {
   "name": "@namzu/browser",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Playwright-based browser host for @namzu/sdk: accessibility snapshots with element refs, a host-side site policy checked after every navigation, sign-in and CAPTCHA detection that hands the page to a person, and persistent profiles.",
   "license": "FSL-1.1-MIT",
   "engines": {
