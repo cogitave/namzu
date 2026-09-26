@@ -111,6 +111,9 @@ the first 100, `namzu archive list --page 2` shows the next 100, and
 `namzu resume <conversation-id>` in the same project. An empty archived
 conversation still appears in the archive list, but has no messages to resume.
 Neither command looks in another project's logs.
+On runtimes using the in-memory session index, opening the archived list checks
+this project's root logs for changes made by another Namzu process. A TUI
+opened before that process archived the conversation still finds it.
 
 The latest `session_updated.archived` record is authoritative. Restoring
 appends `archived: false`; deleting and rebuilding `index.sqlite` preserves the

@@ -137,6 +137,23 @@ describe('an archived conversation', () => {
 		expect(new Set([one[0]?.id, two[0]?.id])).toEqual(new Set([first, second]))
 	})
 
+	it('refreshes a long-lived scan index after another CLI handle archives a conversation', async () => {
+		const first = await openSessions(cwd, { stateRoot, indexBackend: 'scan' })
+		const second = await openSessions(cwd, { stateRoot, indexBackend: 'scan' })
+		const id = await startConversation(second)
+		await recordTurn(second, id, [createUserMessage('appeared in another process')])
+		await archiveConversation(second, id)
+
+		expect(await first.index.getSession(id)).toBeUndefined()
+		expect((await listArchived(first)).map((row) => row.id)).toEqual([id])
+		await unarchiveConversation(second, id)
+		expect(await listArchived(first)).toEqual([])
+		await archiveConversation(second, id)
+		expect((await listArchived(first)).map((row) => row.id)).toEqual([id])
+		closeSessions(first)
+		closeSessions(second)
+	})
+
 	it('serializes competing restorations so exactly one writes the transition', async () => {
 		const sessions = await openSessions(cwd, { stateRoot })
 		const id = await startConversation(sessions)

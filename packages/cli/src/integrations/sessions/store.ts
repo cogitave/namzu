@@ -20,7 +20,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { realpath } from 'node:fs/promises'
+import { readdir, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -659,7 +659,42 @@ export async function listArchived(
 	limit = 100,
 	offset = 0,
 ): Promise<RecentConversation[]> {
+	await refreshProjectArchiveIndex(s)
 	return listConversations(s, true, limit, offset)
+}
+
+/**
+ * The scan backend is a per-process snapshot. Another CLI process may have
+ * archived a conversation after this handle opened; querying its old rows
+ * alone would claim there are no archives. Refresh only root logs in the
+ * selected project, and coalesce overlapping picker/list requests against
+ * this index. Unchanged logs cost a head check, not another full fold.
+ */
+const archiveListingRefreshes = new WeakMap<SessionIndex, Promise<void>>()
+
+async function refreshProjectArchiveIndex(s: CliSessions): Promise<void> {
+	if (s.index.backend !== 'scan') return
+	let pending = archiveListingRefreshes.get(s.index)
+	if (!pending) {
+		pending = (async () => {
+			const entries = await readdir(s.paths.projectDir(), { withFileTypes: true })
+			for (const entry of entries) {
+				if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
+				const rawId = entry.name.slice(0, -'.jsonl'.length)
+				if (!isEntityId(rawId, 'session')) continue
+				const sessionId = asSessionId(rawId)
+				await s.index.refresh({
+					slug: s.slug,
+					logPath: conversationLogPath(s, sessionId),
+					sessionId,
+				})
+			}
+		})().finally(() => {
+			archiveListingRefreshes.delete(s.index)
+		})
+		archiveListingRefreshes.set(s.index, pending)
+	}
+	await pending
 }
 
 async function listConversations(
