@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -57,7 +57,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		'add',
 		'search',
 		'--url',
-		'https://example.test/mcp?token=do-not-print',
+		'https://example.test/secret-path-do-not-print/mcp?token=do-not-print',
 		'--header',
 		'Authorization=Bearer ${SEARCH_TOKEN}',
 	)
@@ -71,7 +71,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 			inheritEnv: ['FILE_TOKEN'],
 		},
 		search: {
-			url: 'https://example.test/mcp?token=do-not-print',
+			url: 'https://example.test/secret-path-do-not-print/mcp?token=do-not-print',
 			headers: { Authorization: 'Bearer ${SEARCH_TOKEN}' },
 		},
 	})
@@ -79,19 +79,50 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 	expect(listed.code).toBe(0)
 	expect(listed.output?.servers).toMatchObject([
 		{ name: 'files', transport: 'stdio', argumentCount: 3 },
-		{ name: 'search', transport: 'http', endpoint: 'https://example.test/mcp' },
+		{ name: 'search', transport: 'http', endpoint: 'https://example.test' },
 	])
 	expect(JSON.stringify(listed.output)).not.toContain('do-not-print')
+	expect(JSON.stringify(listed.output)).not.toContain('secret-path')
 	expect(JSON.stringify(listed.output)).not.toContain('SEARCH_TOKEN')
 	const detail = await invoke('get', 'search')
 	expect(detail.code).toBe(0)
 	expect(JSON.stringify(detail.output)).not.toContain('do-not-print')
+	expect(JSON.stringify(detail.output)).not.toContain('secret-path')
 	const removed = await invoke('remove', 'files')
 	expect(removed.code).toBe(0)
 	expect(loadConfig({ cwd: tmpdir(), env: { NAMZU_HOME: home } }).mcpServers).toMatchObject({
-		search: { url: 'https://example.test/mcp?token=do-not-print' },
+		search: { url: 'https://example.test/secret-path-do-not-print/mcp?token=do-not-print' },
 	})
 	expect(readFileSync(file, 'utf8')).not.toContain('files:')
+})
+
+it('tightens an existing broadly readable user config before storing an HTTP URL query', async () => {
+	const home = mkdtempSync(join(tmpdir(), 'namzu-mcp-command-'))
+	roots.push(home)
+	vi.stubEnv('NAMZU_HOME', home)
+	const file = join(home, 'config.yaml')
+	writeFileSync(file, 'quiet: true\n', { mode: 0o644 })
+	chmodSync(file, 0o644)
+	expect(statSync(file).mode & 0o777).toBe(0o644)
+	vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+	vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+	expect(
+		await runCli({
+			argv: [
+				'node',
+				'namzu',
+				'mcp',
+				'add',
+				'private',
+				'--url',
+				'https://example.test/mcp?token=stored-only-in-private-config',
+			],
+		}),
+	).toBe(0)
+	expect(statSync(file).mode & 0o777).toBe(0o600)
+	expect(readFileSync(file, 'utf8')).toContain('stored-only-in-private-config')
+	expect(readFileSync(file, 'utf8')).toContain('quiet: true')
 })
 
 it('preserves unrelated YAML and refuses a literal secret, a duplicate, and broken config', async () => {

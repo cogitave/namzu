@@ -97,7 +97,9 @@ export function summarizeUserMcpServer(entry: UserMcpServer): UserMcpServerSumma
 		let endpoint: string
 		try {
 			const parsed = new URL(url)
-			endpoint = parsed.origin + parsed.pathname
+			// Tokenized MCP endpoints can carry credentials in path segments. Show
+			// only the origin in both human and structured summaries.
+			endpoint = parsed.origin
 		} catch {
 			endpoint = '(invalid URL)'
 		}

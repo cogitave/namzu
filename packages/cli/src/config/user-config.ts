@@ -9,10 +9,23 @@
  * the operator was in the middle of writing.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+	closeSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs'
+import { platform } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Document, isMap, parseDocument } from 'yaml'
 
+import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 
 export interface UserConfigWriteOptions {
@@ -57,11 +70,7 @@ export function setUserConfigValue(
 		}
 	}
 	doc.setIn(path, value)
-	mkdirSync(dirname(file), { recursive: true })
-	const temp = `${file}.${process.pid}.tmp`
-	// The file keeps its own permissions; a new one is the owner's alone.
-	writeFileSync(temp, doc.toString(), { mode: exists ? statSync(file).mode & 0o777 : 0o600 })
-	renameSync(temp, file)
+	writePrivateUserConfig(file, doc)
 	return file
 }
 
@@ -91,8 +100,48 @@ export function deleteUserConfigValue(
 	}
 	if (!doc.hasIn(path)) return false
 	doc.deleteIn(path)
-	const temp = `${file}.${process.pid}.tmp`
-	writeFileSync(temp, doc.toString(), { mode: statSync(file).mode & 0o777 })
-	renameSync(temp, file)
+	writePrivateUserConfig(file, doc)
 	return true
+}
+
+/** Replacing an old config must never carry its broad mode onto a secret-bearing copy. */
+function writePrivateUserConfig(file: string, doc: Document): void {
+	const parent = dirname(file)
+	mkdirSync(parent, { recursive: true, mode: 0o700 })
+	if (platform() === 'win32') {
+		const entry = lstatSync(parent)
+		if (entry.isSymbolicLink() || !entry.isDirectory()) {
+			throw new Error(`User config directory must be a real directory: ${parent}`)
+		}
+		// POSIX 0600 has no ACL meaning on Windows. Secure the parent before
+		// opening a temp file and prove that file private while it is still empty.
+		restrictToOwner(parent)
+	}
+	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`
+	let fd: number | undefined
+	try {
+		fd = openSync(temp, 'wx', 0o600)
+		restrictToOwner(temp)
+		writeFileSync(fd, doc.toString())
+		closeSync(fd)
+		fd = undefined
+		restrictToOwner(temp)
+		renameSync(temp, file)
+	} catch (error) {
+		if (fd !== undefined) {
+			try {
+				closeSync(fd)
+			} catch {
+				// The file remains private; still try to remove its name.
+			}
+		}
+		try {
+			rmSync(temp, { force: true })
+		} catch (cleanupError) {
+			throw new Error(`Private user-config temporary file could not be removed: ${temp}`, {
+				cause: new AggregateError([error, cleanupError]),
+			})
+		}
+		throw error
+	}
 }
