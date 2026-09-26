@@ -1,5 +1,49 @@
 # @namzu/cli
 
+## 33.0.0
+
+### Major Changes
+
+- 3a0daac: Gemini API keys pasted into Namzu are now saved automatically in its private credential store and reused on later launches. This changes the former session-only default. To keep a key out of Namzu's store, provide it through a per-process `GEMINI_API_KEY` environment variable instead of pasting it into the picker. `namzu logout gemini` or `/logout gemini` removes the saved key; an environment variable remains under your control.
+
+### Minor Changes
+
+- 3a0daac: Archived conversations can now be listed and restored in their original project with `/unarchive` or `namzu archive list|restore`. Restore one before using `namzu resume <id>`; the conversation history stays in its original log and remains scoped to its project.
+  Long-lived CLI sessions refresh their project archive listing when another process archives or restores a conversation.
+- 3a0daac: Add `namzu mcp list|get|add|remove` for user-owned tool servers. Existing server config continues to work, including names outside the new-entry naming rule. These commands write `~/.namzu/config.yaml`, preserve other settings, accept environment-backed Bearer headers, require HTTPS for URL queries or credential headers outside loopback, and hide credential-bearing values in their output. HTTP summaries show only the origin, keeping tokenized paths as well as queries out of text and JSON. User-config writes replace even an existing broadly readable file with one restricted to its owner.
+- 3a0daac: Add `namzu mcp login <name>` and `namzu mcp logout <name>` for configured HTTP tool servers. Login uses the official MCP OAuth authorization-code flow, a loopback or pasted callback, PKCE, callback state and authorization-server issuer checks. The CLI stores the resulting Bearer and refresh tokens privately for that exact server URL. Ordinary tool calls reuse or refresh the saved grant without opening a browser; a configured Authorization header continues to take precedence. HTTP authorization refusals stop connection setup instead of falling back to a legacy handshake.
+- 3a0daac: Allow delegated CLI agents to opt into a separate managed Git worktree with
+  `workspace: "worktree"`. The child runs from the selected checkout's committed
+  HEAD, preserving the parent's directory beneath the Git root. The worktree
+  remains available for review after any outcome. SDK
+  callers can choose a per-child shared or isolated workspace and explicitly
+  retain it; isolated requests accept a checked relative `subdirectory`. A
+  manager can make omitted choices shared with
+  `workspaceDefault: 'shared'`; existing SDK backend provisioning and cleanup
+  remain the defaults.
+- 3a0daac: Add `namzu worktree create|list|fork|resume` and `/worktree` for managed Git
+  checkouts. Each checkout keeps its own conversation history; forking copies a
+  settled conversation into the new checkout's project. Uncommitted source files
+  stay in the source checkout, and Namzu never removes a worktree automatically.
+- 3a0daac: Add `namzu skills --audit` to check which file skills the model can actually load. It exits with status 1 for an invalid enabled skill, reports the SDK loader's reason, and can estimate manifest overflow with `--context-window <tokens>`.
+
+### Patch Changes
+
+- c8bb87a: When a browser returns an HTTP authentication challenge, the terminal handoff and `namzu browser login` output ask the operator to check access without claiming that a sign-in or password screen appeared. `browser login` does not update the profile's "last sign-in" time from that challenge alone. Other browser handoff messages keep their existing wording.
+- 3a0daac: Reflow completed conversation text when the terminal expands, preserving the draft and one copy of history. Show when the model picker has more models above or below its visible rows; wider terminals count hidden models. Pause and error messages name the provider that reported a failure when available. A paused turn now tells operators to use `/resume` or `/abandon`, and switching providers keeps dependent prompts held until the turn is successfully resumed.
+- Updated dependencies [c8bb87a]
+- Updated dependencies [c8bb87a]
+- Updated dependencies [c8bb87a]
+- Updated dependencies [3a0daac]
+- Updated dependencies [3a0daac]
+- Updated dependencies [3a0daac]
+- Updated dependencies [3a0daac]
+- Updated dependencies [3a0daac]
+- Updated dependencies [3a0daac]
+  - @namzu/browser@1.0.0
+  - @namzu/sdk@48.1.0
+  - @namzu/computer-use@3.0.0
+
 ## 32.0.0
 
 ### Major Changes

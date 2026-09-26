@@ -1,5 +1,31 @@
 # Changelog
 
+## 48.1.0
+
+### Minor Changes
+
+- 3a0daac: Allow delegated CLI agents to opt into a separate managed Git worktree with
+  `workspace: "worktree"`. The child runs from the selected checkout's committed
+  HEAD, preserving the parent's directory beneath the Git root. The worktree
+  remains available for review after any outcome. SDK
+  callers can choose a per-child shared or isolated workspace and explicitly
+  retain it; isolated requests accept a checked relative `subdirectory`. A
+  manager can make omitted choices shared with
+  `workspaceDefault: 'shared'`; existing SDK backend provisioning and cleanup
+  remain the defaults.
+- 3a0daac: `MCPClient.callTool` accepts `onProgress` and requests a unique MCP progress token per tool call. Concurrent calls receive only their own validated, bounded progress updates; callbacks stop on completion or cancellation. Streamable HTTP dispatches progress while the SSE response remains open and releases the reader as soon as the matching final reply arrives. MCP tools forward updates through `ToolContext.report` for live host and CLI status.
+- 3a0daac: Modern MCP connections now follow advertised tool, prompt, and resource catalogue changes through `subscriptions/listen`. `mcpToolset` refreshes its live definitions after an acknowledged change, and Streamable HTTP reads the subscription incrementally instead of waiting for the long-lived response to end. Hosts using `StreamableHttpTransport` directly can use `sendSubscription` for a bounded SSE stream; existing legacy notification behavior is unchanged.
+
+### Patch Changes
+
+- c8bb87a: Describe a browser `http-auth` handoff as an HTTP authentication challenge. The old "password prompt" wording was inaccurate for responses using challenge schemes such as Bearer.
+- 3a0daac: Reject an explicitly isolated child workspace when a registered Git worktree
+  driver returns a missing path or a path that resolves to the caller's directory.
+  SDK hosts using a custom driver must return an existing, separate checkout.
+- 3a0daac: MCP Streamable HTTP connections now surface a 401 or 403 response to the modern protocol probe as an access failure, without attempting a legacy initialize handshake. Correct the server credentials or access policy and reconnect.
+- 3a0daac: Modern MCP subscriptions now stop retrying a server that permanently refuses `subscriptions/listen`, including HTTP 404 with JSON-RPC method-not-found. Temporary server errors and rate limits still retry with backoff. Operators get a warning and can reconnect after changing the server configuration.
+  An HTTP 200 JSON-RPC method-not-found refusal also stops retries, while a capacity refusal still retries. The response body is read with size and time bounds and released on completion, timeout or disconnect, preventing held responses from accumulating.
+
 ## 48.0.0
 
 ### Major Changes
