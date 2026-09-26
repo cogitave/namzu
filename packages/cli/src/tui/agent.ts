@@ -616,7 +616,9 @@ export type PermissionFn = ToolReviewPrompt
  * among the answers. A scheduled run's prompts are these: a scheduled turn
  * has no session-wide approval, so the screen must not offer one.
  */
-export type ScreenPermissionRequest = PermissionRequest & { readonly batchOnly?: true }
+export type ScreenPermissionRequest = PermissionRequest & {
+	readonly batchOnly?: true
+}
 /** The permission screen itself, which also takes batch-only requests. */
 export type ScreenPermissionFn = (request: ScreenPermissionRequest) => Promise<PermissionDecision>
 
@@ -2730,6 +2732,7 @@ export async function createAgentSession(
 		}
 		const sub = await createSubagentRuntime({
 			cwd,
+			worktreeStateRoot: paths.home,
 			model,
 			tokenBudget: options.limits?.tokenBudget,
 			maxIterations: options.limits?.maxIterations,
@@ -2772,13 +2775,16 @@ export async function createAgentSession(
 			// honours the project's rules and every task it delegates quietly
 			// does not — the worse half of the feature, because the delegating
 			// turn reports success either way.
-			projectInstructionContext: () => projectInstructions.createTurnContext(),
+			projectInstructionContext: (childCwd) =>
+				childCwd === cwd
+					? projectInstructions.createTurnContext()
+					: new ProjectInstructionTracker(childCwd).createTurnContext(),
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
-			readEnvironment: async () =>
+			readEnvironment: async (childCwd) =>
 				composeEnvironmentPrompt({
-					...(await readEnvironmentFacts(cwd)),
+					...(await readEnvironmentFacts(childCwd)),
 					boundary: boundaryFor(lastSendInteractive),
 					...(wsl ? { wsl } : {}),
 				}),
@@ -3202,7 +3208,9 @@ export async function createAgentSession(
 	// than left implicit inside `runTurn`'s own per-turn presenter. Reads
 	// through `liveManager()` so a plugin enabled or disabled after boot is
 	// reflected here too, not only in `/tools`.
-	const sessionPresenter = createToolPresenter({ get: (name) => liveManager().get(name) })
+	const sessionPresenter = createToolPresenter({
+		get: (name) => liveManager().get(name),
+	})
 	// What one turn's prompt manifest and `skill` tool see: the file skills
 	// gated against the tools registered now, merged with the plugins' own.
 	const turnSkillsFor = (turnModel: string | undefined) =>
@@ -3355,7 +3363,11 @@ export async function createAgentSession(
 		sessionId: SessionId,
 		signal: AbortSignal,
 	): Promise<
-		| { readonly provider: LLMProvider; readonly model: string; readonly effort?: ReasoningEffort }
+		| {
+				readonly provider: LLMProvider
+				readonly model: string
+				readonly effort?: ReasoningEffort
+		  }
 		| undefined
 	> => {
 		if (!pin) return undefined
@@ -3371,7 +3383,11 @@ export async function createAgentSession(
 		const pinnedProvider = constructProvider(providerId, credential, pinnedModel, { sessionId })
 		const effort = pin.effort as ReasoningEffort | undefined
 		if (effort !== undefined) await prepareDelegatedEffort(pinnedProvider, pinnedModel, signal)
-		return { provider: pinnedProvider, model: pinnedModel, ...(effort ? { effort } : {}) }
+		return {
+			provider: pinnedProvider,
+			model: pinnedModel,
+			...(effort ? { effort } : {}),
+		}
 	}
 	/**
 	 * The kernel's resume with this session's half of the turn attached: the

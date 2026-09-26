@@ -62,3 +62,9 @@ Namzu never removes a managed worktree automatically. A checkout may contain
 uncommitted files or commits that exist nowhere else. Inspect its state before
 using Git's ordinary, non-forced `git worktree remove <path>` yourself; that
 command does not delete the branch.
+
+The `Agent` tool can also create one managed checkout per delegated child with
+`workspace: "worktree"`. Its generated branch and path appear in the child's
+result and in `namzu worktree list`. That child starts from the selected
+checkout's committed HEAD and works inside the new checkout. See
+[Delegated work](delegated-work.md) for the launch and retention behavior.

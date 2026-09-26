@@ -45,6 +45,22 @@ sets its own `namzu-cli` type. Its per-child config is assembled by the CLI.
 The top-level CLI turn calls `query()` directly; both paths use the same SDK
 kernel without implying that all hosts share one agent class.
 
+`AgentManager.sendMessage` and `TaskScheduler.createTask` accept a per-child
+`workspace` choice. `{ mode: 'shared' }` skips workspace provisioning.
+`{ mode: 'isolated', backend: 'git-worktree' }` requires a registered Git
+worktree driver and runs the child from the new checkout. `baseRef` optionally
+selects its starting commit; otherwise the driver chooses its default.
+`retention: 'retain'` keeps that workspace through completion, failure,
+cancellation and later archival, and exposes its ref on the task handle. The
+default `retention: 'dispose'` keeps the SDK's existing cleanup policy. Omitting
+`workspace` also preserves existing `workspaceBackend` behavior for callers
+that already register a backend. A host can set
+`AgentManagerConfig.workspaceDefault: 'shared'` to make omitted task choices
+share the caller's directory even when a backend is registered; the CLI uses
+this setting for its default delegated work. An explicit task `workspace`
+choice takes precedence, followed by the legacy `workspaceBackend`, then the
+manager default.
+
 `SupervisorAgent`, `PipelineAgent` and `RouterAgent` are worked orchestration
 examples under `packages/sdk/src/agents/examples/`. They remain exported for
 existing callers, marked deprecated as SDK archetypes. In particular,

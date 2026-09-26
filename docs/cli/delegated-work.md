@@ -29,7 +29,21 @@ client construction instead of reusing the token captured at startup.
 The `Agent` tool normally waits for its result. Set `run_in_background: true`
 to receive the task UUID after launch and continue independent work. A queued
 task is waiting for capacity; the receipt does not claim it has started or
-completed. The permission review opens a compact task plan: each agent has one bracketed
+completed.
+
+Set `workspace: "worktree"` on an `Agent` call to give that child a separate
+Git checkout. The default, `workspace: "shared"`, uses the parent's working
+directory. Namzu creates the child checkout from the **committed HEAD of the
+checkout running the parent**, including when the parent is already in a linked
+worktree. Uncommitted parent files are absent. The child's file tools and
+commands run from the new checkout, and its environment and project instructions
+are read there. The checkout and any edits remain after success, failure or
+cancellation. Completed results give its path and branch; live task listings
+show them once the child is admitted. Use `namzu worktree list` to inspect it
+later. Namzu does not merge the child's edits into the parent checkout.
+
+A worktree launch is reviewed even for a read-only child, because creating a
+checkout changes Git state. The permission review opens a compact task plan: each agent has one bracketed
 row with its task and tool access, grouped by the supplied workflow and phase
 labels. Background execution is marked on that row. Long rows wrap on narrow
 terminals and large batches remain paged. Press `d` for full instructions and
@@ -63,7 +77,7 @@ run up is bounded by the tree budget the turn already carries.
 
 Every other launch is reviewed as before: a general-purpose agent, an agent
 file without `readOnly: true`, and a read-only agent sent to another provider
-or model or given an effort. A batch that mixes a read-only launch with any of
+or model or given an effort, or requesting `workspace: "worktree"`. A batch that mixes a read-only launch with any of
 those is reviewed as one batch.
 
 By mode:

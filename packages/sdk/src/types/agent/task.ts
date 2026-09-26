@@ -1,6 +1,6 @@
 import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
-import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
+import type { WorkspaceBackendKind, WorkspaceRef } from '../../types/workspace/ref.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { SessionId, TaskId, TenantId, TurnId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -18,6 +18,17 @@ export type AgentTaskState =
 	| 'canceled'
 	| 'rejected'
 	| 'input-required'
+
+/** Per-spawn filesystem choice. Omission preserves the manager's existing behavior. */
+export type ChildWorkspaceRequest =
+	| { readonly mode: 'shared' }
+	| {
+			readonly mode: 'isolated'
+			readonly backend: 'git-worktree'
+			readonly baseRef?: string
+			/** The existing SDK behavior is `dispose`; CLI delegates select `retain`. */
+			readonly retention?: 'dispose' | 'retain'
+	  }
 
 export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 	return state === 'completed' || state === 'failed' || state === 'canceled' || state === 'rejected'
@@ -206,6 +217,8 @@ export interface AgentTask {
 	pendingMessages: Message[]
 	createdAt: number
 	completedAt?: number
+	/** Populated after an explicitly isolated spawn is admitted. */
+	workspace?: WorkspaceRef
 
 	evictAfter?: number
 
@@ -219,6 +232,8 @@ export interface AgentTask {
  * WorkspaceRef triple atomically on every spawn.
  */
 export interface SendMessageOptions {
+	/** Explicit child filesystem policy; omitted preserves legacy backend behavior. */
+	readonly workspace?: ChildWorkspaceRequest
 	/**
 	 * Revalidate host authority before admission, including after a capacity wait.
 	 * Queue retries may invoke this more than once; checks must tolerate repeated calls.
@@ -287,6 +302,9 @@ export interface SendMessageOptions {
 }
 
 export interface AgentManagerConfig {
+	/** When neither task workspace field is set, use the registered backend (legacy) or share cwd. */
+	workspaceDefault?: 'registered' | 'shared'
+
 	/** Reject a full parent immediately (default), or retain bounded pending task handles. */
 	capacityBehavior?: 'reject' | 'queue'
 

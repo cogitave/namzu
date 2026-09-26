@@ -21,7 +21,7 @@ import { generateSessionId, generateTurnId } from '../../../utils/id.js'
  * reading the failure branch's disposal and calling it the success branch's.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
 import { TopicManager } from '../../../manager/topic/lifecycle.js'
@@ -152,7 +152,10 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
  */
 async function harness(
 	outcome: 'completed' | 'failed',
-	{ registerBackend = true }: { registerBackend?: boolean } = {},
+	{
+		registerBackend = true,
+		workspaceDefault,
+	}: { registerBackend?: boolean; workspaceDefault?: 'registered' | 'shared' } = {},
 ) {
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryTopicStore()
@@ -187,16 +190,20 @@ async function harness(
 	const driver = new RecordingWorkspaceDriver()
 	if (registerBackend) workspaceRegistry.register(driver)
 
-	const manager = new AgentManager(registry, undefined, {
-		sessionStore: store,
-		summaryMaterializer: materializer,
-		workspaceRegistry,
-		capacity: new DefaultCapacityValidator(store),
-		threadManager: new TopicManager({
-			topicStore: threadStore,
+	const manager = new AgentManager(
+		registry,
+		{ workspaceDefault },
+		{
 			sessionStore: store,
-		}),
-	})
+			summaryMaterializer: materializer,
+			workspaceRegistry,
+			capacity: new DefaultCapacityValidator(store),
+			threadManager: new TopicManager({
+				topicStore: threadStore,
+				sessionStore: store,
+			}),
+		},
+	)
 
 	const taskContext: AgentTaskContext = {
 		parentSessionId: parentSession.id,
@@ -225,10 +232,63 @@ async function harness(
 		workspaceBackend: 'git-worktree',
 	}
 
-	return { store, manager, driver, parentSession, options, taskContext }
+	return { store, manager, driver, registry, parentSession, options, taskContext }
 }
 
 describe('a delegated child does not outlive its workspace', () => {
+	it('uses an explicit task choice before its backend and manager defaults', async () => {
+		const { manager, driver, options, taskContext } = await harness('completed', {
+			workspaceDefault: 'shared',
+		})
+
+		const omitted = await manager.sendMessage(
+			{ ...options, workspaceBackend: undefined },
+			taskContext,
+		)
+		await manager.waitForCompletion(omitted.taskId)
+		expect(driver.created).toHaveLength(0)
+
+		const legacy = await manager.sendMessage(options, taskContext)
+		await manager.waitForCompletion(legacy.taskId)
+		expect(driver.created).toHaveLength(1)
+
+		const explicit = await manager.sendMessage(
+			{ ...options, workspace: { mode: 'shared' } },
+			taskContext,
+		)
+		await manager.waitForCompletion(explicit.taskId)
+		expect(driver.created).toHaveLength(1)
+	})
+
+	it.each(['wrong backend', 'relative path', 'caller path'] as const)(
+		'refuses isolated admission when the driver returns a %s',
+		async (invalid) => {
+			const { store, manager, driver, parentSession, options, taskContext } =
+				await harness('completed')
+			const create = driver.create.bind(driver)
+			vi.spyOn(driver, 'create').mockImplementationOnce(async (params) => {
+				const ref = await create(params)
+				return {
+					...ref,
+					meta: {
+						...ref.meta,
+						...(invalid === 'wrong backend' ? { backend: 'shared' } : {}),
+						...(invalid === 'relative path' ? { worktreePath: 'relative' } : {}),
+						...(invalid === 'caller path' ? { worktreePath: '/tmp' } : {}),
+					},
+				} as unknown as WorkspaceRef
+			})
+
+			await expect(
+				manager.sendMessage(
+					{ ...options, workspace: { mode: 'isolated', backend: 'git-worktree' } },
+					taskContext,
+				),
+			).rejects.toThrow('invalid workspace ref or path')
+			expect(driver.disposed).toEqual([driver.created[0]?.id])
+			expect(await store.getChildren(parentSession.id, tenant)).toHaveLength(0)
+		},
+	)
 	it('disposes the workspace when the child SUCCEEDS', async () => {
 		const { manager, driver, options, taskContext } = await harness('completed')
 
@@ -247,6 +307,63 @@ describe('a delegated child does not outlive its workspace', () => {
 		const task = await manager.sendMessage(options, taskContext)
 		await manager.waitForCompletion(task.taskId)
 
+		expect(driver.created).toHaveLength(1)
+		expect(driver.disposed).toEqual([driver.created[0]?.id])
+	})
+
+	it.each(['completed', 'failed'] as const)(
+		'keeps an explicitly retained workspace after a %s child',
+		async (outcome) => {
+			const { store, manager, driver, parentSession, options, taskContext } = await harness(outcome)
+			const task = await manager.sendMessage(
+				{
+					...options,
+					workspace: { mode: 'isolated', backend: 'git-worktree', retention: 'retain' },
+				},
+				taskContext,
+			)
+			await manager.waitForCompletion(task.taskId)
+
+			expect(driver.created).toHaveLength(1)
+			expect(driver.disposed).toEqual([])
+			expect(task.workspace?.id).toBe(driver.created[0]?.id)
+			const [subSession] = await store.getChildren(parentSession.id, tenant)
+			expect(subSession?.workspaceRetention).toBe('retain')
+		},
+	)
+
+	it('removes an unadmitted checkout when its workspace record cannot be saved', async () => {
+		const { store, manager, driver, options, taskContext } = await harness('completed')
+		vi.spyOn(store, 'updateSubSession').mockRejectedValueOnce(new Error('workspace record failed'))
+
+		await expect(
+			manager.sendMessage(
+				{
+					...options,
+					workspace: { mode: 'isolated', backend: 'git-worktree', retention: 'retain' },
+				},
+				taskContext,
+			),
+		).rejects.toThrow('workspace record failed')
+		expect(driver.created).toHaveLength(1)
+		expect(driver.disposed).toEqual([driver.created[0]?.id])
+	})
+
+	it('removes an unadmitted checkout when child configuration fails', async () => {
+		const { manager, driver, registry, options, taskContext } = await harness('completed')
+		registry.getOrThrow('worker').configBuilder = async () => {
+			throw new Error('child configuration failed')
+		}
+
+		await expect(
+			manager.sendMessage(
+				{
+					...options,
+					workspace: { mode: 'isolated', backend: 'git-worktree', retention: 'retain' },
+				},
+				taskContext,
+			),
+		).rejects.toThrow('child configuration failed')
 		expect(driver.created).toHaveLength(1)
 		expect(driver.disposed).toEqual([driver.created[0]?.id])
 	})

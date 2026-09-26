@@ -1,4 +1,5 @@
 import { rm } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
@@ -9,6 +10,7 @@ import {
 } from '../../session/handoff/capacity.js'
 import type { SessionLocator, SessionPaths } from '../../session/paths.js'
 import type { SessionSummaryMaterializer } from '../../session/summary/materialize.js'
+import type { WorkspaceBackendDriver } from '../../session/workspace/driver.js'
 import type { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
 import {
 	DiskSessionLog,
@@ -151,6 +153,7 @@ interface ChildSpawnRecord {
 	/** Removes the child's log from the process-local lookup. */
 	releaseLog?: () => void
 	workspaceRef?: WorkspaceRef
+	workspaceRetention?: 'retain'
 	/**
 	 * What this child was actually granted, after the ancestor union.
 	 *
@@ -178,6 +181,26 @@ function mergeEnv(
 ): Record<string, string> | undefined {
 	if (!base && !override) return undefined
 	return { ...base, ...override }
+}
+
+/** A requested isolated child must never fall back to its caller's directory. */
+function requireIsolatedWorktreePath(ref: WorkspaceRef | undefined, callerCwd?: string): string {
+	const meta = ref?.meta
+	if (
+		typeof ref?.id !== 'string' ||
+		ref.id.length === 0 ||
+		meta?.backend !== 'git-worktree' ||
+		typeof meta.repoRoot !== 'string' ||
+		!isAbsolute(meta.repoRoot) ||
+		typeof meta.branch !== 'string' ||
+		meta.branch.length === 0 ||
+		typeof meta.worktreePath !== 'string' ||
+		!isAbsolute(meta.worktreePath) ||
+		resolve(meta.worktreePath) === resolve(callerCwd ?? process.cwd())
+	) {
+		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path')
+	}
+	return meta.worktreePath
 }
 
 /**
@@ -283,7 +306,9 @@ export class AgentManager {
 			if (task.context === context || context.parentAbortController.signal.aborted)
 				this.cancel(task.taskId, 'parent')
 		}
-		task.childAbortController.signal.addEventListener('abort', onAbort, { once: true })
+		task.childAbortController.signal.addEventListener('abort', onAbort, {
+			once: true,
+		})
 		const entry: PendingSpawn = {
 			ready: false,
 			task,
@@ -522,9 +547,24 @@ export class AgentManager {
 			await childBudget.flush()
 			throw error
 		}
+		let childOptions: SendMessageOptions = options
 		let childAbortController: AbortController | undefined
 		let agentTask: AgentTask | undefined
 		try {
+			// Explicit isolation is the child's execution root, not a side
+			// resource. Keep validation in this rollback envelope too.
+			if (options.workspace?.mode === 'isolated') {
+				childOptions = {
+					...options,
+					input: {
+						...options.input,
+						workingDirectory: requireIsolatedWorktreePath(
+							spawnRecord.workspaceRef,
+							options.input.workingDirectory,
+						),
+					},
+				}
+			}
 			childAbortController =
 				queuedTask?.childAbortController ??
 				createChildAbortController(context.parentAbortController)
@@ -599,6 +639,7 @@ export class AgentManager {
 				state: 'pending',
 				pendingMessages: queuedTask?.pendingMessages ?? [],
 				createdAt: queuedTask?.createdAt ?? Date.now(),
+				workspace: options.workspace?.mode === 'isolated' ? spawnRecord.workspaceRef : undefined,
 				sessionEventListener: listener,
 			} satisfies AgentTask)
 
@@ -676,6 +717,7 @@ export class AgentManager {
 						...(context.factoryOptions ?? {}),
 						tokenBudget: allocatedTokens,
 						timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
+						workingDirectory: childOptions.input.workingDirectory,
 						sessionId: spawnRecord.childSessionId,
 						parentSessionId: spawnRecord.parentSessionId,
 						parentTurnId: spawnRecord.parentTurnId,
@@ -872,11 +914,11 @@ export class AgentManager {
 				spawnRecord,
 				childConfig,
 				context,
-				options,
+				childOptions,
 				taskId,
 			)
 			if (childLog) {
-				await this.startChildSessionLog(childLog, spawnRecord, context, options, taskId, {
+				await this.startChildSessionLog(childLog, spawnRecord, context, childOptions, taskId, {
 					id: agent.metadata.id,
 					name: agent.metadata.name,
 				})
@@ -903,7 +945,7 @@ export class AgentManager {
 			childAbortController.signal.throwIfAborted()
 			this.executingTasks.add(taskId)
 			const runningTask = agentTask
-			this.runChild(runningTask, options, childConfig, listener)
+			this.runChild(runningTask, childOptions, childConfig, listener)
 				.catch(async (err) => {
 					// A thrown invocation supplied no final usage receipt. Keep its
 					// reservation, including when its task handle was canceled or evicted.
@@ -999,6 +1041,9 @@ export class AgentManager {
 			this.scheduleEviction(agentTask.taskId)
 		} else this.instances.delete(agentTask.taskId)
 		this.dropSpawnRecord(agentTask.taskId)
+		// Admission never completed. The checkout is rollback-owned, not a
+		// retained result that a terminal handle may advertise.
+		agentTask.workspace = undefined
 		this.resolveCompletionCallbacks(agentTask.taskId)
 		await this.rollbackSpawnResources(spawnRecord)
 	}
@@ -1015,7 +1060,7 @@ export class AgentManager {
 				}),
 			)
 		}
-		await this.disposeChildWorkspace(spawnRecord)
+		await this.disposeChildWorkspace({ ...spawnRecord, workspaceRetention: undefined })
 		try {
 			// The edge must be removed before its child: stores reject deletion
 			// of a session that still has a subsession reference.
@@ -1135,7 +1180,10 @@ export class AgentManager {
 		taskId: TaskId,
 		agent: { readonly id: string; readonly name: string },
 	): Promise<void> {
-		const lease = await log.claim({ holder: `namzu:agent-manager:${taskId}`, ttlMs: 30_000 })
+		const lease = await log.claim({
+			holder: `namzu:agent-manager:${taskId}`,
+			ttlMs: 30_000,
+		})
 		if (lease === null) {
 			throw new Error(`Child session ${spawnRecord.childSessionId} is already leased`)
 		}
@@ -1459,6 +1507,7 @@ export class AgentManager {
 		// parent but counted against `maxDelegationWidth`.
 		let subSession: Awaited<ReturnType<typeof store.createSubSession>> | undefined
 		let workspaceRef: WorkspaceRef | undefined
+		let workspaceDriver: WorkspaceBackendDriver | undefined
 		try {
 			// Flip to 'active' so the materializer's atomic write + status flip
 			// lands on terminal — §5.3: pending→active→idle.
@@ -1483,10 +1532,26 @@ export class AgentManager {
 			// provisioning: an unregistered backend leaves `workspaceRef:
 			// undefined` on the spawn record, not a hard error — the registry
 			// is the capability surface.
-			const backend = options.workspaceBackend ?? 'git-worktree'
-			if (this.deps.workspaceRegistry.has(backend)) {
+			const request = options.workspace
+			const backend =
+				request?.mode === 'shared'
+					? undefined
+					: request?.mode === 'isolated'
+						? request.backend
+						: (options.workspaceBackend ??
+							(this.config.workspaceDefault === 'shared' ? undefined : 'git-worktree'))
+			if (request?.mode === 'isolated' && !this.deps.workspaceRegistry.has(request.backend)) {
+				throw new Error(`Isolated workspace backend ${request.backend} is unavailable`)
+			}
+			if (backend && this.deps.workspaceRegistry.has(backend)) {
 				const driver = this.deps.workspaceRegistry.get(backend)
-				workspaceRef = await driver.create({ label: subSession.id })
+				workspaceDriver = driver
+				workspaceRef = await driver.create({
+					label: subSession.id,
+					...(request?.mode === 'isolated' && request.baseRef ? { baseRef: request.baseRef } : {}),
+				})
+				if (request?.mode === 'isolated')
+					requireIsolatedWorktreePath(workspaceRef, options.input.workingDirectory)
 
 				// Write the workspace onto the record that outlives this process.
 				//
@@ -1503,16 +1568,23 @@ export class AgentManager {
 				// exist before the record it is named after. Inside the try, so
 				// the compensating rollback below covers it like every other
 				// mutation here.
-				subSession = { ...subSession, workspaceId: workspaceRef.id }
+				subSession = {
+					...subSession,
+					workspaceId: workspaceRef.id,
+					...(request?.mode === 'isolated' && request.retention === 'retain'
+						? { workspaceRetention: 'retain' as const }
+						: {}),
+				}
 				await store.updateSubSession(subSession, context.tenantId)
 			}
 		} catch (err) {
-			if (workspaceRef && subSession) {
-				await this.disposeChildWorkspace({
-					workspaceRef,
-					subSessionId: subSession.id,
-				})
-			}
+			if (workspaceRef && workspaceDriver)
+				await workspaceDriver.dispose(workspaceRef).catch((disposeErr) =>
+					this.log.warn('Unstarted workspace dispose failed', {
+						'namzu.sub_session.id': subSession?.id,
+						'exception.message': toErrorMessage(disposeErr),
+					}),
+				)
 			// Compensating rollback order is mandated by the store's
 			// deny-by-default cascade policy (Convention #5): `deleteSession`
 			// throws when any subsession still references it, so the subsession
@@ -1540,6 +1612,9 @@ export class AgentManager {
 			ancestry: parentAncestry,
 			childDepth,
 			workspaceRef,
+			...(options.workspace?.mode === 'isolated' && options.workspace.retention === 'retain'
+				? { workspaceRetention: 'retain' as const }
+				: {}),
 		}
 	}
 
@@ -1769,7 +1844,10 @@ export class AgentManager {
 			status: 'failed',
 			usage: agentTask.context.budget.ownUsage,
 			budget: agentTask.context.budget.summary(),
-			cost: { ...ZERO_COST, unpricedTokens: agentTask.context.budget.ownTokens },
+			cost: {
+				...ZERO_COST,
+				unpricedTokens: agentTask.context.budget.ownTokens,
+			},
 			iterations: 0,
 			durationMs: Date.now() - agentTask.createdAt,
 			messages: [],
@@ -1835,8 +1913,9 @@ export class AgentManager {
 	 * removed is an operator's problem and silence is how it stays one.
 	 */
 	private async disposeChildWorkspace(
-		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'subSessionId'>,
+		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'workspaceRetention' | 'subSessionId'>,
 	): Promise<void> {
+		if (spawnRecord.workspaceRetention === 'retain') return
 		if (!spawnRecord.workspaceRef) return
 		const backend = spawnRecord.workspaceRef.meta.backend
 		if (!this.deps.workspaceRegistry.has(backend)) return
