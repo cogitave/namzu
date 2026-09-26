@@ -137,6 +137,8 @@ export type SlashAction =
 	/** `/skills save off|on`: stop or resume proposing skills after a task. */
 	| { kind: 'skill-suggestions'; on: boolean }
 	| { kind: 'resume' }
+	/** Manage separate Git checkouts; a new checkout opens in a fresh TUI launch. */
+	| { kind: 'worktree'; args: readonly string[] }
 	/**
 	 * Close this conversation's paused or interrupted turn without resuming it,
 	 * so the next prompt can begin one. `reason` is recorded on the turn.
@@ -933,6 +935,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fork',
 		description: 'Continue in a copy of this conversation, leaving the original where it is.',
 		action: () => ({ kind: 'fork' }),
+	},
+	{
+		name: 'worktree',
+		help: { usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'] },
+		description: 'List or create separate Git checkouts; fork this conversation into one.',
+		action: (_ctx, args) => ({ kind: 'worktree', args }),
 	},
 	{
 		name: 'add-dir',

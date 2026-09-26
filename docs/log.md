@@ -2,6 +2,7 @@
 
 ## 2026-09-26
 
+- **Update** [Managed Git worktrees](cli/worktrees.md): `namzu worktree create|list|fork|resume` and `/worktree` create separate checkouts at the selected checkout's committed HEAD, copy settled conversations into the new checkout's Project, and reopen only managed worktrees. Dirty source files stay in place; Namzu does not automatically remove a worktree. `.changeset/managed-cli-worktrees.md`, **minor** for `@namzu/cli`.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): modern connections subscribe to advertised tool, prompt, and resource catalogue changes through bounded `subscriptions/listen` streams; acknowledged notifications refresh live MCP toolsets, with ID and filter validation, cancellation, and retry. `.changeset/modern-mcp-subscriptions.md`, **minor** for `@namzu/sdk`.
 - **Update** [Skills](cli/skills.md): `namzu skills --audit` checks winning file skills with the model's actual SDK loader, reports invalid and operator-only entries, and estimates manifest cost for a selected context window. `.changeset/skill-audit.md`, **minor** for `@namzu/cli`.
 

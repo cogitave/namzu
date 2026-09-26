@@ -30,6 +30,7 @@ import { skillsCommand } from './commands/skills.js'
 import { stateCommand } from './commands/state.js'
 import type { CommandContext } from './commands/types.js'
 import { upgradeCommand } from './commands/upgrade.js'
+import { createWorktreeCommand } from './commands/worktree.js'
 import {
 	type ConfigDebugSnapshot,
 	createConfigDebugSnapshot,
@@ -336,6 +337,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// Its turn action resolves this bridge only after trusting the bound cwd.
 	const getResidentContext = () =>
 		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
+	const worktreeCommand = createWorktreeCommand(async (target) => {
+		const previous = process.cwd()
+		try {
+			process.chdir(target.worktree.path)
+			await launchInteractiveTui(target.conversationId)
+		} finally {
+			process.chdir(previous)
+		}
+	})
 	for (const def of [
 		acpCommand,
 		doctorCommand,
@@ -354,12 +364,13 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		stateCommand,
 		scheduleCommand,
 		browserCommand,
+		worktreeCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
 				def === residentCommand
 					? getResidentContext
-					: def === stateCommand
+					: def === stateCommand || def === worktreeCommand
 						? getRecoveryContext
 						: def === acpCommand ||
 								def === execCommand ||

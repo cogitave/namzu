@@ -100,6 +100,15 @@ it('routes plugin inspection locally and includes it in the command catalogue', 
 	expect(CLI_LOCAL_COMMANDS.some((command) => command.name === 'plugins')).toBe(true)
 })
 
+it('routes worktree management locally with exact arguments', () => {
+	expect(runSlash('/worktree', context())).toEqual({ kind: 'worktree', args: [] })
+	expect(runSlash('/worktree fork review-fix', context())).toEqual({
+		kind: 'worktree',
+		args: ['fork', 'review-fix'],
+	})
+	expect(CLI_LOCAL_COMMANDS.some((command) => command.name === 'worktree')).toBe(true)
+})
+
 const ctx: SlashContext = context()
 
 const ctxWithTools: SlashContext = context({

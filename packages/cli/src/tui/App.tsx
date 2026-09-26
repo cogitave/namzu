@@ -101,6 +101,7 @@ import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import type {
 	SubagentActivity,
 	SubagentNarrationLine,
@@ -317,6 +318,7 @@ import {
 	runSlash,
 } from './slashCommands.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
@@ -7424,6 +7426,93 @@ export function App({
 					case 'fork':
 						void doFork()
 						return
+					case 'worktree': {
+						const [verb = 'list', label, extra] = slash.args
+						const notice = (content: string) =>
+							pushMessage('system', terminalDisplayText(content))
+						if (
+							!(
+								(verb === 'list' && label === undefined) ||
+								(verb === 'create' && extra === undefined) ||
+								(verb === 'fork' && extra === undefined) ||
+								(verb === 'resume' &&
+									label !== undefined &&
+									extra === undefined)
+							)
+						) {
+							pushMessage(
+								'system',
+								'Usage: /worktree [list|create [name]|fork [name]|resume <name>]',
+							)
+							return
+						}
+						if (
+							verb === 'fork' &&
+							(abortRef.current ||
+								hasUnsettledTurn() ||
+								queuedRef.current.length > 0)
+						) {
+							pushMessage(
+								'system',
+								'Wait for the current turn and queued prompts to finish before forking to a worktree.',
+							)
+							return
+						}
+						if (conversationMutationRef.current) return
+						if (verb === 'fork') {
+							conversationMutationRef.current = 'fork'
+							setConversationMutation('fork')
+						}
+						void (async () => {
+							try {
+								const manager = await openManagedWorktrees(ctx.cwd)
+								if (verb === 'list') {
+									const items = await manager.list()
+									notice(
+										items.length === 0
+											? 'No managed worktrees in this repository.'
+											: items
+													.map(
+														(item) =>
+															`${item.label}: ${item.path}${item.dirty ? ' (uncommitted files)' : ''}`,
+													)
+													.join('\n'),
+									)
+								} else if (verb === 'create') {
+									const created = await manager.create(label)
+									notice(
+										`Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+									)
+								} else if (verb === 'fork') {
+									const scope = await materializeConversation()
+									if (!scope)
+										throw new Error(
+											'Conversation history is unavailable in this folder.',
+										)
+									await persistenceTailRef.current
+									const forked = await manager.fork(scope.sessionId, label)
+									notice(
+										`Forked ${forked.copied} messages into ${forked.title}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+									)
+								} else if (label) {
+									const target = await manager.resume(label)
+									notice(
+										`Open ${label} in a new terminal: ${worktreeOpenHint(target.worktree.path, target.conversationId)}`,
+									)
+								}
+							} catch (error) {
+								notice(
+									`Worktree: ${error instanceof Error ? error.message : String(error)}`,
+								)
+							} finally {
+								if (verb === 'fork') {
+									conversationMutationRef.current = null
+									setConversationMutation(null)
+								}
+							}
+						})()
+						return
+					}
 					case 'restore':
 						void doRestore(slash.turn)
 						return
@@ -7919,6 +8008,7 @@ export function App({
 			goalActivation,
 			goalStatus,
 			hostCommands,
+			materializeConversation,
 			nextId,
 			openAgentCockpit,
 			runAgentsCommand,

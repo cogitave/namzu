@@ -722,7 +722,35 @@ export async function forkConversation(
 		// that shows up in `/resume` forever and answers no question.
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
-	const { id, title } = await writeFork(s, sourceId, messages, messages)
+	const { id, title } = await writeFork(s, s, sourceId, messages, messages)
+	return { id, title, copied: messages.length }
+}
+
+/**
+ * Copy a settled conversation into another checkout's Project under the same
+ * Namzu installation. A managed worktree is a distinct Project, so a normal
+ * same-Project fork cannot be resumed there.
+ */
+export async function forkConversationInto(
+	source: CliSessions,
+	target: CliSessions,
+	sourceId: SessionId,
+): Promise<{ id: SessionId; title: string; copied: number }> {
+	if (source.root !== target.root || source.tenantId !== target.tenantId) {
+		throw new Error('A conversation can only be forked within the same Namzu installation.')
+	}
+	const facts = await requireConversationInScope(source, sourceId, 'fork conversation to worktree')
+	if (facts.archived) {
+		throw new Error(`Conversation ${sourceId} is archived and cannot be forked.`)
+	}
+	if (facts.activeTurn) {
+		throw new Error('Wait for the current turn to finish before forking to a worktree.')
+	}
+	const messages = await loadConversation(source, sourceId)
+	if (messages.length === 0) {
+		throw new Error('There is nothing to fork yet — this conversation has no messages.')
+	}
+	const { id, title } = await writeFork(source, target, sourceId, messages, messages)
 	return { id, title, copied: messages.length }
 }
 
@@ -801,30 +829,31 @@ export async function forkConversationBeforeUser(
 	}
 
 	const prefix = messages.slice(0, messageIndex)
-	const { id, title } = await writeFork(s, sourceId, messages, prefix)
+	const { id, title } = await writeFork(s, s, sourceId, messages, prefix)
 	return { id, title, messages: prefix, selected }
 }
 
 /** Create, seed and name one fork after every boundary decision has been validated. */
 async function writeFork(
-	s: CliSessions,
+	sourceStore: CliSessions,
+	targetStore: CliSessions,
 	sourceId: SessionId,
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
 ): Promise<{ id: SessionId; title: string }> {
-	const sourceFacts = await readConversationFacts(s, sourceId, 'tolerant')
+	const sourceFacts = await readConversationFacts(sourceStore, sourceId, 'tolerant')
 	const source =
 		sourceFacts?.title !== undefined && sourceFacts.title.length > 0
 			? sourceFacts.title
 			: conversationTitle(sourceFacts ? recordedMessages(sourceFacts.records) : sourceMessages)
-	const id = await startConversation(s)
-	await seedConversationHistory(s, id, copiedMessages)
-	const copiedBack = await loadConversation(s, id)
+	const id = await startConversation(targetStore)
+	await seedConversationHistory(targetStore, id, copiedMessages)
+	const copiedBack = await loadConversation(targetStore, id)
 	if (!sameMessageSequence(copiedBack, copiedMessages)) {
 		throw new Error(`The forked conversation did not preserve its exact copied history (${id}).`)
 	}
-	const title = nextForkName(await takenTitles(s), source)
-	await setTitle(s, id, title)
+	const title = nextForkName(await takenTitles(targetStore), source)
+	await setTitle(targetStore, id, title)
 	return { id, title }
 }
 
