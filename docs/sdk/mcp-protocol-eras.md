@@ -229,10 +229,13 @@ with no claim about what lies between — so `=?base64?a?b?=` is wrapped as
 well. A tighter test would pass that value through and leave the server
 trying to base64-decode `a?b`.
 
-`clientCapabilities` is `{}` and that is honest rather than a gap: sampling,
-elicitation, roots and logging are all deprecated as of 2026-07-28 with "new
-implementations should not add support for them", and the MRTR rules mean a
-conforming server will not ask for what this client has not declared.
+`clientCapabilities` is `{}` because this client does not fulfil server input
+requests. The [2026-07-28 revision](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+deprecates roots, sampling and logging; elicitation remains current. Form and
+URL-mode elicitation now travel inside MRTR `input_required` results instead of
+the former server-initiated `elicitation/create` channel. Namzu does not yet
+fulfil either elicitation mode, and MRTR forbids a conforming server from
+requesting a capability this client has not declared.
 
 **A modern connection deliberately does none of the following**, all of
 which the legacy eras do:
@@ -708,6 +711,34 @@ never read it, so a per-send header silently never reached the wire on that
 transport. `HttpSseTransport` now has a `buildHeaders()` merge matching
 `StreamableHttpTransport`'s, so both HTTP transports treat per-request
 headers and a bearer token identically.
+
+## Per-call tool progress
+
+`MCPClient.callTool(name, args, { onProgress })` asks a server for progress by
+adding a unique `_meta.progressToken` to that `tools/call` request. Calls without
+`onProgress` send no token. A notification is delivered only to the active call
+whose token it names, even when two calls share a stdio connection or their
+Streamable HTTP response streams overlap. Automatic retries use a new request
+and token. Completion, failure, timeout, cancellation and transport close all
+end delivery before a late notification can reach the callback.
+
+```ts sketch
+await client.callTool('import_records', { file: 'records.csv' }, {
+  onProgress: ({ progress, total, message }) => {
+    showStatus(message ?? `${progress}${total === undefined ? '' : `/${total}`}`)
+  },
+})
+```
+
+The client accepts finite, nonnegative `progress` values that increase for that
+token. Invalid or repeated values are ignored. An optional `total` must be
+finite and positive; an invalid total is omitted. Server-authored `message`
+text has terminal controls removed and is limited to 512 UTF-8 bytes before
+the callback sees it. A throwing callback is logged without failing the tool.
+MCP tool definitions created by `mcpToolToToolDefinition` pass these updates
+through `ToolContext.report` when the executing host supplies one; the CLI's
+existing `tool_progress` event and live tool row render them. Progress is for
+the operator and does not enter the model conversation.
 
 ## MRTR: `resultType` and a typed `input_required` outcome
 

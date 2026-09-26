@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import type {
 	MCPClientConfig,
 	MCPClientState,
@@ -9,6 +11,7 @@ import type {
 	MCPInitializeResult,
 	MCPJsonRpcMessage,
 	MCPLifecycleEvent,
+	MCPProgressUpdate,
 	MCPPromptDefinition,
 	MCPPromptMessage,
 	MCPRequestOptions,
@@ -70,6 +73,8 @@ const MAX_LIST_PAGES = 100
 
 /** A cancellation notification must never become the next unbounded wait. */
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
+const MAX_PROGRESS_MESSAGE_BYTES = 512
+const ANSI_CSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
 const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
 const SUBSCRIPTION_RETRY_MAX_MS = 30_000
 /** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
@@ -144,6 +149,26 @@ function isPermanentSubscriptionFailure(error: unknown, requestId: number): bool
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
+/** Keep server-authored status text safe and small before it reaches a host UI. */
+function progressMessage(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined
+	const plain = value
+		.slice(0, MAX_PROGRESS_MESSAGE_BYTES * 4)
+		.replace(ANSI_CSI_PATTERN, '')
+		.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ')
+		.trim()
+	if (!plain) return undefined
+	let bounded = ''
+	let bytes = 0
+	for (const character of plain) {
+		const length = Buffer.byteLength(character, 'utf8')
+		if (bytes + length > MAX_PROGRESS_MESSAGE_BYTES) break
+		bounded += character
+		bytes += length
+	}
+	return bounded
+}
+
 /**
  * The three header names the protocol owns, lower-cased for matching.
  *
@@ -203,6 +228,10 @@ export class MCPClient {
 		}
 	>()
 	private nextRequestId = 1
+	private progressRequests = new Map<
+		string,
+		{ onProgress: (update: MCPProgressUpdate) => void; lastProgress?: number }
+	>()
 	private notificationHandlers: Array<(method: string, params?: Record<string, unknown>) => void> =
 		[]
 	private lifecycleListeners: MCPEventListener[] = []
@@ -1165,10 +1194,21 @@ export class MCPClient {
 		// Refuse before allocating an id or asking the transport to do work.
 		options?.signal?.throwIfAborted()
 		const id = this.nextRequestId++
+		const progressToken = method === 'tools/call' && options?.onProgress ? randomUUID() : undefined
+		const requestParams =
+			progressToken === undefined
+				? params
+				: {
+						...params,
+						_meta: {
+							...(params._meta as Record<string, unknown> | undefined),
+							progressToken,
+						},
+					}
 		const envelope = buildEnvelope({
 			era: this.era,
 			method,
-			params,
+			params: requestParams,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 			capabilities: this.config.capabilities ?? {},
 			...this.paramHeaderBindings(method, params),
@@ -1202,6 +1242,7 @@ export class MCPClient {
 			clearTimeout(timer)
 			options?.signal?.removeEventListener('abort', onCallerAbort)
 			if (this.pendingRequests.get(id) === entry) this.pendingRequests.delete(id)
+			if (progressToken !== undefined) this.progressRequests.delete(progressToken)
 		}
 		const settle = (terminal: Terminal, value: unknown): boolean => {
 			if (settled) return false
@@ -1249,6 +1290,9 @@ export class MCPClient {
 		}
 
 		this.pendingRequests.set(id, entry)
+		if (progressToken !== undefined && options?.onProgress) {
+			this.progressRequests.set(progressToken, { onProgress: options.onProgress })
+		}
 		const timer = setTimeout(() => {
 			const error = new Error(
 				`MCP request "${method}" to "${this.config.serverName}" timed out after ${this.requestTimeoutMs}ms`,
@@ -1489,6 +1533,9 @@ export class MCPClient {
 	}
 
 	private handleMessage(message: MCPJsonRpcMessage): void {
+		if (message.method === 'notifications/progress' && message.id === undefined) {
+			this.handleProgressNotification(message.params)
+		}
 		if (this.handleModernSubscriptionMessage(message)) return
 		if (message.id !== undefined) {
 			const pending = this.pendingRequests.get(message.id)
@@ -1534,6 +1581,31 @@ export class MCPClient {
 						'exception.message': toErrorMessage(err),
 					})
 				})
+		}
+	}
+
+	private handleProgressNotification(params: Record<string, unknown> | undefined): void {
+		const token = params?.progressToken
+		if (typeof token !== 'string') return
+		const pending = this.progressRequests.get(token)
+		if (!pending) return
+		const progress = params?.progress
+		if (typeof progress !== 'number' || !Number.isFinite(progress) || progress < 0) return
+		if (pending.lastProgress !== undefined && progress <= pending.lastProgress) return
+		pending.lastProgress = progress
+		const total = params?.total
+		const message = progressMessage(params?.message)
+		const update: MCPProgressUpdate = {
+			progress,
+			...(typeof total === 'number' && Number.isFinite(total) && total > 0 ? { total } : {}),
+			...(message === undefined ? {} : { message }),
+		}
+		try {
+			pending.onProgress(update)
+		} catch (error) {
+			this.log.warn('MCP progress listener threw', {
+				'exception.message': toErrorMessage(error),
+			})
 		}
 	}
 
