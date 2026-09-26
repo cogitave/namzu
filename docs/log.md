@@ -1,5 +1,12 @@
 # Documentation update log
 
+## 2026-09-26
+
+- **Update** [Provider credentials and private state](cli/credentials.md): accepted Gemini API keys pasted into Namzu are saved in a private store and reused after restart, with explicit `logout gemini` removal. `.changeset/gemini-api-key-persistence.md`, **major** for `@namzu/cli` because the former session-only default changes.
+- **Fix** [Terminal boundaries](cli/terminal-design.md#terminal-boundaries): expanding the terminal now redraws completed transcript rows at the new width, while preserving the draft and one copy of history. `.changeset/model-picker-overflow-hints.md`, **patch** for `@namzu/cli`.
+- **Fix** [Waiting for the provider](cli/turn-limits.md#waiting-for-the-provider): TUI pause and error messages now name the reporting provider when available, and a provider switch keeps dependent prompts held until the paused checkpoint completes. `.changeset/model-picker-overflow-hints.md`, **patch** for `@namzu/cli`.
+- **Fix** [Picker navigation](cli/slash-commands.md#picker-navigation): the model picker now marks models hidden above and below its visible rows and counts them on wider terminals. `.changeset/model-picker-overflow-hints.md`, **patch** for `@namzu/cli`.
+
 ## 2026-09-25
 
 - **Fix** [The review policy](sdk/review-policy.md) and [Crossing the tool boundary](sdk/escalations.md): unattended sandbox-escape approval no longer skips a tool's required approval or an outside-root path in the same call or batch. `.changeset/tool-requires-approval-and-metadata.md`, **minor** for `@namzu/sdk`.
