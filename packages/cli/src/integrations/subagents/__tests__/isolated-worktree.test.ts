@@ -15,6 +15,7 @@ import {
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { ProjectInstructionTracker } from '../../../context/project-tracker.js'
 import { openManagedWorktrees } from '../../worktrees/managed.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
@@ -118,14 +119,20 @@ it('keeps an omitted workspace shared for direct scheduler tasks outside Git', a
 	}
 })
 
-it('runs a real child write in a retained worktree based on the selected checkout', async () => {
+it('runs relative writes and nested project instructions in the matching worktree directory', async () => {
 	const { main, selected, stateRoot } = sourceCheckouts()
-	const parent = await subagentParentFixture(selected)
+	const selectedCwd = join(selected, 'packages', 'foo')
+	mkdirSync(selectedCwd, { recursive: true })
+	writeFileSync(join(selectedCwd, 'AGENTS.md'), 'Follow the nested package rule.\n')
+	git(selected, 'add', 'packages/foo/AGENTS.md')
+	git(selected, 'commit', '--quiet', '-m', 'nested instructions')
+	const parent = await subagentParentFixture(selectedCwd)
 	const write = getBuiltinTools().find((tool) => tool.name === 'write')
 	if (!write) throw new Error('write tool fixture is missing')
+	const instructionFiles: string[][] = []
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,
-		cwd: selected,
+		cwd: selectedCwd,
 		worktreeStateRoot: stateRoot,
 		paths: new SessionPaths({ home: stateRoot, slug: 'isolated-child-test' }),
 		model: 'mock-model',
@@ -145,6 +152,11 @@ it('runs a real child write in a retained worktree based on the selected checkou
 				],
 			}),
 		buildTools: () => [toolset('test', [write])],
+		projectInstructionContext: (cwd) => {
+			const tracker = new ProjectInstructionTracker(cwd)
+			instructionFiles.push([...tracker.instructionFiles])
+			return tracker.createTurnContext()
+		},
 		resolveResumeHandler: () => async (request) =>
 			request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
 	})
@@ -164,15 +176,49 @@ it('runs a real child write in a retained worktree based on the selected checkou
 		}
 		expect(data.workspace_branch).toMatch(/^namzu\//)
 		expect(result.output).toContain(data.workspace_path)
-		expect(readFileSync(join(data.workspace_path, 'child-edit.txt'), 'utf8')).toBe('kept edit')
+		const childCwd = join(data.workspace_path, 'packages', 'foo')
+		expect(readFileSync(join(childCwd, 'child-edit.txt'), 'utf8')).toBe('kept edit')
+		expect(existsSync(join(data.workspace_path, 'child-edit.txt'))).toBe(false)
+		expect(instructionFiles).toContainEqual([join(childCwd, 'AGENTS.md')])
+		expect(readFileSync(join(childCwd, 'AGENTS.md'), 'utf8')).toBe(
+			'Follow the nested package rule.\n',
+		)
 		expect(readFileSync(join(data.workspace_path, 'selected-only.txt'), 'utf8')).toBe(
 			'selected branch\n',
 		)
 		expect(existsSync(join(main, 'selected-only.txt'))).toBe(false)
-		expect(existsSync(join(selected, 'child-edit.txt'))).toBe(false)
+		expect(existsSync(join(selectedCwd, 'child-edit.txt'))).toBe(false)
 		expect(git(data.workspace_path, 'rev-parse', 'HEAD')).toBe(git(selected, 'rev-parse', 'HEAD'))
 		const managed = await openManagedWorktrees(selected, { stateRoot })
 		expect((await managed.inspect(basename(data.workspace_path)))?.dirty).toBe(true)
+	} finally {
+		await runtime.close()
+	}
+})
+
+it('rejects an uncommitted nested directory and removes its unstarted worktree', async () => {
+	const { selected, stateRoot } = sourceCheckouts()
+	const selectedCwd = join(selected, 'untracked-directory')
+	mkdirSync(selectedCwd)
+	const parent = await subagentParentFixture(selectedCwd)
+	const runtime = await createSubagentRuntime({
+		resolveParent: parent.resolveParent,
+		cwd: selectedCwd,
+		worktreeStateRoot: stateRoot,
+		paths: new SessionPaths({ home: stateRoot, slug: 'isolated-child-test' }),
+		model: 'mock-model',
+		buildProvider: () => new MockLLMProvider({ turns: [{ text: 'must not run' }] }),
+		buildTools: () => [],
+	})
+	try {
+		const result = await runtime.agentTool.execute(
+			{ description: 'missing child directory', prompt: 'run here', workspace: 'worktree' },
+			toolContext(parent),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('subdirectory is missing')
+		const managed = await openManagedWorktrees(selectedCwd, { stateRoot })
+		expect(await managed.list()).toEqual([])
 	} finally {
 		await runtime.close()
 	}

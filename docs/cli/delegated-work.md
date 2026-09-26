@@ -36,11 +36,15 @@ Git checkout. The default, `workspace: "shared"`, uses the parent's working
 directory. Namzu creates the child checkout from the **committed HEAD of the
 checkout running the parent**, including when the parent is already in a linked
 worktree. Uncommitted parent files are absent. The child's file tools and
-commands run from the new checkout, and its environment and project instructions
-are read there. The checkout and any edits remain after success, failure or
-cancellation. Completed results give its path and branch; live task listings
+commands run from the matching directory inside the new checkout when the
+parent started below the Git root (for example, `packages/foo`). Its environment
+and project instructions are read from that directory. The reported worktree
+path and branch still name the checkout root. The checkout and any edits remain
+after success, failure or cancellation. Completed results give its path and branch; live task listings
 show them once the child is admitted. Use `namzu worktree list` to inspect it
-later. Namzu does not merge the child's edits into the parent checkout.
+later. If that nested directory is absent from the committed checkout, the
+child does not start. Namzu does not merge the child's edits into the parent
+checkout.
 
 A worktree launch is reviewed even for a read-only child, because creating a
 checkout changes Git state. The permission review opens a compact task plan: each agent has one bracketed

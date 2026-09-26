@@ -66,5 +66,6 @@ command does not delete the branch.
 The `Agent` tool can also create one managed checkout per delegated child with
 `workspace: "worktree"`. Its generated branch and path appear in the child's
 result and in `namzu worktree list`. That child starts from the selected
-checkout's committed HEAD and works inside the new checkout. See
+checkout's committed HEAD and works in the corresponding subdirectory when
+launched below the Git root. See
 [Delegated work](delegated-work.md) for the launch and retention behavior.

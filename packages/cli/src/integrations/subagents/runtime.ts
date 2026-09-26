@@ -470,6 +470,7 @@ export async function createSubagentRuntime(
 	}
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
 	const sessions = new Map<string, SharedSession>()
+	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
 	// project layout was given. Process-local: it bounds the children of one
 	// root turn, and the parent's own spend is counted wherever the parent
@@ -519,7 +520,7 @@ export async function createSubagentRuntime(
 		const workspaceRegistry = new WorkspaceBackendRegistry()
 		// The driver resolves Git lazily: ordinary shared children work outside a
 		// repository and never create a checkout or touch Git state.
-		workspaceRegistry.register(new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot))
+		workspaceRegistry.register(worktreeDriver)
 		const manager = new AgentManager(
 			registry,
 			{
@@ -974,6 +975,8 @@ export async function createSubagentRuntime(
 			}
 			try {
 				const completionInbox = await completionInboxForTurn(context.turnId)
+				const subdirectory =
+					workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
 				// Nothing is saved here: the SDK records the child's spawn and its
 				// ending in the parent's log, and the child's own log beside it.
 				const outcome = await runBlockingAgentTask({
@@ -1000,6 +1003,7 @@ export async function createSubagentRuntime(
 										mode: 'isolated',
 										backend: 'git-worktree',
 										retention: 'retain',
+										...(subdirectory ? { subdirectory } : {}),
 									}
 								: { mode: 'shared' },
 						// The same labels the monitor was seeded with, sent down so the

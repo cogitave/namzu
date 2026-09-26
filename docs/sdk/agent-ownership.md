@@ -51,7 +51,10 @@ kernel without implying that all hosts share one agent class.
 worktree driver and runs the child from the new checkout. Before admitting the
 child, the manager resolves both filesystem paths and rejects a missing checkout
 or one that aliases the caller's directory. `baseRef` optionally
-selects its starting commit; otherwise the driver chooses its default.
+selects its starting commit; otherwise the driver chooses its default. An
+optional `subdirectory` starts the child inside that relative path in the
+worktree. Admission requires an existing directory whose physical path stays
+inside the worktree; `TaskHandle.workspace` still names the worktree root.
 `retention: 'retain'` keeps that workspace through completion, failure,
 cancellation and later archival, and exposes its ref on the task handle. The
 default `retention: 'dispose'` keeps the SDK's existing cleanup policy. Omitting

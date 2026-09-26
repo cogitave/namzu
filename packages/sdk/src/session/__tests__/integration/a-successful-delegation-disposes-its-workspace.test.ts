@@ -311,6 +311,75 @@ describe('a delegated child does not outlive its workspace', () => {
 		expect(driver.disposed).toEqual([driver.created[0]?.id])
 		expect(await store.getChildren(parentSession.id, tenant)).toHaveLength(0)
 	})
+
+	it('starts an isolated child in its requested subdirectory and keeps the worktree root ref', async () => {
+		const { manager, driver, registry, options, taskContext } = await harness('completed')
+		const create = driver.create.bind(driver)
+		vi.spyOn(driver, 'create').mockImplementationOnce(async (params) => {
+			const ref = await create(params)
+			await mkdir(join(ref.meta.worktreePath, 'packages', 'foo'), { recursive: true })
+			return ref
+		})
+		let childCwd: string | undefined
+		const agent = registry.getOrThrow('worker').typedAgent
+		const run = agent.run.bind(agent)
+		vi.spyOn(agent, 'run').mockImplementation(async (input, config, listener) => {
+			childCwd = input.workingDirectory
+			return run(input, config, listener)
+		})
+
+		const task = await manager.sendMessage(
+			{
+				...options,
+				workspace: {
+					mode: 'isolated',
+					backend: 'git-worktree',
+					subdirectory: 'packages/foo',
+					retention: 'retain',
+				},
+			},
+			taskContext,
+		)
+		await manager.waitForCompletion(task.taskId)
+
+		const root = driver.created[0]?.meta.worktreePath
+		if (!root) throw new Error('The recording driver did not create a worktree')
+		expect(childCwd).toBe(join(root, 'packages', 'foo'))
+		expect(task.workspace?.meta.worktreePath).toBe(root)
+		expect(driver.disposed).toEqual([])
+	})
+
+	it.each(['escape', 'missing', 'outside symlink'] as const)(
+		'rejects a %s subdirectory before isolated child admission',
+		async (invalid) => {
+			const { store, manager, driver, parentSession, options, taskContext } =
+				await harness('completed')
+			const create = driver.create.bind(driver)
+			vi.spyOn(driver, 'create').mockImplementationOnce(async (params) => {
+				const ref = await create(params)
+				if (invalid === 'outside symlink') {
+					const outside = await mkdtemp(join(tmpdir(), 'namzu-outside-worktree-'))
+					fixtureRoots.push(outside)
+					await symlink(outside, join(ref.meta.worktreePath, 'alias'), 'dir')
+				}
+				return ref
+			})
+			const subdirectory =
+				invalid === 'escape' ? '../escape' : invalid === 'missing' ? 'missing' : 'alias'
+
+			await expect(
+				manager.sendMessage(
+					{
+						...options,
+						workspace: { mode: 'isolated', backend: 'git-worktree', subdirectory },
+					},
+					taskContext,
+				),
+			).rejects.toThrow(/subdirectory/)
+			expect(driver.disposed).toEqual([driver.created[0]?.id])
+			expect(await store.getChildren(parentSession.id, tenant)).toHaveLength(0)
+		},
+	)
 	it('disposes the workspace when the child SUCCEEDS', async () => {
 		const { manager, driver, options, taskContext } = await harness('completed')
 

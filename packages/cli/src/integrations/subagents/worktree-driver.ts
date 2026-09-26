@@ -1,7 +1,8 @@
 /** Git checkout selection for a delegated child, resolved only when requested. */
 
 import { execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, realpath } from 'node:fs/promises'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { GitWorktreeDriver, type WorkspaceRef } from '@namzu/sdk'
 import { cliLogger } from '../../logging.js'
@@ -13,6 +14,7 @@ export class DelegatedWorktreeDriver {
 	readonly kind = 'git-worktree' as const
 	private ready?: Promise<{
 		sourceRoot: string
+		subdirectory: string
 		worktreesDir: string
 		driver: GitWorktreeDriver
 	}>
@@ -26,21 +28,38 @@ export class DelegatedWorktreeDriver {
 		this.ready ??= openManagedWorktrees(this.cwd, {
 			stateRoot: this.stateRoot,
 		})
-			.then((managed) => ({
-				sourceRoot: managed.sourceRoot,
-				worktreesDir: managed.worktreesDir,
-				driver: new GitWorktreeDriver({
-					repoRoot: managed.repoRoot,
+			.then(async (managed) => {
+				const selectedDirectory = await realpath(resolve(this.cwd))
+				const subdirectory = relative(managed.sourceRoot, selectedDirectory)
+				if (
+					isAbsolute(subdirectory) ||
+					subdirectory === '..' ||
+					subdirectory.startsWith(`..${sep}`)
+				) {
+					throw new Error('Selected directory is outside its Git checkout')
+				}
+				return {
+					sourceRoot: managed.sourceRoot,
+					subdirectory,
 					worktreesDir: managed.worktreesDir,
-					logger: cliLogger(),
-				}),
-			}))
+					driver: new GitWorktreeDriver({
+						repoRoot: managed.repoRoot,
+						worktreesDir: managed.worktreesDir,
+						logger: cliLogger(),
+					}),
+				}
+			})
 			.catch((error) => {
 				// A failed first attempt does not pin the runtime outside Git forever.
 				this.ready = undefined
 				throw error
 			})
 		return this.ready
+	}
+
+	/** Preserve the selected cwd beneath its checkout root for child execution. */
+	async selectedSubdirectory(): Promise<string | undefined> {
+		return (await this.open()).subdirectory || undefined
 	}
 
 	async create(params: Parameters<GitWorktreeDriver['create']>[0]): Promise<WorkspaceRef> {

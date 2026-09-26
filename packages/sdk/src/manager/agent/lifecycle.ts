@@ -1,5 +1,5 @@
-import { realpath, rm } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { realpath, rm, stat } from 'node:fs/promises'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
@@ -187,6 +187,7 @@ function mergeEnv(
 async function requireIsolatedWorktreePath(
 	ref: WorkspaceRef | undefined,
 	callerCwd?: string,
+	subdirectory?: string,
 ): Promise<string> {
 	const meta = ref?.meta
 	if (
@@ -212,6 +213,9 @@ async function requireIsolatedWorktreePath(
 			realpath(meta.worktreePath),
 			realpath(resolve(callerCwd ?? process.cwd())),
 		])
+		if (!(await stat(physicalPaths[0])).isDirectory()) {
+			throw new Error('The worktree path is not a directory')
+		}
 	} catch (cause) {
 		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path', {
 			cause,
@@ -220,7 +224,38 @@ async function requireIsolatedWorktreePath(
 	if (physicalPaths[0] === physicalPaths[1]) {
 		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path')
 	}
-	return meta.worktreePath
+	if (subdirectory === undefined) return meta.worktreePath
+	if (typeof subdirectory !== 'string' || subdirectory.length === 0 || isAbsolute(subdirectory)) {
+		throw new Error('Isolated workspace subdirectory must be a nonempty relative path')
+	}
+	const lexicalChild = resolve(meta.worktreePath, subdirectory)
+	const lexicalRelative = relative(resolve(meta.worktreePath), lexicalChild)
+	if (
+		isAbsolute(lexicalRelative) ||
+		lexicalRelative === '..' ||
+		lexicalRelative.startsWith(`..${sep}`)
+	) {
+		throw new Error('Isolated workspace subdirectory escapes the worktree')
+	}
+	let physicalChild: string
+	try {
+		physicalChild = await realpath(lexicalChild)
+		if (!(await stat(physicalChild)).isDirectory()) {
+			throw new Error('The selected worktree path is not a directory')
+		}
+	} catch (cause) {
+		throw new Error('Isolated workspace subdirectory is missing or not a directory', { cause })
+	}
+	const physicalRelative = relative(physicalPaths[0], physicalChild)
+	if (
+		physicalRelative === '' ||
+		isAbsolute(physicalRelative) ||
+		physicalRelative === '..' ||
+		physicalRelative.startsWith(`..${sep}`)
+	) {
+		throw new Error('Isolated workspace subdirectory resolves outside its worktree')
+	}
+	return physicalChild
 }
 
 /**
@@ -581,6 +616,7 @@ export class AgentManager {
 						workingDirectory: await requireIsolatedWorktreePath(
 							spawnRecord.workspaceRef,
 							options.input.workingDirectory,
+							options.workspace.subdirectory,
 						),
 					},
 				}
@@ -1571,7 +1607,11 @@ export class AgentManager {
 					...(request?.mode === 'isolated' && request.baseRef ? { baseRef: request.baseRef } : {}),
 				})
 				if (request?.mode === 'isolated')
-					await requireIsolatedWorktreePath(workspaceRef, options.input.workingDirectory)
+					await requireIsolatedWorktreePath(
+						workspaceRef,
+						options.input.workingDirectory,
+						request.subdirectory,
+					)
 
 				// Write the workspace onto the record that outlives this process.
 				//

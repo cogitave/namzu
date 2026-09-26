@@ -26,6 +26,8 @@ export type ChildWorkspaceRequest =
 			readonly mode: 'isolated'
 			readonly backend: 'git-worktree'
 			readonly baseRef?: string
+			/** Relative directory within the checkout where this child starts. */
+			readonly subdirectory?: string
 			/** The existing SDK behavior is `dispose`; CLI delegates select `retain`. */
 			readonly retention?: 'dispose' | 'retain'
 	  }
