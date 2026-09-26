@@ -60,7 +60,6 @@ export function addUserMcpServer(
 }
 
 export function removeUserMcpServer(name: string, opts: UserConfigWriteOptions = {}): boolean {
-	if (!isUserMcpName(name)) return false
 	return deleteUserConfigValue(['mcpServers', name], opts)
 }
 

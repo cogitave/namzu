@@ -59,7 +59,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		'--url',
 		'https://example.test/mcp?token=do-not-print',
 		'--header',
-		'Authorization=${SEARCH_TOKEN}',
+		'Authorization=Bearer ${SEARCH_TOKEN}',
 	)
 	expect(url.code).toBe(0)
 	const file = join(home, 'config.yaml')
@@ -72,7 +72,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		},
 		search: {
 			url: 'https://example.test/mcp?token=do-not-print',
-			headers: { Authorization: '${SEARCH_TOKEN}' },
+			headers: { Authorization: 'Bearer ${SEARCH_TOKEN}' },
 		},
 	})
 	const listed = await invoke('list')
@@ -126,6 +126,7 @@ it('preserves unrelated YAML and refuses a literal secret, a duplicate, and brok
 			'Authorization=${SECRET_TOKEN}',
 		),
 	).toBe(64)
+	expect(await invoke('add', 'insecure', '--url', 'http://example.test/mcp?token=secret')).toBe(64)
 	expect(await invoke('add', 'search', '--url', 'https://other.test/mcp')).toBe(64)
 	expect(await invoke('remove', 'missing')).toBe(64)
 	const saved = readFileSync(join(home, 'config.yaml'), 'utf8')
@@ -134,4 +135,34 @@ it('preserves unrelated YAML and refuses a literal secret, a duplicate, and brok
 	writeFileSync(join(home, 'config.yaml'), 'mcpServers: [\n')
 	expect(await invoke('list')).toBe(78)
 	expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toBe('mcpServers: [\n')
+})
+
+it('gets and removes an existing server whose name predates the add-name policy', async () => {
+	const home = mkdtempSync(join(tmpdir(), 'namzu-mcp-command-'))
+	roots.push(home)
+	vi.stubEnv('NAMZU_HOME', home)
+	writeFileSync(
+		join(home, 'config.yaml'),
+		'mcpServers:\n  github.com:\n    command: node\n    args: [server.js]\n  regular:\n    command: node\n',
+	)
+	let stdout = ''
+	vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+		stdout += String(chunk)
+		return true
+	})
+	vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+	const get = await runCli({
+		argv: ['node', 'namzu', '--format', 'json', 'mcp', 'get', 'github.com'],
+	})
+	expect(get).toBe(0)
+	expect(JSON.parse(stdout)).toMatchObject({
+		server: { name: 'github.com', transport: 'stdio', command: 'node' },
+	})
+	expect(await runCli({ argv: ['node', 'namzu', 'mcp', 'remove', 'github.com'] })).toBe(0)
+	const saved = readFileSync(join(home, 'config.yaml'), 'utf8')
+	expect(saved).not.toContain('github.com:')
+	expect(saved).toContain('regular:')
+	expect(await runCli({ argv: ['node', 'namzu', 'mcp', 'add', 'github.com', '--', 'node'] })).toBe(
+		64,
+	)
 })

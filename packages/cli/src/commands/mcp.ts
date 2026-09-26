@@ -19,7 +19,7 @@ const HELP = [
 	'',
 	'  namzu mcp list',
 	'  namzu mcp get <name>',
-	"  namzu mcp add <name> --url <http-url> [--header 'NAME=\u0024{ENV_VAR}']",
+	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
 	'',
@@ -124,7 +124,7 @@ export const mcpCommand: CommandDef = {
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
-	if ((verb === 'get' || verb === 'remove') && args.length === 2 && name && isUserMcpName(name)) {
+	if ((verb === 'get' || verb === 'remove') && args.length === 2 && name !== undefined) {
 		return { kind: verb, name }
 	}
 	if (verb !== 'add' || !name || !isUserMcpName(name)) {
@@ -164,11 +164,12 @@ function parseMcpAction(args: readonly string[]): McpAction {
 				!header ||
 				split <= 0 ||
 				!/^[A-Za-z0-9-]+$/.test(header.slice(0, split)) ||
-				!/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header.slice(split + 1))
+				!/^(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header.slice(split + 1))
 			) {
 				return {
 					kind: 'error',
-					message: '--header requires NAME=\u0024{ENV_VAR}; literal secrets are refused.',
+					message:
+						'--header requires NAME=\u0024{ENV_VAR} or NAME=Bearer \u0024{ENV_VAR}; literal secrets are refused.',
 				}
 			}
 			headers[header.slice(0, split)] = header.slice(split + 1)
@@ -193,11 +194,15 @@ function parseMcpAction(args: readonly string[]): McpAction {
 		if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
 			return { kind: 'error', message: '--url requires an HTTP URL without embedded credentials.' }
 		}
-		if (
-			Object.keys(headers).length > 0 &&
-			parsed.protocol !== 'https:' &&
-			!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
-		) {
+		const remoteInsecure =
+			parsed.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+		if (remoteInsecure && parsed.search) {
+			return {
+				kind: 'error',
+				message: 'URL query parameters require HTTPS or a loopback endpoint.',
+			}
+		}
+		if (Object.keys(headers).length > 0 && remoteInsecure) {
 			return { kind: 'error', message: 'Credential headers require HTTPS or a loopback endpoint.' }
 		}
 		return { kind: 'add', name, spec: { url, ...(Object.keys(headers).length ? { headers } : {}) } }
