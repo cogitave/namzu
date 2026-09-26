@@ -226,6 +226,7 @@ interface PersistedSubSession {
 	failureMode: SubSession['failureMode']
 	completionMode: SubSession['completionMode']
 	workspaceId: SubSession['workspaceId']
+	workspaceRetention?: SubSession['workspaceRetention']
 	broadcastGroupId?: string
 	summaryRef?: SubSession['summaryRef']
 	archiveRef?: SubSession['archiveRef']
@@ -1126,6 +1127,7 @@ function serializeSubSession(s: SubSession, tenantId: TenantId): PersistedSubSes
 		failureMode: s.failureMode,
 		completionMode: s.completionMode,
 		workspaceId: s.workspaceId,
+		...(s.workspaceRetention !== undefined && { workspaceRetention: s.workspaceRetention }),
 		...(s.broadcastGroupId !== undefined && { broadcastGroupId: s.broadcastGroupId }),
 		...(s.summaryRef !== undefined && { summaryRef: s.summaryRef }),
 		...(s.archiveRef !== undefined && { archiveRef: s.archiveRef }),
@@ -1146,6 +1148,7 @@ function deserializeSubSession(s: PersistedSubSession): SubSession {
 		failureMode: s.failureMode,
 		completionMode: s.completionMode,
 		workspaceId: s.workspaceId,
+		...(s.workspaceRetention !== undefined && { workspaceRetention: s.workspaceRetention }),
 		...(s.broadcastGroupId !== undefined && { broadcastGroupId: s.broadcastGroupId }),
 		...(s.summaryRef !== undefined && { summaryRef: s.summaryRef }),
 		...(s.archiveRef !== undefined && { archiveRef: s.archiveRef }),

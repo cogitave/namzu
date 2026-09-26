@@ -571,10 +571,13 @@ the keys needed to leave a prompt. The palette targets dark backgrounds; the
 application does not paint a full-screen background or depend on color alone.
 
 When the terminal contracts, native reflow can push old live rows into
-scrollback before the renderer can erase them. Namzu clears and reconstructs
-its normal-buffer transcript once at the new size, preserving conversation
-messages, the draft and the selected agent. This costs one history replay per
-contraction; ordinary streaming and animation frames remain incremental.
+scrollback before the renderer can erase them. When it expands, completed rows
+already printed into scrollback keep their old line breaks. Namzu clears and
+reconstructs its normal-buffer transcript on either width change, preserving
+conversation messages, the draft and the selected agent. This costs one history
+replay per width change; ordinary streaming and animation frames remain
+incremental. A height reduction also rebuilds the transcript. An open retained
+tool-output viewer stays open through a resize.
 
 Screen regressions drive the production Ink renderer through a terminal
 emulator. They check wrapped input, short viewports, retained drafts, normal

@@ -7,7 +7,11 @@ import type {
 } from '../../types/connector/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+import {
+	ConnectorHttpOperation,
+	readConnectorResponseBody,
+	validateConnectorTimeoutMs,
+} from '../http-operation.js'
 import { MCPHttpStatusError } from './errors.js'
 import { refuseMcpHttpRedirect } from './http-redirect.js'
 
@@ -21,6 +25,23 @@ const DEFAULT_TIMEOUT_MS = 30_000
  * an unresponsive peer does not accumulate as a dangling request forever.
  */
 const SESSION_DELETE_TIMEOUT_MS = 5_000
+/** SSE streams may live for hours; bound each event and read rather than their lifetime. */
+const MAX_SSE_EVENT_CHARS = 1_048_576
+const MAX_SSE_CHUNK_BYTES = 8_388_608
+/** A single event may contain a JSON-RPC batch; bound its dispatch work too. */
+const MAX_RESPONSE_SSE_MESSAGES_PER_EVENT = 256
+const MAX_SUBSCRIPTION_ERROR_BODY_BYTES = 65_536
+
+/** A successful HTTP status can still carry a JSON-RPC listen refusal. */
+export class MCPSubscriptionResponseError extends Error {
+	readonly bodyText: string
+
+	constructor(bodyText: string) {
+		super('MCP subscriptions/listen returned JSON instead of an SSE response stream')
+		this.name = 'MCPSubscriptionResponseError'
+		this.bodyText = bodyText
+	}
+}
 
 export class StreamableHttpTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
@@ -202,13 +223,131 @@ export class StreamableHttpTransport implements MCPTransport {
 			// POST capable of poisoning every later request on this connection.
 			if (message.method === 'initialize') this.captureSessionId(response)
 
-			await this.dispatchResponseMessages(response, operation, owned.generation)
+			await this.dispatchResponseMessages(response, operation, owned.generation, message.id)
 		} finally {
 			// A streamable HTTP send owns one POST; its rejection is delivered to
 			// that caller. It is not evidence that the logical MCP session died.
 			// Raising onError here would let A's failed best-effort cancellation
 			// reject every unrelated pending request B..N on the shared client.
 			operation.close()
+			owned.dispose()
+		}
+	}
+
+	/**
+	 * Modern MCP subscriptions are long-lived POST response streams. The ordinary
+	 * `send` has a request deadline and stops at its terminal reply; a
+	 * subscription may remain open indefinitely. The client owns the initial
+	 * acknowledgment deadline and this stream's abort signal.
+	 */
+	async sendSubscription(
+		message: MCPJsonRpcMessage,
+		options: MCPTransportSendOptions,
+		onMessage?: (message: MCPJsonRpcMessage) => void,
+	): Promise<void> {
+		if (message.method !== 'subscriptions/listen' || message.id === undefined) {
+			throw new Error('sendSubscription requires a subscriptions/listen request')
+		}
+		if (!this.connected) throw new Error('StreamableHttpTransport: not connected')
+		const owned = this.beginSend(options.signal)
+		try {
+			const response = await this.fetchImpl(this.config.url, {
+				method: 'POST',
+				headers: this.buildHeaders(options.headers),
+				body: JSON.stringify(message),
+				redirect: 'manual',
+				signal: owned.controller.signal,
+			})
+			refuseMcpHttpRedirect(response, message.method)
+			if (!response.ok) {
+				throw new MCPHttpStatusError(
+					'StreamableHttpTransport',
+					response.status,
+					response.statusText,
+					await readSubscriptionErrorBody(response, owned.controller.signal, this.timeoutMs),
+				)
+			}
+			const mediaType = (response.headers.get('content-type') ?? '')
+				.split(';', 1)[0]
+				?.trim()
+				.toLowerCase()
+			if (mediaType !== 'text/event-stream' || !response.body) {
+				// A 200 JSON response can be a valid in-band JSON-RPC refusal.
+				// Read it under the same byte and time bounds as a failed HTTP
+				// response, then release its body before retry classification.
+				if (mediaType === 'application/json' && response.body) {
+					throw new MCPSubscriptionResponseError(
+						await readSubscriptionErrorBody(response, owned.controller.signal, this.timeoutMs),
+					)
+				}
+				// Unknown response media types still own a body. Never leave a
+				// held POST open while the client schedules its next attempt.
+				void response.body?.cancel().catch(() => undefined)
+				throw new Error('MCP subscriptions/listen did not return an SSE response stream')
+			}
+
+			const reader = response.body.getReader()
+			const decoder = new TextDecoder()
+			let buffer = ''
+			let previousChunkEndedWithCr = false
+			const cancelReader = (): void => {
+				void reader.cancel().catch(() => undefined)
+			}
+			owned.controller.signal.addEventListener('abort', cancelReader, { once: true })
+			if (owned.controller.signal.aborted) cancelReader()
+			try {
+				while (this.connected && owned.generation === this.generation) {
+					const { done, value } = await reader.read()
+					if (done) break
+					if (
+						!this.connected ||
+						owned.generation !== this.generation ||
+						owned.controller.signal.aborted
+					)
+						break
+					if (value.byteLength > MAX_SSE_CHUNK_BYTES) {
+						throw new Error('MCP subscription SSE chunk exceeds its size limit')
+					}
+					const oldLength = buffer.length
+					let chunk = decoder.decode(value, { stream: true })
+					// SSE permits LF, CRLF, and bare CR. A CRLF split across chunks
+					// still counts as one line break, not an empty line.
+					if (previousChunkEndedWithCr && chunk.startsWith('\n')) chunk = chunk.slice(1)
+					previousChunkEndedWithCr = chunk.endsWith('\r')
+					buffer += chunk.replace(/\r\n|\r/g, '\n')
+					let searchFrom = Math.max(0, oldLength - 1)
+					while (true) {
+						const boundary = findSseEventBoundary(buffer, searchFrom)
+						if (!boundary) break
+						if (boundary.start > MAX_SSE_EVENT_CHARS) {
+							throw new Error('MCP subscription SSE event exceeds its size limit')
+						}
+						const event = buffer.slice(0, boundary.start)
+						buffer = buffer.slice(boundary.end)
+						searchFrom = 0
+						for (const frame of parseSseMessages(event).messages) {
+							if (
+								!this.connected ||
+								owned.generation !== this.generation ||
+								owned.controller.signal.aborted
+							)
+								return
+							if (onMessage) onMessage(frame)
+							else for (const handler of [...this.messageHandlers]) handler(frame)
+						}
+					}
+					if (buffer.length > MAX_SSE_EVENT_CHARS) {
+						throw new Error('MCP subscription SSE event exceeds its size limit')
+					}
+				}
+				// A dangling partial event is not a notification. It cannot be
+				// forwarded as a complete JSON-RPC frame when the stream closes.
+			} finally {
+				owned.controller.signal.removeEventListener('abort', cancelReader)
+				cancelReader()
+				reader.releaseLock()
+			}
+		} finally {
 			owned.dispose()
 		}
 	}
@@ -300,22 +439,119 @@ export class StreamableHttpTransport implements MCPTransport {
 		response: Response,
 		operation: ConnectorHttpOperation,
 		generation: number,
+		requestId: string | number | undefined,
 	): Promise<void> {
+		const contentType = response.headers.get('content-type') ?? ''
+		if (contentType.includes('text/event-stream') && response.body) {
+			await this.dispatchSseResponseMessages(response.body, operation, generation, requestId)
+			return
+		}
 		const text = await operation.run(() => response.text())
 		this.assertCurrent(generation, operation)
 		if (text.trim().length === 0) return
 
-		const contentType = response.headers.get('content-type') ?? ''
 		const messages = contentType.includes('text/event-stream')
 			? this.parseSseAndCaptureEventId(text)
 			: parseJsonMessages(text)
 
 		for (const message of messages) {
+			this.dispatchMessage(message, operation, generation)
+		}
+	}
+
+	private dispatchMessage(
+		message: MCPJsonRpcMessage,
+		operation: ConnectorHttpOperation,
+		generation: number,
+	): void {
+		this.assertCurrent(generation, operation)
+		for (const handler of [...this.messageHandlers]) {
 			this.assertCurrent(generation, operation)
-			for (const handler of [...this.messageHandlers]) {
-				this.assertCurrent(generation, operation)
-				handler(message)
+			handler(message)
+		}
+	}
+
+	/** Dispatch a complete SSE event as it arrives, without waiting for EOF. */
+	private async dispatchSseResponseMessages(
+		body: ReadableStream<Uint8Array>,
+		operation: ConnectorHttpOperation,
+		generation: number,
+		requestId: string | number | undefined,
+	): Promise<void> {
+		const reader = body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+		let previousChunkEndedWithCr = false
+		const dispatchEvent = (event: string): boolean => {
+			if (event.length > MAX_SSE_EVENT_CHARS) {
+				throw new Error('MCP response SSE event exceeds its size limit')
 			}
+			if (sseBatchExceedsMessageLimit(event, MAX_RESPONSE_SSE_MESSAGES_PER_EVENT)) {
+				throw new Error('MCP response SSE event exceeds its message limit')
+			}
+			const parsed = parseSseMessages(event)
+			if (parsed.lastEventId !== undefined) this.lastEventId = parsed.lastEventId
+			if (parsed.messages.length > MAX_RESPONSE_SSE_MESSAGES_PER_EVENT) {
+				throw new Error('MCP response SSE event exceeds its message limit')
+			}
+			for (const message of parsed.messages) {
+				this.dispatchMessage(message, operation, generation)
+				if (
+					requestId !== undefined &&
+					message.id === requestId &&
+					message.method === undefined &&
+					(Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error'))
+				) {
+					// The request is complete even if the peer keeps its SSE body open.
+					return true
+				}
+			}
+			return false
+		}
+		const appendChunk = (decoded: string): boolean => {
+			if (!decoded) return false
+			let chunk = decoded
+			// A CRLF split across reads is one line break; LF, CRLF and bare
+			// CR all delimit SSE lines.
+			if (previousChunkEndedWithCr && chunk.startsWith('\n')) chunk = chunk.slice(1)
+			previousChunkEndedWithCr = chunk.endsWith('\r')
+			buffer += chunk.replace(/\r\n|\r/g, '\n')
+			while (true) {
+				const boundary = findSseEventBoundary(buffer, 0)
+				if (!boundary) break
+				if (boundary.start > MAX_SSE_EVENT_CHARS) {
+					throw new Error('MCP response SSE event exceeds its size limit')
+				}
+				const event = buffer.slice(0, boundary.start)
+				buffer = buffer.slice(boundary.end)
+				if (dispatchEvent(event)) return true
+			}
+			if (buffer.length > MAX_SSE_EVENT_CHARS) {
+				throw new Error('MCP response SSE event exceeds its size limit')
+			}
+			return false
+		}
+		try {
+			while (true) {
+				const { done, value } = await operation.run(() => reader.read())
+				this.assertCurrent(generation, operation)
+				if (done) {
+					if (appendChunk(decoder.decode())) return
+					// Retain the old whole-body reader's acceptance of a final event
+					// without a trailing blank line when the peer actually closes.
+					if (buffer.trim()) dispatchEvent(buffer)
+					return
+				}
+				if (value.byteLength > MAX_SSE_CHUNK_BYTES) {
+					throw new Error('MCP response SSE chunk exceeds its size limit')
+				}
+				if (appendChunk(decoder.decode(value, { stream: true }))) return
+			}
+		} finally {
+			// Cancelling is best effort: a hostile or custom body must not hold
+			// send() open after a terminal reply, timeout, or caller abort.
+			void reader.cancel().catch(() => undefined)
+			reader.releaseLock()
 		}
 	}
 
@@ -331,6 +567,67 @@ export class StreamableHttpTransport implements MCPTransport {
 		const { messages, lastEventId } = parseSseMessages(raw)
 		if (lastEventId !== undefined) this.lastEventId = lastEventId
 		return messages
+	}
+}
+
+/** Count only top-level JSON-array separators, skipping nested values and strings. */
+function sseBatchExceedsMessageLimit(event: string, limit: number): boolean {
+	const data = event
+		.split('\n')
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => line.slice('data:'.length).trimStart())
+		.join('\n')
+		.trimStart()
+	if (!data.startsWith('[')) return false
+	let depth = 0
+	let inString = false
+	let escaped = false
+	let separators = 0
+	for (const character of data) {
+		if (inString) {
+			if (escaped) escaped = false
+			else if (character === '\\') escaped = true
+			else if (character === '"') inString = false
+			continue
+		}
+		if (character === '"') inString = true
+		else if (character === '[' || character === '{') depth++
+		else if (character === ']' || character === '}') depth--
+		else if (character === ',' && depth === 1 && ++separators >= limit) return true
+	}
+	return false
+}
+
+/** Find an SSE blank line after line endings have been normalized to LF. */
+function findSseEventBoundary(
+	value: string,
+	from: number,
+): { start: number; end: number } | undefined {
+	const start = value.indexOf('\n\n', from)
+	return start < 0 ? undefined : { start, end: start + 2 }
+}
+
+/** Keep a rejected listen response useful for diagnosis without buffering an unbounded body. */
+async function readSubscriptionErrorBody(
+	response: Response,
+	signal: AbortSignal,
+	timeoutMs: number,
+): Promise<string> {
+	const operation = new ConnectorHttpOperation(signal, timeoutMs, 'MCP subscription error body')
+	try {
+		const body = await readConnectorResponseBody(
+			response,
+			operation,
+			MAX_SUBSCRIPTION_ERROR_BODY_BYTES,
+		)
+		return typeof body === 'string' ? body : (JSON.stringify(body) ?? '')
+	} catch {
+		// The status is still the answer when a peer sends an unreadable,
+		// oversized, or stalled error body.
+		return ''
+	} finally {
+		operation.close()
+		void response.body?.cancel().catch(() => undefined)
 	}
 }
 

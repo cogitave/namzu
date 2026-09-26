@@ -25,9 +25,11 @@ explain why they cannot run and are checked again when selected.
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
 | `/archive` | Archive this conversation and exit after confirmation. |
+| `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
+| `/worktree` | List or create [managed Git worktrees](worktrees.md), copy this settled conversation into a new checkout, or print how to open one. |
 | `/memory` | Show stored memory (the index and, in its own section, what turns recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
 | `/skills` | Choose a skill to activate for this conversation; `/skills <name>` activates one directly, `/skills list` shows every skill with its tier, what it shadows and why one cannot be used, `/skills new [what it should do]` starts the `skill-creator` interview, which ends on a screen where you choose to save the drafted `SKILL.md` to your user or project skills, or cancel, and `/skills save [name]` does the same for what this conversation just did, generalised and without secrets or tool output. After a multi-step task the TUI proposes `/skills save` in one dim line; `/skills save off` stops that in your user config and `/skills save on` restores it ([Learning from a task](skills.md#learning-from-a-task)). The model is offered skills on its own and loads one with the `skill` tool; see [Skills](skills.md). |
 | `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
@@ -307,6 +309,9 @@ stays selected when it still matches, and current/default markers remain visible
 Arrows, PgUp/PgDn and Home/End move through the filtered results. Enter applies
 the highlighted model; an empty result cannot be applied. Esc retains its
 normal back or cancel behavior, including cancelling a pending selection.
+The count in the model picker names the selected model and the total; arrows
+beside it show when more models are above or below the visible rows. On wider
+terminals, the arrows also show how many models are hidden in each direction.
 
 A row is marked `(free)` when the price its listing carries is zero for both
 input and output. Both, because a free prompt and a paid completion is not a

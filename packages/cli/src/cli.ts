@@ -15,6 +15,7 @@ import { Command, CommanderError, Option } from 'commander'
 import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '@namzu/sdk'
 
 import { acpCommand } from './commands/acp.js'
+import { archiveCommand } from './commands/archive.js'
 import { browserCommand } from './commands/browser.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
@@ -22,6 +23,7 @@ import { evalCommand } from './commands/eval.js'
 import { execCommand } from './commands/exec.js'
 import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
+import { mcpCommand } from './commands/mcp.js'
 import { registerAll } from './commands/registry.js'
 import { residentCommand } from './commands/resident.js'
 import { scheduleCommand } from './commands/schedule.js'
@@ -30,6 +32,7 @@ import { skillsCommand } from './commands/skills.js'
 import { stateCommand } from './commands/state.js'
 import type { CommandContext } from './commands/types.js'
 import { upgradeCommand } from './commands/upgrade.js'
+import { createWorktreeCommand } from './commands/worktree.js'
 import {
 	type ConfigDebugSnapshot,
 	createConfigDebugSnapshot,
@@ -306,6 +309,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			quiet?: boolean
 			verbose?: boolean
 			logFormat?: string
+			profile?: string
 		}>()
 		const format: FormatName = (() => {
 			if (globalOpts.format === undefined) return 'text'
@@ -328,6 +332,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			formatter: createFormatter(format, { quiet }),
 			config: { format, quiet },
 			logging,
+			...(globalOpts.profile ? { selectedProfile: globalOpts.profile } : {}),
 		}
 		return recoveryCtx
 	}
@@ -336,13 +341,24 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// Its turn action resolves this bridge only after trusting the bound cwd.
 	const getResidentContext = () =>
 		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
+	const worktreeCommand = createWorktreeCommand(async (target) => {
+		const previous = process.cwd()
+		try {
+			process.chdir(target.worktree.path)
+			await launchInteractiveTui(target.conversationId)
+		} finally {
+			process.chdir(previous)
+		}
+	})
 	for (const def of [
 		acpCommand,
+		archiveCommand,
 		doctorCommand,
 		execCommand,
 		residentCommand,
 		loginCommand,
 		logoutCommand,
+		mcpCommand,
 		drainCommand,
 		evalCommand,
 		historyCommand,
@@ -354,12 +370,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		stateCommand,
 		scheduleCommand,
 		browserCommand,
+		worktreeCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
 				def === residentCommand
 					? getResidentContext
-					: def === stateCommand
+					: def === stateCommand ||
+							def === worktreeCommand ||
+							def === mcpCommand ||
+							def === archiveCommand
 						? getRecoveryContext
 						: def === acpCommand ||
 								def === execCommand ||

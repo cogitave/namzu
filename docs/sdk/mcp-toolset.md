@@ -47,6 +47,15 @@ These two tools are always wrapped `deferred(...)`, regardless of `options.avail
 
 Whether the server supports resources AT ALL is re-checked on every reconnect, not decided once at construction: a server that gains the capability on a later connection (a restart with a newer build, say) gets the two tools added to the next `tools()` snapshot, and one that loses it has them removed.
 
+## Tool call progress
+
+An MCP tool call requests per-call `notifications/progress` only while its
+executing host has a `ToolContext.report` callback. The adapter forwards
+validated progress to that callback, including a fraction when the server
+supplies a valid total; the CLI renders it through its normal live tool status.
+See [Per-call tool progress](mcp-protocol-eras.md#per-call-tool-progress)
+for token correlation, bounds and cancellation behavior.
+
 ## Change and reconnection
 
 `onChange` fires when a `tools/list_changed`, `prompts/list_changed` or `resources/list_changed` notification arrives from the server — gated on that capability's own `listChanged: true` having been advertised at connect time (or the last reconnect), so a server that never declared it cannot force a re-fetch merely by sending the notification anyway — and after every successful reconnection, since a restarted server is not a notification at all and may have come back with a different tool set, and different capabilities (including whether it supports resources at all — see above), entirely. A refresh that a notification triggers is never left to reject unobserved: a failure is logged through `options.logger` rather than becoming an unhandled promise rejection. `close()` stops the `MCPReconnectSupervisor` this function starts and releases the `onNotification` subscription it registered. `options.reconnect` may be a fixed policy or a function read on every attempt, so a host can adjust retry limits while disconnected. Pass `reconnect: { enabled: false }` for a caller that already runs its own supervisor against the same client, to avoid two supervisors racing to reconnect it.

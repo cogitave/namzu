@@ -20,7 +20,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { realpath } from 'node:fs/promises'
+import { readdir, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -542,21 +542,77 @@ export async function requireWritableConversation(
 }
 
 /**
- * Turn the conversation into a read-only tombstone with `session_updated
- * {archived: true}`. History remains readable, while `/resume`, later turns
- * and forks reject through {@link requireWritableConversation}.
+ * Change the archive flag while holding the session's writer lease. The
+ * earlier scope check prevents a missing log from being created by a lease
+ * claim; the second check is the authoritative one after competing writers
+ * have settled. An open turn, including one parked for a human, is not a
+ * stable boundary to archive. Older versions could archive such a turn; a
+ * restore must be allowed so the owner can resume or abandon it explicitly.
  */
-export async function archiveConversation(s: CliSessions, sessionId: SessionId): Promise<void> {
-	const facts = await requireConversationInScope(s, sessionId, 'archive conversation')
-	if (facts.archived) {
-		throw new Error(`Conversation ${sessionId} is already archived.`)
+async function setConversationArchived(
+	s: CliSessions,
+	sessionId: SessionId,
+	archived: boolean,
+): Promise<void> {
+	const op = archived ? 'archive conversation' : 'restore conversation'
+	await requireConversationInScope(s, sessionId, op)
+	const log = openConversationLog(s, sessionId)
+	const lease = await claimLease(log, op)
+	let changed = false
+	try {
+		const facts = await requireConversationInScope(s, sessionId, op)
+		if (facts.archived === archived) {
+			throw new Error(`Conversation ${sessionId} is already ${archived ? 'archived' : 'active'}.`)
+		}
+		if (archived && facts.activeTurn) {
+			throw new Error(
+				`Conversation ${sessionId} has an open turn — ${op} rejected. Resume or abandon that turn first.`,
+			)
+		}
+		await log.append(lease, { type: 'session_updated', archived })
+		changed = true
+	} finally {
+		await log.release(lease)
 	}
-	await appendOutsideTurn(
-		s,
-		sessionId,
-		[{ type: 'session_updated', archived: true }],
-		'archive conversation',
-	)
+	if (changed) {
+		try {
+			await refreshIndex(s, sessionId)
+		} catch (refreshCause) {
+			// The append is already durable. A full sync can repair a failed
+			// incremental refresh without telling the operator the transition did
+			// not happen. If even that fails, name the actual durable state.
+			try {
+				await s.index.sync(s.root)
+			} catch (syncCause) {
+				throw new ConversationIndexRefreshError(sessionId, archived, refreshCause, syncCause)
+			}
+		}
+	}
+}
+
+/** The log changed durably, but the rebuildable listing index could not catch up. */
+export class ConversationIndexRefreshError extends Error {
+	constructor(
+		readonly sessionId: SessionId,
+		readonly archived: boolean,
+		readonly refreshCause: unknown,
+		readonly syncCause: unknown,
+	) {
+		super(
+			`Conversation ${sessionId} was ${archived ? 'archived' : 'restored'} in its durable log, but the list index could not refresh. Restart Namzu to rebuild the list, then inspect its state.`,
+		)
+		this.name = 'ConversationIndexRefreshError'
+	}
+}
+
+/** Make a settled conversation read-only while preserving its log. */
+export async function archiveConversation(s: CliSessions, sessionId: SessionId): Promise<void> {
+	await setConversationArchived(s, sessionId, true)
+}
+
+/** Restore one archived conversation so the ordinary resume gate admits it. */
+export async function unarchiveConversation(s: CliSessions, sessionId: SessionId): Promise<void> {
+	await setConversationArchived(s, sessionId, false)
 }
 
 /** Load a conversation's folded message history. */
@@ -594,21 +650,95 @@ export async function activeConversationTurn(
 
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
-	const rows = await s.index.listSessions({ slug: s.slug, rootsOnly: true, includeArchived: false })
+	return listConversations(s, false, limit)
+}
+
+/** Archived root conversations in this project, newest first. Empty ones remain discoverable. */
+export async function listArchived(
+	s: CliSessions,
+	limit = 100,
+	offset = 0,
+): Promise<RecentConversation[]> {
+	await refreshProjectArchiveIndex(s)
+	return listConversations(s, true, limit, offset)
+}
+
+/**
+ * The scan backend is a per-process snapshot. Another CLI process may have
+ * archived a conversation after this handle opened; querying its old rows
+ * alone would claim there are no archives. Refresh only root logs in the
+ * selected project, and coalesce overlapping picker/list requests against
+ * this index. Unchanged logs cost a head check, not another full fold.
+ */
+const archiveListingRefreshes = new WeakMap<SessionIndex, Promise<void>>()
+
+async function refreshProjectArchiveIndex(s: CliSessions): Promise<void> {
+	if (s.index.backend !== 'scan') return
+	let pending = archiveListingRefreshes.get(s.index)
+	if (!pending) {
+		pending = (async () => {
+			const entries = await readdir(s.paths.projectDir(), { withFileTypes: true })
+			for (const entry of entries) {
+				if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
+				const rawId = entry.name.slice(0, -'.jsonl'.length)
+				if (!isEntityId(rawId, 'session')) continue
+				const sessionId = asSessionId(rawId)
+				await s.index.refresh({
+					slug: s.slug,
+					logPath: conversationLogPath(s, sessionId),
+					sessionId,
+				})
+			}
+		})().finally(() => {
+			archiveListingRefreshes.delete(s.index)
+		})
+		archiveListingRefreshes.set(s.index, pending)
+	}
+	await pending
+}
+
+async function listConversations(
+	s: CliSessions,
+	archived: boolean,
+	limit: number,
+	offset = 0,
+): Promise<RecentConversation[]> {
+	const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.min(Math.floor(limit), 100)) : 100
+	const boundedOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0
+	if (boundedLimit === 0) return []
+	// The index is rebuilt from logs on open and refreshed on every transition.
+	// Filter there before reading a full log: an installation with thousands of
+	// archived conversations must not fold them all to draw /resume. Recheck
+	// each candidate's actual log and owner before exposing it.
+	const rows = (
+		await s.index.listSessions({
+			slug: s.slug,
+			rootsOnly: true,
+			includeArchived: archived,
+		})
+	)
+		.filter((row) => row.projectId === s.projectId && row.archived === archived)
+		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+		.slice(boundedOffset, boundedOffset + Math.max(100, boundedLimit * 5))
 	const out: RecentConversation[] = []
 	for (const row of rows) {
-		if (row.projectId !== s.projectId || row.archived) continue
 		let facts: ConversationFacts | null
 		let messages: Message[]
 		try {
 			facts = await readConversationFacts(s, row.id, 'tolerant')
-			if (!facts || facts.archived || facts.started.projectId !== s.projectId) continue
+			if (
+				!facts ||
+				facts.archived !== archived ||
+				facts.started.projectId !== s.projectId ||
+				(facts.started.tenantId !== undefined && facts.started.tenantId !== s.tenantId)
+			)
+				continue
 			messages = await foldConversation(s, row.id, facts.records)
 		} catch {
 			// A log this process cannot read is not a row a person can resume.
 			continue
 		}
-		if (messages.length === 0) continue
+		if (!archived && messages.length === 0) continue
 		const everything = recordedMessages(facts.records)
 		out.push({
 			id: row.id,
@@ -631,8 +761,9 @@ export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConv
 			updatedAt: facts.updatedAt,
 			count: messages.length,
 		})
+		if (out.length >= boundedLimit) break
 	}
-	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit)
+	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 /** The name a person gave this conversation, or `undefined`. */
@@ -722,7 +853,35 @@ export async function forkConversation(
 		// that shows up in `/resume` forever and answers no question.
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
-	const { id, title } = await writeFork(s, sourceId, messages, messages)
+	const { id, title } = await writeFork(s, s, sourceId, messages, messages)
+	return { id, title, copied: messages.length }
+}
+
+/**
+ * Copy a settled conversation into another checkout's Project under the same
+ * Namzu installation. A managed worktree is a distinct Project, so a normal
+ * same-Project fork cannot be resumed there.
+ */
+export async function forkConversationInto(
+	source: CliSessions,
+	target: CliSessions,
+	sourceId: SessionId,
+): Promise<{ id: SessionId; title: string; copied: number }> {
+	if (source.root !== target.root || source.tenantId !== target.tenantId) {
+		throw new Error('A conversation can only be forked within the same Namzu installation.')
+	}
+	const facts = await requireConversationInScope(source, sourceId, 'fork conversation to worktree')
+	if (facts.archived) {
+		throw new Error(`Conversation ${sourceId} is archived and cannot be forked.`)
+	}
+	if (facts.activeTurn) {
+		throw new Error('Wait for the current turn to finish before forking to a worktree.')
+	}
+	const messages = await loadConversation(source, sourceId)
+	if (messages.length === 0) {
+		throw new Error('There is nothing to fork yet — this conversation has no messages.')
+	}
+	const { id, title } = await writeFork(source, target, sourceId, messages, messages)
 	return { id, title, copied: messages.length }
 }
 
@@ -801,30 +960,31 @@ export async function forkConversationBeforeUser(
 	}
 
 	const prefix = messages.slice(0, messageIndex)
-	const { id, title } = await writeFork(s, sourceId, messages, prefix)
+	const { id, title } = await writeFork(s, s, sourceId, messages, prefix)
 	return { id, title, messages: prefix, selected }
 }
 
 /** Create, seed and name one fork after every boundary decision has been validated. */
 async function writeFork(
-	s: CliSessions,
+	sourceStore: CliSessions,
+	targetStore: CliSessions,
 	sourceId: SessionId,
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
 ): Promise<{ id: SessionId; title: string }> {
-	const sourceFacts = await readConversationFacts(s, sourceId, 'tolerant')
+	const sourceFacts = await readConversationFacts(sourceStore, sourceId, 'tolerant')
 	const source =
 		sourceFacts?.title !== undefined && sourceFacts.title.length > 0
 			? sourceFacts.title
 			: conversationTitle(sourceFacts ? recordedMessages(sourceFacts.records) : sourceMessages)
-	const id = await startConversation(s)
-	await seedConversationHistory(s, id, copiedMessages)
-	const copiedBack = await loadConversation(s, id)
+	const id = await startConversation(targetStore)
+	await seedConversationHistory(targetStore, id, copiedMessages)
+	const copiedBack = await loadConversation(targetStore, id)
 	if (!sameMessageSequence(copiedBack, copiedMessages)) {
 		throw new Error(`The forked conversation did not preserve its exact copied history (${id}).`)
 	}
-	const title = nextForkName(await takenTitles(s), source)
-	await setTitle(s, id, title)
+	const title = nextForkName(await takenTitles(targetStore), source)
+	await setTitle(targetStore, id, title)
 	return { id, title }
 }
 

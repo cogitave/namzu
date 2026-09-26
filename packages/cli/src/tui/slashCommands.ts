@@ -93,6 +93,8 @@ export type SlashAction =
 	| { kind: 'new-conversation'; clearScreen: boolean }
 	/** Confirm before making the current durable conversation read-only and exiting. */
 	| { kind: 'archive-picker' }
+	/** Inspect this project's archived conversations and restore one. */
+	| { kind: 'unarchive' }
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
 	| { kind: 'permission-mode'; mode: PermissionMode }
@@ -137,6 +139,8 @@ export type SlashAction =
 	/** `/skills save off|on`: stop or resume proposing skills after a task. */
 	| { kind: 'skill-suggestions'; on: boolean }
 	| { kind: 'resume' }
+	/** Manage separate Git checkouts; a new checkout opens in a fresh TUI launch. */
+	| { kind: 'worktree'; args: readonly string[] }
 	/**
 	 * Close this conversation's paused or interrupted turn without resuming it,
 	 * so the next prompt can begin one. `reason` is recorded on the turn.
@@ -236,7 +240,7 @@ export type SlashAction =
 	 * `isCompletionArgument`) so App never has to parse an argument.
 	 */
 	| { kind: 'login'; pasted?: string }
-	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'all' }
+	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' }
 	| { kind: 'none' }
 
 /** What `/context` reads: the strategy the session runs and what its passes have done so far. */
@@ -918,6 +922,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'archive-picker' }),
 	},
 	{
+		name: 'unarchive',
+		description: 'Restore an archived conversation in this project.',
+		action: () => ({ kind: 'unarchive' }),
+	},
+	{
 		name: 'exit',
 		description: 'Exit namzu.',
 		action: () => ({ kind: 'exit' }),
@@ -933,6 +942,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fork',
 		description: 'Continue in a copy of this conversation, leaving the original where it is.',
 		action: () => ({ kind: 'fork' }),
+	},
+	{
+		name: 'worktree',
+		help: { usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'] },
+		description: 'List or create separate Git checkouts; fork this conversation into one.',
+		action: (_ctx, args) => ({ kind: 'worktree', args }),
 	},
 	{
 		name: 'add-dir',
@@ -1159,8 +1174,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
-		help: { usage: ['/logout [claude|codex|all]'] },
-		description: 'Remove a Namzu-owned subscription credential: /logout [claude|codex|all].',
+		help: { usage: ['/logout [claude|codex|gemini|all]'] },
+		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|all].',
 		action: (_ctx, args) => {
 			const target = args.join(' ').trim().toLowerCase()
 			if (target.length === 0) return { kind: 'logout' }
@@ -1168,11 +1183,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return { kind: 'logout', target: 'anthropic' }
 			}
 			if (target === 'codex' || target === 'chatgpt') return { kind: 'logout', target: 'codex' }
+			if (target === 'gemini' || target === 'google') return { kind: 'logout', target: 'google' }
 			if (target === 'all') return { kind: 'logout', target: 'all' }
 			return {
 				kind: 'message',
 				role: 'system',
-				content: 'Usage: /logout [claude|codex|all]',
+				content: 'Usage: /logout [claude|codex|gemini|all]',
 			}
 		},
 	},

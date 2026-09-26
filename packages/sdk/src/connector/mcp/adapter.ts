@@ -546,6 +546,21 @@ export function mcpToolToToolDefinition(
 			try {
 				const result = await client.callTool(tool.name, input as Record<string, unknown>, {
 					signal: context.abortSignal,
+					...(context.report
+						? {
+								onProgress: (update) => {
+									const fraction =
+										update.total === undefined
+											? undefined
+											: Math.min(1, update.progress / update.total)
+									context.report?.(
+										update.message ??
+											`MCP tool: ${update.progress}${update.total === undefined ? '' : `/${update.total}`}`,
+										fraction,
+									)
+								},
+							}
+						: {}),
 				})
 				return frameServerResult(mcpToolResultToToolResult(result), serverName, tool.name)
 			} catch (error) {
