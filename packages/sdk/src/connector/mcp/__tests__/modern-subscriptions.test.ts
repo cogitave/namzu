@@ -252,6 +252,135 @@ describe('modern MCP subscriptions/listen', () => {
 		await client.disconnect()
 	})
 
+	it.each([
+		{ status: 400, errorCode: -32602 },
+		{ status: 404, errorCode: -32601 },
+		{ status: 405, errorCode: undefined },
+	])(
+		'stops retrying a permanently rejected listen request ($status)',
+		async ({ status, errorCode }) => {
+			vi.useFakeTimers()
+			let listens = 0
+			const fetcher: MCPFetchLike = async (_url, init) => {
+				const message = JSON.parse(init?.body ?? '{}') as MCPJsonRpcMessage
+				if (message.method === 'server/discover')
+					return response({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: {
+							supportedVersions: ['2026-07-28'],
+							capabilities: { tools: { listChanged: true } },
+						},
+					})
+				if (message.method !== 'subscriptions/listen')
+					throw new Error(`Unexpected method ${message.method}`)
+				listens++
+				return new Response(
+					errorCode === undefined
+						? 'method unavailable'
+						: JSON.stringify({
+								jsonrpc: '2.0',
+								id: message.id,
+								error: { code: errorCode, message: 'Method not found' },
+							}),
+					{
+						status,
+						headers: {
+							'content-type': errorCode === undefined ? 'text/plain' : 'application/json',
+						},
+					},
+				)
+			}
+			const client = new MCPClient({
+				serverName: 'fixture',
+				transport: { type: 'streamable_http', url: 'https://mcp.example.test/mcp', fetch: fetcher },
+				eraCache: createMcpEraCache(),
+			})
+			await client.connect()
+			await vi.advanceTimersByTimeAsync(120_000)
+			expect(listens).toBe(1)
+			await client.disconnect()
+		},
+	)
+
+	it.each([401, 429, 503])(
+		'retries a potentially transient HTTP %i listen failure',
+		async (status) => {
+			vi.useFakeTimers()
+			let listens = 0
+			const fetcher: MCPFetchLike = async (_url, init) => {
+				const message = JSON.parse(init?.body ?? '{}') as MCPJsonRpcMessage
+				if (message.method === 'server/discover')
+					return response({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: {
+							supportedVersions: ['2026-07-28'],
+							capabilities: { tools: { listChanged: true } },
+						},
+					})
+				if (message.method !== 'subscriptions/listen')
+					throw new Error(`Unexpected method ${message.method}`)
+				listens++
+				return new Response('try again later', { status })
+			}
+			const client = new MCPClient({
+				serverName: 'fixture',
+				transport: { type: 'streamable_http', url: 'https://mcp.example.test/mcp', fetch: fetcher },
+				eraCache: createMcpEraCache(),
+			})
+			await client.connect()
+			await vi.advanceTimersByTimeAsync(1_000)
+			expect(listens).toBe(2)
+			await client.disconnect()
+		},
+	)
+
+	it('preserves a bounded JSON-RPC error body on rejected listen requests', async () => {
+		let oversized = false
+		const fetcher: MCPFetchLike = async (_url, init) => {
+			const message = JSON.parse(init?.body ?? '{}') as MCPJsonRpcMessage
+			return new Response(
+				oversized
+					? 'x'.repeat(65_537)
+					: JSON.stringify({
+							jsonrpc: '2.0',
+							id: message.id,
+							error: { code: -32601, message: 'Method not found' },
+						}),
+				{ status: 404, headers: { 'content-type': 'application/json' } },
+			)
+		}
+		const transport = new StreamableHttpTransport({
+			type: 'streamable_http',
+			url: 'https://mcp.example.test/mcp',
+			fetch: fetcher,
+		})
+		await transport.connect()
+		await expect(
+			transport.sendSubscription(
+				{
+					jsonrpc: '2.0',
+					id: 17,
+					method: 'subscriptions/listen',
+					params: { notifications: { toolsListChanged: true } },
+				},
+				{ signal: new AbortController().signal },
+			),
+		).rejects.toMatchObject({
+			status: 404,
+			bodyText: expect.stringContaining('"code":-32601'),
+		})
+		oversized = true
+		await expect(
+			transport.sendSubscription(
+				{ jsonrpc: '2.0', id: 18, method: 'subscriptions/listen' },
+				{ signal: new AbortController().signal },
+			),
+		).rejects.toMatchObject({ status: 404, bodyText: '' })
+		await transport.close()
+	})
+
 	it('bounds an incomplete subscription event rather than buffering without limit', async () => {
 		const fetcher: MCPFetchLike = async () =>
 			new Response(

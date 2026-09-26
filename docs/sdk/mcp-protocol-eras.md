@@ -270,11 +270,16 @@ missed while a stream was closed.
 
 The initial acknowledgment has the normal request timeout. The stream
 itself has no fixed lifetime timeout; each SSE event is limited to 1 MiB of
-decoded text and each incoming chunk to 8 MiB. An unexpected close or
-failed acknowledgment retries with a new request ID after bounded
-exponential backoff (1–30 seconds). A graceful `subscriptions/listen` result
-ends the subscription, and `disconnect()` aborts its stream. On stdio,
-cancelling an active subscription also sends a best-effort cancellation.
+decoded text and each incoming chunk to 8 MiB. An unexpected close,
+missing acknowledgment, rate limit or server failure retries with a new
+request ID after bounded exponential backoff (1–30 seconds). A rejected
+listen request that cannot heal by repeating it — such as HTTP 404 with
+JSON-RPC `-32601` (method not found), or another non-retryable HTTP 4xx —
+stops the subscription and warns the host; a new `connect()` can try again.
+Failed HTTP response bodies are read under a 64 KiB limit. A graceful
+`subscriptions/listen` result also ends the subscription, and `disconnect()`
+aborts its stream. On stdio, cancelling an active subscription sends a
+best-effort cancellation.
 
 ## Mirroring tool parameters into headers: `x-mcp-header`
 

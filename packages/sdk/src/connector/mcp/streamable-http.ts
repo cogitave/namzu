@@ -7,7 +7,11 @@ import type {
 } from '../../types/connector/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+import {
+	ConnectorHttpOperation,
+	readConnectorResponseBody,
+	validateConnectorTimeoutMs,
+} from '../http-operation.js'
 import { MCPHttpStatusError } from './errors.js'
 import { refuseMcpHttpRedirect } from './http-redirect.js'
 
@@ -24,6 +28,7 @@ const SESSION_DELETE_TIMEOUT_MS = 5_000
 /** A subscription may live for hours; bound each event rather than its lifetime. */
 const MAX_SUBSCRIPTION_EVENT_CHARS = 1_048_576
 const MAX_SUBSCRIPTION_CHUNK_BYTES = 8_388_608
+const MAX_SUBSCRIPTION_ERROR_BODY_BYTES = 65_536
 
 export class StreamableHttpTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
@@ -246,7 +251,7 @@ export class StreamableHttpTransport implements MCPTransport {
 					'StreamableHttpTransport',
 					response.status,
 					response.statusText,
-					'',
+					await readSubscriptionErrorBody(response, owned.controller.signal, this.timeoutMs),
 				)
 			}
 			const mediaType = (response.headers.get('content-type') ?? '')
@@ -451,6 +456,30 @@ function findSseEventBoundary(
 ): { start: number; end: number } | undefined {
 	const start = value.indexOf('\n\n', from)
 	return start < 0 ? undefined : { start, end: start + 2 }
+}
+
+/** Keep a rejected listen response useful for diagnosis without buffering an unbounded body. */
+async function readSubscriptionErrorBody(
+	response: Response,
+	signal: AbortSignal,
+	timeoutMs: number,
+): Promise<string> {
+	const operation = new ConnectorHttpOperation(signal, timeoutMs, 'MCP subscription error body')
+	try {
+		const body = await readConnectorResponseBody(
+			response,
+			operation,
+			MAX_SUBSCRIPTION_ERROR_BODY_BYTES,
+		)
+		return typeof body === 'string' ? body : (JSON.stringify(body) ?? '')
+	} catch {
+		// The status is still the answer when a peer sends an unreadable,
+		// oversized, or stalled error body.
+		return ''
+	} finally {
+		operation.close()
+		void response.body?.cancel().catch(() => undefined)
+	}
 }
 
 /**

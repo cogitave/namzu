@@ -2,6 +2,7 @@
 
 ## 2026-09-26
 
+- **Fix** [MCP protocol eras](sdk/mcp-protocol-eras.md): a permanent HTTP rejection of modern `subscriptions/listen` stops retries and warns until reconnect, while rate limits and server failures still retry; rejected response bodies are read with a size and time bound. `.changeset/mcp-subscription-permanent-rejection.md`, **patch** for `@namzu/sdk`.
 - **Update** [Tool servers](cli/mcp-servers.md): `namzu mcp list|get|add|remove` manages user-owned server entries in the YAML config, accepts environment-backed Bearer headers and existing names outside the new-name policy, refuses credential-bearing HTTP queries, and redacts values in text and structured output. `.changeset/cli-mcp-management.md`, **minor** for `@namzu/cli`.
 - **Update** [Managed Git worktrees](cli/worktrees.md): `namzu worktree create|list|fork|resume` and `/worktree` create separate checkouts at the selected checkout's committed HEAD, copy settled conversations into the new checkout's Project, and reopen only managed worktrees. Dirty source files stay in place; Namzu does not automatically remove a worktree. `.changeset/managed-cli-worktrees.md`, **minor** for `@namzu/cli`.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): modern connections subscribe to advertised tool, prompt, and resource catalogue changes through bounded `subscriptions/listen` streams; acknowledged notifications refresh live MCP toolsets, with ID and filter validation, cancellation, and retry. `.changeset/modern-mcp-subscriptions.md`, **minor** for `@namzu/sdk`.

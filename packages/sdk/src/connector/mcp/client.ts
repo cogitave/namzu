@@ -72,6 +72,8 @@ const MAX_LIST_PAGES = 100
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
 const SUBSCRIPTION_RETRY_MAX_MS = 30_000
+/** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
+const RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES = new Set([401, 403, 408, 409, 425, 429])
 
 type ListChangeFilter = {
 	toolsListChanged?: true
@@ -115,6 +117,29 @@ function acknowledgedFilter(
 		if (entry === true) (acknowledged as Record<string, true>)[key] = true
 	}
 	return acknowledged
+}
+
+/** A rejected listen request with the same inputs cannot heal by repeating it. */
+function isPermanentSubscriptionFailure(error: unknown, requestId: number): boolean {
+	if (!(error instanceof MCPHttpStatusError)) return false
+	try {
+		const reply = JSON.parse(error.bodyText) as MCPJsonRpcMessage
+		if (
+			reply?.jsonrpc === '2.0' &&
+			reply.id === requestId &&
+			reply.method === undefined &&
+			reply.error?.code === JSON_RPC_METHOD_NOT_FOUND
+		) {
+			return true
+		}
+	} catch {
+		// HTTP status still determines the retry policy for a non-JSON body.
+	}
+	return (
+		error.status >= 400 &&
+		error.status < 500 &&
+		!RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES.has(error.status)
+	)
 }
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
@@ -655,13 +680,25 @@ export class MCPClient {
 				},
 				(err: unknown) => {
 					if (!controller.signal.aborted) {
-						this.finishModernSubscription(subscription, toErrorMessage(err), true)
+						this.failModernSubscription(subscription, err)
 					}
 				},
 			)
 		} catch (err) {
-			this.finishModernSubscription(subscription, toErrorMessage(err), true)
+			this.failModernSubscription(subscription, err)
 		}
+	}
+
+	private failModernSubscription(subscription: ModernSubscription, error: unknown): void {
+		if (this.modernSubscription !== subscription) return
+		const retry = !isPermanentSubscriptionFailure(error, subscription.id)
+		if (!retry) {
+			this.log.warn('Modern MCP subscription rejected; live updates stopped until reconnection', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.reason': toErrorMessage(error),
+			})
+		}
+		this.finishModernSubscription(subscription, toErrorMessage(error), true, retry)
 	}
 
 	/** Stop one subscription, and retry with a bounded delay while connected. */
@@ -1509,6 +1546,12 @@ export class MCPClient {
 		if (this.era?.kind !== 'modern') return false
 		const subscription = this.modernSubscription
 		if (subscription && message.id === subscription.id) {
+			if (message.error?.code === JSON_RPC_METHOD_NOT_FOUND) {
+				this.log.warn('Modern MCP subscription rejected; live updates stopped until reconnection', {
+					'namzu.connector.server': this.config.serverName,
+					'namzu.connector.reason': `MCP error ${message.error.code}: ${message.error.message}`,
+				})
+			}
 			this.finishModernSubscription(
 				subscription,
 				message.error
