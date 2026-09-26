@@ -309,6 +309,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			quiet?: boolean
 			verbose?: boolean
 			logFormat?: string
+			profile?: string
 		}>()
 		const format: FormatName = (() => {
 			if (globalOpts.format === undefined) return 'text'
@@ -331,6 +332,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			formatter: createFormatter(format, { quiet }),
 			config: { format, quiet },
 			logging,
+			...(globalOpts.profile ? { selectedProfile: globalOpts.profile } : {}),
 		}
 		return recoveryCtx
 	}

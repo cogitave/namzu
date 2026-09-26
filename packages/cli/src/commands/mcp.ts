@@ -1,6 +1,8 @@
+import { loadConfig } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
-import { EXIT_BAD_CONFIG, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
-import type { McpServerSpec } from '../integrations/mcp/servers.js'
+import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
+import { clearMcpOAuthCredentials } from '../integrations/mcp/oauth-store.js'
+import { type McpServerSpec, transportFor } from '../integrations/mcp/servers.js'
 import {
 	addUserMcpServer,
 	isUserMcpName,
@@ -9,10 +11,11 @@ import {
 	summarizeUserMcpServer,
 } from '../integrations/mcp/user-config.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { loginMcpServer } from './mcp-oauth-login.js'
 import type { CommandDef } from './types.js'
 
 const HELP = [
-	'Usage: namzu mcp <list|get|add|remove> [arguments]',
+	'Usage: namzu mcp <list|get|add|remove|login|logout> [arguments]',
 	'',
 	'Manage tool servers in your user config (~/.namzu/config.yaml).',
 	'Project and managed config can override these entries.',
@@ -22,6 +25,8 @@ const HELP = [
 	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
+	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
+	'  namzu mcp logout <name>',
 	'',
 	'Use --format json for structured output. Values of headers, environment',
 	'variables and command arguments are hidden in list/get output.',
@@ -31,6 +36,13 @@ type McpAction =
 	| { readonly kind: 'list' }
 	| { readonly kind: 'get' | 'remove'; readonly name: string }
 	| { readonly kind: 'add'; readonly name: string; readonly spec: McpServerSpec }
+	| {
+			readonly kind: 'login'
+			readonly name: string
+			readonly noBrowser: boolean
+			readonly timeoutMs: number
+	  }
+	| { readonly kind: 'logout'; readonly name: string }
 	| { readonly kind: 'error'; readonly message: string }
 
 export const mcpCommand: CommandDef = {
@@ -43,6 +55,60 @@ export const mcpCommand: CommandDef = {
 		if (action.kind === 'error') {
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
+		}
+		if (action.kind === 'login' || action.kind === 'logout') {
+			try {
+				// `mcp` uses a recovery context so list/add/remove can repair a
+				// broken config. Login and logout need the effective server entry,
+				// including a project/profile override, so load it only here.
+				const spec = loadConfig({ profile: ctx.selectedProfile }).mcpServers?.[action.name]
+				if (!spec || !spec.url || spec.command) {
+					ctx.formatter.error({
+						message: `MCP server "${oneLine(action.name)}" must be a configured HTTP server to use OAuth.`,
+					})
+					return EXIT_USAGE
+				}
+				if (action.kind === 'logout') {
+					const removed = clearMcpOAuthCredentials(spec.url)
+					ctx.formatter.print({
+						name: action.name,
+						removed,
+						text: removed
+							? `Removed saved MCP sign-in for ${oneLine(action.name)}.`
+							: `No saved MCP sign-in for ${oneLine(action.name)}.`,
+					})
+					return EXIT_OK
+				}
+				const resolved = transportFor(spec, process.cwd())
+				if (typeof resolved === 'string' || resolved.type !== 'streamable-http') {
+					ctx.formatter.error({
+						message: `MCP server "${oneLine(action.name)}" cannot start OAuth: ${typeof resolved === 'string' ? oneLine(resolved) : 'it is not an HTTP server'}.`,
+					})
+					return EXIT_BAD_CONFIG
+				}
+				if (
+					Object.keys(resolved.headers ?? {}).some((key) => key.toLowerCase() === 'authorization')
+				) {
+					ctx.formatter.error({
+						message: `MCP server "${oneLine(action.name)}" already has an Authorization header. Remove that header before OAuth sign-in.`,
+					})
+					return EXIT_BAD_CONFIG
+				}
+				await loginMcpServer({
+					name: action.name,
+					endpoint: resolved.url,
+					...(resolved.headers ? { headers: resolved.headers } : {}),
+					noBrowser: action.noBrowser,
+					timeoutMs: action.timeoutMs,
+					print: (value) => ctx.formatter.print(value),
+				})
+				return EXIT_OK
+			} catch (error) {
+				ctx.formatter.error({
+					message: error instanceof Error ? oneLine(error.message) : 'MCP sign-in failed.',
+				})
+				return EXIT_FAIL
+			}
 		}
 		try {
 			const entries = readUserMcpServers()
@@ -124,6 +190,31 @@ export const mcpCommand: CommandDef = {
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
+	if (verb === 'logout' && args.length === 2 && name && !name.startsWith('-')) {
+		return { kind: 'logout', name }
+	}
+	if (verb === 'login' && name && !name.startsWith('-')) {
+		let noBrowser = false
+		let timeoutMs = 300_000
+		for (let index = 2; index < args.length; index++) {
+			const arg = args[index]
+			if (arg === '--no-browser' && !noBrowser) {
+				noBrowser = true
+				continue
+			}
+			if (arg === '--timeout') {
+				const value = args[++index]
+				const seconds = Number(value)
+				if (!value || !Number.isFinite(seconds) || seconds <= 0 || seconds > 3600) {
+					return { kind: 'error', message: '--timeout requires seconds between 0 and 3600.' }
+				}
+				timeoutMs = seconds * 1000
+				continue
+			}
+			return { kind: 'error', message: `Unknown mcp login option: ${oneLine(arg ?? '')}` }
+		}
+		return { kind: 'login', name, noBrowser, timeoutMs }
+	}
 	if ((verb === 'get' || verb === 'remove') && args.length === 2 && name !== undefined) {
 		return { kind: verb, name }
 	}
@@ -131,7 +222,7 @@ function parseMcpAction(args: readonly string[]): McpAction {
 		return {
 			kind: 'error',
 			message:
-				'Usage: namzu mcp <list|get|add|remove>; server names must start with a letter and use only letters, digits, _ or -.',
+				'Usage: namzu mcp <list|get|add|remove|login|logout>; new server names must start with a letter and use only letters, digits, _ or -.',
 		}
 	}
 	let url: string | undefined

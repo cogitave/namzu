@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-27
+
+- **Update** [Tool servers](cli/mcp-servers.md#sign-in-to-an-http-server) and [CLI peer audit](cli/competitive-gaps.md): `namzu mcp login|logout` now signs in configured HTTP servers with the official MCP OAuth client, private exact-URL credentials, a one-time callback state and issuer check, and unattended token reuse or refresh. `.changeset/cli-mcp-oauth.md`, **minor** for `@namzu/cli`.
+
 ## 2026-09-26
 
 - **Fix** [MCP protocol eras](sdk/mcp-protocol-eras.md): HTTP 200 JSON subscription refusals now release their bounded response bodies, stop retrying a matching method-not-found result, and continue retrying capacity errors. `.changeset/mcp-subscription-permanent-rejection.md`, **patch** for `@namzu/sdk`.

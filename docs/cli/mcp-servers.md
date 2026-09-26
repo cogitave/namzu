@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Tool servers
-description: The mcpServers config key — how the CLI declares an external MCP tool server by command or by URL, what environment the child gets, how long each server has to connect, and what happens when one does not.
+description: Configure, connect, and authorize external MCP tool servers by command or URL.
 resource: packages/cli/src/integrations/mcp/servers.ts
 tags: [cli, config, mcp, tools]
 status: stable
@@ -16,9 +16,17 @@ An external tool server is declared under `mcpServers` in `namzu.config.json`, o
 
 `namzu mcp list` and `namzu mcp get <name>` show servers saved in `~/.namzu/config.yaml`. `namzu mcp add <name> --url <url>` saves an HTTP server; `namzu mcp add <name> -- <command> [arguments...]` saves a local command. `namzu mcp remove <name>` removes only that user entry. The command preserves unrelated YAML settings and refuses to replace an existing server. New names start with a letter and use letters, digits, underscores or hyphens, up to 64 characters. `get` and `remove` also accept an exact existing name outside that rule, such as `github.com`.
 
+### Sign in to an HTTP server
+
+Run `namzu mcp login <name>` to authorize a configured HTTP server. This command resolves the active server entry, including project, profile, and managed overrides. It opens the authorization page in a browser and waits for a callback on a temporary loopback port. Use `--no-browser` to print the page URL without opening it; after authorization, paste the complete callback URL into the terminal if the browser cannot reach that loopback port. `--timeout <seconds>` changes the five-minute wait, up to one hour. The page URL is shown even when a browser launch was attempted, so a headless or remote terminal can complete the same flow.
+
+Namzu checks the callback's one-time state before exchanging its code, and the MCP client checks the authorization server's issuer and uses PKCE. Bearer and refresh tokens, client registration, and pending callback state are stored in private files under `~/.namzu/mcp-oauth/`, keyed by the **complete configured server URL**. A token for one path or query is not reused for another URL on the same host. `namzu mcp logout <name>` removes the saved credential for the server URL currently selected by config. These two commands do not edit the server declaration. An HTTP server with a configured `Authorization` header already has an explicit credential; remove that header before OAuth login. Stdio servers do not use this flow.
+
+Ordinary tool calls attach or refresh a previously saved credential without opening a browser. If a new browser authorization is needed, the server fails with a reason directing you to `namzu mcp login <name>`; an HTTP 401 or 403 does not trigger a legacy protocol handshake. A configured `Authorization` header takes precedence over any saved OAuth credential. Keep `~/.namzu` private: the OAuth files contain reusable secrets. Changing a server URL does not transfer its old credential; sign in again for the new URL.
+
 For a local command, repeat `--env VARIABLE` before `--` to pass only that named variable to the server. For HTTP, repeat `--header 'Authorization=Bearer ${VARIABLE}'` or `--header 'X-API-Key=${VARIABLE}'` to read a header value from the operator's environment when the server connects; quote it so the shell passes the reference to Namzu. Literal header values are refused by this command so secrets do not get written into the config file. Credentialed headers and URL queries require HTTPS, except for a loopback endpoint. URL queries are still saved as written in `config.yaml`; every user-config write replaces that file with owner-only permissions, including when it previously had broader permissions. `list` and `get` show only an HTTP server's origin, omitting its path, query and fragment because tokenized endpoint paths may contain secrets. They also hide header values, environment values and command arguments; `--format json` gives the same redacted fields as structured output.
 
-These commands manage the **user** file. A project's `namzu.config.json`, selected profile or managed config can override that file under the normal config precedence. The project and managed files remain authored in place; `namzu mcp` does not edit them.
+`list`, `get`, `add`, and `remove` manage the **user** file. A project's `namzu.config.json`, selected profile or managed config can override that file under the normal config precedence. `login` and `logout` use the effective entry but do not edit any config file.
 
 Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
 

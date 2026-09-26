@@ -119,19 +119,19 @@ the entries below describe the changes built from it for the next release.
 | --- | --- | --- |
 | Operator-owned Git worktrees and conversation continuation | Codex's [worktree library](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/worktree/src/lib.rs) and [TUI worktree browser](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/tui/src/worktree_browser.rs) | `namzu worktree create|list|fork|resume` creates a checkout at the selected committed HEAD and can copy a settled conversation into it. It does not move dirty source files. See [Managed Git worktrees](worktrees.md). |
 | Delegated work in a separate checkout | `Claude Code` documents [`isolation: worktree`](https://code.claude.com/docs/en/sub-agents); Codex's [worktree tests](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/worktree/tests/worktree.rs) exercise its checkout ownership. | The CLI Agent tool accepts `workspace: "worktree"`. The child executes against that checkout and reports its path and branch. Retention applies after completion, failure or cancellation; an unadmitted checkout is rolled back. See [Delegated work](delegated-work.md). |
-| MCP server management and authorization | Codex's [`mcp` command](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/cli/src/mcp_cmd.rs) includes add, list, get, login, logout and remove. | `namzu mcp list|get|add|remove` manages user entries with redacted output and environment-backed headers. Interactive OAuth login/logout remains a gap; implementing it requires a private issuer-bound credential store and the official MCP client's authorization flow. See [Tool servers](mcp-servers.md). |
+| MCP server management and authorization | Codex's [`mcp` command](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/cli/src/mcp_cmd.rs) includes add, list, get, login, logout and remove. | `namzu mcp list|get|add|remove` manages user entries with redacted output and environment-backed headers. `mcp login|logout` uses the official MCP client's OAuth flow and a private exact-URL credential store. See [Tool servers](mcp-servers.md). |
 | Inspecting whether a skill can actually load | Codex's [skills runtime](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/core/src/skills.rs) makes skill availability part of execution. | `namzu skills --audit` checks winning file skills through the same SDK loader used by a turn and reports invalid, disabled and operator-only entries. See [Skills](skills.md). |
 | Restore archived conversations | Codex's [archive commands](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/tui/src/session_archive_commands.rs) include unarchive. | `namzu archive list|restore` and `/unarchive` restore an archived conversation after project and writer checks. The scan index refreshes this project's logs before listing archives, so a long-lived terminal sees another process's change. See [Session storage](session-storage.md). |
 | Live MCP tool progress | The `Claude Code` [changelog](https://github.com/anthropics/claude-code/blob/7779afb12e3635f46f56ec823979d68350ae000b/CHANGELOG.md) records visible long-running MCP progress; the [official MCP guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/7f7a94c22017e121a960e071bb50ec75e34450bd/docs/servers/logging-progress-cancellation.md) defines per-call progress tokens. | MCP calls now correlate bounded updates to the active tool and forward them through the existing progress UI. Streamable HTTP dispatches each SSE event before the response closes; terminal, cancellation and timeout stop delivery. See [MCP protocol eras](../sdk/mcp-protocol-eras.md#per-call-tool-progress). |
 
-For OAuth, the implementation target is the
+The OAuth implementation follows the
 [official TypeScript MCP client](https://github.com/modelcontextprotocol/typescript-sdk/blob/7f7a94c22017e121a960e071bb50ec75e34450bd/docs/clients/oauth.md).
-An explicit `mcp login` should own browser consent and validate callback state and issuer.
-Ordinary tool use should only attach or refresh a previously saved credential,
-bound to the exact configured endpoint, and never open a browser by itself.
-HTTP authorization failures during protocol discovery must surface as such,
-without trying a legacy handshake. A URL change, failed callback or logout
-must leave no usable token for that endpoint.
+Explicit `mcp login` owns browser consent and validates callback state and issuer.
+Ordinary tool use only attaches or refreshes a previously saved credential,
+bound to the exact configured endpoint, and never opens a browser by itself.
+HTTP authorization failures during protocol discovery surface as such,
+without trying a legacy handshake. A changed URL cannot read the prior URL's
+token, and logout removes the currently configured URL's credential.
 
 The second pass found more genuine gaps, but each needs its own host contract:
 
