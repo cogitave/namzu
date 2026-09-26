@@ -22,6 +22,7 @@ import { evalCommand } from './commands/eval.js'
 import { execCommand } from './commands/exec.js'
 import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
+import { mcpCommand } from './commands/mcp.js'
 import { registerAll } from './commands/registry.js'
 import { residentCommand } from './commands/resident.js'
 import { scheduleCommand } from './commands/schedule.js'
@@ -353,6 +354,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		residentCommand,
 		loginCommand,
 		logoutCommand,
+		mcpCommand,
 		drainCommand,
 		evalCommand,
 		historyCommand,
@@ -370,7 +372,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			getContext:
 				def === residentCommand
 					? getResidentContext
-					: def === stateCommand || def === worktreeCommand
+					: def === stateCommand || def === worktreeCommand || def === mcpCommand
 						? getRecoveryContext
 						: def === acpCommand ||
 								def === execCommand ||

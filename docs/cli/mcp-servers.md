@@ -12,6 +12,14 @@ generated: { by: process:claude-code, at: 2026-09-16T00:00:00Z }
 
 An external tool server is declared under `mcpServers` in `namzu.config.json`, one entry per server, keyed by the name its tools will carry (`mcp__<name>__<tool>`). Every server is connected before the first turn. Its tools, prompts and resources enter live toolsets that update after a supported `list_changed` notification or reconnect. A server that does not work is named with a reason rather than silently absent.
 
+## Manage your own servers from the CLI
+
+`namzu mcp list` and `namzu mcp get <name>` show servers saved in `~/.namzu/config.yaml`. `namzu mcp add <name> --url <url>` saves an HTTP server; `namzu mcp add <name> -- <command> [arguments...]` saves a local command. `namzu mcp remove <name>` removes only that user entry. The command preserves unrelated YAML settings and refuses to replace an existing server. Names start with a letter and use letters, digits, underscores or hyphens, up to 64 characters.
+
+For a local command, repeat `--env VARIABLE` before `--` to pass only that named variable to the server. For HTTP, repeat `--header 'Authorization=${VARIABLE}'` to read a header value from the operator's environment when the server connects; quote it so the shell passes the reference to Namzu. Literal header values are refused by this command so secrets do not get written into the config file. A credentialed HTTP header requires HTTPS, except for a loopback endpoint. `list` and `get` hide header values, environment values, command arguments and URL queries; `--format json` gives the same redacted fields as structured output.
+
+These commands manage the **user** file. A project's `namzu.config.json`, selected profile or managed config can override that file under the normal config precedence. The project and managed files remain authored in place; `namzu mcp` does not edit them.
+
 Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
 
 ## One entry

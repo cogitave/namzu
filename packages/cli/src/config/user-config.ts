@@ -64,3 +64,35 @@ export function setUserConfigValue(
 	renameSync(temp, file)
 	return file
 }
+
+/** Remove one user-owned setting while preserving the rest of the YAML document. */
+export function deleteUserConfigValue(
+	path: readonly string[],
+	opts: UserConfigWriteOptions = {},
+): boolean {
+	const file = userConfigPath(opts)
+	if (!existsSync(file)) return false
+	const text = readFileSync(file, 'utf8')
+	const doc = parseDocument(text)
+	if (doc.errors.length > 0) {
+		throw new Error(
+			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
+		)
+	}
+	if (doc.contents !== null && !isMap(doc.contents)) {
+		throw new Error(`${file} is not a mapping of settings; fix it first`)
+	}
+	for (let depth = 1; depth < path.length; depth += 1) {
+		const parent = doc.getIn(path.slice(0, depth), true)
+		if (parent === undefined || parent === null) return false
+		if (!isMap(parent)) {
+			throw new Error(`${file}: ${path.slice(0, depth).join('.')} is not a mapping; fix it first`)
+		}
+	}
+	if (!doc.hasIn(path)) return false
+	doc.deleteIn(path)
+	const temp = `${file}.${process.pid}.tmp`
+	writeFileSync(temp, doc.toString(), { mode: statSync(file).mode & 0o777 })
+	renameSync(temp, file)
+	return true
+}
