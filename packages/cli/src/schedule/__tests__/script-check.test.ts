@@ -137,7 +137,9 @@ describe('deny rules, per lexed command', () => {
 
 	it('a blanket bash: deny refuses every command', () => {
 		const policy = policyFor({ rules: { bash: 'deny' } })
-		expect(ok('echo hi', 'bash', policy)).toBe(false)
+		const result = verifyScheduledScript('echo hi', 'bash', policy)
+		expect(result.ok).toBe(false)
+		expect(result.reason).toContain('a bash deny rule blocks every script command')
 	})
 
 	it('leaves a command an unrelated deny rule does not name untouched', () => {

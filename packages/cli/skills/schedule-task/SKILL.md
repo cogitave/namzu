@@ -8,12 +8,14 @@ metadata:
 
 # Scheduling a task
 
-A scheduled job is a prompt that runs later in a folder, in a new
-conversation, with **nobody watching**. It cannot ask questions. Anything its
-permission set does not allow either waits for the operator (the run parks
-and they get a notification) or is refused. Propose one with the `schedule`
-tool, `action: "create"`. The operator sees the job as it will run and
-chooses Create, Create paused or Cancel; nothing exists until they do.
+A scheduled job runs later in a folder with **nobody watching**. An agent
+job runs a prompt in a new conversation; a pure script job runs the exact
+confirmed script with no model or session. It cannot ask questions. An agent
+call that its permission set does not allow either waits for the operator
+(the run parks and they get a notification) or is refused. Propose a job
+with the `schedule` tool, `action: "create"`. The operator sees the job
+as it will run and chooses Create, Create paused or Cancel; nothing exists
+until they do.
 
 Ask the user whatever you cannot infer, then propose. Do not create a job
 the user did not ask for.
@@ -61,6 +63,23 @@ nothing can wait for the operator mid-script; use `park` only on a
 `"script+agent"` job, where it governs the agent phase after the gate
 wakes it. `execution: "sandbox"` is not yet supported for the script/gate
 phase; leave `execution` unset (host).
+
+For a pure `"script"` job, normally pass
+`permissions: {"rules": {}, "unmatched": "deny"}` with no preset. The
+explicit empty `rules` object is required: there is no default permission
+set. Add only intentional `deny` rules. The `"read-only"` preset includes
+`bash: deny`, which refuses **every** script command during the static
+check, regardless of what that command does. Changing the script text
+cannot fix that rule.
+The `"edit-in-folder"` preset avoids the blanket denial, but its `write`,
+`edit` and `bash: ask` permissions are for agent tool calls, which a pure
+script never makes. They do not confine a host script to the working folder.
+
+When a polling script sends its own notification only on a change, set
+`notifyOnFinish: false` in the proposal. Otherwise Namzu also sends a
+generic “finished” desktop notice after successful no-change runs. This
+choice does not turn off failure or approval notices; leave it unset for
+jobs where routine completion notices are wanted (subject to rate limits).
 
 The operator confirms the **exact script text**, once; a later change needs
 re-confirmation, so do not propose a script expecting to iterate on it live
@@ -126,7 +145,8 @@ git push origin "$(cat branch-name.txt)" # fine: only the argument is computed
 Start from the smallest set that can do the job.
 
 - `preset: "read-only"`: `read`, `glob`, `grep`, `ls` allowed; writing,
-  editing, `bash` and web access denied. Unmatched calls are denied.
+  editing, `bash` and web access denied. Unmatched calls are denied. Its
+  `bash` denial also refuses every pure script and wake-gate script.
 - `preset: "edit-in-folder"`: as read-only, plus `write` and `edit`; `bash`
   waits for the operator. Unmatched calls park.
 - `rules`: extra rules in the config's `[permissions]` vocabulary, applied
@@ -145,6 +165,8 @@ Start from the smallest set that can do the job.
   rule only when the task needs it. The tool refuses web or browser access
   together with a shell on the host (`read-only` already denies `bash`);
   deny `bash`, or use `execution: "sandbox"` if the user asked for one.
+  These are model tool permissions; a confirmed host script may itself
+  reach the network.
 - `browser`: see [Browser access](#browser-access). A browser job usually
   needs nothing more than `preset: "read-only"` plus the grant.
 - The operator's own config `deny` rules always apply on top; a job cannot
@@ -203,17 +225,21 @@ report its error. Do not install or change anything."
 
 Call `schedule` with `name` (lowercase, digits, dashes), `when` and
 `permissions`, plus `prompt` (unless `kind` is `"script"`) and `script`
-(when `kind` is not `"agent"`). Leave `folder` (the session's folder), `tz`,
-`execution`, `budget` and `headed` unset unless the user asked for them. The operator
-sees one confirmation screen with the job as it will run, and every value
-you set that differs from the default is marked as yours. Do not ask them
-to confirm again in chat. Afterwards, `schedule` with
-`action: "list"` shows every job, in any folder, and the operator manages
-them with `/schedule` or `namzu schedule list`.
+(when `kind` is not `"agent"`). Leave `folder` unset only when the session's
+folder is a valid job folder. The file system root, the operator's home
+directory itself, `NAMZU_HOME`, and any folder containing `NAMZU_HOME` are
+refused. If the session is in one of those, choose an existing project
+subfolder or create a dedicated one when permitted, then set `folder`
+explicitly. Leave `tz`, `execution`, `budget` and `headed` unset unless the
+user asked for them. The operator sees one confirmation screen with the job
+as it will run, and every value you set that differs from the default is
+marked as yours. Do not ask them to confirm again in chat. Afterwards,
+`schedule` with `action: "list"` shows every job, in any folder, and the
+operator manages them with `/schedule` or `namzu schedule list`.
 
 To change a job, call `schedule` with `action: "update"`, `job` (its name)
 and only the fields that change (`prompt`, `when`, `folder`, `tz`, `budget`,
-or `permissions` as the whole new set). The operator sees what changes and
+`notifyOnFinish`, or `permissions` as the whole new set). The operator sees what changes and
 confirms it; the job keeps its history. Never delete a job and create it
 again to change it: its history is lost. Jobs run only when the scheduler service is
 installed: if the result says none is installed, tell the user to run

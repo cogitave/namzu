@@ -8,16 +8,33 @@
  * `/resume` of its conversation in its folder.
  */
 
-import { resolve } from 'node:path'
-import { describeSchedule, hostTimeZone, installedCommandShellForDialect } from '@namzu/sdk'
+import { isAbsolute, relative, resolve } from 'node:path'
+import {
+	type ScheduleJobPreview,
+	describeSchedule,
+	hostTimeZone,
+	installedCommandShellForDialect,
+	upcomingFireTimes,
+} from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
-import { JobRequestError, buildJob, confirmJob, previewLines } from '../../schedule/build.js'
+import {
+	JobRequestError,
+	buildJob,
+	confirmJob,
+	previewLines,
+	runsPerDay,
+} from '../../schedule/build.js'
 import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
 import { schedulePaths } from '../../schedule/paths.js'
-import { compileJobPolicy, compileScriptCheckPolicy, isPresetName } from '../../schedule/policy.js'
+import {
+	allowsCommands,
+	compileJobPolicy,
+	compileScriptCheckPolicy,
+	isPresetName,
+} from '../../schedule/policy.js'
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
 import { verifyScheduledScript } from '../../schedule/script-check.js'
 import { scriptShellUnavailableReason } from '../../schedule/script-shell.js'
@@ -34,6 +51,7 @@ import {
 import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import { visibleScheduleMessage } from '../../schedule/visible-source.js'
+import type { ScheduleReviewAnswer, ScheduleReviewRequest } from '../ScheduleReviewOverlay.js'
 import type { QuestionFn } from '../agent.js'
 import { type SessionLoopScheduler, describeLoops } from './loop-host.js'
 
@@ -44,6 +62,11 @@ export interface ScheduleCommandContext {
 	readonly model?: { readonly provider: string; readonly model?: string }
 	readonly say: (text: string) => void
 	readonly ask: QuestionFn
+	readonly extraRoots?: readonly string[]
+	readonly review?: (
+		request: ScheduleReviewRequest,
+		signal?: AbortSignal,
+	) => Promise<ScheduleReviewAnswer>
 }
 
 const USAGE = [
@@ -184,13 +207,15 @@ async function confirmInTui(
 	const scriptSection =
 		runKind !== 'agent' && job.script
 			? [
-					`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}; verified against the scheduled-run floor and every deny rule)`,
+					`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}; shell commands checked against the scheduled-run floor and deny rules)`,
 					...job.script.body.split('\n').map((line) => `  │ ${line}`),
+					'Code passed to another interpreter is not parsed by the shell checker; review it here.',
 				]
 			: []
-	say(
+	const now = new Date()
+	const fullText = visibleScheduleMessage(
 		[
-			...previewLines(job, policy, new Date()),
+			...previewLines(job, policy, now),
 			...changesBlock(changesSinceConfirmed(readHistory(paths, job.id))),
 			...scriptSection,
 			...(runKind === 'script'
@@ -203,6 +228,63 @@ async function confirmInTui(
 					]),
 		].join('\n'),
 	)
+	if (ctx.review) {
+		const roots = [ctx.cwd, ...(ctx.extraRoots ?? [])]
+		const outside = !roots.some((root) => {
+			const rel = relative(root, job.folder.canonical)
+			return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+		})
+		const hasScript = runKind !== 'agent'
+		const networkCapable =
+			policy.network ||
+			(job.permissions.execution === 'host' && (hasScript || allowsCommands(job.permissions)))
+		const tz = job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone()
+		const preview: ScheduleJobPreview = {
+			name: job.name,
+			folder: job.folder.canonical,
+			outsideSessionRoots: outside,
+			prompt: job.prompt,
+			...(hasScript ? { runKind } : {}),
+			...(job.script ? { script: job.script } : {}),
+			schedule: describeSchedule(job.schedule, { tz }),
+			nextFireTimes: upcomingFireTimes(job.schedule, now, 3).map((fire) => fire.toISOString()),
+			rules: policy.lines,
+			unmatched: job.permissions.unmatched,
+			execution: job.permissions.execution,
+			networkAccess: networkCapable,
+			networkGrantAccess: policy.network,
+			budget:
+				hasScript && runKind === 'script' && job.script
+					? { maxIterations: 0, tokenBudget: 0, timeoutMs: job.script.timeoutMs }
+					: job.budget,
+			notifyOnFinish: job.notify.finished,
+			...(runKind === 'script' || job.schedule.kind === 'at'
+				? {}
+				: { dailyTokenCeiling: runsPerDay(job.schedule, now) * job.budget.tokenBudget }),
+			...(runKind === 'script' || !job.model
+				? {}
+				: { model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}` }),
+			warnings: [
+				...(outside
+					? ['The folder is outside this session’s working directory and added directories.']
+					: []),
+				...(networkCapable ? ['This run can reach the network.'] : []),
+				...(job.permissions.browser && runKind !== 'script'
+					? [
+							`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
+						]
+					: []),
+			],
+		}
+		const reviewed = await ctx.review({
+			action: verb === 'Create' ? 'create' : 'confirm',
+			proposedByModel: false,
+			preview,
+			fullText,
+		})
+		return reviewed === 'create' || reviewed === 'create-paused' ? reviewed : 'cancel'
+	}
+	ctx.say(fullText)
 	const answer = await ctx.ask({
 		questionId: `schedule-confirm:${job.id}`,
 		question: visibleScheduleMessage(`${verb} the scheduled job "${job.name}"? (details above)`),

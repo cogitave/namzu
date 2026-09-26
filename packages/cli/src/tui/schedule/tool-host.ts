@@ -73,6 +73,7 @@ import {
 import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import { visibleScheduleMessage } from '../../schedule/visible-source.js'
+import type { ScheduleReviewAnswer, ScheduleReviewRequest } from '../ScheduleReviewOverlay.js'
 import type { QuestionFn } from '../agent.js'
 
 export interface ScheduleUi {
@@ -90,6 +91,11 @@ export interface ScheduleUi {
 	readonly say: (text: string) => void
 	/** Ask the person on the terminal. */
 	readonly ask: QuestionFn
+	/** Bounded review screen for a model-proposed creation or change. */
+	readonly review?: (
+		request: ScheduleReviewRequest,
+		signal?: AbortSignal,
+	) => Promise<ScheduleReviewAnswer>
 }
 
 function within(root: string, path: string): boolean {
@@ -156,11 +162,11 @@ function confirmationBody(
 	const scriptSection =
 		p.runKind && p.runKind !== 'agent' && p.script
 			? [
-					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; verified against the scheduled-run floor and any deny rules)`,
+					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; shell commands checked against the scheduled-run floor and deny rules)`,
 					...p.script.body.split('\n').map((l) => `  │ ${l}`),
 					p.runKind === 'script'
-						? 'Runs exactly as shown; the scheduled-run floor and every deny rule apply to this script'
-						: 'Runs exactly as shown; the scheduled-run floor and every deny rule apply to the gate, and the permission set governs the agent phase',
+						? 'Runs exactly as shown; code passed to another interpreter is not parsed by the shell checker and must be reviewed here'
+						: 'Runs exactly as shown; code passed to another interpreter is not parsed by the shell checker, and the permission set governs the agent phase',
 				]
 			: []
 	const promptSection = p.prompt.trim()
@@ -174,7 +180,9 @@ function confirmationBody(
 	return [
 		...lines,
 		...(p.runKind === 'script' ? [] : [`Credential  ${p.credentialSource ?? 'unknown'}`]),
-		...p.warnings.map((w) => `Warning     ${w}`),
+		...p.warnings
+			.filter((w) => !(p.networkAccess && w === 'This run can reach the network.'))
+			.map((w) => `Warning     ${w}`),
 		...findings.map((f) => `Warning     ${f}`),
 		...scriptSection,
 		...promptSection,
@@ -306,6 +314,7 @@ export function updateRequest(
 						}
 					: {}),
 		includeSummary: current.notify.includeSummary,
+		notifyOnFinish: changes.notifyOnFinish ?? current.notify.finished,
 		keepSessions: current.retention.keepSessions,
 		pauseAfterFailures: current.failurePolicy.pauseAfterFailures,
 		approvalTtlMs: current.approvalTtlMs,
@@ -353,6 +362,8 @@ export function chosenByTheModel(
 			`${Math.round(draft.budget.timeoutMs / 1000)} s per run (the default is ${Math.round(timeout / 60_000)} min)`,
 		)
 	if (draft.permissions.browser?.headed) out.push('a visible browser window during each run')
+	if (draft.notifyOnFinish === false)
+		out.push('Namzu’s generic successful-run notification is off; the default is on')
 	return out
 }
 
@@ -449,6 +460,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 							tokenBudget: job.budget.tokenBudget,
 							timeoutMs: job.budget.timeoutMs,
 						},
+			notifyOnFinish: job.notify.finished,
 			...(job.runKind === 'script' || job.schedule.kind === 'at'
 				? {}
 				: { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
@@ -508,6 +520,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 						...(draft.permissions.browser ? { browser: draft.permissions.browser } : {}),
 					},
 					...(draft.budget ? { budget: draft.budget } : {}),
+					...(draft.notifyOnFinish !== undefined ? { notifyOnFinish: draft.notifyOnFinish } : {}),
 					...(model && draft.runKind !== 'script'
 						? {
 								model: `${model.provider}${model.model ? `/${model.model}` : ''}`,
@@ -534,6 +547,18 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		): Promise<ScheduleConfirmAnswer> {
 			const entry = built.get(request.preview)
 			if (!entry) return 'cancel'
+			if (ui.review) {
+				const answer = await ui.review(
+					{
+						action: 'create',
+						preview: request.preview,
+						promptFindings: request.promptFindings,
+						fullText: renderConfirmation(request, entry.lines),
+					},
+					signal,
+				)
+				return answer === 'create' || answer === 'create-paused' ? answer : 'cancel'
+			}
 			ui.say(renderConfirmation(request, entry.lines))
 			const answer = await ui.ask(
 				{
@@ -633,6 +658,20 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		async confirmUpdate(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<boolean> {
 			const entry = proposedUpdates.get(request.preview)
 			if (!entry) return false
+			if (ui.review) {
+				return (
+					(await ui.review(
+						{
+							action: 'update',
+							preview: request.preview,
+							promptFindings: request.promptFindings,
+							fullText: renderUpdateConfirmation(request, entry.lines),
+							permissionsChange: request.permissionsChange,
+						},
+						signal,
+					)) === 'save'
+				)
+			}
 			ui.say(renderUpdateConfirmation(request, entry.lines))
 			const answer = await ui.ask(
 				{

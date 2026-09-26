@@ -79,6 +79,8 @@ export interface JobRequest {
 	/** `provider` or `provider/model`; absent: the operator's configured primary. */
 	readonly model?: string
 	readonly effort?: string
+	/** Enable routine Namzu desktop completion notices; defaults to true. */
+	readonly notifyOnFinish?: boolean
 	readonly includeSummary?: boolean
 	readonly keepSessions?: number
 	readonly pauseAfterFailures?: number
@@ -320,7 +322,7 @@ export function buildJob(
 				}),
 		catchUp: { windowMs: SCHEDULE_CATCH_UP_WINDOW_MS },
 		notify: {
-			finished: true,
+			finished: request.notifyOnFinish ?? true,
 			failed: true,
 			awaitingApproval: true,
 			includeSummary: request.includeSummary === true,
@@ -433,8 +435,12 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 	return [
 		`Job         ${job.name}`,
 		`Folder      ${job.folder.canonical}`,
+		...(job.runKind === 'script'
+			? ['Scope       this folder is the script’s working directory, not a write boundary']
+			: []),
 		`When        ${describeSchedule(job.schedule, { tz })}`,
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
+		`Notify      ${job.notify.finished ? 'routine completion notices enabled (rate limited)' : 'no routine completed-run notice; failures still notify'}`,
 		...(job.runKind === 'script'
 			? [
 					'Model       none (script only)',
@@ -473,7 +479,12 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		...(job.runKind !== 'script' && job.permissions.unmatched === 'allow'
 			? ['Unmatched   CALLS NO RULE COVERS RUN WITHOUT ASKING']
 			: []),
-		'Permissions',
+		...(job.runKind === 'script'
+			? [
+					'Script check  shell commands meet the floor and deny rules; review interpreter code yourself',
+					'Permissions   allow, ask and unmatched rules below do not constrain this script',
+				]
+			: ['Permissions']),
 		...policy.lines.map((line) => `  ${line}`),
 		...(job.runKind === 'script'
 			? []

@@ -40,6 +40,8 @@ export interface ScheduleJobDraft {
 	readonly folder?: string
 	/** IANA zone for a cron expression or a local time. Absent: the host's. */
 	readonly tz?: string
+	/** Enable routine completion notices. Absent: the host's usual setting. */
+	readonly notifyOnFinish?: boolean
 	readonly permissions: {
 		readonly preset?: 'read-only' | 'edit-in-folder'
 		/**
@@ -109,6 +111,8 @@ export interface ScheduleJobPreview {
 	}
 	/** The schedule in words, with its zone. */
 	readonly schedule: string
+	/** Whether a completed run sends a Namzu desktop notice; absent for older hosts. */
+	readonly notifyOnFinish?: boolean
 	/** The next fire times, ISO-8601 UTC. */
 	readonly nextFireTimes: readonly string[]
 	/** The permission set expanded to one line per rule, config denies included. */
@@ -164,6 +168,8 @@ export interface ScheduleJobChanges {
 	readonly when?: string
 	readonly folder?: string
 	readonly tz?: string
+	/** Whether routine Namzu desktop completion notices are enabled. */
+	readonly notifyOnFinish?: boolean
 	readonly permissions?: ScheduleJobDraft['permissions']
 	readonly budget?: ScheduleJobDraft['budget']
 	/**

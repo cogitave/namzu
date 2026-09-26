@@ -74,12 +74,20 @@ const inputSchema = z.object({
 	folder: z
 		.string()
 		.optional()
-		.describe("create: folder to run in; leave unset for the session's unless the user named one"),
+		.describe(
+			"create: existing working directory for the job; leave unset for the session's folder when valid. The file system root, the operator's home directory, NAMZU_HOME and a folder containing NAMZU_HOME are refused. If this session is in one of those, choose an existing project subfolder and set folder explicitly",
+		),
 	tz: z
 		.string()
 		.optional()
 		.describe(
 			"create: IANA time zone; leave unset for the operator's own zone unless the user named another",
+		),
+	notifyOnFinish: z
+		.boolean()
+		.optional()
+		.describe(
+			'create/update: enable routine Namzu desktop completion notices, subject to rate limits (default true). Set false for a script that sends its own notice only when something changes; failure notices stay enabled.',
 		),
 	permissions: z
 		.object({
@@ -87,7 +95,7 @@ const inputSchema = z.object({
 				.enum(['read-only', 'edit-in-folder'])
 				.optional()
 				.describe(
-					'read-only: read/glob/grep/ls only. edit-in-folder: also edit and write, bash asks',
+					'read-only: read/glob/grep/ls only; its bash deny blocks every script. edit-in-folder: also edit and write, bash asks. For a pure script, omit the preset and set rules to {} with unmatched: deny',
 				),
 			unmatched: z
 				.enum(['park', 'deny'])
@@ -120,7 +128,7 @@ const inputSchema = z.object({
 		})
 		.optional()
 		.describe(
-			'create: REQUIRED explicit permission set; there is no default. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
+			'create: REQUIRED explicit permission set; there is no default. For a pure script, use {rules:{}, unmatched:"deny"} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
 		),
 	budget: z
 		.object({
@@ -311,6 +319,7 @@ async function create(
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
+		...(input.notifyOnFinish !== undefined ? { notifyOnFinish: input.notifyOnFinish } : {}),
 		permissions,
 		...(input.budget ? { budget: input.budget } : {}),
 	}
@@ -352,7 +361,7 @@ async function create(
 			? `Job "${created.name}" was created paused. The operator can resume it with /schedule.`
 			: runKind === 'script'
 				? `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results are recorded in its history and may arrive as a notification. It creates no session.`
-				: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
+				: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results are recorded in a session. Completion notices ${draft.notifyOnFinish === false ? 'are off' : 'are enabled, subject to rate limits'}.`
 	return {
 		success: true,
 		output: created.note ? `${said} ${created.note}` : said,
@@ -381,6 +390,7 @@ const CHANGEABLE = [
 	'when',
 	'folder',
 	'tz',
+	'notifyOnFinish',
 	'permissions',
 	'budget',
 	'kind',
@@ -439,6 +449,7 @@ async function update(
 		...(input.when !== undefined ? { when: input.when } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
+		...(input.notifyOnFinish !== undefined ? { notifyOnFinish: input.notifyOnFinish } : {}),
 		...(permissions ? { permissions } : {}),
 		...(input.budget ? { budget: input.budget } : {}),
 		...(input.kind !== undefined ? { runKind: input.kind } : {}),
@@ -543,7 +554,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: model prompts or fixed scripts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). agent and script+agent also need prompt; script and script+agent also need script. A pure script has no prompt, model, agent budget, browser grant or session; set script.timeoutMs to limit it. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: model prompts or fixed scripts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). agent and script+agent also need prompt; script and script+agent also need script. For a pure script, use permissions {rules:{},unmatched:'deny'} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script has no prompt, model, agent budget, browser grant or session; set script.timeoutMs to limit it. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave folder unset when the session folder is valid; home, root and NAMZU_HOME are invalid, so choose an existing project subfolder there. Leave tz, execution, budget and headed unset unless the user asked for them: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

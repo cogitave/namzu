@@ -207,6 +207,10 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 					`When        ${describeSchedule(job.schedule, { tz })}`,
 					`Next        ${when(state.nextFireAt, tz)}`,
 					`Folder      ${job.folder.canonical}`,
+					...(job.runKind === 'script'
+						? ['Scope       this folder is the script’s working directory, not a write boundary']
+						: []),
+					`Notify      ${job.notify.finished ? 'routine completion notices enabled (rate limited)' : 'no routine completed-run notice; failures still notify'}`,
 					...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
 						? [
 								state.activeRun.handoff
@@ -227,7 +231,12 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 								`Budget      ${job.budget.tokenBudget} tokens, ${job.budget.maxIterations} iterations, ${Math.round(job.budget.timeoutMs / 60_000)} min`,
 							]),
 					`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,
-					'Permissions',
+					...(job.runKind === 'script'
+						? [
+								'Script check  shell commands meet the floor and deny rules; review interpreter code yourself',
+								'Permissions   allow, ask and unmatched rules below do not constrain this script',
+							]
+						: ['Permissions']),
 					...policy.lines.map((l) => `  ${l}`),
 					...(job.runKind && job.runKind !== 'agent' && job.script
 						? [

@@ -2,6 +2,7 @@
 
 ## 2026-09-27
 
+- **Update** [Scheduled tasks](cli/scheduled-tasks.md): script proposals now guide the model to a valid folder and explicit script permission set, while model proposals and `/schedule` confirmations review the complete source and permissions in a bounded screen with a short summary. Pure-script previews distinguish stored agent rules from the floor and deny checks that actually apply. New `notifyOnFinish` and `--notify-finished` settings suppress generic success notices for polling jobs without disabling failure notices. `.changeset/schedule-proposal-review.md`, **minor** for `@namzu/sdk` and `@namzu/cli`.
 - **Update** [Tool servers](cli/mcp-servers.md#sign-in-to-an-http-server) and [CLI peer audit](cli/competitive-gaps.md): `namzu mcp login|logout` now signs in configured HTTP servers with the official MCP OAuth client, private exact-URL credentials, a one-time callback state and issuer check, and unattended token reuse or refresh. `.changeset/cli-mcp-oauth.md`, **minor** for `@namzu/cli`.
 
 ## 2026-09-26

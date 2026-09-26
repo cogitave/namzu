@@ -4,10 +4,9 @@
  * The kernel hands this loop a tool's start only when its batch settles, so
  * while the `schedule` tool asks the operator to confirm a job, the reply the
  * model streamed with the call is still pending. A pending reply holds every
- * row after it out of scrollback, and the confirmation — taller than the
- * screen — was drawn in the redrawable tail with its top cut off: the job,
- * the model, the budget and its warnings were never on screen while the
- * operator was asked about them. The tool's screen now closes the reply first.
+ * row after it out of scrollback. The old confirmation could be taller than
+ * the screen, hiding its top. The bounded review closes the reply first and
+ * keeps the proposal in its own scrollable screen.
  */
 
 import { mkdirSync, mkdtempSync } from 'node:fs'
@@ -140,9 +139,9 @@ async function until(screen: Screen, check: () => boolean, what: string): Promis
 	if (!check()) throw new Error(`${what} never appeared`)
 }
 
-it('shows the whole confirmation, and the reply before it, while the operator is asked', async () => {
+it('shows the bounded review and the earlier reply while the operator is asked', async () => {
 	const ctx: TuiContext = { cwd: project, version: '0.0.0-test' }
-	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 42, scrollback: 500 })
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24, scrollback: 500 })
 	mounted = screen
 	await until(screen, () => screen.viewport().join('\n').includes('Type a message'), 'the composer')
 	for (const ch of 'post every 5m') {
@@ -155,13 +154,18 @@ it('shows the whole confirmation, and the reply before it, while the operator is
 	screen.press('y')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Create the scheduled job'),
+		() => screen.viewport().join('\n').includes('Create “post”'),
 		'the confirmation',
 	)
-	const everything = screen.scrollback().join('\n')
-	expect(everything).toContain('Her 5 dakikada bir paylaşım yapacak görevi')
-	expect(everything).toContain('PROPOSED BY THE MODEL')
-	expect(everything).toContain('Model       openai/gpt-5')
-	expect(everything).toContain('Budget      4,000 tokens, 1 iterations')
-	expect(everything).toContain('Warning     4,000 tokens may not cover')
+	const review = screen.viewport().join('\n')
+	expect(review).toContain('proposed by the model')
+	expect(review).toContain('Full proposal')
+	expect(review).toContain('Cancel')
+	expect(review).toContain('Scroll to the end to enable Create')
+	screen.press('\u001b')
+	await until(
+		screen,
+		() => screen.scrollback().join('\n').includes('Her 5 dakikada bir paylaşım yapacak görevi'),
+		'the earlier reply after closing the review',
+	)
 })

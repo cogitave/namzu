@@ -43,7 +43,11 @@ import {
 	type UserQuestion,
 	createAgentSession,
 } from '../agent.js'
-import { listScheduleJobs, runScheduleCommand } from './host-commands.js'
+import {
+	type ScheduleCommandContext,
+	listScheduleJobs,
+	runScheduleCommand,
+} from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
 import {
 	type ScheduledResumeParams,
@@ -209,7 +213,10 @@ describe('answering a parked scheduled run', () => {
 		expect(scheduled?.pendingDecision).toEqual({ action: 'approve_tools' })
 		// Told the time now: the park may have waited days for this answer.
 		expect(scheduled?.systemNote).toMatch(/^It is now \w+day, .*This is the current local time/)
-		expect(scheduled?.model).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
+		expect(scheduled?.model).toEqual({
+			provider: 'deepseek',
+			model: 'deepseek-chat',
+		})
 		expect(scheduled?.permissionMode).toBe('prompt')
 		expect(asked[0]?.toolCalls[0]?.name).toBe('bash')
 
@@ -221,9 +228,17 @@ describe('answering a parked scheduled run', () => {
 				const body = String(init?.body ?? '')
 				requestedModels.push((JSON.parse(body) as { model?: unknown }).model)
 				if (!body.includes('call_2'))
-					return completion({ name: 'bash', input: { command: `touch ${second}` }, id: 'call_2' })
+					return completion({
+						name: 'bash',
+						input: { command: `touch ${second}` },
+						id: 'call_2',
+					})
 				if (!body.includes('call_3'))
-					return completion({ name: 'bash', input: { command: `touch ${third}` }, id: 'call_3' })
+					return completion({
+						name: 'bash',
+						input: { command: `touch ${third}` },
+						id: 'call_3',
+					})
 				return completion()
 			}),
 		)
@@ -326,7 +341,11 @@ describe('answering a parked scheduled run', () => {
 		)
 		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
 		const session = await createAgentSession(
-			{ version: 3, providers: [{ id: 'deepseek' }], subagents: { active: [] } },
+			{
+				version: 3,
+				providers: [{ id: 'deepseek' }],
+				subagents: { active: [] },
+			},
 			[DEEPSEEK],
 			{
 				cwd: sb.project,
@@ -360,7 +379,10 @@ describe('answering a parked scheduled run', () => {
 		expect(turnRequests[0]).toContain('The page is a sign-in form.')
 		expect(probeRuns).toBe(1)
 		const settled = await settleAnsweredPark(sb.paths, job.id)
-		expect(settled?.lastRun).toMatchObject({ runId: run.runId, status: 'completed' })
+		expect(settled?.lastRun).toMatchObject({
+			runId: run.runId,
+			status: 'completed',
+		})
 	})
 
 	it('abandons a handoff park when the operator chooses Abandon, and leaves it waiting on Esc', async () => {
@@ -425,7 +447,12 @@ describe('answering a parked scheduled run', () => {
 			/also reaches/,
 		)
 		await expect(
-			attempt({ cwd: sb.project, roots: [], sandboxed: false, providers: ['anthropic'] }),
+			attempt({
+				cwd: sb.project,
+				roots: [],
+				sandboxed: false,
+				providers: ['anthropic'],
+			}),
 		).rejects.toThrow(
 			/runs on deepseek\/deepseek-chat and this session has no credential for deepseek/,
 		)
@@ -453,7 +480,11 @@ describe('answering a parked scheduled run', () => {
 		)
 		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
 		const session = await createAgentSession(
-			{ version: 3, providers: [{ id: 'deepseek' }], subagents: { active: [] } },
+			{
+				version: 3,
+				providers: [{ id: 'deepseek' }],
+				subagents: { active: [] },
+			},
 			[DEEPSEEK],
 			{
 				cwd: sb.project,
@@ -480,7 +511,10 @@ describe('answering a parked scheduled run', () => {
 		// No scheduler ticks here: the answer path settles it.
 		const settled = await settleAnsweredPark(sb.paths, job.id)
 		expect(settled?.activeRun).toBeUndefined()
-		expect(settled?.lastRun).toMatchObject({ runId: run.runId, status: 'completed' })
+		expect(settled?.lastRun).toMatchObject({
+			runId: run.runId,
+			status: 'completed',
+		})
 		// Settling again (a scheduler doing it too) writes nothing more.
 		await settleAnsweredPark(sb.paths, job.id)
 		const runs = readHistory(sb.paths, job.id).filter(
@@ -503,9 +537,17 @@ describe('answering a parked scheduled run', () => {
 			},
 		})
 		expect(
-			scheduledResumeMismatch(job, { cwd: sb.project, roots: [other], sandboxed: true }),
+			scheduledResumeMismatch(job, {
+				cwd: sb.project,
+				roots: [other],
+				sandboxed: true,
+			}),
 		).toEqual([])
-		const reasons = scheduledResumeMismatch(job, { cwd: sb.osHome, roots: [], sandboxed: false })
+		const reasons = scheduledResumeMismatch(job, {
+			cwd: sb.osHome,
+			roots: [],
+			sandboxed: false,
+		})
 		expect(reasons).toEqual([
 			expect.stringMatching(/in a sandbox and this session runs them on the host/),
 			expect.stringMatching(/folder is not the job/),
@@ -515,6 +557,53 @@ describe('answering a parked scheduled run', () => {
 })
 
 describe('/schedule confirm for a script job', () => {
+	it('reviews the full saved script in the bounded screen and confirms it paused only after consent', async () => {
+		const body = 'echo first\necho second'
+		const original = confirmedJob(sb, {
+			name: 'reviewed-script',
+			runKind: 'script',
+			script: { body, shell: hostCommandShell().dialect },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		updateJob(sb.paths, original.id, original.revision, (job) => ({
+			...job,
+			state: 'pending-confirmation',
+			confirmation: null,
+		}))
+		const said: string[] = []
+		const reviewed: string[] = []
+		const context: ScheduleCommandContext = {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: (text: string) => said.push(text),
+			ask: async () => {
+				throw new Error('the old question must not open')
+			},
+			review: async (request) => {
+				expect(request.action).toBe('confirm')
+				expect(request.preview.name).toBe(original.name)
+				expect(request.preview.script?.body).toBe(body)
+				expect(request.fullText).toContain('  │ echo first\n  │ echo second')
+				expect(request.fullText).toContain('Permissions')
+				reviewed.push(request.fullText)
+				return reviewed.length === 1 ? 'cancel' : 'create-paused'
+			},
+		}
+		await runScheduleCommand(['confirm', original.name], context)
+		expect(readJob(sb.paths, original.id)?.state).toBe('pending-confirmation')
+		expect(said).toEqual([`Not confirmed; ${original.name} stays pending-confirmation.`])
+		await runScheduleCommand(['confirm', original.name], context)
+		expect(reviewed).toHaveLength(2)
+		expect(said).toEqual([
+			`Not confirmed; ${original.name} stays pending-confirmation.`,
+			`Confirmed ${original.name} (paused).`,
+		])
+		const stored = readJob(sb.paths, original.id)
+		expect(stored?.state).toBe('paused')
+		expect(stored && confirmationHolds(stored)).toBe(true)
+	})
+
 	it('shows control and bidi characters as code points without changing the confirmed script', async () => {
 		const body = `echo 'a\u001b[2J\u202e'`
 		const original = confirmedJob(sb, {
@@ -639,8 +728,39 @@ describe('/schedule confirm for a script job', () => {
 	})
 })
 
+describe('/schedule add', () => {
+	it('uses the bounded review without calling an operator request model-proposed', async () => {
+		const said: string[] = []
+		let reviewed = false
+		await runScheduleCommand(['add', 'manual-job', '"every 5m"', 'read-only', 'Check status.'], {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			model: { provider: 'deepseek', model: 'deepseek-chat' },
+			say: (text) => said.push(text),
+			ask: async () => {
+				throw new Error('the old question must not open')
+			},
+			review: async (request) => {
+				reviewed = true
+				expect(request.action).toBe('create')
+				expect(request.proposedByModel).toBe(false)
+				expect(request.fullText).toContain('Prompt\n  │ Check status.')
+				return 'cancel'
+			},
+		})
+		expect(reviewed).toBe(true)
+		expect(said).toEqual(['Not created.'])
+		expect(listJobs(sb.paths).jobs).toHaveLength(0)
+	})
+})
+
 describe('the schedule tool’s host', () => {
-	function host(answer: string, cwd = () => sb.project) {
+	function host(
+		answer: string,
+		cwd = () => sb.project,
+		review?: Parameters<typeof createScheduleToolHost>[0]['review'],
+	) {
 		const said: string[] = []
 		const questions: { options: { id: string }[] }[] = []
 		const h = createScheduleToolHost({
@@ -657,6 +777,7 @@ describe('the schedule tool’s host', () => {
 					? { kind: 'skip' }
 					: { kind: 'answer', selectedOptionIds: [answer] }
 			},
+			...(review ? { review } : {}),
 		})
 		const [tool] = buildScheduleTools(h)
 		return { host: h, tool: tool as NonNullable<typeof tool>, said, questions }
@@ -683,7 +804,31 @@ describe('the schedule tool’s host', () => {
 		const [job] = listJobs(sb.paths).jobs
 		expect(job?.confirmation?.surface).toBe('tool-confirmed')
 		expect(job?.state).toBe('active')
-		expect(job?.model).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
+		expect(job?.model).toEqual({
+			provider: 'deepseek',
+			model: 'deepseek-chat',
+		})
+	})
+
+	it('passes the whole host-computed proposal to the bounded review instead of printing it', async () => {
+		let fullText = ''
+		const { tool, said, questions } = host(
+			'create',
+			() => sb.project,
+			async (review) => {
+				fullText = review.fullText
+				expect(review.action).toBe('create')
+				expect(review.preview.name).toBe('proposed')
+				return 'cancel'
+			},
+		)
+		const result = await tool.execute(input, {} as never)
+		expect(result.success).toBe(false)
+		expect(said).toEqual([])
+		expect(questions).toEqual([])
+		expect(fullText).toContain('Permissions')
+		expect(fullText).toContain('Prompt (exactly as the run will read it)')
+		expect(listJobs(sb.paths).jobs).toHaveLength(0)
 	})
 
 	it('a skipped question is a cancel', async () => {
@@ -704,10 +849,14 @@ describe('the schedule tool’s host', () => {
 		const listed = await tool.execute({ action: 'list' }, {} as never)
 		expect(listed.output).not.toMatch(/No scheduled jobs/)
 		const jobs = (
-			listed.data as { jobs: { name: string; prompt?: string; inSessionFolder?: boolean }[] }
+			listed.data as {
+				jobs: { name: string; prompt?: string; inSessionFolder?: boolean }[]
+			}
 		).jobs
 		expect(jobs.map((j) => j.name).sort()).toEqual(['here', 'proposed'])
-		expect(jobs.find((j) => j.name === 'here')).toMatchObject({ inSessionFolder: true })
+		expect(jobs.find((j) => j.name === 'here')).toMatchObject({
+			inSessionFolder: true,
+		})
 		expect(jobs.find((j) => j.name === 'here')?.prompt).toBeDefined()
 		const proposed = jobs.find((j) => j.name === 'proposed')
 		expect(proposed?.prompt).toBeUndefined()
@@ -743,14 +892,24 @@ describe('the schedule tool’s host', () => {
 	describe('update', () => {
 		// The operator's trial: asked to change a job, the model deleted it
 		// and created it again, and its history went with it.
-		const every2 = { ...input, name: 'alert', when: 'every 2m', prompt: 'Show the alert.' }
+		const every2 = {
+			...input,
+			name: 'alert',
+			when: 'every 2m',
+			prompt: 'Show the alert.',
+		}
 
 		it('changes the job in place after the operator saves: same id, history kept, confirmed again', async () => {
 			expect((await host('create').tool.execute(every2, {} as never)).success).toBe(true)
 			const [before] = listJobs(sb.paths).jobs
 			const { tool, said, questions } = host('save')
 			const result = await tool.execute(
-				{ action: 'update', job: 'alert', when: 'every 5m', prompt: 'Show the alert twice.' },
+				{
+					action: 'update',
+					job: 'alert',
+					when: 'every 5m',
+					prompt: 'Show the alert twice.',
+				},
 				{} as never,
 			)
 			expect(result.success).toBe(true)
@@ -760,7 +919,10 @@ describe('the schedule tool’s host', () => {
 			expect(after?.createdAt).toBe(before?.createdAt)
 			expect(after?.revision).toBe((before?.revision ?? 0) + 1)
 			expect(after?.prompt).toBe('Show the alert twice.')
-			expect(after?.schedule).toMatchObject({ kind: 'every', everyMs: 5 * 60_000 })
+			expect(after?.schedule).toMatchObject({
+				kind: 'every',
+				everyMs: 5 * 60_000,
+			})
 			expect(after?.confirmation?.surface).toBe('tool-confirmed')
 			expect(after && confirmationHolds(after)).toBe(true)
 			// What changes is shown above the job, as `schedule edit` shows it.
@@ -852,7 +1014,11 @@ describe('the schedule tool’s host', () => {
 				say: () => {},
 				ask: async () => {
 					const job = listJobs(sb.paths).jobs[0]
-					if (job) updateJob(sb.paths, job.id, job.revision, (j) => ({ ...j, prompt: 'meanwhile' }))
+					if (job)
+						updateJob(sb.paths, job.id, job.revision, (j) => ({
+							...j,
+							prompt: 'meanwhile',
+						}))
 					return { kind: 'answer', selectedOptionIds: ['save'] }
 				},
 			})
@@ -870,7 +1036,10 @@ describe('the schedule tool’s host', () => {
 		const { tool } = host('create')
 		const refused = await tool.execute({ ...input, folder: sb.home }, {} as never)
 		expect(refused.error).toMatch(/NAMZU_HOME/)
-		confirmedJob(sb, { name: 'elsewhere', folder: mkdtempSync(join(sb.osHome, 'other-')) })
+		confirmedJob(sb, {
+			name: 'elsewhere',
+			folder: mkdtempSync(join(sb.osHome, 'other-')),
+		})
 		const listed = await tool.execute({ action: 'list', allFolders: true }, {} as never)
 		const jobs = (listed.data as { jobs: { name: string; prompt?: string }[] }).jobs
 		expect(jobs.find((j) => j.name === 'elsewhere')?.prompt).toBeUndefined()
@@ -883,7 +1052,7 @@ describe('the schedule tool’s host', () => {
 			kind: 'script',
 			script: { body: 'echo hi', shell: 'bash' },
 			when: 'every 1m',
-			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			permissions: { rules: {}, unmatched: 'deny' },
 		}
 
 		it('previews effective zero model budget and the script timeout', async () => {
@@ -893,7 +1062,7 @@ describe('the schedule tool’s host', () => {
 				runKind: 'script',
 				script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
 				when: 'every 1m',
-				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				permissions: { rules: {}, unmatched: 'deny' },
 			})
 			expect(preview.budget).toEqual({
 				maxIterations: 0,
@@ -913,7 +1082,7 @@ describe('the schedule tool’s host', () => {
 					runKind: 'script',
 					script: { body: 'echo hi', shell: 'bash', timeoutMs: 7_000 },
 					when: 'every 1m',
-					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+					permissions: { rules: {}, unmatched: 'deny' },
 					budget: { tokenBudget: 10_000 },
 				}),
 			).rejects.toThrow(/pure script job has no agent budget/)
@@ -933,7 +1102,9 @@ describe('the schedule tool’s host', () => {
 			expect(result.success).toBe(true)
 			expect(said[0]).toContain('Script (exactly as it will run, bash')
 			expect(said[0]).toContain('echo hi')
-			expect(said[0]).toContain('the scheduled-run floor and every deny rule apply to this script')
+			expect(said[0]).toContain(
+				'code passed to another interpreter is not parsed by the shell checker',
+			)
 			expect(said[0]).not.toContain('Prompt (exactly as the run will read it)')
 			const [job] = listJobs(sb.paths).jobs
 			expect(job?.runKind).toBe('script')
@@ -946,11 +1117,34 @@ describe('the schedule tool’s host', () => {
 			expect(rejected.error).toMatch(/pure script job has no agent budget/)
 		})
 
+		it('confirms a polling script without generic success notices, then updates that choice', async () => {
+			const { tool, said } = host('create')
+			const created = await tool.execute(
+				{ ...scriptInput, name: 'quiet-ticker', notifyOnFinish: false },
+				{} as never,
+			)
+			expect(created.success).toBe(true)
+			expect(said[0]).toContain('generic successful-run notification is off')
+			const first = listJobs(sb.paths).jobs.find((job) => job.name === 'quiet-ticker')
+			expect(first?.notify).toMatchObject({ finished: false, failed: true })
+			const updated = await host('save').tool.execute(
+				{ action: 'update', job: 'quiet-ticker', notifyOnFinish: true },
+				{} as never,
+			)
+			expect(updated.success).toBe(true)
+			const next = listJobs(sb.paths).jobs.find((job) => job.name === 'quiet-ticker')
+			expect(next?.notify).toMatchObject({ finished: true, failed: true })
+		})
+
 		it('projects controls and bidi in model-proposed script text before a TUI answer', async () => {
 			const body = `echo 'a\u001b[2J\u202e'`
 			const { tool, said } = host('create')
 			const result = await tool.execute(
-				{ ...scriptInput, name: 'hidden-tool-script', script: { body, shell: 'bash' } },
+				{
+					...scriptInput,
+					name: 'hidden-tool-script',
+					script: { body, shell: 'bash' },
+				},
 				{} as never,
 			)
 			expect(result.success).toBe(true)
@@ -965,13 +1159,32 @@ describe('the schedule tool’s host', () => {
 			const result = await tool.execute(
 				{
 					...scriptInput,
-					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+					script: {
+						body: 'systemctl --user stop namzu-scheduler',
+						shell: 'bash',
+					},
 				},
 				{} as never,
 			)
 			expect(result.success).toBe(false)
 			expect(result.error).toMatch(/scheduled-run floor refused/)
 			expect(said).toEqual([])
+			expect(listJobs(sb.paths).jobs).toHaveLength(0)
+		})
+
+		it('explains that read-only denies every script command before showing a review', async () => {
+			const { tool, said, questions } = host('create')
+			const result = await tool.execute(
+				{
+					...scriptInput,
+					permissions: { preset: 'read-only', unmatched: 'deny' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/bash deny rule blocks every script command/)
+			expect(said).toEqual([])
+			expect(questions).toEqual([])
 			expect(listJobs(sb.paths).jobs).toHaveLength(0)
 		})
 
@@ -985,7 +1198,9 @@ describe('the schedule tool’s host', () => {
 			expect(result.success).toBe(true)
 			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
 			expect(readJob(sb.paths, job?.id as string)?.runKind).toBe('script')
-			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo hi' })
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({
+				body: 'echo hi',
+			})
 		})
 
 		// A UX/security review found that `update` accepted `kind`/`script` in
@@ -1014,7 +1229,9 @@ describe('the schedule tool’s host', () => {
 			expect(said.at(-2)).toContain('- Script  echo hi')
 			expect(said.at(-2)).toContain('+ Script  echo bye')
 			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
-			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo bye' })
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({
+				body: 'echo bye',
+			})
 		})
 
 		it('an update refuses a script the floor denies, the same as a new one would be, before showing anything', async () => {
@@ -1024,7 +1241,10 @@ describe('the schedule tool’s host', () => {
 				{
 					action: 'update',
 					job: 'ticker',
-					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+					script: {
+						body: 'systemctl --user stop namzu-scheduler',
+						shell: 'bash',
+					},
 				},
 				{} as never,
 			)
@@ -1032,7 +1252,9 @@ describe('the schedule tool’s host', () => {
 			expect(result.error).toMatch(/scheduled-run floor refused/)
 			expect(said).toEqual([])
 			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
-			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo hi' })
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({
+				body: 'echo hi',
+			})
 		})
 
 		it('an update can change a job’s kind, going through the same static check and confirmation', async () => {
@@ -1054,7 +1276,9 @@ describe('the schedule tool’s host', () => {
 			const stored = readJob(sb.paths, job?.id as string)
 			expect(stored?.runKind).toBe('script+agent')
 			expect(stored?.prompt).toBe('summarise what changed')
-			expect(stored?.wakeGate).toMatchObject({ maxContextChars: expect.any(Number) })
+			expect(stored?.wakeGate).toMatchObject({
+				maxContextChars: expect.any(Number),
+			})
 		})
 
 		it('converts an agent job to a model-free script without carrying its prompt', async () => {
@@ -1116,12 +1340,20 @@ describe('the schedule tool’s host', () => {
 			expect(
 				(
 					await host('create').tool.execute(
-						{ ...scriptInput, name: 'gate', kind: 'script+agent', prompt: 'summarise' },
+						{
+							...scriptInput,
+							name: 'gate',
+							kind: 'script+agent',
+							prompt: 'summarise',
+						},
 						{} as never,
 					)
 				).success,
 			).toBe(true)
-			const listed = await listScheduleJobs({ home: sb.home, cwd: sb.project } as never)
+			const listed = await listScheduleJobs({
+				home: sb.home,
+				cwd: sb.project,
+			} as never)
 			expect(listed).toMatch(/ticker {2}\[active\]\s+\[script, 0 tokens\]/)
 			expect(listed).toMatch(/gate {2}\[active\]\s+\[script\+agent\]/)
 		})

@@ -16,7 +16,7 @@ import { addCommand, editCommand } from '../commands/add.js'
 import { runNowCommand } from '../commands/lifecycle.js'
 import { showCommand } from '../commands/list.js'
 import { readRunResult } from '../fire/result.js'
-import { confirmationHolds, findJob, updateJob } from '../store/jobs.js'
+import { confirmationHolds, findJob, jobSecurityDigest, updateJob } from '../store/jobs.js'
 import { readState } from '../store/state.js'
 import { type Sandbox, recordingContext, sandbox } from './fixtures.js'
 
@@ -40,6 +40,92 @@ function permissions(sb: Sandbox, rules: unknown, unmatched = 'deny'): string {
 }
 
 describe('schedule add --kind script', () => {
+	it('stores a completion-notice choice, preserves it on edit, and accepts only true or false', async () => {
+		const create = recordingContext()
+		expect(
+			await addCommand(create, [
+				'quiet-check',
+				...base(sb),
+				'--kind',
+				'script',
+				'--script',
+				'echo hi',
+				'--shell',
+				hostCommandShell().dialect,
+				'--permissions',
+				permissions(sb, {}),
+				'--notify-finished',
+				'false',
+				'--yes',
+			]),
+		).toBe(0)
+		const pending = findJob(sb.paths, 'quiet-check')
+		expect(pending.notify).toMatchObject({ finished: false, failed: true, awaitingApproval: true })
+		expect(create.out.info.join('\n')).toContain(
+			'Notify      no routine completed-run notice; failures still notify',
+		)
+		const show = recordingContext()
+		expect(await showCommand(show, ['quiet-check', '--home', sb.home])).toBe(0)
+		expect(String(show.out.printed[0])).toContain(
+			'Notify      no routine completed-run notice; failures still notify',
+		)
+		expect(String(show.out.printed[0])).toContain(
+			'Permissions   allow, ask and unmatched rules below do not constrain this script',
+		)
+		const active = updateJob(sb.paths, pending.id, pending.revision, (job) =>
+			confirmJob(job, 'cli-tty', new Date()),
+		)
+		expect(confirmationHolds(active)).toBe(true)
+		// The installed daemon's older digest omitted notify entirely. A
+		// completion preference must remain readable by that daemon until upgrade.
+		expect(jobSecurityDigest(active)).toBe(
+			jobSecurityDigest({ ...active, notify: { ...active.notify, finished: true } }),
+		)
+
+		const preserve = recordingContext()
+		expect(
+			await editCommand(preserve, [
+				'quiet-check',
+				'--home',
+				sb.home,
+				'--when',
+				'every 2m',
+				'--yes',
+			]),
+		).toBe(0)
+		expect(findJob(sb.paths, 'quiet-check').notify.finished).toBe(false)
+
+		const enable = recordingContext()
+		expect(
+			await editCommand(enable, [
+				'quiet-check',
+				'--home',
+				sb.home,
+				'--notify-finished',
+				'true',
+				'--yes',
+			]),
+		).toBe(0)
+		expect(findJob(sb.paths, 'quiet-check').notify.finished).toBe(true)
+		expect(enable.out.info.join('\n')).toContain(
+			'+ Notify      routine completion notices enabled (rate limited)',
+		)
+
+		const invalid = recordingContext()
+		expect(
+			await editCommand(invalid, [
+				'quiet-check',
+				'--home',
+				sb.home,
+				'--notify-finished',
+				'off',
+				'--yes',
+			]),
+		).toBe(64)
+		expect(invalid.out.errors.join('\n')).toContain('--notify-finished is true or false')
+		expect(findJob(sb.paths, 'quiet-check').notify.finished).toBe(true)
+	})
+
 	it.skipIf(process.platform === 'win32')(
 		'refuses a requested shell that is not installed before writing a job',
 		async () => {
@@ -99,7 +185,13 @@ describe('schedule add --kind script', () => {
 		expect(ctx.out.info.join('\n')).toContain('Model       none (script only)')
 		expect(ctx.out.info.join('\n')).toContain('Network     THIS RUN CAN REACH THE NETWORK')
 		expect(ctx.out.info.join('\n')).toContain(
-			'the scheduled-run floor and every deny rule apply to this script',
+			'Scope       this folder is the script’s working directory, not a write boundary',
+		)
+		expect(ctx.out.info.join('\n')).toContain(
+			'Permissions   allow, ask and unmatched rules below do not constrain this script',
+		)
+		expect(ctx.out.info.join('\n')).toContain(
+			'shell commands are checked against the scheduled-run floor and deny rules; interpreter code (for example, Python) is not parsed and must be reviewed by you',
 		)
 		expect(ctx.out.info.join('\n')).not.toContain('Approvals   ')
 		// The noninteractive CLI correctly leaves the job inert. Record the

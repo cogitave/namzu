@@ -16,6 +16,7 @@ import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
+import type { ScheduleReviewAnswer, ScheduleReviewRequest } from '../ScheduleReviewOverlay.js'
 import type { QuestionFn, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
@@ -41,6 +42,10 @@ export interface ScheduleIntegrationDeps {
 	readonly isIdle: () => boolean
 	readonly say: (text: string) => void
 	readonly ask: QuestionFn
+	readonly review?: (
+		request: ScheduleReviewRequest,
+		signal?: AbortSignal,
+	) => Promise<ScheduleReviewAnswer>
 	/** The permission screen; a scheduled turn's prompts are batch-only. */
 	readonly askPermission: ScreenPermissionFn
 	/**
@@ -116,6 +121,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 					sessionId: deps.sessionId,
 					say: deps.say,
 					ask: deps.ask,
+					...(deps.review ? { review: deps.review } : {}),
 				}),
 			),
 			...buildSessionLoopTools(loops),
@@ -141,6 +147,8 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				...(model ? { model } : {}),
 				say: deps.say,
 				ask: deps.ask,
+				...(deps.review ? { review: deps.review } : {}),
+				extraRoots: deps.extraRoots(),
 			})
 			return true
 		},
