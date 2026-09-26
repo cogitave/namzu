@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
 import { generateSessionId, generateTurnId } from '../../../utils/id.js'
@@ -21,7 +24,7 @@ import { generateSessionId, generateTurnId } from '../../../utils/id.js'
  * reading the failure branch's disposal and calling it the success branch's.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
 import { TopicManager } from '../../../manager/topic/lifecycle.js'
@@ -54,6 +57,11 @@ import type {
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 
 const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const fixtureRoots: string[] = []
+
+afterEach(async () => {
+	for (const root of fixtureRoots.splice(0)) await rm(root, { recursive: true, force: true })
+})
 
 const capabilities: AgentCapabilities = {
 	supportsTools: false,
@@ -117,13 +125,17 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 	private counter = 0
 
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
+		const repoRoot = await mkdtemp(join(tmpdir(), 'namzu-workspace-ref-'))
+		fixtureRoots.push(repoRoot)
+		const worktreePath = join(repoRoot, 'worktrees', params.label ?? 'unlabelled')
+		await mkdir(worktreePath, { recursive: true })
 		const ref: WorkspaceRef = {
 			id: fixtureUuid(`wsp_test_${++this.counter}`) as WorkspaceId,
 			meta: {
 				backend: 'git-worktree',
-				repoRoot: '/tmp/repo',
+				repoRoot,
 				branch: `namzu/${params.label ?? 'unlabelled'}`,
-				worktreePath: `/tmp/repo/.namzu/worktrees/${params.label ?? 'unlabelled'}`,
+				worktreePath,
 			},
 			createdAt: new Date(),
 		}
@@ -260,35 +272,45 @@ describe('a delegated child does not outlive its workspace', () => {
 		expect(driver.created).toHaveLength(1)
 	})
 
-	it.each(['wrong backend', 'relative path', 'caller path'] as const)(
-		'refuses isolated admission when the driver returns a %s',
-		async (invalid) => {
-			const { store, manager, driver, parentSession, options, taskContext } =
-				await harness('completed')
-			const create = driver.create.bind(driver)
-			vi.spyOn(driver, 'create').mockImplementationOnce(async (params) => {
-				const ref = await create(params)
-				return {
-					...ref,
-					meta: {
-						...ref.meta,
-						...(invalid === 'wrong backend' ? { backend: 'shared' } : {}),
-						...(invalid === 'relative path' ? { worktreePath: 'relative' } : {}),
-						...(invalid === 'caller path' ? { worktreePath: '/tmp' } : {}),
-					},
-				} as unknown as WorkspaceRef
-			})
+	it.each([
+		'wrong backend',
+		'relative path',
+		'caller path',
+		'caller alias',
+		'missing path',
+	] as const)('refuses isolated admission when the driver returns a %s', async (invalid) => {
+		const { store, manager, driver, parentSession, options, taskContext } =
+			await harness('completed')
+		const create = driver.create.bind(driver)
+		vi.spyOn(driver, 'create').mockImplementationOnce(async (params) => {
+			const ref = await create(params)
+			const callerPath = await realpath(options.input.workingDirectory ?? process.cwd())
+			const alias = join(ref.meta.repoRoot, 'caller-alias')
+			if (invalid === 'caller alias') await symlink(callerPath, alias, 'dir')
+			return {
+				...ref,
+				meta: {
+					...ref.meta,
+					...(invalid === 'wrong backend' ? { backend: 'shared' } : {}),
+					...(invalid === 'relative path' ? { worktreePath: 'relative' } : {}),
+					...(invalid === 'caller path' ? { worktreePath: '/tmp' } : {}),
+					...(invalid === 'caller alias' ? { worktreePath: alias } : {}),
+					...(invalid === 'missing path'
+						? { worktreePath: join(ref.meta.repoRoot, 'missing') }
+						: {}),
+				},
+			} as unknown as WorkspaceRef
+		})
 
-			await expect(
-				manager.sendMessage(
-					{ ...options, workspace: { mode: 'isolated', backend: 'git-worktree' } },
-					taskContext,
-				),
-			).rejects.toThrow('invalid workspace ref or path')
-			expect(driver.disposed).toEqual([driver.created[0]?.id])
-			expect(await store.getChildren(parentSession.id, tenant)).toHaveLength(0)
-		},
-	)
+		await expect(
+			manager.sendMessage(
+				{ ...options, workspace: { mode: 'isolated', backend: 'git-worktree' } },
+				taskContext,
+			),
+		).rejects.toThrow('invalid workspace ref or path')
+		expect(driver.disposed).toEqual([driver.created[0]?.id])
+		expect(await store.getChildren(parentSession.id, tenant)).toHaveLength(0)
+	})
 	it('disposes the workspace when the child SUCCEEDS', async () => {
 		const { manager, driver, options, taskContext } = await harness('completed')
 

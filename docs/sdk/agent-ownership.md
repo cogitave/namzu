@@ -48,7 +48,9 @@ kernel without implying that all hosts share one agent class.
 `AgentManager.sendMessage` and `TaskScheduler.createTask` accept a per-child
 `workspace` choice. `{ mode: 'shared' }` skips workspace provisioning.
 `{ mode: 'isolated', backend: 'git-worktree' }` requires a registered Git
-worktree driver and runs the child from the new checkout. `baseRef` optionally
+worktree driver and runs the child from the new checkout. Before admitting the
+child, the manager resolves both filesystem paths and rejects a missing checkout
+or one that aliases the caller's directory. `baseRef` optionally
 selects its starting commit; otherwise the driver chooses its default.
 `retention: 'retain'` keeps that workspace through completion, failure,
 cancellation and later archival, and exposes its ref on the task handle. The

@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { realpath, rm } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
@@ -183,8 +183,11 @@ function mergeEnv(
 	return { ...base, ...override }
 }
 
-/** A requested isolated child must never fall back to its caller's directory. */
-function requireIsolatedWorktreePath(ref: WorkspaceRef | undefined, callerCwd?: string): string {
+/** A requested isolated child must never resolve to its caller's directory. */
+async function requireIsolatedWorktreePath(
+	ref: WorkspaceRef | undefined,
+	callerCwd?: string,
+): Promise<string> {
 	const meta = ref?.meta
 	if (
 		typeof ref?.id !== 'string' ||
@@ -198,6 +201,23 @@ function requireIsolatedWorktreePath(ref: WorkspaceRef | undefined, callerCwd?: 
 		!isAbsolute(meta.worktreePath) ||
 		resolve(meta.worktreePath) === resolve(callerCwd ?? process.cwd())
 	) {
+		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path')
+	}
+	// A custom driver can return a different absolute spelling of the same
+	// directory (for example, a symlink to the caller). Both paths must exist
+	// before the child is admitted, and their physical roots must differ.
+	let physicalPaths: [string, string]
+	try {
+		physicalPaths = await Promise.all([
+			realpath(meta.worktreePath),
+			realpath(resolve(callerCwd ?? process.cwd())),
+		])
+	} catch (cause) {
+		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path', {
+			cause,
+		})
+	}
+	if (physicalPaths[0] === physicalPaths[1]) {
 		throw new Error('Isolated git-worktree driver returned an invalid workspace ref or path')
 	}
 	return meta.worktreePath
@@ -558,7 +578,7 @@ export class AgentManager {
 					...options,
 					input: {
 						...options.input,
-						workingDirectory: requireIsolatedWorktreePath(
+						workingDirectory: await requireIsolatedWorktreePath(
 							spawnRecord.workspaceRef,
 							options.input.workingDirectory,
 						),
@@ -1551,7 +1571,7 @@ export class AgentManager {
 					...(request?.mode === 'isolated' && request.baseRef ? { baseRef: request.baseRef } : {}),
 				})
 				if (request?.mode === 'isolated')
-					requireIsolatedWorktreePath(workspaceRef, options.input.workingDirectory)
+					await requireIsolatedWorktreePath(workspaceRef, options.input.workingDirectory)
 
 				// Write the workspace onto the record that outlives this process.
 				//
