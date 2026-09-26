@@ -2,6 +2,7 @@
 
 ## 2026-09-26
 
+- **Update** [CLI peer audit](cli/competitive-gaps.md): revision-pinned `Claude Code`, Codex CLI and MCP sources identify the worktree, delegation, server-management, skill-audit and live-catalogue changes in this release work, and set explicit security and behavior checks for the remaining OAuth gap.
 - **Update** [Delegated work](cli/delegated-work.md), [Managed Git worktrees](cli/worktrees.md) and [Agent ownership](sdk/agent-ownership.md): `Agent` can launch a child in a retained managed Git worktree from the selected checkout's committed HEAD; the SDK accepts an explicit per-child workspace and retention policy without changing legacy cleanup. `.changeset/delegated-isolated-worktrees.md`, **minor** for `@namzu/sdk` and `@namzu/cli`.
 - **Fix** [MCP protocol eras](sdk/mcp-protocol-eras.md): a permanent HTTP rejection of modern `subscriptions/listen` stops retries and warns until reconnect, while rate limits and server failures still retry; rejected response bodies are read with a size and time bound. `.changeset/mcp-subscription-permanent-rejection.md`, **patch** for `@namzu/sdk`.
 - **Update** [Tool servers](cli/mcp-servers.md): `namzu mcp list|get|add|remove` manages user-owned server entries in the YAML config, accepts environment-backed Bearer headers and existing names outside the new-name policy, refuses credential-bearing HTTP queries, and redacts values in text and structured output. `.changeset/cli-mcp-management.md`, **minor** for `@namzu/cli`.

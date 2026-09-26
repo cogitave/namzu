@@ -103,6 +103,49 @@ requires a controlled comparison with the same model, effort, budget, tools
 and task state. Deterministic regressions establish individual failures
 without spending model credits.
 
+## `Claude Code` and Codex CLI check, 2026-09-26
+
+The newer comparison inspected a local checkout of
+[Codex CLI at `e72da2b5`](https://github.com/openai/codex/tree/e72da2b53805894878023d01949a25a082e0a5cb)
+and the
+[`Claude Code` public repository at `7779afb1`](https://github.com/anthropics/claude-code/tree/7779afb12e3635f46f56ec823979d68350ae000b),
+alongside its [official subagent documentation](https://code.claude.com/docs/en/sub-agents).
+The public repository does not contain its full CLI runtime, so
+the worktree behavior below is attributed to its official documentation,
+not inferred from example code. The Namzu baseline was `ee54f2bd`;
+the entries below describe the changes built from it for the next release.
+
+| Verified gap | Source evidence | Namzu outcome |
+| --- | --- | --- |
+| Operator-owned Git worktrees and conversation continuation | Codex's [worktree library](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/worktree/src/lib.rs) and [TUI worktree browser](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/tui/src/worktree_browser.rs) | `namzu worktree create|list|fork|resume` creates a checkout at the selected committed HEAD and can copy a settled conversation into it. It does not move dirty source files. See [Managed Git worktrees](worktrees.md). |
+| Delegated work in a separate checkout | `Claude Code` documents [`isolation: worktree`](https://code.claude.com/docs/en/sub-agents); Codex's [worktree tests](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/worktree/tests/worktree.rs) exercise its checkout ownership. | The CLI Agent tool accepts `workspace: "worktree"`. The child executes against that checkout and reports its path and branch. Retention applies after completion, failure or cancellation; an unadmitted checkout is rolled back. See [Delegated work](delegated-work.md). |
+| MCP server management and authorization | Codex's [`mcp` command](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/cli/src/mcp_cmd.rs) includes add, list, get, login, logout and remove. | `namzu mcp list|get|add|remove` manages user entries with redacted output and environment-backed headers. Interactive OAuth login/logout remains a gap; implementing it requires a private issuer-bound credential store and the official MCP client's authorization flow. See [Tool servers](mcp-servers.md). |
+| Inspecting whether a skill can actually load | Codex's [skills runtime](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/core/src/skills.rs) makes skill availability part of execution. | `namzu skills --audit` checks winning file skills through the same SDK loader used by a turn and reports invalid, disabled and operator-only entries. See [Skills](skills.md). |
+
+For OAuth, the implementation target is the
+[official TypeScript MCP client](https://github.com/modelcontextprotocol/typescript-sdk/blob/7f7a94c22017e121a960e071bb50ec75e34450bd/docs/clients/oauth.md).
+An explicit `mcp login` should own browser consent and validate callback state and issuer.
+Ordinary tool use should only attach or refresh a previously saved credential,
+bound to the exact configured endpoint, and never open a browser by itself.
+HTTP authorization failures during protocol discovery must surface as such,
+without trying a legacy handshake. A URL change, failed callback or logout
+must leave no usable token for that endpoint.
+
+Modern MCP catalogue updates were also checked against the
+[2026-07-28 protocol](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/streamable-http.mdx).
+Namzu's modern client now listens for advertised tool, prompt and resource
+changes, refreshes its live toolsets, and stops retrying a permanently rejected
+subscription. This is a protocol correctness change, not a claim that every
+Codex or `Claude Code` server uses that revision. See
+[MCP protocol eras](../sdk/mcp-protocol-eras.md).
+
+The Codex source also contains plugin distribution and optional terminal
+interaction modes. Their presence alone does not justify importing their
+marketplace or input model into Namzu: Namzu already loads local plugins,
+and a distribution feature needs an explicit trust, update and permission
+contract. This audit did not establish a comparable user need or an
+acceptance test for those additions.
+
 ## Scheduled tasks
 
 Reviewed on 2026-09-23 against Hermes Agent commit
