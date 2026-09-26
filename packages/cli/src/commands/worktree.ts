@@ -6,6 +6,7 @@ import {
 	openManagedWorktrees,
 	worktreeOpenHint,
 } from '../integrations/worktrees/managed.js'
+import { terminalDisplayText } from '../tui/terminal-display.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu worktree — separate checkouts with separate conversation histories
@@ -47,17 +48,18 @@ export function createWorktreeCommand(
 				const manager = await openManagedWorktrees(process.cwd())
 				if (verb === 'list') {
 					const worktrees = await manager.list()
+					const text =
+						worktrees.length === 0
+							? 'No managed worktrees in this repository.'
+							: worktrees
+									.map(
+										(item) =>
+											`${item.label}  ${item.path}${item.dirty ? '  (uncommitted files)' : ''}`,
+									)
+									.join('\n')
 					ctx.formatter.print({
 						worktrees,
-						text:
-							worktrees.length === 0
-								? 'No managed worktrees in this repository.'
-								: worktrees
-										.map(
-											(item) =>
-												`${item.label}  ${item.path}${item.dirty ? '  (uncommitted files)' : ''}`,
-										)
-										.join('\n'),
+						text: terminalDisplayText(text),
 					})
 					return EXIT_OK
 				}
@@ -65,7 +67,9 @@ export function createWorktreeCommand(
 					const created = await manager.create(operands[0])
 					ctx.formatter.print({
 						...created,
-						text: `Created ${created.branch} at ${created.path}.\nOpen it: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+						text: terminalDisplayText(
+							`Created ${created.branch} at ${created.path}.\nOpen it: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+						),
 					})
 					return EXIT_OK
 				}
@@ -73,7 +77,9 @@ export function createWorktreeCommand(
 					const forked = await manager.fork(operands[0] as string, operands[1])
 					ctx.formatter.print({
 						...forked,
-						text: `Forked ${forked.copied} messages into ${forked.title} at ${forked.path}.\nOpen it: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+						text: terminalDisplayText(
+							`Forked ${forked.copied} messages into ${forked.title} at ${forked.path}.\nOpen it: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+						),
 					})
 					return EXIT_OK
 				}
@@ -83,13 +89,15 @@ export function createWorktreeCommand(
 				} else {
 					ctx.formatter.print({
 						...target,
-						text: `Open ${target.worktree.label}: ${worktreeOpenHint(target.worktree.path, target.conversationId)}`,
+						text: terminalDisplayText(
+							`Open ${target.worktree.label}: ${worktreeOpenHint(target.worktree.path, target.conversationId)}`,
+						),
 					})
 				}
 				return EXIT_OK
 			} catch (cause) {
 				ctx.formatter.error({
-					message: cause instanceof Error ? cause.message : String(cause),
+					message: terminalDisplayText(cause instanceof Error ? cause.message : String(cause)),
 				})
 				return EXIT_USAGE
 			}

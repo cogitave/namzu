@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 it('routes create, list and resume through the real CLI with structured output', async () => {
-	const root = mkdtempSync(join(tmpdir(), 'namzu-worktree-command-'))
+	const root = mkdtempSync(join(tmpdir(), 'namzu-worktree-command-\u001b[31m-'))
 	roots.push(root)
 	const repo = join(root, 'repo')
 	const home = join(root, 'state')
@@ -64,6 +64,8 @@ it('routes create, list and resume through the real CLI with structured output',
 	const created = await invoke('create', 'review')
 	expect(created.code).toBe(0)
 	expect(created.output?.branch).toBe('namzu/review')
+	expect(created.output?.text).toContain('\\u{001b}')
+	expect(created.output?.text).not.toContain('\u001b')
 	const listed = await invoke('list')
 	expect(listed.code).toBe(0)
 	expect(listed.output?.worktrees).toMatchObject([{ label: 'review' }])
