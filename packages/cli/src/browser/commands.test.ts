@@ -85,6 +85,10 @@ function harness(world: Partial<FakeWorld> = {}, config: NamzuCliConfig = {}) {
 	}
 	const out: unknown[] = []
 	const errors: { message: string; details?: unknown }[] = []
+	let readyResolve: () => void = () => {}
+	const ready = new Promise<void>((resolve) => {
+		readyResolve = resolve
+	})
 	const ctx: CommandContext = {
 		config,
 		formatter: {
@@ -103,6 +107,7 @@ function harness(world: Partial<FakeWorld> = {}, config: NamzuCliConfig = {}) {
 		waitForEnter: (signal) =>
 			new Promise((resolve) => {
 				pressEnter = resolve
+				readyResolve()
 				signal.addEventListener('abort', () => {})
 			}),
 		pollMs: 10,
@@ -114,7 +119,7 @@ function harness(world: Partial<FakeWorld> = {}, config: NamzuCliConfig = {}) {
 	const run = (...argv: string[]) => browserCommand(ctx, argv, deps)
 	const text = () =>
 		out.map((o) => (typeof o === 'string' ? o : ((o as { text?: string }).text ?? ''))).join('\n')
-	return { home, world: full, out, errors, run, text, enter: () => pressEnter(), installs }
+	return { home, world: full, out, errors, run, text, enter: () => pressEnter(), ready, installs }
 }
 
 const homes: string[] = []
@@ -128,7 +133,7 @@ describe('namzu browser login', () => {
 			observeError: { code: 'browser_human_required', reason: 'sign-in', message: 'x' },
 		})
 		const done = h.run('login', 'namzu-test-a', 'github.com/login')
-		await new Promise((r) => setTimeout(r, 30))
+		await h.ready
 		expect(h.world.built).toEqual([
 			expect.objectContaining({
 				profile: 'namzu-test-a',
@@ -149,6 +154,23 @@ describe('namzu browser login', () => {
 		expect(h.text()).toContain('namzu schedule add … --browser namzu-test-a')
 		const profile = new realBrowser.BrowserProfileStore(h.home).get('namzu-test-a')
 		expect(profile?.lastLoginAt).toBeDefined()
+	})
+
+	it('describes an HTTP challenge without assuming a sign-in screen', async () => {
+		const h = harness({
+			observeError: { code: 'browser_human_required', reason: 'http-auth', message: 'x' },
+		})
+		const done = h.run('login', 'namzu-test-auth', 'https://api.example.com')
+		await h.ready
+		expect(h.text()).toContain('An HTTP authentication challenge was returned')
+		expect(h.text()).toContain('Check access in the window that opened')
+		expect(h.text()).not.toMatch(/sign in|password prompt/i)
+		h.enter()
+		expect(await done).toBe(0)
+		expect(h.text()).toContain('the site may still require another authentication method')
+		expect(h.text()).not.toMatch(/sign in|password prompt/i)
+		const profile = new realBrowser.BrowserProfileStore(h.home).get('namzu-test-auth')
+		expect(profile?.lastLoginAt).toBeUndefined()
 	})
 
 	it('returns when the window is closed', async () => {

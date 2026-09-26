@@ -385,6 +385,30 @@ describe('structural host errors', () => {
 		})
 	})
 
+	it('describes HTTP authentication without assuming a password dialog', async () => {
+		const host = fakeHost()
+		host.throwNext = {
+			code: 'browser_human_required',
+			reason: 'http-auth',
+			origin: 'https://api.example.com',
+			loginCommand: 'namzu browser login work https://api.example.com',
+			message: 'HTTP authentication challenge',
+		}
+		const result = await run(host, 'browser', {
+			action: 'navigate',
+			url: 'https://api.example.com',
+		})
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('is showing an HTTP authentication challenge')
+		expect(result.error).toContain('The user can check access with: namzu browser login')
+		expect(result.error).not.toContain('The user can sign in with:')
+		expect(result.error).not.toContain('password prompt')
+		expect(result.handoff).toMatchObject({
+			reason: 'https://api.example.com is showing an HTTP authentication challenge',
+			detail: { cause: 'http-auth' },
+		})
+	})
+
 	it('says an unknown outcome is unsafe to replay', async () => {
 		const host = fakeHost()
 		host.throwNext = {

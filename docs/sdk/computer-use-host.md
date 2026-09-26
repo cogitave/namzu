@@ -90,6 +90,22 @@ the first host that implements them, and they may still change in a minor
 release. How the tool shows them to the model is in
 [the computer_use tool](computer-actions.md#a-windows-controls).
 
-Nothing here is specific to one backend: a custom helper and a ready-made
-desktop driver fit the same interface, and a host that has none of the
-optional methods is still a complete host.
+The contract applies to any backend: a custom helper and a desktop driver
+both fit, and a host without optional methods is still a complete host.
+
+## Windows driver session recovery
+
+The cua-driver backend uses an implicit session on its long-lived MCP
+connection. The driver expires that session after five minutes without a
+completed call. An action then receives a structured `session_ended` refusal
+before desktop dispatch. The adapter calls `start_session` to revive the
+implicit session, restores its disabled agent cursor, and retries the refused
+call once. Concurrent refusals share one revival.
+
+Each snapshot gives callers fresh opaque refs and keeps cua-driver's element
+tokens inside the adapter. If a UI action encounters session expiry, the adapter
+revives the session but reports its ref as stale. A restarted driver also makes
+existing refs stale, even when it later reuses the same raw token. Take a new
+`uiSnapshot` before acting on a control again. A driver crash, timeout, or any
+response without the exact structured refusal does not trigger an action retry,
+because the action may already have reached the desktop.

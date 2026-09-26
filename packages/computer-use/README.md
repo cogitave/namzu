@@ -112,6 +112,16 @@ standard streams:
   forwarded through `WSLENV`), without any environment variable whose name
   looks like a secret, and with its animated agent cursor off. Measured: a
   whole session left nothing in the Windows user profile.
+- **Idle recovery.** cua-driver ends its implicit desktop session after five
+  minutes without a completed call, even while its MCP process stays running.
+  When it explicitly refuses the next call with its structured `session_ended`
+  code before dispatch, the adapter revives that session, switches the agent
+  cursor off again, and retries the refused call once. An expired UI Automation
+  snapshot must be taken again before acting on a control. The adapter gives
+  every snapshot fresh refs and rejects old refs after a driver restart, even
+  if the driver reuses a raw element token. A lost response or driver crash
+  still leaves a changing action's outcome unknown and is never replayed
+  automatically.
 - **Windows.** `capabilities.windows` is `true`: `listWindows()` and
   `focusWindow(id)` (which restores a minimized window, gets past the
   foreground lock and reports what is actually in front afterwards).

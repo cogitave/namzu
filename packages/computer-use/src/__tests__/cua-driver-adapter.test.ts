@@ -19,6 +19,22 @@ import {
 
 const SCREEN = { width: 3440, height: 1440, scale_factor: 1.5 }
 
+function endedSessionRefusal() {
+	return {
+		result: {
+			isError: true,
+			content: [{ type: 'text', text: 'this session has ended; call start_session explicitly' }],
+			structuredContent: {
+				status: 'refused',
+				refusal: {
+					code: 'session_ended',
+					message: 'this session has ended; call start_session explicitly',
+				},
+			},
+		},
+	}
+}
+
 /** A cua-driver stand-in that answers the tools the adapter uses. */
 function cuaDriver(
 	overrides: Partial<Record<string, (call: ToolCall, p: FakeMcpProcess) => unknown>> = {},
@@ -200,6 +216,131 @@ describe('the cua-driver adapter', () => {
 		await expect(
 			adapter.execute({ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' }),
 		).rejects.toThrow('no window at point')
+		await adapter.dispose()
+	})
+
+	it('revives the expired implicit session, restores its cursor setting, and retries a refused click once', async () => {
+		let expired = false
+		const { adapter, calls, processes } = cuaDriver({
+			click: () => (expired ? endedSessionRefusal() : toolResult({ route: 'global_input' })),
+			start_session: () => {
+				expired = false
+				return toolResult({ active: true, revived: true })
+			},
+		})
+		await adapter.getDisplayGeometry()
+		expired = true
+		await expect(
+			adapter.execute({ type: 'mouse_click', at: { x: 15, y: 20 }, button: 'left' }),
+		).resolves.toEqual({ type: 'ok' })
+		expect(calls()).toEqual([
+			{ name: 'set_agent_cursor_enabled', arguments: { enabled: false } },
+			{ name: 'get_screen_size', arguments: {} },
+			{ name: 'click', arguments: { scope: 'desktop', x: 15, y: 20, button: 'left' } },
+			{ name: 'start_session', arguments: {} },
+			{ name: 'set_agent_cursor_enabled', arguments: { enabled: false } },
+			{ name: 'click', arguments: { scope: 'desktop', x: 15, y: 20, button: 'left' } },
+		])
+		expect(processes).toHaveLength(1)
+		await adapter.dispose()
+	})
+
+	it('shares one revival among simultaneous refusals from the expired session', async () => {
+		let expired = false
+		let refusals = 0
+		let markTwoRefusals: () => void = () => undefined
+		const twoRefusals = new Promise<void>((resolve) => {
+			markTwoRefusals = resolve
+		})
+		let releaseStart: () => void = () => undefined
+		let markStartCalled: () => void = () => undefined
+		const startCalled = new Promise<void>((resolve) => {
+			markStartCalled = resolve
+		})
+		const startMayFinish = new Promise<void>((resolve) => {
+			releaseStart = resolve
+		})
+		const { adapter, calls } = cuaDriver({
+			click: () => {
+				if (!expired) return toolResult({ route: 'global_input' })
+				if (++refusals === 2) markTwoRefusals()
+				return endedSessionRefusal()
+			},
+			start_session: async () => {
+				markStartCalled()
+				await startMayFinish
+				expired = false
+				return toolResult({ active: true, revived: true })
+			},
+		})
+		await adapter.getDisplayGeometry()
+		expired = true
+		const first = adapter.execute({ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' })
+		const second = adapter.execute({ type: 'mouse_click', at: { x: 2, y: 2 }, button: 'left' })
+		await twoRefusals
+		await startCalled
+		releaseStart()
+		await expect(Promise.all([first, second])).resolves.toEqual([{ type: 'ok' }, { type: 'ok' }])
+		expect(calls().filter((call) => call.name === 'start_session')).toHaveLength(1)
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(4)
+		await adapter.dispose()
+	})
+
+	it('does not replay a refusal inferred from text or a code without the pre-dispatch shape', async () => {
+		for (const refusal of [
+			{ isError: true, content: [{ type: 'text', text: 'session_ended' }] },
+			{
+				isError: true,
+				content: [{ type: 'text', text: 'session_ended' }],
+				structuredContent: { code: 'session_ended' },
+			},
+		]) {
+			const { adapter, calls } = cuaDriver({ click: () => ({ result: refusal }) })
+			await expect(
+				adapter.execute({ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' }),
+			).rejects.toThrow('session_ended')
+			expect(calls().map((call) => call.name)).toEqual(['set_agent_cursor_enabled', 'click'])
+			await adapter.dispose()
+		}
+	})
+
+	it('stops after one retry if the driver still refuses the session', async () => {
+		const { adapter, calls } = cuaDriver({
+			click: () => endedSessionRefusal(),
+			start_session: () => toolResult({ active: true, revived: true }),
+		})
+		await expect(
+			adapter.execute({ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' }),
+		).rejects.toThrow(/session has ended/)
+		expect(calls().map((call) => call.name)).toEqual([
+			'set_agent_cursor_enabled',
+			'click',
+			'start_session',
+			'set_agent_cursor_enabled',
+			'click',
+		])
+		await adapter.dispose()
+	})
+
+	it('does not replay the refused action when session revival fails', async () => {
+		const { adapter, calls } = cuaDriver({
+			click: () => endedSessionRefusal(),
+			start_session: () => ({
+				result: {
+					isError: true,
+					content: [{ type: 'text', text: 'session is not available to this transport' }],
+					structuredContent: { code: 'session_unavailable' },
+				},
+			}),
+		})
+		await expect(
+			adapter.execute({ type: 'mouse_click', at: { x: 1, y: 1 }, button: 'left' }),
+		).rejects.toThrow('session is not available to this transport')
+		expect(calls().map((call) => call.name)).toEqual([
+			'set_agent_cursor_enabled',
+			'click',
+			'start_session',
+		])
 		await adapter.dispose()
 	})
 

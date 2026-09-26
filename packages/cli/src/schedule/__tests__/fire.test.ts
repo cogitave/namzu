@@ -35,12 +35,24 @@ import {
 	sandbox,
 } from './fixtures.js'
 
+// The injected exit below does not end Vitest's process. Keep its leases live
+// while the aborted turn finishes, as the foreground exit tests do.
+const released = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@namzu/sdk', async (original) => ({
+	...(await original<typeof import('@namzu/sdk')>()),
+	releaseHeldSessionLeases: async () => {
+		released.count++
+		return { released: 0, unfinished: 0 }
+	},
+}))
+
 let sb: Sandbox
 let responses: (() => Response | Promise<Response>)[]
 let calls: number
 
 beforeEach(() => {
 	sb = sandbox()
+	released.count = 0
 	responses = []
 	calls = 0
 	vi.stubGlobal(
@@ -329,24 +341,19 @@ describe('the wall clock', () => {
 	it('is enforced by the run itself: the watchdog records timed-out and ends the process', async () => {
 		const job = confirmedJob(sb, { budget: { timeoutMs: 150 } })
 		responses.push(() => new Promise<Response>(() => {}))
-		let exited: number | undefined
-		const done = new Promise<void>((resolve) => {
-			void fire(job, {
-				graceMs: 100,
-				exit: (code) => {
-					exited = code
-					resolve()
-				},
-			})
+		let resolveExit!: (code: number) => void
+		const exited = new Promise<number>((resolve) => {
+			resolveExit = resolve
 		})
-		await done
-		expect(exited).toBe(1)
-		const result = readRunResult(
-			sb.paths,
-			job.id,
-			(await import('node:fs')).readdirSync(sb.paths.runsOf(job.id))[0]?.replace(/\.json$/, '') ??
-				'',
+		const firing = fire(job, { graceMs: 100, exit: resolveExit }).then(
+			(value) => ({ ok: true as const, value }),
+			(error: unknown) => ({ ok: false as const, error }),
 		)
-		expect(result?.status).toBe('timed-out')
+		expect(await exited).toBe(1)
+		const settled = await firing
+		if (!settled.ok) throw settled.error
+		expect(settled.value.code).toBe(1)
+		expect(settled.value.result?.status).toBe('timed-out')
+		expect(released.count).toBe(1)
 	})
 })

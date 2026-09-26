@@ -508,7 +508,7 @@ const HUMAN_REASON_WORDS: Record<BrowserHumanRequired['reason'], string> = {
 	'two-factor': 'a second sign-in step',
 	captcha: 'a CAPTCHA',
 	'bot-block': 'a bot check',
-	'http-auth': 'a password prompt',
+	'http-auth': 'an HTTP authentication challenge',
 	'credential-field': 'a password or one-time-code field',
 }
 
@@ -527,7 +527,7 @@ function hostErrorToResult(tool: string, error: BrowserHostError): ToolResult {
 		case 'browser_human_required': {
 			const what = HUMAN_REASON_WORDS[error.reason] ?? 'something only a person can do'
 			const how = error.loginCommand
-				? ` The user can sign in with: ${oneLine(error.loginCommand, 300)}`
+				? ` The user can ${error.reason === 'http-auth' ? 'check access' : 'sign in'} with: ${oneLine(error.loginCommand, 300)}`
 				: ''
 			const detail = {
 				origin: error.origin,

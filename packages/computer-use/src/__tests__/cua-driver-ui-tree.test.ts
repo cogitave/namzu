@@ -4,6 +4,7 @@
  * was given. The records below are cut from a real answer for the Windows 10
  * Calculator (Turkish UI) and classic Notepad, cua-driver 0.28.2.
  */
+import type { UiElementAction, UiSnapshot } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { SubprocessComputerUseHost } from '../SubprocessComputerUseHost.js'
 import { CuaDriverAdapter } from '../adapters/cua-driver/adapter.js'
@@ -133,11 +134,27 @@ const NOTEPAD_STATE = {
 	window_title: 'Untitled - Notepad',
 }
 
+function refFor(snapshot: UiSnapshot, name: string, action?: UiElementAction): string {
+	const pending = [snapshot.root]
+	while (pending.length > 0) {
+		const element = pending.pop()
+		if (!element) continue
+		if (element.name === name && element.ref && (!action || element.actions?.includes(action)))
+			return element.ref
+		pending.push(...(element.children ?? []))
+	}
+	throw new Error(`no actionable control named ${name}`)
+}
+
 describe('cua-driver UI trees', () => {
 	it('keeps every node of the walk, with refs only on controls this host can drive', () => {
 		const tree = toUiTree(CALCULATOR_STATE)
 		const root = tree.root
-		expect(root).toMatchObject({ role: 'Window', name: 'Hesap Makinesi', ref: '' })
+		expect(root).toMatchObject({
+			role: 'Window',
+			name: 'Hesap Makinesi',
+			ref: '',
+		})
 		const titleBar = root.children?.[0]
 		expect(titleBar).toMatchObject({
 			ref: 's00000002:0',
@@ -148,7 +165,11 @@ describe('cua-driver UI trees', () => {
 		})
 		// An unindexed row keeps its role and name; the expand-only menu item
 		// can be expanded or collapsed.
-		expect(titleBar?.children?.[0]).toMatchObject({ role: 'MenuBar', name: 'System', ref: '' })
+		expect(titleBar?.children?.[0]).toMatchObject({
+			role: 'MenuBar',
+			name: 'System',
+			ref: '',
+		})
 		expect(titleBar?.children?.[0]?.children?.[0]).toMatchObject({
 			ref: 's00000002:1',
 			actions: ['expand', 'collapse'],
@@ -156,7 +177,11 @@ describe('cua-driver UI trees', () => {
 		const content = root.children?.[1]
 		const appName = content?.children?.[0]
 		// A text control with nothing to do gets no ref, and its children still hang under it.
-		expect(appName).toMatchObject({ role: 'Text', name: 'Hesap Makinesi', ref: '' })
+		expect(appName).toMatchObject({
+			role: 'Text',
+			name: 'Hesap Makinesi',
+			ref: '',
+		})
 		expect(appName?.children?.map((child) => [child.role, child.name, child.ref])).toEqual([
 			['Text', 'İfade değeri 125 × 8=', ''],
 			['Text', 'Ekran değeri 1,000', 's00000002:8'],
@@ -168,7 +193,11 @@ describe('cua-driver UI trees', () => {
 			states: ['disabled'],
 			automationId: 'num0Button',
 		})
-		expect(pad[1]).toMatchObject({ name: 'Beş', ref: 's00000002:30', actions: ['invoke'] })
+		expect(pad[1]).toMatchObject({
+			name: 'Beş',
+			ref: 's00000002:30',
+			actions: ['invoke'],
+		})
 		expect([...tree.refs.keys()]).toEqual([
 			's00000002:0',
 			's00000002:1',
@@ -183,7 +212,11 @@ describe('cua-driver UI trees', () => {
 	it('nests the records by parent_index when there is no markdown', () => {
 		const { tree_markdown: _ignored, ...withoutMarkdown } = CALCULATOR_STATE
 		const tree = toUiTree(withoutMarkdown)
-		expect(tree.root).toMatchObject({ role: 'Window', name: 'Hesap Makinesi', ref: '' })
+		expect(tree.root).toMatchObject({
+			role: 'Window',
+			name: 'Hesap Makinesi',
+			ref: '',
+		})
 		const titleBar = tree.root.children?.find((child) => child.ref === 's00000002:0')
 		expect(titleBar?.children?.map((child) => child.ref)).toEqual(['s00000002:1', 's00000002:4'])
 		expect(tree.refs.size).toBe(6)
@@ -241,7 +274,7 @@ function driver(
 		spawner.processes
 			.flatMap((p) => p.toolCalls)
 			.filter((c) => c.name !== 'set_agent_cursor_enabled')
-	return { adapter, calls }
+	return { adapter, calls, processes: spawner.processes }
 }
 
 describe('the cua-driver adapter’s UI tree', () => {
@@ -269,28 +302,45 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const { adapter, calls } = driver({})
 		const snapshot = await adapter.uiSnapshot()
 		expect(snapshot.windowId).toBe('0xec097c')
-		expect(calls()[1]?.arguments).toMatchObject({ pid: 58056, window_id: 15468924 })
+		expect(calls()[1]?.arguments).toMatchObject({
+			pid: 58056,
+			window_id: 15468924,
+		})
 		await adapter.dispose()
 	})
 
-	it('invokes a control by its token, in the background', async () => {
+	it('translates an opaque UI ref to its driver token for background actions', async () => {
 		const { adapter, calls } = driver({})
-		await adapter.uiSnapshot('0x261206')
-		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toEqual({ ok: true })
-		await expect(adapter.uiAct('s00000002:1', 'expand')).resolves.toEqual({ ok: true })
+		const snapshot = await adapter.uiSnapshot('0x261206')
+		const five = refFor(snapshot, 'Beş', 'invoke')
+		const system = refFor(snapshot, 'System', 'expand')
+		expect(five).not.toBe('s00000002:30')
+		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toMatchObject({ ok: false })
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({ ok: true })
+		await expect(adapter.uiAct(system, 'expand')).resolves.toEqual({
+			ok: true,
+		})
 		expect(calls().slice(-2)).toEqual([
-			{ name: 'click', arguments: { pid: 11432, element_token: 's00000002:30' } },
-			{ name: 'click', arguments: { pid: 11432, element_token: 's00000002:1' } },
+			{
+				name: 'click',
+				arguments: { pid: 11432, element_token: 's00000002:30' },
+			},
+			{
+				name: 'click',
+				arguments: { pid: 11432, element_token: 's00000002:1' },
+			},
 		])
 		await adapter.dispose()
 	})
 
 	it('refuses a ref from anything but the latest snapshot without calling the driver', async () => {
 		const { adapter, calls } = driver({})
-		await adapter.uiSnapshot('0x261206')
-		await adapter.uiSnapshot('0xec097c')
+		const first = await adapter.uiSnapshot('0x261206')
+		const oldRef = refFor(first, 'Beş', 'invoke')
+		const second = await adapter.uiSnapshot('0x261206')
+		expect(refFor(second, 'Beş', 'invoke')).not.toBe(oldRef)
 		const before = calls().length
-		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toEqual({
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toEqual({
 			ok: false,
 			detail: expect.stringContaining('not a control of the latest UI snapshot'),
 		})
@@ -312,9 +362,13 @@ describe('the cua-driver adapter’s UI tree', () => {
 				},
 			}),
 		})
-		await adapter.uiSnapshot('0xec097c')
+		const snapshot = await adapter.uiSnapshot('0xec097c')
 		await expect(
-			adapter.uiAct('s00000003:0', 'set_value', 'Merhaba dünya ığüşöç'),
+			adapter.uiAct(
+				refFor(snapshot, 'Text Editor', 'set_value'),
+				'set_value',
+				'Merhaba dünya ığüşöç',
+			),
 		).resolves.toEqual({
 			ok: true,
 			detail: 'typed into the empty field, which has no settable value',
@@ -322,11 +376,19 @@ describe('the cua-driver adapter’s UI tree', () => {
 		expect(calls().slice(-2)).toEqual([
 			{
 				name: 'set_value',
-				arguments: { pid: 58056, element_token: 's00000003:0', value: 'Merhaba dünya ığüşöç' },
+				arguments: {
+					pid: 58056,
+					element_token: 's00000003:0',
+					value: 'Merhaba dünya ığüşöç',
+				},
 			},
 			{
 				name: 'type_text',
-				arguments: { pid: 58056, element_token: 's00000003:0', text: 'Merhaba dünya ığüşöç' },
+				arguments: {
+					pid: 58056,
+					element_token: 's00000003:0',
+					text: 'Merhaba dünya ığüşöç',
+				},
 			},
 		])
 		await adapter.dispose()
@@ -342,12 +404,21 @@ describe('the cua-driver adapter’s UI tree', () => {
 			set_value: () => ({
 				result: {
 					isError: true,
-					content: [{ type: 'text', text: 'element [0] does not implement ValuePattern' }],
+					content: [
+						{
+							type: 'text',
+							text: 'element [0] does not implement ValuePattern',
+						},
+					],
 				},
 			}),
 		})
-		await adapter.uiSnapshot('0xec097c')
-		const result = await adapter.uiAct('s00000003:0', 'set_value', 'new')
+		const snapshot = await adapter.uiSnapshot('0xec097c')
+		const result = await adapter.uiAct(
+			refFor(snapshot, 'Text Editor', 'set_value'),
+			'set_value',
+			'new',
+		)
 		expect(result.ok).toBe(false)
 		expect(result.detail).toMatch(/already holds text/)
 		expect(calls().some((c) => c.name === 'type_text')).toBe(false)
@@ -380,16 +451,123 @@ describe('the cua-driver adapter’s UI tree', () => {
 				return toolResult({ effect: 'suspected_noop', route: 'accessibility' })
 			},
 		})
-		await adapter.uiSnapshot('0x261206')
-		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toEqual({
+		const snapshot = await adapter.uiSnapshot('0x261206')
+		const five = refFor(snapshot, 'Beş', 'invoke')
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({
 			ok: false,
 			detail: 'that control is from an older UI snapshot; take a new one',
 		})
-		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toEqual({
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({
 			ok: false,
 			detail: 'the control is disabled',
 		})
-		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toMatchObject({ ok: false })
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toMatchObject({
+			ok: false,
+		})
+		await adapter.dispose()
+	})
+
+	it('revives an expired session without replaying an action through an old UI token', async () => {
+		let expired = false
+		const { adapter, calls } = driver({
+			click: () =>
+				expired
+					? {
+							result: {
+								isError: true,
+								content: [{ type: 'text', text: 'session ended before dispatch' }],
+								structuredContent: {
+									status: 'refused',
+									refusal: {
+										code: 'session_ended',
+										message: 'session ended before dispatch',
+									},
+								},
+							},
+						}
+					: toolResult({ effect: 'confirmed' }),
+			start_session: () => {
+				expired = false
+				return toolResult({ active: true, revived: true })
+			},
+		})
+		const beforeExpiry = await adapter.uiSnapshot('0x261206')
+		const oldRef = refFor(beforeExpiry, 'Beş', 'invoke')
+		expired = true
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toEqual({
+			ok: false,
+			detail: 'that control is from an older UI snapshot; take a new one',
+		})
+		expect(calls().map((call) => call.name)).toEqual([
+			'list_windows',
+			'get_window_state',
+			'click',
+			'start_session',
+		])
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
+			ok: false,
+		})
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
+		const afterRevival = await adapter.uiSnapshot('0x261206')
+		const newRef = refFor(afterRevival, 'Beş', 'invoke')
+		expect(newRef).not.toBe(oldRef)
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
+			ok: false,
+		})
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
+		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toEqual({
+			ok: true,
+		})
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(2)
+		await adapter.dispose()
+	})
+
+	it('refuses old refs across a driver restart even when the raw token is reused', async () => {
+		const { adapter, calls, processes } = driver({
+			get_window_state: (_call, process) =>
+				toolResult(
+					process.pid === 4242
+						? CALCULATOR_STATE
+						: {
+								...CALCULATOR_STATE,
+								elements: CALCULATOR_ELEMENTS.map((element) =>
+									element.element_index === 30 ? { ...element, label: 'Delete all' } : element,
+								),
+								tree_markdown: CALCULATOR_MARKDOWN.replace('Button "Beş"', 'Button "Delete all"'),
+							},
+				),
+		})
+		const beforeCrash = await adapter.uiSnapshot('0x261206')
+		const oldRef = refFor(beforeCrash, 'Beş', 'invoke')
+		const firstProcess = processes[0]
+		if (!firstProcess) throw new Error('driver did not start')
+		const closed = new Promise<void>((resolve) => firstProcess.once('close', () => resolve()))
+		firstProcess.crash(1)
+		await closed
+
+		// uiAct starts the replacement process, then rejects the old token
+		// before any click can reach it.
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
+			ok: false,
+		})
+		expect(processes).toHaveLength(2)
+		expect(processes[1]?.toolCalls.map((call) => call.name)).toEqual(['set_agent_cursor_enabled'])
+
+		const afterCrash = await adapter.uiSnapshot('0x261206')
+		const newRef = refFor(afterCrash, 'Delete all', 'invoke')
+		expect(newRef).not.toBe(oldRef)
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
+			ok: false,
+		})
+		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toEqual({
+			ok: true,
+		})
+		expect(calls().filter((call) => call.name === 'click')).toEqual([
+			{
+				name: 'click',
+				arguments: { pid: 11432, element_token: 's00000002:30' },
+			},
+		])
 		await adapter.dispose()
 	})
 
@@ -407,8 +585,8 @@ describe('the cua-driver adapter’s UI tree', () => {
 		})
 		const host = new SubprocessComputerUseHost({ adapter })
 		expect(host.capabilities.uiTree).toBe(true)
-		await host.uiSnapshot('0x261206')
-		const result = await host.uiAct('s00000002:30', 'invoke')
+		const snapshot = await host.uiSnapshot('0x261206')
+		const result = await host.uiAct(refFor(snapshot, 'Beş', 'invoke'), 'invoke')
 		expect(result.ok).toBe(false)
 		expect(result.detail).toMatch(/may or may not have happened/)
 		await host.dispose()

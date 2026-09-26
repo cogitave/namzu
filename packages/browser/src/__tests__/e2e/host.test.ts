@@ -284,6 +284,98 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		expect(basic).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
 	})
 
+	it('reports bare 401 and 407 as failed access, without a password handoff', async () => {
+		for (const status of [401, 407] as const) {
+			// Chromium turns an origin's 407 into a browser error page. Keep
+			// that browser separate so its late error-page navigation cannot
+			// interrupt the next fixture's navigation.
+			const activeHost =
+				status === 407
+					? new PlaywrightBrowserHost({
+							home,
+							plan: plan(true),
+							profile: 'proxy-407',
+							sites: { [server.allowed]: 'act' },
+						})
+					: host
+			try {
+				const [browser, act] = createBrowserTools(activeHost)
+				const registry = new ToolManager({
+					toolsets: [toolset('test', [browser as ToolDefinition, act as ToolDefinition])],
+					messages: () => [],
+				})
+				const result = await registry.execute(
+					'browser',
+					{ action: 'navigate', url: `${origin()}/bare-${status}` },
+					context(work),
+				)
+				expect(result.success).toBe(false)
+				expect(result.error).toContain(`HTTP ${status}`)
+				expect(result.error).toContain(status === 401 ? 'WWW-Authenticate' : 'proxy')
+				expect(result.error).toContain('Tell the user')
+				expect(result.handoff).toBeUndefined()
+				expect(result.data).toBeUndefined()
+			} finally {
+				if (activeHost !== host) await activeHost.dispose()
+			}
+		}
+	})
+
+	it('keeps a visible sign-in handoff even when its response is a bare 401', async () => {
+		const denied = await refusal(
+			host.observe({ action: 'navigate', url: `${origin()}/bare-401-sign-in` }),
+		)
+		expect(denied).toMatchObject({ code: 'browser_human_required', reason: 'sign-in' })
+	})
+
+	it('keeps 401 evidence when a history move has no destination', async () => {
+		for (const path of ['/basic', '/bare-401']) {
+			await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
+			const denied = await refusal(host.observe({ action: 'navigate', url: `${origin()}${path}` }))
+			const stillDenied = await refusal(host.observe({ action: 'forward' }))
+			if (path === '/basic') {
+				expect(denied).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
+				expect(stillDenied).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
+			} else {
+				expect(denied.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+				expect(stillDenied.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+			}
+			const tabs = await host.observe({ action: 'tabs', op: 'list' })
+			expect(tabs.tabs?.find((tab) => tab.active)?.url).toBe(`${origin()}${path}`)
+		}
+		const recovered = await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
+		expect(recovered.page?.url).toBe(`${origin()}/index.html`)
+	})
+
+	it('keeps bare 401 evidence across same-document hash and pushState moves', async () => {
+		const bare = await refusal(host.observe({ action: 'navigate', url: `${origin()}/bare-401` }))
+		expect(bare.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+		const requestsBeforeHash = server.requests.filter((request) =>
+			request.endsWith('/bare-401'),
+		).length
+		const hash = await refusal(
+			host.observe({ action: 'navigate', url: `${origin()}/bare-401#section` }),
+		)
+		expect(hash.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+		const hashBack = await refusal(host.observe({ action: 'back' }))
+		expect(hashBack.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+		expect(server.requests.filter((request) => request.endsWith('/bare-401'))).toHaveLength(
+			requestsBeforeHash,
+		)
+
+		const withButton = await refusal(
+			host.observe({ action: 'navigate', url: `${origin()}/bare-401-history` }),
+		)
+		expect(withButton.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+		const ref = refOf((await snap()).text, /button "Change address"/)
+		const pushed = await refusal(host.act({ action: 'click', ref, origin: origin() }))
+		expect(pushed.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+		const tabs = await host.observe({ action: 'tabs', op: 'list' })
+		expect(tabs.tabs?.find((tab) => tab.active)?.url).toBe(`${origin()}/history-state`)
+		const pushBack = await refusal(host.observe({ action: 'back' }))
+		expect(pushBack.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
+	})
+
 	it('clears a redirect to a site nobody asked for', async () => {
 		await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
 		const ref = refOf((await snap()).text, /link "Leave by redirect"/)

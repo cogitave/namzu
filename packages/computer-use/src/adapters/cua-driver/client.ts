@@ -30,7 +30,7 @@ export interface McpToolResult {
 	readonly structuredContent?: Record<string, unknown>
 }
 
-/** The server ran the tool and reported that it failed (`isError: true`). */
+/** A tool refusal from the server, or a local pre-dispatch UI snapshot guard. */
 export class McpToolError extends Error {
 	override readonly name = 'McpToolError'
 
@@ -61,6 +61,13 @@ export type McpToolCaller = (
 	args?: Record<string, unknown>,
 	timeoutMs?: number,
 ) => Promise<McpToolResult>
+
+export interface McpProcessCallOptions {
+	/** Refuse before dispatch if a UI token came from another driver process. */
+	readonly expectedStarts?: number
+	/** Record the process that actually received this call. */
+	readonly onProcess?: (starts: number) => void
+}
 
 export interface McpStdioClientOptions {
 	readonly command: string
@@ -94,6 +101,7 @@ interface Pending {
 
 interface Running {
 	readonly child: ChildProcessWithoutNullStreams
+	readonly startOrdinal: number
 	readonly pending: Map<number, Pending>
 	readonly stderr: string[]
 	exited: boolean
@@ -133,8 +141,12 @@ export class McpStdioClient {
 		name: string,
 		args: Record<string, unknown> = {},
 		timeoutMs?: number,
+		process?: McpProcessCallOptions,
 	): Promise<McpToolResult> {
 		const running = await this.ensureStarted()
+		if (process?.expectedStarts !== undefined && process.expectedStarts !== running.startOrdinal)
+			throw new McpToolError(name, 'stale UI snapshot; take a new one')
+		process?.onProcess?.(running.startOrdinal)
 		return this.callOn(running, name, args, timeoutMs)
 	}
 
@@ -184,10 +196,11 @@ export class McpStdioClient {
 				`Could not start ${command}: ${error instanceof Error ? error.message : String(error)}`,
 			)
 		}
-		this.startCount++
+		const startOrdinal = ++this.startCount
 		let markClosed: () => void = () => undefined
 		const running: Running = {
 			child,
+			startOrdinal,
 			pending: new Map(),
 			stderr: [],
 			exited: false,
@@ -352,7 +365,10 @@ export class McpStdioClient {
 						: {
 								jsonrpc: '2.0',
 								id: message.id,
-								error: { code: -32601, message: `Method not found: ${message.method}` },
+								error: {
+									code: -32601,
+									message: `Method not found: ${message.method}`,
+								},
 							}
 				running.child.stdin.write(`${JSON.stringify(reply)}\n`)
 			}
@@ -394,7 +410,13 @@ export class McpStdioClient {
 				: `${command} exited (code ${exitCode ?? 'none'}${signal ? `, ${signal}` : ''}) before it answered ${method}.${tail(running.stderr)}`
 		return new SpawnError(
 			message,
-			{ exitCode: exitCode ?? -1, stdout: Buffer.alloc(0), stderr, timedOut, signal },
+			{
+				exitCode: exitCode ?? -1,
+				stdout: Buffer.alloc(0),
+				stderr,
+				timedOut,
+				signal,
+			},
 			command,
 			args,
 		)
