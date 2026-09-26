@@ -41,6 +41,21 @@ describe('the browser handoff notice', () => {
 		expect(text).toContain('Complete the check on https://github.com in the browser window')
 	})
 
+	it('describes HTTP authentication without promising a sign-in screen', () => {
+		const auth = {
+			...HANDOFF,
+			reason: 'https://github.com is showing an HTTP authentication challenge',
+			detail: { ...HANDOFF.detail, cause: 'http-auth' },
+		}
+		const headed = describeBrowserHandoff(auth, STATUS)
+		expect(headed).toContain('Check access to https://github.com in the browser window')
+		expect(headed).not.toMatch(/sign in|password prompt/i)
+		const headless = describeBrowserHandoff(auth, { ...STATUS, headless: true })
+		expect(headless).toContain('  namzu browser login work https://github.com/login\n')
+		expect(headless).toContain('If authentication succeeds, press Enter')
+		expect(headless).not.toMatch(/sign in|password prompt/i)
+	})
+
 	it('gives the login command when the browser has no window', () => {
 		const text = describeBrowserHandoff(HANDOFF, { ...STATUS, headless: true })
 		expect(text).toContain('  namzu browser login work https://github.com/login\n')

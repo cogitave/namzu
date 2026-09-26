@@ -142,9 +142,11 @@ Screening every request through Playwright's routing turns off the browser's HTT
 
 After every navigation and every action, the host reads the page and `classifyHumanRequired` decides whether it needs a person. All of it is read by the host; nothing the model says reaches the classifier.
 
+The exported `BrowserPageSignals` type carries optional `status`, `wwwAuthenticate` and `proxyAuthenticate` fields for the main document response. The host reads the two challenge headers from that response. It uses Chromium's document loader ID to keep those signals on the current document through a failed navigation, a history command with no destination, or a same-document URL change. A new document response replaces them; a back-forward cache restore reuses the signals recorded for that document. If a page moves without a new response and the restored document cannot be identified, the host fails the call rather than reporting successful access.
+
 | Reason | Signal |
 | --- | --- |
-| `http-auth` | the main document's last response was 401 or 407 |
+| `http-auth` | the main document returned 401 with a non-empty `WWW-Authenticate` header, or 407 with a non-empty `Proxy-Authenticate` header |
 | `captcha` | a visible frame (at least 30×30) served from `challenges.cloudflare.com`, `hcaptcha.com`, `arkoselabs.com`, `funcaptcha.com`, `recaptcha.net` or `google.com/recaptcha/`; an invisible-badge frame (`size=invisible`) is not |
 | `bot-block` | the title is a known interstitial ("Just a moment...", "Attention Required! \| Cloudflare", "Access denied", …), anchored so a page about access control does not match |
 | `two-factor` | a visible one-time-code field, or a second-factor address (`/two-factor`, `/2fa`, `/mfa`, `/otp`, `github.com/sessions/two-factor`) |
@@ -153,6 +155,8 @@ After every navigation and every action, the host reads the page and `classifyHu
 The call throws `BrowserHumanRequiredError` (`code: 'browser_human_required'`) with the reason, the origin, the profile and `loginCommand` (`namzu browser login <profile> <origin><path>`, query dropped). The SDK tool turns it into a failed result carrying `data.handoff = { kind: 'human-required', reason, detail: { origin, profile, loginCommand } }`. The page is left as it is, so a person at a headed window can finish the sign-in there.
 
 It errs toward stopping: a settings page with a visible password box is read as a sign-in.
+
+A bare 401 or 407 does not prove that a password prompt exists. If the page has an independent sign-in, CAPTCHA or bot-check signal, that handoff still wins. Otherwise the host fails the call with the HTTP status and says that access was denied or the response is incomplete; it does not hand the user to a password prompt or return the denial page as a successful navigation. Chromium may reject a 407 before it loads the page (`ERR_UNEXPECTED_PROXY_AUTH`); the host reports that as an HTTP 407 proxy access failure as well. The SDK tool carries those host errors as failed tool results, without `data.handoff`.
 
 **Credential fields.** `type`, `fill_form` and `press` into a field that is `type=password`, has `autocomplete` `current-password`, `new-password` or `one-time-code`, or is named like a one-time code (`otp`, `totp`, `2fa`, `verification code`, …) are refused with reason `credential-field` before anything is typed, whatever the gate allowed. A `fill_form` that includes one fills nothing. `press` without a ref is refused while such a field has focus, except Tab, Shift+Tab, Escape and Enter.
 

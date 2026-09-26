@@ -15,6 +15,7 @@ import type {
 import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl, resolveNamzuHome } from '@namzu/sdk'
 import {
 	type BrowserContext,
+	type CDPSession,
 	type Dialog,
 	type Locator,
 	type Page,
@@ -109,13 +110,30 @@ export interface PlaywrightBrowserHostOptions {
 interface Tab {
 	readonly id: string
 	readonly page: Page
+	/** Main-frame navigation events, including same-document history moves. */
+	mainFrameCommits: number
+	mainDocumentResponses: number
+	cdp?: CDPSession
+	readonly responsesByLoader: Map<string, DocumentResponse>
 	/** HTTP status of the main document's last response. */
 	status?: number
+	wwwAuthenticate?: string
+	proxyAuthenticate?: string
+}
+
+type DocumentResponse = Pick<Tab, 'status' | 'wwwAuthenticate' | 'proxyAuthenticate'>
+
+interface DocumentResponseCheckpoint {
+	readonly previous: DocumentResponse
+	readonly loaderId?: string
+	readonly responsesBefore: number
+	readonly commitsBefore: number
 }
 
 interface PendingDialog {
 	readonly tab: Tab
 	readonly dialog: Dialog
+	checkpoint?: DocumentResponseCheckpoint
 }
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000
@@ -127,6 +145,7 @@ const SNAPSHOT_PAGE_MAX = 20_000
 const EVENT_SETTLE_MS = 150
 /** Smallest frame that can hold a CAPTCHA a person is meant to solve. */
 const CAPTCHA_FRAME_MIN_PX = 30
+const REMEMBERED_DOCUMENTS_MAX = 64
 
 function firstLine(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error)
@@ -184,7 +203,7 @@ const NON_TYPING_KEYS = new Set(['Tab', 'Shift+Tab', 'Escape', 'Enter'])
  *   anything else is blocked before it is sent; a redirect is caught when it
  *   lands, and the tab is cleared to `about:blank`;
  * - acting needs the live origin at `ask` or `act`;
- * - a sign-in, second factor, CAPTCHA, bot wall or HTTP credential prompt
+ * - a sign-in, second factor, CAPTCHA, bot wall or HTTP authentication challenge
  *   stops the call with `browser_human_required`;
  * - nothing is ever typed into a password or one-time-code field;
  * - downloads are cancelled and reported; a leave-page prompt is answered so
@@ -478,7 +497,13 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const known = this.tabOf.get(page)
 		if (known) return known
 		this.tabCounter += 1
-		const tab: Tab = { id: `t${this.tabCounter}`, page }
+		const tab: Tab = {
+			id: `t${this.tabCounter}`,
+			page,
+			mainFrameCommits: 0,
+			mainDocumentResponses: 0,
+			responsesByLoader: new Map(),
+		}
 		this.tabs.set(tab.id, tab)
 		this.tabOf.set(page, tab)
 		if (this.activeTabId === undefined) this.activeTabId = tab.id
@@ -488,12 +513,19 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			)
 		}
 		page.on('framenavigated', (frame) => {
-			if (frame === page.mainFrame()) this.checkLanding(tab)
+			if (frame === page.mainFrame()) {
+				tab.mainFrameCommits += 1
+				this.checkLanding(tab)
+			}
 		})
 		page.on('response', (response) => {
 			try {
 				if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) {
+					const headers = response.headers()
+					tab.mainDocumentResponses += 1
 					tab.status = response.status()
+					tab.wwwAuthenticate = headers['www-authenticate']
+					tab.proxyAuthenticate = headers['proxy-authenticate']
 				}
 			} catch {
 				// A response without a frame (a service worker's) says nothing about the page.
@@ -617,7 +649,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 
 	private async pageInfo(tab: Tab): Promise<BrowserPageInfo> {
 		const url = tab.page.url()
-		return { origin: originOf(url), url, title: await this.title(tab), tab: tab.id }
+		return {
+			origin: originOf(url),
+			url,
+			title: await this.title(tab),
+			tab: tab.id,
+		}
 	}
 
 	private result(extra: Omit<BrowserResult, 'message'>): BrowserResult {
@@ -673,12 +710,128 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				url,
 				title: await this.title(tab),
 				...(tab.status !== undefined ? { status: tab.status } : {}),
+				...(tab.wwwAuthenticate !== undefined ? { wwwAuthenticate: tab.wwwAuthenticate } : {}),
+				...(tab.proxyAuthenticate !== undefined
+					? { proxyAuthenticate: tab.proxyAuthenticate }
+					: {}),
 				...counts,
 				frameUrls,
 			},
 			this.options.signInAddresses ? { signInAddresses: this.options.signInAddresses } : {},
 		)
 		if (reason) throw this.humanRequired(reason, tab)
+		if (tab.status === 401) {
+			throw new Error(
+				'The site returned HTTP 401 without a WWW-Authenticate challenge. Access was denied or the response is incomplete; no HTTP password prompt was identified. Tell the user the site refused this request.',
+			)
+		}
+		if (tab.status === 407) {
+			throw new Error(
+				'The proxy returned HTTP 407 without a Proxy-Authenticate challenge. Access was denied or the response is incomplete; no proxy password prompt was identified. Tell the user the proxy refused this request.',
+			)
+		}
+	}
+
+	private documentResponse(tab: Tab): DocumentResponse {
+		return {
+			status: tab.status,
+			wwwAuthenticate: tab.wwwAuthenticate,
+			proxyAuthenticate: tab.proxyAuthenticate,
+		}
+	}
+
+	private clearDocumentResponse(tab: Tab): void {
+		tab.status = undefined
+		tab.wwwAuthenticate = undefined
+		tab.proxyAuthenticate = undefined
+	}
+
+	private setDocumentResponse(tab: Tab, response: DocumentResponse): void {
+		tab.status = response.status
+		tab.wwwAuthenticate = response.wwwAuthenticate
+		tab.proxyAuthenticate = response.proxyAuthenticate
+	}
+
+	/** Chromium's loader ID belongs to a document, and survives same-document history moves. */
+	private async loaderId(tab: Tab): Promise<string | undefined> {
+		try {
+			tab.cdp ??= await tab.page.context().newCDPSession(tab.page)
+			const tree = (await tab.cdp.send('Page.getFrameTree')) as {
+				frameTree?: { frame?: { loaderId?: unknown } }
+			}
+			const id = tree.frameTree?.frame?.loaderId
+			return typeof id === 'string' && id.length > 0 ? id : undefined
+		} catch {
+			tab.cdp = undefined
+			return undefined
+		}
+	}
+
+	private rememberDocumentResponse(tab: Tab, loaderId: string, response: DocumentResponse): void {
+		tab.responsesByLoader.delete(loaderId)
+		tab.responsesByLoader.set(loaderId, response)
+		if (tab.responsesByLoader.size > REMEMBERED_DOCUMENTS_MAX) {
+			const oldest = tab.responsesByLoader.keys().next().value
+			if (oldest !== undefined) tab.responsesByLoader.delete(oldest)
+		}
+	}
+
+	private async beginDocumentResponseChange(tab: Tab): Promise<DocumentResponseCheckpoint> {
+		const loaderId = await this.loaderId(tab)
+		const previous = this.documentResponse(tab)
+		if (loaderId !== undefined) this.rememberDocumentResponse(tab, loaderId, previous)
+		const checkpoint = {
+			previous,
+			...(loaderId !== undefined ? { loaderId } : {}),
+			responsesBefore: tab.mainDocumentResponses,
+			commitsBefore: tab.mainFrameCommits,
+		}
+		this.clearDocumentResponse(tab)
+		return checkpoint
+	}
+
+	private async finishDocumentResponseChange(
+		tab: Tab,
+		checkpoint: DocumentResponseCheckpoint,
+	): Promise<void> {
+		if (this.pendingDialog?.tab === tab) {
+			// CDP page queries wait behind an open JavaScript dialog. The page
+			// cannot commit a navigation until the dialog is answered.
+			this.pendingDialog.checkpoint = checkpoint
+			this.setDocumentResponse(tab, checkpoint.previous)
+			return
+		}
+		const currentLoader = await this.loaderId(tab)
+		const freshResponse = tab.mainDocumentResponses !== checkpoint.responsesBefore
+		const committed =
+			(currentLoader !== undefined &&
+				checkpoint.loaderId !== undefined &&
+				currentLoader !== checkpoint.loaderId) ||
+			tab.mainFrameCommits !== checkpoint.commitsBefore
+		if (currentLoader !== undefined && currentLoader === checkpoint.loaderId) {
+			// A hash change, pushState, no-op, or failed request left this document in place.
+			this.setDocumentResponse(tab, checkpoint.previous)
+		} else if (freshResponse && committed) {
+			// A new main-document response and a committed navigation agree.
+		} else if (freshResponse) {
+			this.setDocumentResponse(tab, checkpoint.previous)
+			throw new Error(
+				'The browser received a document response but could not confirm that it replaced the current page. Its access status is unknown; do not treat this as a successful page load.',
+			)
+		} else if (!freshResponse && currentLoader && tab.responsesByLoader.has(currentLoader)) {
+			// Back-forward cache restores a document without another response event.
+			this.setDocumentResponse(tab, tab.responsesByLoader.get(currentLoader) as DocumentResponse)
+		} else if (!freshResponse && !committed) {
+			// CDP can be unavailable while the browser is closing; no frame moved.
+			this.setDocumentResponse(tab, checkpoint.previous)
+		} else if (!freshResponse && originOf(tab.page.url()) !== 'null') {
+			throw new Error(
+				'The browser moved to a page without a response that could be verified. Its access status is unknown; do not treat this as a successful page load.',
+			)
+		}
+		if (currentLoader !== undefined) {
+			this.rememberDocumentResponse(tab, currentLoader, this.documentResponse(tab))
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -742,14 +895,22 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			this.policy.approve(verdict.origin)
 		}
 		await this.dismissPendingDialog(tab)
-		tab.status = undefined
+		const checkpoint = await this.beginDocumentResponseChange(tab)
 		try {
 			await tab.page.goto(verdict.url, { waitUntil: 'domcontentloaded' })
 		} catch (error) {
+			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
+			if (/ERR_UNEXPECTED_PROXY_AUTH/.test(firstLine(error))) {
+				await this.settle()
+				throw new Error(
+					'The browser refused an HTTP 407 proxy response before the page loaded. Proxy access is unavailable or its response is invalid; no usable password prompt was identified. Tell the user the proxy refused this request.',
+				)
+			}
 			if (!/ERR_BLOCKED_BY_CLIENT|ERR_ABORTED|Download is starting/.test(firstLine(error))) {
 				throw new Error(`Could not open ${verdict.url}: ${firstLine(error)}`)
 			}
 		}
+		await this.finishDocumentResponseChange(tab, checkpoint)
 		return this.afterNavigation(tab)
 	}
 
@@ -764,7 +925,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private async history(which: 'back' | 'forward' | 'reload'): Promise<BrowserResult> {
 		const tab = await this.activeTab()
 		await this.dismissPendingDialog(tab)
-		tab.status = undefined
+		const checkpoint = await this.beginDocumentResponseChange(tab)
 		// `commit`, then the document as a bonus: a page restored from the
 		// back-forward cache fires no `domcontentloaded`, so waiting for it
 		// timed out after a history move that had long finished (measured
@@ -781,8 +942,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 						? await tab.page.goForward(options)
 						: await tab.page.reload(options)
 		} catch (error) {
+			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
 			if (!/ERR_BLOCKED_BY_CLIENT|ERR_ABORTED/.test(firstLine(error))) throw error
 		}
+		await this.finishDocumentResponseChange(tab, checkpoint)
 		if (response !== null) {
 			await tab.page
 				.waitForLoadState('domcontentloaded', { timeout: HISTORY_LOAD_WAIT_MS })
@@ -882,7 +1045,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const data =
 			ref !== undefined
 				? await (await this.resolveRef(tab, ref)).screenshot({ type: 'png' })
-				: await tab.page.screenshot({ type: 'png', fullPage: fullPage === true })
+				: await tab.page.screenshot({
+						type: 'png',
+						fullPage: fullPage === true,
+					})
 		const bytes = new Uint8Array(data)
 		const size = pngSize(bytes)
 		return this.result({
@@ -1007,7 +1173,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const out: BrowserTabInfo[] = []
 		for (const tab of this.tabs.values()) {
 			if (tab.page.isClosed()) continue
-			out.push({ ...(await this.pageInfo(tab)), active: tab.id === this.activeTabId })
+			out.push({
+				...(await this.pageInfo(tab)),
+				active: tab.id === this.activeTabId,
+			})
 		}
 		return out
 	}
@@ -1044,10 +1213,17 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			throw new Error('A dialog is open on this tab; answer it with browser_act dialog first.')
 		}
 
-		await this.perform(tab, action)
-		await this.settle()
-		this.checkLanding(tab)
-		await this.settle()
+		const checkpoint = await this.beginDocumentResponseChange(tab)
+		try {
+			await this.perform(tab, action)
+			await this.settle()
+			this.checkLanding(tab)
+			await this.settle()
+		} catch (error) {
+			await this.finishDocumentResponseChange(tab, checkpoint).catch(() => undefined)
+			throw error
+		}
+		await this.finishDocumentResponseChange(tab, checkpoint)
 		await this.checkHuman(tab)
 		const after = this.tabs.get(tab.id) ?? tab
 		if (action.snapshot) return this.result({ snapshot: await this.takeSnapshot(after) })
@@ -1061,16 +1237,25 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const pending = this.pendingDialog
 		if (!pending || pending.tab !== tab) throw new Error('No dialog is open on this tab.')
 		this.pendingDialog = undefined
+		const checkpoint = pending.checkpoint ?? {
+			previous: this.documentResponse(tab),
+			responsesBefore: tab.mainDocumentResponses,
+			commitsBefore: tab.mainFrameCommits,
+		}
+		this.clearDocumentResponse(tab)
 		try {
 			if (action.accept) await pending.dialog.accept(action.promptText)
 			else await pending.dialog.dismiss()
 		} catch (error) {
+			this.setDocumentResponse(tab, checkpoint.previous)
 			throw new BrowserOutcomeUnknownError('dialog', error)
 		}
 		this.notes.unshift(action.accept ? 'The dialog was accepted.' : 'The dialog was dismissed.')
 		await this.settle()
 		this.checkLanding(tab)
 		await this.settle()
+		await this.finishDocumentResponseChange(tab, checkpoint)
+		await this.checkHuman(tab)
 		if (action.snapshot) return this.result({ snapshot: await this.takeSnapshot(tab) })
 		return this.result({ page: await this.pageInfo(tab) })
 	}
@@ -1107,7 +1292,11 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				return
 			}
 			case 'fill_form': {
-				const plan: { locator: Locator; facts: ElementFieldFacts; value: string }[] = []
+				const plan: {
+					locator: Locator
+					facts: ElementFieldFacts
+					value: string
+				}[] = []
 				for (const field of action.fields) {
 					const locator = await this.resolveRef(tab, field.ref)
 					const facts = await this.guardField(tab, locator)

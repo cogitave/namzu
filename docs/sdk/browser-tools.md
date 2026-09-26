@@ -137,6 +137,8 @@ The host refuses by throwing a value with one of these shapes. The tool recognis
 
 Each shape also carries a non-empty `message`.
 
+For `http-auth`, the tool says "HTTP authentication challenge" rather than assuming the response opened a browser password dialog. A 401 or 407 without a matching challenge header is an ordinary failed tool result from `@namzu/browser`, with its HTTP status and no human handoff.
+
 ## Labels a person approves
 
 `presentCall` resolves refs through `host.describeRef` and names the origin and profile: `Click button "Place order" · https://shop.example.com · profile work`, `Type "shoes" into textbox "Search" and submit · …`, `Open https://github.com/ · profile work`. An unknown ref is shown as `element e9`. Typed text and page-controlled names have hidden characters made visible. A `describeRef` or `session` that throws is ignored.

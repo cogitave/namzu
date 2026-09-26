@@ -47,6 +47,23 @@ export async function startFixtureServer(): Promise<FixtureServer> {
 			res.end('<!doctype html><title>Unauthorized</title><h1>401</h1>')
 			return
 		}
+		if (path === '/bare-401' || path === '/bare-407') {
+			res.writeHead(path === '/bare-401' ? 401 : 407, { 'content-type': 'text/html' })
+			res.end('<!doctype html><title>Response</title><h1>Request refused</h1>')
+			return
+		}
+		if (path === '/bare-401-history') {
+			res.writeHead(401, { 'content-type': 'text/html' })
+			res.end(
+				"<!doctype html><title>Response</title><button onclick=\"history.pushState(null, '', '/history-state')\">Change address</button>",
+			)
+			return
+		}
+		if (path === '/bare-401-sign-in') {
+			res.writeHead(401, { 'content-type': 'text/html' })
+			res.end('<!doctype html><title>Account</title><input type="password" aria-label="Password">')
+			return
+		}
 		if (path === '/form-result') {
 			const rows = [...url.searchParams].map(([k, v]) => `<li>${k}=${escapeHtml(v)}</li>`).join('')
 			res.writeHead(200, { 'content-type': 'text/html' })

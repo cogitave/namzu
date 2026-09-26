@@ -11,6 +11,10 @@ export interface BrowserPageSignals {
 	readonly title: string
 	/** HTTP status of the main document's last response, when known. */
 	readonly status?: number
+	/** The main document's WWW-Authenticate challenge, when present. */
+	readonly wwwAuthenticate?: string
+	/** The main document's Proxy-Authenticate challenge, when present. */
+	readonly proxyAuthenticate?: string
 	/** Visible password fields (`type=password`, `autocomplete=current-password`). */
 	readonly passwordFields: number
 	/** Visible one-time-code fields (`autocomplete=one-time-code`, or named like one). */
@@ -144,7 +148,7 @@ function isTwoFactorAddress(rawUrl: string): boolean {
 /**
  * Does the page need a person, and why? `undefined` when it does not.
  *
- * Order matters only for the reason reported: an HTTP credential prompt,
+ * Order matters only for the reason reported: an HTTP authentication challenge,
  * then a CAPTCHA, a bot wall, a second factor, and last a sign-in. All of it
  * is read by the host; nothing the model says reaches this function.
  *
@@ -157,7 +161,11 @@ export function classifyHumanRequired(
 	signals: BrowserPageSignals,
 	options: BrowserHumanClassifierOptions = {},
 ): BrowserHumanRequiredReason | undefined {
-	if (signals.status === 401 || signals.status === 407) return 'http-auth'
+	if (
+		(signals.status === 401 && signals.wwwAuthenticate?.trim()) ||
+		(signals.status === 407 && signals.proxyAuthenticate?.trim())
+	)
+		return 'http-auth'
 	if (signals.frameUrls.some(isCaptchaFrame)) return 'captcha'
 	if (isBotBlockTitle(signals.title)) return 'bot-block'
 	if (signals.oneTimeCodeFields > 0 || isTwoFactorAddress(signals.url)) return 'two-factor'

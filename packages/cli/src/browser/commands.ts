@@ -210,6 +210,7 @@ async function loginCommand(
 	ctx.formatter.info(
 		`Opening ${browserName(plan.browser)} (${engineLabel(plan)}) on profile ${profile}…`,
 	)
+	let httpAuthChallenge = false
 	try {
 		await host.observe(
 			url === 'about:blank' ? { action: 'snapshot' } : { action: 'tabs', op: 'new', url },
@@ -224,10 +225,11 @@ async function loginCommand(
 				? EXIT_UNAVAILABLE
 				: EXIT_FAIL
 		}
+		httpAuthChallenge = (error as { reason?: unknown }).reason === 'http-auth'
 	}
 	const where = url === 'about:blank' ? 'the sites you want the agent to use' : new URL(url).origin
 	ctx.formatter.print({
-		text: `Sign in to ${where} in the window that opened (profile ${profile}).\n${interactive() ? 'Press Enter here when you are done, or close the window.' : 'Close the window when you are done.'}`,
+		text: `${httpAuthChallenge ? `An HTTP authentication challenge was returned while opening ${where}. Check access in the window that opened (profile ${profile}).` : `Sign in to ${where} in the window that opened (profile ${profile}).`}\n${interactive() ? 'Press Enter here when you are done, or close the window.' : 'Close the window when you are done.'}`,
 	})
 	const stop = new AbortController()
 	const closed = new Promise<'closed'>((resolve) => {
@@ -245,13 +247,15 @@ async function loginCommand(
 	])
 	stop.abort()
 	await host.dispose().catch(() => undefined)
-	try {
-		new mod.BrowserProfileStore(home).markLogin(profile)
-	} catch {
-		// A window closed before the profile was written has nothing to mark.
+	if (!httpAuthChallenge) {
+		try {
+			new mod.BrowserProfileStore(home).markLogin(profile)
+		} catch {
+			// A window closed before the profile was written has nothing to mark.
+		}
 	}
 	ctx.formatter.print({
-		text: `${how === 'closed' ? 'Window closed' : 'Done'}. Profile ${profile} keeps what you signed in to; the agent uses it when the profile is selected (browser.defaultProfile, or /browser profile ${profile}), and a scheduled job when it is given the profile (namzu schedule add … --browser ${profile}).`,
+		text: `${how === 'closed' ? 'Window closed' : 'Done'}. ${httpAuthChallenge ? `Profile ${profile} is ready for another browser attempt; the site may still require another authentication method` : `Profile ${profile} keeps what you signed in to`}; the agent uses it when the profile is selected (browser.defaultProfile, or /browser profile ${profile}), and a scheduled job when it is given the profile (namzu schedule add … --browser ${profile}).`,
 	})
 	return EXIT_OK
 }

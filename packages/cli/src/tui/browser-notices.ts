@@ -23,7 +23,6 @@ function clean(value: string | undefined, max = 240): string {
 const AT_THE_WINDOW: Record<string, string> = {
 	'sign-in': 'sign in to',
 	'two-factor': 'finish signing in to',
-	'http-auth': 'sign in to',
 	captcha: 'complete the check on',
 	'bot-block': 'get past the check on',
 	'credential-field': 'type the password or code on',
@@ -45,6 +44,12 @@ export function describeBrowserHandoff(
 	const what = clean(handoff.reason)
 	const command = clean(detail.loginCommand, 400) || `namzu browser login ${profile} ${origin}`
 	const lead = `The browser needs you: ${what}.`
+	if (detail.cause === 'http-auth') {
+		if (browser && !browser.headless) {
+			return `${lead}\nCheck access to ${origin} in the browser window (profile ${profile}). If authentication succeeds, press Enter to continue · Esc to stop.`
+		}
+		return `${lead}\nThis browser has no window, so namzu closed it to free the profile. In another terminal run:\n  ${command}\nCheck access in the window it opens, then close it. If authentication succeeds, press Enter here to continue · Esc to stop.`
+	}
 	if (browser && !browser.headless) {
 		const verb = AT_THE_WINDOW[detail.cause ?? ''] ?? 'sign in to'
 		return `${lead}\n${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${origin} in the browser window (profile ${profile}), then press Enter to continue · Esc to stop.`

@@ -36,10 +36,64 @@ describe('classifyHumanRequired over the fixture pages', () => {
 })
 
 describe('classifyHumanRequired', () => {
-	it('reads HTTP 401 and 407 as a credential prompt, first', () => {
-		expect(classifyHumanRequired({ ...quiet, status: 401 })).toBe('http-auth')
-		expect(classifyHumanRequired({ ...quiet, status: 407, passwordFields: 1 })).toBe('http-auth')
-		expect(classifyHumanRequired({ ...quiet, status: 403 })).toBeUndefined()
+	it('requires the matching challenge header for an HTTP credential prompt', () => {
+		expect(classifyHumanRequired({ ...quiet, status: 401 })).toBeUndefined()
+		expect(classifyHumanRequired({ ...quiet, status: 407 })).toBeUndefined()
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 401,
+				wwwAuthenticate: 'Basic realm="site"',
+			}),
+		).toBe('http-auth')
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 407,
+				proxyAuthenticate: 'Basic realm="proxy"',
+			}),
+		).toBe('http-auth')
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 401,
+				proxyAuthenticate: 'Basic realm="proxy"',
+			}),
+		).toBeUndefined()
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 407,
+				wwwAuthenticate: 'Basic realm="site"',
+			}),
+		).toBeUndefined()
+		expect(classifyHumanRequired({ ...quiet, status: 401, wwwAuthenticate: '   ' })).toBeUndefined()
+		expect(classifyHumanRequired({ ...quiet, status: 407, proxyAuthenticate: '' })).toBeUndefined()
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 403,
+				wwwAuthenticate: 'Basic realm="site"',
+			}),
+		).toBeUndefined()
+	})
+
+	it('keeps independently observed human handoffs on a bare HTTP denial', () => {
+		expect(classifyHumanRequired({ ...quiet, status: 401, passwordFields: 1 })).toBe('sign-in')
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 407,
+				title: 'Just a moment...',
+			}),
+		).toBe('bot-block')
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				status: 401,
+				frameUrls: ['https://www.google.com/recaptcha/api2/anchor?k=x&size=normal'],
+			}),
+		).toBe('captcha')
 	})
 
 	it('names a CAPTCHA before a sign-in on the same page', () => {
@@ -53,9 +107,12 @@ describe('classifyHumanRequired', () => {
 	})
 
 	it('reads a sign-in address even with no password box on the page', () => {
-		expect(classifyHumanRequired({ ...quiet, url: 'https://accounts.google.com/v3/signin' })).toBe(
-			'sign-in',
-		)
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				url: 'https://accounts.google.com/v3/signin',
+			}),
+		).toBe('sign-in')
 		expect(classifyHumanRequired({ ...quiet, url: 'https://github.com/login' })).toBe('sign-in')
 		expect(classifyHumanRequired({ ...quiet, url: 'https://example.com/sso/start' })).toBe(
 			'sign-in',
@@ -64,7 +121,10 @@ describe('classifyHumanRequired', () => {
 
 	it('reads a second-factor address as two-factor, not sign-in', () => {
 		expect(
-			classifyHumanRequired({ ...quiet, url: 'https://github.com/sessions/two-factor/app' }),
+			classifyHumanRequired({
+				...quiet,
+				url: 'https://github.com/sessions/two-factor/app',
+			}),
 		).toBe('two-factor')
 	})
 
@@ -131,7 +191,14 @@ describe('isBotBlockTitle', () => {
 })
 
 describe('isCredentialField', () => {
-	const field = { tag: 'input', type: 'text', autocomplete: '', name: '', id: '', label: '' }
+	const field = {
+		tag: 'input',
+		type: 'text',
+		autocomplete: '',
+		name: '',
+		id: '',
+		label: '',
+	}
 
 	it('refuses password inputs and credential autocomplete', () => {
 		expect(isCredentialField({ ...field, type: 'password' })).toBe(true)
