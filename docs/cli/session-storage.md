@@ -91,6 +91,33 @@ log: the latest compaction's summary, the messages after it, and every
 replacement applied. An answer rewritten by a guardrail or review is shown
 rewritten; the raw text stays in the log for audit only.
 
+## Archived conversations
+
+`/archive` asks before archiving the current conversation and exiting. Its
+history stays in the same session log, but it disappears from `/resume` and
+cannot start another turn. The CLI refuses to archive a conversation with an
+open turn, including one paused for a decision. Archiving and restoring each
+hold that conversation's writer lease, so concurrent operations cannot both
+publish a change from the same state.
+
+Older Namzu versions could archive a conversation whose turn was still open.
+Restoring that conversation is permitted; its turn remains paused or
+interrupted until you explicitly resume or abandon it.
+
+Use `/unarchive` to choose one of this project's most recent 100 archived
+conversations, restore it and open it. From a shell, `namzu archive list` shows
+the first 100, `namzu archive list --page 2` shows the next 100, and
+`namzu archive restore <conversation-id>` restores an exact id. Then run
+`namzu resume <conversation-id>` in the same project. An empty archived
+conversation still appears in the archive list, but has no messages to resume.
+Neither command looks in another project's logs.
+
+The latest `session_updated.archived` record is authoritative. Restoring
+appends `archived: false`; deleting and rebuilding `index.sqlite` preserves the
+result. If the index cannot refresh after that durable append, Namzu says that
+the log changed and asks for a restart to rebuild the list instead of claiming
+the restore failed without changing anything.
+
 ## What is never written
 
 - Nothing under the working directory. `<cwd>/.namzu` is read for the files you

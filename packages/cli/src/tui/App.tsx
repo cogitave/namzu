@@ -88,10 +88,12 @@ import {
 import {
 	type CliSessions,
 	type RecentConversation,
+	ConversationIndexRefreshError,
 	activeConversationTurn,
 	archiveConversation,
 	forkConversation,
 	forkConversationBeforeUser,
+	listArchived,
 	listRecent,
 	loadConversation,
 	loadResumableConversation,
@@ -100,6 +102,7 @@ import {
 	setTitle,
 	startConversation,
 	titleOf,
+	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
 	conversationMarkdown,
@@ -364,7 +367,7 @@ export type ExternalEditorAdapter = (request: {
 	readonly signal: AbortSignal
 }) => Promise<string>
 
-type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
+type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'unarchive' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
 
 interface PendingModelSwitch {
@@ -2748,7 +2751,9 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					`Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
+					error instanceof ConversationIndexRefreshError
+						? error.message
+						: `Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
 				)
 			} finally {
 				if (!archived && conversationMutationRef.current === 'archive') {
@@ -4397,6 +4402,37 @@ export function App({
 		}
 	}, [ensureSessions, pushMessage, resumeActiveTurn])
 
+	const doUnarchive = useCallback(async () => {
+		if (
+			state !== 'idle' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			queuedRef.current.length > 0 ||
+			compactingRef.current ||
+			exportingRef.current
+		) {
+			pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+			return
+		}
+		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		if (!sessions) {
+			pushMessage('system', 'Conversation history is unavailable in this folder.')
+			return
+		}
+		try {
+			const archived = await listArchived(sessions, 100)
+			if (archived.length === 0) {
+				pushMessage('system', 'No archived conversations in this project.')
+				return
+			}
+			setResumeList(archived)
+			setSelectedResume(0)
+			setPhase('unarchive')
+		} catch (err) {
+			pushMessage('system', `Could not list archived conversations: ${err instanceof Error ? err.message : String(err)}`)
+		}
+	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
+
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
 	const resolvePermission = useCallback(
@@ -4581,6 +4617,7 @@ export function App({
 			resumeCommittedRef.current = true
 			let msgs: Awaited<ReturnType<typeof loadConversation>>
 			try {
+				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
 			} catch (err) {
 				resumeCommittedRef.current = false
@@ -4659,6 +4696,49 @@ export function App({
 			resetTranscript,
 			wakeGoalDriver,
 		],
+	)
+
+	const restoreArchivedConversation = useCallback(
+		async (conv: RecentConversation) => {
+			const sessions = sessionsRef.current
+			if (!sessions) {
+				setPhase('ready')
+				return
+			}
+			if (
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				queuedRef.current.length > 0 ||
+				compactingRef.current ||
+				exportingRef.current
+			) {
+				setPhase('ready')
+				pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+				return
+			}
+			resumeCommittedRef.current = true
+			try {
+				await unarchiveConversation(sessions, conv.id)
+			} catch (err) {
+				resumeCommittedRef.current = false
+				setPhase('ready')
+				pushMessage(
+					'system',
+					err instanceof ConversationIndexRefreshError
+						? err.message
+						: `Could not restore: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				return
+			}
+			pushMessage('system', `Restored: ${conv.title}`)
+			try {
+				await resumeConversation(conv)
+			} finally {
+				resumeCommittedRef.current = false
+			}
+		},
+		[hasUnsettledTurn, pushMessage, resumeConversation, state],
 	)
 
 	/**
@@ -7473,6 +7553,9 @@ export function App({
 					case 'resume':
 						void doResume()
 						return
+					case 'unarchive':
+						void doUnarchive()
+						return
 					case 'title':
 						void doTitle(slash.title, slash.clear)
 						return
@@ -8055,6 +8138,7 @@ export function App({
 			appLifetime,
 			ctx.cwd,
 			doResume,
+			doUnarchive,
 			enqueueQueued,
 			exitWithSummary,
 			hasUnsettledTurn,
@@ -8617,7 +8701,7 @@ export function App({
 				return
 			}
 			// Resume picker owns the keyboard while open.
-			if (phase === 'resume') {
+			if (phase === 'resume' || phase === 'unarchive') {
 				// Once a conversation is being read, the keyboard does nothing here.
 				// The choice is already being acted on; a second Enter would start a
 				// second read and an Esc would hand back a screen that is about to be
@@ -8637,7 +8721,7 @@ export function App({
 					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
 					const conv = resumeList[selectedResumeRef.current]
-					if (conv) void resumeConversation(conv)
+					if (conv) void (phase === 'unarchive' ? restoreArchivedConversation(conv) : resumeConversation(conv))
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
 				return
 			}
@@ -9196,6 +9280,7 @@ export function App({
 		outputViewer !== null ||
 		phase === 'trust' ||
 		phase === 'resume' ||
+		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker' ||
 		agentSurface !== null
@@ -9358,8 +9443,8 @@ export function App({
 						</Text>
 						<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
 					</Box>
-				) : phase === 'resume' ? (
-					<ResumePicker conversations={resumeList} selected={selectedResume} />
+			) : phase === 'resume' || phase === 'unarchive' ? (
+					<ResumePicker conversations={resumeList} selected={selectedResume} mode={phase === 'unarchive' ? 'restore' : 'resume'} />
 				) : phase === 'edit' ? (
 					<EditPromptPicker prompts={editList} selected={selectedEdit} />
 				) : phase === 'picker' ? (
@@ -9730,6 +9815,7 @@ function hintForPhase(
 	// trust branch in the key handler above.
 	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
+	if (phase === 'unarchive') return '↑↓ navigate · enter restore · esc cancel'
 	if (phase === 'edit') return '← older · → newer · enter fork and edit · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	// Esc does two different things here depending on how the picker was reached,

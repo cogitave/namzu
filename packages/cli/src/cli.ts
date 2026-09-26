@@ -15,6 +15,7 @@ import { Command, CommanderError, Option } from 'commander'
 import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '@namzu/sdk'
 
 import { acpCommand } from './commands/acp.js'
+import { archiveCommand } from './commands/archive.js'
 import { browserCommand } from './commands/browser.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
@@ -349,6 +350,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	})
 	for (const def of [
 		acpCommand,
+		archiveCommand,
 		doctorCommand,
 		execCommand,
 		residentCommand,
@@ -372,7 +374,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			getContext:
 				def === residentCommand
 					? getResidentContext
-					: def === stateCommand || def === worktreeCommand || def === mcpCommand
+					: def === stateCommand ||
+							def === worktreeCommand ||
+							def === mcpCommand ||
+							def === archiveCommand
 						? getRecoveryContext
 						: def === acpCommand ||
 								def === execCommand ||

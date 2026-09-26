@@ -400,6 +400,7 @@ describe('runSlash', () => {
 
 	it('/archive opens a confirmation rather than mutating from the parser', () => {
 		expect(runSlash('/archive', ctx)).toEqual({ kind: 'archive-picker' })
+		expect(runSlash('/unarchive', ctx)).toEqual({ kind: 'unarchive' })
 	})
 
 	it('/copy returns a copy action for App to resolve against completed output', () => {

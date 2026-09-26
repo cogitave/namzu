@@ -25,6 +25,7 @@ explain why they cannot run and are checked again when selected.
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
 | `/archive` | Archive this conversation and exit after confirmation. |
+| `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |

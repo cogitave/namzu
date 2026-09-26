@@ -93,6 +93,8 @@ export type SlashAction =
 	| { kind: 'new-conversation'; clearScreen: boolean }
 	/** Confirm before making the current durable conversation read-only and exiting. */
 	| { kind: 'archive-picker' }
+	/** Inspect this project's archived conversations and restore one. */
+	| { kind: 'unarchive' }
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
 	| { kind: 'permission-mode'; mode: PermissionMode }
@@ -918,6 +920,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'archive',
 		description: 'Archive this conversation and exit after confirmation.',
 		action: () => ({ kind: 'archive-picker' }),
+	},
+	{
+		name: 'unarchive',
+		description: 'Restore an archived conversation in this project.',
+		action: () => ({ kind: 'unarchive' }),
 	},
 	{
 		name: 'exit',
