@@ -200,7 +200,9 @@ export function vendorPaths(
 	const aKeyIsAlreadyHere = detected.some(
 		(provider) =>
 			!signedIn.has(provider.entry.id) &&
-			(provider.source.kind === 'env' || provider.source.kind === 'opencode-file'),
+			(provider.source.kind === 'env' ||
+				provider.source.kind === 'opencode-file' ||
+				provider.source.kind === 'stored-gemini-key'),
 	)
 	for (const entry of entries) {
 		if (!entry.constructible || !entry.acceptsTypedCredential) continue

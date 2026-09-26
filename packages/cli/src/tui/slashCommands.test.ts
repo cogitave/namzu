@@ -1088,6 +1088,10 @@ describe('/login and /logout', () => {
 			kind: 'logout',
 			target: 'codex',
 		})
+		expect(runSlash('/logout gemini', ctx)).toEqual({
+			kind: 'logout',
+			target: 'google',
+		})
 		expect(runSlash('/logout all', ctx)).toEqual({
 			kind: 'logout',
 			target: 'all',
@@ -1095,7 +1099,7 @@ describe('/login and /logout', () => {
 		expect(runSlash('/logout everything', ctx)).toEqual({
 			kind: 'message',
 			role: 'system',
-			content: 'Usage: /logout [claude|codex|all]',
+			content: 'Usage: /logout [claude|codex|gemini|all]',
 		})
 	})
 

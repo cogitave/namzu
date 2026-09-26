@@ -300,6 +300,20 @@ describe('the expand key, on a body that is still on screen', () => {
 
 
 describe('older output in a small terminal', () => {
+ it('keeps the open output viewer while the terminal expands', async () => {
+  const screen = await aCollapsedBody()
+  await screen.resize(COLS, 18)
+  screen.press('\x0f')
+  await screenShows(screen, 'Tool output')
+  screen.press('G')
+  await screenShows(screen, 'result-line-12')
+
+  await screen.resize(160, 18)
+  expect(screen.viewport().join('\n')).toContain('Tool output')
+  expect(screen.viewport().join('\n')).toContain('result-line-12')
+  expect(screen.bufferType()).toBe('normal')
+ })
+
  it('opens, pages and closes repeatedly without adding full copies to scrollback', async () => {
   const screen = await aCollapsedBody()
   await screen.resize(COLS, 18)

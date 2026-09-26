@@ -308,6 +308,9 @@ stays selected when it still matches, and current/default markers remain visible
 Arrows, PgUp/PgDn and Home/End move through the filtered results. Enter applies
 the highlighted model; an empty result cannot be applied. Esc retains its
 normal back or cancel behavior, including cancelling a pending selection.
+The count in the model picker names the selected model and the total; arrows
+beside it show when more models are above or below the visible rows. On wider
+terminals, the arrows also show how many models are hidden in each direction.
 
 A row is marked `(free)` when the price its listing carries is zero for both
 input and output. Both, because a free prompt and a paid completion is not a

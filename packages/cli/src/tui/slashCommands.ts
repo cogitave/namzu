@@ -238,7 +238,7 @@ export type SlashAction =
 	 * `isCompletionArgument`) so App never has to parse an argument.
 	 */
 	| { kind: 'login'; pasted?: string }
-	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'all' }
+	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' }
 	| { kind: 'none' }
 
 /** What `/context` reads: the strategy the session runs and what its passes have done so far. */
@@ -1167,8 +1167,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
-		help: { usage: ['/logout [claude|codex|all]'] },
-		description: 'Remove a Namzu-owned subscription credential: /logout [claude|codex|all].',
+		help: { usage: ['/logout [claude|codex|gemini|all]'] },
+		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|all].',
 		action: (_ctx, args) => {
 			const target = args.join(' ').trim().toLowerCase()
 			if (target.length === 0) return { kind: 'logout' }
@@ -1176,11 +1176,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return { kind: 'logout', target: 'anthropic' }
 			}
 			if (target === 'codex' || target === 'chatgpt') return { kind: 'logout', target: 'codex' }
+			if (target === 'gemini' || target === 'google') return { kind: 'logout', target: 'google' }
 			if (target === 'all') return { kind: 'logout', target: 'all' }
 			return {
 				kind: 'message',
 				role: 'system',
-				content: 'Usage: /logout [claude|codex|all]',
+				content: 'Usage: /logout [claude|codex|gemini|all]',
 			}
 		},
 	},
