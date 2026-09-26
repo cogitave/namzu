@@ -326,6 +326,13 @@ function classifyAnswer(
 	}
 
 	if (error instanceof MCPHttpStatusError) {
+		// Authentication and authorization failures say nothing about the
+		// peer's protocol era. Retrying them as a legacy initialize request
+		// only hides the actual refusal and sends another request with the
+		// same unusable credentials.
+		if (error.status === 401 || error.status === 403) {
+			return { kind: 'refuse', error }
+		}
 		const verdict = classifyModernHttpFailure(error.status, error.bodyText)
 		if (verdict.kind === 'legacy') return { kind: 'legacy' }
 		if (isUnsupportedProtocolVersionError(verdict.error)) {

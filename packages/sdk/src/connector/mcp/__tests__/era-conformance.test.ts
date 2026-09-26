@@ -24,6 +24,7 @@ import {
 } from '../__fixtures__/scripted-era-server.js'
 import { MCPClient } from '../client.js'
 import { createMcpEraCache } from '../era.js'
+import { MCPHttpStatusError } from '../errors.js'
 
 /**
  * Which era a connection resolves to, and what a connection in that era
@@ -362,6 +363,28 @@ describe('a server cannot answer the legacy handshake with a modern revision', (
 })
 
 describe('an HTTP failure is read for evidence, not treated as a fallback signal', () => {
+	it.each([
+		{ status: 401, response: () => statusResponse(401, '<html>Sign in</html>', 'text/html') },
+		{
+			status: 403,
+			response: () => jsonRpcStatusResponse(403, 1, { code: -32601, message: 'Method not found' }),
+		},
+	])(
+		'surfaces HTTP $status as an authorization refusal without initialize',
+		async ({ status, response }) => {
+			const origin = legacyOrigin('2025-11-25', response)
+			const client = httpClient(origin.fetch)
+
+			await expect(client.connect()).rejects.toMatchObject({
+				name: MCPHttpStatusError.name,
+				status,
+			})
+			expect(origin.methods()).toEqual(['server/discover'])
+			expect(client.getEra()).toBeUndefined()
+			expect(client.isConnected()).toBe(false)
+		},
+	)
+
 	it('falls back when a 400 carries no body at all', async () => {
 		const origin = legacyOrigin('2025-11-25', () => statusResponse(400, ''))
 		const client = httpClient(origin.fetch)

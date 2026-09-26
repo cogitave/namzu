@@ -60,13 +60,20 @@ one round trip per origin rather than one per connection.
 | modern answer | `2xx` carrying a `DiscoverResult` | a reply carrying a `DiscoverResult` |
 | modern objection | `400`/`404`/`405` whose **body** is `-32022`, `-32021`, `-32020`, or `-32601` on a `404` | a reply carrying one of those JSON-RPC errors |
 | fall back | `400`/`404`/`405` with an empty, HTML or otherwise non-JSON-RPC body | any other error reply — **or silence** |
+| refuse authorization | `401` or `403`, regardless of body; surface the HTTP status without sending `initialize` | not applicable |
 
-The HTTP probe reads a status and then a body. The status alone decides
-nothing: a modern server answers an unknown method with `404` plus a
+The HTTP probe reads a status and then a body. For the ambiguous
+`400`/`404`/`405` statuses, the status alone decides nothing: a modern
+server answers an unknown method with `404` plus a
 JSON-RPC `-32601` specifically so a client can tell it apart from the `404`
 of an origin that has never heard of the protocol. `-32601` therefore counts
 as a modern answer **only on a `404`** — on a `400` or `405` it is an
 ordinary unimplemented-method reply that a server of any era can send.
+
+An HTTP `401` or `403` during discovery is an access refusal, not evidence
+that the server speaks the legacy protocol. `connect()` surfaces the HTTP
+status to the caller and sends no legacy `initialize` request. Fix the
+credentials or the server's access policy before reconnecting.
 
 The stdio probe has no status to read, and the spec is explicit that its
 fallback **MUST NOT** be keyed to one specific error code: a legacy server
