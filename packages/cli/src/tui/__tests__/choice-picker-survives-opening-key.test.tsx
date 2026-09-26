@@ -104,6 +104,7 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 			credentials.primary ? { accessToken: 'claude-test-token' } : null,
 		readStoredCodexCredential: () =>
 			credentials.codex ? { accessToken: 'codex-test-token', accountId: 'account-test' } : null,
+		readStoredGeminiApiKey: () => null,
 		clearStoredSubscriptionCredential: () => {
 			credentials.cleared.push('anthropic')
 			credentials.primary = false
@@ -537,7 +538,7 @@ it('asks which Namzu-owned subscription to remove and preserves the sibling', as
 	screen.press('/logout')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Choose a stored subscription to remove'))
+	await waitUntil(screen, () => painted(screen).includes('Choose a stored credential to remove'))
 
 	const output = screen.viewport().join('\n')
 	expect(output).toContain('Claude')

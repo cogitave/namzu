@@ -265,7 +265,7 @@ const SETUP_HINT = 's provider setup · check installations and access'
 const EMPTY_SCREEN_INTRO = 'namzu scans these sources, in order, for an LLM credential:'
 const EMPTY_SCREEN_HINTS = {
 	signIn: 'to sign in with a subscription — no API key, and namzu keeps it for next time.',
-	paste: 'to paste a credential now and use it for this session.',
+	paste: 'to paste a credential now.',
 	durable: 'You can also set one of the env vars above (or start a local server) and restart.',
 } as const
 
@@ -1159,7 +1159,9 @@ export function Picker({
 						<Text color={theme.text.muted}>Checking it with {entry.label}…</Text>
 					) : (
 						<Text color={theme.text.secondary}>
-							Used for this session only — it is not written anywhere.
+							{entry.id === 'google'
+								? 'Saved privately for future launches after Google starts. /logout gemini removes it.'
+								: 'Used for this session only — it is not written anywhere.'}
 						</Text>
 					)}
 					{keyEntry.value.length > 0 && kind === 'subscription-token' ? (
@@ -1532,6 +1534,18 @@ function ModelStepView({
 		cursor,
 		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows)),
 	)
+	const hiddenAbove = window.start
+	const hiddenBelow = choices.length - window.start - window.items.length
+	const position = `${choices.length > 0 ? cursor + 1 : 0}/${choices.length}`
+	const overflowHint =
+		columns < 70
+			? `${hiddenAbove > 0 ? '↑' : ''}${hiddenBelow > 0 ? '↓' : ''}`
+			: [
+					hiddenAbove > 0 ? `↑${hiddenAbove} more` : '',
+					hiddenBelow > 0 ? `↓${hiddenBelow} more` : '',
+				]
+					.filter(Boolean)
+					.join(' · ')
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
@@ -1551,7 +1565,8 @@ function ModelStepView({
 				</Box>
 				{step ? (
 					<Text color={theme.text.muted}>
-						{choices.length > 0 ? cursor + 1 : 0}/{choices.length}
+						{position}
+						{overflowHint ? `${columns < 70 ? '' : ' · '}${overflowHint}` : ''}
 					</Text>
 				) : null}
 			</Box>
@@ -2114,6 +2129,8 @@ function describeSource(d: DetectedProvider): string {
 			return 'Claude session · this device'
 		case 'gemini-file':
 			return 'Gemini session · this device'
+		case 'stored-gemini-key':
+			return 'saved Gemini API key · this device'
 		case 'codex-file':
 			return 'Codex session · this device'
 		case 'stored':

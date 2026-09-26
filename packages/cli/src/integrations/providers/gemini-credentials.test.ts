@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { googleApiKeyPath, writeStoredGeminiApiKey } from './credential-store.js'
 import { discoverProviders, signedInSubscriptionProviders } from './discover.js'
 import {
 	createGeminiAccessTokenResolver,
@@ -104,6 +105,42 @@ describe('Gemini CLI owner credentials', () => {
 		expect(gemini?.apiKey).toBe('api-alternative')
 		expect(gemini?.gemini).toBeUndefined()
 		expect(signedInSubscriptionProviders(detected)).not.toContain(gemini)
+	})
+	it('orders environment key, saved key, then Gemini CLI session', async () => {
+		const ownerPath = write(credential())
+		writeStoredGeminiApiKey('saved-api-key', home)
+		const options = { home, skipKeychain: true, skipProbes: true }
+		const saved = (await discoverProviders({ ...options, env: {} })).find(
+			(provider) => provider.entry.id === 'google',
+		)
+		expect(saved).toMatchObject({
+			source: { kind: 'stored-gemini-key', path: googleApiKeyPath(home) },
+			apiKey: 'saved-api-key',
+			alternatives: [{ kind: 'gemini-file', path: ownerPath }],
+		})
+		expect(saved?.gemini).toBeUndefined()
+		expect(signedInSubscriptionProviders(saved ? [saved] : [])).toEqual([])
+
+		const explicit = (
+			await discoverProviders({
+				...options,
+				env: { GEMINI_API_KEY: 'env-api-key' },
+			})
+		).find((provider) => provider.entry.id === 'google')
+		expect(explicit).toMatchObject({
+			source: { kind: 'env', envName: 'GEMINI_API_KEY' },
+			apiKey: 'env-api-key',
+			alternatives: [
+				{ kind: 'stored-gemini-key', path: googleApiKeyPath(home) },
+				{ kind: 'gemini-file', path: ownerPath },
+			],
+		})
+		expect(explicit?.gemini).toBeUndefined()
+
+		const skipped = (await discoverProviders({ ...options, env: {}, skipStored: true })).find(
+			(provider) => provider.entry.id === 'google',
+		)
+		expect(skipped?.source).toEqual({ kind: 'gemini-file', path: ownerPath })
 	})
 	it.each([
 		null,
