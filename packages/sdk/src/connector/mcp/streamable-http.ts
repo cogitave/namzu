@@ -25,9 +25,11 @@ const DEFAULT_TIMEOUT_MS = 30_000
  * an unresponsive peer does not accumulate as a dangling request forever.
  */
 const SESSION_DELETE_TIMEOUT_MS = 5_000
-/** A subscription may live for hours; bound each event rather than its lifetime. */
-const MAX_SUBSCRIPTION_EVENT_CHARS = 1_048_576
-const MAX_SUBSCRIPTION_CHUNK_BYTES = 8_388_608
+/** SSE streams may live for hours; bound each event and read rather than their lifetime. */
+const MAX_SSE_EVENT_CHARS = 1_048_576
+const MAX_SSE_CHUNK_BYTES = 8_388_608
+/** A single event may contain a JSON-RPC batch; bound its dispatch work too. */
+const MAX_RESPONSE_SSE_MESSAGES_PER_EVENT = 256
 const MAX_SUBSCRIPTION_ERROR_BODY_BYTES = 65_536
 
 export class StreamableHttpTransport implements MCPTransport {
@@ -210,7 +212,7 @@ export class StreamableHttpTransport implements MCPTransport {
 			// POST capable of poisoning every later request on this connection.
 			if (message.method === 'initialize') this.captureSessionId(response)
 
-			await this.dispatchResponseMessages(response, operation, owned.generation)
+			await this.dispatchResponseMessages(response, operation, owned.generation, message.id)
 		} finally {
 			// A streamable HTTP send owns one POST; its rejection is delivered to
 			// that caller. It is not evidence that the logical MCP session died.
@@ -223,9 +225,9 @@ export class StreamableHttpTransport implements MCPTransport {
 
 	/**
 	 * Modern MCP subscriptions are long-lived POST response streams. The ordinary
-	 * `send` path reads a whole response under a request deadline, so using it
-	 * here would buffer forever (or time out a healthy subscription). The client
-	 * owns the initial acknowledgment deadline and this stream's abort signal.
+	 * `send` has a request deadline and stops at its terminal reply; a
+	 * subscription may remain open indefinitely. The client owns the initial
+	 * acknowledgment deadline and this stream's abort signal.
 	 */
 	async sendSubscription(
 		message: MCPJsonRpcMessage,
@@ -281,7 +283,7 @@ export class StreamableHttpTransport implements MCPTransport {
 						owned.controller.signal.aborted
 					)
 						break
-					if (value.byteLength > MAX_SUBSCRIPTION_CHUNK_BYTES) {
+					if (value.byteLength > MAX_SSE_CHUNK_BYTES) {
 						throw new Error('MCP subscription SSE chunk exceeds its size limit')
 					}
 					const oldLength = buffer.length
@@ -295,7 +297,7 @@ export class StreamableHttpTransport implements MCPTransport {
 					while (true) {
 						const boundary = findSseEventBoundary(buffer, searchFrom)
 						if (!boundary) break
-						if (boundary.start > MAX_SUBSCRIPTION_EVENT_CHARS) {
+						if (boundary.start > MAX_SSE_EVENT_CHARS) {
 							throw new Error('MCP subscription SSE event exceeds its size limit')
 						}
 						const event = buffer.slice(0, boundary.start)
@@ -312,7 +314,7 @@ export class StreamableHttpTransport implements MCPTransport {
 							else for (const handler of [...this.messageHandlers]) handler(frame)
 						}
 					}
-					if (buffer.length > MAX_SUBSCRIPTION_EVENT_CHARS) {
+					if (buffer.length > MAX_SSE_EVENT_CHARS) {
 						throw new Error('MCP subscription SSE event exceeds its size limit')
 					}
 				}
@@ -415,22 +417,119 @@ export class StreamableHttpTransport implements MCPTransport {
 		response: Response,
 		operation: ConnectorHttpOperation,
 		generation: number,
+		requestId: string | number | undefined,
 	): Promise<void> {
+		const contentType = response.headers.get('content-type') ?? ''
+		if (contentType.includes('text/event-stream') && response.body) {
+			await this.dispatchSseResponseMessages(response.body, operation, generation, requestId)
+			return
+		}
 		const text = await operation.run(() => response.text())
 		this.assertCurrent(generation, operation)
 		if (text.trim().length === 0) return
 
-		const contentType = response.headers.get('content-type') ?? ''
 		const messages = contentType.includes('text/event-stream')
 			? this.parseSseAndCaptureEventId(text)
 			: parseJsonMessages(text)
 
 		for (const message of messages) {
+			this.dispatchMessage(message, operation, generation)
+		}
+	}
+
+	private dispatchMessage(
+		message: MCPJsonRpcMessage,
+		operation: ConnectorHttpOperation,
+		generation: number,
+	): void {
+		this.assertCurrent(generation, operation)
+		for (const handler of [...this.messageHandlers]) {
 			this.assertCurrent(generation, operation)
-			for (const handler of [...this.messageHandlers]) {
-				this.assertCurrent(generation, operation)
-				handler(message)
+			handler(message)
+		}
+	}
+
+	/** Dispatch a complete SSE event as it arrives, without waiting for EOF. */
+	private async dispatchSseResponseMessages(
+		body: ReadableStream<Uint8Array>,
+		operation: ConnectorHttpOperation,
+		generation: number,
+		requestId: string | number | undefined,
+	): Promise<void> {
+		const reader = body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+		let previousChunkEndedWithCr = false
+		const dispatchEvent = (event: string): boolean => {
+			if (event.length > MAX_SSE_EVENT_CHARS) {
+				throw new Error('MCP response SSE event exceeds its size limit')
 			}
+			if (sseBatchExceedsMessageLimit(event, MAX_RESPONSE_SSE_MESSAGES_PER_EVENT)) {
+				throw new Error('MCP response SSE event exceeds its message limit')
+			}
+			const parsed = parseSseMessages(event)
+			if (parsed.lastEventId !== undefined) this.lastEventId = parsed.lastEventId
+			if (parsed.messages.length > MAX_RESPONSE_SSE_MESSAGES_PER_EVENT) {
+				throw new Error('MCP response SSE event exceeds its message limit')
+			}
+			for (const message of parsed.messages) {
+				this.dispatchMessage(message, operation, generation)
+				if (
+					requestId !== undefined &&
+					message.id === requestId &&
+					message.method === undefined &&
+					(Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error'))
+				) {
+					// The request is complete even if the peer keeps its SSE body open.
+					return true
+				}
+			}
+			return false
+		}
+		const appendChunk = (decoded: string): boolean => {
+			if (!decoded) return false
+			let chunk = decoded
+			// A CRLF split across reads is one line break; LF, CRLF and bare
+			// CR all delimit SSE lines.
+			if (previousChunkEndedWithCr && chunk.startsWith('\n')) chunk = chunk.slice(1)
+			previousChunkEndedWithCr = chunk.endsWith('\r')
+			buffer += chunk.replace(/\r\n|\r/g, '\n')
+			while (true) {
+				const boundary = findSseEventBoundary(buffer, 0)
+				if (!boundary) break
+				if (boundary.start > MAX_SSE_EVENT_CHARS) {
+					throw new Error('MCP response SSE event exceeds its size limit')
+				}
+				const event = buffer.slice(0, boundary.start)
+				buffer = buffer.slice(boundary.end)
+				if (dispatchEvent(event)) return true
+			}
+			if (buffer.length > MAX_SSE_EVENT_CHARS) {
+				throw new Error('MCP response SSE event exceeds its size limit')
+			}
+			return false
+		}
+		try {
+			while (true) {
+				const { done, value } = await operation.run(() => reader.read())
+				this.assertCurrent(generation, operation)
+				if (done) {
+					if (appendChunk(decoder.decode())) return
+					// Retain the old whole-body reader's acceptance of a final event
+					// without a trailing blank line when the peer actually closes.
+					if (buffer.trim()) dispatchEvent(buffer)
+					return
+				}
+				if (value.byteLength > MAX_SSE_CHUNK_BYTES) {
+					throw new Error('MCP response SSE chunk exceeds its size limit')
+				}
+				if (appendChunk(decoder.decode(value, { stream: true }))) return
+			}
+		} finally {
+			// Cancelling is best effort: a hostile or custom body must not hold
+			// send() open after a terminal reply, timeout, or caller abort.
+			void reader.cancel().catch(() => undefined)
+			reader.releaseLock()
 		}
 	}
 
@@ -447,6 +546,34 @@ export class StreamableHttpTransport implements MCPTransport {
 		if (lastEventId !== undefined) this.lastEventId = lastEventId
 		return messages
 	}
+}
+
+/** Count only top-level JSON-array separators, skipping nested values and strings. */
+function sseBatchExceedsMessageLimit(event: string, limit: number): boolean {
+	const data = event
+		.split('\n')
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => line.slice('data:'.length).trimStart())
+		.join('\n')
+		.trimStart()
+	if (!data.startsWith('[')) return false
+	let depth = 0
+	let inString = false
+	let escaped = false
+	let separators = 0
+	for (const character of data) {
+		if (inString) {
+			if (escaped) escaped = false
+			else if (character === '\\') escaped = true
+			else if (character === '"') inString = false
+			continue
+		}
+		if (character === '"') inString = true
+		else if (character === '[' || character === '{') depth++
+		else if (character === ']' || character === '}') depth--
+		else if (character === ',' && depth === 1 && ++separators >= limit) return true
+	}
+	return false
 }
 
 /** Find an SSE blank line after line endings have been normalized to LF. */

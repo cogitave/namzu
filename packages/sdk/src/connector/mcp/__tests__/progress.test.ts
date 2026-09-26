@@ -277,6 +277,131 @@ describe('MCP tool progress belongs to one active request', () => {
 			await client.disconnect()
 		}
 	})
+
+	it('delivers interleaved HTTP progress before EOF and ends each response at its terminal reply', async () => {
+		const encoder = new TextEncoder()
+		const requests = new Map<
+			string,
+			{
+				message: MCPJsonRpcMessage
+				controller: ReadableStreamDefaultController<Uint8Array>
+				cancelled: Promise<void>
+			}
+		>()
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>((_input, init) => {
+				const message = JSON.parse(String(init?.body)) as MCPJsonRpcMessage
+				if (message.method === 'server/discover') {
+					return Promise.resolve(
+						new Response(
+							JSON.stringify({
+								jsonrpc: '2.0',
+								id: message.id,
+								result: {
+									supportedVersions: ['2026-07-28'],
+									capabilities: { tools: {} },
+									_meta: { 'io.modelcontextprotocol/serverInfo': { name: 'fixture' } },
+								},
+							}),
+							{ headers: { 'content-type': 'application/json' } },
+						),
+					)
+				}
+				if (message.method !== 'tools/call') throw new Error(`unexpected ${message.method}`)
+				let controller!: ReadableStreamDefaultController<Uint8Array>
+				let markCancelled!: () => void
+				const cancelled = new Promise<void>((resolve) => {
+					markCancelled = resolve
+				})
+				const body = new ReadableStream<Uint8Array>({
+					start(value) {
+						controller = value
+					},
+					cancel() {
+						markCancelled()
+					},
+				})
+				requests.set(String(message.params?.name), { message, controller, cancelled })
+				return Promise.resolve(
+					new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+				)
+			}),
+		)
+		const client = new MCPClient({
+			serverName: 'fixture',
+			transport: { type: 'streamable_http', url: 'https://mcp.example.test/rpc' },
+			eraCache: createMcpEraCache(),
+		})
+		let firstProgress!: () => void
+		let secondProgress!: () => void
+		const firstSeen = new Promise<void>((resolve) => {
+			firstProgress = resolve
+		})
+		const secondSeen = new Promise<void>((resolve) => {
+			secondProgress = resolve
+		})
+		const first: string[] = []
+		const second: string[] = []
+		try {
+			await client.connect()
+			const a = client.callTool(
+				'first',
+				{},
+				{
+					onProgress: (update) => {
+						first.push(update.message ?? '')
+						firstProgress()
+					},
+				},
+			)
+			const b = client.callTool(
+				'second',
+				{},
+				{
+					onProgress: (update) => {
+						second.push(update.message ?? '')
+						secondProgress()
+					},
+				},
+			)
+			const requestA = requests.get('first')
+			const requestB = requests.get('second')
+			if (!requestA || !requestB) throw new Error('both HTTP calls were not sent')
+			const event = (message: MCPJsonRpcMessage, newline = '\n') =>
+				`data: ${JSON.stringify(message)}${newline}${newline}`
+			requestA.controller.enqueue(
+				encoder.encode(event(progress(token(requestB.message), 1, { message: 'second' }))),
+			)
+			const split = event(progress(token(requestA.message), 1, { message: 'first' }), '\r\n')
+			requestA.controller.enqueue(encoder.encode(split.slice(0, -3)))
+			// A decoder read may produce no text between the CR and LF.
+			requestA.controller.enqueue(new Uint8Array())
+			requestA.controller.enqueue(encoder.encode(split.slice(-3)))
+
+			// The server has sent no final result and has not closed either body.
+			// Awaiting these notifications fails under the old response.text() path.
+			await Promise.all([firstSeen, secondSeen])
+			expect(first).toEqual(['first'])
+			expect(second).toEqual(['second'])
+			requestA.controller.enqueue(encoder.encode(event(reply(requestA.message))))
+			await a
+			await requestA.cancelled
+			requestB.controller.enqueue(
+				encoder.encode(event(progress(token(requestA.message), 2, { message: 'late first' }))),
+			)
+			requestB.controller.enqueue(
+				encoder.encode(event(progress(token(requestB.message), 2, { message: 'second done' }))),
+			)
+			requestB.controller.enqueue(encoder.encode(event(reply(requestB.message))))
+			await b
+			await requestB.cancelled
+			expect(first).toEqual(['first'])
+			expect(second).toEqual(['second', 'second done'])
+		} finally {
+			await client.disconnect()
+		}
+	}, 10_000)
 })
 
 afterEach(() => vi.unstubAllGlobals())

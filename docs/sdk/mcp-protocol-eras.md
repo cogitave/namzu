@@ -722,6 +722,14 @@ Streamable HTTP response streams overlap. Automatic retries use a new request
 and token. Completion, failure, timeout, cancellation and transport close all
 end delivery before a late notification can reach the callback.
 
+Streamable HTTP delivers each complete SSE event as it arrives, before the
+response body closes. The matching terminal JSON-RPC reply ends that reader
+immediately, even if the peer leaves its stream open; cancellation and timeout
+also cancel the reader. An unfinished event over 1,048,576 characters, a
+single chunk over 8,388,608 bytes, or an event containing more than 256
+JSON-RPC messages fails that request without buffering more. JSON response
+bodies keep their existing behavior.
+
 ```ts sketch
 await client.callTool('import_records', { file: 'records.csv' }, {
   onProgress: ({ progress, total, message }) => {
