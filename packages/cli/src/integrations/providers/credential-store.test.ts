@@ -4,6 +4,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	rmSync,
 	statSync,
 	utimesSync,
 	writeFileSync,
@@ -17,15 +18,20 @@ import {
 	CredentialStoreError,
 	assertOwnerOnlyMode,
 	assertSoleOwnerSddl,
+	clearAllStoredCredentials,
 	clearStoredCodexCredential,
+	clearStoredGeminiApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
 	currentUserSid,
+	googleApiKeyPath,
 	readAclSddl,
 	readStoredCodexCredential,
+	readStoredGeminiApiKey,
 	readStoredSubscriptionCredential,
 	replaceStoredSubscriptionCredential,
 	writeStoredCodexCredential,
+	writeStoredGeminiApiKey,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
 
@@ -42,6 +48,63 @@ afterEach(() => {
 })
 
 describe('round trip', () => {
+	it('stores Gemini separately, privately, and removes only its key', () => {
+		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
+		const path = writeStoredGeminiApiKey('gemini-key', home)
+		expect(path).toBe(googleApiKeyPath(home))
+		expect(readStoredGeminiApiKey(home)).toBe('gemini-key')
+		expect(readFileSync(credentialsPath(home), 'utf8')).not.toContain('gemini-key')
+		if (platform() !== 'win32') expect(statSync(path).mode & 0o077).toBe(0)
+		writeStoredSubscriptionCredential({ accessToken: 'later-subscription' }, home)
+		expect(readStoredGeminiApiKey(home)).toBe('gemini-key')
+		clearStoredGeminiApiKey(home)
+		expect(readStoredGeminiApiKey(home)).toBeNull()
+		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe('later-subscription')
+	})
+
+	it('refuses an occupied Gemini lock without changing the saved key', () => {
+		writeStoredGeminiApiKey('first-key', home)
+		const lockPath = `${googleApiKeyPath(home)}.lock`
+		writeFileSync(lockPath, 'another-owner', { mode: 0o600 })
+		expect(() => writeStoredGeminiApiKey('second-key', home)).toThrow(CredentialStoreError)
+		expect(() => clearStoredGeminiApiKey(home)).toThrow(CredentialStoreError)
+		expect(readStoredGeminiApiKey(home)).toBe('first-key')
+	})
+
+	it('logout removes exact Gemini crash leftovers only after acquiring its lock', () => {
+		writeStoredGeminiApiKey('canonical-key', home)
+		const path = googleApiKeyPath(home)
+		const orphan = `${path}.tmp.123.abcdef123456`
+		const unrelated = `${path}.tmp.123.not-a-generated-id`
+		writeFileSync(orphan, 'orphan-secret', { mode: 0o600 })
+		writeFileSync(unrelated, 'leave-this-file', { mode: 0o600 })
+		const lockPath = `${path}.lock`
+		writeFileSync(lockPath, 'another-owner', { mode: 0o600 })
+		expect(() => clearStoredGeminiApiKey(home)).toThrow(CredentialStoreError)
+		expect(readFileSync(orphan, 'utf8')).toBe('orphan-secret')
+		rmSync(lockPath)
+		clearStoredGeminiApiKey(home)
+		expect(existsSync(path)).toBe(false)
+		expect(existsSync(orphan)).toBe(false)
+		expect(readFileSync(unrelated, 'utf8')).toBe('leave-this-file')
+	})
+
+	it('all-subscription logout removes its own exact crash leftovers', () => {
+		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
+		const orphan = `${credentialsPath(home)}.tmp.456.abcdef123456`
+		writeFileSync(orphan, 'orphan-subscription-secret', { mode: 0o600 })
+		clearAllStoredCredentials(home)
+		expect(existsSync(credentialsPath(home))).toBe(false)
+		expect(existsSync(orphan)).toBe(false)
+	})
+
+	it.skipIf(platform() === 'win32')('ignores a Gemini file whose mode is not private', () => {
+		const path = googleApiKeyPath(home)
+		mkdirSync(dirname(path), { recursive: true })
+		writeFileSync(path, JSON.stringify({ version: 1, apiKey: 'exposed-key' }), { mode: 0o644 })
+		expect(readStoredGeminiApiKey(home)).toBeNull()
+	})
+
 	it('reads back exactly what was written', () => {
 		const at = writeStoredSubscriptionCredential(
 			{

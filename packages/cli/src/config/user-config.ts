@@ -9,10 +9,23 @@
  * the operator was in the middle of writing.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+	closeSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs'
+import { platform } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Document, isMap, parseDocument } from 'yaml'
 
+import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 
 export interface UserConfigWriteOptions {
@@ -57,10 +70,78 @@ export function setUserConfigValue(
 		}
 	}
 	doc.setIn(path, value)
-	mkdirSync(dirname(file), { recursive: true })
-	const temp = `${file}.${process.pid}.tmp`
-	// The file keeps its own permissions; a new one is the owner's alone.
-	writeFileSync(temp, doc.toString(), { mode: exists ? statSync(file).mode & 0o777 : 0o600 })
-	renameSync(temp, file)
+	writePrivateUserConfig(file, doc)
 	return file
+}
+
+/** Remove one user-owned setting while preserving the rest of the YAML document. */
+export function deleteUserConfigValue(
+	path: readonly string[],
+	opts: UserConfigWriteOptions = {},
+): boolean {
+	const file = userConfigPath(opts)
+	if (!existsSync(file)) return false
+	const text = readFileSync(file, 'utf8')
+	const doc = parseDocument(text)
+	if (doc.errors.length > 0) {
+		throw new Error(
+			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
+		)
+	}
+	if (doc.contents !== null && !isMap(doc.contents)) {
+		throw new Error(`${file} is not a mapping of settings; fix it first`)
+	}
+	for (let depth = 1; depth < path.length; depth += 1) {
+		const parent = doc.getIn(path.slice(0, depth), true)
+		if (parent === undefined || parent === null) return false
+		if (!isMap(parent)) {
+			throw new Error(`${file}: ${path.slice(0, depth).join('.')} is not a mapping; fix it first`)
+		}
+	}
+	if (!doc.hasIn(path)) return false
+	doc.deleteIn(path)
+	writePrivateUserConfig(file, doc)
+	return true
+}
+
+/** Replacing an old config must never carry its broad mode onto a secret-bearing copy. */
+function writePrivateUserConfig(file: string, doc: Document): void {
+	const parent = dirname(file)
+	mkdirSync(parent, { recursive: true, mode: 0o700 })
+	if (platform() === 'win32') {
+		const entry = lstatSync(parent)
+		if (entry.isSymbolicLink() || !entry.isDirectory()) {
+			throw new Error(`User config directory must be a real directory: ${parent}`)
+		}
+		// POSIX 0600 has no ACL meaning on Windows. Secure the parent before
+		// opening a temp file and prove that file private while it is still empty.
+		restrictToOwner(parent)
+	}
+	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`
+	let fd: number | undefined
+	try {
+		fd = openSync(temp, 'wx', 0o600)
+		restrictToOwner(temp)
+		writeFileSync(fd, doc.toString())
+		closeSync(fd)
+		fd = undefined
+		restrictToOwner(temp)
+		renameSync(temp, file)
+	} catch (error) {
+		if (fd !== undefined) {
+			try {
+				closeSync(fd)
+			} catch {
+				// The file remains private; still try to remove its name.
+			}
+		}
+		try {
+			rmSync(temp, { force: true })
+		} catch (cleanupError) {
+			throw new Error(`Private user-config temporary file could not be removed: ${temp}`, {
+				cause: new AggregateError([error, cleanupError]),
+			})
+		}
+		throw error
+	}
 }

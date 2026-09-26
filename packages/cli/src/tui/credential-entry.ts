@@ -1,33 +1,8 @@
 /**
- * Typing a credential into a running namzu, for this session only.
- *
- * Someone who has just installed namzu and has no key reaches a screen that
- * lists three sources and says "then restart namzu". That is accurate and it is
- * a cliff: the product tells them to leave it in order to use it.
- *
- * ## Why session-only, stated as a decision rather than a limitation
- *
- * A durable store now exists next door (`credential-store.ts`), and this path
- * still does not use it — which is the interesting part, because the original
- * reason for session-only was that no such store had been written.
- *
- * That reason is gone; the decision is not, and it rests on the one thing the
- * two paths do not share. `/login` OBTAINS a credential: the operator asked for
- * one, namzu got it, and namzu can refresh it, name where it came from, and
- * remove it again. A key typed here arrived from somewhere namzu had no part
- * in — there is nothing to refresh it with, no origin to report, and no
- * meaningful way to revoke it on the operator's behalf. Writing that to disk
- * uninvited would be namzu deciding, for someone else, that their secret should
- * persist.
- *
- * So the key stays in memory: nothing lands on disk, it works everywhere, and
- * the screen names the environment variable that makes it durable. A secret at
- * rest should be something the operator chose, not something that arrived
- * because they typed into a text field — and now there are two ways to choose.
- *
- * Everything decidable lives here rather than in the component, because this
- * package has no component tests and a secret is the worst thing to leave
- * unverifiable.
+ * A pasted credential works in the current session. Google API keys are also
+ * saved privately after a usable provider session starts, and the logout command
+ * removes them. Other pasted credentials remain session-only. Keep every
+ * operator-facing claim about that distinction here, where it is testable.
  */
 
 import {
@@ -164,6 +139,9 @@ export function describeDisposition(
 			? '\nA pasted subscription token has no refresh data with it, so it expires in a few hours and namzu cannot renew it — expect to enter it again.'
 			: ''
 
+	if (entry.id === 'google') {
+		return `${checked}\nIf the provider starts, Namzu will save this Gemini API key privately for future launches. Run /logout gemini to remove it.`
+	}
 	return `${checked}\nHeld in memory for this session only — it is not written anywhere. ${durable}${expiry}`
 }
 

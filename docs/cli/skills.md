@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Skills
-description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, the built-in skills, making a skill with /skills new and save_skill, the TUI's proposal to save a multi-step task with /skills save, and the skills.builtin, skills.disabled, skills.suggest and skills.suggestMinToolCalls config keys.
+description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model loads them, how to audit model readiness and manifest cost, the built-in skills, making and saving skills, and the skills config keys.
 resource: packages/cli/src/skills/
 tags: [cli, skills, config]
 status: stable
@@ -305,10 +305,30 @@ skills` adds `tier`, `shadows`, `disabled`, `invocation` and
 `{ name, description, source }` with `source` one of `system`, `user` or
 `project`, and leaves disabled skills out.
 
+### Audit model readiness
+
+`namzu skills --audit --trust` checks each winning file skill with the same
+SDK loader that serves it to the model. It reports `ready`, `operator-only`,
+`disabled` or `invalid`, naming the loader's reason for an invalid file. The
+command exits `1` if any enabled winner is invalid, so a project can check its
+skills before a session starts. It still requires the ordinary project trust
+decision; `--cwd <path>` chooses the directory to inspect. A legacy body-only
+skill may remain manually activatable while the audit correctly reports that
+the model cannot load it without required frontmatter.
+
+Pass `--context-window <tokens>` with `--audit` to estimate the file-skill
+manifest budget for a particular model window. The estimate follows the
+catalog's precedence order and stops admitting entries at its first overflow;
+all overflowing skills remain loadable by name. The total is a potential
+cost before per-turn required-tool gating. Plugin skills and their cost depend
+on the session and are not included. `namzu --format json skills --audit`
+returns the same statuses and counts as structured data.
+
 ## Source
 
 - `packages/cli/src/skills/store.ts` — tiers, precedence, shadowing, listing
 - `packages/cli/src/skills/catalog.ts` — the per-session registry, gating, budget
+- `packages/cli/src/skills/audit.ts` — model-loader validation and manifest cost
 - `packages/cli/src/skills/directory.ts` — the directory the model is told for each skill
 - `packages/cli/src/skills/save.ts` — `save_skill`: validation, targets, atomic write
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen

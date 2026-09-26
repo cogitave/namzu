@@ -105,6 +105,137 @@ describe('parseSseMessages', () => {
 	})
 })
 
+describe('bounded live Streamable HTTP request SSE', () => {
+	const request = { jsonrpc: '2.0' as const, id: 1, method: 'tools/call', params: {} }
+	const url = 'https://mcp.example.test/rpc'
+
+	it('refuses an unfinished event beyond the size cap and cancels its reader', async () => {
+		let cancelled = false
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode(`data: ${'x'.repeat(1_048_577)}`))
+			},
+			cancel() {
+				cancelled = true
+			},
+		})
+		const transport = new StreamableHttpTransport({
+			type: 'streamable-http',
+			url,
+			fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+		})
+		await transport.connect()
+		await expect(transport.send(request)).rejects.toThrow(
+			'MCP response SSE event exceeds its size limit',
+		)
+		expect(cancelled).toBe(true)
+		await transport.close()
+	})
+
+	it('refuses a single oversized SSE read before decoding it', async () => {
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(8_388_609))
+			},
+		})
+		const transport = new StreamableHttpTransport({
+			type: 'streamable-http',
+			url,
+			fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+		})
+		await transport.connect()
+		await expect(transport.send(request)).rejects.toThrow(
+			'MCP response SSE chunk exceeds its size limit',
+		)
+		await transport.close()
+	})
+
+	it('refuses a JSON-RPC batch beyond the per-event frame cap before dispatch', async () => {
+		const frames = Array.from({ length: 257 }, () => ({
+			jsonrpc: '2.0',
+			method: 'notifications/progress',
+			params: {},
+		}))
+		const body = new Response(`data: ${JSON.stringify(frames)}\n\n`, {
+			headers: { 'content-type': 'text/event-stream' },
+		})
+		const transport = new StreamableHttpTransport({
+			type: 'streamable-http',
+			url,
+			fetch: async () => body,
+		})
+		const seen = vi.fn()
+		transport.onMessage(seen)
+		await transport.connect()
+		await expect(transport.send(request)).rejects.toThrow(
+			'MCP response SSE event exceeds its message limit',
+		)
+		expect(seen).not.toHaveBeenCalled()
+		await transport.close()
+	})
+
+	it('accepts the bounded batch with nested commas and a terminal reply', async () => {
+		const frames = [
+			...Array.from({ length: 255 }, () => ({
+				jsonrpc: '2.0',
+				method: 'notifications/progress',
+				params: { values: [1, 2], message: 'one, two' },
+			})),
+			{ jsonrpc: '2.0', id: 1, result: {} },
+		]
+		const response = new Response(`data: ${JSON.stringify(frames)}\n\n`, {
+			headers: { 'content-type': 'text/event-stream' },
+		})
+		const transport = new StreamableHttpTransport({
+			type: 'streamable-http',
+			url,
+			fetch: async () => response,
+		})
+		const seen = vi.fn()
+		transport.onMessage(seen)
+		await transport.connect()
+		await transport.send(request)
+		expect(seen).toHaveBeenCalledTimes(256)
+		await transport.close()
+	})
+
+	it('cancels a live body read with the caller cause', async () => {
+		let markReading!: () => void
+		let markCancelled!: () => void
+		const reading = new Promise<void>((resolve) => {
+			markReading = resolve
+		})
+		const cancelled = new Promise<void>((resolve) => {
+			markCancelled = resolve
+		})
+		const body = new ReadableStream<Uint8Array>(
+			{
+				pull() {
+					markReading()
+				},
+				cancel() {
+					markCancelled()
+				},
+			},
+			{ highWaterMark: 0 },
+		)
+		const transport = new StreamableHttpTransport({
+			type: 'streamable-http',
+			url,
+			fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+		})
+		await transport.connect()
+		const caller = new AbortController()
+		const sending = transport.send(request, { signal: caller.signal })
+		await reading
+		const reason = new Error('caller ended this tool call')
+		caller.abort(reason)
+		await expect(sending).rejects.toBe(reason)
+		await cancelled
+		await transport.close()
+	})
+})
+
 /**
  * `Last-Event-ID` is gated exactly the way `Mcp-Session-Id` itself is: both
  * live behind `if (this.sessionId)` in `buildHeaders()`. A modern connection

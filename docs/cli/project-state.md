@@ -37,6 +37,10 @@ the `projects/<uuid>/` directories an earlier version wrote.
 A moved or renamed checkout has a new path, so it gets a new slug and a new
 Project; its old conversations stay under the old slug.
 
+Each [managed Git worktree](worktrees.md) is also a separate checkout and
+Project. `namzu worktree fork` copies a settled conversation into the new
+Project when you want its history there.
+
 `namzu history --session <id> --cwd <directory>` accepts a conversation UUID
 or a host session key and reads that directory's Project. Omitting `--session`
 selects the most recent conversation for the directory. The resume picker and

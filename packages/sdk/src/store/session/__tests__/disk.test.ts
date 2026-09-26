@@ -94,6 +94,27 @@ describe('DiskSessionStore', () => {
 		expect(reloaded?.currentActor?.kind).toBe('user')
 	})
 
+	it('keeps delegated workspace retention across a cold read', async () => {
+		const { project, session } = await seed(store, tenantA)
+		const child = await store.createSession(
+			{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			tenantA,
+		)
+		const sub = await store.createSubSession(
+			{
+				parentSessionId: session.id,
+				childSessionId: child.id,
+				kind: 'agent_spawn',
+				spawnedBy: userActor(tenantA),
+			},
+			tenantA,
+		)
+		await store.updateSubSession({ ...sub, workspaceRetention: 'retain' }, tenantA)
+
+		const reloaded = await new DiskSessionStore({ rootDir }).getSubSession(sub.id, tenantA)
+		expect(reloaded?.workspaceRetention).toBe('retain')
+	})
+
 	it('writes are atomic: no *.tmp file remains after mutation', async () => {
 		const { project, session } = await seed(store, tenantA)
 		await store.updateSession({ ...session, status: 'active' }, tenantA)

@@ -76,7 +76,20 @@ const world: {
 	detected: readonly DetectedProvider[]
 	built: Preferences | null
 	credentials: DetectedProvider[]
-} = { prefs: SAVED_PREFS, detected: [], built: null, credentials: [] }
+	savedKeys: string[]
+	savedPrefs: Preferences[]
+	keySaveError: Error | null
+	hasProvider: boolean
+} = {
+	prefs: SAVED_PREFS,
+	detected: [],
+	built: null,
+	credentials: [],
+	savedKeys: [],
+	savedPrefs: [],
+	keySaveError: null,
+	hasProvider: true,
+}
 
 const staticLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }))
 
@@ -122,7 +135,12 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		...actual,
 		readPreferences: () => ({ status: 'ok' as const, prefs: world.prefs }),
 		discoverProviders: async () => world.detected,
-		writePreferences: () => {},
+		writePreferences: (prefs: Preferences) => { world.savedPrefs.push(prefs) },
+		writeStoredGeminiApiKey: (key: string) => {
+			if (world.keySaveError) throw world.keySaveError
+			world.savedKeys.push(key)
+			return '/fixture/gemini-api-key.json'
+		},
 	}
 })
 
@@ -130,7 +148,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		describeProviderModels: async () => ({ kind: 'ok' as const, models: [] }),
+		describeProviderModels: async () => ({
+			kind: 'ok' as const,
+			models: [
+				{ id: 'gemini-2.5-flash', name: 'Flash' },
+				{ id: 'gemini-2.5-pro', name: 'Pro' },
+			],
+		}),
 		// The provider's answer, stubbed. Verification honesty is pinned by
 		// `credential-prompt-draws.test.tsx`; what matters here is that a good
 		// credential carries on into a session.
@@ -139,7 +163,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			world.built = prefs
 			world.credentials = det.filter((d) => d.source.kind === 'session')
 			return {
-				hasProvider: true,
+				hasProvider: world.hasProvider,
 				sandbox: { unconfined: true, enforced: [], required: [] },
 				compact: async () => null,
 				providerSummary: 'a-provider',
@@ -208,11 +232,87 @@ beforeEach(() => {
 	world.detected = []
 	world.built = null
 	world.credentials = []
+	world.savedKeys = []
+	world.savedPrefs = []
+	world.keySaveError = null
+	world.hasProvider = true
 	staticLifecycle.mounts = 0
 	staticLifecycle.unmounts = 0
 })
 
 describe('launching with a saved provider and no credential', () => {
+	it('saves a pasted Gemini key and provider preference after session construction', async () => {
+		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'google', model: 'gemini-2.5-flash' }] }
+		const screen = await launch()
+		try {
+			screen.press('k')
+			await until(screen, 'Paste a credential')
+			expect(text(screen)).toContain('Saved privately for future launches')
+			screen.press('fixture-gemini-api-key')
+			await until(screen, '••••')
+			screen.press('\r')
+			await until(screen, 'Gemini API key saved privately')
+			expect(world.savedKeys).toEqual(['fixture-gemini-api-key'])
+			expect(world.savedPrefs[0]?.providers[0]).toEqual({ id: 'google', model: 'gemini-2.5-flash' })
+			expect(text(screen)).not.toContain('fixture-gemini-api-key')
+			screen.press('/model')
+			await until(screen, '/model')
+			screen.press('\r')
+			await until(screen, 'Choose a model')
+			expect(screen.viewport().join('\n')).toContain('this session and future launches')
+			screen.press('\x1b[B')
+			screen.press('\r')
+			await vi.waitFor(async () => {
+				await screen.waitForRender()
+				expect(world.savedPrefs).toHaveLength(2)
+			})
+			expect(world.savedPrefs[1]?.providers[0]).toEqual({ id: 'google', model: 'gemini-2.5-pro' })
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps the Gemini session usable and reports when private storage fails', async () => {
+		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'google' }] }
+		world.keySaveError = new Error('private write refused')
+		const screen = await launch()
+		try {
+			screen.press('k')
+			await until(screen, 'Paste a credential')
+			screen.press('fixture-gemini-api-key')
+			await until(screen, '••••')
+			screen.press('\r')
+			await until(screen, 'could not be saved privately')
+			expect(text(screen)).toContain('Type a message')
+			expect(world.savedKeys).toEqual([])
+			expect(world.savedPrefs).toEqual([])
+			screen.press('/model')
+			await until(screen, '/model')
+			screen.press('\r')
+			await until(screen, 'Choose a model')
+			expect(screen.viewport().join('\n')).toContain('this session only (temporary credential)')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('does not save a Gemini key when the provider session cannot start', async () => {
+		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'google' }] }
+		world.hasProvider = false
+		const screen = await launch()
+		try {
+			screen.press('k')
+			await until(screen, 'Paste a credential')
+			screen.press('fixture-gemini-api-key')
+			await until(screen, '••••')
+			screen.press('\r')
+			await until(screen, 'Could not start the selected provider')
+			expect(world.savedKeys).toEqual([])
+			expect(world.savedPrefs).toEqual([])
+		} finally {
+			await screen.unmount()
+		}
+	})
 	it('keeps one Static owner through startup, credential entry, and session exit', async () => {
 		const screen = await launch()
 		const banner = 'Cogitave v0.0.0-test'

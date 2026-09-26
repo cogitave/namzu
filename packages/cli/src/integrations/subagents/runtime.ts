@@ -92,6 +92,7 @@ import {
 } from './activity.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
+import { DelegatedWorktreeDriver } from './worktree-driver.js'
 
 /**
  * The parent's narration tool, named once.
@@ -184,6 +185,8 @@ export interface SubagentRuntimeOptions {
 	/** Resolve the actual invoking turn; reject calls whose parent no longer exists. */
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	readonly cwd: string
+	/** CLI state root used for retained worktrees, including ephemeral turns. */
+	readonly worktreeStateRoot?: string
 	/**
 	 * The saved agents of one parent conversation, read back from the session
 	 * index and the child logs (`createSavedAgentHistory`). Absent: the
@@ -267,7 +270,7 @@ export interface SubagentRuntimeOptions {
 	/** The parent's `QueryParams.sandboxEscape`. */
 	readonly sandboxEscape?: 'refuse' | 'review'
 	/** A fresh drain cursor over the session's shared project-policy state. */
-	readonly projectInstructionContext?: () => ProjectInstructionContext
+	readonly projectInstructionContext?: (cwd: string) => ProjectInstructionContext
 	/**
 	 * Produces the "where and when" block for a child, at the moment the child
 	 * is built rather than once for the session.
@@ -277,7 +280,7 @@ export interface SubagentRuntimeOptions {
 	 * out a branch since it started. A string captured at startup would hand
 	 * every later sub-agent a confident, stale answer.
 	 */
-	readonly readEnvironment?: () => Promise<string>
+	readonly readEnvironment?: (cwd: string) => Promise<string>
 	/** Receives the child's session events (lineage-stamped) — for the tree view. */
 	readonly onEvent?: (event: SessionEvent) => void
 	/**
@@ -467,6 +470,7 @@ export async function createSubagentRuntime(
 	}
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
 	const sessions = new Map<string, SharedSession>()
+	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
 	// project layout was given. Process-local: it bounds the children of one
 	// root turn, and the parent's own spend is counted wherever the parent
@@ -513,11 +517,16 @@ export async function createSubagentRuntime(
 			tenantId,
 		)
 		await store.updateSession({ ...session, status: 'active' }, tenantId)
+		const workspaceRegistry = new WorkspaceBackendRegistry()
+		// The driver resolves Git lazily: ordinary shared children work outside a
+		// repository and never create a checkout or touch Git state.
+		workspaceRegistry.register(worktreeDriver)
 		const manager = new AgentManager(
 			registry,
 			{
 				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				capacityBehavior: 'queue',
+				workspaceDefault: 'shared',
 			},
 			{
 				sessionStore: store,
@@ -525,7 +534,7 @@ export async function createSubagentRuntime(
 					store,
 					generateSummaryId,
 				}),
-				workspaceRegistry: new WorkspaceBackendRegistry(),
+				workspaceRegistry,
 				capacity: new DefaultCapacityValidator(store),
 				topicManager: new TopicManager({ topicStore, sessionStore: store }),
 			},
@@ -710,6 +719,7 @@ export async function createSubagentRuntime(
 			'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
+			'Set `workspace: "worktree"` when the child needs its own Git checkout. It starts from this checkout\'s committed HEAD; uncommitted parent changes are absent. The checkout and its edits remain after the child ends, so report its path and branch to the operator.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
 			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
@@ -736,6 +746,12 @@ export async function createSubagentRuntime(
 					type: 'boolean',
 					description:
 						'Return after launch so the parent can continue independent work. Defaults to false.',
+				},
+				workspace: {
+					type: 'string',
+					enum: ['shared', 'worktree'],
+					description:
+						'Use a separate Git worktree for this child; defaults to shared. The worktree is kept on completion or cancellation.',
 				},
 				subagent_type: {
 					type: 'string',
@@ -821,6 +837,7 @@ export async function createSubagentRuntime(
 				phase_order,
 				phase_detail,
 				run_in_background,
+				workspace,
 				model: requestedModel,
 				provider: requestedProvider,
 				effort: requestedEffort,
@@ -837,6 +854,7 @@ export async function createSubagentRuntime(
 				phase_order?: number
 				phase_detail?: string
 				run_in_background?: boolean
+				workspace?: 'shared' | 'worktree'
 			}
 			if (!requestedModel && (requestedProvider || requestedEffort))
 				throw new Error('Supply model when selecting a child provider or effort.')
@@ -957,6 +975,8 @@ export async function createSubagentRuntime(
 			}
 			try {
 				const completionInbox = await completionInboxForTurn(context.turnId)
+				const subdirectory =
+					workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
 				// Nothing is saved here: the SDK records the child's spawn and its
 				// ending in the parent's log, and the child's own log beside it.
 				const outcome = await runBlockingAgentTask({
@@ -977,6 +997,15 @@ export async function createSubagentRuntime(
 						agentId,
 						prompt,
 						workingDirectory: opts.cwd,
+						workspace:
+							workspace === 'worktree'
+								? {
+										mode: 'isolated',
+										backend: 'git-worktree',
+										retention: 'retain',
+										...(subdirectory ? { subdirectory } : {}),
+									}
+								: { mode: 'shared' },
 						// The same labels the monitor was seeded with, sent down so the
 						// child's `agent_pending` carries them: a listener or SSE
 						// consumer outside this process then groups the child the way
@@ -1002,10 +1031,11 @@ export async function createSubagentRuntime(
 						outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 					return {
 						success: true,
-						output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed. ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
+						output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
 						data: {
 							task_id: outcome.handle.taskId,
 							state: outcome.handle.state,
+							...workspaceData(outcome.handle),
 							wait_released: run_in_background ? 'background' : 'operator_input',
 						},
 					}
@@ -1027,7 +1057,10 @@ export async function createSubagentRuntime(
 			'List the agent invocations launched by this turn and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
-			properties: { history: { type: 'boolean' }, session_id: { type: 'string' } },
+			properties: {
+				history: { type: 'boolean' },
+				session_id: { type: 'string' },
+			},
 			additionalProperties: false,
 		}),
 		category: 'custom',
@@ -1068,6 +1101,7 @@ export async function createSubagentRuntime(
 				agent: task.agentId,
 				state: task.state,
 				status: agentTaskOutcome(task),
+				...workspaceData(task),
 				...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
 			}))
 			return {
@@ -1145,6 +1179,7 @@ export async function createSubagentRuntime(
 				data: {
 					task_id: taskId,
 					state: outcome.handle.state,
+					...workspaceData(outcome.handle),
 					wait_released: 'operator_input',
 				},
 			}
@@ -1314,7 +1349,11 @@ export async function createSubagentRuntime(
 		// has none — see the host's own suppression, which cites this tool by
 		// name), and `narrate_work({"line":"…"})` beside the refusal would show
 		// the sentence that was never shown.
-		presentCall: () => ({ kind: 'generic', label: 'Narrating', presentation: 'activity' }),
+		presentCall: () => ({
+			kind: 'generic',
+			label: 'Narrating',
+			presentation: 'activity',
+		}),
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const { line } = input as { line: string }
@@ -1398,6 +1437,7 @@ export async function createSubagentRuntime(
 		launchesReadOnlyAgent(input: unknown): boolean {
 			if (typeof input !== 'object' || input === null) return false
 			const fields = input as Record<string, unknown>
+			if (fields.workspace === 'worktree') return false
 			if (fields.provider !== undefined || fields.effort !== undefined) return false
 			const inherits = (model: unknown): boolean => model === undefined || model === opts.model
 			if (!inherits(fields.model)) return false
@@ -1532,6 +1572,23 @@ function agentTaskOutcome(task: TaskHandle): string {
 	return task.state
 }
 
+function workspaceData(task: TaskHandle): {
+	workspace_path?: string
+	workspace_branch?: string
+} {
+	const meta = task.workspace?.meta
+	return meta?.backend === 'git-worktree'
+		? { workspace_path: meta.worktreePath, workspace_branch: meta.branch }
+		: {}
+}
+
+function workspaceNote(task: TaskHandle): string {
+	const data = workspaceData(task)
+	return data.workspace_path
+		? ` Its worktree is ${data.workspace_path} on ${data.workspace_branch}; the checkout is kept after this task ends.`
+		: ''
+}
+
 /** Lifecycle completion is not proof the requested task finished successfully. */
 function completedAgentResult(completed: TaskHandle): ToolResult {
 	const turn = completed.result
@@ -1560,7 +1617,12 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 	// ToolResult.data is host metadata, not necessarily model-visible content.
 	// Keep the handle and terminal status separate from arbitrary child output
 	// (which may itself contain UUIDs or text such as "Task 1").
-	const output = `task_id: ${completed.taskId}\nstatus: ${status}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
+	const workspace = workspaceData(completed)
+	const workspaceLines =
+		workspace.workspace_path && workspace.workspace_branch
+			? `\nworkspace: ${workspace.workspace_path}\nbranch: ${workspace.workspace_branch}\nThe worktree is kept for review.`
+			: ''
+	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
 	return {
 		success: succeeded,
 		output,
@@ -1573,6 +1635,7 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 			task_id: completed.taskId,
 			state: completed.state,
 			status,
+			...workspaceData(completed),
 			...(turn?.stopReason ? { stop_reason: turn.stopReason } : {}),
 		},
 	}
@@ -1628,7 +1691,8 @@ function buildDefinition(
 			// what day it is and which branch is checked out can both have changed
 			// since the parent started, and a sub-agent asserting the stale answer
 			// is worse than one that was never told.
-			const environment = opts.readEnvironment ? await opts.readEnvironment() : null
+			const childCwd = options.workingDirectory ?? opts.cwd
+			const environment = opts.readEnvironment ? await opts.readEnvironment(childCwd) : null
 			// AgentManager supplies the actual parent turn before it stamps the child's
 			// own Session ID. All delegated work shares that invoking conversation's
 			// upstream billing session, even after the TUI moves to another one.
@@ -1663,7 +1727,9 @@ function buildDefinition(
 					.filter(Boolean)
 					.join('\n\n'),
 				...(opts.projectInstructionContext
-					? { projectInstructionContext: opts.projectInstructionContext() }
+					? {
+							projectInstructionContext: opts.projectInstructionContext(childCwd),
+						}
 					: {}),
 				...(opts.authorizationGate ? { authorizationGate: opts.authorizationGate } : {}),
 				...(opts.sandboxProvider ? { sandboxProvider: opts.sandboxProvider } : {}),

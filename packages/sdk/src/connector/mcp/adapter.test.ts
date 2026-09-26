@@ -44,7 +44,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { MCPJsonSchema, MCPToolResult } from '../../types/connector/index.js'
+import type {
+	MCPJsonSchema,
+	MCPRequestOptions,
+	MCPToolResult,
+} from '../../types/connector/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 
 import {
@@ -129,6 +133,27 @@ describe('zodToMCPJsonSchema', () => {
 })
 
 describe('mcpToolToToolDefinition', () => {
+	it('passes correlated MCP progress into ToolContext.report only when a reporter exists', async () => {
+		const callTool = vi.fn(
+			async (_name: string, _args: Record<string, unknown>, options?: MCPRequestOptions) => {
+				options?.onProgress?.({ progress: 1, total: 4, message: 'indexing' })
+				options?.onProgress?.({ progress: 2, total: 4 })
+				return { content: [] }
+			},
+		)
+		const tool = mcpToolToToolDefinition(
+			{ name: 'scan', inputSchema: { type: 'object' } },
+			{ callTool } as unknown as MCPClient,
+			'fixture',
+		)
+		const report = vi.fn()
+		await tool.execute({}, { report } as unknown as ToolContext)
+		expect(report).toHaveBeenNthCalledWith(1, 'indexing', 0.25)
+		expect(report).toHaveBeenNthCalledWith(2, 'MCP tool: 2/4', 0.5)
+		await tool.execute({}, {} as ToolContext)
+		expect(callTool.mock.calls[1]?.[2]?.onProgress).toBeUndefined()
+	})
+
 	it('prefixes name + description with the server handle', () => {
 		const tool = mcpToolToToolDefinition(
 			{

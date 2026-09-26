@@ -2,10 +2,11 @@
  * Discover usable credential sources, reachable local servers, and public Zen.
  *
  * Claude/Codex device sessions precede Namzu-owned sign-ins and their optional
- * API environment alternatives. Gemini prefers explicit API keys, then reuses its
- * installed CLI Google session. Zen/Go use direct API environment variables,
- * then exact API entries in OpenCode's owner store. Anonymous Zen is available
- * without a credential or local installation and is ordered last.
+ * API environment alternatives. Gemini prefers environment API keys, then a
+ * Namzu-owned saved key, then its installed CLI Google session. Zen/Go use
+ * direct API environment variables, then exact API entries in OpenCode's owner
+ * store. Anonymous Zen is available without a credential or local installation
+ * and is ordered last.
  *
  * A public source promises only access to the documented free model catalogue;
  * it does not assert network reachability. Local servers still require a
@@ -17,7 +18,9 @@ import { EnvCredentialProvider } from '@namzu/sdk'
 import { hasApiCredential } from './access.js'
 import {
 	credentialsPath,
+	googleApiKeyPath,
 	readStoredCodexCredential,
+	readStoredGeminiApiKey,
 	readStoredSubscriptionCredential,
 } from './credential-store.js'
 import { readGeminiFileCredentialCandidates } from './gemini-credentials.js'
@@ -45,6 +48,8 @@ export type DetectionSource =
 	| { readonly kind: 'codex-file'; readonly path: string }
 	/** A Google account session owned by Gemini CLI. */
 	| { readonly kind: 'gemini-file'; readonly path: string }
+	/** A Gemini API key Namzu stored after the operator pasted it. */
+	| { readonly kind: 'stored-gemini-key'; readonly path: string }
 	/**
 	 * namzu's own credential store — a subscription the operator signed in to
 	 * from inside namzu. Carries the path because "where did this come from"
@@ -114,7 +119,7 @@ export interface DiscoverOptions {
 	readonly skipProbes?: boolean
 	/** Skip the macOS Keychain read (tests, non-darwin runs). */
 	readonly skipKeychain?: boolean
-	/** Skip namzu's own credential store (tests, and `--no-stored-credential`). */
+	/** Skip Namzu-owned credential stores (test and embedding option). */
 	readonly skipStored?: boolean
 	/** Explicit paired Windows home for a WSL credential fixture. */
 	readonly windowsHome?: string | null
@@ -197,6 +202,9 @@ export async function discoverProviders(
 	const storedCodexCredential = opts.skipStored
 		? null
 		: readStoredCodexCredential(...(opts.home === undefined ? [] : [opts.home]))
+	const storedGeminiApiKey = opts.skipStored
+		? null
+		: readStoredGeminiApiKey(...(opts.home === undefined ? [] : [opts.home]))
 	// macOS-only: the OAuth credential a co-installed tool keeps in the login
 	// Keychain.
 	// A custom Claude profile has its own Keychain service. This reader only
@@ -347,15 +355,24 @@ export async function discoverProviders(
 			}
 		}
 		if (id === 'google') {
+			if (storedGeminiApiKey && hasApiCredential(entry, storedGeminiApiKey)) {
+				if (apiKey === undefined) apiKey = storedGeminiApiKey
+				sources.push({
+					kind: 'stored-gemini-key',
+					path: googleApiKeyPath(...(opts.home === undefined ? [] : [opts.home])),
+				})
+			}
 			const borrowed = geminiCredentials[0]
-			if (borrowed && apiKey === undefined) {
-				apiKey = borrowed.credential.accessToken
-				sources.push({ kind: 'gemini-file', path: borrowed.path })
-				const projectId = env.GOOGLE_CLOUD_PROJECT?.trim() || env.GOOGLE_CLOUD_PROJECT_ID?.trim()
-				gemini = {
-					sourcePath: borrowed.path,
-					...(projectId ? { projectId } : {}),
+			if (borrowed) {
+				if (apiKey === undefined) {
+					apiKey = borrowed.credential.accessToken
+					const projectId = env.GOOGLE_CLOUD_PROJECT?.trim() || env.GOOGLE_CLOUD_PROJECT_ID?.trim()
+					gemini = {
+						sourcePath: borrowed.path,
+						...(projectId ? { projectId } : {}),
+					}
 				}
+				sources.push({ kind: 'gemini-file', path: borrowed.path })
 			}
 		}
 		if (id === 'zen' || id === 'zen-go') {

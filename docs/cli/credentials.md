@@ -34,9 +34,10 @@ offers its ways in, the detected subscription first, then the API key, then — 
 nothing works yet — a sign-in. Picking one leads where that way in has always
 led: a detected session opens the vendor's models, a credential opens the paste
 field, and a sign-in starts the same device-code or browser flow `l` starts.
-Nothing else changed about how a credential is taken: the paste field still
-feeds the session-credential path, and a typed credential is still held in
-memory for that session and written nowhere.
+The paste field feeds the session-credential path. A pasted Google API key is
+saved privately after Google starts successfully, and both the key and selected
+provider are available on the next launch. Other pasted credentials are held
+in memory for that session and written nowhere.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*
@@ -120,10 +121,26 @@ Namzu-owned sign-ins live in `credentials.json` under the application home
 privacy check before session startup. See [project and session state](project-state.md)
 for the directory layout.
 
+A Google API key pasted into the provider picker lives in the separate
+`gemini-api-key.json` in that application home. It is created through the same
+checked private write and atomic replacement as the subscription credential
+store. An explicit `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable
+takes priority over it; the saved key takes priority over the installed Google
+session. Internal discovery callers can skip Namzu-owned stores with
+`skipStored`. Run `/logout gemini` in the TUI or `namzu logout gemini` in a
+shell to remove it. `/logout all` and `namzu logout all` remove it along with
+Namzu-owned subscriptions. These commands remove the saved key for future
+launches; an already-running Namzu session may continue using its in-memory
+copy until it exits. Neither command changes environment variables or the
+installed CLI's account session.
+
 On POSIX systems, credentials must have no group or other access and generated
 state directories are restricted to mode `0700`. On Windows, Namzu removes
 inherited permissions, grants the current account access, and reads the
-resulting protected discretionary ACL back from Windows.
+resulting protected discretionary ACL back from Windows. Before creating an
+atomic credential file, Namzu also proves that its parent directory is private;
+an account that opened a file under a broad inherited ACL could otherwise keep
+that read handle after the file ACL was tightened.
 
 Directory grants include inheritance for child files and directories. Otherwise,
 a new partition below a protected parent can receive the creator's default ACL

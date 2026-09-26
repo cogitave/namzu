@@ -22,6 +22,8 @@ const sent: Message[][] = []
 // less App's padding and the glyph gutter): the check is that the settled
 // answer is printed exactly once, not how a long word wraps.
 const historyMarker = 'EARLIER ANSWER IN HISTORY'
+const reflowParagraph =
+	'This settled answer uses one uninterrupted paragraph so a wider terminal can show more words on the same row without losing the rest of the conversation.'
 const draft = 'Check keyboard\nthen compare output'
 const taskSubjects = [
 	'Read the entry point',
@@ -66,7 +68,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (sent.length === 1) {
 						yield {
 							kind: 'delta',
-							text: `${historyMarker}\n\n${Array.from({ length: 35 }, (_, index) => `Retained evidence ${index + 1}.`).join('\n\n')}`,
+							text: `${historyMarker}\n\n${reflowParagraph}\n\n${Array.from({ length: 35 }, (_, index) => `Retained evidence ${index + 1}.`).join('\n\n')}`,
 						}
 					} else if (sent.length === 2) {
 						for (const [index, subject] of taskSubjects.entries()) {
@@ -294,6 +296,35 @@ it('keeps live work, a multiline draft and controls reachable across terminal si
 	} finally {
 		releaseProgress()
 		releaseTurn()
+		await screen.unmount()
+	}
+})
+
+it('rewraps settled prose on expansion while keeping the draft and one history copy', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24, scrollback: 2_000 })
+	try {
+		await waitUntil(screen, () => screen.scrollback().join('\n').includes('fixture-model'), 'App did not become ready')
+		await submit(screen, 'A reply to reflow')
+		await waitUntil(
+			screen,
+			() => screen.scrollback().join('\n').includes('Retained evidence 35.'),
+			'The answer did not settle',
+		)
+		expect(screen.scrollback().join('\n')).not.toContain(reflowParagraph)
+		screen.press('draft survives resize')
+		await screen.waitForRender()
+
+		await screen.resize(160, 24)
+		await waitUntil(
+			screen,
+			() => screen.scrollback().join('\n').includes(reflowParagraph),
+			'The settled paragraph did not reflow',
+		)
+		const viewport = screen.viewport().join('\n')
+		expect(viewport).toContain('draft survives resize')
+		expect(screen.viewport().find((line) => line.includes('MESSAGE'))?.lastIndexOf('┐')).toBe(158)
+		expect(screen.scrollback().join('\n').split(historyMarker)).toHaveLength(2)
+	} finally {
 		await screen.unmount()
 	}
 })

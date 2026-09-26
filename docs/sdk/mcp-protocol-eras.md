@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: MCP protocol eras
-description: The era model behind MCP negotiation — the modern-first two-probe state machine, the per-origin era cache, the single-round-trip legacy handshake, and why there is no waterfall.
+description: MCP era negotiation, modern change subscriptions, the per-origin cache, and legacy handshake behavior.
 resource: packages/sdk/src/connector/mcp/client.ts
 tags: [sdk, mcp, connector, protocol]
 status: stable
@@ -60,13 +60,20 @@ one round trip per origin rather than one per connection.
 | modern answer | `2xx` carrying a `DiscoverResult` | a reply carrying a `DiscoverResult` |
 | modern objection | `400`/`404`/`405` whose **body** is `-32022`, `-32021`, `-32020`, or `-32601` on a `404` | a reply carrying one of those JSON-RPC errors |
 | fall back | `400`/`404`/`405` with an empty, HTML or otherwise non-JSON-RPC body | any other error reply — **or silence** |
+| refuse authorization | `401` or `403`, regardless of body; surface the HTTP status without sending `initialize` | not applicable |
 
-The HTTP probe reads a status and then a body. The status alone decides
-nothing: a modern server answers an unknown method with `404` plus a
+The HTTP probe reads a status and then a body. For the ambiguous
+`400`/`404`/`405` statuses, the status alone decides nothing: a modern
+server answers an unknown method with `404` plus a
 JSON-RPC `-32601` specifically so a client can tell it apart from the `404`
 of an origin that has never heard of the protocol. `-32601` therefore counts
 as a modern answer **only on a `404`** — on a `400` or `405` it is an
 ordinary unimplemented-method reply that a server of any era can send.
+
+An HTTP `401` or `403` during discovery is an access refusal, not evidence
+that the server speaks the legacy protocol. `connect()` surfaces the HTTP
+status to the caller and sends no legacy `initialize` request. Fix the
+credentials or the server's access policy before reconnecting.
 
 The stdio probe has no status to read, and the spec is explicit that its
 fallback **MUST NOT** be keyed to one specific error code: a legacy server
@@ -222,10 +229,13 @@ with no claim about what lies between — so `=?base64?a?b?=` is wrapped as
 well. A tighter test would pass that value through and leave the server
 trying to base64-decode `a?b`.
 
-`clientCapabilities` is `{}` and that is honest rather than a gap: sampling,
-elicitation, roots and logging are all deprecated as of 2026-07-28 with "new
-implementations should not add support for them", and the MRTR rules mean a
-conforming server will not ask for what this client has not declared.
+`clientCapabilities` is `{}` because this client does not fulfil server input
+requests. The [2026-07-28 revision](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+deprecates roots, sampling and logging; elicitation remains current. Form and
+URL-mode elicitation now travel inside MRTR `input_required` results instead of
+the former server-initiated `elicitation/create` channel. Namzu does not yet
+fulfil either elicitation mode, and MRTR forbids a conforming server from
+requesting a capability this client has not declared.
 
 **A modern connection deliberately does none of the following**, all of
 which the legacy eras do:
@@ -241,6 +251,52 @@ which the legacy eras do:
   still sends it, in every era. This is the only thing the modern era
   changes about cancellation; the ordering guarantees in `request()` are
   untouched.
+
+### Modern change subscriptions
+
+After `server/discover`, `MCPClient` opens one `subscriptions/listen` request
+when the server advertises `tools.listChanged`, `prompts.listChanged`, or
+`resources.listChanged`. Its `notifications` filter asks only for those
+advertised kinds. Streamable HTTP holds that request's SSE response open and
+reads each event as it arrives; stdio sends the request on the existing
+connection. A server without any of these flags gets no listen request.
+
+The first JSON-RPC message on a successful HTTP listen stream must be
+`notifications/subscriptions/acknowledged`; a final result can instead close
+the request. The client checks that the acknowledgment's
+`_meta['io.modelcontextprotocol/subscriptionId']` equals the listen request
+ID and that its honored filter is a subset of the requested filter. Later
+change notifications must carry the same ID and name an honored kind.
+Unsolicited, wrong-ID, unacknowledged, and unrequested modern changes do not
+reach `onNotification` or refresh an `mcpToolset`. Legacy notification
+delivery is unchanged.
+
+A list change is a cue to fetch the current catalogue, not a delta.
+`mcpToolset` uses its existing refresh path for tools, prompts and resources.
+It also fetches again when the subscription is acknowledged: a change could
+have happened between its first list and the point from which the server
+starts delivering notifications. The SDK does not claim to replay changes
+missed while a stream was closed.
+
+The initial acknowledgment has the normal request timeout. The stream
+itself has no fixed lifetime timeout; each SSE event is limited to 1 MiB of
+decoded text and each incoming chunk to 8 MiB. An unexpected close,
+missing acknowledgment, rate limit or server failure retries with a new
+request ID after bounded exponential backoff (1–30 seconds). A rejected
+listen request that cannot heal by repeating it — such as HTTP 404 with
+JSON-RPC `-32601` (method not found), or another non-retryable HTTP 4xx —
+stops the subscription and warns the host; a new `connect()` can try again.
+Failed HTTP response bodies are read under a 64 KiB limit. A graceful
+`subscriptions/listen` result also ends the subscription, and `disconnect()`
+aborts its stream. On stdio, cancelling an active subscription sends a
+best-effort cancellation.
+
+An HTTP 200 JSON response to `subscriptions/listen` is read under the same
+64 KiB and transport timeout bounds, then its body is released. A matching
+JSON-RPC `-32601` stops retries; `-32603` and other transient refusals retry.
+An incomplete response is cancelled on timeout or disconnect, so a server-held
+body cannot accumulate across retries. Neither the response body nor its
+server-authored message is written to the subscription warning.
 
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
@@ -663,6 +719,42 @@ transport. `HttpSseTransport` now has a `buildHeaders()` merge matching
 `StreamableHttpTransport`'s, so both HTTP transports treat per-request
 headers and a bearer token identically.
 
+## Per-call tool progress
+
+`MCPClient.callTool(name, args, { onProgress })` asks a server for progress by
+adding a unique `_meta.progressToken` to that `tools/call` request. Calls without
+`onProgress` send no token. A notification is delivered only to the active call
+whose token it names, even when two calls share a stdio connection or their
+Streamable HTTP response streams overlap. Automatic retries use a new request
+and token. Completion, failure, timeout, cancellation and transport close all
+end delivery before a late notification can reach the callback.
+
+Streamable HTTP delivers each complete SSE event as it arrives, before the
+response body closes. The matching terminal JSON-RPC reply ends that reader
+immediately, even if the peer leaves its stream open; cancellation and timeout
+also cancel the reader. An unfinished event over 1,048,576 characters, a
+single chunk over 8,388,608 bytes, or an event containing more than 256
+JSON-RPC messages fails that request without buffering more. JSON response
+bodies keep their existing behavior.
+
+```ts sketch
+await client.callTool('import_records', { file: 'records.csv' }, {
+  onProgress: ({ progress, total, message }) => {
+    showStatus(message ?? `${progress}${total === undefined ? '' : `/${total}`}`)
+  },
+})
+```
+
+The client accepts finite, nonnegative `progress` values that increase for that
+token. Invalid or repeated values are ignored. An optional `total` must be
+finite and positive; an invalid total is omitted. Server-authored `message`
+text has terminal controls removed and is limited to 512 UTF-8 bytes before
+the callback sees it. A throwing callback is logged without failing the tool.
+MCP tool definitions created by `mcpToolToToolDefinition` pass these updates
+through `ToolContext.report` when the executing host supplies one; the CLI's
+existing `tool_progress` event and live tool row render them. Progress is for
+the operator and does not enter the model conversation.
+
 ## MRTR: `resultType` and a typed `input_required` outcome
 
 Any JSON-RPC result can carry a `resultType`: absent or `"complete"` is an
@@ -801,8 +893,8 @@ reading `ToolResult.data` today sees a new code it previously never could.
 
 ## Not yet built
 
-- **`subscriptions/listen`.** The modern era replaces the `GET` stream and
-  `resources/subscribe` with it. This client has no subscription support in
-  any era, so omitting it regresses nothing — but it does mean a modern
-  connection receives no server-initiated notifications at all. Tracked
-  separately.
+- **Individual resource updates.** The modern listen filter supports
+  `resourceSubscriptions` for `notifications/resources/updated`; Namzu
+  currently requests only the three catalogue `list_changed` kinds. It does
+  not send legacy `resources/subscribe` either. Resource catalogues still
+  refresh on `notifications/resources/list_changed` when advertised.

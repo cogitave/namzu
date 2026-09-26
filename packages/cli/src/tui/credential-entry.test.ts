@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 
 import {
 	classifyCredential,
@@ -115,6 +116,12 @@ describe('classifyCredential', () => {
 })
 
 describe('describeDisposition', () => {
+	it('tells the operator a usable Gemini key will be saved and how to remove it', () => {
+		const text = describeDisposition(PROVIDER_REGISTRY.google, { kind: 'verified' })
+		expect(text).toContain('save this Gemini API key privately')
+		expect(text).toContain('/logout gemini')
+		expect(text).not.toContain('session only')
+	})
 	it('says the key is not stored, on every accepting branch', () => {
 		for (const v of [{ kind: 'verified' }, { kind: 'unverifiable' }] as const) {
 			const text = describeDisposition(entry, v)

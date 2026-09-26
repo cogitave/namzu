@@ -24,6 +24,7 @@ import {
 } from '../__fixtures__/scripted-era-server.js'
 import { MCPClient } from '../client.js'
 import { createMcpEraCache } from '../era.js'
+import { MCPHttpStatusError } from '../errors.js'
 
 /**
  * Which era a connection resolves to, and what a connection in that era
@@ -131,7 +132,7 @@ function legacyOrigin(
 }
 
 describe('a modern HTTP origin is reached without a handshake', () => {
-	it('connects on the probe alone, sending no initialize', async () => {
+	it('connects after the probe without initialize', async () => {
 		const origin = modernOrigin((message) =>
 			jsonRpcResponse({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }),
 		)
@@ -140,7 +141,11 @@ describe('a modern HTTP origin is reached without a handshake', () => {
 		const result = await client.connect()
 
 		expect(client.getEra()).toEqual({ kind: 'modern', version: MODERN })
-		expect(origin.methods()).toEqual(['server/discover'])
+		// A listen stream may start immediately after discovery; it is not
+		// another handshake and does not gate connect().
+		expect(origin.methods().filter((method) => method !== 'subscriptions/listen')).toEqual([
+			'server/discover',
+		])
 		expect(result.protocolVersion).toBe(MODERN)
 		expect(result.serverInfo).toEqual({ name: 'modern-fixture', version: '9' })
 		expect(result.capabilities).toEqual({ tools: { listChanged: true } })
@@ -358,6 +363,28 @@ describe('a server cannot answer the legacy handshake with a modern revision', (
 })
 
 describe('an HTTP failure is read for evidence, not treated as a fallback signal', () => {
+	it.each([
+		{ status: 401, response: () => statusResponse(401, '<html>Sign in</html>', 'text/html') },
+		{
+			status: 403,
+			response: () => jsonRpcStatusResponse(403, 1, { code: -32601, message: 'Method not found' }),
+		},
+	])(
+		'surfaces HTTP $status as an authorization refusal without initialize',
+		async ({ status, response }) => {
+			const origin = legacyOrigin('2025-11-25', response)
+			const client = httpClient(origin.fetch)
+
+			await expect(client.connect()).rejects.toMatchObject({
+				name: MCPHttpStatusError.name,
+				status,
+			})
+			expect(origin.methods()).toEqual(['server/discover'])
+			expect(client.getEra()).toBeUndefined()
+			expect(client.isConnected()).toBe(false)
+		},
+	)
+
 	it('falls back when a 400 carries no body at all', async () => {
 		const origin = legacyOrigin('2025-11-25', () => statusResponse(400, ''))
 		const client = httpClient(origin.fetch)
@@ -540,8 +567,7 @@ describe('an era is remembered per origin and corrected when it stops holding', 
 
 	it('keeps sending server/discover to a modern origin, because it IS the connection', async () => {
 		// The cache saves the WASTED probe against a legacy origin. Against a
-		// modern one the probe is the only round trip the connection makes,
-		// and it carries the server's capabilities — so a cached era does not
+		// modern one the probe carries the server's capabilities — so a cached era does not
 		// make it skippable, it makes the fallback skippable.
 		const cache = createMcpEraCache()
 		const origin = modernOrigin((message) =>
@@ -551,7 +577,10 @@ describe('an era is remembered per origin and corrected when it stops holding', 
 		await httpClient(origin.fetch, { cache }).connect()
 		await httpClient(origin.fetch, { cache }).connect()
 
-		expect(origin.methods()).toEqual(['server/discover', 'server/discover'])
+		expect(origin.methods().filter((method) => method !== 'subscriptions/listen')).toEqual([
+			'server/discover',
+			'server/discover',
+		])
 	})
 
 	it('corrects a remembered modern origin that starts answering as legacy, and does not repeat the cost', async () => {

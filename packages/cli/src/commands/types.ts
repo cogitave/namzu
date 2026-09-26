@@ -5,6 +5,8 @@ import type { Formatter } from '../output/index.js'
 export interface CommandContext {
 	readonly formatter: Formatter
 	readonly config: NamzuCliConfig
+	/** Parsed global profile for commands that intentionally use a recovery context. */
+	readonly selectedProfile?: string
 	/**
 	 * `--verbose`/`--quiet`/`NAMZU_LOG_LEVEL` and `--log-format`/
 	 * `NAMZU_LOG_FORMAT`, resolved once in `cli.ts#getContext()` — flag

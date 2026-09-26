@@ -143,6 +143,11 @@ function credentialSource(source: {
 				text: `Gemini CLI's sign-in (${source.path ?? ''})`,
 				borrowed: true,
 			}
+		case 'stored-gemini-key':
+			return {
+				text: `namzu's saved Gemini API key (${source.path ?? ''})`,
+				borrowed: false,
+			}
 		case 'stored':
 			return {
 				text: `namzu's credential store (${source.path ?? ''})`,

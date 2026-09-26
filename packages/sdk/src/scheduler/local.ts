@@ -113,6 +113,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 			{
 				agentId: options.agentId,
 				beforeStart: options.beforeStart,
+				...(options.workspace ? { workspace: options.workspace } : {}),
 				...(options.planId ? { planId: options.planId } : {}),
 				...(options.planStepId ? { planStepId: options.planStepId } : {}),
 				// Display grouping travels with the spawn so the manager can put it
@@ -468,5 +469,6 @@ function toHandle(task: import('../types/agent/task.js').AgentTask): TaskHandle 
 		result: task.result,
 		createdAt: task.createdAt,
 		completedAt: task.completedAt,
+		...(task.workspace ? { workspace: task.workspace } : {}),
 	}
 }

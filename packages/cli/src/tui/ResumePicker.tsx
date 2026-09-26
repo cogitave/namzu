@@ -13,9 +13,10 @@ import { theme } from './theme.js'
 export interface ResumePickerProps {
 	readonly conversations: readonly RecentConversation[]
 	readonly selected: number
+	readonly mode?: 'resume' | 'restore'
 }
 
-export function ResumePicker({ conversations, selected }: ResumePickerProps) {
+export function ResumePicker({ conversations, selected, mode = 'resume' }: ResumePickerProps) {
 	const { stdout } = useStdout()
 	const showPreview = (stdout.rows ?? 24) >= 20
 	const { start, items: visible } = selectionWindow(conversations, selected)
@@ -28,7 +29,7 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
 		>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.user} bold>
-					Resume a conversation
+					{mode === 'restore' ? 'Restore an archived conversation' : 'Resume a conversation'}
 				</Text>
 				<Text color={theme.text.muted}>
 					{selected + 1}/{conversations.length}
@@ -72,7 +73,7 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
             )}
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · enter resume · esc cancel
+					{`↑↓ navigate · PgUp/PgDn jump · Home/End boundary · enter ${mode} · esc cancel`}
 				</Text>
 			</Box>
 		</Box>

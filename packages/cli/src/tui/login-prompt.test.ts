@@ -80,6 +80,12 @@ describe('describeLogout', () => {
 		expect(text).toContain('Other stored subscriptions were kept')
 		expect(text).toContain('other tools')
 	})
+
+	it('explains that removing a saved Gemini key does not erase a running session copy', () => {
+		const text = describeProviderLogout('/p/gemini-api-key.json', 'google', true)
+		expect(text).toContain('for future launches')
+		expect(text).toContain('in-memory key until Namzu exits')
+	})
 })
 
 describe('isCompletionArgument', () => {

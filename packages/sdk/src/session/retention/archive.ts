@@ -223,7 +223,7 @@ export class ArchivalManager {
 
 		// 6. Dispose the workspace (idempotent — driver contract tolerates
 		//    already-disposed refs; a missing ref is a no-op).
-		if (workspace) {
+		if (workspace && sub.workspaceRetention !== 'retain') {
 			try {
 				const driver = this.deps.workspaceRegistry.get(workspace.meta.backend)
 				await driver.dispose(workspace)

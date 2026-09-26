@@ -33,7 +33,16 @@
  */
 
 import {
+	UnauthorizedError,
+	auth,
+	extractWWWAuthenticateParams,
+	withOAuth,
+} from '@modelcontextprotocol/client'
+
+import {
 	MCPClient,
+	type MCPFetchLike,
+	MCPHttpStatusError,
 	type MCPToolDrift,
 	type MCPToolsetOptions,
 	type MCPTransportUnion,
@@ -42,6 +51,15 @@ import {
 	mcpToolset,
 	requireApproval,
 } from '@namzu/sdk'
+
+import {
+	McpOAuthLoginRequiredError,
+	McpOAuthStoreError,
+	createMcpOAuthProvider,
+	hasMcpOAuthTokens,
+	isSecureMcpOAuthUrl,
+	mcpOAuthPath,
+} from './oauth-store.js'
 
 /**
  * How long a single server gets to connect, hand shake and list its tools.
@@ -296,6 +314,155 @@ export function transportFor(
 	return 'it declares neither a command nor a url'
 }
 
+/** One refresh per credential file; unrelated MCP requests remain concurrent. */
+const mcpOAuthRefreshes = new Map<string, Promise<void>>()
+
+function mcpOAuthUnauthorized(): MCPHttpStatusError {
+	return new MCPHttpStatusError(
+		'MCP OAuth',
+		401,
+		'authorization required; run `namzu mcp login <server>`',
+		'',
+	)
+}
+
+/**
+ * A running agent may reuse a saved OAuth grant, including its refresh token,
+ * but only an explicit `mcp login` may begin browser authorization. The store
+ * binds the grant to this complete URL (path and query included), and the
+ * fetch guard keeps it there even if a transport changes its request target.
+ */
+function withSavedMcpOAuth(
+	transport: Extract<MCPTransportUnion, { url: string }>,
+): MCPTransportUnion {
+	if (transport.type !== 'streamable-http') return transport
+	// A configured Authorization header is the operator's chosen credential.
+	// The official middleware would replace it with the saved bearer token.
+	if (Object.keys(transport.headers ?? {}).some((key) => key.toLowerCase() === 'authorization')) {
+		return transport
+	}
+	let endpoint: URL
+	try {
+		endpoint = new URL(transport.url)
+	} catch {
+		return transport
+	}
+	// The OAuth store accepts HTTPS and loopback HTTP. Preserve ordinary MCP
+	// behavior for other URLs instead of turning their lack of OAuth into an
+	// unrelated startup error.
+	if (!isSecureMcpOAuthUrl(endpoint)) return transport
+	if (!hasMcpOAuthTokens(transport.url)) return transport
+
+	const provider = createMcpOAuthProvider({ endpoint: transport.url })
+	const rawFetch = fetch
+	const oauthNetworkFetch = (input: string | URL, init?: RequestInit): Promise<Response> => {
+		const target = new URL(String(input))
+		if (!isSecureMcpOAuthUrl(target)) {
+			throw new McpOAuthStoreError('MCP OAuth network requests require HTTPS or loopback HTTP.')
+		}
+		// OAuth discovery and token requests may carry a client secret or refresh
+		// token. A 307/308 must never replay their POST body to a redirect target.
+		return rawFetch(input, { ...init, redirect: 'manual' })
+	}
+	const credentialKey = mcpOAuthPath(transport.url)
+	const authenticatedFetch = withOAuth(
+		provider,
+		transport.url,
+	)(async (input, init) => {
+		if (input.toString() !== transport.url) {
+			throw new Error('MCP OAuth refused a request to a different endpoint')
+		}
+		// The bearer token is attached by `withOAuth` before this call. Never
+		// auto-follow a redirect with it, including to another path on the
+		// same origin, even if an SDK transport changes its own redirect mode.
+		const response = await rawFetch(input, { ...init, redirect: 'manual' })
+		if (response.status !== 401) return response
+		// Intercept the challenge before `withOAuth` can start an independent
+		// refresh for every simultaneous request. Its token attachment remains
+		// authoritative; the official `auth()` performs the refresh once.
+		const attemptedAuthorization = new Headers(init?.headers).get('authorization')
+		const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response)
+		void response.body?.cancel().catch(() => undefined)
+		let refresh = mcpOAuthRefreshes.get(credentialKey)
+		if (!refresh) {
+			refresh = (async () => {
+				const current = await provider.tokens()
+				if (!current) throw new McpOAuthLoginRequiredError()
+				// Another connection or process may have renewed this grant while
+				// the old request was in flight. Its new access token is enough.
+				if (attemptedAuthorization !== `Bearer ${current.access_token}`) return
+				const result = await auth(provider, {
+					serverUrl: transport.url,
+					resourceMetadataUrl,
+					scope,
+					fetchFn: oauthNetworkFetch,
+				})
+				if (result !== 'AUTHORIZED') throw new McpOAuthLoginRequiredError()
+			})()
+			mcpOAuthRefreshes.set(credentialKey, refresh)
+			const ownedRefresh = refresh
+			void ownedRefresh.then(
+				() => {
+					if (mcpOAuthRefreshes.get(credentialKey) === ownedRefresh) {
+						mcpOAuthRefreshes.delete(credentialKey)
+					}
+				},
+				() => {
+					if (mcpOAuthRefreshes.get(credentialKey) === ownedRefresh) {
+						mcpOAuthRefreshes.delete(credentialKey)
+					}
+				},
+			)
+		}
+		try {
+			await refresh
+		} catch {
+			// A second process may have won a rotating-token refresh while
+			// this one failed. The store's issuer/endpoint binding still holds;
+			// one retry with its new token is safe and avoids a false failure.
+			const latest = await provider.tokens()
+			if (!latest || attemptedAuthorization === `Bearer ${latest.access_token}`) {
+				throw mcpOAuthUnauthorized()
+			}
+		}
+		const current = await provider.tokens()
+		if (!current) throw mcpOAuthUnauthorized()
+		const headers = new Headers(init?.headers)
+		headers.set('Authorization', `Bearer ${current.access_token}`)
+		const retried = await rawFetch(input, { ...init, headers, redirect: 'manual' })
+		if (retried.status === 401) {
+			void retried.body?.cancel().catch(() => undefined)
+			throw mcpOAuthUnauthorized()
+		}
+		return retried
+	})
+	const oauthFetch: MCPFetchLike = async (input, init) => {
+		// `withOAuth` authenticates any URL handed to it. Our Streamable HTTP
+		// transport sends the configured URL exactly; reject any other target
+		// before the bearer token can reach it.
+		if (input !== transport.url) {
+			throw new Error('MCP OAuth refused a request to a different endpoint')
+		}
+		try {
+			if (!(await provider.tokens())) throw new McpOAuthLoginRequiredError()
+			return await authenticatedFetch(input, init)
+		} catch (error) {
+			if (
+				error instanceof UnauthorizedError ||
+				error instanceof McpOAuthLoginRequiredError ||
+				error instanceof McpOAuthStoreError
+			) {
+				// The official middleware throws after a 401 or failed refresh.
+				// The SDK's era probe recognizes its own HTTP status error and
+				// refuses 401 instead of offering a legacy initialize handshake.
+				throw mcpOAuthUnauthorized()
+			}
+			throw error
+		}
+	}
+	return { ...transport, fetch: oauthFetch }
+}
+
 async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
 	let timer: NodeJS.Timeout | undefined
 	try {
@@ -436,9 +603,17 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: toolsetOptions })
 			continue
 		}
+		let connectedTransport: MCPTransportUnion
+		try {
+			connectedTransport =
+				transport.type === 'streamable-http' ? withSavedMcpOAuth(transport) : transport
+		} catch (error) {
+			startupFailed.push({ name, reason: reasonOf(error) })
+			continue
+		}
 		const client = new MCPClient({
 			serverName: name,
-			transport,
+			transport: connectedTransport,
 			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
 		})
 		const discovery = {

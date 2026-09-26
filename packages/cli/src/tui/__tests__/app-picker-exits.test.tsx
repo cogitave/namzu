@@ -24,6 +24,7 @@ import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Message } from '@namzu/sdk'
+import type { RecentConversation } from '../../integrations/sessions/store.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -52,6 +53,10 @@ let exited = false
 let probeCalls = 0
 let startConversationCalls = 0
 const archivedConversationIds: string[] = []
+const restoredConversationIds: string[] = []
+let archivedRows: RecentConversation[] = []
+let archivedListCalls = 0
+let failRestoredLoad = false
 let detectedProviders: readonly DetectedProvider[]
 let writePrefs = vi.fn()
 type ProviderIntegrations = typeof import('../../integrations/providers/index.js')
@@ -169,10 +174,20 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	archiveConversation: async (_sessions: unknown, sessionId: string) => {
 		archivedConversationIds.push(sessionId)
 	},
+	unarchiveConversation: async (_sessions: unknown, sessionId: string) => {
+		restoredConversationIds.push(sessionId)
+	},
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	listRecent: async () => [],
-	loadConversation: async () => [],
+	listArchived: async () => {
+		archivedListCalls += 1
+		return archivedRows
+	},
+	loadConversation: async () => {
+		if (failRestoredLoad) throw new Error('history read failed')
+		return []
+	},
 }))
 vi.mock('../../user-commands/store.js', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../user-commands/store.js')>()),
@@ -283,6 +298,10 @@ beforeEach(() => {
 	probeCalls = 0
 	startConversationCalls = 0
 	archivedConversationIds.length = 0
+	restoredConversationIds.length = 0
+	archivedRows = []
+	archivedListCalls = 0
+	failRestoredLoad = false
 	detectedProviders = DETECTED
 	writePrefs = vi.fn()
 	createSession = async (prefs) => sessionFixture(`${prefs.providers[0]?.id ?? 'none'}-provider`)
@@ -1465,6 +1484,44 @@ describe('Ctrl+C from a ready conversation', () => {
 		expect(archivedConversationIds).toEqual(['conv'])
 		expect(summaries, 'an archived conversation was advertised as resumable').toEqual([{}])
 		expect(exited).toBe(true)
+	})
+
+	it('restores a selected archived conversation and says when the subsequent resume fails', async () => {
+		const id = 'b2326129-f3ee-43c2-9b3b-16b340886cbe'
+		archivedRows = [{ id: id as never, title: 'Archived example', named: true, updatedAt: new Date().toISOString(), count: 1 }]
+		failRestoredLoad = true
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await submit(harness, '/unarchive')
+		await frameShows(harness.lastFrame, 'Restore an archived conversation')
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Could not resume: history read failed')
+		expect(restoredConversationIds).toEqual([id])
+		expect(harness.lastFrame()).toContain('Restored: Archived example')
+	})
+
+	it('does not offer restore while the current turn is running', async () => {
+		const started = deferred<void>()
+		const finish = deferred<void>()
+		createSession = async () => ({
+			...sessionFixture(),
+			send: async function* (): AsyncIterable<AgentEvent> {
+				started.resolve()
+				await finish.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await submit(harness, 'keep working')
+		await started.promise
+		await submit(harness, '/unarchive')
+		expect(harness.lastFrame()).toContain('Finish the current turn and queued work')
+		expect(archivedListCalls).toBe(0)
+		expect(restoredConversationIds).toEqual([])
+		finish.resolve()
 	})
 })
 

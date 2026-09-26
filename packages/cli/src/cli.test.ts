@@ -157,6 +157,41 @@ describe('runCli', () => {
 		expect(stdout.replaceAll(cwd, '<cwd>')).not.toContain('M5')
 	})
 
+	it('skills --audit uses the model loader and fails on a skill it cannot offer', async () => {
+		const cwd = skillProject('Body without frontmatter.')
+		const code = await invoke(['skills', '--cwd', cwd, '--trust', '--audit'])
+		expect(code).toBe(1)
+		expect(stdout).toContain(`Skill audit for ${cwd}`)
+		expect(stdout).toContain('release: invalid')
+		expect(stdout).toContain('has no YAML frontmatter')
+	})
+
+	it('skills --audit reports the selected window budget as data', async () => {
+		const cwd = skillProject(
+			'---\nname: release\ndescription: prepare a verified release\n---\n\nDo the work.',
+		)
+		const code = await invoke([
+			'--format',
+			'json',
+			'skills',
+			'--cwd',
+			cwd,
+			'--trust',
+			'--audit',
+			'--context-window',
+			'1000',
+		])
+		expect(code).toBe(0)
+		const parsed = JSON.parse(stdout) as {
+			manifestBudgetChars: number
+			findings: Array<{ name: string; status: string }>
+		}
+		expect(parsed.manifestBudgetChars).toBe(80)
+		expect(parsed.findings).toContainEqual(
+			expect.objectContaining({ name: 'release', status: 'ready' }),
+		)
+	})
+
 	it('skills refuses an untrusted target before reading its roster', async () => {
 		const cwd = skillProject(
 			'---\nname: should-not-leak\ndescription: this project is not trusted\n---\n\nBody.',

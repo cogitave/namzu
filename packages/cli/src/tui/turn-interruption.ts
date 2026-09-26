@@ -107,6 +107,10 @@ export function describeTurnInterruption(event: Interruption): string {
 	const lead = line(explained?.message || rawReason)
 	const id = explained?.id ? ` [${line(explained.id, 120)}]` : ''
 	const rows = [`${event.kind === 'paused' ? 'Turn paused' : 'Error'}${id}: ${lead}`]
+	const providerId = event.providerError?.providerId ?? event.failure?.details?.providerId
+	if (typeof providerId === 'string' && providerId.trim()) {
+		rows.push(`Provider: ${line(providerId, 120)}`)
+	}
 
 	const providerDetail = event.providerError?.detail
 	if (providerDetail && materiallyDifferent(providerDetail, [lead, rawReason])) {

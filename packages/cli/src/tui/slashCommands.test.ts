@@ -100,6 +100,15 @@ it('routes plugin inspection locally and includes it in the command catalogue', 
 	expect(CLI_LOCAL_COMMANDS.some((command) => command.name === 'plugins')).toBe(true)
 })
 
+it('routes worktree management locally with exact arguments', () => {
+	expect(runSlash('/worktree', context())).toEqual({ kind: 'worktree', args: [] })
+	expect(runSlash('/worktree fork review-fix', context())).toEqual({
+		kind: 'worktree',
+		args: ['fork', 'review-fix'],
+	})
+	expect(CLI_LOCAL_COMMANDS.some((command) => command.name === 'worktree')).toBe(true)
+})
+
 const ctx: SlashContext = context()
 
 const ctxWithTools: SlashContext = context({
@@ -391,6 +400,7 @@ describe('runSlash', () => {
 
 	it('/archive opens a confirmation rather than mutating from the parser', () => {
 		expect(runSlash('/archive', ctx)).toEqual({ kind: 'archive-picker' })
+		expect(runSlash('/unarchive', ctx)).toEqual({ kind: 'unarchive' })
 	})
 
 	it('/copy returns a copy action for App to resolve against completed output', () => {
@@ -1079,6 +1089,10 @@ describe('/login and /logout', () => {
 			kind: 'logout',
 			target: 'codex',
 		})
+		expect(runSlash('/logout gemini', ctx)).toEqual({
+			kind: 'logout',
+			target: 'google',
+		})
 		expect(runSlash('/logout all', ctx)).toEqual({
 			kind: 'logout',
 			target: 'all',
@@ -1086,7 +1100,7 @@ describe('/login and /logout', () => {
 		expect(runSlash('/logout everything', ctx)).toEqual({
 			kind: 'message',
 			role: 'system',
-			content: 'Usage: /logout [claude|codex|all]',
+			content: 'Usage: /logout [claude|codex|gemini|all]',
 		})
 	})
 

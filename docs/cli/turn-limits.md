@@ -132,6 +132,14 @@ text when available.
 
 A third leash is time spent waiting. When the provider pauses a turn — a rate limit, an outage — the kernel keeps a checkpoint and the turn cannot go on until the provider allows it. Without a wait budget `namzu exec` exits 75 at once and leaves the decision to whatever called it. With one, the turn waits and resumes from the checkpoint in the same process, keeping its own context rather than being re-prompted from notes.
 
+When the provider reports its identity, the TUI pause or error message shows
+`Provider: <id>`. This identifies which member of a fallback chain actually
+failed. A paused conversation accepts `/resume` to continue its saved turn or
+`/abandon` to start a new one; sending another message does not replace it.
+Changing providers keeps prompts queued behind a paused turn on hold. A
+successful `/resume` completes that checkpoint on the selected provider before
+the dependent prompts run.
+
 ```
 namzu exec --wait-for-provider 2h "migrate the fixtures"
 ```

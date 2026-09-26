@@ -178,6 +178,14 @@ export interface MCPJsonRpcMessage {
 	error?: MCPJsonRpcError
 }
 
+/** A validated, bounded update from one MCP tool call. */
+export interface MCPProgressUpdate {
+	readonly progress: number
+	readonly total?: number
+	/** Server text with terminal controls removed, limited to 512 UTF-8 bytes. */
+	readonly message?: string
+}
+
 /** Authority for one MCP JSON-RPC request. */
 export interface MCPRequestOptions {
 	/**
@@ -187,6 +195,12 @@ export interface MCPRequestOptions {
 	 * waiting, not that an already-started remote side effect was rolled back.
 	 */
 	readonly signal?: AbortSignal
+	/**
+	 * Receive progress for this `tools/call` only. The client adds a unique
+	 * `_meta.progressToken` when this is supplied and stops delivery as soon as
+	 * the request completes, fails or is cancelled. Other methods ignore it.
+	 */
+	readonly onProgress?: (update: MCPProgressUpdate) => void
 	/**
 	 * Extra headers for this one request, merged over the transport's static
 	 * config headers (a collision resolves to this value) and under this same

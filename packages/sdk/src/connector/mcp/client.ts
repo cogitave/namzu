@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import type {
 	MCPClientConfig,
 	MCPClientState,
@@ -9,6 +11,7 @@ import type {
 	MCPInitializeResult,
 	MCPJsonRpcMessage,
 	MCPLifecycleEvent,
+	MCPProgressUpdate,
 	MCPPromptDefinition,
 	MCPPromptMessage,
 	MCPRequestOptions,
@@ -48,7 +51,7 @@ import {
 } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
-import { StreamableHttpTransport } from './streamable-http.js'
+import { MCPSubscriptionResponseError, StreamableHttpTransport } from './streamable-http.js'
 import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mcp-header.js'
 
 import {
@@ -70,8 +73,103 @@ const MAX_LIST_PAGES = 100
 
 /** A cancellation notification must never become the next unbounded wait. */
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
+const MAX_PROGRESS_MESSAGE_BYTES = 512
+const ANSI_CSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
+const SUBSCRIPTION_RETRY_MAX_MS = 30_000
+/** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
+const RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES = new Set([401, 403, 408, 409, 425, 429])
+
+type ListChangeFilter = {
+	toolsListChanged?: true
+	promptsListChanged?: true
+	resourcesListChanged?: true
+}
+
+interface ModernSubscription {
+	readonly id: number
+	readonly requested: ListChangeFilter
+	readonly controller: AbortController
+	readonly ackTimer: ReturnType<typeof setTimeout>
+	acknowledged?: ListChangeFilter
+}
+
+const SUBSCRIPTION_NOTIFICATIONS = {
+	'notifications/tools/list_changed': 'toolsListChanged',
+	'notifications/prompts/list_changed': 'promptsListChanged',
+	'notifications/resources/list_changed': 'resourcesListChanged',
+} as const
+
+function subscriptionFilter(capabilities: MCPServerCapabilities | undefined): ListChangeFilter {
+	return {
+		...(capabilities?.tools?.listChanged === true ? { toolsListChanged: true as const } : {}),
+		...(capabilities?.prompts?.listChanged === true ? { promptsListChanged: true as const } : {}),
+		...(capabilities?.resources?.listChanged === true
+			? { resourcesListChanged: true as const }
+			: {}),
+	}
+}
+
+function acknowledgedFilter(
+	value: unknown,
+	requested: ListChangeFilter,
+): ListChangeFilter | undefined {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+	const record = value as Record<string, unknown>
+	const acknowledged: ListChangeFilter = {}
+	for (const [key, entry] of Object.entries(record)) {
+		if (!Object.hasOwn(requested, key) || (entry !== true && entry !== false)) return undefined
+		if (entry === true) (acknowledged as Record<string, true>)[key] = true
+	}
+	return acknowledged
+}
+
+/** A rejected listen request with the same inputs cannot heal by repeating it. */
+function isPermanentSubscriptionFailure(error: unknown, requestId: number): boolean {
+	if (!(error instanceof MCPHttpStatusError || error instanceof MCPSubscriptionResponseError))
+		return false
+	try {
+		const reply = JSON.parse(error.bodyText) as MCPJsonRpcMessage
+		if (
+			reply?.jsonrpc === '2.0' &&
+			reply.id === requestId &&
+			reply.method === undefined &&
+			reply.error?.code === JSON_RPC_METHOD_NOT_FOUND
+		) {
+			return true
+		}
+	} catch {
+		// Only a failed HTTP status can determine policy without a JSON-RPC reply.
+	}
+	return (
+		error instanceof MCPHttpStatusError &&
+		error.status >= 400 &&
+		error.status < 500 &&
+		!RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES.has(error.status)
+	)
+}
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
+
+/** Keep server-authored status text safe and small before it reaches a host UI. */
+function progressMessage(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined
+	const plain = value
+		.slice(0, MAX_PROGRESS_MESSAGE_BYTES * 4)
+		.replace(ANSI_CSI_PATTERN, '')
+		.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ')
+		.trim()
+	if (!plain) return undefined
+	let bounded = ''
+	let bytes = 0
+	for (const character of plain) {
+		const length = Buffer.byteLength(character, 'utf8')
+		if (bytes + length > MAX_PROGRESS_MESSAGE_BYTES) break
+		bounded += character
+		bytes += length
+	}
+	return bounded
+}
 
 /**
  * The three header names the protocol owns, lower-cased for matching.
@@ -132,9 +230,16 @@ export class MCPClient {
 		}
 	>()
 	private nextRequestId = 1
+	private progressRequests = new Map<
+		string,
+		{ onProgress: (update: MCPProgressUpdate) => void; lastProgress?: number }
+	>()
 	private notificationHandlers: Array<(method: string, params?: Record<string, unknown>) => void> =
 		[]
 	private lifecycleListeners: MCPEventListener[] = []
+	private modernSubscription?: ModernSubscription
+	private subscriptionRestartTimer?: ReturnType<typeof setTimeout>
+	private subscriptionFailures = 0
 	/** Best-effort protocol cancellations still belong to this connection generation. */
 	private cancellationControllers = new Set<AbortController>()
 	private log: Logger
@@ -188,6 +293,7 @@ export class MCPClient {
 			throw new Error(`MCPClient already connected to "${this.config.serverName}"`)
 		}
 
+		this.stopModernSubscription(false)
 		this.status = 'connecting'
 		// Tool schemas belong to a listing, and a listing belongs to a
 		// connection. Carrying bindings across a reconnect would mirror the
@@ -203,6 +309,7 @@ export class MCPClient {
 		try {
 			this.transport.onMessage((msg) => this.handleMessage(msg))
 			this.transport.onClose(() => {
+				this.stopModernSubscription(false)
 				this.status = 'disconnected'
 				this.abortCancellations(new Error('MCP transport closed'))
 				this.log.info('MCP transport closed')
@@ -210,6 +317,7 @@ export class MCPClient {
 				this.rejectAllPending(`MCP transport to "${this.config.serverName}" closed`)
 			})
 			this.transport.onError((err) => {
+				this.stopModernSubscription(false)
 				this.status = 'error'
 				this.abortCancellations(err)
 				this.error = err.message
@@ -501,6 +609,7 @@ export class MCPClient {
 			[NAMZU.SERVER_NAME]: result.serverInfo.name,
 		}
 		this.log.info('Connected to MCP server', connectedAttributes)
+		this.startModernSubscription()
 		return result
 	}
 
@@ -527,8 +636,151 @@ export class MCPClient {
 		}
 	}
 
+	/** Subscribe only to change kinds the modern server actually advertised. */
+	private startModernSubscription(): void {
+		if (this.status !== 'connected' || this.era?.kind !== 'modern' || this.modernSubscription) {
+			return
+		}
+		const requested = subscriptionFilter(this.serverCapabilities)
+		if (Object.keys(requested).length === 0) return
+		const id = this.nextRequestId++
+		const controller = new AbortController()
+		const envelope = buildEnvelope({
+			era: this.era,
+			method: 'subscriptions/listen',
+			params: { notifications: requested },
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+			capabilities: this.config.capabilities ?? {},
+		})
+		const subscription: ModernSubscription = {
+			id,
+			requested,
+			controller,
+			ackTimer: setTimeout(() => {
+				this.finishModernSubscription(subscription, 'acknowledgment timed out', true)
+			}, this.requestTimeoutMs),
+		}
+		subscription.ackTimer.unref?.()
+		this.modernSubscription = subscription
+		const message: MCPJsonRpcMessage = {
+			jsonrpc: '2.0',
+			id,
+			method: 'subscriptions/listen',
+			params: envelope.params,
+		}
+		try {
+			const options = {
+				signal: controller.signal,
+				...this.eraHeaderOptions(envelope.headers),
+			}
+			const transport = this.transport
+			const streaming = transport instanceof StreamableHttpTransport
+			const sending =
+				transport instanceof StreamableHttpTransport
+					? transport.sendSubscription(message, options, (frame) => {
+							if (this.modernSubscription !== subscription) return
+							// This callback belongs to the listen POST alone, so its first
+							// JSON-RPC frame must be this request's acknowledgment.
+							if (!subscription.acknowledged) {
+								const meta = frame.params?._meta
+								const frameId =
+									meta && typeof meta === 'object' && !Array.isArray(meta)
+										? (meta as Record<string, unknown>)[SUBSCRIPTION_ID_META_KEY]
+										: undefined
+								if (frame.method !== 'notifications/subscriptions/acknowledged' || frameId !== id) {
+									// A final JSON-RPC result is a valid graceful or error close.
+									if (frame.id === id) this.handleMessage(frame)
+									else
+										this.finishModernSubscription(
+											subscription,
+											'first stream message was not its acknowledgment',
+											true,
+										)
+									return
+								}
+							}
+							this.handleMessage(frame)
+						})
+					: transport.send(message, options)
+			void sending.then(
+				() => {
+					// stdio's send only writes the request. Its eventual result
+					// arrives through handleMessage, whereas HTTP's send owns the
+					// response stream and settling means it closed.
+					if (streaming) this.finishModernSubscription(subscription, 'stream ended', false)
+				},
+				(err: unknown) => {
+					if (!controller.signal.aborted) {
+						this.failModernSubscription(subscription, err)
+					}
+				},
+			)
+		} catch (err) {
+			this.failModernSubscription(subscription, err)
+		}
+	}
+
+	private failModernSubscription(subscription: ModernSubscription, error: unknown): void {
+		if (this.modernSubscription !== subscription) return
+		const retry = !isPermanentSubscriptionFailure(error, subscription.id)
+		if (!retry) {
+			this.log.warn('Modern MCP subscription rejected; live updates stopped until reconnection', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.reason': toErrorMessage(error),
+			})
+		}
+		this.finishModernSubscription(subscription, toErrorMessage(error), true, retry)
+	}
+
+	/** Stop one subscription, and retry with a bounded delay while connected. */
+	private finishModernSubscription(
+		subscription: ModernSubscription,
+		reason: string,
+		cancelPeer: boolean,
+		retry = true,
+	): void {
+		if (this.modernSubscription !== subscription) return
+		this.modernSubscription = undefined
+		clearTimeout(subscription.ackTimer)
+		subscription.controller.abort(new Error(`MCP subscription ${reason}`))
+		if (cancelPeer && !(this.transport instanceof StreamableHttpTransport) && this.isConnected()) {
+			this.sendCancellation(subscription.id, `Subscription ${reason}`)
+		}
+		if (!retry || this.status !== 'connected' || this.era?.kind !== 'modern') return
+		this.subscriptionFailures++
+		const delay = Math.min(
+			1_000 * 2 ** Math.min(this.subscriptionFailures - 1, 5),
+			SUBSCRIPTION_RETRY_MAX_MS,
+		)
+		this.log.warn('Modern MCP subscription ended; retrying', {
+			'namzu.connector.server': this.config.serverName,
+			'namzu.connector.reason': reason,
+			'namzu.connector.retry_ms': delay,
+		})
+		this.subscriptionRestartTimer = setTimeout(() => {
+			this.subscriptionRestartTimer = undefined
+			this.startModernSubscription()
+		}, delay)
+		this.subscriptionRestartTimer.unref?.()
+	}
+
+	private stopModernSubscription(cancelPeer: boolean): void {
+		if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+		this.subscriptionRestartTimer = undefined
+		const subscription = this.modernSubscription
+		this.modernSubscription = undefined
+		this.subscriptionFailures = 0
+		if (!subscription) return
+		clearTimeout(subscription.ackTimer)
+		subscription.controller.abort(new Error('MCP connection closed'))
+		if (cancelPeer && !(this.transport instanceof StreamableHttpTransport) && this.isConnected()) {
+			this.sendCancellation(subscription.id, 'Subscription closed')
+		}
+	}
+
 	async disconnect(): Promise<void> {
 		const reason = new Error('MCPClient disconnecting')
+		this.stopModernSubscription(true)
 		this.abortCancellations(reason)
 		const alreadyDisconnected = this.status === 'disconnected'
 
@@ -853,6 +1105,20 @@ export class MCPClient {
 	 */
 	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): () => void {
 		this.notificationHandlers.push(handler)
+		// A list may have changed between the first fetch and the subscription
+		// acknowledgment. Reconcile when a listener joins an already-acknowledged
+		// stream, as well as when a stream is acknowledged with listeners present.
+		const subscription = this.modernSubscription
+		if (subscription?.acknowledged) {
+			queueMicrotask(() => {
+				if (
+					this.modernSubscription === subscription &&
+					this.notificationHandlers.includes(handler)
+				) {
+					this.reconcileSubscription(subscription, handler)
+				}
+			})
+		}
 		return () => {
 			const index = this.notificationHandlers.indexOf(handler)
 			if (index >= 0) this.notificationHandlers.splice(index, 1)
@@ -930,10 +1196,21 @@ export class MCPClient {
 		// Refuse before allocating an id or asking the transport to do work.
 		options?.signal?.throwIfAborted()
 		const id = this.nextRequestId++
+		const progressToken = method === 'tools/call' && options?.onProgress ? randomUUID() : undefined
+		const requestParams =
+			progressToken === undefined
+				? params
+				: {
+						...params,
+						_meta: {
+							...(params._meta as Record<string, unknown> | undefined),
+							progressToken,
+						},
+					}
 		const envelope = buildEnvelope({
 			era: this.era,
 			method,
-			params,
+			params: requestParams,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 			capabilities: this.config.capabilities ?? {},
 			...this.paramHeaderBindings(method, params),
@@ -967,6 +1244,7 @@ export class MCPClient {
 			clearTimeout(timer)
 			options?.signal?.removeEventListener('abort', onCallerAbort)
 			if (this.pendingRequests.get(id) === entry) this.pendingRequests.delete(id)
+			if (progressToken !== undefined) this.progressRequests.delete(progressToken)
 		}
 		const settle = (terminal: Terminal, value: unknown): boolean => {
 			if (settled) return false
@@ -1014,6 +1292,9 @@ export class MCPClient {
 		}
 
 		this.pendingRequests.set(id, entry)
+		if (progressToken !== undefined && options?.onProgress) {
+			this.progressRequests.set(progressToken, { onProgress: options.onProgress })
+		}
 		const timer = setTimeout(() => {
 			const error = new Error(
 				`MCP request "${method}" to "${this.config.serverName}" timed out after ${this.requestTimeoutMs}ms`,
@@ -1254,6 +1535,10 @@ export class MCPClient {
 	}
 
 	private handleMessage(message: MCPJsonRpcMessage): void {
+		if (message.method === 'notifications/progress' && message.id === undefined) {
+			this.handleProgressNotification(message.params)
+		}
+		if (this.handleModernSubscriptionMessage(message)) return
 		if (message.id !== undefined) {
 			const pending = this.pendingRequests.get(message.id)
 			if (pending) {
@@ -1298,6 +1583,124 @@ export class MCPClient {
 						'exception.message': toErrorMessage(err),
 					})
 				})
+		}
+	}
+
+	private handleProgressNotification(params: Record<string, unknown> | undefined): void {
+		const token = params?.progressToken
+		if (typeof token !== 'string') return
+		const pending = this.progressRequests.get(token)
+		if (!pending) return
+		const progress = params?.progress
+		if (typeof progress !== 'number' || !Number.isFinite(progress) || progress < 0) return
+		if (pending.lastProgress !== undefined && progress <= pending.lastProgress) return
+		pending.lastProgress = progress
+		const total = params?.total
+		const message = progressMessage(params?.message)
+		const update: MCPProgressUpdate = {
+			progress,
+			...(typeof total === 'number' && Number.isFinite(total) && total > 0 ? { total } : {}),
+			...(message === undefined ? {} : { message }),
+		}
+		try {
+			pending.onProgress(update)
+		} catch (error) {
+			this.log.warn('MCP progress listener threw', {
+				'exception.message': toErrorMessage(error),
+			})
+		}
+	}
+
+	/**
+	 * The modern subscription stream is authority-scoped by its request ID.
+	 * A bare or wrong-ID list_changed notification must not refresh a live
+	 * toolset, and no event may precede its acknowledgment.
+	 */
+	private handleModernSubscriptionMessage(message: MCPJsonRpcMessage): boolean {
+		if (this.era?.kind !== 'modern') return false
+		const subscription = this.modernSubscription
+		if (subscription && message.id === subscription.id) {
+			if (message.error?.code === JSON_RPC_METHOD_NOT_FOUND) {
+				this.log.warn('Modern MCP subscription rejected; live updates stopped until reconnection', {
+					'namzu.connector.server': this.config.serverName,
+					'namzu.connector.reason': `MCP error ${message.error.code}: ${message.error.message}`,
+				})
+			}
+			this.finishModernSubscription(
+				subscription,
+				message.error
+					? `server rejected subscription: ${message.error.message}`
+					: 'server closed stream',
+				false,
+				message.error?.code !== JSON_RPC_METHOD_NOT_FOUND && message.error !== undefined,
+			)
+			return true
+		}
+		const method = message.method
+		if (!method) return false
+		const isAck = method === 'notifications/subscriptions/acknowledged'
+		const kind = Object.hasOwn(SUBSCRIPTION_NOTIFICATIONS, method)
+			? SUBSCRIPTION_NOTIFICATIONS[method as keyof typeof SUBSCRIPTION_NOTIFICATIONS]
+			: undefined
+		const isSubscribedEvent =
+			isAck || kind !== undefined || method === 'notifications/resources/updated'
+		if (!isSubscribedEvent) return false
+		const meta = message.params?._meta
+		const id =
+			meta && typeof meta === 'object' && !Array.isArray(meta)
+				? (meta as Record<string, unknown>)[SUBSCRIPTION_ID_META_KEY]
+				: undefined
+		if (!subscription || id !== subscription.id || message.id !== undefined) {
+			this.log.warn('Ignoring MCP subscription notification without the active subscription ID', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.method': method,
+			})
+			return true
+		}
+		if (isAck) {
+			if (subscription.acknowledged) {
+				this.finishModernSubscription(subscription, 'duplicate acknowledgment', true)
+				return true
+			}
+			const acknowledged = acknowledgedFilter(message.params?.notifications, subscription.requested)
+			if (!acknowledged) {
+				this.finishModernSubscription(subscription, 'invalid acknowledgment filter', true)
+				return true
+			}
+			subscription.acknowledged = acknowledged
+			clearTimeout(subscription.ackTimer)
+			for (const handler of [...this.notificationHandlers]) {
+				this.reconcileSubscription(subscription, handler)
+			}
+			return true
+		}
+		if (!subscription.acknowledged) {
+			this.finishModernSubscription(
+				subscription,
+				'notification arrived before acknowledgment',
+				true,
+			)
+			return true
+		}
+		if (!kind || subscription.acknowledged[kind] !== true) {
+			this.log.warn('Ignoring unrequested MCP subscription notification', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.method': method,
+			})
+			return true
+		}
+		for (const handler of [...this.notificationHandlers]) handler(method, message.params)
+		return true
+	}
+
+	/** Re-list once when a subscription becomes live; it may have missed a change while opening. */
+	private reconcileSubscription(
+		subscription: ModernSubscription,
+		handler: (method: string, params?: Record<string, unknown>) => void,
+	): void {
+		if (this.modernSubscription !== subscription) return
+		for (const [method, kind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
+			if (subscription.acknowledged?.[kind as keyof ListChangeFilter]) handler(method)
 		}
 	}
 

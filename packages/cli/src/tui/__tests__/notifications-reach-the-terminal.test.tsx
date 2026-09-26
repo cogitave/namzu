@@ -389,9 +389,11 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	gates[0]?.release()
 
 	await frameShows(harness, 'Turn paused [provider.rate_limit]: The provider is rate limiting this turn.')
+	await frameShows(harness, 'Provider: openai')
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
 	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
+	await frameShows(harness, 'Use /resume to continue this checkpoint on the selected provider')
 	await frameShows(harness, 'held after a resumable turn paused')
 	await tick(100)
 

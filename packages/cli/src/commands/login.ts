@@ -42,16 +42,19 @@ import {
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
 	clearStoredCodexCredential,
+	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
+	googleApiKeyPath,
 	readStoredCodexCredential,
+	readStoredGeminiApiKey as readStoredGoogleApiKey,
 	readStoredSubscriptionCredential,
 } from '../integrations/providers/index.js'
 import {
+	describeAllCredentialsLogout,
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
 	describeLoginStart,
-	describeLogout,
 	describeProviderLogout,
 } from '../tui/login-prompt.js'
 import { openInBrowser } from '../tui/open-browser.js'
@@ -78,14 +81,14 @@ const LOGIN_HELP = [
 const DEFAULT_TIMEOUT_SECONDS = 300
 
 const LOGOUT_HELP = [
-	'Usage: namzu logout [claude|codex|all]',
+	'Usage: namzu logout [claude|codex|gemini|all]',
 	'',
-	'Remove a subscription credential created by Namzu on this machine.',
-	'With no target, both Namzu-owned credentials are removed for compatibility.',
+	'Remove a credential created by Namzu on this machine.',
+	'With no target, all Namzu-owned credentials are removed.',
 	'Credentials borrowed from another tool or supplied through the environment are untouched.',
 ].join('\n')
 
-export type LogoutTarget = SubscriptionProviderId | 'all'
+export type LogoutTarget = SubscriptionProviderId | 'google' | 'all'
 
 export function parseLogoutTarget(argv: readonly string[]): LogoutTarget | null {
 	if (argv.length === 0) return 'all'
@@ -93,6 +96,7 @@ export function parseLogoutTarget(argv: readonly string[]): LogoutTarget | null 
 	const value = argv[0]?.toLowerCase()
 	if (value === 'claude' || value === 'anthropic') return 'anthropic'
 	if (value === 'codex' || value === 'chatgpt') return 'codex'
+	if (value === 'gemini' || value === 'google') return 'google'
 	if (value === 'all') return 'all'
 	return null
 }
@@ -302,7 +306,7 @@ export const loginCommand: CommandDef = {
 
 export const logoutCommand: CommandDef = {
 	name: 'logout',
-	description: 'Remove a subscription credential namzu stored on this machine.',
+	description: 'Remove a credential namzu stored on this machine.',
 	passThrough: true,
 	help: LOGOUT_HELP,
 	handler: async ({ ctx, rawArgs }) => {
@@ -311,13 +315,42 @@ export const logoutCommand: CommandDef = {
 			ctx.formatter.print({ text: LOGOUT_HELP })
 			return EXIT_USAGE
 		}
-		const path = credentialsPath()
+		const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
 		const hadClaude = readStoredSubscriptionCredential() !== null
 		const hadCodex = readStoredCodexCredential() !== null
+		const hadGoogleKey = readStoredGoogleApiKey() !== null
+		if (target === 'all') {
+			const failures: string[] = []
+			try {
+				clearAllStoredCredentials()
+			} catch (error) {
+				failures.push(
+					`${credentialsPath()}: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+			try {
+				clearStoredGoogleApiKey()
+			} catch (error) {
+				failures.push(
+					`${googleApiKeyPath()}: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+			ctx.formatter.print({
+				text:
+					failures.length > 0
+						? `Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`
+						: describeAllCredentialsLogout(
+								path,
+								googleApiKeyPath(),
+								hadClaude || hadCodex || hadGoogleKey,
+							),
+			})
+			return failures.length > 0 ? EXIT_FAIL : EXIT_OK
+		}
 		try {
 			if (target === 'anthropic') clearStoredSubscriptionCredential()
 			else if (target === 'codex') clearStoredCodexCredential()
-			else clearAllStoredCredentials()
+			else clearStoredGoogleApiKey()
 		} catch (err) {
 			ctx.formatter.print({
 				text: `Could not remove ${path}: ${err instanceof Error ? err.message : String(err)}`,
@@ -325,10 +358,11 @@ export const logoutCommand: CommandDef = {
 			return EXIT_FAIL
 		}
 		ctx.formatter.print({
-			text:
-				target === 'all'
-					? describeLogout(path, hadClaude || hadCodex)
-					: describeProviderLogout(path, target, target === 'anthropic' ? hadClaude : hadCodex),
+			text: describeProviderLogout(
+				path,
+				target,
+				target === 'anthropic' ? hadClaude : target === 'codex' ? hadCodex : hadGoogleKey,
+			),
 		})
 		return EXIT_OK
 	},

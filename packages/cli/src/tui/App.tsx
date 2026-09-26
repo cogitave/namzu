@@ -72,22 +72,28 @@ import {
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
 	clearStoredCodexCredential,
+	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
+	googleApiKeyPath,
 	parsePastedInput,
 	primaryProvider,
 	readStoredCodexCredential,
+	readStoredGeminiApiKey as readStoredGoogleApiKey,
 	readStoredSubscriptionCredential,
 	signedInSubscriptionProviders,
 	writePreferences,
+	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
 import {
 	type CliSessions,
 	type RecentConversation,
+	ConversationIndexRefreshError,
 	activeConversationTurn,
 	archiveConversation,
 	forkConversation,
 	forkConversationBeforeUser,
+	listArchived,
 	listRecent,
 	loadConversation,
 	loadResumableConversation,
@@ -96,11 +102,13 @@ import {
 	setTitle,
 	startConversation,
 	titleOf,
+	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import type {
 	SubagentActivity,
 	SubagentNarrationLine,
@@ -271,7 +279,7 @@ import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
 	describeLoginStart,
-	describeLogout,
+	describeAllCredentialsLogout,
 	describeProviderLogout,
 } from './login-prompt.js'
 import { selectPrimaryProvider } from './provider-selection.js'
@@ -317,6 +325,7 @@ import {
 	runSlash,
 } from './slashCommands.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
@@ -358,7 +367,7 @@ export type ExternalEditorAdapter = (request: {
 	readonly signal: AbortSignal
 }) => Promise<string>
 
-type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
+type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'unarchive' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
 
 interface PendingModelSwitch {
@@ -524,7 +533,7 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'credential-logout'
 			readonly title: string
 			readonly notice?: string
-			readonly values: readonly SubscriptionProviderId[]
+			readonly values: readonly (SubscriptionProviderId | 'google')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1842,8 +1851,9 @@ export function App({
 	// outlived the row it named would resolve `/expand 3` to output the operator
 	// can no longer see anywhere, which is the failure this surface is being
 	// cleaned of, one layer up.
-	const resetTranscript = useCallback(() => {
+	const resetTranscript = useCallback((options: { preserveOutputViewer?: boolean } = {}) => {
 		if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
+		if (!options.preserveOutputViewer) setOutputViewer(null)
 		// The scrollback floor goes with the log it counted. <Static> is remounted
 		// by the key below and has emitted nothing again; a floor that survived
 		// would keep the next conversation's rows out of the live window.
@@ -1857,13 +1867,14 @@ export function App({
 		previousTerminalRef.current = terminal
 		if (
 			externalEditorRequestRef.current === null &&
-			(terminal.columns < previous.columns || terminal.rows < previous.rows)
+			(terminal.columns !== previous.columns || terminal.rows < previous.rows)
 		) {
-			// A contraction can reflow live rows into native scrollback before Ink
-			// receives resize. Its old row count cannot erase those rows. Rebuild
-			// Namzu's normal-buffer view at the committed size, retaining the same
-			// messages, draft and selected child. Regular frames remain incremental.
-			resetTranscript()
+			// A contraction can move live rows into native scrollback before Ink
+			// receives resize; expansion leaves already-printed Static rows wrapped
+			// at their old width. Rebuild the normal-buffer transcript at the new
+			// width, retaining messages, draft and selected child. Regular frames
+			// remain incremental.
+			resetTranscript({ preserveOutputViewer: true })
 		}
 	}, [terminal, resetTranscript])
 
@@ -2638,14 +2649,37 @@ export function App({
 	)
 
 	const removeStoredCredential = useCallback(
-		(target: SubscriptionProviderId | 'all'): void => {
-			const path = credentialsPath()
+		(target: SubscriptionProviderId | 'google' | 'all'): void => {
+			const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
 			const hadClaude = readStoredSubscriptionCredential() !== null
 			const hadCodex = readStoredCodexCredential() !== null
+			const hadGoogleKey = readStoredGoogleApiKey() !== null
+			if (target === 'all') {
+				const failures: string[] = []
+				try {
+					clearAllStoredCredentials()
+				} catch (error) {
+					failures.push(`${credentialsPath()}: ${error instanceof Error ? error.message : String(error)}`)
+				}
+				try {
+					clearStoredGoogleApiKey()
+				} catch (error) {
+					failures.push(`${googleApiKeyPath()}: ${error instanceof Error ? error.message : String(error)}`)
+				}
+				if (failures.length > 0) {
+					pushMessage('system', `Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`)
+					return
+				}
+				pushMessage(
+					'system',
+					describeAllCredentialsLogout(path, googleApiKeyPath(), hadClaude || hadCodex || hadGoogleKey),
+				)
+				return
+			}
 			try {
 				if (target === 'anthropic') clearStoredSubscriptionCredential()
 				else if (target === 'codex') clearStoredCodexCredential()
-				else clearAllStoredCredentials()
+				else clearStoredGoogleApiKey()
 			} catch (error) {
 				pushMessage(
 					'system',
@@ -2653,13 +2687,13 @@ export function App({
 				)
 				return
 			}
-			if (target === 'all') {
-				pushMessage('system', describeLogout(path, hadClaude || hadCodex))
-				return
-			}
 			pushMessage(
 				'system',
-				describeProviderLogout(path, target, target === 'anthropic' ? hadClaude : hadCodex),
+				describeProviderLogout(
+					path,
+					target,
+					target === 'anthropic' ? hadClaude : target === 'codex' ? hadCodex : hadGoogleKey,
+				),
 			)
 		},
 		[pushMessage],
@@ -2717,7 +2751,9 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					`Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
+					error instanceof ConversationIndexRefreshError
+						? error.message
+						: `Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
 				)
 			} finally {
 				if (!archived && conversationMutationRef.current === 'archive') {
@@ -3206,7 +3242,7 @@ export function App({
 				return
 			}
 			if (picker.kind === 'credential-logout') {
-				removeStoredCredential(value as SubscriptionProviderId)
+				removeStoredCredential(value as SubscriptionProviderId | 'google')
 				return
 			}
 			if (picker.kind === 'reasoning-effort' && value === HYPERMODE_VALUE) {
@@ -3611,10 +3647,12 @@ export function App({
 					setMentionCandidates(files)
 			})
 			setCurrentProvider(primaryProvider(prefs).id)
-			// A picker-owned, usable provider switch is an explicit recovery from a
-			// paused failed turn. Failed and superseded candidates return above and
-			// therefore cannot release its dependent queue.
-			if (signal !== undefined) advanceQueueContinuation()
+			// Failed and superseded provider choices returned above. A usable
+			// provider change can recover a failed turn's dependent queue, but a
+			// paused turn still owns the conversation's durable active slot. Keep
+			// that queue held until its checkpoint is resumed and settles.
+			if (signal !== undefined && queuePauseRef.current?.outcome !== 'paused')
+				advanceQueueContinuation()
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
 				setPhase('ready')
@@ -4053,9 +4091,6 @@ export function App({
 	// tick never repaints the whole conversation.
 	//
 	useEffect(() => {
-		setOutputViewer(null)
-	}, [resetKey])
-	useEffect(() => {
 		if (permission !== null) setOutputViewer(null)
 	}, [permission])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
@@ -4207,7 +4242,8 @@ export function App({
 		const scope = scopeRef.current
 		if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
 			return false
-		const active = await activeConversationTurn(sessions, scope.sessionId).catch(() => undefined)
+		const resumedSessionId = scope.sessionId
+		const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
 		if (!active) return false
 		if (abortRef.current || state !== 'idle') {
 			pushMessage('system', 'Wait for the running turn to finish before resuming the parked one.')
@@ -4288,7 +4324,21 @@ export function App({
 			if (st.assistantId) finalizeMessage(st.assistantId)
 			// The resumed segment was appended to the log; the fold is the context
 			// the next prompt continues from.
-			modelHistoryRef.current = await loadConversation(sessions, scope.sessionId)
+			modelHistoryRef.current = await loadConversation(sessions, resumedSessionId)
+			// A successfully completed checkpoint frees the conversation's active
+			// slot. Only then may prompts queued behind the paused turn start. A
+			// repeated pause, failed resume, unreadable log, or conversation switch
+			// keeps dependent work held for an explicit operator decision.
+			if (
+				st.completed &&
+				queuePauseRef.current?.outcome === 'paused' &&
+				scopeRef.current?.sessionId === resumedSessionId &&
+				(await activeConversationTurn(sessions, resumedSessionId)
+					.then((next) => next === undefined)
+					.catch(() => false))
+			) {
+				advanceQueueContinuation()
+			}
 		} catch (err) {
 			pushMessage(
 				'system',
@@ -4304,7 +4354,7 @@ export function App({
 			await restoreBrowser?.().catch(() => undefined)
 		}
 		return true
-	}, [detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])
+	}, [advanceQueueContinuation, detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])
 
 	// `namzu resume <id>` of a scheduled run parked on a decision: what the
 	// notification and `/schedule` tell the operator to run. Continue it once
@@ -4351,6 +4401,37 @@ export function App({
 			)
 		}
 	}, [ensureSessions, pushMessage, resumeActiveTurn])
+
+	const doUnarchive = useCallback(async () => {
+		if (
+			state !== 'idle' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			queuedRef.current.length > 0 ||
+			compactingRef.current ||
+			exportingRef.current
+		) {
+			pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+			return
+		}
+		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		if (!sessions) {
+			pushMessage('system', 'Conversation history is unavailable in this folder.')
+			return
+		}
+		try {
+			const archived = await listArchived(sessions, 100)
+			if (archived.length === 0) {
+				pushMessage('system', 'No archived conversations in this project.')
+				return
+			}
+			setResumeList(archived)
+			setSelectedResume(0)
+			setPhase('unarchive')
+		} catch (err) {
+			pushMessage('system', `Could not list archived conversations: ${err instanceof Error ? err.message : String(err)}`)
+		}
+	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
@@ -4536,6 +4617,7 @@ export function App({
 			resumeCommittedRef.current = true
 			let msgs: Awaited<ReturnType<typeof loadConversation>>
 			try {
+				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
 			} catch (err) {
 				resumeCommittedRef.current = false
@@ -4614,6 +4696,49 @@ export function App({
 			resetTranscript,
 			wakeGoalDriver,
 		],
+	)
+
+	const restoreArchivedConversation = useCallback(
+		async (conv: RecentConversation) => {
+			const sessions = sessionsRef.current
+			if (!sessions) {
+				setPhase('ready')
+				return
+			}
+			if (
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				queuedRef.current.length > 0 ||
+				compactingRef.current ||
+				exportingRef.current
+			) {
+				setPhase('ready')
+				pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+				return
+			}
+			resumeCommittedRef.current = true
+			try {
+				await unarchiveConversation(sessions, conv.id)
+			} catch (err) {
+				resumeCommittedRef.current = false
+				setPhase('ready')
+				pushMessage(
+					'system',
+					err instanceof ConversationIndexRefreshError
+						? err.message
+						: `Could not restore: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				return
+			}
+			pushMessage('system', `Restored: ${conv.title}`)
+			try {
+				await resumeConversation(conv)
+			} finally {
+				resumeCommittedRef.current = false
+			}
+		},
+		[hasUnsettledTurn, pushMessage, resumeConversation, state],
 	)
 
 	/**
@@ -5743,7 +5868,14 @@ export function App({
 							'‖',
 						)
 						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
-					} else pushMessage('system', describeTurnInterruption(event), false, '‖')
+					} else {
+						pushMessage(
+							'system',
+							`${describeTurnInterruption(event)}\nUse /resume to continue this checkpoint on the selected provider, or /abandon to start a new turn.`,
+							false,
+							'‖',
+						)
+					}
 					break
 				case 'error':
 					closeAssistant()
@@ -7209,28 +7341,31 @@ export function App({
 						const choices = [
 							...(readStoredSubscriptionCredential() ? (['anthropic'] as const) : []),
 							...(readStoredCodexCredential() ? (['codex'] as const) : []),
+							...(readStoredGoogleApiKey() ? (['google'] as const) : []),
 						]
 						if (choices.length === 0) {
 							removeStoredCredential('all')
 							return
 						}
 						if (choices.length === 1) {
-							removeStoredCredential(choices[0] as SubscriptionProviderId)
+							removeStoredCredential(choices[0] as SubscriptionProviderId | 'google')
 							return
 						}
 						setSelectedChoice(0)
 						setChoicePicker({
 							kind: 'credential-logout',
-							title: 'Choose a stored subscription to remove',
+							title: 'Choose a stored credential to remove',
 							notice:
 								'Only credentials created by Namzu are listed. Device sessions owned by other tools are left alone.',
 							values: choices,
 							options: choices.map((choice) => ({
-								label: choice === 'anthropic' ? 'Claude' : 'Codex',
+								label: choice === 'anthropic' ? 'Claude' : choice === 'codex' ? 'Codex' : 'Gemini API key',
 								description:
 									choice === 'anthropic'
 										? 'Remove only Namzu’s Claude subscription.'
-										: 'Remove only Namzu’s Codex subscription.',
+										: choice === 'codex'
+											? 'Remove only Namzu’s Codex subscription.'
+											: 'Remove only Namzu’s saved Gemini API key.',
 							})),
 						})
 						return
@@ -7418,12 +7553,102 @@ export function App({
 					case 'resume':
 						void doResume()
 						return
+					case 'unarchive':
+						void doUnarchive()
+						return
 					case 'title':
 						void doTitle(slash.title, slash.clear)
 						return
 					case 'fork':
 						void doFork()
 						return
+					case 'worktree': {
+						const [verb = 'list', label, extra] = slash.args
+						const notice = (content: string) =>
+							pushMessage('system', terminalDisplayText(content))
+						if (
+							!(
+								(verb === 'list' && label === undefined) ||
+								(verb === 'create' && extra === undefined) ||
+								(verb === 'fork' && extra === undefined) ||
+								(verb === 'resume' &&
+									label !== undefined &&
+									extra === undefined)
+							)
+						) {
+							pushMessage(
+								'system',
+								'Usage: /worktree [list|create [name]|fork [name]|resume <name>]',
+							)
+							return
+						}
+						if (
+							verb === 'fork' &&
+							(abortRef.current ||
+								hasUnsettledTurn() ||
+								queuedRef.current.length > 0)
+						) {
+							pushMessage(
+								'system',
+								'Wait for the current turn and queued prompts to finish before forking to a worktree.',
+							)
+							return
+						}
+						if (conversationMutationRef.current) return
+						if (verb === 'fork') {
+							conversationMutationRef.current = 'fork'
+							setConversationMutation('fork')
+						}
+						void (async () => {
+							try {
+								const manager = await openManagedWorktrees(ctx.cwd)
+								if (verb === 'list') {
+									const items = await manager.list()
+									notice(
+										items.length === 0
+											? 'No managed worktrees in this repository.'
+											: items
+													.map(
+														(item) =>
+															`${item.label}: ${item.path}${item.dirty ? ' (uncommitted files)' : ''}`,
+													)
+													.join('\n'),
+									)
+								} else if (verb === 'create') {
+									const created = await manager.create(label)
+									notice(
+										`Created ${created.branch}. Open it in a new terminal: ${worktreeOpenHint(created.path)}${created.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+									)
+								} else if (verb === 'fork') {
+									const scope = await materializeConversation()
+									if (!scope)
+										throw new Error(
+											'Conversation history is unavailable in this folder.',
+										)
+									await persistenceTailRef.current
+									const forked = await manager.fork(scope.sessionId, label)
+									notice(
+										`Forked ${forked.copied} messages into ${forked.title}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+									)
+								} else if (label) {
+									const target = await manager.resume(label)
+									notice(
+										`Open ${label} in a new terminal: ${worktreeOpenHint(target.worktree.path, target.conversationId)}`,
+									)
+								}
+							} catch (error) {
+								notice(
+									`Worktree: ${error instanceof Error ? error.message : String(error)}`,
+								)
+							} finally {
+								if (verb === 'fork') {
+									conversationMutationRef.current = null
+									setConversationMutation(null)
+								}
+							}
+						})()
+						return
+					}
 					case 'restore':
 						void doRestore(slash.turn)
 						return
@@ -7913,12 +8138,14 @@ export function App({
 			appLifetime,
 			ctx.cwd,
 			doResume,
+			doUnarchive,
 			enqueueQueued,
 			exitWithSummary,
 			hasUnsettledTurn,
 			goalActivation,
 			goalStatus,
 			hostCommands,
+			materializeConversation,
 			nextId,
 			openAgentCockpit,
 			runAgentsCommand,
@@ -8279,7 +8506,7 @@ export function App({
 				readonly persistSelection?: boolean
 				readonly chooseReasoningEffort?: boolean
 			} = {},
-		): Promise<void> => {
+		): Promise<boolean> => {
 			try {
 				await hydrateSession(prefs, detectedNow, {
 					signal,
@@ -8287,11 +8514,12 @@ export function App({
 					announce: true,
 					chooseReasoningEffort: options.chooseReasoningEffort,
 				})
+				return !signal.aborted
 			} catch (err) {
 				// A superseded choice no longer owns even its failure message. Its
 				// eventual session object is disposed inside `hydrateSession`; a live
 				// choice stays on the picker with the actionable construction error.
-				if (signal.aborted) return
+				if (signal.aborted) return false
 				if (options.revealAllOnFailure) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
@@ -8300,19 +8528,13 @@ export function App({
 				setPickerNotice(
 					`Could not start the selected provider: ${err instanceof Error ? err.message : String(err)}`,
 				)
+				return false
 			}
 		},
 		[hydrateSession],
 	)
 
-	/**
-	 * A credential the operator typed. Held in memory for this process only.
-	 *
-	 * Deliberately does NOT call `writePreferences`: preferences are a file, and
-	 * the whole contract of this entry point is that nothing lands on disk. The
-	 * provider choice is not persisted either, because persisting it would leave
-	 * a preference pointing at a credential that will not exist next launch.
-	 */
+	/** A typed Google API key is saved only after its provider session opens. */
 	const handleTypedCredential = useCallback(
 		(credential: DetectedProvider, disposition: string, signal: AbortSignal) => {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
@@ -8330,7 +8552,39 @@ export function App({
 				saved && primaryProvider(saved).id === credential.entry.id
 					? saved
 					: selectPrimaryProvider(saved, { id: credential.entry.id as ProviderId })
-			void hydrateFromPicker(prefs, next, signal)
+			void (async () => {
+				const started = await hydrateFromPicker(prefs, next, signal)
+				if (!started || credential.entry.id !== 'google') return
+				let path: string
+				try {
+					path = writeStoredGoogleApiKey(credential.apiKey ?? '')
+				} catch (error) {
+					pushMessage(
+						'system',
+						`Gemini is connected, but its API key could not be saved privately: ${error instanceof Error ? error.message : String(error)}. It is usable only in this session.`,
+					)
+					return
+				}
+				setDetected((current) =>
+					current.map((provider) =>
+						provider.entry.id === 'google' &&
+						provider.source.kind === 'session' &&
+						provider.apiKey === credential.apiKey
+							? { ...provider, source: { kind: 'stored-gemini-key', path } }
+							: provider,
+					),
+				)
+				try {
+					writePreferences(prefs)
+				} catch (error) {
+					pushMessage(
+						'system',
+						`Gemini API key was saved privately at ${path}, but the provider preference could not be saved: ${error instanceof Error ? error.message : String(error)}. Run /logout gemini to remove the key.`,
+					)
+					return
+				}
+				pushMessage('system', `Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`)
+			})()
 		},
 		[detected, hydrateFromPicker, pushMessage],
 	)
@@ -8447,7 +8701,7 @@ export function App({
 				return
 			}
 			// Resume picker owns the keyboard while open.
-			if (phase === 'resume') {
+			if (phase === 'resume' || phase === 'unarchive') {
 				// Once a conversation is being read, the keyboard does nothing here.
 				// The choice is already being acted on; a second Enter would start a
 				// second read and an Esc would hand back a screen that is about to be
@@ -8467,7 +8721,7 @@ export function App({
 					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
 					const conv = resumeList[selectedResumeRef.current]
-					if (conv) void resumeConversation(conv)
+					if (conv) void (phase === 'unarchive' ? restoreArchivedConversation(conv) : resumeConversation(conv))
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
 				return
 			}
@@ -9026,6 +9280,7 @@ export function App({
 		outputViewer !== null ||
 		phase === 'trust' ||
 		phase === 'resume' ||
+		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker' ||
 		agentSurface !== null
@@ -9188,8 +9443,8 @@ export function App({
 						</Text>
 						<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
 					</Box>
-				) : phase === 'resume' ? (
-					<ResumePicker conversations={resumeList} selected={selectedResume} />
+			) : phase === 'resume' || phase === 'unarchive' ? (
+					<ResumePicker conversations={resumeList} selected={selectedResume} mode={phase === 'unarchive' ? 'restore' : 'resume'} />
 				) : phase === 'edit' ? (
 					<EditPromptPicker prompts={editList} selected={selectedEdit} />
 				) : phase === 'picker' ? (
@@ -9560,6 +9815,7 @@ function hintForPhase(
 	// trust branch in the key handler above.
 	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
+	if (phase === 'unarchive') return '↑↓ navigate · enter restore · esc cancel'
 	if (phase === 'edit') return '← older · → newer · enter fork and edit · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	// Esc does two different things here depending on how the picker was reached,

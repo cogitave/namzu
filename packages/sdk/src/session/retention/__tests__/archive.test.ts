@@ -176,6 +176,45 @@ describe('ArchivalManager', () => {
 		expect(after?.archivedAt).toBeInstanceOf(Date)
 	})
 
+	it('archives a retained workspace without disposing its checkout', async () => {
+		const { sub } = await seedIdleSubSession(store)
+		const workspace: WorkspaceRef = {
+			id: '65de30c3-158c-4a3e-b1f7-2de835310395' as WorkspaceId,
+			meta: {
+				backend: 'git-worktree',
+				repoRoot: '/repo',
+				branch: 'namzu/retained',
+				worktreePath: '/repo/retained',
+			},
+			createdAt: new Date(),
+		}
+		await store.updateSubSession(
+			{ ...sub, status: 'idle', workspaceId: workspace.id, workspaceRetention: 'retain' },
+			tenantA,
+		)
+		const dispose = vi.fn(async () => undefined)
+		const registry = new WorkspaceBackendRegistry()
+		registry.register({
+			kind: 'git-worktree',
+			create: async () => workspace,
+			branch: async () => workspace,
+			inspect: async () => ({ exists: true, currentRef: 'HEAD', isDirty: true }),
+			dispose,
+		})
+		const manager = new ArchivalManager({
+			sessionStore: store,
+			readSessionMessages: readMessages,
+			workspaceRegistry: registry,
+			archiveBackend: backend,
+			workspaceResolver: async () => workspace,
+		})
+
+		await manager.archive(sub.id, tenantA)
+
+		expect(dispose).not.toHaveBeenCalled()
+		expect((await store.getSubSession(sub.id, tenantA))?.workspaceRetention).toBe('retain')
+	})
+
 	it.each([
 		['pending', 'not_idle'],
 		['active', 'not_idle'],

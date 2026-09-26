@@ -131,6 +131,14 @@ it('fits search, selection markers and controls into a 40-column terminal', asyn
 	expect(output).toContain('Search:')
 	expect(selected(screen)).toContain('(current) (default)')
 	expect(output).toContain('enter apply')
+	expect(output).toContain('1/500↓')
+
+	screen.press('\x1b[F')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('500/500↑')
+	screen.press('\x1b[H')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('1/500↓')
 
 	screen.press('Catalogue Model 499')
 	await screen.waitForRender()
@@ -141,4 +149,15 @@ it('fits search, selection markers and controls into a 40-column terminal', asyn
 	screen.press('\r')
 	await screen.waitForRender()
 	expect(onSubmit.mock.calls[0]?.[0]).toEqual({ provider: 'openai', model: 'vendor/model-499' })
+})
+
+it('counts models hidden above and below the visible window', async () => {
+	const { screen } = await open({ currentModel: 'vendor/model-0' })
+	expect(screen.viewport().join('\n')).toContain('1/500 · ↓493 more')
+
+	screen.press('\x1b[6~')
+	await screen.waitForRender()
+	const output = screen.viewport().join('\n')
+	expect(output).toContain('8/500 · ↑4 more · ↓489 more')
+	expect(selected(screen)).toContain('Catalogue Model 7')
 })

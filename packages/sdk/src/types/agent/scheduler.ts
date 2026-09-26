@@ -3,8 +3,9 @@ import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { CancelCause } from '../session/cancel-cause.js'
 import type { ChildSessionLifecycleEvent, SessionEventListener } from '../session/events.js'
+import type { WorkspaceRef } from '../workspace/ref.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
-import type { AgentTaskState } from './task.js'
+import type { AgentTaskState, ChildWorkspaceRequest } from './task.js'
 
 export interface TaskHandle {
 	readonly taskId: TaskId
@@ -13,6 +14,8 @@ export interface TaskHandle {
 	readonly result?: BaseAgentResult
 	readonly createdAt: number
 	readonly completedAt?: number
+	/** The workspace assigned to an explicitly isolated child, when admitted. */
+	readonly workspace?: WorkspaceRef
 }
 
 /**
@@ -29,6 +32,8 @@ export interface TaskHandle {
 export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
+	/** Per-task filesystem choice, forwarded to the local manager at admission. */
+	readonly workspace?: ChildWorkspaceRequest
 	/**
 	 * Revalidate host authority at actual admission, including after a capacity wait.
 	 * Queue retries may invoke this more than once; checks must tolerate repeated calls.

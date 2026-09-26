@@ -49,9 +49,11 @@ import {
 	closeSync,
 	fsyncSync,
 	linkSync,
+	lstatSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
+	readdirSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -59,7 +61,7 @@ import {
 	writeSync,
 } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { namzuHomePath } from '../state/home.js'
 import type { AgentOAuthCredential } from './keychain.js'
@@ -97,6 +99,47 @@ interface CredentialDocument {
 
 export function credentialsPath(home?: string): string {
 	return join(namzuHomePath(home), 'credentials.json')
+}
+
+/** Kept separate from subscriptions so older credentials.json writers cannot erase it. */
+export function googleApiKeyPath(home?: string): string {
+	return join(namzuHomePath(home), 'gemini-api-key.json')
+}
+
+/** Return only a Namzu-owned, private Gemini API key. Never read a symlink. */
+export function readStoredGeminiApiKey(home?: string): string | null {
+	const path = googleApiKeyPath(home)
+	try {
+		protectCredentialParentOnWindows(path)
+		const entry = lstatSync(path)
+		if (!entry.isFile() || entry.isSymbolicLink()) return null
+		restrictToOwner(path)
+		const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+		if (typeof parsed !== 'object' || parsed === null) return null
+		const record = parsed as Record<string, unknown>
+		return record.version === 1 && typeof record.apiKey === 'string' && record.apiKey.trim()
+			? record.apiKey
+			: null
+	} catch {
+		return null
+	}
+}
+
+/** Atomically publish a verified-private key after a usable Google session opens. */
+export function writeStoredGeminiApiKey(apiKey: string, home?: string): string {
+	if (!apiKey.trim()) throw new CredentialStoreError('Cannot store an empty Gemini API key.')
+	const path = googleApiKeyPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () =>
+		writeCredentialBodyUnlocked(`${JSON.stringify({ version: 1, apiKey })}\n`, path),
+	)
+}
+
+/** Remove Namzu's Gemini key without changing environment or Gemini CLI credentials. */
+export function clearStoredGeminiApiKey(home?: string): void {
+	const path = googleApiKeyPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
 }
 
 /**
@@ -265,40 +308,57 @@ export function replaceStoredSubscriptionCredential(
 }
 
 function writeCredentialDocumentUnlocked(document: CredentialDocument, path: string): string {
-	const tmp = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
 	const body = `${JSON.stringify(serializeDocument(document), null, 2)}\n`
+	return writeCredentialBodyUnlocked(body, path)
+}
+
+function writeCredentialBodyUnlocked(body: string, path: string): string {
+	const tmp = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
 
 	let fd: number | undefined
+	let placing = false
 	try {
 		// `wx` — refuse an existing path rather than truncate one, so a name
 		// collision can never hand us a file somebody else already opened.
 		fd = openSync(tmp, 'wx', FILE_MODE)
-		writeSync(fd, body)
-	} catch (err) {
-		if (fd !== undefined) closeSync(fd)
-		rmSync(tmp, { force: true })
-		throw new CredentialStoreError(
-			`could not write ${path}: ${err instanceof Error ? err.message : String(err)}`,
-		)
-	}
-	closeSync(fd)
-
-	try {
+		// On Windows, `0600` does not govern the ACL. Prove the still-empty
+		// file is private before putting a credential into it.
 		restrictToOwner(tmp)
-	} catch (err) {
-		rmSync(tmp, { force: true })
-		throw err
-	}
-
-	try {
+		const bytes = Buffer.from(body, 'utf8')
+		for (let offset = 0; offset < bytes.length; ) {
+			const written = writeSync(fd, bytes, offset, bytes.length - offset)
+			if (written <= 0 || written > bytes.length - offset) {
+				throw new Error('credential write did not make progress')
+			}
+			offset += written
+		}
+		fsyncSync(fd)
+		closeSync(fd)
+		fd = undefined
+		// Re-check after the write, before the name becomes discoverable.
+		restrictToOwner(tmp)
+		placing = true
 		renameSync(tmp, path)
+		return path
 	} catch (err) {
-		rmSync(tmp, { force: true })
+		if (fd !== undefined) {
+			try {
+				closeSync(fd)
+			} catch {
+				// A failed close may already have closed the descriptor. Remove the
+				// temporary name in either case and report if that also fails.
+			}
+		}
+		let cleanupError: unknown
+		try {
+			rmSync(tmp, { force: true })
+		} catch (error) {
+			cleanupError = error
+		}
 		throw new CredentialStoreError(
-			`could not place ${path}: ${err instanceof Error ? err.message : String(err)}`,
+			`could not ${placing ? 'place' : 'write'} ${path}: ${err instanceof Error ? err.message : String(err)}${cleanupError ? `; temporary file ${tmp} could not be removed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}` : ''}`,
 		)
 	}
-	return path
 }
 
 function serializeDocument(document: CredentialDocument): Record<string, unknown> {
@@ -401,6 +461,7 @@ function sameCodexCredential(
  * operator proves no process owns the store and removes it.
  */
 function withCredentialStoreLock<T>(path: string, operation: () => T): T {
+	protectCredentialParentOnWindows(path)
 	const lockPath = `${path}.lock`
 	const token = `${process.pid}:${Date.now()}:${randomBytes(12).toString('hex')}`
 	const published = publishLockAtomically(lockPath, token)
@@ -411,6 +472,7 @@ function withCredentialStoreLock<T>(path: string, operation: () => T): T {
 	}
 
 	try {
+		removeCredentialTempsUnlocked(path)
 		return operation()
 	} finally {
 		// Do not remove a successor's lock if an external actor replaced the file.
@@ -420,6 +482,37 @@ function withCredentialStoreLock<T>(path: string, operation: () => T): T {
 			// The mutation already has its result. A missing/replaced lock is not
 			// evidence that the credential itself failed to publish.
 		}
+	}
+}
+
+/** Protect the directory before opening any child of it on Windows. */
+function protectCredentialParentOnWindows(path: string): void {
+	if (platform() !== 'win32') return
+	// Windows grants access when a handle is opened. Tightening an empty temp
+	// later cannot revoke another account's already-open handle. The parent
+	// must be private before even the lock candidate or credential file opens.
+	const parent = dirname(path)
+	const entry = lstatSync(parent)
+	if (entry.isSymbolicLink() || !entry.isDirectory()) {
+		throw new CredentialStoreError(`credential directory must be a real directory: ${parent}`)
+	}
+	restrictToOwner(parent)
+}
+
+/** Only a store-lock owner may remove crash leftovers, never an active writer. */
+function removeCredentialTempsUnlocked(path: string): void {
+	const prefix = `${basename(path)}.tmp.`
+	try {
+		for (const entry of readdirSync(dirname(path))) {
+			if (!entry.startsWith(prefix) || !/^\d+\.[0-9a-f]{12}$/u.test(entry.slice(prefix.length))) {
+				continue
+			}
+			rmSync(join(dirname(path), entry), { force: true })
+		}
+	} catch (error) {
+		throw new CredentialStoreError(
+			`could not remove temporary credential files for ${path}: ${error instanceof Error ? error.message : String(error)}`,
+		)
 	}
 }
 

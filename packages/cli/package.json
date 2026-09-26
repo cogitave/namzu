@@ -49,6 +49,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/client": "^2.1.0",
 		"@namzu/anthropic": "workspace:*",
 		"@namzu/browser": "workspace:*",
 		"@namzu/computer-use": "workspace:*",
