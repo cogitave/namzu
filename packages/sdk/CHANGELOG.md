@@ -1,5 +1,11 @@
 # Changelog
 
+## 48.0.1
+
+### Patch Changes
+
+- c8bb87a: Describe a browser `http-auth` handoff as an HTTP authentication challenge. The old "password prompt" wording was inaccurate for responses using challenge schemes such as Bearer.
+
 ## 48.0.0
 
 ### Major Changes

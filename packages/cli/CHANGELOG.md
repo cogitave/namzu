@@ -1,5 +1,17 @@
 # @namzu/cli
 
+## 32.0.1
+
+### Patch Changes
+
+- c8bb87a: When a browser returns an HTTP authentication challenge, the terminal handoff and `namzu browser login` output ask the operator to check access without claiming that a sign-in or password screen appeared. `browser login` does not update the profile's "last sign-in" time from that challenge alone. Other browser handoff messages keep their existing wording.
+- Updated dependencies [c8bb87a]
+- Updated dependencies [c8bb87a]
+- Updated dependencies [c8bb87a]
+  - @namzu/browser@1.0.0
+  - @namzu/sdk@48.0.1
+  - @namzu/computer-use@3.0.0
+
 ## 32.0.0
 
 ### Major Changes
