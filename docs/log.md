@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-09-26
+
+- **Update** [The browser host](sdk/browser-host.md), [Browser tools](sdk/browser-tools.md) and [Browser use in the CLI](cli/browser.md): `http-auth` now requires a matching non-empty HTTP authentication challenge header. Bare 401/407 responses report failed access without a password handoff, while independently observed sign-in, CAPTCHA and bot checks still pause for a person. Browser history keeps challenge evidence for the same document and restores it after a cached history move. SDK and CLI handoff messages call it an HTTP authentication challenge and ask the operator to check access, without assuming a password dialog or sign-in screen. `.changeset/browser-auth-challenge-status.md`, **major** for `@namzu/browser`; `.changeset/browser-auth-handoff-wording.md`, **patch** for `@namzu/sdk`; `.changeset/browser-auth-cli-wording.md`, **patch** for `@namzu/cli`.
+- **Update** [The computer-use host](sdk/computer-use-host.md): the Windows cua-driver adapter revives its expired implicit session on the driver's exact pre-dispatch `session_ended` refusal and retries the refused call once. UI snapshots expose adapter-owned refs so an old ref cannot address a different control when the driver reuses a raw token after session revival or process restart; lost responses are not replayed. `.changeset/cua-driver-idle-session-recovery.md`, **major** for `@namzu/computer-use`.
+
 ## 2026-09-25
 
 - **Fix** [The review policy](sdk/review-policy.md) and [Crossing the tool boundary](sdk/escalations.md): unattended sandbox-escape approval no longer skips a tool's required approval or an outside-root path in the same call or batch. `.changeset/tool-requires-approval-and-metadata.md`, **minor** for `@namzu/sdk`.

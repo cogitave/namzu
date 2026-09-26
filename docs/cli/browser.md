@@ -94,7 +94,7 @@ The address shows its path the way a person writes it, and the address actually 
 
 ## When a page needs you
 
-A sign-in page, a second sign-in step, a CAPTCHA, a bot check or an HTTP password prompt stops the call before the model is called again, and the turn pauses:
+A sign-in page, a second sign-in step, a CAPTCHA, a bot check or an HTTP authentication challenge stops the call before the model is called again, and the turn pauses:
 
 ```text
 ‖ The browser needs you: https://github.com is showing a sign-in page.
@@ -108,6 +108,8 @@ Do it in the window and press Enter; the turn continues, and the model is told y
 ```
 
 Run it in another terminal, sign in, close the window, then press Enter. Nothing is ever typed into a password or one-time-code field by the agent, whatever a rule allows.
+
+An HTTP 401 or 407 alone is not a password prompt. The browser pauses for HTTP authentication only when the response carries the matching authentication challenge header. The notice asks you to check access in the browser window; a challenge does not guarantee that the browser has a sign-in form. `namzu browser login` does not update the profile's "last sign-in" time for this reason alone. A bare 401 or 407 is reported as a failed page load with its status, unless the page independently shows a sign-in, CAPTCHA or bot check. The agent should tell you that the site or proxy refused the request rather than ask you to enter a password based on the status alone.
 
 ## Scheduled jobs
 

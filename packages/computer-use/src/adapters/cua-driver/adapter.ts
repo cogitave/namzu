@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type {
 	ComputerUseAction,
 	ComputerUseCapabilities,
@@ -7,14 +8,17 @@ import type {
 	FocusWindowResult,
 	ScreenshotResult,
 	UiActResult,
+	UiElement,
 	UiElementAction,
 	UiSnapshot,
 	WindowInfo,
 } from '@namzu/sdk'
 import type { Adapter } from '../types.js'
 import {
+	type McpProcessCallOptions,
 	McpStdioClient,
 	type McpStdioClientOptions,
+	type McpToolCaller,
 	McpToolError,
 	type McpToolResult,
 } from './client.js'
@@ -41,8 +45,8 @@ import { type UiRefFacts, toUiTree } from './ui-tree.js'
  * - the window list drops cua-driver's own overlay, the shell's desktop and
  *   1-pixel windows, and orders it front to back;
  * - a window's UI Automation tree (`get_window_state`) becomes a `UiSnapshot`
- *   whose refs are cua-driver's element tokens, and `uiAct` drives a control
- *   by token: UIA Invoke for a button, ValuePattern for a field, falling back
+ *   with adapter-owned refs; `uiAct` translates them to driver element tokens:
+ *   UIA Invoke for a button, ValuePattern for a field, falling back
  *   to typing into a field that is empty and has no settable value (classic
  *   Notepad's editor is one).
  */
@@ -72,14 +76,45 @@ const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
 const DRAG = { durationMs: 250, steps: 12 } as const
 
+async function disableAgentCursor(call: McpToolCaller): Promise<void> {
+	// Best effort: a build without the tool still works, only slower.
+	await call('set_agent_cursor_enabled', { enabled: false }).catch(() => undefined)
+}
+
+interface UiRefEntry extends UiRefFacts {
+	readonly token: string
+	readonly pid: number
+	readonly generation: number
+	readonly processStarts: number
+}
+
+/** Replace process-local driver tokens before any UI tree leaves this adapter. */
+function withOpaqueRefs(element: UiElement, refFor: (token: string) => string): UiElement {
+	return Object.freeze({
+		...element,
+		ref: element.ref ? refFor(element.ref) : '',
+		...(element.children
+			? {
+					children: Object.freeze(element.children.map((child) => withOpaqueRefs(child, refFor))),
+				}
+			: {}),
+	})
+}
+
 export class CuaDriverAdapter implements Adapter {
 	readonly capabilities: ComputerUseCapabilities
 	readonly backend: string
 	private readonly client: McpStdioClient
 	/** Window id → owning pid, from the latest list; `bring_to_front` needs both. */
 	private readonly windowPids = new Map<string, number>()
-	/** The refs of the latest UI snapshot: element token → its window's pid and what it held. */
-	private uiRefs = new Map<string, UiRefFacts & { readonly pid: number }>()
+	/** Only refs from the latest snapshot may address driver tokens. */
+	private uiRefs = new Map<string, UiRefEntry>()
+	private readonly uiRefNamespace = randomUUID()
+	private nextSnapshot = 0
+	/** A successful revival invalidates refusals from the previous lifecycle episode. */
+	private sessionGeneration = 0
+	/** Share one revival among calls refused by the same expired implicit session. */
+	private sessionRevival: Promise<void> | undefined
 
 	constructor(options: CuaDriverAdapterOptions) {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
@@ -92,10 +127,7 @@ export class CuaDriverAdapter implements Adapter {
 			requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
 			startTimeoutMs: options.startTimeoutMs ?? 30_000,
 			spawnProcess: options.spawnProcess,
-			afterStart: async (call) => {
-				// Best effort: a build without the tool still works, only slower.
-				await call('set_agent_cursor_enabled', { enabled: false }).catch(() => undefined)
-			},
+			afterStart: disableAgentCursor,
 		})
 		this.capabilities = Object.freeze({
 			displayServer: 'win32',
@@ -131,7 +163,7 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	async getDisplayGeometry(): Promise<DisplayGeometry> {
-		const size = structured(await this.client.callTool('get_screen_size'), 'get_screen_size')
+		const size = structured(await this.callTool('get_screen_size'), 'get_screen_size')
 		return {
 			width: requireNumber(size, 'width', 'get_screen_size'),
 			height: requireNumber(size, 'height', 'get_screen_size'),
@@ -144,10 +176,7 @@ export class CuaDriverAdapter implements Adapter {
 			case 'screenshot':
 				return { type: 'screenshot', result: await this.capture() }
 			case 'cursor_position': {
-				const point = structured(
-					await this.client.callTool('get_cursor_position'),
-					'get_cursor_position',
-				)
+				const point = structured(await this.callTool('get_cursor_position'), 'get_cursor_position')
 				return {
 					type: 'cursor_position',
 					point: {
@@ -157,7 +186,7 @@ export class CuaDriverAdapter implements Adapter {
 				}
 			}
 			case 'mouse_move':
-				await this.client.callTool('move_cursor', {
+				await this.callTool('move_cursor', {
 					scope: 'desktop',
 					x: action.to.x,
 					y: action.to.y,
@@ -200,17 +229,26 @@ export class CuaDriverAdapter implements Adapter {
 			}
 			case 'type_text':
 				if (action.text.length > 0) {
-					await this.client.callTool('type_text', { scope: 'desktop', text: action.text })
+					await this.callTool('type_text', {
+						scope: 'desktop',
+						text: action.text,
+					})
 				}
 				return { type: 'ok' }
 			case 'key': {
 				const plan = translateKeyForCuaDriver(action.keys)
 				if (plan.tool === 'type_text') {
-					await this.client.callTool('type_text', { scope: 'desktop', text: plan.text })
+					await this.callTool('type_text', {
+						scope: 'desktop',
+						text: plan.text,
+					})
 				} else if (plan.tool === 'press_key') {
-					await this.client.callTool('press_key', { scope: 'desktop', key: plan.key })
+					await this.callTool('press_key', { scope: 'desktop', key: plan.key })
 				} else {
-					await this.client.callTool('hotkey', { scope: 'desktop', keys: [...plan.keys] })
+					await this.callTool('hotkey', {
+						scope: 'desktop',
+						keys: [...plan.keys],
+					})
 				}
 				return { type: 'ok' }
 			}
@@ -219,7 +257,7 @@ export class CuaDriverAdapter implements Adapter {
 
 	async listWindows(): Promise<readonly WindowInfo[]> {
 		const listed = structured(
-			await this.client.callTool('list_windows', {}, LIST_TIMEOUT_MS),
+			await this.callTool('list_windows', {}, LIST_TIMEOUT_MS),
 			'list_windows',
 		)
 		const windows = toWindowInfos(listed.windows)
@@ -243,7 +281,7 @@ export class CuaDriverAdapter implements Adapter {
 		// cua-driver restores a minimized window, uses the AttachThreadInput
 		// route past Windows' foreground lock, and reads the foreground back.
 		const result = structured(
-			await this.client.callTool('bring_to_front', { pid, window_id: hwnd }),
+			await this.callTool('bring_to_front', { pid, window_id: hwnd }),
 			'bring_to_front',
 		)
 		const now = parseWindowId(result.now_fg_hwnd)
@@ -257,8 +295,10 @@ export class CuaDriverAdapter implements Adapter {
 	 */
 	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
 		const target = await this.resolveWindow(windowId)
+		let processStarts = 0
+		let snapshotGeneration = this.sessionGeneration
 		const state = structured(
-			await this.client.callTool(
+			await this.callTool(
 				'get_window_state',
 				{
 					pid: target.pid,
@@ -267,15 +307,32 @@ export class CuaDriverAdapter implements Adapter {
 					max_elements: UI_MAX_ELEMENTS,
 				},
 				UI_TREE_TIMEOUT_MS,
+				undefined,
+				(starts) => {
+					processStarts = starts
+					snapshotGeneration = this.sessionGeneration
+				},
 			),
 			'get_window_state',
 		)
+		if (snapshotGeneration !== this.sessionGeneration || processStarts === 0)
+			throw new McpToolError('get_window_state', 'stale UI snapshot; take a new one')
 		const tree = toUiTree(state)
-		// A token names its snapshot, and cua-driver refuses a stale one, so
-		// only the latest snapshot's refs are kept.
-		this.uiRefs = new Map(
-			[...tree.refs].map(([ref, facts]) => [ref, { ...facts, pid: target.pid }]),
-		)
+		const snapshot = ++this.nextSnapshot
+		const refs = new Map<string, UiRefEntry>()
+		let ordinal = 0
+		const root = withOpaqueRefs(tree.root, (token) => {
+			const ref = `cua-ui:${this.uiRefNamespace}:${snapshot}:${++ordinal}`
+			refs.set(ref, {
+				...tree.refs.get(token),
+				token,
+				pid: target.pid,
+				generation: snapshotGeneration,
+				processStarts,
+			})
+			return ref
+		})
+		this.uiRefs = refs
 		const title = typeof state.window_title === 'string' ? state.window_title : undefined
 		const app =
 			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
@@ -283,7 +340,7 @@ export class CuaDriverAdapter implements Adapter {
 			windowId: windowIdOf(target.hwnd),
 			...(title !== undefined ? { title } : {}),
 			...(app !== undefined ? { app } : {}),
-			root: tree.root,
+			root,
 			...(state.truncated === true ? { truncated: true } : {}),
 		}
 	}
@@ -295,7 +352,8 @@ export class CuaDriverAdapter implements Adapter {
 				ok: false,
 				detail: `${ref} is not a control of the latest UI snapshot; take a new one.`,
 			}
-		const { pid } = facts
+		const { pid, token } = facts
+		const uiRef = { ref, facts }
 		try {
 			switch (action) {
 				case 'invoke':
@@ -306,12 +364,19 @@ export class CuaDriverAdapter implements Adapter {
 					// cua-driver's click on an element token performs the control's
 					// own pattern in the background (Invoke, or a posted click at its
 					// centre), with no pointer move and no change of foreground.
-					return actResult(await this.client.callTool('click', { pid, element_token: ref }))
+					return actResult(
+						await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
+					)
 				case 'set_value': {
 					const text = value ?? ''
 					try {
 						return actResult(
-							await this.client.callTool('set_value', { pid, element_token: ref, value: text }),
+							await this.callTool(
+								'set_value',
+								{ pid, element_token: token, value: text },
+								undefined,
+								uiRef,
+							),
 						)
 					} catch (error) {
 						if (
@@ -328,10 +393,18 @@ export class CuaDriverAdapter implements Adapter {
 									'this field cannot be set directly and already holds text; click it, select its text (CTRL+A) and type the new text instead',
 							}
 						const typed = actResult(
-							await this.client.callTool('type_text', { pid, element_token: ref, text }),
+							await this.callTool(
+								'type_text',
+								{ pid, element_token: token, text },
+								undefined,
+								uiRef,
+							),
 						)
 						return typed.ok
-							? { ok: true, detail: 'typed into the empty field, which has no settable value' }
+							? {
+									ok: true,
+									detail: 'typed into the empty field, which has no settable value',
+								}
 							: typed
 					}
 				}
@@ -350,6 +423,61 @@ export class CuaDriverAdapter implements Adapter {
 
 	async dispose(): Promise<void> {
 		await this.client.dispose()
+	}
+
+	/**
+	 * cua-driver refuses an expired implicit session before dispatch, with a
+	 * structured `session_ended` code. Only that exact refusal is safe to replay.
+	 * A lost response or transport failure still has an unknown action outcome.
+	 */
+	private async callTool(
+		name: string,
+		args: Record<string, unknown> = {},
+		timeoutMs?: number,
+		uiRef?: { readonly ref: string; readonly facts: UiRefEntry },
+		onProcess?: McpProcessCallOptions['onProcess'],
+	): Promise<McpToolResult> {
+		await this.sessionRevival
+		if (
+			uiRef &&
+			(this.uiRefs.get(uiRef.ref) !== uiRef.facts ||
+				uiRef.facts.generation !== this.sessionGeneration)
+		)
+			throw new McpToolError(name, 'stale UI snapshot; take a new one')
+		const generation = this.sessionGeneration
+		try {
+			return await this.client.callTool(name, args, timeoutMs, {
+				...(uiRef ? { expectedStarts: uiRef.facts.processStarts } : {}),
+				...(onProcess ? { onProcess } : {}),
+			})
+		} catch (error) {
+			if (!isEndedSessionRefusal(error)) throw error
+			// The refusal proves the old session's element tokens are invalid,
+			// even if start_session fails and there is no successful revival.
+			if (this.sessionGeneration === generation) this.uiRefs.clear()
+			await this.reviveSession(generation)
+			// Element tokens belong to the old snapshot. A new lifecycle session
+			// needs a new tree before a control can be addressed again.
+			if (uiRef) throw new McpToolError(name, 'stale UI snapshot; take a new one')
+			// One retry only. A second refusal or an unacknowledged action is
+			// returned to the host without any further automatic replay.
+			return this.client.callTool(name, args, timeoutMs, { onProcess })
+		}
+	}
+
+	private async reviveSession(generation: number): Promise<void> {
+		if (this.sessionGeneration !== generation) return
+		if (!this.sessionRevival) {
+			this.sessionRevival = (async () => {
+				await this.client.callTool('start_session')
+				await disableAgentCursor((name, args) => this.client.callTool(name, args))
+				this.uiRefs.clear()
+				this.sessionGeneration++
+			})().finally(() => {
+				this.sessionRevival = undefined
+			})
+		}
+		await this.sessionRevival
 	}
 
 	/** A window id (or the window in front) → its handle and owning process. */
@@ -377,7 +505,7 @@ export class CuaDriverAdapter implements Adapter {
 
 	private async pointer(tool: string, args: Record<string, unknown>): Promise<void> {
 		try {
-			await this.client.callTool(tool, args)
+			await this.callTool(tool, args)
 		} catch (error) {
 			if (isDeliveredPointerAction(error)) return
 			throw error
@@ -385,7 +513,7 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	private async capture(): Promise<ScreenshotResult> {
-		const result = await this.client.callTool('get_desktop_state', {}, CAPTURE_TIMEOUT_MS)
+		const result = await this.callTool('get_desktop_state', {}, CAPTURE_TIMEOUT_MS)
 		const image = result.content.find(
 			(part): part is { type: 'image'; data: string; mimeType: string } =>
 				part.type === 'image' && typeof (part as { data?: unknown }).data === 'string',
@@ -414,6 +542,19 @@ export class CuaDriverAdapter implements Adapter {
 		}
 		return { data, mimeType: 'image/png', width, height, display }
 	}
+}
+
+/** This cua-driver refusal is emitted before a tool reaches desktop dispatch. */
+function isEndedSessionRefusal(error: unknown): error is McpToolError {
+	if (!(error instanceof McpToolError) || error.structuredContent?.status !== 'refused')
+		return false
+	const refusal = error.structuredContent.refusal
+	return (
+		typeof refusal === 'object' &&
+		refusal !== null &&
+		'code' in refusal &&
+		refusal.code === 'session_ended'
+	)
 }
 
 /**
@@ -445,7 +586,10 @@ export function actResult(result: McpToolResult): UiActResult {
 	const facts = result.structuredContent ?? {}
 	switch (facts.effect) {
 		case 'suspected_noop':
-			return { ok: false, detail: 'the control did not change; the action may not have reached it' }
+			return {
+				ok: false,
+				detail: 'the control did not change; the action may not have reached it',
+			}
 		case 'refused': {
 			const refusal = facts.refusal as { message?: unknown } | undefined
 			return {
@@ -488,7 +632,12 @@ interface CuaWindow {
 	readonly pid?: unknown
 	readonly app_name?: unknown
 	readonly title?: unknown
-	readonly bounds?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+	readonly bounds?: {
+		x?: unknown
+		y?: unknown
+		width?: unknown
+		height?: unknown
+	}
 	readonly minimized?: unknown
 	readonly is_on_screen?: unknown
 	readonly z_index?: unknown

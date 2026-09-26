@@ -325,18 +325,23 @@ describe('one owner', () => {
 		const b = daemon({ tickMs: 20, standbyPollMs: 20 })
 		clock = Date.now()
 		const aDone = a.run()
-		await new Promise((r) => setTimeout(r, 60))
-		const bDone = b.run()
-		await new Promise((r) => setTimeout(r, 80))
-		expect(a.standby).toBe(false)
-		expect(b.standby).toBe(true)
-		a.stop()
-		expect(await aDone).toBe(0)
-		await new Promise((r) => setTimeout(r, 120))
-		expect(b.standby).toBe(false)
-		expect(b.lease).not.toBeNull()
-		b.stop()
-		expect(await bDone).toBe(0)
+		let bDone: Promise<number> | undefined
+		try {
+			await vi.waitFor(() => expect(a.lease).not.toBeNull(), { timeout: 5_000, interval: 20 })
+			bDone = b.run()
+			await vi.waitFor(() => expect(b.standby).toBe(true), { timeout: 5_000, interval: 20 })
+			expect(a.standby).toBe(false)
+			a.stop()
+			expect(await aDone).toBe(0)
+			await vi.waitFor(() => expect(b.lease).not.toBeNull(), { timeout: 5_000, interval: 20 })
+			expect(b.standby).toBe(false)
+			b.stop()
+			expect(await bDone).toBe(0)
+		} finally {
+			a.stop()
+			b.stop()
+			await Promise.allSettled([aDone, ...(bDone ? [bDone] : [])])
+		}
 	})
 
 	it('takes over a lease whose holder died once it expires; racing takers get exactly one fence', async () => {
@@ -355,14 +360,15 @@ describe('one owner', () => {
 	})
 
 	it('--once-or-exit exits 75 while another owns the home', async () => {
-		const owner = daemon({ tickMs: 20 })
 		clock = Date.now()
-		const ownerDone = owner.run()
-		await new Promise((r) => setTimeout(r, 50))
-		const second = daemon({ onceOrExit: true })
-		expect(await second.run()).toBe(75)
-		owner.stop()
-		await ownerDone
+		const owner = daemon()
+		try {
+			expect(await owner.claimOwnership()).toBe(true)
+			const second = daemon({ onceOrExit: true })
+			expect(await second.run()).toBe(75)
+		} finally {
+			await owner.releaseOwnership()
+		}
 	})
 })
 

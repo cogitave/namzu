@@ -131,8 +131,10 @@ Whatever the permission gate allowed:
   popup heading anywhere else is stopped before the request is sent. A
   redirect is caught when it lands and the tab is cleared to `about:blank`.
 - A sign-in page, a second factor, a CAPTCHA, a bot check or an HTTP
-  credential prompt stops the call with `browser_human_required` and the
-  command that opens a visible window for a person.
+  credential challenge (401 with `WWW-Authenticate`, 407 with
+  `Proxy-Authenticate`) stops the call with `browser_human_required` and the
+  command that opens a visible window for a person. A bare 401 or 407 fails
+  with an access-denied or unavailable message instead of a password handoff.
 - Nothing is typed into a password or one-time-code field, and their values
   never appear in a snapshot.
 - Downloads are cancelled and reported. Text nobody can see (`aria-hidden`,
