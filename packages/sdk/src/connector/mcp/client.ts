@@ -51,7 +51,7 @@ import {
 } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
-import { StreamableHttpTransport } from './streamable-http.js'
+import { MCPSubscriptionResponseError, StreamableHttpTransport } from './streamable-http.js'
 import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mcp-header.js'
 
 import {
@@ -126,7 +126,8 @@ function acknowledgedFilter(
 
 /** A rejected listen request with the same inputs cannot heal by repeating it. */
 function isPermanentSubscriptionFailure(error: unknown, requestId: number): boolean {
-	if (!(error instanceof MCPHttpStatusError)) return false
+	if (!(error instanceof MCPHttpStatusError || error instanceof MCPSubscriptionResponseError))
+		return false
 	try {
 		const reply = JSON.parse(error.bodyText) as MCPJsonRpcMessage
 		if (
@@ -138,9 +139,10 @@ function isPermanentSubscriptionFailure(error: unknown, requestId: number): bool
 			return true
 		}
 	} catch {
-		// HTTP status still determines the retry policy for a non-JSON body.
+		// Only a failed HTTP status can determine policy without a JSON-RPC reply.
 	}
 	return (
+		error instanceof MCPHttpStatusError &&
 		error.status >= 400 &&
 		error.status < 500 &&
 		!RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES.has(error.status)

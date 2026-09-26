@@ -2,6 +2,7 @@
 
 ## 2026-09-26
 
+- **Fix** [MCP protocol eras](sdk/mcp-protocol-eras.md): HTTP 200 JSON subscription refusals now release their bounded response bodies, stop retrying a matching method-not-found result, and continue retrying capacity errors. `.changeset/mcp-subscription-permanent-rejection.md`, **patch** for `@namzu/sdk`.
 - **Fix** [Tool servers](cli/mcp-servers.md#manage-your-own-servers-from-the-cli): user-config writes now restrict even existing broad file permissions before publishing credential-bearing URLs, and `mcp list|get` expose only the HTTP origin in text and JSON so tokenized paths stay private. `.changeset/cli-mcp-management.md` includes this behavior.
 - **Update** [CLI peer audit](cli/competitive-gaps.md): the second pinned-source pass records the shipped archived-conversation restore and live MCP progress, and states acceptance boundaries for recap, cross-process queueing, URL elicitation and reusable image files.
 - **Fix** [Session storage](cli/session-storage.md#archived-conversations): the archived list refreshes a long-lived scan index from the current project's root logs before showing results, so changes made by another Namzu process appear without restarting the TUI. The pending `.changeset/cli-conversation-restore.md` includes this behavior.

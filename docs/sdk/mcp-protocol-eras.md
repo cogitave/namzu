@@ -291,6 +291,13 @@ Failed HTTP response bodies are read under a 64 KiB limit. A graceful
 aborts its stream. On stdio, cancelling an active subscription sends a
 best-effort cancellation.
 
+An HTTP 200 JSON response to `subscriptions/listen` is read under the same
+64 KiB and transport timeout bounds, then its body is released. A matching
+JSON-RPC `-32601` stops retries; `-32603` and other transient refusals retry.
+An incomplete response is cancelled on timeout or disconnect, so a server-held
+body cannot accumulate across retries. Neither the response body nor its
+server-authored message is written to the subscription warning.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the

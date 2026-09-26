@@ -256,6 +256,7 @@ describe('modern MCP subscriptions/listen', () => {
 		{ status: 400, errorCode: -32602 },
 		{ status: 404, errorCode: -32601 },
 		{ status: 405, errorCode: undefined },
+		{ status: 200, errorCode: -32601 },
 	])(
 		'stops retrying a permanently rejected listen request ($status)',
 		async ({ status, errorCode }) => {
@@ -303,9 +304,15 @@ describe('modern MCP subscriptions/listen', () => {
 		},
 	)
 
-	it.each([401, 429, 503])(
-		'retries a potentially transient HTTP %i listen failure',
-		async (status) => {
+	it.each([
+		{ status: 401, errorCode: undefined, replyId: 'match' },
+		{ status: 429, errorCode: undefined, replyId: 'match' },
+		{ status: 503, errorCode: undefined, replyId: 'match' },
+		{ status: 200, errorCode: -32603, replyId: 'match' },
+		{ status: 200, errorCode: -32601, replyId: 'other' },
+	])(
+		'retries a transient listen refusal (HTTP $status, JSON-RPC $errorCode, id $replyId)',
+		async ({ status, errorCode, replyId }) => {
 			vi.useFakeTimers()
 			let listens = 0
 			const fetcher: MCPFetchLike = async (_url, init) => {
@@ -322,7 +329,21 @@ describe('modern MCP subscriptions/listen', () => {
 				if (message.method !== 'subscriptions/listen')
 					throw new Error(`Unexpected method ${message.method}`)
 				listens++
-				return new Response('try again later', { status })
+				return new Response(
+					errorCode === undefined
+						? 'try again later'
+						: JSON.stringify({
+								jsonrpc: '2.0',
+								id: replyId === 'match' ? message.id : 'other',
+								error: { code: errorCode, message: 'Unavailable' },
+							}),
+					{
+						status,
+						headers: {
+							'content-type': errorCode === undefined ? 'text/plain' : 'application/json',
+						},
+					},
+				)
 			}
 			const client = new MCPClient({
 				serverName: 'fixture',
@@ -335,6 +356,66 @@ describe('modern MCP subscriptions/listen', () => {
 			await client.disconnect()
 		},
 	)
+
+	it('releases held HTTP 200 JSON refusal bodies on timeout and disconnect', async () => {
+		vi.useFakeTimers()
+		let listens = 0
+		let cancelled = 0
+		const fetcher: MCPFetchLike = async (_url, init) => {
+			const message = JSON.parse(init?.body ?? '{}') as MCPJsonRpcMessage
+			if (message.method === 'server/discover')
+				return response({
+					jsonrpc: '2.0',
+					id: message.id,
+					result: {
+						supportedVersions: ['2026-07-28'],
+						capabilities: { tools: { listChanged: true } },
+					},
+				})
+			if (message.method !== 'subscriptions/listen')
+				throw new Error(`Unexpected method ${message.method}`)
+			listens++
+			const refusal = JSON.stringify({
+				jsonrpc: '2.0',
+				id: message.id,
+				error: { code: -32603, message: 'Subscription limit reached' },
+			})
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode(refusal))
+					// The body stays open until the client releases it.
+				},
+				cancel() {
+					cancelled++
+				},
+			})
+			return new Response(body, { headers: { 'content-type': 'application/json' } })
+		}
+		const client = new MCPClient({
+			serverName: 'fixture',
+			transport: {
+				type: 'streamable_http',
+				url: 'https://mcp.example.test/mcp',
+				fetch: fetcher,
+				timeoutMs: 50,
+			},
+			eraCache: createMcpEraCache(),
+		})
+		try {
+			await client.connect()
+			await vi.advanceTimersByTimeAsync(50)
+			expect(listens).toBe(1)
+			expect(cancelled).toBe(1)
+			await vi.advanceTimersByTimeAsync(1_000)
+			expect(listens).toBe(2)
+			expect(cancelled).toBe(1)
+			expect(client.getState().status).toBe('connected')
+		} finally {
+			await client.disconnect()
+		}
+		await vi.advanceTimersByTimeAsync(0)
+		expect(cancelled).toBe(2)
+	})
 
 	it('preserves a bounded JSON-RPC error body on rejected listen requests', async () => {
 		let oversized = false

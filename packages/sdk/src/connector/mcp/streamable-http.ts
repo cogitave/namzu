@@ -32,6 +32,17 @@ const MAX_SSE_CHUNK_BYTES = 8_388_608
 const MAX_RESPONSE_SSE_MESSAGES_PER_EVENT = 256
 const MAX_SUBSCRIPTION_ERROR_BODY_BYTES = 65_536
 
+/** A successful HTTP status can still carry a JSON-RPC listen refusal. */
+export class MCPSubscriptionResponseError extends Error {
+	readonly bodyText: string
+
+	constructor(bodyText: string) {
+		super('MCP subscriptions/listen returned JSON instead of an SSE response stream')
+		this.name = 'MCPSubscriptionResponseError'
+		this.bodyText = bodyText
+	}
+}
+
 export class StreamableHttpTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
 	private closeHandlers: Array<() => void> = []
@@ -261,6 +272,17 @@ export class StreamableHttpTransport implements MCPTransport {
 				?.trim()
 				.toLowerCase()
 			if (mediaType !== 'text/event-stream' || !response.body) {
+				// A 200 JSON response can be a valid in-band JSON-RPC refusal.
+				// Read it under the same byte and time bounds as a failed HTTP
+				// response, then release its body before retry classification.
+				if (mediaType === 'application/json' && response.body) {
+					throw new MCPSubscriptionResponseError(
+						await readSubscriptionErrorBody(response, owned.controller.signal, this.timeoutMs),
+					)
+				}
+				// Unknown response media types still own a body. Never leave a
+				// held POST open while the client schedules its next attempt.
+				void response.body?.cancel().catch(() => undefined)
 				throw new Error('MCP subscriptions/listen did not return an SSE response stream')
 			}
 
