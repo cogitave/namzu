@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-26
+
+- **Update** [Skills](cli/skills.md): `namzu skills --audit` checks winning file skills with the model's actual SDK loader, reports invalid and operator-only entries, and estimates manifest cost for a selected context window. `.changeset/skill-audit.md`, **minor** for `@namzu/cli`.
+
 ## 2026-09-25
 
 - **Fix** [The review policy](sdk/review-policy.md) and [Crossing the tool boundary](sdk/escalations.md): unattended sandbox-escape approval no longer skips a tool's required approval or an outside-root path in the same call or batch. `.changeset/tool-requires-approval-and-metadata.md`, **minor** for `@namzu/sdk`.

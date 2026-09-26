@@ -1,6 +1,7 @@
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { type SkillAuditReport, auditFileSkills } from '../skills/audit.js'
 import { discoverSkillRoster, skillTierLabel } from '../skills/store.js'
 import type { SkillInfo } from '../skills/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
@@ -10,6 +11,8 @@ import type { CommandDef } from './types.js'
 interface SkillsFlags {
 	readonly cwd: string | null
 	readonly trust: boolean
+	readonly audit: boolean
+	readonly contextWindowTokens?: number
 	readonly error?: string
 }
 
@@ -41,7 +44,7 @@ export interface SkillListOutput {
 }
 
 const HELP = [
-	'Usage: namzu skills [--cwd <path>] [--trust]',
+	'Usage: namzu skills [--cwd <path>] [--trust] [--audit [--context-window <tokens>]]',
 	'',
 	'List the skills available in a working directory: built-in, ~/.agents/skills,',
 	'~/.namzu/skills, ./skills, .agents/skills (checkout root down to the',
@@ -52,6 +55,8 @@ const HELP = [
 	'Options:',
 	'  --cwd <path>  Inspect this working directory instead of the current one',
 	'  --trust       Trust this directory for this invocation only',
+	'  --audit       Check which skills the model can load; fail on invalid skills',
+	'  --context-window <tokens>  With --audit, estimate manifest overflow for this model window',
 ].join('\n')
 
 export const skillsCommand: CommandDef = {
@@ -81,6 +86,21 @@ export const skillsCommand: CommandDef = {
 		}
 
 		const ctx = resolveTrustedProjectContext(bootstrapCtx, trust.cwd)
+		if (flags.audit) {
+			const audit = await auditFileSkills({
+				cwd: trust.cwd,
+				...(ctx.config.skills ? { config: ctx.config.skills } : {}),
+				...(flags.contextWindowTokens === undefined
+					? {}
+					: { contextWindowTokens: flags.contextWindowTokens }),
+			})
+			ctx.formatter.print({
+				cwd: trust.cwd,
+				...audit,
+				text: renderSkillAudit(trust.cwd, audit),
+			})
+			return audit.invalid > 0 ? 1 : 0
+		}
 		const skills = discoverSkillRoster({
 			cwd: trust.cwd,
 			...(ctx.config.skills ? { config: ctx.config.skills } : {}),
@@ -98,6 +118,8 @@ export const skillsCommand: CommandDef = {
 function parseSkillsFlags(rawArgs: readonly string[]): SkillsFlags {
 	let cwd: string | null = null
 	let trust = false
+	let audit = false
+	let contextWindowTokens: number | undefined
 
 	for (let index = 0; index < rawArgs.length; index++) {
 		const arg = rawArgs[index]
@@ -105,10 +127,24 @@ function parseSkillsFlags(rawArgs: readonly string[]): SkillsFlags {
 			trust = true
 			continue
 		}
+		if (arg === '--audit') {
+			audit = true
+			continue
+		}
+		if (arg === '--context-window') {
+			const value = rawArgs[index + 1]
+			const parsed = value === undefined ? Number.NaN : Number(value)
+			if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+				return { cwd, trust, audit, error: '--context-window requires a positive token count' }
+			}
+			contextWindowTokens = parsed
+			index++
+			continue
+		}
 		if (arg === '--cwd') {
 			const value = rawArgs[index + 1]
 			if (value === undefined || value.startsWith('--') || value.trim() === '') {
-				return { cwd, trust, error: '--cwd requires a directory path' }
+				return { cwd, trust, audit, error: '--cwd requires a directory path' }
 			}
 			cwd = value.trim()
 			index++
@@ -116,14 +152,37 @@ function parseSkillsFlags(rawArgs: readonly string[]): SkillsFlags {
 		}
 		if (arg.startsWith('--cwd=')) {
 			const value = arg.slice('--cwd='.length).trim()
-			if (!value) return { cwd, trust, error: '--cwd requires a directory path' }
+			if (!value) return { cwd, trust, audit, error: '--cwd requires a directory path' }
 			cwd = value
 			continue
 		}
-		return { cwd, trust, error: `unknown skills option or argument: ${arg}` }
+		return { cwd, trust, audit, error: `unknown skills option or argument: ${arg}` }
 	}
 
-	return { cwd, trust }
+	if (contextWindowTokens !== undefined && !audit) {
+		return { cwd, trust, audit, error: '--context-window requires --audit' }
+	}
+	return { cwd, trust, audit, contextWindowTokens }
+}
+
+function renderSkillAudit(cwd: string, audit: SkillAuditReport): string {
+	const lines = [`Skill audit for ${oneLine(cwd)}:`]
+	for (const finding of audit.findings) {
+		const suffix = finding.manifestChars === undefined ? '' : ` · ${finding.manifestChars} chars`
+		lines.push(`  ${oneLine(finding.name)}: ${finding.status}${suffix}`)
+		if (finding.reason) lines.push(`    ${oneLine(finding.reason)}`)
+	}
+	lines.push(
+		`  ready: ${audit.ready}  operator-only: ${audit.operatorOnly}  disabled: ${audit.disabled}  invalid: ${audit.invalid}`,
+	)
+	lines.push(`  file-skill manifest: ${audit.manifestChars} potential chars`)
+	if (audit.manifestBudgetChars !== undefined) {
+		lines.push(`  budget for selected window: ${audit.manifestBudgetChars} chars`)
+		if (audit.overflow.length > 0)
+			lines.push(`  overflow: ${audit.overflow.map(oneLine).join(', ')}`)
+	}
+	lines.push('  Tool gating and plugin skills depend on the session and are not included.')
+	return lines.join('\n')
 }
 
 function toListItem(skill: SkillInfo): SkillListItem {
