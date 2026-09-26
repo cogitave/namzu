@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: MCP protocol eras
-description: The era model behind MCP negotiation — the modern-first two-probe state machine, the per-origin era cache, the single-round-trip legacy handshake, and why there is no waterfall.
+description: MCP era negotiation, modern change subscriptions, the per-origin cache, and legacy handshake behavior.
 resource: packages/sdk/src/connector/mcp/client.ts
 tags: [sdk, mcp, connector, protocol]
 status: stable
@@ -241,6 +241,40 @@ which the legacy eras do:
   still sends it, in every era. This is the only thing the modern era
   changes about cancellation; the ordering guarantees in `request()` are
   untouched.
+
+### Modern change subscriptions
+
+After `server/discover`, `MCPClient` opens one `subscriptions/listen` request
+when the server advertises `tools.listChanged`, `prompts.listChanged`, or
+`resources.listChanged`. Its `notifications` filter asks only for those
+advertised kinds. Streamable HTTP holds that request's SSE response open and
+reads each event as it arrives; stdio sends the request on the existing
+connection. A server without any of these flags gets no listen request.
+
+The first JSON-RPC message on a successful HTTP listen stream must be
+`notifications/subscriptions/acknowledged`; a final result can instead close
+the request. The client checks that the acknowledgment's
+`_meta['io.modelcontextprotocol/subscriptionId']` equals the listen request
+ID and that its honored filter is a subset of the requested filter. Later
+change notifications must carry the same ID and name an honored kind.
+Unsolicited, wrong-ID, unacknowledged, and unrequested modern changes do not
+reach `onNotification` or refresh an `mcpToolset`. Legacy notification
+delivery is unchanged.
+
+A list change is a cue to fetch the current catalogue, not a delta.
+`mcpToolset` uses its existing refresh path for tools, prompts and resources.
+It also fetches again when the subscription is acknowledged: a change could
+have happened between its first list and the point from which the server
+starts delivering notifications. The SDK does not claim to replay changes
+missed while a stream was closed.
+
+The initial acknowledgment has the normal request timeout. The stream
+itself has no fixed lifetime timeout; each SSE event is limited to 1 MiB of
+decoded text and each incoming chunk to 8 MiB. An unexpected close or
+failed acknowledgment retries with a new request ID after bounded
+exponential backoff (1–30 seconds). A graceful `subscriptions/listen` result
+ends the subscription, and `disconnect()` aborts its stream. On stdio,
+cancelling an active subscription also sends a best-effort cancellation.
 
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
@@ -801,8 +835,8 @@ reading `ToolResult.data` today sees a new code it previously never could.
 
 ## Not yet built
 
-- **`subscriptions/listen`.** The modern era replaces the `GET` stream and
-  `resources/subscribe` with it. This client has no subscription support in
-  any era, so omitting it regresses nothing — but it does mean a modern
-  connection receives no server-initiated notifications at all. Tracked
-  separately.
+- **Individual resource updates.** The modern listen filter supports
+  `resourceSubscriptions` for `notifications/resources/updated`; Namzu
+  currently requests only the three catalogue `list_changed` kinds. It does
+  not send legacy `resources/subscribe` either. Resource catalogues still
+  refresh on `notifications/resources/list_changed` when advertised.

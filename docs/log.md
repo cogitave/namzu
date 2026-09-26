@@ -2,6 +2,7 @@
 
 ## 2026-09-26
 
+- **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): modern connections subscribe to advertised tool, prompt, and resource catalogue changes through bounded `subscriptions/listen` streams; acknowledged notifications refresh live MCP toolsets, with ID and filter validation, cancellation, and retry. `.changeset/modern-mcp-subscriptions.md`, **minor** for `@namzu/sdk`.
 - **Update** [Skills](cli/skills.md): `namzu skills --audit` checks winning file skills with the model's actual SDK loader, reports invalid and operator-only entries, and estimates manifest cost for a selected context window. `.changeset/skill-audit.md`, **minor** for `@namzu/cli`.
 
 ## 2026-09-25

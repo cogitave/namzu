@@ -21,6 +21,9 @@ const DEFAULT_TIMEOUT_MS = 30_000
  * an unresponsive peer does not accumulate as a dangling request forever.
  */
 const SESSION_DELETE_TIMEOUT_MS = 5_000
+/** A subscription may live for hours; bound each event rather than its lifetime. */
+const MAX_SUBSCRIPTION_EVENT_CHARS = 1_048_576
+const MAX_SUBSCRIPTION_CHUNK_BYTES = 8_388_608
 
 export class StreamableHttpTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
@@ -213,6 +216,113 @@ export class StreamableHttpTransport implements MCPTransport {
 		}
 	}
 
+	/**
+	 * Modern MCP subscriptions are long-lived POST response streams. The ordinary
+	 * `send` path reads a whole response under a request deadline, so using it
+	 * here would buffer forever (or time out a healthy subscription). The client
+	 * owns the initial acknowledgment deadline and this stream's abort signal.
+	 */
+	async sendSubscription(
+		message: MCPJsonRpcMessage,
+		options: MCPTransportSendOptions,
+		onMessage?: (message: MCPJsonRpcMessage) => void,
+	): Promise<void> {
+		if (message.method !== 'subscriptions/listen' || message.id === undefined) {
+			throw new Error('sendSubscription requires a subscriptions/listen request')
+		}
+		if (!this.connected) throw new Error('StreamableHttpTransport: not connected')
+		const owned = this.beginSend(options.signal)
+		try {
+			const response = await this.fetchImpl(this.config.url, {
+				method: 'POST',
+				headers: this.buildHeaders(options.headers),
+				body: JSON.stringify(message),
+				redirect: 'manual',
+				signal: owned.controller.signal,
+			})
+			refuseMcpHttpRedirect(response, message.method)
+			if (!response.ok) {
+				throw new MCPHttpStatusError(
+					'StreamableHttpTransport',
+					response.status,
+					response.statusText,
+					'',
+				)
+			}
+			const mediaType = (response.headers.get('content-type') ?? '')
+				.split(';', 1)[0]
+				?.trim()
+				.toLowerCase()
+			if (mediaType !== 'text/event-stream' || !response.body) {
+				throw new Error('MCP subscriptions/listen did not return an SSE response stream')
+			}
+
+			const reader = response.body.getReader()
+			const decoder = new TextDecoder()
+			let buffer = ''
+			let previousChunkEndedWithCr = false
+			const cancelReader = (): void => {
+				void reader.cancel().catch(() => undefined)
+			}
+			owned.controller.signal.addEventListener('abort', cancelReader, { once: true })
+			if (owned.controller.signal.aborted) cancelReader()
+			try {
+				while (this.connected && owned.generation === this.generation) {
+					const { done, value } = await reader.read()
+					if (done) break
+					if (
+						!this.connected ||
+						owned.generation !== this.generation ||
+						owned.controller.signal.aborted
+					)
+						break
+					if (value.byteLength > MAX_SUBSCRIPTION_CHUNK_BYTES) {
+						throw new Error('MCP subscription SSE chunk exceeds its size limit')
+					}
+					const oldLength = buffer.length
+					let chunk = decoder.decode(value, { stream: true })
+					// SSE permits LF, CRLF, and bare CR. A CRLF split across chunks
+					// still counts as one line break, not an empty line.
+					if (previousChunkEndedWithCr && chunk.startsWith('\n')) chunk = chunk.slice(1)
+					previousChunkEndedWithCr = chunk.endsWith('\r')
+					buffer += chunk.replace(/\r\n|\r/g, '\n')
+					let searchFrom = Math.max(0, oldLength - 1)
+					while (true) {
+						const boundary = findSseEventBoundary(buffer, searchFrom)
+						if (!boundary) break
+						if (boundary.start > MAX_SUBSCRIPTION_EVENT_CHARS) {
+							throw new Error('MCP subscription SSE event exceeds its size limit')
+						}
+						const event = buffer.slice(0, boundary.start)
+						buffer = buffer.slice(boundary.end)
+						searchFrom = 0
+						for (const frame of parseSseMessages(event).messages) {
+							if (
+								!this.connected ||
+								owned.generation !== this.generation ||
+								owned.controller.signal.aborted
+							)
+								return
+							if (onMessage) onMessage(frame)
+							else for (const handler of [...this.messageHandlers]) handler(frame)
+						}
+					}
+					if (buffer.length > MAX_SUBSCRIPTION_EVENT_CHARS) {
+						throw new Error('MCP subscription SSE event exceeds its size limit')
+					}
+				}
+				// A dangling partial event is not a notification. It cannot be
+				// forwarded as a complete JSON-RPC frame when the stream closes.
+			} finally {
+				owned.controller.signal.removeEventListener('abort', cancelReader)
+				cancelReader()
+				reader.releaseLock()
+			}
+		} finally {
+			owned.dispose()
+		}
+	}
+
 	onMessage(handler: (message: MCPJsonRpcMessage) => void): void {
 		this.messageHandlers.push(handler)
 	}
@@ -332,6 +442,15 @@ export class StreamableHttpTransport implements MCPTransport {
 		if (lastEventId !== undefined) this.lastEventId = lastEventId
 		return messages
 	}
+}
+
+/** Find an SSE blank line after line endings have been normalized to LF. */
+function findSseEventBoundary(
+	value: string,
+	from: number,
+): { start: number; end: number } | undefined {
+	const start = value.indexOf('\n\n', from)
+	return start < 0 ? undefined : { start, end: start + 2 }
 }
 
 /**

@@ -131,7 +131,7 @@ function legacyOrigin(
 }
 
 describe('a modern HTTP origin is reached without a handshake', () => {
-	it('connects on the probe alone, sending no initialize', async () => {
+	it('connects after the probe without initialize', async () => {
 		const origin = modernOrigin((message) =>
 			jsonRpcResponse({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }),
 		)
@@ -140,7 +140,11 @@ describe('a modern HTTP origin is reached without a handshake', () => {
 		const result = await client.connect()
 
 		expect(client.getEra()).toEqual({ kind: 'modern', version: MODERN })
-		expect(origin.methods()).toEqual(['server/discover'])
+		// A listen stream may start immediately after discovery; it is not
+		// another handshake and does not gate connect().
+		expect(origin.methods().filter((method) => method !== 'subscriptions/listen')).toEqual([
+			'server/discover',
+		])
 		expect(result.protocolVersion).toBe(MODERN)
 		expect(result.serverInfo).toEqual({ name: 'modern-fixture', version: '9' })
 		expect(result.capabilities).toEqual({ tools: { listChanged: true } })
@@ -540,8 +544,7 @@ describe('an era is remembered per origin and corrected when it stops holding', 
 
 	it('keeps sending server/discover to a modern origin, because it IS the connection', async () => {
 		// The cache saves the WASTED probe against a legacy origin. Against a
-		// modern one the probe is the only round trip the connection makes,
-		// and it carries the server's capabilities — so a cached era does not
+		// modern one the probe carries the server's capabilities — so a cached era does not
 		// make it skippable, it makes the fallback skippable.
 		const cache = createMcpEraCache()
 		const origin = modernOrigin((message) =>
@@ -551,7 +554,10 @@ describe('an era is remembered per origin and corrected when it stops holding', 
 		await httpClient(origin.fetch, { cache }).connect()
 		await httpClient(origin.fetch, { cache }).connect()
 
-		expect(origin.methods()).toEqual(['server/discover', 'server/discover'])
+		expect(origin.methods().filter((method) => method !== 'subscriptions/listen')).toEqual([
+			'server/discover',
+			'server/discover',
+		])
 	})
 
 	it('corrects a remembered modern origin that starts answering as legacy, and does not repeat the cost', async () => {
