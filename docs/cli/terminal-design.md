@@ -399,8 +399,10 @@ input layout. The frame is a constant three rows regardless of the active
 permission mode — see [The composer footer](#the-composer-footer) for where
 the mode itself is drawn. The frame stays static while working. Opening a
 permission prompt or text/command picker hides it while keeping the composer
-mounted, so drafts
-and attachments survive the transition.
+mounted, so drafts and attachments survive the transition. A text prompt also leaves the
+composer’s keyboard listener attached while the composer is hidden; its input
+guard ignores keys until the prompt closes, so the first key typed when the
+writing area returns is accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
