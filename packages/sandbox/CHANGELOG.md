@@ -1,5 +1,11 @@
 # @namzu/sandbox
 
+## 23.0.1
+
+### Patch Changes
+
+- 25966a5: Workers started with `NAMZU_SANDBOX_PORT=0` now report the actual bound port in their startup log, so callers can connect to the ephemeral listener.
+
 ## 23.0.0
 
 ### Patch Changes
