@@ -1,5 +1,21 @@
 # @namzu/cli
 
+## 33.1.0
+
+### Minor Changes
+
+- 25966a5: Scheduled script proposals now explain the permission set they actually need, including why `read-only` blocks every script and why a home-directory working folder is refused. The CLI shows a compact, scrollable confirmation for model proposals and `/schedule` confirmations, with the exact source available for review. It labels pure-script permissions accurately and explains a blanket `bash` denial without suggesting a script rewrite.
+
+  New `notifyOnFinish` on the schedule tool and `--notify-finished true|false` on the CLI let a polling job suppress Namzu's generic success notice while keeping failure notices. The default remains `true`; existing jobs keep their behavior until changed.
+
+### Patch Changes
+
+- 25966a5: Accept the first selection key after a choice menu appears. A goal menu could previously ignore Enter immediately after it became visible, leaving the objective editor unopened.
+- 25966a5: Keep the composer ready for the first keystroke after a text prompt closes. The previously hidden composer could briefly lose that keystroke while its input listener was being reattached.
+- 25966a5: Use plain text labels in terminal output where emoji could crowd the next field. Scheduled jobs now appear without a clock prefix, and older saved run titles display with `Scheduled:` in conversation lists and notices without changing stored sessions.
+- Updated dependencies [25966a5]
+  - @namzu/sdk@48.2.0
+
 ## 33.0.0
 
 ### Major Changes
