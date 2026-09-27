@@ -401,6 +401,81 @@ it('fills the Working label without rerendering the input, and stops when animat
 	}
 })
 
+it('sweeps the hypermode rule once on activation, then settles without moving the draft', async () => {
+	const restoreClock = controlAnimationClock()
+	const view = (activation: number) => (
+		<ComposerFrame focus mode="hypermode" activation={activation}>
+			<Text>Retained draft</Text>
+		</ComposerFrame>
+	)
+	const screen = await renderToScreen(view(0), { cols: 80, rows: 12 })
+	try {
+		const baseline = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(1_600)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(baseline)
+		screen.rerender(view(1))
+		await screen.waitForRender()
+		const beforeSweep = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(400)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBeGreaterThan(beforeSweep)
+		expect(screen.writes().join('')).toContain('\u001b[38;5;231m─')
+		const top = screen.viewport().find((line) => line.includes('MESSAGE')) ?? ''
+		expect([...top]).toHaveLength(80)
+		expect(top).not.toContain('hypermode')
+		expect(screen.viewport().join('\n')).toContain('Retained draft')
+		await vi.advanceTimersByTimeAsync(1_600)
+		await screen.waitForRender()
+		const settled = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(600)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(settled)
+		expect(vi.getTimerCount()).toBe(0)
+		screen.rerender(view(1))
+		await screen.waitForRender()
+		const afterRepeatedSelection = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(600)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(afterRepeatedSelection)
+	} finally {
+		await screen.unmount()
+		restoreClock()
+	}
+})
+
+it('cancels the hypermode sweep while another surface owns the terminal', async () => {
+	const restoreClock = controlAnimationClock()
+	const view = (activation: number, animate: boolean) => (
+		<ComposerFrame focus mode="hypermode" activation={activation} animate={animate}>
+			<Text>Retained draft</Text>
+		</ComposerFrame>
+	)
+	const screen = await renderToScreen(view(0, true), { cols: 80, rows: 12 })
+	try {
+		screen.rerender(view(1, true))
+		await screen.waitForRender()
+		await vi.advanceTimersByTimeAsync(240)
+		await screen.waitForRender()
+		screen.rerender(view(1, false))
+		await screen.waitForRender()
+		const stopped = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(1_600)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(stopped)
+		expect(vi.getTimerCount()).toBe(0)
+		screen.rerender(view(1, true))
+		await screen.waitForRender()
+		const afterReturn = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(400)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(afterReturn)
+	} finally {
+		await screen.unmount()
+		restoreClock()
+	}
+})
+
 it.each([2, 8, 11, 12, 40])('keeps both frame corners on one row at %i columns', async (cols) => {
 	const screen = await renderToScreen(
 		<ComposerFrame focus animate={false}>
@@ -433,14 +508,23 @@ it.each([
 	const screen = await renderToScreen(
 		<Box flexDirection="column">
 			<LiveActivity working activeTools={[]} />
-			<ComposerFrame focus>
+			<ComposerFrame focus mode="hypermode" activation={0}>
 				<Text>Accessible draft</Text>
 			</ComposerFrame>
 		</Box>,
-		{ cols: 32, rows: 12 },
+		{ cols: 80, rows: 12 },
 	)
 	try {
 		expect(screen.viewport().join('\n')).toContain('Accessible draft')
+		screen.rerender(
+			<Box flexDirection="column">
+				<LiveActivity working activeTools={[]} />
+				<ComposerFrame focus mode="hypermode" activation={1}>
+					<Text>Accessible draft</Text>
+				</ComposerFrame>
+			</Box>,
+		)
+		await screen.waitForRender()
 		const bytesBefore = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1600)
 		await screen.waitForRender()

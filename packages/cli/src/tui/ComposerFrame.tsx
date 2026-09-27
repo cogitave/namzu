@@ -1,16 +1,27 @@
-import { Box, Text, useWindowSize } from 'ink'
-import type { ReactNode } from 'react'
+import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout, useWindowSize } from 'ink'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { HYPERMODE_RULE_COLORS, theme } from './theme.js'
 
-/** Below this many columns the mode tag leaves the border whole; the footer still names the mode. */
-export const COMPOSER_MODE_TAG_MIN_COLUMNS = 40
+const HYPERMODE_RULE_MIN_COLUMNS = 40
+const HYPERMODE_IGNITION_MS = 1_200
+const HYPERMODE_IGNITION_COLORS = [
+	'ansi256(231)',
+	'ansi256(225)',
+	'ansi256(219)',
+	'ansi256(177)',
+	'ansi256(141)',
+	'ansi256(105)',
+	'ansi256(63)',
+] as const
 
 /** A bounded command frame; its content stays mounted while another prompt owns focus. */
 export function ComposerFrame({
 	focus,
 	hidden = false,
 	mode,
+	activation = 0,
+	animate = true,
 	children,
 }: {
 	readonly focus: boolean
@@ -18,18 +29,39 @@ export function ComposerFrame({
 	readonly working?: boolean
 	readonly animate?: boolean
 	/**
-	 * A session mode to name on the top border's right, in its own colour —
-	 * today only `hypermode`. The run of `─` before it takes a still colour
-	 * gradient where colour is available, so the mode is visible where the
-	 * operator is looking without spending a row.
+	 * A session mode with a coloured top rule — today only `hypermode`. The
+	 * footer names it once; the border never repeats the label.
 	 */
 	readonly mode?: string
+	/** Increment only when the operator successfully turns the session mode on. */
+	readonly activation?: number
 	readonly children: ReactNode
 }) {
 	const terminal = useWindowSize()
+	const { stdout } = useStdout()
+	const screenReader = useIsScreenReaderEnabled()
 	const accent = focus ? theme.border.focus : theme.text.muted
-	const showMode = mode !== undefined && (terminal.columns ?? 80) >= COMPOSER_MODE_TAG_MIN_COLUMNS
-	const gradient = showMode && colourAllowed()
+	const gradient =
+		mode !== undefined && (terminal.columns ?? 80) >= HYPERMODE_RULE_MIN_COLUMNS && colourAllowed()
+	const motion = animate && stdout.isTTY === true && !screenReader && gradient
+	const [igniting, setIgniting] = useState(false)
+	const previousActivation = useRef(activation)
+	const { time, reset } = useAnimation({
+		isActive: igniting && motion && !hidden,
+		interval: 80,
+	})
+	useEffect(() => {
+		if (previousActivation.current === activation) return
+		previousActivation.current = activation
+		if (motion && !hidden) {
+			reset()
+			setIgniting(true)
+		} else setIgniting(false)
+	}, [activation, hidden, motion, reset])
+	useEffect(() => {
+		if (igniting && (time >= HYPERMODE_IGNITION_MS || !motion || hidden)) setIgniting(false)
+	}, [hidden, igniting, motion, time])
+	const ignitionTime = igniting && time < HYPERMODE_IGNITION_MS ? time : undefined
 	return (
 		<Box position="relative" flexDirection="column" marginTop={hidden ? 0 : 1}>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
@@ -42,16 +74,11 @@ export function ComposerFrame({
 						─ <Text bold>MESSAGE</Text>{' '}
 					</Text>
 				</Box>
-				{gradient ? <GradientRule columns={terminal.columns ?? 80} /> : <Rule />}
-				{showMode ? (
-					<Box flexShrink={0}>
-						<Text color={theme.accent.hypermode} bold>
-							{' '}
-							{mode}{' '}
-						</Text>
-						<Text color={gradient ? HYPERMODE_RULE_COLORS.at(-1) : theme.border.default}>─</Text>
-					</Box>
-				) : null}
+				{gradient ? (
+					<GradientRule columns={terminal.columns ?? 80} ignitionTime={ignitionTime} />
+				) : (
+					<Rule />
+				)}
 				<Box flexShrink={0}>
 					<Text color={accent}>┐</Text>
 				</Box>
@@ -102,22 +129,39 @@ function Rule() {
 }
 
 /**
- * The top rule in a still colour run. Yoga still sizes it: the text is a run
+ * The top rule in a colour run. Yoga still sizes it: the text is a run
  * of `─` at least as long as the terminal is wide, hard-wrapped by the layout
  * and clipped to one row, so no width is computed here that could disagree
  * with the box's own.
  */
-function GradientRule({ columns }: { readonly columns: number }) {
+function GradientRule({
+	columns,
+	ignitionTime,
+}: {
+	readonly columns: number
+	readonly ignitionTime?: number
+}) {
 	const cells = Math.max(1, columns)
+	const sweep =
+		ignitionTime === undefined
+			? null
+			: Math.floor((ignitionTime / HYPERMODE_IGNITION_MS) * (cells + 12)) - 6
 	return (
 		<Box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
 			<Text wrap="wrap">
-				{Array.from({ length: cells }, (_, index) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: one cell per column; nothing reorders.
-					<Text key={index} color={HYPERMODE_RULE_COLORS[index % HYPERMODE_RULE_COLORS.length]}>
-						─
-					</Text>
-				))}
+				{Array.from({ length: cells }, (_, index) => {
+					const trail = sweep === null ? -1 : sweep - index
+					const color =
+						trail >= 0 && trail < HYPERMODE_IGNITION_COLORS.length
+							? HYPERMODE_IGNITION_COLORS[trail]
+							: HYPERMODE_RULE_COLORS[index % HYPERMODE_RULE_COLORS.length]
+					return (
+						// biome-ignore lint/suspicious/noArrayIndexKey: one fixed cell per column; nothing reorders.
+						<Text key={index} color={color}>
+							─
+						</Text>
+					)
+				})}
 			</Text>
 		</Box>
 	)

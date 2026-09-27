@@ -12,7 +12,7 @@
 
 import type { ReasoningEffort } from '@namzu/sdk'
 
-/** The mode's name wherever the operator reads it: footer, border tag, picker. */
+/** The mode's name wherever the operator reads it: footer and picker. */
 export const HYPERMODE = 'hypermode'
 
 /** The one-line description the effort picker shows for the hypermode stop. */

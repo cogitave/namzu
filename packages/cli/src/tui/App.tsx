@@ -1044,6 +1044,7 @@ export function App({
 	// per-session like reasoningEffort above; no preferences file involved.
 	const [hypermode, setHypermodeState] = useState(false)
 	const hypermodeRef = useRef(false)
+	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
 		setHypermodeState(next)
@@ -2524,7 +2525,9 @@ export function App({
 				pushMessage('system', 'Hypermode is off.')
 				return
 			}
+			const newlyEnabled = enabled && !hypermodeRef.current
 			setHypermode(enabled)
+			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
 			if (!enabled) {
 				const pin = hypermodePinRef.current
 				hypermodePinRef.current = null
@@ -9657,6 +9660,8 @@ export function App({
 						<ComposerFrame
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 							{...(hypermode ? { mode: HYPERMODE } : {})}
+							activation={hypermodeActivation}
+							animate={externalEditorRequest === null}
 							focus={
 								phase === 'ready' &&
 								state !== 'awaiting-permission' &&

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-28
+
+- **Fix** [Terminal design](cli/terminal-design.md#the-composer-footer): hypermode is named once in the footer, while a short colour sweep marks a successful activation on the message frame before its gradient settles. `.changeset/cli-hypermode-activation.md`, **patch** for `@namzu/cli`.
+
 ## 2026-09-27
 
 - **Fix** [Terminal design](cli/terminal-design.md): a visible choice menu accepts its first selection key immediately, including the goal menu's Set action. `.changeset/cli-choice-menu-first-key.md`, **patch** for `@namzu/cli`.
