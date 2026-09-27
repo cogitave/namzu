@@ -1,6 +1,7 @@
 /** Operator commands for durable, Namzu-owned Git worktrees. */
 
 import { EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import {
 	type WorktreeResume,
 	openManagedWorktrees,
@@ -78,7 +79,7 @@ export function createWorktreeCommand(
 					ctx.formatter.print({
 						...forked,
 						text: terminalDisplayText(
-							`Forked ${forked.copied} messages into ${forked.title} at ${forked.path}.\nOpen it: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
+							`Forked ${forked.copied} messages into ${displayConversationTitle(forked.title)} at ${forked.path}.\nOpen it: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in the source checkout.' : ''}`,
 						),
 					})
 					return EXIT_OK

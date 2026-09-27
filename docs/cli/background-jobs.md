@@ -42,10 +42,10 @@ permission policy.
 
 `wait_for_job` is the model asking; the notices below are the kernel telling it without being asked, for a job nothing is blocked on:
 
-- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`; the transcript shows a `⚙` row.
+- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`; the transcript shows a job row marked `J`.
 - **At the end of a turn**, for a job the model awaited, the turn suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
 - **On the way out**, for an awaited job whose exit lands after that hold's grace has already run out — so the job was about to be named abandoned — but before the turn finishes settling, `deliverArrivedJobExits` still catches it: the same `runtime-context` message reaches `Turn.messages` instead of the job landing on `abandonedJobIds`.
-- **Between turns**, the session hears the exit itself: the `⚙` row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
+- **Between turns**, the session hears the exit itself: the `J` job row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
 
 One of these four announces any given exit — never more than one, with the narrow exception named below. The first three are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to one of them is neither delivered again by another nor counted as a reason to open one. The fourth is the session's, and it only ever sees an exit that landed with no turn open — the case the kernel is not there to hear.
 

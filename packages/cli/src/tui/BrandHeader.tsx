@@ -39,7 +39,7 @@ export function BrandHeader({ version, permissionMode }: BrandHeaderProps) {
 			{permissionMode === 'auto' ? (
 				<Box marginTop={1}>
 					<Text color={theme.status.warn}>
-						⚠ {permissionModeLabel(permissionMode)} — tools run without asking. Use /permissions to
+						Warning: {permissionModeLabel(permissionMode)} — tools run without asking. Use /permissions to
 						change this.
 					</Text>
 				</Box>

@@ -78,6 +78,7 @@ export const ADD_FLAGS = [
 	'paused!',
 	'yes!',
 	'allow-unattended-host!',
+	'notify-finished',
 	'notify-summary!',
 	'browser',
 	'browser-site',
@@ -262,6 +263,10 @@ function promptOf(args: ParsedArgs): string {
 }
 
 function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobRequest {
+	const notifyFinished = flag(args, 'notify-finished')
+	if (notifyFinished !== undefined && notifyFinished !== 'true' && notifyFinished !== 'false') {
+		throw new JobRequestError('--notify-finished is true or false')
+	}
 	const budget = {
 		...(parseCount('--max-iterations', flag(args, 'max-iterations')) !== undefined
 			? {
@@ -419,6 +424,11 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 			: base
 				? { includeSummary: base.notify.includeSummary }
 				: {}),
+		...(notifyFinished !== undefined
+			? { notifyOnFinish: notifyFinished === 'true' }
+			: base
+				? { notifyOnFinish: base.notify.finished }
+				: {}),
 		...(keep !== undefined
 			? { keepSessions: keep }
 			: base
@@ -487,11 +497,11 @@ async function confirmOnTerminal(
 	if (job.runKind && job.runKind !== 'agent' && job.script) {
 		const scriptRules =
 			job.runKind === 'script'
-				? 'the scheduled-run floor and every deny rule apply to this script'
+				? 'shell commands are checked against the scheduled-run floor and deny rules; interpreter code (for example, Python) is not parsed and must be reviewed by you'
 				: 'the scheduled-run floor and every deny rule apply to the gate, and the permission set governs the agent phase'
 		ctx.formatter.info(
 			visibleScheduleMessage(
-				`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (${job.script.shell}, verified clean)\n${indented(job.script.body)}\nThe stored source runs as entered; ${scriptRules}`,
+				`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (${job.script.shell}, shell checks passed)\n${indented(job.script.body)}\nThe stored source runs as entered; ${scriptRules}`,
 			),
 		)
 	}

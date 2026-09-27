@@ -97,6 +97,19 @@ describe('schedule tool', () => {
 		expect(confirms[0]?.proposedBy).toBe('model')
 	})
 
+	it('forwards an explicit completed-run notice preference without changing the default', async () => {
+		const { host } = fakeHost('create')
+		await tool(host).execute(createInput, context)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.not.objectContaining({ notifyOnFinish: expect.anything() }),
+		)
+		const quiet = await tool(host).execute({ ...createInput, notifyOnFinish: false }, context)
+		expect(host.preview).toHaveBeenLastCalledWith(
+			expect.objectContaining({ notifyOnFinish: false }),
+		)
+		expect(quiet.output).toContain('Completion notices are off')
+	})
+
 	it.each([['cancel'], ['something else'], [new Error('closed')], [undefined]])(
 		'creates nothing when the answer is %s',
 		async (answer) => {
@@ -244,6 +257,17 @@ describe('schedule tool', () => {
 			expect(host.update).toHaveBeenCalledWith(PREVIEW)
 		})
 
+		it('treats the completed-run notice switch as a change requiring confirmation', async () => {
+			const host = updatingHost(true)
+			const result = await tool(host).execute(
+				{ action: 'update', job: 'nightly', notifyOnFinish: false },
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(host.previewUpdate).toHaveBeenCalledWith('nightly', { notifyOnFinish: false })
+			expect(host.confirmUpdate).toHaveBeenCalledOnce()
+		})
+
 		it.each([
 			[false, 'a no'],
 			[new Error('screen closed'), 'a thrown error'],
@@ -360,15 +384,19 @@ describe('schedule tool: kind and script', () => {
 		kind: 'script',
 		script: { body: 'echo hi', shell: 'bash' },
 		when: 'every 1m',
-		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		permissions: { rules: {}, unmatched: 'deny' },
 	}
 
-	it('accepts a script draft with no prompt, and reaches host.preview with runKind set', async () => {
+	it('accepts a pure script with explicit empty rules, no preset, bash allow or prompt', async () => {
 		const { host } = fakeHost('create')
 		const result = await tool(host).execute(scriptInput as never, context)
 		expect(result.success).toBe(true)
 		expect(host.preview).toHaveBeenCalledWith(
-			expect.objectContaining({ runKind: 'script', script: { body: 'echo hi', shell: 'bash' } }),
+			expect.objectContaining({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				permissions: { rules: {}, unmatched: 'deny' },
+			}),
 		)
 		expect(host.preview).toHaveBeenCalledWith(
 			expect.not.objectContaining({ prompt: expect.anything() }),
@@ -424,9 +452,27 @@ describe('schedule tool: kind and script', () => {
 	})
 
 	it('describes script requirements without requiring a prompt for them', () => {
-		const description = tool(fakeHost('create').host).description
+		const schedule = tool(fakeHost('create').host)
+		const description = schedule.description
 		expect(description).toContain('agent and script+agent also need prompt')
 		expect(description).toContain('script and script+agent also need script')
+		expect(description).toContain("pure script, use permissions {rules:{},unmatched:'deny'}")
+		expect(description).toContain('read-only denies bash and blocks every script')
+		expect(description).toContain('home, root and NAMZU_HOME are invalid')
+		const schema = schedule.inputSchema as unknown as {
+			shape: {
+				folder: { description?: string }
+				permissions: {
+					description?: string
+					unwrap(): { shape: { preset: { description?: string } } }
+				}
+			}
+		}
+		expect(schema.shape.folder.description).toContain("operator's home directory")
+		expect(schema.shape.permissions.description).toContain('{rules:{}, unmatched:"deny"}')
+		expect(schema.shape.permissions.unwrap().shape.preset.description).toContain(
+			'its bash deny blocks every script',
+		)
 	})
 
 	it('refuses kind: script with no script, naming the field', async () => {

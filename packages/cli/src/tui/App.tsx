@@ -45,7 +45,7 @@ import {
 	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
 	pinTrustedProjectPath,
@@ -108,6 +108,7 @@ import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import type {
 	SubagentActivity,
@@ -197,6 +198,11 @@ import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
+import {
+	type ScheduleReviewAnswer,
+	type ScheduleReviewRequest,
+	ScheduleReviewOverlay,
+} from './ScheduleReviewOverlay.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
 	type SaveSkillAnswer,
@@ -1100,7 +1106,7 @@ export function App({
 				...(job.signal ? { signal: job.signal } : {}),
 			})
 			idleJobNoticesRef.current.push(text)
-			pushMessage('system', text, false, '⚙')
+			pushMessage('system', text, false, 'J')
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -1267,7 +1273,9 @@ export function App({
 		if (next === null) choicePickerCommittedRef.current = null
 		setChoicePickerState(next)
 	}, [])
-	useEffect(() => {
+	// A painted menu must already accept its first key. A passive effect can
+	// run after Ink flushes that frame, leaving the ownership fence closed.
+	useLayoutEffect(() => {
 		choicePickerCommittedRef.current = choicePicker
 	}, [choicePicker])
 	/** Host-owned text decision; its value never enters model prompt history. */
@@ -1631,6 +1639,7 @@ export function App({
 	const scheduleLiveRef = useRef<{
 		say: (text: string) => void
 		ask: QuestionFn
+		review: (request: ScheduleReviewRequest, signal?: AbortSignal) => Promise<ScheduleReviewAnswer>
 		askPermission: ScreenPermissionFn
 		submit: (text: string, createdBy: 'model' | 'operator') => void
 		model?: { readonly provider: string; readonly model?: string }
@@ -1658,6 +1667,8 @@ export function App({
 			say: (text) => scheduleLiveRef.current?.say(text),
 			ask: (question, signal) =>
 				scheduleLiveRef.current?.ask(question, signal) ?? Promise.resolve({ kind: 'skip' as const }),
+			review: (request, signal) =>
+				scheduleLiveRef.current?.review(request, signal) ?? Promise.resolve('cancel' as const),
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
@@ -1677,6 +1688,17 @@ export function App({
 	const setSaveSkillPrompt = useCallback((next: typeof saveSkillPrompt) => {
 		saveSkillPromptRef.current = next
 		setSaveSkillPromptState(next)
+	}, [])
+	const [scheduleReviewPrompt, setScheduleReviewPromptState] = useState<{
+		readonly token: number
+		readonly request: ScheduleReviewRequest
+		readonly resolve: (answer: ScheduleReviewAnswer) => void
+	} | null>(null)
+	const scheduleReviewTokenRef = useRef(0)
+	const scheduleReviewPromptRef = useRef<typeof scheduleReviewPrompt>(null)
+	const setScheduleReviewPrompt = useCallback((next: typeof scheduleReviewPrompt) => {
+		scheduleReviewPromptRef.current = next
+		setScheduleReviewPromptState(next)
 	}, [])
 	const saveSkillNotifyRef = useRef<(() => void) | null>(null)
 	const saveSkillToolRef = useRef<ReturnType<typeof buildSaveSkillTool> | null>(null)
@@ -1714,7 +1736,7 @@ export function App({
 				}),
 			saved: ({ name, path }) =>
 				scheduleLiveRef.current?.say(
-					`✎ Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
+					`Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
 				),
 		})
 	}
@@ -4109,8 +4131,12 @@ export function App({
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
 	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
-	if (agentSurface === null && outputViewer === null) settledRef.current = nextSettled
-	const renderedSettled = agentSurface === null && outputViewer === null ? nextSettled : settledRef.current
+	if (agentSurface === null && outputViewer === null && scheduleReviewPrompt === null)
+		settledRef.current = nextSettled
+	const renderedSettled =
+		agentSurface === null && outputViewer === null && scheduleReviewPrompt === null
+			? nextSettled
+			: settledRef.current
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -4304,7 +4330,7 @@ export function App({
 			}
 			// Said once the turn really continues: a scheduled park can still
 			// be left waiting or abandoned above.
-			pushMessage('system', PAUSED_TURN_LINES.resuming, false, '▶')
+			pushMessage('system', PAUSED_TURN_LINES.resuming)
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
@@ -4664,7 +4690,7 @@ export function App({
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
-			pushMessage('system', `Resumed: ${conv.title}`)
+			pushMessage('system', `Resumed: ${displayConversationTitle(conv.title)}`)
 			if (discardedQueued > 0) {
 				pushMessage(
 					'system',
@@ -4731,7 +4757,7 @@ export function App({
 				)
 				return
 			}
-			pushMessage('system', `Restored: ${conv.title}`)
+			pushMessage('system', `Restored: ${displayConversationTitle(conv.title)}`)
 			try {
 				await resumeConversation(conv)
 			} finally {
@@ -5029,7 +5055,7 @@ export function App({
 			wakeGoalDriver()
 			pushMessage(
 				'system',
-				`Forked into "${forked.title}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				`Forked into "${displayConversationTitle(forked.title)}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
 			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
@@ -5181,7 +5207,7 @@ export function App({
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Forked into "${forked.title}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
+					`Forked into "${displayConversationTitle(forked.title)}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
 				)
 			} catch (err) {
 				setPhase('ready')
@@ -5304,6 +5330,41 @@ export function App({
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
 		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
+	)
+	const reviewSchedule = useCallback(
+		(request: ScheduleReviewRequest, signal?: AbortSignal) =>
+			new Promise<ScheduleReviewAnswer>((resolve) => {
+				if (signal?.aborted) {
+					resolve('cancel')
+					return
+				}
+				closeLiveReply()
+				// A second tool call must not replace an open review and leave its
+				// Promise waiting forever. Each decision still belongs to its own
+				// captured proposal.
+				scheduleReviewPromptRef.current?.resolve('cancel')
+				let settled = false
+				const entry = {
+					token: ++scheduleReviewTokenRef.current,
+					request,
+					resolve: (answer: ScheduleReviewAnswer) => {
+						if (settled) return
+						settled = true
+						signal?.removeEventListener('abort', onAbort)
+						// Let the overlay's key dispatch finish before App regains its
+						// keyboard handler, so Esc cannot interrupt this same turn.
+						queueMicrotask(() => {
+							if (scheduleReviewPromptRef.current === entry) setScheduleReviewPrompt(null)
+						})
+						resolve(answer)
+					},
+				}
+				const onAbort = () => entry.resolve('cancel')
+				signal?.addEventListener('abort', onAbort, { once: true })
+				setScheduleReviewPrompt(entry)
+				sendTerminalNotification({ kind: 'approval-required' })
+			}),
+		[closeLiveReply, sendTerminalNotification, setScheduleReviewPrompt],
 	)
 
 	/**
@@ -5765,7 +5826,7 @@ export function App({
 				case 'job':
 					// The kernel saw it end during a turn; the model reads the notice
 					// on its next tool result, the operator reads this row.
-					pushMessage('system', describeJobExit(event), false, '⚙')
+					pushMessage('system', describeJobExit(event), false, 'J')
 					break
 				case 'context':
 					// Into the TRANSCRIPT, not a status line. A status indicator is
@@ -7628,7 +7689,7 @@ export function App({
 									await persistenceTailRef.current
 									const forked = await manager.fork(scope.sessionId, label)
 									notice(
-										`Forked ${forked.copied} messages into ${forked.title}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+										`Forked ${forked.copied} messages into ${displayConversationTitle(forked.title)}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
 									)
 								} else if (label) {
 									const target = await manager.resume(label)
@@ -8236,6 +8297,7 @@ export function App({
 			pushMessage('system', text)
 		},
 		ask: askQuestion,
+		review: reviewSchedule,
 		askPermission: onPermission,
 		submit: (text, createdBy) =>
 			handleSubmit(text, undefined, 'submit', {
@@ -8492,7 +8554,7 @@ export function App({
 		void checkUpdates(ctx.version).then((ups) => {
 			if (ups.length === 0) return
 			const lines = ups.map((u) => `  • ${u.name} ${u.current} → ${u.latest}  (${u.how})`)
-			pushMessage('system', `⬆ Update available:\n${lines.join('\n')}`)
+			pushMessage('system', `Update available:\n${lines.join('\n')}`)
 		})
 	}, [phase, ctx.version, pushMessage])
 
@@ -8645,7 +8707,7 @@ export function App({
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
-			if (saveSkillPromptRef.current && permission === null) return
+			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null) return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
@@ -9278,6 +9340,7 @@ export function App({
 		: undefined
 	const lifecycleOwnsViewport =
 		outputViewer !== null ||
+		scheduleReviewPrompt !== null ||
 		phase === 'trust' ||
 		phase === 'resume' ||
 		phase === 'unarchive' ||
@@ -9293,6 +9356,7 @@ export function App({
 		textPrompt === null &&
 		choicePicker === null &&
 		copyPicker === null &&
+		scheduleReviewPrompt === null &&
 		agentSurface === null
 			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
 			: null
@@ -9316,10 +9380,12 @@ export function App({
 						? 'starting a fresh conversation — input is paused'
 						: compacting
 							? 'compacting conversation — input is paused'
-							: saveSkillPrompt
-								? 'save skill — ←/→ choose · enter apply · esc cancel'
-								: permission
+							: permission
 								? hintForPhase(phase, state, session?.hasProvider === true)
+								: scheduleReviewPrompt
+									? 'review schedule — ↑/↓ scroll · ←/→ choose · enter apply · esc cancel'
+									: saveSkillPrompt
+										? 'save skill — ←/→ choose · enter apply · esc cancel'
 								: agentSurface?.kind === 'cockpit'
 									? agentSurface.focus === 'workflows'
 										? 'workflows — enter select · esc return'
@@ -9474,7 +9540,7 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						{agentSurface === null && outputViewer === null ? (
+						{agentSurface === null && outputViewer === null && scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
 								activeTools={visibleActiveTools}
@@ -9484,7 +9550,8 @@ export function App({
 									stdout.isTTY === true &&
 									permission === null &&
 									textPrompt === null &&
-									saveSkillPrompt === null
+									saveSkillPrompt === null &&
+									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
 								tokens={turnTokens}
@@ -9492,14 +9559,15 @@ export function App({
 									choicePicker !== null ||
 									permission !== null ||
 									textPrompt !== null ||
-									saveSkillPrompt !== null
+									saveSkillPrompt !== null ||
+									scheduleReviewPrompt !== null
 								}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && outputViewer === null && permission === null ? (
+						{agentSurface === null && outputViewer === null && permission === null && scheduleReviewPrompt === null ? (
 							<TaskList tasks={liveTasks} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
@@ -9528,7 +9596,7 @@ export function App({
 									: {})}
 							/>
 						) : null}
-						{saveSkillPrompt && permission === null ? (
+						{saveSkillPrompt && permission === null && scheduleReviewPrompt === null ? (
 							<SaveSkillOverlay
 								key={saveSkillPrompt.request.markdown}
 								request={saveSkillPrompt.request}
@@ -9536,6 +9604,15 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								rows={terminal.rows}
 								onAnswer={saveSkillPrompt.resolve}
+							/>
+						) : null}
+						{scheduleReviewPrompt && permission === null ? (
+							<ScheduleReviewOverlay
+								key={scheduleReviewPrompt.token}
+								request={scheduleReviewPrompt.request}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								rows={Math.max(1, (terminal.rows ?? 24) - 2)}
+								onAnswer={scheduleReviewPrompt.resolve}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -9546,11 +9623,11 @@ export function App({
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
 								emptyNotice={textPrompt.emptyNotice}
-								hidden={permission !== null || (agentSurface !== null || outputViewer !== null)}
+								hidden={permission !== null || scheduleReviewPrompt !== null || (agentSurface !== null || outputViewer !== null)}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
-						) : permission === null &&
+						) : permission === null && scheduleReviewPrompt === null &&
 						  agentSurface === null &&
 						  outputViewer === null &&
 						  choicePicker?.kind === 'reasoning-effort' &&
@@ -9563,7 +9640,7 @@ export function App({
 								layout={effortSlider}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 							/>
-						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
+						) : permission === null && scheduleReviewPrompt === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
@@ -9574,7 +9651,7 @@ export function App({
 								selected={selectedChoice}
 								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
-						) : permission === null && agentSurface === null && outputViewer === null && copyPicker ? (
+						) : permission === null && scheduleReviewPrompt === null && agentSurface === null && outputViewer === null && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -9590,11 +9667,13 @@ export function App({
 								choicePicker === null &&
 								copyPicker === null &&
 								saveSkillPrompt === null &&
+								scheduleReviewPrompt === null &&
 								agentSurface === null && outputViewer === null
 							}
 							hidden={
 								permission !== null ||
 								saveSkillPrompt !== null ||
+								scheduleReviewPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
 								copyPicker !== null ||
@@ -9649,6 +9728,7 @@ export function App({
 								hidden={
 									permission !== null ||
 									saveSkillPrompt !== null ||
+									scheduleReviewPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
 									copyPicker !== null ||
@@ -9715,23 +9795,24 @@ export function App({
 				{showComposerSurface &&
 				permission === null &&
 				agentSurface === null &&
-				outputViewer === null ? (
+				outputViewer === null &&
+				scheduleReviewPrompt === null ? (
 					<AgentNarrationBand lines={narration} />
 				) : null}
 				{showComposerSurface &&
 				agentSurface === null &&
 				outputViewer === null &&
+				scheduleReviewPrompt === null &&
 				liveSubagents.length > 0 ? (
-					// Still drawn while a review is open, reduced to its header line:
-					// the work already approved keeps moving, and the operator
-					// deciding the next launch should be able to see that it does.
+					// The active agents remain in memory while the schedule review
+					// owns the available rows; the panel returns after the decision.
 					<AgentTaskPanel
 						agents={liveSubagents}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
 					/>
-				) : showComposerSurface && permission === null && agentSurface?.kind === 'cockpit' ? (
+				) : showComposerSurface && permission === null && scheduleReviewPrompt === null && agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit
 						agents={subagents}
 						selectedPhaseId={agentSurface.selectedPhaseId}
@@ -9742,6 +9823,7 @@ export function App({
 					/>
 				) : showComposerSurface &&
 				  permission === null &&
+				  scheduleReviewPrompt === null &&
 				  agentSurface?.kind === 'transcript' &&
 				  selectedSubagent ? (
 					<AgentTranscript
@@ -9751,7 +9833,7 @@ export function App({
 						terminalColumns={terminal.columns}
 					/>
 				) : null}
-				{outputViewer && permission === null ? (
+				{outputViewer && permission === null && scheduleReviewPrompt === null ? (
 					<ToolOutputViewer
 						key={outputViewer.id}
 						onPrevious={() => {

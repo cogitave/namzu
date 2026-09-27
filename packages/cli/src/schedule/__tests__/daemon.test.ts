@@ -296,6 +296,40 @@ describe('failures', () => {
 })
 
 describe('notifications', () => {
+	it('omits routine completion notices when the job opted out', async () => {
+		confirmedJob(sb, { notifyOnFinish: false }, new Date(clock - 60_000))
+		const d = daemon()
+		await d.claimOwnership()
+		clock = Date.parse('2026-09-23T03:00:02Z')
+		await d.tick()
+		await settle(d)
+		expect(spawned).toHaveLength(1)
+		expect(notices).toEqual([])
+	})
+
+	it('still announces a failed run when routine completion notices are off', async () => {
+		confirmedJob(sb, { notifyOnFinish: false }, new Date(clock - 60_000))
+		outcome = () => ({ status: 'failed', reason: 'script exited 1' })
+		const d = daemon()
+		await d.claimOwnership()
+		clock = Date.parse('2026-09-23T03:00:02Z')
+		await d.tick()
+		await settle(d)
+		expect(spawned).toHaveLength(1)
+		expect(notices.map((n) => n.body)).toEqual([expect.stringMatching(/^failed at /)])
+	})
+
+	it('omits an informational catch-up notice when completion notices are off', async () => {
+		confirmedJob(sb, { notifyOnFinish: false }, new Date(Date.parse('2026-09-19T00:00:00Z')))
+		clock = Date.parse('2026-09-23T06:10:00Z')
+		const d = daemon()
+		await d.claimOwnership()
+		await d.tick()
+		await settle(d)
+		expect(spawned).toHaveLength(1)
+		expect(notices).toEqual([])
+	})
+
 	it('announces a park even right after the catch-up notice for the same run', async () => {
 		outcome = () => ({
 			status: 'awaiting-approval',

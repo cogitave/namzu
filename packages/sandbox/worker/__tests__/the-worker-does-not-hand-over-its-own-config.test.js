@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,7 +17,6 @@ import { afterEach, describe, expect, it } from 'vitest'
  */
 
 async function spawnWorker(env) {
-	const port = await getFreePort()
 	const workspace = await mkdtemp(path.join(os.tmpdir(), 'namzu-sandbox-worker-env-'))
 	const source = await readFile(path.join(import.meta.dirname, '..', 'server.js'), 'utf8')
 	const entry = path.join(workspace, 'server.cjs')
@@ -27,7 +25,7 @@ async function spawnWorker(env) {
 	const child = spawn(process.execPath, [entry], {
 		env: {
 			...process.env,
-			NAMZU_SANDBOX_PORT: String(port),
+			NAMZU_SANDBOX_PORT: '0',
 			NAMZU_SANDBOX_BIND: '127.0.0.1',
 			NAMZU_SANDBOX_WORKSPACE: workspace,
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
@@ -36,7 +34,18 @@ async function spawnWorker(env) {
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 
-	await waitForListening(child)
+	let port
+	try {
+		port = await waitForListening(child)
+	} catch (error) {
+		if (child.pid && child.exitCode === null && child.signalCode === null) {
+			const exited = new Promise((resolve) => child.once('exit', resolve))
+			child.kill('SIGKILL')
+			await exited
+		}
+		await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+		throw error
+	}
 
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
@@ -70,9 +79,10 @@ function waitForListening(child) {
 		let out = ''
 		const onData = (chunk) => {
 			out += chunk.toString('utf8')
-			if (out.includes('listening on')) {
+			const match = /listening on 127\.0\.0\.1:(\d+) workspace=/.exec(out)
+			if (match) {
 				cleanup()
-				resolve()
+				resolve(Number(match[1]))
 			}
 		}
 		const onExit = (code) => {
@@ -87,17 +97,6 @@ function waitForListening(child) {
 		child.stdout.on('data', onData)
 		child.stderr.on('data', onData)
 		child.on('exit', onExit)
-	})
-}
-
-function getFreePort() {
-	return new Promise((resolve, reject) => {
-		const server = net.createServer()
-		server.on('error', reject)
-		server.listen(0, '127.0.0.1', () => {
-			const { port } = server.address()
-			server.close(() => resolve(port))
-		})
 	})
 }
 

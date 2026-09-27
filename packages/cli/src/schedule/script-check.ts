@@ -159,9 +159,10 @@ export function verifyScheduledScript(
 				commandDialect: shell,
 			})
 			if (result.decision === 'deny') {
+				const blanketBashDeny = result.reason.includes('denied by name (bash)')
 				return {
 					ok: false,
-					reason: `the command ${shown(command.text)} is denied: ${result.reason}`,
+					reason: `the command ${shown(command.text)} is denied: ${result.reason}${blanketBashDeny ? '; a bash deny rule blocks every script command, so changing the script text cannot fix it' : ''}`,
 				}
 			}
 		}

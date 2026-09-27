@@ -488,7 +488,11 @@ export async function runFire(
 		})
 		const when = args.scheduledFor ?? startedAt
 		const tz = job.schedule.kind === 'cron' ? job.schedule.tz : undefined
-		await setTitle(sessions, asSessionId(sessionId), `⏲ ${job.name} · ${describeWhen(when, tz)}`)
+		await setTitle(
+			sessions,
+			asSessionId(sessionId),
+			`Scheduled: ${job.name} · ${describeWhen(when, tz)}`,
+		)
 	} catch (error) {
 		return finish('failed', 1, {
 			reason: `the conversation could not be started: ${error instanceof Error ? error.message : String(error)}`,

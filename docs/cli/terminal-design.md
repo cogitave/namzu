@@ -24,6 +24,13 @@ explicit ANSI 256-color indices so the green accent and neutral text do not
 shift hue through RGB-to-palette approximation. Terminals with color disabled
 retain the same text, symbols and boundaries.
 
+Namzu's own terminal labels use words and text-presentation marks, never emoji.
+Emoji code points can occupy two terminal cells and crowd the following label,
+especially in Windows Terminal. Scheduled jobs therefore start with the job
+name in `/schedule`, and new run titles use `Scheduled: <job> · <time>`;
+previously saved clock-prefixed titles display with the same text prefix in
+conversation lists and notices without rewriting stored sessions.
+
 ## The composer footer
 
 One dim line sits directly below the message frame, with no blank row between
@@ -392,8 +399,10 @@ input layout. The frame is a constant three rows regardless of the active
 permission mode — see [The composer footer](#the-composer-footer) for where
 the mode itself is drawn. The frame stays static while working. Opening a
 permission prompt or text/command picker hides it while keeping the composer
-mounted, so drafts
-and attachments survive the transition.
+mounted, so drafts and attachments survive the transition. A text prompt also leaves the
+composer’s keyboard listener attached while the composer is hidden; its input
+guard ignores keys until the prompt closes, so the first key typed when the
+writing area returns is accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
@@ -462,7 +471,9 @@ Command, settings, goal, skill, branch and commit menus accept text filtering.
 Digits belong to the search query in these menus. Arrow keys navigate and
 Enter applies an available selection; non-searchable menus keep their numeric
 shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
-picker. The footer describes the keys used by the active surface.
+picker. The first key pressed after a menu appears is accepted; the key that
+opened the menu cannot also select its first row. The footer describes the
+keys used by the active surface.
 
 Text editors for conversation names and goals keep a single visible input row.
 Long values scroll with the cursor, including after terminal resizing, so the

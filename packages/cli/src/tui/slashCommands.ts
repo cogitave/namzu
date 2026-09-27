@@ -488,7 +488,7 @@ export function matchSlashCommands(
 	// it prints the problem, which is how its author finds out.
 	const own: SlashCommand[] = userCommands.map((c) => ({
 		name: c.name,
-		description: c.problem ? `⚠ ${c.problem}` : c.description,
+		description: c.problem ? `Unavailable: ${c.problem}` : c.description,
 		action: () => ({ kind: 'none' }) as const,
 	}))
 

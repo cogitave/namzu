@@ -264,7 +264,7 @@ export async function drainSessionPass(deps: DrainPassDeps): Promise<DrainPassRe
 	const { turnId } = active
 	if (deps.pendingDecisionTurns.has(turnId)) {
 		result.awaitingDecision.push(turnId)
-		deps.info(`⏸ ${turnId} · waiting on a human decision`)
+		deps.info(`Waiting: ${turnId} · human decision required`)
 		return result
 	}
 	const lease = await deps.claim()
@@ -289,11 +289,11 @@ export async function drainSessionPass(deps: DrainPassDeps): Promise<DrainPassRe
 				throw new Error(`Resumed turn ended with status "${outcome.turn.status}".`)
 			}
 			result.resumed.push(turnId)
-			deps.info(`✔ ${turnId} · ${outcome.turn.status}`)
+			deps.info(`Turn ${turnId} · ${outcome.turn.status}`)
 		} else if (outcome.reason === 'awaiting-decision') {
 			// The index had not yet seen the decision; the log had.
 			result.awaitingDecision.push(turnId)
-			deps.info(`⏸ ${turnId} · waiting on a human decision`)
+			deps.info(`Waiting: ${turnId} · human decision required`)
 		} else {
 			result.noCheckpoint.push(turnId)
 			deps.info(`∅ ${turnId} · no checkpoint to continue from`)

@@ -725,16 +725,6 @@ export function Composer({
 		(input, key) => {
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
-			//
-			// `hidden` is REDUNDANT with `disabled` today and is kept anyway.
-			// The only caller sets `hidden` when a permission prompt is open,
-			// and that same event sets `awaiting-permission`, which already puts
-			// `disabled` true — so removing this clause changes no behaviour and
-			// kills no test, which was confirmed by trying it. It stays because
-			// the two say different things: `disabled` is "the composer may not
-			// be used", `hidden` is "the composer is not on screen", and a
-			// component that draws nothing must not consume input on the
-			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
 			const liveCommandSuggestions = matchSlashCommands(valueRef.current, userCommands, builtins)
 			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
@@ -1185,7 +1175,11 @@ export function Composer({
 				graphemes > 1 ? 'burst' : 'typed',
 			)
 		},
-		{ isActive: !disabled && !hidden },
+		// A text prompt hides the composer without disabling it. Keep this
+		// listener attached across that transition: Ink installs it in an
+		// effect after painting, so reattaching on unhide can lose the first key.
+		// The guard above ignores keys while another prompt owns the screen.
+		{ isActive: !disabled },
 	)
 
 	// After every hook, so the component keeps its state while it is off screen.

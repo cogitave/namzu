@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { access, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,7 +18,6 @@ import { REMOTE_EXECUTION_PROTOCOL_VERSION } from '../../src/backends/remote-exe
  * how the Dockerfile invokes it.
  */
 async function spawnWorker(env, transformSource = (source) => source) {
-	const port = await getFreePort()
 	const workspace = await mkdtemp(path.join(os.tmpdir(), 'namzu-sandbox-worker-test-'))
 	const source = await readFile(path.join(import.meta.dirname, '..', 'server.js'), 'utf8')
 	const entry = path.join(workspace, 'server.cjs')
@@ -28,7 +26,8 @@ async function spawnWorker(env, transformSource = (source) => source) {
 	const child = spawn(process.execPath, [entry], {
 		env: {
 			...process.env,
-			NAMZU_SANDBOX_PORT: String(port),
+			// The worker owns its ephemeral port from bind through shutdown.
+			NAMZU_SANDBOX_PORT: '0',
 			NAMZU_SANDBOX_BIND: '127.0.0.1',
 			NAMZU_SANDBOX_WORKSPACE: workspace,
 			// Disable the idle-exit layer so a slow CI runner can't race the
@@ -39,14 +38,29 @@ async function spawnWorker(env, transformSource = (source) => source) {
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 
-	await waitForListening(child)
+	let port
+	try {
+		port = await waitForListening(child)
+	} catch (error) {
+		if (child.pid && child.exitCode === null && child.signalCode === null) {
+			const exited = new Promise((resolve) => child.once('exit', resolve))
+			child.kill('SIGKILL')
+			await exited
+		}
+		await rm(workspace, { recursive: true, force: true })
+		throw error
+	}
 
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
 		workspace,
 		child,
 		async stop() {
-			child.kill('SIGKILL')
+			if (child.pid && child.exitCode === null && child.signalCode === null) {
+				const exited = new Promise((resolve) => child.once('exit', resolve))
+				child.kill('SIGKILL')
+				await exited
+			}
 			await rm(workspace, { recursive: true, force: true })
 		},
 	}
@@ -116,9 +130,10 @@ function waitForListening(child) {
 		let errOut = ''
 		const onData = (chunk) => {
 			out += chunk.toString('utf8')
-			if (out.includes('listening on')) {
+			const match = /listening on 127\.0\.0\.1:(\d+) workspace=/.exec(out)
+			if (match) {
 				cleanup()
-				resolve()
+				resolve(Number(match[1]))
 			}
 		}
 		const onError = (err) => {
@@ -133,6 +148,7 @@ function waitForListening(child) {
 			errOut += chunk.toString('utf8')
 		}
 		function cleanup() {
+			clearTimeout(timer)
 			child.stdout.off('data', onData)
 			child.stderr.off('data', onErrData)
 			child.off('error', onError)
@@ -142,21 +158,10 @@ function waitForListening(child) {
 		child.stderr.on('data', onErrData)
 		child.on('error', onError)
 		child.on('exit', onExit)
-		setTimeout(() => {
+		const timer = setTimeout(() => {
 			cleanup()
 			reject(new Error(`worker did not log "listening" in time; stderr:\n${errOut}`))
 		}, 10_000).unref()
-	})
-}
-
-function getFreePort() {
-	return new Promise((resolve, reject) => {
-		const probe = net.createServer()
-		probe.on('error', reject)
-		probe.listen(0, '127.0.0.1', () => {
-			const { port } = probe.address()
-			probe.close(() => resolve(port))
-		})
 	})
 }
 

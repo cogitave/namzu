@@ -71,7 +71,7 @@ with mode 0700 and refused if it is a symlink or owned by another user.
 | `index.sqlite` | Sessions, turns, child sessions, pending decisions, external ids and full-text search, all derived from the logs. | Yes. It is rebuilt on the next launch. |
 | `cli/zen-catalogue.json` | The last Zen and Zen Go model catalogue a launch's background refresh derived and validated; see [The model catalogue refresh](model-catalogue.md). | Yes. The next launch uses the bundled catalogue until its refresh lands and writes a new one. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
-| `schedule/jobs/` | Scheduled job definitions. Run sessions live under `projects/<slug>/` like any other, titled `⏲ <job> · <time>`. | Deleting a file deletes the job; `namzu schedule remove` is the way. |
+| `schedule/jobs/` | Scheduled job definitions. Run sessions live under `projects/<slug>/` like any other, titled `Scheduled: <job> · <time>`. | Deleting a file deletes the job; `namzu schedule remove` is the way. |
 | `schedule/history/`, `schedule/runs/`, `schedule/daemon/log/` | Records and output of past runs, and the scheduler's log. | Yes. |
 | `schedule/claims/` | Which occurrences already started. | Only while the scheduler is stopped: deleting one while it runs can re-run an occurrence after a backward clock jump inside the catch-up window. |
 | `schedule/state/` | The scheduler's memory of each job. | Only while the scheduler is stopped; it is rebuilt, and occurrences within the catch-up window may then be caught up again. |

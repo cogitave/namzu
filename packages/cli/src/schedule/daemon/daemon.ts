@@ -604,7 +604,7 @@ export class ScheduleDaemon {
 				: kind === 'awaiting-approval'
 					? flags.awaitingApproval
 					: kind === 'catch-up'
-						? flags.finished || flags.failed
+						? flags.finished
 						: flags.failed || kind === 'held' || kind === 'needs-confirmation'
 		if (!wanted) return
 		// What needs the person is never throttled: each happens at most once

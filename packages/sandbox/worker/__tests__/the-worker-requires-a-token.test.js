@@ -31,19 +31,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const TOKEN = 'a-per-instance-token-for-this-worker'
 
-async function getFreePort() {
-	return await new Promise((resolve, reject) => {
-		const server = net.createServer()
-		server.once('error', reject)
-		server.listen(0, '127.0.0.1', () => {
-			const { port } = server.address()
-			server.close(() => resolve(port))
-		})
-	})
-}
-
 async function startWorker(env = {}) {
-	const port = await getFreePort()
 	const workspace = await mkdtemp(path.join(os.tmpdir(), 'namzu-worker-auth-'))
 	const source = await readFile(path.join(import.meta.dirname, '..', 'server.js'), 'utf8')
 	const entry = path.join(workspace, 'server.cjs')
@@ -52,7 +40,7 @@ async function startWorker(env = {}) {
 	const child = spawn(process.execPath, [entry], {
 		env: {
 			...process.env,
-			NAMZU_SANDBOX_PORT: String(port),
+			NAMZU_SANDBOX_PORT: '0',
 			// Loopback so this suite is about the credential and not about the
 			// bind-address rule, which has its own file.
 			NAMZU_SANDBOX_BIND: '127.0.0.1',
@@ -63,21 +51,49 @@ async function startWorker(env = {}) {
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 
-	await new Promise((resolve, reject) => {
-		let out = ''
-		const timer = setTimeout(() => reject(new Error(`worker never bound: ${out}`)), 15_000)
-		child.stdout.on('data', (chunk) => {
-			out += chunk.toString('utf8')
-			if (out.includes('listening on')) {
-				clearTimeout(timer)
-				resolve()
+	let port
+	try {
+		port = await new Promise((resolve, reject) => {
+			let out = ''
+			const timer = setTimeout(() => {
+				cleanup()
+				reject(new Error(`worker never bound: ${out}`))
+			}, 15_000)
+			const onData = (chunk) => {
+				out += chunk.toString('utf8')
+				const match = /listening on 127\.0\.0\.1:(\d+) workspace=/.exec(out)
+				if (match) {
+					cleanup()
+					resolve(Number(match[1]))
+				}
 			}
+			const onExit = (code) => {
+				cleanup()
+				reject(new Error(`worker exited early (${code}): ${out}`))
+			}
+			const onError = (error) => {
+				cleanup()
+				reject(error)
+			}
+			function cleanup() {
+				clearTimeout(timer)
+				child.stdout.off('data', onData)
+				child.off('exit', onExit)
+				child.off('error', onError)
+			}
+			child.stdout.on('data', onData)
+			child.once('exit', onExit)
+			child.once('error', onError)
 		})
-		child.once('exit', (code) => {
-			clearTimeout(timer)
-			reject(new Error(`worker exited early (${code}): ${out}`))
-		})
-	})
+	} catch (error) {
+		if (child.pid && child.exitCode === null && child.signalCode === null) {
+			const exited = new Promise((resolve) => child.once('exit', resolve))
+			child.kill('SIGKILL')
+			await exited
+		}
+		await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+		throw error
+	}
 
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,

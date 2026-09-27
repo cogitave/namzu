@@ -487,7 +487,7 @@ async function execPrint(
 		for await (const event of stream) {
 			if (event.kind === 'delta') text += event.text
 			else if (event.kind === 'tool-start')
-				ctx.formatter.info(`⏺ ${event.toolName} ${event.summary}`)
+				ctx.formatter.info(`Tool: ${event.toolName} ${event.summary}`)
 			// stderr, like every other status line, so it reaches a person
 			// watching without contaminating the answer a caller piped.
 			else if (event.kind === 'context') ctx.formatter.info(event.text)

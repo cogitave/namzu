@@ -79,6 +79,21 @@ editing the prompt does, through the same digest, and a config file's
 digest, so a rule added after confirmation still applies from the very next
 run, without waiting for a re-confirmation).
 
+For a pure script, `read-only` includes `bash: deny`, which refuses every
+script even if its shell commands only read files. If no additional deny
+rules are needed, pass an explicit permission file containing
+`{"rules": {}, "unmatched": "deny"}`. This is still a host script running
+as your account: its folder is a working directory, not a write boundary.
+The shell checker can see the interpreter command (`python3`, for example),
+but it cannot inspect the code that interpreter runs. Read the full script
+before confirming it.
+
+A polling script that sends its own notification only when something changes
+can set `--notify-finished false` (or `notifyOnFinish: false` in a model
+proposal). This suppresses Namzu's generic “finished” desktop notice for
+successful checks. Failure and approval notices still arrive. The
+default remains `true` for existing jobs and new jobs that leave it unset.
+
 An old namzu refuses a job file a newer one wrote for `script`/`script+agent`
 (format `v: 2`) rather than misread it as a malformed `agent` job; a plain
 `agent` job stays format `v: 1`, unchanged, and reads exactly as it always
@@ -121,6 +136,7 @@ there is no default permission set.
 | `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never); `check-failed` counts as a failure |
 | `--add-dir <dir>` | Another directory the file tools may reach |
 | `--notify-summary` | Put the run's one-line summary in its notification |
+| `--notify-finished true\|false` | Send Namzu's generic notice after a successful run. Default `true`; use `false` for a polling script that sends its own change notification. Failure and approval notices stay on. |
 | `--paused` | Create it paused |
 | `--yes` | Do not ask. Without a terminal this creates the job **inert** (below) |
 | `--allow-unattended-host` | Required for `--unmatched allow` with host execution |
@@ -134,8 +150,9 @@ folder, the schedule in words with the next three times in the job's zone, the
 model and token budget for a model phase, or zero tokens and the script timeout
 for a pure script, whether it can reach the network, and every rule in force —
 including the denies it inherits from your config files. On a terminal it asks
-you to confirm. A host script, or an agent allowed to run host shell commands,
-is marked network-capable even when no web or browser tool is granted.
+you to confirm. The preview also says whether Namzu sends a generic notice
+after a successful run. A host script, or an agent allowed to run host shell
+commands, is marked network-capable even when no web or browser tool is granted.
 
 ### Only a terminal or the TUI confirms a job
 
@@ -609,7 +626,7 @@ terminal (`--yes`) is held until you confirm it.
 ## One run
 
 The scheduler starts each run as its own process, `namzu schedule __fire`, in
-the job's folder, with a new conversation titled `⏲ <job> · <time>`. Before the
+the job's folder, with a new conversation titled `Scheduled: <job> · <time>`. Before the
 model is called — zero tokens spent — a run checks that the job is still the
 one confirmed, the folder is still the canonical folder it trusted, the
 project config matches its pin, every rule compiles, and the pinned provider
@@ -877,7 +894,16 @@ only question: the tool's `create`, `resume` and `delete` skip the ordinary
 permission review ("Do you want to run schedule?") in `prompt`, `accept-edits`
 and `auto`, as they draw their own. `plan` and `strict` still refuse them, a
 `schedule: ask` or `deny` rule still applies, and `pause` is reviewed as
-before. Every optional value the model set to something other than what you
+before. The proposal has a compact summary with its schedule, folder and
+critical warnings; its full permissions and exact script or prompt remain
+available in a scrollable review area. `Cancel` is the initial choice.
+`/schedule confirm` and `/schedule add` use the same scrollable review screen
+with the full job or script available. A pure script's review also says that
+its folder is a working directory, not
+a write boundary, and that only the floor and deny rules apply to its shell
+commands. A model may turn off only the generic successful-run notice with
+`notifyOnFinish: false`; the confirmation marks that choice and keeps failure
+notices on. Every optional value the model set to something other than what you
 would get by leaving it out — a time zone other than this machine's, a folder
 other than the session's, the sandbox, a budget, a visible browser window —
 is marked on the confirmation: `Chosen by the model, not the default: time

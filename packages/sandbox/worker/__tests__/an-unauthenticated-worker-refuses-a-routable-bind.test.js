@@ -50,17 +50,6 @@ afterEach(async () => {
 	}
 })
 
-async function getFreePort() {
-	return await new Promise((resolve, reject) => {
-		const server = net.createServer()
-		server.once('error', reject)
-		server.listen(0, '127.0.0.1', () => {
-			const { port } = server.address()
-			server.close(() => resolve(port))
-		})
-	})
-}
-
 /**
  * Start the real worker and report which way the startup decision went.
  *
@@ -73,7 +62,6 @@ async function getFreePort() {
  * this harness would have read as a refusal.
  */
 async function startWorker(env) {
-	const port = await getFreePort()
 	const workspace = await mkdtemp(path.join(os.tmpdir(), 'namzu-worker-bind-rule-'))
 	const source = await readFile(path.join(import.meta.dirname, '..', 'server.js'), 'utf8')
 	const entry = path.join(workspace, 'server.cjs')
@@ -82,7 +70,7 @@ async function startWorker(env) {
 	const child = spawn(process.execPath, [entry], {
 		env: {
 			...process.env,
-			NAMZU_SANDBOX_PORT: String(port),
+			NAMZU_SANDBOX_PORT: '0',
 			NAMZU_SANDBOX_WORKSPACE: workspace,
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
 			...env,
@@ -106,7 +94,7 @@ async function startWorker(env) {
 			15_000,
 		)
 		child.stdout.on('data', () => {
-			if (stdout.includes('listening on')) {
+			if (/listening on [^\n]+ auth=(?:bearer|none)\n/.test(stdout)) {
 				clearTimeout(timer)
 				resolve({ bound: true, refused: false, code: undefined, stdout, stderr })
 			}
@@ -133,10 +121,8 @@ async function startWorker(env) {
  * exited non-zero.
  *
  * The `refused` flag is what separates "the worker refused" from "the
- * worker died" — a distinction this suite needs, because a port that was
- * taken between `getFreePort()` and the spawn produces an exit with no
- * refusal in it, and reading that as a pass would turn a harness race into
- * a green test asserting nothing.
+ * worker died" — a distinction this suite needs for the deliberately
+ * occupied-port case below. A bind failure must never pass as a refusal.
  */
 function expectRefusal(outcome, reason) {
 	expect(outcome.bound, reason).toBe(false)

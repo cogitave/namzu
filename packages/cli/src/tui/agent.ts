@@ -5909,7 +5909,7 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 	}
 }
 
-/** The `⏺` row: one line naming what the call is about. */
+/** The tool call row: one line naming what the call is about. */
 export function viewToSummary(view: ToolCallView): string {
 	switch (view.kind) {
 		case 'generic':

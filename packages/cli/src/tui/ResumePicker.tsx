@@ -6,6 +6,7 @@
 
 import { Box, Text, useStdout } from 'ink'
 
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
@@ -57,7 +58,7 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 									 * and without the mark they are one column of text
 									 * that reads as if every row were chosen.
 									 */}
-									{c.named ? `"${c.title}"` : c.title}
+									{c.named ? `"${displayConversationTitle(c.title)}"` : displayConversationTitle(c.title)}
 								</Text>
 							</Box>
 							<Text color={theme.text.muted}> {relativeTime(c.updatedAt)}</Text>

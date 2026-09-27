@@ -170,7 +170,8 @@ describe('a browser job parked because a page needs the operator', () => {
 		expect(String(status.out.printed[0])).toContain(`Waiting        nightly needs you: ${REASON}`)
 
 		const tui = await listScheduleJobs({ home: sb.home, cwd: sb.project } as never)
-		expect(tui).toContain(`⚠ needs you: ${REASON}`)
+		expect(tui).toContain(`[needs you: ${REASON}]`)
+		expect(tui).not.toMatch(/[⏲⚠]/)
 		expect(tui).not.toContain('WAITING FOR YOUR APPROVAL')
 
 		expect(scheduleStartupLine(sb.home, sb.project, Date.now() + 1)).toContain(

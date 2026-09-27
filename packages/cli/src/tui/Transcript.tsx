@@ -249,7 +249,7 @@ function MessageRow({
 	const glyphColor =
 		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
-	// which hug the `⏺` tool call above them, so a result reads as
+	// which hug the tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.
 	const exploration = message.activity === 'exploration'
 	const startsExploration = exploration && prev?.activity !== 'exploration'
@@ -444,7 +444,7 @@ function glyphForRole(role: TranscriptMessage['role']): string {
 		case 'system':
 			return '·'
 		case 'tool':
-			return '⚙'
+			return 'T'
 	}
 }
 

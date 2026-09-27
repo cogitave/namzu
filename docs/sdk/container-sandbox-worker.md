@@ -128,6 +128,10 @@ absence fails closed before a socket exists:
 | `NAMZU_SANDBOX_TOKEN` set to a value no HTTP header can carry | **Refuses to start** in every mode |
 | No token, routable bind, `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` | Starts unauthenticated, on purpose |
 
+`NAMZU_SANDBOX_PORT=0` asks the worker to bind an available port. The bind
+line reports the port actually assigned, so a caller can connect to that
+listener.
+
 Two asymmetries, both deliberate.
 
 **Loopback without a token may start.** Nothing outside the container's own
