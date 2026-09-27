@@ -196,7 +196,7 @@ export function renderConfirmation(
 ): string {
 	return visibleScheduleMessage(
 		[
-			'⏲ PROPOSED BY THE MODEL, NOT BY YOU — a scheduled job that runs later with nobody watching.',
+			'PROPOSED BY THE MODEL, NOT BY YOU — a scheduled job that runs later with nobody watching.',
 			...confirmationBody(request.preview, request.promptFindings, lines),
 		].join('\n'),
 	)
@@ -213,7 +213,7 @@ export function renderUpdateConfirmation(
 ): string {
 	return visibleScheduleMessage(
 		[
-			`⏲ PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job ${request.preview.name}, which runs later with nobody watching.`,
+			`PROPOSED BY THE MODEL, NOT BY YOU — a change to the scheduled job ${request.preview.name}, which runs later with nobody watching.`,
 			...changesBlock(request.changes),
 			...(request.permissionsChange
 				? [
@@ -604,7 +604,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			// "done" said nothing about that.
 			const installed = readManifest(paths()) !== undefined
 			ui.say(
-				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
+				`Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
 			return {
 				name: job.name,
@@ -727,7 +727,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			})
 			const installed = readManifest(paths()) !== undefined
 			ui.say(
-				`⏲ Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
+				`Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
 			return {
 				name: next.name,
@@ -792,7 +792,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			}))
 			history(job, 'paused')
 			ui.say(
-				`⏲ The model paused the scheduled job ${job.name}. /schedule resume ${job.name} starts it again.`,
+				`The model paused the scheduled job ${job.name}. /schedule resume ${job.name} starts it again.`,
 			)
 		},
 

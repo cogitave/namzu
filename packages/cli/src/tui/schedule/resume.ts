@@ -335,7 +335,7 @@ export async function chooseHandoffContinuation(
 			.map(([key, value]) => `\n  ${safe(key)}: ${safe(value)}`),
 	].join('')
 	say(
-		`⏲ The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the turn goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
+		`The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the turn goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
 	)
 	if (!choose) return 'leave'
 	const choice = await choose({
@@ -439,7 +439,7 @@ export async function prepareScheduledResume(input: {
 		return { leave: true }
 	}
 	input.say(
-		`⏲ The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
+		`The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
 	)
 	const answer = await ask({
 		sessionId: input.sessionId as never,

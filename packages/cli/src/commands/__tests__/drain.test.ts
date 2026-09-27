@@ -457,7 +457,7 @@ describe('what the pass reports', () => {
 			const { ctx, errors, info } = contextCapturing()
 			expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
 			expect(errors.join(' ')).toContain(`Resumed turn ended with status "${status}"`)
-			expect(info.some((message) => message.startsWith('✔'))).toBe(false)
+			expect(info.some((message) => message.includes(' · completed'))).toBe(false)
 			expect(spies.releaseSession).toHaveBeenCalledTimes(1)
 		},
 	)

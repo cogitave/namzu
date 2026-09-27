@@ -1354,7 +1354,8 @@ describe('the schedule tool’s host', () => {
 				home: sb.home,
 				cwd: sb.project,
 			} as never)
-			expect(listed).toMatch(/ticker {2}\[active\]\s+\[script, 0 tokens\]/)
+			expect(listed).toContain('ticker  [active]  [script, 0 tokens]')
+			expect(listed).not.toMatch(/[⏲⚠]/)
 			expect(listed).toMatch(/gate {2}\[active\]\s+\[script\+agent\]/)
 		})
 	})

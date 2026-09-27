@@ -626,7 +626,7 @@ terminal (`--yes`) is held until you confirm it.
 ## One run
 
 The scheduler starts each run as its own process, `namzu schedule __fire`, in
-the job's folder, with a new conversation titled `⏲ <job> · <time>`. Before the
+the job's folder, with a new conversation titled `Scheduled: <job> · <time>`. Before the
 model is called — zero tokens spent — a run checks that the job is still the
 one confirmed, the folder is still the canonical folder it trusted, the
 project config matches its pin, every rule compiles, and the pinned provider

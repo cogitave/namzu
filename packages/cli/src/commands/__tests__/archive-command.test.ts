@@ -12,6 +12,7 @@ import {
 	closeSessions,
 	listRecent,
 	openSessions,
+	setTitle,
 	startConversation,
 } from '../../integrations/sessions/store.js'
 
@@ -39,6 +40,7 @@ it('lists and restores only this project through the real CLI, then allows resum
 	const sessions = await openSessions(cwd, { stateRoot })
 	const id = await startConversation(sessions)
 	await recordTurn(sessions, id, [createUserMessage('resume this work')])
+	await setTitle(sessions, id, '⏲ nightly-report · 27 Sept 2026, 11:32')
 	await archiveConversation(sessions, id)
 	closeSessions(sessions)
 
@@ -69,7 +71,10 @@ it('lists and restores only this project through the real CLI, then allows resum
 	process.chdir(cwd)
 	const listed = await invoke('list')
 	expect(listed.code).toBe(0)
-	expect(listed.output?.conversations).toMatchObject([{ id }])
+	expect(listed.output?.conversations).toMatchObject([
+		{ id, title: '⏲ nightly-report · 27 Sept 2026, 11:32' },
+	])
+	expect(listed.output?.text).toContain('Scheduled: nightly-report · 27 Sept 2026, 11:32')
 	const nextPage = await invoke('list', '--page', '2')
 	expect(nextPage).toMatchObject({ code: 0, output: { page: 2, conversations: [] } })
 	const invalidPage = await invoke('list', '--page', 'nope')

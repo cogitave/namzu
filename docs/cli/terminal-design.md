@@ -24,6 +24,13 @@ explicit ANSI 256-color indices so the green accent and neutral text do not
 shift hue through RGB-to-palette approximation. Terminals with color disabled
 retain the same text, symbols and boundaries.
 
+Namzu's own terminal labels use words and text-presentation marks, never emoji.
+Emoji code points can occupy two terminal cells and crowd the following label,
+especially in Windows Terminal. Scheduled jobs therefore start with the job
+name in `/schedule`, and new run titles use `Scheduled: <job> · <time>`;
+previously saved clock-prefixed titles display with the same text prefix in
+conversation lists and notices without rewriting stored sessions.
+
 ## The composer footer
 
 One dim line sits directly below the message frame, with no blank row between

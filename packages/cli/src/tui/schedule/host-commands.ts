@@ -76,7 +76,7 @@ const USAGE = [
 	'/schedule run <job>                run it now through the scheduler',
 	'/schedule remove <job>',
 	'/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>',
-	'A run waiting for approval: /resume its conversation (⏲ <job> · <time>) in its folder.',
+	'A run waiting for approval: /resume its conversation (Scheduled: <job> · <time>) in its folder.',
 ].join('\n')
 
 async function schedulerLine(home: string): Promise<string> {
@@ -111,14 +111,14 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 		const mark =
 			state.activeRun?.status === 'awaiting-approval'
 				? state.activeRun.handoff
-					? ` ⚠ ${parkedRunWords(state.activeRun)}`
-					: ' ⚠ WAITING FOR YOUR APPROVAL'
+					? `  [${parkedRunWords(state.activeRun)}]`
+					: '  [waiting for your approval]'
 				: job.state === 'pending-confirmation'
-					? ' ⚠ needs confirmation'
+					? '  [needs confirmation]'
 					: job.state === 'active' && !confirmationHolds(job)
-						? ' ⚠ changed outside namzu — on hold'
+						? '  [on hold: changed outside namzu]'
 						: state.activeRun?.status === 'running'
-							? ' ● running'
+							? '  [running]'
 							: ''
 		// `agent` (absent) is the common case and stays unmarked; `script`
 		// costs no tokens at all, worth marking the same way `schedule list`
@@ -130,14 +130,14 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 					? '  [script+agent]'
 					: ''
 		lines.push(
-			`⏲ ${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			const command = resumeCommand(job, state.activeRun.sessionId)
 			const verb = state.activeRun.handoff ? 'when that is done, continue it' : 'answer it'
 			lines.push(
 				job.folder.canonical === ctx.cwd
-					? `    ${verb}: /resume and pick "⏲ ${job.name}", or ${command}`
+					? `    ${verb}: /resume and pick "Scheduled: ${job.name}", or ${command}`
 					: `    ${verb}: ${command}`,
 			)
 		}

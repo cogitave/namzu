@@ -3,6 +3,7 @@
 import { asSessionId } from '@namzu/sdk'
 
 import { EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import {
 	closeSessions,
 	listArchived,
@@ -51,7 +52,9 @@ export const archiveCommand: CommandDef = {
 				const text =
 					conversations.length === 0
 						? `No archived conversations on page ${page} in this project.`
-						: conversations.map((entry) => `${entry.id}  ${entry.title}`).join('\n')
+						: conversations
+								.map((entry) => `${entry.id}  ${displayConversationTitle(entry.title)}`)
+								.join('\n')
 				ctx.formatter.print({ page, conversations, text: terminalDisplayText(text) })
 				return EXIT_OK
 			}

@@ -108,6 +108,7 @@ import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import type {
 	SubagentActivity,
@@ -1105,7 +1106,7 @@ export function App({
 				...(job.signal ? { signal: job.signal } : {}),
 			})
 			idleJobNoticesRef.current.push(text)
-			pushMessage('system', text, false, '⚙')
+			pushMessage('system', text, false, 'J')
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -1733,7 +1734,7 @@ export function App({
 				}),
 			saved: ({ name, path }) =>
 				scheduleLiveRef.current?.say(
-					`✎ Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
+					`Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
 				),
 		})
 	}
@@ -4327,7 +4328,7 @@ export function App({
 			}
 			// Said once the turn really continues: a scheduled park can still
 			// be left waiting or abandoned above.
-			pushMessage('system', PAUSED_TURN_LINES.resuming, false, '▶')
+			pushMessage('system', PAUSED_TURN_LINES.resuming)
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
@@ -4687,7 +4688,7 @@ export function App({
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
-			pushMessage('system', `Resumed: ${conv.title}`)
+			pushMessage('system', `Resumed: ${displayConversationTitle(conv.title)}`)
 			if (discardedQueued > 0) {
 				pushMessage(
 					'system',
@@ -4754,7 +4755,7 @@ export function App({
 				)
 				return
 			}
-			pushMessage('system', `Restored: ${conv.title}`)
+			pushMessage('system', `Restored: ${displayConversationTitle(conv.title)}`)
 			try {
 				await resumeConversation(conv)
 			} finally {
@@ -5052,7 +5053,7 @@ export function App({
 			wakeGoalDriver()
 			pushMessage(
 				'system',
-				`Forked into "${forked.title}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				`Forked into "${displayConversationTitle(forked.title)}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
 			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
@@ -5204,7 +5205,7 @@ export function App({
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Forked into "${forked.title}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
+					`Forked into "${displayConversationTitle(forked.title)}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
 				)
 			} catch (err) {
 				setPhase('ready')
@@ -5823,7 +5824,7 @@ export function App({
 				case 'job':
 					// The kernel saw it end during a turn; the model reads the notice
 					// on its next tool result, the operator reads this row.
-					pushMessage('system', describeJobExit(event), false, '⚙')
+					pushMessage('system', describeJobExit(event), false, 'J')
 					break
 				case 'context':
 					// Into the TRANSCRIPT, not a status line. A status indicator is
@@ -7686,7 +7687,7 @@ export function App({
 									await persistenceTailRef.current
 									const forked = await manager.fork(scope.sessionId, label)
 									notice(
-										`Forked ${forked.copied} messages into ${forked.title}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
+										`Forked ${forked.copied} messages into ${displayConversationTitle(forked.title)}. Open the new checkout in a new terminal: ${worktreeOpenHint(forked.path, forked.conversationId)}${forked.sourceDirty ? '\nUncommitted files stayed in this checkout.' : ''}`,
 									)
 								} else if (label) {
 									const target = await manager.resume(label)
@@ -8551,7 +8552,7 @@ export function App({
 		void checkUpdates(ctx.version).then((ups) => {
 			if (ups.length === 0) return
 			const lines = ups.map((u) => `  • ${u.name} ${u.current} → ${u.latest}  (${u.how})`)
-			pushMessage('system', `⬆ Update available:\n${lines.join('\n')}`)
+			pushMessage('system', `Update available:\n${lines.join('\n')}`)
 		})
 	}, [phase, ctx.version, pushMessage])
 

@@ -81,7 +81,7 @@ export function SaveSkillOverlay({ request, cwd, columns, rows, onAnswer }: Save
 	const [offset, setOffset] = useState(0)
 
 	const header = [
-		`✎ Save skill "${request.draft.name}"? PROPOSED BY THE MODEL — a skill is read by every later session that loads it.`,
+		`Save skill "${request.draft.name}"? PROPOSED BY THE MODEL — a skill is read by every later session that loads it.`,
 		`Origin ${request.draft.origin}${request.sessionId ? ` · session ${request.sessionId}` : ''}`,
 		...targetLines(request.targets.user, cwd, request.suggested === 'user'),
 		...targetLines(request.targets.project, cwd, request.suggested === 'project'),
