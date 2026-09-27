@@ -471,7 +471,9 @@ Command, settings, goal, skill, branch and commit menus accept text filtering.
 Digits belong to the search query in these menus. Arrow keys navigate and
 Enter applies an available selection; non-searchable menus keep their numeric
 shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
-picker. The footer describes the keys used by the active surface.
+picker. The first key pressed after a menu appears is accepted; the key that
+opened the menu cannot also select its first row. The footer describes the
+keys used by the active surface.
 
 Text editors for conversation names and goals keep a single visible input row.
 Long values scroll with the cursor, including after terminal resizing, so the

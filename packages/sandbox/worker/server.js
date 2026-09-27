@@ -1295,7 +1295,7 @@ server.on('error', (error) => {
 })
 server.listen(PORT, BIND, () => {
 	console.log(
-		`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT} idleTimeoutMs=${IDLE_TIMEOUT_MS} auth=${AUTH_ENABLED ? 'bearer' : 'none'}`,
+		`[namzu-sandbox-worker] listening on ${BIND}:${server.address().port} workspace=${WORKSPACE_ROOT} idleTimeoutMs=${IDLE_TIMEOUT_MS} auth=${AUTH_ENABLED ? 'bearer' : 'none'}`,
 	)
 	// Arm the idle timer at boot. If the host never sends a single
 	// `/execute` (e.g. supervisor hangs before its first tool call),

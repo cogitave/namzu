@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -49,20 +48,8 @@ afterEach(async () => {
 	}
 })
 
-function getFreePort() {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer()
-		srv.once('error', reject)
-		srv.listen(0, '127.0.0.1', () => {
-			const { port } = srv.address()
-			srv.close(() => resolve(port))
-		})
-	})
-}
-
 /** Start the real file and return the line it logs when it binds. */
 async function startAndReadBindLine(env) {
-	const port = await getFreePort()
 	const workspace = await mkdtemp(path.join(os.tmpdir(), 'namzu-worker-bind-'))
 	const source = await readFile(path.join(import.meta.dirname, '..', 'server.js'), 'utf8')
 	const entry = path.join(workspace, 'server.cjs')
@@ -71,7 +58,7 @@ async function startAndReadBindLine(env) {
 	const child = spawn(process.execPath, [entry], {
 		env: {
 			...process.env,
-			NAMZU_SANDBOX_PORT: String(port),
+			NAMZU_SANDBOX_PORT: '0',
 			NAMZU_SANDBOX_WORKSPACE: workspace,
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
 			// The credential the container backend injects at `docker run`
@@ -91,11 +78,18 @@ async function startAndReadBindLine(env) {
 		const timer = setTimeout(() => reject(new Error(`worker never logged a bind: ${out}`)), 15_000)
 		child.stdout.on('data', (chunk) => {
 			out += chunk.toString('utf8')
-			const line = out.split('\n').find((l) => l.includes('listening on'))
+			const line = out
+				.split('\n')
+				.slice(0, -1)
+				.find((l) => l.includes('listening on'))
 			if (line) {
 				clearTimeout(timer)
 				resolve(line)
 			}
+		})
+		child.once('exit', (code) => {
+			clearTimeout(timer)
+			reject(new Error(`worker exited before binding (${code}): ${out}`))
 		})
 		child.once('error', (err) => {
 			clearTimeout(timer)

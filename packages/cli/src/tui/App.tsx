@@ -45,7 +45,7 @@ import {
 	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
 	pinTrustedProjectPath,
@@ -1273,7 +1273,9 @@ export function App({
 		if (next === null) choicePickerCommittedRef.current = null
 		setChoicePickerState(next)
 	}, [])
-	useEffect(() => {
+	// A painted menu must already accept its first key. A passive effect can
+	// run after Ink flushes that frame, leaving the ownership fence closed.
+	useLayoutEffect(() => {
 		choicePickerCommittedRef.current = choicePicker
 	}, [choicePicker])
 	/** Host-owned text decision; its value never enters model prompt history. */
