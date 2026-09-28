@@ -15,9 +15,11 @@ other Namzu providers, connecting to OpenCode's Zen and Go services.
 Install it alongside `@namzu/sdk >=36.0.0` and the
 SDK's Zod v3 peer in a Node.js 20+ application.
 
-Zen's public models work without an account key or an installed OpenCode
-client. Anonymous access defaults to Muse Spark 1.3 Contributor Free.
-Zen Go is a separate service and still requires its own API key.
+Zen publishes a free-model catalogue, but a listing does not establish direct
+keyless access from Namzu. On 2026-09-28, `space-bunny-free` completed a
+keyless text request and two-turn tool continuation through the real driver.
+The other seven bundled free models returned HTTP 403 to direct Namzu requests.
+Zen Go is a separate service and requires its own API key.
 
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3
@@ -43,7 +45,7 @@ const sessionId = generateSessionId()
 const provider = new ZenProvider({ sessionId })
 const first = await runAgent({
   provider,
-  model: 'muse-spark-1.3-contributor-free',
+  model: 'space-bunny-free',
   sessionId,
   prompt: 'Describe an agent kernel in one paragraph.',
 })
@@ -51,14 +53,15 @@ const first = await runAgent({
 const second = await runAgent({
   ...first.identity,
   provider,
-  model: 'muse-spark-1.3-contributor-free',
+  model: 'space-bunny-free',
   prompt: [...first.turn.messages, { role: 'user', content: 'Give one example.' }],
 })
 
 console.log(second.output)
 ```
 
-These calls perform public inference without an account key. `runAgent` generates
+These calls use the direct keyless path verified for `space-bunny-free` on
+2026-09-28. Gateway admission can change. `runAgent` generates
 the other missing native identity fields; a host with stored sessions
 supplies their actual identities instead. Reusing an ID does not reload
 history. Pass the durable messages, as above, or restore them through the
@@ -81,14 +84,15 @@ is attributed to its invoking conversation.
 | Registration | `registerZen()` | `registerZenGo()` |
 | Base URL | `https://opencode.ai/zen/v1` | `https://opencode.ai/zen/go/v1` |
 | CLI key lookup | `OPENCODE_API_KEY`, then `OPENCODE_ZEN_API_KEY` | `OPENCODE_GO_API_KEY` |
-| SDK default model | Public Muse without a key; `glm-5.3-flash` with a real key | `glm-5.3-flash` |
-| CLI default model | `muse-spark-1.3-contributor-free` | `glm-5.3-flash` |
+| SDK default model | `space-bunny-free` without a key; `glm-5.3-flash` with a real key | `glm-5.3-flash` |
+| CLI default model | `space-bunny-free` | `glm-5.3-flash` |
 
 For `ZenProvider`, an omitted or blank `apiKey`, or the explicit `public`
 sentinel, selects anonymous access. A real API key selects credentialed
 access. `ZenGoProvider` requires a real key. SDK constructors do not read
 environment variables or another application's credential store.
-`new ZenProvider()` is valid; the Go constructor instead takes `ZenGoConfig`,
+`new ZenProvider()` is valid but does not establish that the gateway will admit
+inference; the Go constructor instead takes `ZenGoConfig`,
 which requires `apiKey`. Registry configs use `ZenProviderConfig` and
 `ZenGoProviderConfig` respectively.
 
@@ -114,20 +118,22 @@ Only
 and `opencode-go` supplies Go. OAuth entries are not treated as API keys,
 and a Zen key is never reused for Go. The credential file is read only;
 Namzu does not rewrite or refresh it. An installed OpenCode executable is
-not required for public access.
+not required to construct an anonymous provider.
 
-With no usable key, Zen is discovered as a public provider rather than a
+With no usable key, Zen is discovered as an anonymous option rather than a
 signed-in subscription. Selecting it does not request a key or start a
-login flow; its picker label says `free models · no API key`. Public access
+login flow; its picker label says `anonymous option · access unverified`.
+This is a catalogue option, not proof that the gateway will admit inference. It
 is ordered after existing credentials and reachable local providers,
 including when selected by an explicit `public` environment value, so it
 does not displace them when no provider preference is saved.
 The CLI supports `--provider zen` and `--provider zen-go`; its
 model picker uses live discovery.
 
-In the bundled catalogue, anonymous access is restricted to these explicit
-model IDs; a runtime catalogue admits the ones the Zen page's free-model list
-names on the day it is fetched:
+The bundled catalogue records these free model IDs advertised by Zen. The
+driver currently marks only `space-bunny-free` for direct anonymous access;
+a runtime refresh reads the page's free list but does not treat that list alone
+as evidence that Namzu can call every model without a key:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
@@ -135,16 +141,21 @@ names on the day it is fetched:
 - `ling-3.0-flash-fin-free`
 - `nemotron-3-ultra-free`
 - `nemotron-3.5-lightning-free`
+- `space-bunny-free`
+- `longcat-2.5-preview-free`
 
-This is current public access, subject to upstream availability and limits.
-It is what the service documents, not a promise that the service will serve
-it: on 2026-09-18 every one of these models, including the previously
-verified `muse-spark-1.3-contributor-free`, answered HTTP 403
+This is the documented free catalogue, subject to upstream admission and
+limits. It is not a promise that the service will serve these models to Namzu:
+on 2026-09-18 every model in the then-bundled six-model set, including the
+previously verified `muse-spark-1.3-contributor-free`, answered HTTP 403
 `FreeTierError` — "OpenCode's free tier can only be used from within
 OpenCode" — over both `/responses` and `/messages`, with the public
-sentinel in the header that wire uses. That is an upstream change to
-admission rather than a defect in this driver, and the catalogue still
-records the free-model list the pages publish.
+sentinel in the header that wire uses. On 2026-09-28, all seven free models
+other than `space-bunny-free` again returned HTTP 403; Space Bunny completed
+direct keyless inference and a tool continuation. The gateway's admission is
+model-specific and can change. The catalogue still records every free-model
+name the pages publish, while `supportsAnonymousAccess` marks only the model
+verified for direct Namzu access.
 
 The service serves more than the pages document, and the difference is
 recorded rather than ignored. Its own `/models` answer advertises two further
@@ -210,7 +221,8 @@ context limits, pricing or effort support.
 requests the selected service's `/models` endpoint and intersects its IDs
 with that metadata. A live model without a supported entry is not
 advertised as ready to use. Anonymous discovery additionally restricts the
-result to the explicit public model set above.
+result to models marked for direct anonymous access; the current bundled set
+contains only `space-bunny-free`.
 
 That intersection is why the catalogue has to keep up: the service's own
 `/models` answer carries `id`, `object`, `created` and `owned_by` and nothing
@@ -227,6 +239,16 @@ service's own answer is the only place a model that no page documents appears at
 all. The rules that read them live in `src/catalogue/derive.ts`, and the same
 code produces two things: the bundled snapshot in `src/models.ts`, and a
 catalogue derived at run time when a host asks for one.
+
+For Go, reference-client route overrides send `deepseek-v4-flash` through Responses
+and `minimax-m2.7` and `minimax-m3` through Chat Completions, even while the
+current page's endpoint cells disagree. The current Go page omits route and
+price rows for `glm-5.1`, `qwen3.6-plus` and `qwen3.7-max` although `/models`
+still serves them. The refreshed bundled snapshot therefore removes these IDs
+and runtime discovery treats them as reviewed omissions. A host that has
+separately verified a wire can still supply
+`ZenGoProvider({ apiKey, model, protocol })` for one of them; the CLI does not
+offer these IDs.
 
 ### A catalogue refreshed at run time
 
@@ -361,7 +383,7 @@ answer within that limit. Reasoning controls are explicit:
 | Protocol | Thinking and effort behavior |
 | --- | --- |
 | `chat` | Sends compatible thinking mode and reasoning effort; refuses thinking token budgets and display selection |
-| `responses` | Uses adaptive effort and requests encrypted reasoning for stateless continuation; refuses manual thinking budgets |
+| `responses` | Uses adaptive effort and requests encrypted reasoning for stateless continuation except on Muse Spark, whose gateway cannot round-trip it; refuses manual thinking budgets |
 | `messages` | Maps manual/adaptive thinking, effort and parallel tool settings; display selection requires adaptive thinking |
 | `google` | Maps thinking budget/level and thought display; refuses a parallel-tool switch |
 
@@ -463,6 +485,13 @@ the exact nonce with `end_turn`. This validates that model's public text
 and file-tool continuation path. It does not establish every public model,
 paid-account access, Go inference, or billing: the turn reported 13,749
 unpriced tokens, which are not a verified charge.
+
+On 2026-09-28, a separate live check with no key used the real `ZenProvider`
+to complete a `space-bunny-free` text turn. In a second run, the model called
+a tool, then returned a value available only from that tool's result. The same
+day, one direct Namzu-shaped request to each of the other seven bundled free
+models returned HTTP 403 `FreeTierError`. This proves one working keyless route
+at that time and keeps the other seven out of Namzu's anonymous picker.
 
 ### Turns that disable tools
 

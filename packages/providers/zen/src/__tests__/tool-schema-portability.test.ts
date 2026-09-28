@@ -2,7 +2,7 @@ import type { ChatCompletionParams, ProviderRoute } from '@namzu/sdk'
 import { ToolManager, findPortableSchemaViolations, getBuiltinTools, toolset } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import type { ZenProtocol } from '../models.js'
+import { type ZenProtocol, findZenModel } from '../models.js'
 import { createCallOptions } from '../options.js'
 
 /**
@@ -49,8 +49,11 @@ function requestTools(protocol: ZenProtocol, model: string) {
 		tools: toolsFromTheKernel(),
 	}
 	const route: ProviderRoute = { providerId: 'zen', model, chainIndex: 0 }
-	const options = createCallOptions(params, route, 'zen', protocol)
-	return (options.tools ?? []) as { name: string; inputSchema: Record<string, unknown> }[]
+	const options = createCallOptions(params, route, 'zen', protocol, findZenModel('zen', model))
+	return (options.tools ?? []) as {
+		name: string
+		inputSchema: Record<string, unknown>
+	}[]
 }
 
 describe('the tool block Zen receives', () => {
@@ -59,7 +62,9 @@ describe('the tool block Zen receives', () => {
 
 		expect(tools.length).toBeGreaterThan(0)
 		for (const tool of tools) {
-			expect({ [tool.name]: findPortableSchemaViolations(tool.inputSchema) }).toEqual({
+			expect({
+				[tool.name]: findPortableSchemaViolations(tool.inputSchema),
+			}).toEqual({
 				[tool.name]: [],
 			})
 		}

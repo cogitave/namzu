@@ -8,7 +8,11 @@ import { describe, expect, it } from 'vitest'
 import type { ZenProtocol } from './models.js'
 import { createReplayState, toModelPrompt, toReasoningBlocks } from './prompt.js'
 
-const ROUTE: ProviderRoute = { providerId: 'configured-zen', model: 'test-model', chainIndex: 0 }
+const ROUTE: ProviderRoute = {
+	providerId: 'configured-zen',
+	model: 'test-model',
+	chainIndex: 0,
+}
 const INPUT: ChatCompletionParams = {
 	model: ROUTE.model,
 	messages: [{ role: 'user', content: 'Find a file.' }],
@@ -56,7 +60,11 @@ function nativeReasoning(
 	metadata: Record<string, Record<string, string>>,
 ): LanguageModelV3Content[] {
 	return [
-		{ type: 'reasoning', text: 'Inspect the source.', providerMetadata: metadata },
+		{
+			type: 'reasoning',
+			text: 'Inspect the source.',
+			providerMetadata: metadata,
+		},
 		{ type: 'text', text: 'Reading it.' },
 		{
 			type: 'tool-call',
@@ -81,7 +89,12 @@ describe('Zen prompt conversion', () => {
 					content: 'Inspect these.',
 					attachments: [
 						{ data: 'aW1hZ2U=', mediaType: 'image/png' },
-						{ type: 'document', data: 'cGRm', mediaType: 'application/pdf', name: 'report.pdf' },
+						{
+							type: 'document',
+							data: 'cGRm',
+							mediaType: 'application/pdf',
+							name: 'report.pdf',
+						},
 					],
 				},
 			]),
@@ -92,7 +105,12 @@ describe('Zen prompt conversion', () => {
 				content: [
 					{ type: 'text', text: 'Inspect these.' },
 					{ type: 'file', data: 'aW1hZ2U=', mediaType: 'image/png' },
-					{ type: 'file', data: 'cGRm', mediaType: 'application/pdf', filename: 'report.pdf' },
+					{
+						type: 'file',
+						data: 'cGRm',
+						mediaType: 'application/pdf',
+						filename: 'report.pdf',
+					},
 				],
 			},
 		])
@@ -104,8 +122,16 @@ describe('Zen prompt conversion', () => {
 				role: 'user',
 				content: 'Saved images',
 				attachments: [
-					{ data: 'bad', mediaType: 'image/png', modelOmission: { reason: 'invalid-image' } },
-					{ data: 'good', mediaType: 'image/png', modelOmission: { reason: 'invented' } as never },
+					{
+						data: 'bad',
+						mediaType: 'image/png',
+						modelOmission: { reason: 'invalid-image' },
+					},
+					{
+						data: 'good',
+						mediaType: 'image/png',
+						modelOmission: { reason: 'invented' } as never,
+					},
 				],
 			},
 		])
@@ -125,7 +151,12 @@ describe('Zen prompt conversion', () => {
 					role: 'user',
 					content: '',
 					attachments: [
-						{ type: 'stored', ref: 'secret-ref', mediaType: 'application/pdf', kind: 'document' },
+						{
+							type: 'stored',
+							ref: 'secret-ref',
+							mediaType: 'application/pdf',
+							kind: 'document',
+						},
 					],
 				},
 			]),
@@ -150,8 +181,17 @@ describe('Zen prompt conversion', () => {
 
 	it('keeps opaque tool IDs, resolves names from earlier calls and marks failures', () => {
 		const prompt = convert([
-			{ role: 'assistant', content: null, toolCalls: [CALL, { ...CALL, id: 'second' }] },
-			{ role: 'tool', toolCallId: 'second', content: 'permission denied', isError: true },
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [CALL, { ...CALL, id: 'second' }],
+			},
+			{
+				role: 'tool',
+				toolCallId: 'second',
+				content: 'permission denied',
+				isError: true,
+			},
 			{ role: 'tool', toolCallId: CALL.id, content: 'source text' },
 		])
 		expect(prompt[0]).toMatchObject({
@@ -194,7 +234,12 @@ describe('Zen prompt conversion', () => {
 				{
 					role: 'assistant',
 					content: null,
-					toolCalls: [{ ...CALL, function: { name: 'f', arguments: 'private malformed input' } }],
+					toolCalls: [
+						{
+							...CALL,
+							function: { name: 'f', arguments: 'private malformed input' },
+						},
+					],
 				},
 			]),
 		).toThrow('invalid JSON arguments')
@@ -215,7 +260,12 @@ describe('Zen prompt conversion', () => {
 						mediaType: 'image/png',
 						modelOmission: { reason: 'provider-rejected' },
 					},
-					{ type: 'document', data: 'cGRm', mediaType: 'application/pdf', name: 'report.pdf' },
+					{
+						type: 'document',
+						data: 'cGRm',
+						mediaType: 'application/pdf',
+						name: 'report.pdf',
+					},
 				],
 			},
 		]
@@ -227,7 +277,11 @@ describe('Zen prompt conversion', () => {
 							type: 'content',
 							value: [
 								{ type: 'text', text: 'A screenshot' },
-								{ type: 'image-data', data: 'aW1hZ2U=', mediaType: 'image/png' },
+								{
+									type: 'image-data',
+									data: 'aW1hZ2U=',
+									mediaType: 'image/png',
+								},
 								{
 									type: 'file-data',
 									data: 'cGRm',
@@ -288,7 +342,12 @@ describe('Zen native replay ownership', () => {
 					providerOptions: { anthropic: { signature: 'sig-opaque' } },
 				},
 				{ type: 'text', text: 'Reading it.' },
-				{ type: 'tool-call', toolCallId: CALL.id, toolName: 'read_file', input: { path: 'a.ts' } },
+				{
+					type: 'tool-call',
+					toolCallId: CALL.id,
+					toolName: 'read_file',
+					input: { path: 'a.ts' },
+				},
 				{
 					type: 'reasoning',
 					text: '',
@@ -297,6 +356,97 @@ describe('Zen native replay ownership', () => {
 			],
 		})
 	})
+
+	it.each([
+		['zen', 'muse-spark-1.3-contributor-free'],
+		['go', 'muse-spark-1.3-contributor'],
+	] as const)(
+		'%s Muse validates native history before removing reasoning from replay',
+		(service, model) => {
+			const route: ProviderRoute = {
+				providerId: service === 'go' ? 'zen-go' : 'zen',
+				model,
+				chainIndex: 0,
+			}
+			const input: ChatCompletionParams = { model, messages: INPUT.messages }
+			const content: LanguageModelV3Content[] = [
+				{
+					type: 'reasoning',
+					text: 'Inspect the source.',
+					providerMetadata: {
+						openai: {
+							itemId: 'reasoning_native',
+							reasoningEncryptedContent: 'ciphertext',
+						},
+					},
+				},
+				{
+					type: 'text',
+					text: 'Reading it.',
+					providerMetadata: { openai: { itemId: 'text_native' } },
+				},
+				{
+					type: 'tool-call',
+					toolCallId: CALL.id,
+					toolName: CALL.function.name,
+					input: CALL.function.arguments,
+					providerMetadata: { openai: { itemId: 'tool_native' } },
+				},
+			]
+			const message: AssistantMessage = {
+				role: 'assistant',
+				content: 'Reading it.',
+				reasoning: toReasoningBlocks(content),
+				toolCalls: [CALL],
+				source: {
+					type: 'model',
+					...route,
+					replayState: createReplayState(input, route, service, 'responses', content),
+				},
+			}
+			const prompt = toModelPrompt(
+				{ ...input, messages: [...input.messages, message] },
+				route,
+				service,
+				'responses',
+			)
+			expect(prompt[1]).toMatchObject({
+				role: 'assistant',
+				content: [
+					{
+						type: 'text',
+						text: 'Reading it.',
+						providerOptions: { openai: { itemId: 'text_native' } },
+					},
+					{
+						type: 'tool-call',
+						toolCallId: CALL.id,
+						providerOptions: { openai: { itemId: 'tool_native' } },
+					},
+				],
+			})
+			expect(JSON.stringify(prompt)).not.toContain('ciphertext')
+			const tampered: AssistantMessage = {
+				...message,
+				reasoning: [{ type: 'thinking', text: 'forged', encrypted: 'ciphertext' }],
+			}
+			const fallback = toModelPrompt(
+				{ ...input, messages: [...input.messages, tampered] },
+				route,
+				service,
+				'responses',
+			)
+			expect(fallback[1]).toMatchObject({
+				role: 'assistant',
+				content: [
+					{ type: 'text', text: 'Reading it.' },
+					{ type: 'tool-call', toolCallId: CALL.id },
+				],
+			})
+			expect(JSON.stringify(fallback)).not.toContain('text_native')
+			expect(JSON.stringify(fallback)).not.toContain('tool_native')
+		},
+	)
 
 	it.each([
 		'source',
@@ -320,7 +470,10 @@ describe('Zen native replay ownership', () => {
 		let protocol: ZenProtocol = 'messages'
 		let model = ROUTE.model
 		if (change === 'source')
-			message.source = { ...required(message.source), providerId: 'other-tenant' }
+			message.source = {
+				...required(message.source),
+				providerId: 'other-tenant',
+			}
 		if (change === 'chain') route = { ...ROUTE, chainIndex: 1 }
 		if (change === 'model') model = 'different-model'
 		if (change === 'service') service = 'go'
@@ -358,11 +511,17 @@ describe('Zen native replay ownership', () => {
 		)
 		const bare: Message[] = [...INPUT.messages, message]
 		const withId: Message[] = [
-			{ ...INPUT.messages[0], id: '01a0d000-0000-7000-8000-000000000001' } as Message,
+			{
+				...INPUT.messages[0],
+				id: '01a0d000-0000-7000-8000-000000000001',
+			} as Message,
 			message,
 		]
 		const differentId: Message[] = [
-			{ ...INPUT.messages[0], id: '01a0d000-0000-7000-8000-000000000002' } as Message,
+			{
+				...INPUT.messages[0],
+				id: '01a0d000-0000-7000-8000-000000000002',
+			} as Message,
 			message,
 		]
 		const bareState = createReplayState(
@@ -400,12 +559,23 @@ describe('Zen native replay ownership', () => {
 	it('never claims valid replay for truncated or unsupported native parts', () => {
 		expect(
 			createReplayState(INPUT, ROUTE, 'zen', 'messages', [
-				{ type: 'tool-call', toolCallId: 'a', toolName: 'f', input: '{"truncated":' },
+				{
+					type: 'tool-call',
+					toolCallId: 'a',
+					toolName: 'f',
+					input: '{"truncated":',
+				},
 			]),
 		).toBeUndefined()
 		expect(
 			createReplayState(INPUT, ROUTE, 'zen', 'responses', [
-				{ type: 'tool-call', toolCallId: 'a', toolName: 'f', input: '{}', providerExecuted: true },
+				{
+					type: 'tool-call',
+					toolCallId: 'a',
+					toolName: 'f',
+					input: '{}',
+					providerExecuted: true,
+				},
 			]),
 		).toBeUndefined()
 		expect(
@@ -437,7 +607,10 @@ describe('official V3 adapters consume replay metadata', () => {
 			body = JSON.parse(String(init?.body)) as Record<string, unknown>
 			return new Response(
 				JSON.stringify({
-					error: { message: 'intentional fixture rejection', type: 'invalid_request_error' },
+					error: {
+						message: 'intentional fixture rejection',
+						type: 'invalid_request_error',
+					},
 				}),
 				{ status: 400, headers: { 'content-type': 'application/json' } },
 			)
@@ -494,7 +667,12 @@ describe('official V3 adapters consume replay metadata', () => {
 				protocol,
 			)
 			const body = await requestBody(create, message, protocol, [
-				{ role: 'tool', toolCallId: CALL.id, content: 'permission denied', isError: true },
+				{
+					role: 'tool',
+					toolCallId: CALL.id,
+					content: 'permission denied',
+					isError: true,
+				},
 			])
 			if (protocol === 'messages') {
 				expect(JSON.stringify(body)).toContain('"is_error":true')
@@ -506,7 +684,9 @@ describe('official V3 adapters consume replay metadata', () => {
 	})
 
 	it('replays Anthropic thinking signatures and redacted blocks on the wire', async () => {
-		const content = nativeReasoning({ anthropic: { signature: 'signed-native' } })
+		const content = nativeReasoning({
+			anthropic: { signature: 'signed-native' },
+		})
 		content.splice(1, 0, {
 			type: 'reasoning',
 			text: '',
@@ -522,10 +702,19 @@ describe('official V3 adapters consume replay metadata', () => {
 			{
 				role: 'assistant',
 				content: [
-					{ type: 'thinking', thinking: 'Inspect the source.', signature: 'signed-native' },
+					{
+						type: 'thinking',
+						thinking: 'Inspect the source.',
+						signature: 'signed-native',
+					},
 					{ type: 'redacted_thinking', data: 'encrypted-native' },
 					{ type: 'text', text: 'Reading it.' },
-					{ type: 'tool_use', id: CALL.id, name: 'read_file', input: { path: 'a.ts' } },
+					{
+						type: 'tool_use',
+						id: CALL.id,
+						name: 'read_file',
+						input: { path: 'a.ts' },
+					},
 				],
 			},
 		])
@@ -585,7 +774,9 @@ describe('official V3 adapters consume replay metadata', () => {
 				toolCallId: CALL.id,
 				toolName: 'read_file',
 				input: CALL.function.arguments,
-				providerMetadata: { opencode: { thoughtSignature: 'compatible-native' } },
+				providerMetadata: {
+					opencode: { thoughtSignature: 'compatible-native' },
+				},
 			},
 		]
 		const body = await requestBody(
@@ -604,7 +795,12 @@ describe('official V3 adapters consume replay metadata', () => {
 			{
 				role: 'assistant',
 				tool_calls: [
-					{ id: CALL.id, extra_content: { google: { thought_signature: 'compatible-native' } } },
+					{
+						id: CALL.id,
+						extra_content: {
+							google: { thought_signature: 'compatible-native' },
+						},
+					},
 				],
 			},
 		])

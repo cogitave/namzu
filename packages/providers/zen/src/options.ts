@@ -1,19 +1,33 @@
 import { getModelCapabilities as getMessagesCapabilities } from '@ai-sdk/anthropic/internal'
 import type { LanguageModelV3CallOptions, SharedV3ProviderOptions } from '@ai-sdk/provider'
 import { type ChatCompletionParams, ProviderRequestError, type ProviderRoute } from '@namzu/sdk'
-import { type ZenProtocol, type ZenService, findZenModel } from './models.js'
-import { toModelPrompt } from './prompt.js'
+import type { ZenModel, ZenProtocol, ZenService } from './models.js'
+import { isMuseSparkResponsesModel, toModelPrompt } from './prompt.js'
+
+function goRejectsToolChoice(service: ZenService, model: string): boolean {
+	if (service !== 'go') return false
+	if (model.startsWith('mimo-')) return true
+	if (model === 'deepseek-flash') return true
+	return (
+		/^deepseek-v4(?:\.\d+)?-(?:flash|pro)(?:$|-)/.test(model) &&
+		model !== 'deepseek-v4-flash-vision-exp'
+	)
+}
 
 export function createCallOptions(
 	params: ChatCompletionParams,
 	route: ProviderRoute,
 	service: ZenService,
 	protocol: ZenProtocol,
+	known: ZenModel | undefined,
 ): LanguageModelV3CallOptions {
 	const refuse = (detail: string): never => {
-		throw new ProviderRequestError({ providerId: route.providerId, kind: 'bad_request', detail })
+		throw new ProviderRequestError({
+			providerId: route.providerId,
+			kind: 'bad_request',
+			detail,
+		})
 	}
-	const known = findZenModel(service, params.model)
 	let maxOutputTokens = params.maxTokens ?? 4096
 	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0)
 		refuse('maxTokens must be a positive integer.')
@@ -46,7 +60,9 @@ export function createCallOptions(
 					: {}),
 				...(params.thinking ? { thinking: { type: params.thinking.type } } : {}),
 				...(params.responseFormat?.type === 'json_schema'
-					? { strictJsonSchema: params.responseFormat.json_schema.strict ?? true }
+					? {
+							strictJsonSchema: params.responseFormat.json_schema.strict ?? true,
+						}
 					: {}),
 			}
 			break
@@ -95,7 +111,10 @@ export function createCallOptions(
 				refuse('This responses model does not support reasoning controls.')
 			options.openai = {
 				store: false,
-				include: ['reasoning.encrypted_content'],
+				// Muse Spark's gateway cannot replay caller-bound encrypted reasoning.
+				...(isMuseSparkResponsesModel(params.model, protocol)
+					? {}
+					: { include: ['reasoning.encrypted_content'] }),
 				...(known?.effortLevels?.length ? { forceReasoning: true } : {}),
 				...(params.effort !== undefined ? { reasoningEffort: params.effort } : {}),
 				...(params.thinking?.type === 'disabled' ? { reasoningEffort: 'none' } : {}),
@@ -104,7 +123,9 @@ export function createCallOptions(
 					? { parallelToolCalls: params.parallelToolCalls }
 					: {}),
 				...(params.responseFormat?.type === 'json_schema'
-					? { strictJsonSchema: params.responseFormat.json_schema.strict ?? true }
+					? {
+							strictJsonSchema: params.responseFormat.json_schema.strict ?? true,
+						}
 					: {}),
 			}
 			break
@@ -211,7 +232,16 @@ export function createCallOptions(
 	// Some Responses upstreams accept only auto tool choice (observed on Muse).
 	// A no-tools turn can preserve its meaning by exposing no tools at all.
 	// Keep required/named choices explicit; never silently weaken them to auto.
-	const withoutTools = protocol === 'responses' && params.toolChoice === 'none'
+	const rejectsToolChoice = goRejectsToolChoice(service, params.model)
+	if (
+		rejectsToolChoice &&
+		params.toolChoice !== undefined &&
+		params.toolChoice !== 'auto' &&
+		params.toolChoice !== 'none'
+	)
+		refuse('This Zen Go model does not support required or named tool choice.')
+	const withoutTools =
+		(protocol === 'responses' || rejectsToolChoice) && params.toolChoice === 'none'
 	const enforced = new Set(params.enforceToolInputSchema)
 	return {
 		prompt: toModelPrompt(params, route, service, protocol),
@@ -241,7 +271,7 @@ export function createCallOptions(
 					})),
 				}
 			: {}),
-		...(params.toolChoice && !withoutTools
+		...(params.toolChoice && !withoutTools && !rejectsToolChoice
 			? {
 					toolChoice:
 						typeof params.toolChoice === 'string'

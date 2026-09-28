@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { resolveNpmInvocation } from '../npm-invocation.js'
+import { hasApiCredential } from './access.js'
 import type { DetectedProvider } from './discover.js'
 
 export const SETUP_HARNESSES = [
@@ -149,15 +150,18 @@ export async function probeHarnesses(
 				signal,
 				timeoutMs: 3000,
 			})
-			const source = detected.find((item) => item.entry.id === harness.provider)?.source
+			const provider = detected.find((item) => item.entry.id === harness.provider)
+			const source = provider?.source
 			return {
 				harness,
 				installed: !result.missing,
 				version:
 					result.code === 0 ? (result.output.trim().split('\n')[0] ?? '') : 'Version check failed',
 				access:
-					source?.kind === 'public'
-						? 'Public free models · no sign-in required'
+					harness.provider === 'zen' &&
+					provider !== undefined &&
+					!hasApiCredential(provider.entry, provider.apiKey)
+						? 'Anonymous Zen option · inference access unverified'
 						: source
 							? `Credential detected · ${source.kind}`
 							: 'Not connected · sign in or add an API key',

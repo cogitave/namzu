@@ -129,6 +129,7 @@ export async function describeProviderChain(
 	const lines: string[] = []
 	let unusable = 0
 	let primaryUnusable = false
+	let anonymousZen = false
 
 	for (const [index, member] of members.entries()) {
 		const entry = PROVIDER_REGISTRY[member.id]
@@ -142,6 +143,7 @@ export async function describeProviderChain(
 		const det = detected.find((d) => d.entry.id === member.id)
 		const needsKey = requiresCredentialForModel(entry, member.model ?? entry.defaultModel)
 		const usable = needsKey ? hasApiCredential(entry, det?.apiKey) : Boolean(det)
+		if (entry.id === 'zen' && usable && !hasApiCredential(entry, det?.apiKey)) anonymousZen = true
 		if (!usable) {
 			unusable++
 			if (index === 0) primaryUnusable = true
@@ -153,7 +155,7 @@ export async function describeProviderChain(
 			: entry.id === 'zen' && usable
 				? hasApiCredential(entry, det?.apiKey)
 					? 'credential found'
-					: 'free models available (connectivity not checked)'
+					: 'anonymous option (inference access unverified)'
 				: usable
 					? 'reachable'
 					: 'NOT REACHABLE'
@@ -212,17 +214,20 @@ export async function describeProviderChain(
 				: 'The primary provider could not be loaded, so no turn can start. Run `namzu` to pick a provider that can.',
 		}
 	}
-	if (unusable > 0 || unreadable.length > 0 || disagreements.length > 0) {
+	if (unusable > 0 || unreadable.length > 0 || disagreements.length > 0 || anonymousZen) {
 		return {
-			// `warn`, not `fail`: the primary still runs, so namzu is usable and the
-			// operator is not blocked by a degraded spare.
+			// Anonymous Zen may be refused at inference time even when its model
+			// catalogue answers. That is unverified, not a failed credential check.
 			status: 'warn',
 			message:
 				unusable > 0
 					? `${unusable} of ${members.length} chain member(s) cannot be used:\n${message}`
-					: `provider chain usable, with limitations:\n${message}`,
-			remediation:
-				unusable > 0
+					: anonymousZen
+						? `provider chain configured, with unverified access:\n${message}`
+						: `provider chain usable, with limitations:\n${message}`,
+			remediation: anonymousZen
+				? 'Discovering an anonymous Zen option does not prove inference access. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.'
+				: unusable > 0
 					? 'The primary still works, so turns will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.'
 					: 'The primary still works. A fallback that declares less than your primary will serve shorter or less capable turns if the chain ever falls over to it.',
 		}

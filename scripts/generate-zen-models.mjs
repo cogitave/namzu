@@ -228,7 +228,8 @@ function header(refreshed) {
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
- * or the run stops. Prices come from that page's per-1M-token table at the base
+ * or the run stops. Three Go ids have narrow reference-client exceptions in
+ * src/catalogue/derive.ts. Prices come from the per-1M-token table at the base
  * tier, and a model with no price row there must be named in the page's
  * free-model list and is then zero. Limits, tool support, modalities and effort
  * options come from the matching provider entry in models.dev, where the
@@ -255,9 +256,9 @@ function header(refreshed) {
  * does not expose those input kinds.
  *
  * Promotional free models with documented routes and complete metadata are
- * included at their advertised zero price; the service enforces access limits.
- * Anonymous admission is explicit rather than inferred from price, and comes
- * from the free-model list on the page. OpenCode's own loader uses the public
+ * included at their advertised zero price. Direct anonymous admission is a
+ * separate, live-verified curation in src/catalogue/derive.ts and still requires
+ * an entry in the page's free-model list. OpenCode's own loader uses the public
  * sentinel when credentials are absent:
  * https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L185
  * Unknown IDs have no inferred protocol or limits. MiniMax and Qwen demonstrate
@@ -289,7 +290,7 @@ export interface ZenModel {
 	readonly outputPrice: number
 	readonly supportsToolUse: boolean
 	readonly supportsStreaming: boolean
-	/** True only for documented anonymous Zen models; omission grants no anonymous access. */
+	/** True only for verified direct-anonymous Zen models; zero price does not grant access. */
 	readonly supportsAnonymousAccess?: boolean
 	/** Exact advertised selectable effort levels; empty means no effort selector. */
 	readonly effortLevels?: readonly ReasoningEffort[]

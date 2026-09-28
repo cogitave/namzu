@@ -42,6 +42,13 @@ import { after, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
+	ZEN_CATALOGUE_VERSION,
+	buildZenCatalogue,
+	findZenCatalogueModel,
+	parseZenCatalogue,
+} from '../../packages/providers/zen/dist/catalogue/catalogue.js'
+import { getZenModels } from '../../packages/providers/zen/dist/models.js'
+import {
 	checkRosterFloor,
 	derive,
 	describeChanges,
@@ -56,7 +63,6 @@ import {
 	render,
 	renderEntry,
 } from '../generate-zen-models.mjs'
-import { buildZenCatalogue } from '../../packages/providers/zen/dist/catalogue/catalogue.js'
 
 /** The shape `renderEntry` takes; the script itself is untyped JavaScript. */
 interface RenderedModel {
@@ -224,7 +230,12 @@ function routedIds(text: string, service: 'zen' | 'go'): string[] | undefined {
 function catalogue(ids: string[]): object {
 	return {
 		object: 'list',
-		data: ids.map((id) => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
+		data: ids.map((id) => ({
+			id,
+			object: 'model',
+			created: 0,
+			owned_by: 'opencode',
+		})),
 	}
 }
 
@@ -323,7 +334,10 @@ function fixtureWithoutServedRoster(zen = ZEN_PAGE_DECIDED): string {
 }
 
 function run(args: string[]) {
-	return spawnSync(process.execPath, [SCRIPT, ...args], { cwd: ROOT, encoding: 'utf8' })
+	return spawnSync(process.execPath, [SCRIPT, ...args], {
+		cwd: ROOT,
+		encoding: 'utf8',
+	})
 }
 
 /**
@@ -399,15 +413,57 @@ describe('parsePage', () => {
 	})
 
 	test('refuses a page with no route table', () => {
-		assert.throws(
-			() => zenPage('# Zen\n\nNothing here.\n'),
-			/no route table/,
-		)
+		assert.throws(() => zenPage('# Zen\n\nNothing here.\n'), /no route table/)
 	})
 
 	test('refuses a zen page with no free-model list', () => {
 		const page = ZEN_PAGE.replace(/^The free models:$/m, 'Somewhere else entirely:')
 		assert.throws(() => zenPage(page), /no free-model list/)
+	})
+
+	test('reads one price per model from the indented Go and Go Plus tabs', () => {
+		const page = [
+			routeRow(GO_HOST, 'Go Chat', 'go-chat', '/chat/completions', CHAT),
+			'<Tabs syncKey="go-plan">',
+			'<TabItem label="Go">',
+			'    | Model | Input | Output | Cached Read |',
+			'    | --- | --- | --- | --- |',
+			'    | Go Chat | $1.00 | $2.00 | $0.10 |',
+			'</TabItem>',
+			'<TabItem label="Go Plus">',
+			'    | Model | Input | Output | Cached Read |',
+			'    | --- | --- | --- | --- |',
+			'    | Go Chat | $1.00 | $2.00 | $0.10 |',
+			'</TabItem>',
+		].join('\n')
+		const parsed = parsePage(page, { page: 'go.mdx', service: 'go' })
+		assert.deepEqual(parsed.prices, [{ name: 'Go Chat', input: 1, output: 2 }])
+		const { models, undecided } = derive(
+			'go',
+			parsed,
+			'opencode-go',
+			MODELS_DEV['opencode-go'],
+			{},
+			GO_SERVED,
+		)
+		assert.equal(models[0]?.id, 'go-chat')
+		assert.deepEqual(undecided, [])
+	})
+
+	test('refuses different token prices for the same model in Go plan tabs', () => {
+		const page = [
+			routeRow(GO_HOST, 'Go Chat', 'go-chat', '/chat/completions', CHAT),
+			'<TabItem label="Go">',
+			'    | Go Chat | $1.00 | $2.00 | $0.10 |',
+			'</TabItem>',
+			'<TabItem label="Go Plus">',
+			'    | Go Chat | $1.50 | $2.00 | $0.10 |',
+			'</TabItem>',
+		].join('\n')
+		assert.throws(
+			() => parsePage(page, { page: 'go.mdx', service: 'go' }),
+			/different token prices/,
+		)
 	})
 })
 
@@ -432,10 +488,7 @@ describe('parseServed', () => {
 	})
 
 	test('refuses an answer with no ids in it', () => {
-		assert.throws(
-			() => parseServed('go', JSON.stringify(catalogue([]))),
-			/lists no models at all/,
-		)
+		assert.throws(() => parseServed('go', JSON.stringify(catalogue([]))), /lists no models at all/)
 	})
 
 	test('refuses an entry it cannot read an id from', () => {
@@ -540,7 +593,8 @@ describe('protocolFor', () => {
 	 */
 	test('refuses a host that is not the service', () => {
 		assert.throws(
-			() => protocolFor({ id: 'x', npm: MESSAGES, endpoint: 'https://evil.example/messages' }, 'zen'),
+			() =>
+				protocolFor({ id: 'x', npm: MESSAGES, endpoint: 'https://evil.example/messages' }, 'zen'),
 			/host is not the service/,
 		)
 	})
@@ -561,6 +615,107 @@ describe('protocolFor', () => {
 })
 
 describe('derive', () => {
+	test('uses reference-client Go routes only for the three documented mismatches', () => {
+		const rows = [
+			['DeepSeek V4 Flash', 'deepseek-v4-flash', '/chat/completions', CHAT],
+			['MiniMax M2.7', 'minimax-m2.7', '/messages', MESSAGES],
+			['MiniMax M3', 'minimax-m3', '/messages', MESSAGES],
+			['Go Chat', 'go-chat', '/chat/completions', CHAT],
+		] as const
+		const page = [
+			...rows.map(([name, id, path, npm]) => routeRow(GO_HOST, name, id, path, npm)),
+			'',
+			...rows.map(([name]) => `    | ${name} | $1.00 | $2.00 | $0.10 |`),
+		].join('\n')
+		const provider = {
+			models: Object.fromEntries(
+				rows.map(([, id]) => [
+					id,
+					{
+						limit: { context: 128000, output: 16000 },
+						modalities: { input: ['text'] },
+						tool_call: true,
+					},
+				]),
+			),
+		}
+		const { models, undecided } = derive(
+			'go',
+			parsePage(page, { page: 'go.mdx', service: 'go' }),
+			'opencode-go',
+			provider,
+			{},
+			new Set(rows.map(([, id]) => id)),
+		)
+		assert.deepEqual(undecided, [])
+		assert.deepEqual(
+			Object.fromEntries(
+				models.map((model: { id: string; protocol: string }) => [model.id, model.protocol]),
+			),
+			{
+				'deepseek-v4-flash': 'responses',
+				'minimax-m2.7': 'chat',
+				'minimax-m3': 'chat',
+				'go-chat': 'chat',
+			},
+		)
+	})
+
+	test('requires review if a pinned Go route changes again', () => {
+		const page = [
+			routeRow(GO_HOST, 'MiniMax M3', 'minimax-m3', '/responses', RESPONSES),
+			'    | MiniMax M3 | $1.00 | $2.00 | $0.10 |',
+		].join('\n')
+		const provider = {
+			models: {
+				'minimax-m3': {
+					limit: { context: 128000, output: 16000 },
+					modalities: { input: ['text'] },
+					tool_call: true,
+				},
+			},
+		}
+		assert.throws(
+			() =>
+				derive(
+					'go',
+					parsePage(page, { page: 'go.mdx', service: 'go' }),
+					'opencode-go',
+					provider,
+					{},
+					new Set(['minimax-m3']),
+				),
+			/reference-client route exception must be reviewed/,
+		)
+	})
+
+	test('keeps an unpriced Go route out of the carried catalogue', () => {
+		const page = [routeRow(GO_HOST, 'Qwen 3.6 Plus', 'qwen3.6-plus', '/messages', MESSAGES)].join(
+			'\n',
+		)
+		const provider = {
+			models: {
+				'qwen3.6-plus': {
+					limit: { context: 128000, output: 16000 },
+					modalities: { input: ['text'] },
+					tool_call: true,
+				},
+			},
+		}
+		const { models, undecided } = derive(
+			'go',
+			parsePage(page, { page: 'go.mdx', service: 'go' }),
+			'opencode-go',
+			provider,
+			{},
+			new Set(['qwen3.6-plus']),
+		)
+		assert.deepEqual(models, [])
+		assert.deepEqual(undecided, [
+			['go/qwen3.6-plus', 'the page neither prices it nor names it as free'],
+		])
+	})
+
 	test('carries a priced model with the metadata models.dev holds', () => {
 		const { models } = derive('zen', zenPage(), 'opencode', MODELS_DEV.opencode, {}, ZEN_SERVED)
 		const alpha = models.find((m: { id: string }) => m.id === 'alpha-chat')
@@ -595,12 +750,51 @@ describe('derive', () => {
 		)
 	})
 
-	test('prices a free-listed model at zero and marks it anonymous on zen', () => {
+	test('prices a free-listed model at zero without granting direct anonymous access', () => {
 		const { models } = derive('zen', zenPage(), 'opencode', MODELS_DEV.opencode, {}, ZEN_SERVED)
 		const gamma = models.find((m: { id: string }) => m.id === 'gamma-free')
 		assert.equal(gamma?.inputPrice, 0)
 		assert.equal(gamma?.outputPrice, 0)
-		assert.equal(gamma?.supportsAnonymousAccess, true)
+		assert.equal(gamma?.supportsAnonymousAccess, false)
+	})
+
+	test('admits only the verified direct-anonymous id while its free-list entry remains', () => {
+		const page = [
+			routeRow(ZEN_HOST, 'Gamma Free', 'gamma-free', '/chat/completions', CHAT),
+			routeRow(ZEN_HOST, 'Space Bunny Free', 'space-bunny-free', '/chat/completions', CHAT),
+			'The free models:',
+			'- Gamma Free is available on OpenCode for a limited time.',
+			'- Space Bunny Free is available on OpenCode for a limited time.',
+			'Contact us.',
+		].join('\n')
+		const metadata = {
+			limit: { context: 128000, output: 16000 },
+			modalities: { input: ['text'] },
+			tool_call: true,
+		}
+		const provider = {
+			models: { 'gamma-free': metadata, 'space-bunny-free': metadata },
+		}
+		const served = new Set(['gamma-free', 'space-bunny-free'])
+		const { models } = derive('zen', zenPage(page), 'opencode', provider, {}, served)
+		assert.deepEqual(
+			models.map(
+				(model: {
+					id: string
+					inputPrice: number
+					supportsAnonymousAccess: boolean
+				}) => [model.id, model.inputPrice, model.supportsAnonymousAccess],
+			),
+			[
+				['gamma-free', 0, false],
+				['space-bunny-free', 0, true],
+			],
+		)
+		const noLongerFree = page.replace(/^- Space Bunny Free is.*\n/m, '')
+		assert.throws(
+			() => derive('zen', zenPage(noLongerFree), 'opencode', provider, {}, served),
+			/direct anonymous admission must be reviewed/,
+		)
 	})
 
 	/** Go refuses an absent key outright, so the flag would mean nothing there. */
@@ -643,17 +837,28 @@ describe('derive', () => {
 			{ 'zen/alpha-chat': 'Superseded by a later generation.' },
 			ZEN_SERVED,
 		)
-		assert.equal(models.some((m: { id: string }) => m.id === 'alpha-chat'), false)
+		assert.equal(
+			models.some((m: { id: string }) => m.id === 'alpha-chat'),
+			false,
+		)
 		assert.deepEqual(undecided, [])
 		assert.deepEqual(stale, [])
 	})
 
 	test('a documented model with no metadata is reported, named by service', () => {
-		const { models, undecided } = derive('zen', zenPage(), 'opencode', MODELS_DEV.opencode, {}, ZEN_SERVED)
-		assert.equal(models.some((m: { id: string }) => m.id === 'delta-undocumented'), false)
-		assert.deepEqual(undecided, [
-			['zen/delta-undocumented', 'models.dev has no `opencode` entry'],
-		])
+		const { models, undecided } = derive(
+			'zen',
+			zenPage(),
+			'opencode',
+			MODELS_DEV.opencode,
+			{},
+			ZEN_SERVED,
+		)
+		assert.equal(
+			models.some((m: { id: string }) => m.id === 'delta-undocumented'),
+			false,
+		)
+		assert.deepEqual(undecided, [['zen/delta-undocumented', 'models.dev has no `opencode` entry']])
 	})
 
 	test('a model the page neither prices nor calls free is reported, not defaulted to zero', () => {
@@ -668,24 +873,48 @@ describe('derive', () => {
 			modalities: { input: ['text'] },
 			tool_call: true,
 		}
-		const { models, undecided } = derive('zen', zenPage(page), 'opencode', dev.opencode, {}, ZEN_SERVED)
-		assert.equal(models.some((m: { id: string }) => m.id === 'epsilon-unpriced'), false)
+		const { models, undecided } = derive(
+			'zen',
+			zenPage(page),
+			'opencode',
+			dev.opencode,
+			{},
+			ZEN_SERVED,
+		)
+		assert.equal(
+			models.some((m: { id: string }) => m.id === 'epsilon-unpriced'),
+			false,
+		)
 		assert.deepEqual(undecided, [
 			['zen/epsilon-unpriced', 'the page neither prices it nor names it as free'],
 		])
 	})
 
 	test('an omission for a model upstream no longer documents is reported as stale', () => {
-		const { stale } = derive('zen', zenPage(), 'opencode', MODELS_DEV.opencode, {
-			'zen/gone-last-month': 'It was superseded.',
-		}, ZEN_SERVED)
+		const { stale } = derive(
+			'zen',
+			zenPage(),
+			'opencode',
+			MODELS_DEV.opencode,
+			{
+				'zen/gone-last-month': 'It was superseded.',
+			},
+			ZEN_SERVED,
+		)
 		assert.deepEqual(stale, ['gone-last-month'])
 	})
 
 	test('an omission for the other service is not this service’s business', () => {
-		const { stale } = derive('zen', zenPage(), 'opencode', MODELS_DEV.opencode, {
-			'go/only-on-go': 'It was superseded.',
-		}, ZEN_SERVED)
+		const { stale } = derive(
+			'zen',
+			zenPage(),
+			'opencode',
+			MODELS_DEV.opencode,
+			{
+				'go/only-on-go': 'It was superseded.',
+			},
+			ZEN_SERVED,
+		)
 		assert.deepEqual(stale, [])
 	})
 
@@ -705,7 +934,10 @@ describe('derive', () => {
 			{},
 			served,
 		)
-		assert.equal(models.some((m: { id: string }) => m.id === 'gpt-6-unlisted'), false)
+		assert.equal(
+			models.some((m: { id: string }) => m.id === 'gpt-6-unlisted'),
+			false,
+		)
 		assert.deepEqual(servedUncurried, ['gpt-6-unlisted'])
 	})
 
@@ -715,7 +947,9 @@ describe('derive', () => {
 			zenPage(ZEN_PAGE_DECIDED),
 			'opencode',
 			MODELS_DEV.opencode,
-			{ 'zen/gpt-6-unlisted': 'Served, documented nowhere, so no wire is derivable.' },
+			{
+				'zen/gpt-6-unlisted': 'Served, documented nowhere, so no wire is derivable.',
+			},
 			new Set([...DECIDED_SERVED, 'gpt-6-unlisted']),
 		)
 		assert.deepEqual(servedUncurried, [])
@@ -733,7 +967,9 @@ describe('derive', () => {
 			zenPage(ZEN_PAGE_DECIDED),
 			'opencode',
 			MODELS_DEV.opencode,
-			{ 'zen/gone-last-month': 'Superseded, and the service is expected to keep it.' },
+			{
+				'zen/gone-last-month': 'Superseded, and the service is expected to keep it.',
+			},
 			new Set(['gone-last-month']),
 		)
 		assert.deepEqual(stale, [])
@@ -757,10 +993,7 @@ describe('a row the script did not read', () => {
 				'a trailing space after the final pipe',
 				`${routeRow(ZEN_HOST, 'Trail Space', 'trail-space', '/chat/completions', CHAT)} `,
 			],
-			[
-				'an empty package cell',
-				`| Empty Pkg | empty-pkg | \`${ZEN_HOST}/chat/completions\` |  |`,
-			],
+			['an empty package cell', `| Empty Pkg | empty-pkg | \`${ZEN_HOST}/chat/completions\` |  |`],
 			[
 				// The page's own no-value dash is a statement and is read as one. A
 				// marker that is not the page's is not, and this is the line that
@@ -846,7 +1079,14 @@ describe('derive reports what it will not carry', () => {
 			modalities: { input: ['text'] },
 			tool_call: true,
 		}
-		const { models, undecided } = derive('zen', zenPage(page), 'opencode', dev.opencode, {}, ZEN_SERVED)
+		const { models, undecided } = derive(
+			'zen',
+			zenPage(page),
+			'opencode',
+			dev.opencode,
+			{},
+			ZEN_SERVED,
+		)
 		assert.equal(
 			models.some((m: { id: string }) => m.id === 'omega-wireless'),
 			false,
@@ -858,7 +1098,14 @@ describe('derive reports what it will not carry', () => {
 
 	test('names a price row the route table does not', () => {
 		const page = `${ZEN_PAGE}\n| Ghost Model | $1.00 | $2.00 | $0.00 |\n`
-		const { orphanPrices } = derive('zen', zenPage(page), 'opencode', MODELS_DEV.opencode, {}, ZEN_SERVED)
+		const { orphanPrices } = derive(
+			'zen',
+			zenPage(page),
+			'opencode',
+			MODELS_DEV.opencode,
+			{},
+			ZEN_SERVED,
+		)
 		assert.deepEqual(orphanPrices, ['Ghost Model'])
 	})
 
@@ -930,7 +1177,8 @@ describe('checkRosterFloor', () => {
 
 	test('refuses a collapse past the floor', () => {
 		assert.throws(
-			() => checkRosterFloor({ zen: roster(5), go: roster(28) }, { zen: roster(60), go: roster(28) }),
+			() =>
+				checkRosterFloor({ zen: roster(5), go: roster(28) }, { zen: roster(60), go: roster(28) }),
 			/past the floor/,
 		)
 	})
@@ -1294,15 +1542,78 @@ describe('the runtime catalogue and the generated snapshot', () => {
 	 * derivation could not carry (no models.dev entry) is unrouted too.
 	 */
 	test('names served ids it cannot route rather than guessing a wire for them', () => {
-		const served = { zen: [...ZEN_SERVED, 'gpt-6-unlisted'], go: [...GO_SERVED] }
+		const served = {
+			zen: [...ZEN_SERVED, 'gpt-6-unlisted'],
+			go: [...GO_SERVED],
+		}
 		const { catalogue: runtime, report } = buildZenCatalogue(sourcesFor(ZEN_PAGE, served), {
 			omissions: {},
 			baseline: { zen: [], go: [] },
 		})
-		assert.equal(runtime.zen.some((m: { id: string }) => m.id === 'gpt-6-unlisted'), false)
+		assert.equal(
+			runtime.zen.some((m: { id: string }) => m.id === 'gpt-6-unlisted'),
+			false,
+		)
 		assert.deepEqual(runtime.unrouted.zen, ['delta-undocumented', 'gpt-6-unlisted'])
 		assert.deepEqual(report.servedUndocumented, ['zen/gpt-6-unlisted'])
-		assert.deepEqual(report.undecided, [['zen/delta-undocumented', 'models.dev has no `opencode` entry']])
+		assert.deepEqual(report.undecided, [
+			['zen/delta-undocumented', 'models.dev has no `opencode` entry'],
+		])
+	})
+})
+
+describe('last-good catalogue admission', () => {
+	const current = {
+		version: ZEN_CATALOGUE_VERSION,
+		fetchedAt: '2026-09-28T00:00:00.000Z',
+		zen: getZenModels('zen'),
+		go: getZenModels('go'),
+		unrouted: { zen: [], go: [] },
+	}
+
+	test('accepts a current catalogue and rejects a persisted wrong Go route', () => {
+		assert.equal(parseZenCatalogue(current).go.length, current.go.length)
+		const stale = {
+			...current,
+			go: current.go.map((model) =>
+				model.id === 'minimax-m3' ? { ...model, protocol: 'messages' } : model,
+			),
+		}
+		assert.throws(() => parseZenCatalogue(stale), /pinned Go route chat/)
+		// The CLI catches an invalid cache and uses the bundled snapshot until
+		// the background refresh succeeds. Its fallback must have the fixed wire.
+		assert.equal(findZenCatalogueModel(undefined, 'go', 'minimax-m3')?.protocol, 'chat')
+	})
+
+	test('rejects a persisted model that the current reviewed roster omits', () => {
+		const former = current.go.find((model) => model.id === 'qwen3.7-plus')
+		assert.ok(former)
+		const stale = {
+			...current,
+			go: [...current.go, { ...former, id: 'qwen3.6-plus', name: 'Qwen3.6 Plus' }],
+		}
+		assert.throws(() => parseZenCatalogue(stale), /reviewed omission/)
+		assert.equal(findZenCatalogueModel(undefined, 'go', 'qwen3.6-plus'), undefined)
+	})
+
+	test('rejects an old cache that grants direct anonymous access to a free model without live verification', () => {
+		const existing = current.zen.find((model) => model.id === 'big-pickle')
+		assert.ok(existing)
+		const stale = {
+			...current,
+			zen: current.zen.map((model) =>
+				model.id === 'big-pickle' ? { ...model, supportsAnonymousAccess: true } : model,
+			),
+		}
+		assert.throws(() => parseZenCatalogue(stale), /verified direct-anonymous Zen model/)
+		assert.equal(
+			findZenCatalogueModel(undefined, 'zen', 'big-pickle')?.supportsAnonymousAccess,
+			undefined,
+		)
+		assert.equal(
+			findZenCatalogueModel(undefined, 'zen', 'space-bunny-free')?.supportsAnonymousAccess,
+			true,
+		)
 	})
 })
 
@@ -1327,14 +1638,22 @@ describe('a tree without its formatter', () => {
 		// The rules live in the built driver package, which the script imports by
 		// path. Its compiled catalogue modules import nothing at run time beyond
 		// each other, so the copy carries them and still has no `node_modules`.
-		cpSync(join(ROOT, 'packages', 'providers', 'zen', 'dist'), join(dir, 'packages', 'providers', 'zen', 'dist'), {
-			recursive: true,
-		})
+		cpSync(
+			join(ROOT, 'packages', 'providers', 'zen', 'dist'),
+			join(dir, 'packages', 'providers', 'zen', 'dist'),
+			{
+				recursive: true,
+			},
+		)
 		const copy = join(dir, 'scripts', 'generate-zen-models.mjs')
-		const result = spawnSync(process.execPath, [copy, '--check', '--from', fixtureDir(ZEN_PAGE_DECIDED)], {
-			cwd: dir,
-			encoding: 'utf8',
-		})
+		const result = spawnSync(
+			process.execPath,
+			[copy, '--check', '--from', fixtureDir(ZEN_PAGE_DECIDED)],
+			{
+				cwd: dir,
+				encoding: 'utf8',
+			},
+		)
 		assert.equal(result.status, 2)
 		assert.match(result.stderr, /SOURCE UNUSABLE/)
 		assert.match(result.stderr, /Could not find the biome CLI/)

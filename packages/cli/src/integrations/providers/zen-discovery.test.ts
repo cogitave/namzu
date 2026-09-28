@@ -32,7 +32,7 @@ it('offers public Zen without an install, key, sign-in or network probe', async 
 	expect(detected.map((provider) => provider.entry.id)).toEqual(['zen'])
 	expect(detected[0]).toMatchObject({
 		source: { kind: 'public' },
-		entry: { defaultModel: 'muse-spark-1.3-contributor-free' },
+		entry: { defaultModel: 'space-bunny-free' },
 	})
 	expect(detected[0]?.apiKey).toBeUndefined()
 	expect(signedInSubscriptionProviders(detected)).toEqual([])

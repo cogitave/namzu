@@ -136,7 +136,6 @@ describe('buildZenCatalogue', () => {
 			},
 			{
 				id: 'gamma-free',
-				supportsAnonymousAccess: true,
 				name: 'Gamma Free',
 				protocol: 'chat',
 				contextWindow: 262_144,
@@ -566,7 +565,7 @@ describe('ZenProvider with a runtime catalogue', () => {
 			vi.fn<typeof fetch>(async () => new Response(served(['gamma-free', 'hidden-model']))),
 		)
 		const anonymous = new ZenProvider({ catalogue: runtime() })
-		expect((await anonymous.listModels()).map((model) => model.id)).toEqual(['gamma-free'])
+		expect((await anonymous.listModels()).map((model) => model.id)).toEqual([])
 	})
 
 	it('calls an unrouted id only with an explicit protocol, never on a guessed one', async () => {

@@ -74,7 +74,7 @@ const OPENROUTER_KEY: DetectedProvider = {
 	alternatives: [],
 }
 
-/** One id whose free catalogue is a way in on its own. */
+/** One id with an anonymous option whose inference access is unverified. */
 const FREE_ZEN: DetectedProvider = {
 	entry: PROVIDER_REGISTRY.zen,
 	source: { kind: 'public' },
@@ -271,14 +271,26 @@ it('leads to the models from the session answer of that same row', async () => {
 	expect(describeModels).toHaveBeenCalledWith('anthropic', expect.anything(), expect.anything())
 })
 
-it('offers the free catalogue and a key as the two ways into a free vendor', async () => {
+it('offers an unverified anonymous option beside credentialed Zen access', async () => {
 	const screen = await open({ detected: [FREE_ZEN], describeModels: vi.fn(async () => ONE_MODEL) })
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
 
 	expect(chooser).toContain('Choose a way to use Zen')
-	expect(chooser).toContain('1. Use existing Zen · free models · no API key')
-	expect(chooser).toContain('2. Enter a credential for Zen · OPENCODE_API_KEY optional')
+	expect(chooser).toContain('1. Use existing Zen · anonymous option · access unverified')
+	expect(chooser).toContain('2. Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
+})
+
+it('keeps the key choice when an environment marker explicitly selects public Zen', async () => {
+	const screen = await open({
+		detected: [
+			{ ...FREE_ZEN, source: { kind: 'env', envName: 'OPENCODE_API_KEY' }, apiKey: undefined },
+		],
+	})
+	await press(screen, '\r')
+	const chooser = screen.viewport().join('\n')
+	expect(chooser).toContain('Use existing Zen · anonymous option · access unverified')
+	expect(chooser).toContain('Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
 })
 
 it('returns to the row it came from when the ways-in screen is left', async () => {

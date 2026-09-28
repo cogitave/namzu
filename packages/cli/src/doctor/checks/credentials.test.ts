@@ -29,10 +29,22 @@ describe('the credential-sources doctor check', () => {
 			},
 		])
 		const result = await credentialSourcesCheck.run(ctx)
-		expect(result.message).toContain('free models · no API key; connectivity not checked')
+		expect(result.message).toContain('anonymous option · inference access unverified')
 		expect(result.message).toContain('OpenCode API key · /owner/auth.json')
 		expect(result.message).not.toContain('secret-fixture')
 		expect(result.message).not.toContain('credential(s) found')
+	})
+	it('warns when anonymous Zen is the only discovered option, including an explicit public marker', async () => {
+		for (const source of [{ kind: 'public' }, { kind: 'env', envName: 'OPENCODE_API_KEY' }]) {
+			discoverProviders.mockResolvedValue([
+				{ entry: { id: 'zen' }, source, apiKey: source.kind === 'env' ? 'public' : undefined },
+			])
+			const result = await credentialSourcesCheck.run(ctx)
+			expect(result.status).toBe('warn')
+			expect(result.message).toContain('inference access unverified')
+			expect(result.message).not.toContain('available')
+			expect(result.remediation).toContain('OPENCODE_API_KEY')
+		}
 	})
 	it('warns when nothing is found, and says the secrets file is no longer read', async () => {
 		discoverProviders.mockResolvedValue([])

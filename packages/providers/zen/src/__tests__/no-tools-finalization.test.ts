@@ -54,7 +54,9 @@ it.each(['none', 'auto', 'required', { type: 'function', function: { name: 'read
 			tools: [tool],
 			toolChoice: choice,
 		}
-		const result = await collectChatCompletion(new ZenProvider().chatStream(params))
+		const result = await collectChatCompletion(
+			new ZenProvider({ apiKey: 'fixture' }).chatStream(params),
+		)
 		expect(result.message.content).toBe('ready')
 		expect(requests).toHaveLength(1)
 		const body = requests[0]

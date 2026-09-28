@@ -43,7 +43,11 @@ function capturing() {
 		resource: { 'service.name': 'namzu' },
 		scope: 'test',
 	})
-	return { log, records, warnings: () => records.filter((r) => r.severityText === 'warn') }
+	return {
+		log,
+		records,
+		warnings: () => records.filter((r) => r.severityText === 'warn'),
+	}
 }
 
 const model = (id: string, extra: Record<string, unknown> = {}) => ({
@@ -68,7 +72,11 @@ function catalogue(tag = 'fresh'): ZenCatalogue {
 		fetchedAt: '2026-09-22T00:00:00.000Z',
 		zen: [
 			model(`${tag}-model`, { contextWindow: 123_456 }),
-			model(`${tag}-free`, { inputPrice: 0, outputPrice: 0, supportsAnonymousAccess: true }),
+			model('space-bunny-free', {
+				inputPrice: 0,
+				outputPrice: 0,
+				supportsAnonymousAccess: true,
+			}),
 		],
 		go: [model(`${tag}-go`)],
 		unrouted: { zen: ['served-only'], go: [] },
@@ -77,7 +85,12 @@ function catalogue(tag = 'fresh'): ZenCatalogue {
 
 const result = (value: ZenCatalogue): ZenCatalogueResult => ({
 	catalogue: value,
-	report: { servedUndocumented: [], undecided: [], stale: [], orphanPrices: [] },
+	report: {
+		servedUndocumented: [],
+		undecided: [],
+		stale: [],
+		orphanPrices: [],
+	},
 })
 
 /** A derivation that never settles until its signal aborts — an unreachable network. */
@@ -109,7 +122,11 @@ describe('startZenCatalogueRefresh', () => {
 	it('returns before it reads or fetches anything, and leaves the refresh outstanding', async () => {
 		const { log } = capturing()
 		const { fetchCatalogue, seen } = hanging()
-		const refresh = startZenCatalogueRefresh({ home: home(), log, fetchCatalogue })
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue,
+		})
 		expect(seen).toHaveLength(0)
 		expect(await isPending(refresh.done)).toBe(true)
 		expect(seen).toHaveLength(1)
@@ -127,7 +144,10 @@ describe('startZenCatalogueRefresh', () => {
 			log,
 			fetchCatalogue: async () => result(fresh),
 		})
-		await expect(refresh.done).resolves.toEqual({ kind: 'live', catalogue: fresh })
+		await expect(refresh.done).resolves.toEqual({
+			kind: 'live',
+			catalogue: fresh,
+		})
 		expect(activeZenCatalogue()).toBe(fresh)
 		expect(activeZenCatalogueSource()).toBe('live')
 		expect(warnings()).toHaveLength(0)
@@ -156,7 +176,9 @@ describe('startZenCatalogueRefresh', () => {
 		expect(activeZenCatalogueSource()).toBe('cache')
 		expect(findActiveZenModel('zen', 'cached-model')?.contextWindow).toBe(123_456)
 		expect(warnings()).toHaveLength(1)
-		expect(warnings()[0]?.attributes).toMatchObject({ 'namzu.zen_catalogue.using': 'cache' })
+		expect(warnings()[0]?.attributes).toMatchObject({
+			'namzu.zen_catalogue.using': 'cache',
+		})
 	})
 
 	it('falls back to the bundled snapshot with no last-good copy', async () => {
@@ -168,10 +190,87 @@ describe('startZenCatalogueRefresh', () => {
 				throw new Error('offline')
 			},
 		})
-		await expect(refresh.done).resolves.toMatchObject({ kind: 'failed', using: 'bundled' })
+		await expect(refresh.done).resolves.toMatchObject({
+			kind: 'failed',
+			using: 'bundled',
+		})
 		expect(activeZenCatalogue()).toBeUndefined()
 		expect(findActiveZenModel('zen', 'glm-5.3-flash')).toBe(findZenModel('zen', 'glm-5.3-flash'))
 		expect(warnings()).toHaveLength(1)
+	})
+
+	it.each([
+		['a Go route the gateway no longer accepts', model('minimax-m3', { protocol: 'messages' })],
+		['a Go model the reviewed roster now omits', model('qwen3.6-plus', { protocol: 'messages' })],
+	])('rejects %s from the last-good cache when refresh fails', async (_why, oldGoModel) => {
+		const dir = home()
+		const path = join(dir, ZEN_CATALOGUE_CACHE_PATH)
+		mkdirSync(dirname(path), { recursive: true })
+		// Write the old shape directly: writeLastGood accepts a validated current
+		// catalogue, while a previous release could have stored either entry.
+		writeFileSync(path, JSON.stringify({ ...catalogue('cached'), go: [oldGoModel] }))
+		const { log, warnings } = capturing()
+		const refresh = startZenCatalogueRefresh({
+			home: dir,
+			log,
+			fetchCatalogue: async () => {
+				throw new Error('offline')
+			},
+		})
+		await expect(refresh.done).resolves.toEqual({
+			kind: 'failed',
+			using: 'bundled',
+			reason: 'offline',
+		})
+		expect(activeZenCatalogue()).toBeUndefined()
+		expect(activeZenCatalogueSource()).toBe('bundled')
+		expect(findActiveZenModel('go', 'minimax-m3')).toBe(findZenModel('go', 'minimax-m3'))
+		expect(findActiveZenModel('go', 'minimax-m3')?.protocol).toBe('chat')
+		expect(findActiveZenModel('go', 'qwen3.6-plus')).toBeUndefined()
+		expect(warnings()).toHaveLength(2)
+		expect(warnings()[0]?.body).toBe(
+			'Zen model catalogue last-good copy is not a valid catalogue; ignoring it',
+		)
+		expect(warnings()[1]?.attributes).toMatchObject({
+			'namzu.zen_catalogue.using': 'bundled',
+		})
+	})
+
+	it('rejects a last-good cache with an unverified anonymous flag and falls back to the bundled model', async () => {
+		const dir = home()
+		const path = join(dir, ZEN_CATALOGUE_CACHE_PATH)
+		mkdirSync(dirname(path), { recursive: true })
+		const old = catalogue('cached')
+		writeFileSync(
+			path,
+			JSON.stringify({
+				...old,
+				zen: [
+					...old.zen,
+					model('big-pickle', {
+						inputPrice: 0,
+						outputPrice: 0,
+						supportsAnonymousAccess: true,
+					}),
+				],
+			}),
+		)
+		const { log, warnings } = capturing()
+		const refresh = startZenCatalogueRefresh({
+			home: dir,
+			log,
+			fetchCatalogue: async () => {
+				throw new Error('offline')
+			},
+		})
+		await expect(refresh.done).resolves.toMatchObject({
+			kind: 'failed',
+			using: 'bundled',
+		})
+		expect(activeZenCatalogue()).toBeUndefined()
+		expect(findActiveZenModel('zen', 'big-pickle')?.supportsAnonymousAccess).toBeUndefined()
+		expect(findActiveZenModel('zen', 'space-bunny-free')?.supportsAnonymousAccess).toBe(true)
+		expect(warnings()).toHaveLength(2)
 	})
 
 	it.each([
@@ -197,7 +296,10 @@ describe('startZenCatalogueRefresh', () => {
 				throw new Error('offline')
 			},
 		})
-		await expect(refresh.done).resolves.toMatchObject({ kind: 'failed', using: 'bundled' })
+		await expect(refresh.done).resolves.toMatchObject({
+			kind: 'failed',
+			using: 'bundled',
+		})
 		expect(activeZenCatalogue()).toBeUndefined()
 		expect(findActiveZenModel('zen', 'cached-model')).toBeUndefined()
 		// One line for the refused copy, one for the refresh.
@@ -208,7 +310,12 @@ describe('startZenCatalogueRefresh', () => {
 		const { log, warnings } = capturing()
 		const { fetchCatalogue } = hanging()
 		const started = Date.now()
-		const refresh = startZenCatalogueRefresh({ home: home(), log, fetchCatalogue, budgetMs: 50 })
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue,
+			budgetMs: 50,
+		})
 		await expect(refresh.done).resolves.toEqual({
 			kind: 'failed',
 			using: 'bundled',
@@ -221,23 +328,33 @@ describe('startZenCatalogueRefresh', () => {
 	it('logs nothing when the launch ends first', async () => {
 		const { log, records } = capturing()
 		const { fetchCatalogue } = hanging()
-		const refresh = startZenCatalogueRefresh({ home: home(), log, fetchCatalogue })
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue,
+		})
 		refresh.cancel()
 		await expect(refresh.done).resolves.toEqual({ kind: 'cancelled' })
 		expect(records).toHaveLength(0)
 	})
 
 	it('reaches providers and credential checks built before it landed', async () => {
-		const provider = new ZenProvider({ apiKey: 'fixture', catalogue: activeZenCatalogue })
+		const provider = new ZenProvider({
+			apiKey: 'fixture',
+			catalogue: activeZenCatalogue,
+		})
 		const zenEntry = PROVIDER_REGISTRY.zen
 		expect(await provider.resolveContextWindow('fresh-model')).toBeUndefined()
-		expect(requiresCredentialForModel(zenEntry, 'fresh-free')).toBe(true)
+		expect(requiresCredentialForModel(zenEntry, 'space-bunny-free')).toBe(false)
 		const { log } = capturing()
 		const fresh = catalogue()
-		await startZenCatalogueRefresh({ home: home(), log, fetchCatalogue: async () => result(fresh) })
-			.done
+		await startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue: async () => result(fresh),
+		}).done
 		expect(await provider.resolveContextWindow('fresh-model')).toBe(123_456)
-		expect(requiresCredentialForModel(zenEntry, 'fresh-free')).toBe(false)
+		expect(requiresCredentialForModel(zenEntry, 'space-bunny-free')).toBe(false)
 	})
 
 	/**
@@ -264,7 +381,10 @@ describe('startZenCatalogueRefresh', () => {
 			await isPending(refresh.done)
 			installCliLogging({ emit: (record) => after.push(record) }, 'debug')
 			fail(new Error('offline'))
-			await expect(refresh.done).resolves.toMatchObject({ kind: 'failed', reason: 'offline' })
+			await expect(refresh.done).resolves.toMatchObject({
+				kind: 'failed',
+				reason: 'offline',
+			})
 			expect(before).toHaveLength(0)
 			expect(after.map((record) => record.body)).toEqual([
 				'Zen model catalogue refresh failed; keeping the catalogue already in use',

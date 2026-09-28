@@ -252,10 +252,9 @@ describe('one vendor is one row', () => {
 		expect(rowNeedsChoice(bothWays)).toBe(true)
 	})
 
-	it('offers the key beside a free catalogue, which works without one', () => {
-		// `zen` declares `requiresApiKey: false`: the free models are a way in on
-		// their own, and a key is a second one. The row says so, and the free way
-		// is first because it is what discovery found.
+	it('offers a key beside the unverified anonymous Zen option', () => {
+		// `zen` declares `requiresApiKey: false`: anonymous selection remains
+		// possible, but inference access is not established by discovery.
 		const rows = providerListRows([FREE_ZEN])
 		const zen = rowOf(rows, 'zen')
 
@@ -264,6 +263,20 @@ describe('one vendor is one row', () => {
 			'credential:zen',
 		])
 		expect(rowNeedsChoice(zen)).toBe(true)
+	})
+
+	it('keeps the credential path when OPENCODE_API_KEY explicitly selects public access', () => {
+		const zen = rowOf(
+			providerListRows([
+				{
+					...FREE_ZEN,
+					source: { kind: 'env', envName: 'OPENCODE_API_KEY' },
+					apiKey: undefined,
+				},
+			]),
+			'zen',
+		)
+		expect(zen.paths.map((path) => path.kind)).toEqual(['detected', 'credential'])
 	})
 
 	it('does not offer a key beside the key it already has', () => {
@@ -395,11 +408,8 @@ describe('the ways in a vendor offers', () => {
 })
 
 describe('what a row says is missing', () => {
-	it('says a key is optional where the free catalogue works without one', () => {
-		// `requiresApiKey` is the registry's own answer to this, and a row that
-		// said "needs" about a provider whose free models work would send an
-		// operator looking for a credential they do not have to find.
-		expect(credentialNeed(PROVIDER_REGISTRY.zen)).toBe('OPENCODE_API_KEY optional')
+	it('names Zen credentialed access without promising anonymous inference', () => {
+		expect(credentialNeed(PROVIDER_REGISTRY.zen)).toBe('OPENCODE_API_KEY for credentialed access')
 		expect(credentialNeed(PROVIDER_REGISTRY.google)).toBe('needs GEMINI_API_KEY')
 	})
 

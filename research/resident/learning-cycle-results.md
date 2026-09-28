@@ -128,7 +128,7 @@ small single run, and is not a net-saving or statistically established result.
 
 ## Reproduction and artifact audit
 
-After building the workspace:
+The commands below describe the recorded procedure at `f92daf81`:
 
 ```sh
 node research/resident/learning-cycle-experiment.mjs
@@ -136,8 +136,12 @@ node research/resident/learning-cycle-experiment.mjs --live
 node research/resident/learning-cycle-audit.mjs /path/printed/by/the/producer
 ```
 
-The first command uses an explicit mock provider. The second makes bounded Muse
-requests and runs the actual CLI admission. The third makes no model requests;
+The producer no longer runs in the current checkout, even in mock mode: it
+uses SDK interfaces since removed. At the recorded revision, the first command
+used an explicit mock provider and the second made bounded Muse requests and
+ran the actual CLI admission. Direct keyless Muse requests returned HTTP 403
+on 2026-09-28, so a new live experiment needs a migrated producer, a key and
+fresh gateway verification. The third command makes no model requests;
 it rechecks retained output scores, paired-review acceptance, journal sequence,
 receipt identity/consumption, candidate hash, held-out outputs and rollback.
 It requires the producer's complete directory, not only the compact summary.

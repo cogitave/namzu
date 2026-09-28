@@ -5,11 +5,11 @@
  * API environment alternatives. Gemini prefers environment API keys, then a
  * Namzu-owned saved key, then its installed CLI Google session. Zen/Go use
  * direct API environment variables, then exact API entries in OpenCode's owner
- * store. Anonymous Zen is available without a credential or local installation
- * and is ordered last.
+ * store. Anonymous Zen is offered without a credential or local installation
+ * and is ordered last; discovery has not verified inference access.
  *
- * A public source promises only access to the documented free model catalogue;
- * it does not assert network reachability. Local servers still require a
+ * A public source means the documented anonymous option exists. It does not
+ * assert model inference access or network reachability. Local servers require a
  * successful bounded probe. Discovery never writes borrowed credentials.
  */
 
@@ -36,7 +36,7 @@ import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from '
 
 export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
-	/** Public free-model access; does not assert connectivity or an account credential. */
+	/** Anonymous Zen option; inference access and connectivity are unverified. */
 	| { readonly kind: 'public' }
 	/** A read-only API key owned by OpenCode, kept on its original billing route. */
 	| { readonly kind: 'opencode-file'; readonly path: string }

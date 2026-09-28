@@ -1998,7 +1998,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose muse-spark-1.3-contributor-free for public access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose space-bunny-free for anonymous access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -5462,6 +5462,21 @@ export function promptExemptToolNames(
 /** A batch needs explicit approval when any call mutates state. */
 export const batchNeedsPrompt = batchNeedsReview
 
+/** Add a remedy only for OpenCode's exact public-tier refusal. */
+function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>): string {
+	const provider = event.providerError
+	const detail = provider?.detail ?? event.error
+	if (
+		provider?.providerId === 'zen' &&
+		provider.kind === 'auth' &&
+		provider.status === 403 &&
+		detail.includes("OpenCode's free tier can only be used from within OpenCode")
+	) {
+		return `${event.error}\nOpenCode limits this free tier to its own client; this Zen request cannot continue. To try credentialed Zen access, set OPENCODE_API_KEY, or choose another provider.`
+	}
+	return event.error
+}
+
 /**
  * Translate one SDK `SessionEvent` into the TUI's `AgentEvent` vocabulary, or
  * `null` for events the chat surface doesn't render (iteration markers,
@@ -5736,7 +5751,7 @@ export function toAgentEvent(
 			return {
 				kind: 'error',
 				...(event.budget ? { budget: event.budget } : {}),
-				message: event.error,
+				message: failedTurnMessage(event),
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),

@@ -93,13 +93,13 @@ describe('the model step', () => {
 			describeModels: async () => ({
 				kind: 'ok',
 				models: [
-					{ id: entry.defaultModel, name: 'Muse Spark Free' },
+					{ id: entry.defaultModel, name: 'Space Bunny Free' },
 					{ id: 'glm-5.3-flash', name: 'Paid GLM' },
 				],
 			}),
 		})
 		try {
-			expect(lastFrame()).toContain('free models · no API key')
+			expect(lastFrame()).toContain('anonymous option · access unverified')
 			// Two ways in, because a public Zen catalogue is one and an API key is
 			// another — so the row asks, and the free way it found is the first
 			// answer.
@@ -108,7 +108,7 @@ describe('the model step', () => {
 			expect(lastFrame()).toContain('Choose a way to use Zen')
 			stdin.write('\r')
 			await flush()
-			expect(lastFrame()).toContain('Muse Spark Free')
+			expect(lastFrame()).toContain('Space Bunny Free')
 			expect(lastFrame()).not.toContain('Paid GLM')
 			expect(lastFrame()).not.toContain('glm-5.3-flash')
 			stdin.write('\r')

@@ -169,12 +169,12 @@ these:`, each marked with the variable that sets it up (`needs
 OPENROUTER_API_KEY`), and selecting one opens the paste field for that provider.
 
 Zen and Zen Go appear as separate providers in `/model` (press
-`p` to change providers). Zen works without an account key or an OpenCode
-installation: its default is Muse Spark 1.3 Contributor Free
-(`muse-spark-1.3-contributor-free`), and public discovery lists only the
-explicitly supported free models. Public Zen is not a signed-in subscription
-and selecting it does not open a login or key prompt. Availability and
-service limits remain controlled by OpenCode.
+`p` to change providers). Without a key, Zen defaults to `space-bunny-free`,
+which completed keyless text and tool-continuation turns through Namzu on
+2026-09-28. The other seven bundled free models returned HTTP 403 to direct
+Namzu requests that day, so they are not offered for anonymous selection.
+Selecting the anonymous option does not open a login or key prompt. Use a Zen
+API key for credentialed access to other models.
 
 For paid Zen models, set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY`; Go
 requires `OPENCODE_GO_API_KEY` or its own installed API credential. When both
@@ -190,17 +190,18 @@ Namzu reads the `opencode` entry for Zen and `opencode-go` for Go, accepts
 only API-key entries, and leaves the file unchanged. OAuth entries are not
 converted into API keys, and a Zen key is never reused for Go. Keys entered
 in the picker remain temporary.
-Public Zen is listed after existing accounts and reachable local providers
-and carries the label `free models · no API key`.
+Anonymous Zen is listed after existing accounts and reachable local providers
+and carries the label `anonymous option · access unverified`.
 
 ```bash
 namzu exec --provider zen "Explain this project"
-namzu exec --provider zen --model muse-spark-1.3-contributor-free "Explain this project"
+namzu exec --provider zen --model space-bunny-free "Explain this project"
 namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
-The Zen commands use public access when no key is available; Go requires its
-own credential. All use the existing folder-trust rules. The same
+The Zen commands attempt anonymous access when no key is available; the
+gateway may refuse that request. Go requires its own credential. All use the
+existing folder-trust rules. The same
 provider/model flags work with `exec --json`.
 The picker lists each service's supported models from the provider catalogue;
 an explicit model selection is saved using the existing preferences flow.

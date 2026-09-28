@@ -241,7 +241,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			vendor: 'zen',
 			envVars: ['OPENCODE_API_KEY', 'OPENCODE_ZEN_API_KEY'],
 			defaultBaseUrl: 'https://opencode.ai/zen/v1',
-			defaultModel: 'muse-spark-1.3-contributor-free',
+			defaultModel: 'space-bunny-free',
 			requiresApiKey: false,
 			acceptsTypedCredential: true,
 			constructible: true,

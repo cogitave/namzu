@@ -120,9 +120,9 @@ cover missing plans before inference, missing round controls, invalid/reused
 IDs, unsettled evidence, mutation attempts, direct promotion, fresh confirmation
 loss, proof persistence and unchanged cancellation/resource gates.
 
-## Reproduction and limits
+## Recorded procedure and limits
 
-From the repository, build the packages first, then run:
+The commands used for this study were:
 
 ```sh
 node research/resident/learning-protection-study.mjs
@@ -130,9 +130,17 @@ node research/resident/learning-protection-study.mjs --regression
 node research/resident/learning-protection-study.mjs --live --prepare
 ```
 
-The last command prints an isolated home, workspace and `.learning.mjs` host.
-Start the built TUI with that `NAMZU_HOME` and working directory, select Muse low,
-and ask it to run the printed host once via `resident learn <absolute-host> --trust`.
+The current checkout cannot run these producer commands, including the scripted
+controls. They use removed SDK interfaces (`ToolRegistry`, `DefaultPathBuilder`
+and the previous query and result shapes). The retained artifacts can still be
+inspected; a new experiment needs a migrated and tested producer. Keyless Muse
+requests were refused on 2026-09-28. A future live run would also need a Zen
+API key and must verify gateway admission; credentialed Muse was not tested
+here.
+
+In the recorded procedure, the last command printed an isolated home, workspace
+and `.learning.mjs` host. The built TUI used that `NAMZU_HOME` and working
+directory, selected Muse low, and ran the host once through `resident learn`.
 `node research/resident/learning-protection-study.mjs --inspect <root>` reopens
 SQLite and independently recomputes scores from the retained runs and manifests.
 There is no automatic retry. Historical pre-protection studies must be replayed

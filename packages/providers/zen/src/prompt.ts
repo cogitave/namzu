@@ -24,6 +24,20 @@ type NativePart = Extract<LanguageModelV3Content, { type: 'text' | 'reasoning' |
 type AssistantContent = Extract<LanguageModelV3Message, { role: 'assistant' }>['content']
 type RichOutput = Extract<LanguageModelV3ToolResultOutput, { type: 'content' }>['value']
 
+/** Muse Spark's Responses gateway cannot round-trip caller-bound encrypted reasoning. */
+export function isMuseSparkResponsesModel(model: string, protocol: ZenProtocol): boolean {
+	return protocol === 'responses' && model.startsWith('muse-spark-')
+}
+
+/** Go's DeepSeek V4 Responses lane requires reasoning before each assistant turn. */
+export function isGoDeepSeekV4ResponsesModel(
+	service: ZenService,
+	model: string,
+	protocol: ZenProtocol,
+): boolean {
+	return service === 'go' && protocol === 'responses' && model === 'deepseek-v4-flash'
+}
+
 class HistoryConversionError extends Error {}
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -282,7 +296,23 @@ function replayContent(
 		state.projectionDigest !== digest(projection(message))
 	)
 		return undefined
-	return content.map((part) => {
+	// Validate the original completed turn before dropping Muse's reasoning items.
+	// Their encrypted content belongs to the gateway's upstream caller and fails
+	// when replayed in a later tool round. Text and tool calls still round-trip.
+	let replayParts = isMuseSparkResponsesModel(params.model, protocol)
+		? content.filter((part) => part.type !== 'reasoning')
+		: content
+	if (isGoDeepSeekV4ResponsesModel(service, params.model, protocol)) {
+		// The native adapter emits each part in source order. Go rejects an
+		// assistant message between a function_call and its output, so group
+		// captured reasoning and text before this turn's tool-call batch.
+		replayParts = [
+			...replayParts.filter((part) => part.type === 'reasoning'),
+			...replayParts.filter((part) => part.type === 'text'),
+			...replayParts.filter((part) => part.type === 'tool-call'),
+		]
+	}
+	return replayParts.map((part) => {
 		const providerOptions =
 			part.providerMetadata === undefined
 				? undefined
@@ -291,7 +321,10 @@ function replayContent(
 			// The compatible adapter reads Gemini call signatures from the google namespace.
 			const thoughtSignature = metadataString(part, 'thoughtSignature')
 			if (protocol === 'chat' && providerOptions && thoughtSignature !== undefined) {
-				providerOptions.google = { ...providerOptions.google, thoughtSignature }
+				providerOptions.google = {
+					...providerOptions.google,
+					thoughtSignature,
+				}
 			}
 			return {
 				type: 'tool-call',
@@ -301,7 +334,11 @@ function replayContent(
 				...(providerOptions && { providerOptions }),
 			}
 		}
-		return { type: part.type, text: part.text, ...(providerOptions && { providerOptions }) }
+		return {
+			type: part.type,
+			text: part.text,
+			...(providerOptions && { providerOptions }),
+		}
 	})
 }
 
@@ -461,7 +498,9 @@ function isRequestOnlyContext(message: Message): boolean {
 	)
 }
 
-const BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
+const BREAKPOINT = {
+	anthropic: { cacheControl: { type: 'ephemeral' } },
+} as const
 
 /**
  * Messages-protocol cache breakpoints, block-level: after the last static

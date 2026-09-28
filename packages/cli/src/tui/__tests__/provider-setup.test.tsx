@@ -12,7 +12,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Public free models · no sign-in required',
+			access: 'Anonymous Zen option · inference access unverified',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),
@@ -32,7 +32,7 @@ it('requires a separate confirmation, rechecks installation and keeps connection
 		await screen!.waitForRender()
 		expect(screen!.viewport().join('\n')).toContain('Not installed')
 	})
-	expect(screen.viewport().join('\n')).toContain('Public free models')
+	expect(screen.viewport().join('\n')).toContain('inference access unverified')
 	screen.press('i')
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('npm install --global opencode-ai')

@@ -13,8 +13,9 @@ export function hasApiCredential(
 }
 
 /**
- * Anonymous Zen admission uses the driver's explicit public model catalogue —
- * the session's active one, which is the background refresh once it lands.
+ * Direct anonymous Zen admission uses the driver's curated access flag, not
+ * every model the service advertises as free. Read the session's active
+ * catalogue, which the background refresh can replace.
  */
 export function requiresCredentialForModel(entry: ProviderRegistryEntry, model: string): boolean {
 	return (

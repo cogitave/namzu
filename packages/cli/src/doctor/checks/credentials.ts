@@ -1,5 +1,6 @@
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
+import { hasApiCredential } from '../../integrations/providers/access.js'
 import { discoverProviders } from '../../integrations/providers/discover.js'
 
 /**
@@ -47,9 +48,11 @@ export const credentialSourcesCheck: DoctorCheck = {
 		const lines = detected.map((d) => {
 			switch (d.source.kind) {
 				case 'env':
+					if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
+						return `${d.entry.id} (env · ${d.source.envName}=public; inference access unverified)`
 					return `${d.entry.id} (env · ${d.source.envName})`
 				case 'public':
-					return `${d.entry.id} (free models · no API key; connectivity not checked)`
+					return `${d.entry.id} (anonymous option · inference access unverified)`
 				case 'opencode-file':
 					return `${d.entry.id} (OpenCode API key · ${d.source.path})`
 				case 'keychain':
@@ -70,9 +73,18 @@ export const credentialSourcesCheck: DoctorCheck = {
 					return `${d.entry.id} (typed · current session)`
 			}
 		})
+		const onlyAnonymousZen = detected.every(
+			(d) => d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey),
+		)
 		return {
-			status: 'pass',
-			message: `${detected.length} provider source(s) available: ${lines.join(', ')}`,
+			status: onlyAnonymousZen ? 'warn' : 'pass',
+			message: `${detected.length} provider source(s) discovered: ${lines.join(', ')}`,
+			...(onlyAnonymousZen
+				? {
+						remediation:
+							'Discovering an anonymous Zen option does not prove inference access. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.',
+					}
+				: {}),
 		}
 	},
 }

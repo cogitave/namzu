@@ -97,7 +97,7 @@ describe('native option semantics at the HTTP boundary', () => {
 					),
 			)
 			vi.stubGlobal('fetch', transport)
-			for await (const _ of new ZenProvider().chatStream({
+			for await (const _ of new ZenProvider({ apiKey }).chatStream({
 				model: 'muse-spark-1.3-contributor-free',
 				messages: [{ role: 'user', content: 'Read the file.' }],
 				tools: [
@@ -129,7 +129,7 @@ describe('native option semantics at the HTTP boundary', () => {
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a Responses HTTP request')
 			expect(request[0]).toBe('https://opencode.ai/zen/v1/responses')
-			expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
+			expect(new Headers(request[1]?.headers).get('authorization')).toBe(`Bearer ${apiKey}`)
 			const body = JSON.parse(String(request[1]?.body))
 			expect(body.tools).toEqual([
 				{
