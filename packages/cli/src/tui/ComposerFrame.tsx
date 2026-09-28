@@ -1,25 +1,18 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout, useWindowSize } from 'ink'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { HYPERMODE_RULE_COLORS, theme } from './theme.js'
+import { theme } from './theme.js'
 
-const HYPERMODE_RULE_MIN_COLUMNS = 40
-const HYPERMODE_IGNITION_MS = 1_200
-const HYPERMODE_IGNITION_COLORS = [
-	'ansi256(231)',
-	'ansi256(225)',
-	'ansi256(219)',
-	'ansi256(177)',
-	'ansi256(141)',
-	'ansi256(105)',
-	'ansi256(63)',
-] as const
+const HYPERMODE_GLOW_MS = 880
+const HYPERMODE_GLOW_COLORS = ['ansi256(183)', theme.accent.hypermode, 'ansi256(97)'] as const
+const MESSAGE_CAPTION_COLUMNS = 10
 
 /** A bounded command frame; its content stays mounted while another prompt owns focus. */
 export function ComposerFrame({
 	focus,
 	hidden = false,
 	mode,
+	columns,
 	activation = 0,
 	animate = true,
 	children,
@@ -29,10 +22,11 @@ export function ComposerFrame({
 	readonly working?: boolean
 	readonly animate?: boolean
 	/**
-	 * A session mode with a coloured top rule — today only `hypermode`. The
-	 * footer names it once; the border never repeats the label.
+	 * A session mode named on the frame's upper right — today only `hypermode`.
 	 */
 	readonly mode?: string
+	/** The frame's actual width, excluding a parent's horizontal padding. */
+	readonly columns?: number
 	/** Increment only when the operator successfully turns the session mode on. */
 	readonly activation?: number
 	readonly children: ReactNode
@@ -41,9 +35,19 @@ export function ComposerFrame({
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
 	const accent = focus ? theme.border.focus : theme.text.muted
-	const gradient =
-		mode !== undefined && (terminal.columns ?? 80) >= HYPERMODE_RULE_MIN_COLUMNS && colourAllowed()
-	const motion = animate && stdout.isTTY === true && !screenReader && gradient
+	const frameColumns = Math.max(2, columns ?? terminal.columns ?? 80)
+	// Keep the mode visible on small screens by giving its label the caption's
+	// space. Only a frame too narrow to hold the complete word omits it.
+	const showMode = mode !== undefined && frameColumns >= mode.length + 7
+	const showCaption = !showMode || frameColumns >= 28
+	const ruleColumns = Math.max(
+		1,
+		frameColumns - 2 - (showCaption ? MESSAGE_CAPTION_COLUMNS : 0) - (showMode ? mode.length + 3 : 0),
+	)
+	// Below this width the caption yields its space to the label, leaving the
+	// rule on the left of the input center. A pulse there would appear off-center.
+	const motion =
+		animate && stdout.isTTY === true && !screenReader && showMode && showCaption && colourAllowed()
 	const [igniting, setIgniting] = useState(false)
 	const previousActivation = useRef(activation)
 	const { time, reset } = useAnimation({
@@ -59,26 +63,35 @@ export function ComposerFrame({
 		} else setIgniting(false)
 	}, [activation, hidden, motion, reset])
 	useEffect(() => {
-		if (igniting && (time >= HYPERMODE_IGNITION_MS || !motion || hidden)) setIgniting(false)
+		if (igniting && (time >= HYPERMODE_GLOW_MS || !motion || hidden)) setIgniting(false)
 	}, [hidden, igniting, motion, time])
-	const ignitionTime = igniting && time < HYPERMODE_IGNITION_MS ? time : undefined
+	const glowTime = igniting && motion && !hidden && time < HYPERMODE_GLOW_MS ? time : undefined
 	return (
-		<Box position="relative" flexDirection="column" marginTop={hidden ? 0 : 1}>
+		<Box position="relative" flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
 				<Box flexShrink={0}>
 					<Text color={accent}>┌</Text>
 				</Box>
-				{/* The caption yields to narrow widths while both corners stay fixed. */}
-				<Box minWidth={0}>
-					<Text color={accent} wrap="truncate-end">
-						─ <Text bold>MESSAGE</Text>{' '}
-					</Text>
-				</Box>
-				{gradient ? (
-					<GradientRule columns={terminal.columns ?? 80} ignitionTime={ignitionTime} />
+				{showCaption ? (
+					<Box minWidth={0}>
+						<Text color={accent} wrap="truncate-end">
+							─ <Text bold>MESSAGE</Text>{' '}
+						</Text>
+					</Box>
+				) : null}
+				{glowTime !== undefined ? (
+					<GlowRule columns={ruleColumns} time={glowTime} />
 				) : (
 					<Rule />
 				)}
+				{showMode ? (
+					<Box flexShrink={0}>
+						<Text color={theme.accent.hypermode} bold>
+							{' '}{mode}{' '}
+						</Text>
+						<Text color={theme.border.default}>─</Text>
+					</Box>
+				) : null}
 				<Box flexShrink={0}>
 					<Text color={accent}>┐</Text>
 				</Box>
@@ -129,32 +142,32 @@ function Rule() {
 }
 
 /**
- * The top rule in a colour run. Yoga still sizes it: the text is a run
- * of `─` at least as long as the terminal is wide, hard-wrapped by the layout
- * and clipped to one row, so no width is computed here that could disagree
- * with the box's own.
+ * A single violet/lavender pulse travels from the rule's center toward both
+ * ends. The settled rule is plain graphite, so no colour cycles behind a draft.
  */
-function GradientRule({
+function GlowRule({
 	columns,
-	ignitionTime,
+	time,
 }: {
 	readonly columns: number
-	readonly ignitionTime?: number
+	readonly time: number
 }) {
 	const cells = Math.max(1, columns)
-	const sweep =
-		ignitionTime === undefined
-			? null
-			: Math.floor((ignitionTime / HYPERMODE_IGNITION_MS) * (cells + 12)) - 6
+	const center = (cells - 1) / 2
+	const radius = 1 + (time / HYPERMODE_GLOW_MS) * (center + 9)
 	return (
 		<Box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
 			<Text wrap="wrap">
 				{Array.from({ length: cells }, (_, index) => {
-					const trail = sweep === null ? -1 : sweep - index
+					const trail = radius - Math.abs(index - center)
 					const color =
-						trail >= 0 && trail < HYPERMODE_IGNITION_COLORS.length
-							? HYPERMODE_IGNITION_COLORS[trail]
-							: HYPERMODE_RULE_COLORS[index % HYPERMODE_RULE_COLORS.length]
+						trail >= 0 && trail < 2
+							? HYPERMODE_GLOW_COLORS[0]
+							: trail >= 2 && trail < 5
+								? HYPERMODE_GLOW_COLORS[1]
+								: trail >= 5 && trail < 9
+									? HYPERMODE_GLOW_COLORS[2]
+									: theme.border.default
 					return (
 						// biome-ignore lint/suspicious/noArrayIndexKey: one fixed cell per column; nothing reorders.
 						<Text key={index} color={color}>
@@ -167,7 +180,7 @@ function GradientRule({
 	)
 }
 
-/** The gradient is decoration; wherever colour is refused, the plain rule is drawn instead. */
+/** The pulse is decoration; wherever colour is refused, the plain rule is drawn instead. */
 function colourAllowed(): boolean {
 	return (
 		process.env.NO_COLOR === undefined &&

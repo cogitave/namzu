@@ -22,7 +22,7 @@ export interface SemanticColors {
 		readonly tool: string
 		/**
 		 * The hypermode session mode's own colour (violet), used wherever the
-		 * mode is named: the effort slider's last stop and the footer segment.
+		 * mode is named: the effort slider's last stop and the composer tag.
 		 * Never a status colour.
 		 */
 		readonly hypermode: string
@@ -69,18 +69,3 @@ export const theme: SemanticColors = {
 		focus: 'ansi256(83)',
 	},
 }
-
-/**
- * The resting colour run across the message box's top rule while hypermode
- * is on. A brief activation sweep can pass over it; afterwards these colours
- * stay still. A renderer without colour draws the plain rule instead.
- */
-export const HYPERMODE_RULE_COLORS: readonly string[] = [
-	'ansi256(110)',
-	'ansi256(140)',
-	'ansi256(175)',
-	'ansi256(203)',
-	'ansi256(209)',
-	'ansi256(221)',
-	'ansi256(114)',
-]

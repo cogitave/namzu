@@ -15,15 +15,9 @@
  * Width-pressure drop order (`StatusBar.tsx`'s `fitStatusLine`), left to
  * right in survival priority — earliest dropped first: the working
  * directory (shrinks, then drops), the effort label, the cycle-key
- * reminder, the model on the right, `hypermode`, and only as a last
- * resort the mode badge itself (truncates, then drops). `hypermode` is
- * deliberately NOT bundled with effort — it is a persistent,
- * behavior-changing session setting with no other on-screen indicator, so
- * it holds the badge's own priority tier and outlives effort, the cwd and
- * the model being dropped out from under it. It never forces the badge to
- * shrink to make room for it, and is never itself truncated to a
- * fragment of the word: below the width where it fits whole beside an
- * already-fitted badge, it disappears entirely and the badge wins.
+ * reminder, the model on the right, and only as a last resort the mode
+ * badge itself (truncates, then drops). Hypermode is shown in the message
+ * frame, so the footer has no second copy of its label.
  */
 
 import { Box } from 'ink'
@@ -99,48 +93,7 @@ const planWithEffort = (
 		canCycleMode
 	/>
 )
-const planWithHypermode = (
-	<StatusBar
-		cwd={CWD}
-		provider="a-provider"
-		model="gpt-5.6-terra"
-		effort="high"
-		hypermode
-		state="idle"
-		permissionMode="plan"
-		canCycleMode
-	/>
-)
-const hypermodeWithNoEffortMenu = (
-	<StatusBar
-		cwd={CWD}
-		provider="a-provider"
-		model="gpt-5.6-terra"
-		hypermode
-		state="idle"
-		permissionMode="plan"
-		canCycleMode
-	/>
-)
-const hypermodeNoModeNoEffort = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" hypermode state="idle" />
-)
-const hypermodeNoModeWithEffort = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" effort="high" hypermode state="idle" />
-)
-const hypermodeWithLongCwd = (
-	<StatusBar
-		cwd={LONG_CWD}
-		provider="a-provider"
-		model="gpt-5.6-terra"
-		effort="high"
-		hypermode
-		state="idle"
-		permissionMode="plan"
-		canCycleMode
-	/>
-)
-const noHypermodeWithLongCwd = (
+const planWithLongCwd = (
 	<StatusBar
 		cwd={LONG_CWD}
 		provider="a-provider"
@@ -151,7 +104,7 @@ const noHypermodeWithLongCwd = (
 		canCycleMode
 	/>
 )
-const planNoHypermodeNoEffort = (
+const planNoEffort = (
 	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" state="idle" permissionMode="plan" canCycleMode />
 )
 
@@ -189,36 +142,6 @@ describe('the composer footer at 80 columns', () => {
 			const row = footerRow(screen)
 			expect(row).toContain('‖ Plan (read-only) (shift+tab to cycle) · effort high')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('reads the level and the mode side by side, not as a sixth level', async () => {
-		// A wider column than its neighbours above: "· effort high · hypermode"
-		// is exactly the longer string this test exists to check, and it needs
-		// the room those shorter fixtures did not.
-		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), {
-			cols: 100,
-			rows: ROWS,
-		})
-		try {
-			const row = footerRow(screen)
-			expect(row).toContain('· effort high · hypermode')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('names hypermode alone, never as a fabricated effort value, when no menu is pinned', async () => {
-		const screen = await renderToScreen(belowMessageFrame(hypermodeWithNoEffortMenu), {
-			cols: 80,
-			rows: ROWS,
-		})
-		try {
-			const row = footerRow(screen)
-			expect(row).toContain('· hypermode')
-			expect(row).not.toContain('effort hypermode')
 		} finally {
 			await screen.unmount()
 		}
@@ -261,111 +184,34 @@ describe('the composer footer at 40 columns', () => {
 	})
 })
 
-describe('hypermode holds the mode badge own priority under width pressure', () => {
-	it('at 100 columns: the whole line is unaffected, in the documented order', async () => {
-		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeWithEffort), {
-			cols: 100,
-			rows: ROWS,
-		})
+describe('the composer footer under width pressure', () => {
+	it('keeps the full mode, effort, path and model when they fit', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 100, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain(`shift+tab to cycle · effort high · hypermode · ${CWD}`)
+			expect(row).toContain(`‖ Plan (read-only) (shift+tab to cycle) · effort high · ${CWD}`)
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('at 60 columns: sheds effort before hypermode, and keeps the model', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), { cols: 60, rows: ROWS })
+	it('drops a long working directory before the mode badge', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithLongCwd), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('‖ Plan (read-only) · hypermode')
-			expect(row).not.toContain('effort')
-			expect(row).toContain('gpt-5.6-terra')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('at 40 columns beside the mode badge: cwd, effort and the model are gone, hypermode is not', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithHypermode), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ Plan (read-only) · hypermode')
-			expect(row).not.toContain('effort')
-			expect(row).not.toContain(CWD)
-			expect(row).not.toContain('gpt-5.6-terra')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('at 40 columns beside the quiet reminder (no active mode): same survival, with effort set', async () => {
-		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeWithEffort), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('shift+tab to cycle · hypermode')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('at 40 columns beside the quiet reminder, with no effort menu pinned either', async () => {
-		const screen = await renderToScreen(belowMessageFrame(hypermodeNoModeNoEffort), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('shift+tab to cycle · hypermode')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('at 40 columns, hypermode off: the earlier drop order is unaffected', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planNoHypermodeNoEffort), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row).not.toContain('hypermode')
 			expect(row).toContain('‖ Plan (read-only)')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('survives a long working directory: cwd is dropped, hypermode is not', async () => {
-		const screen = await renderToScreen(belowMessageFrame(hypermodeWithLongCwd), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ Plan (read-only) · hypermode')
 			expect(row).not.toContain('nested')
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('a long cwd drops the same way whether or not hypermode is on', async () => {
-		const screen = await renderToScreen(belowMessageFrame(noHypermodeWithLongCwd), { cols: 40, rows: ROWS })
-		try {
-			const row = footerRow(screen)
-			expect(row).not.toContain('nested')
-			expect(row).not.toContain('hypermode')
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('below the width where "hypermode" fits whole beside an already-fitted badge, the badge wins', async () => {
-		// 24 columns: `fitStatusLine` sees 22 after StatusBar's own 2-cell
-		// padding — room for "‖ Plan (read-only)" (18) whole, but not for
-		// " · hypermode" (12 more) beside it. Hypermode is dropped
-		// entirely rather than truncated to a fragment of the word, and the
-		// badge is not shortened to make room for it either.
-		const screen = await renderToScreen(belowMessageFrame(hypermodeWithNoEffortMenu), { cols: 24, rows: ROWS })
+	it('keeps the mode badge whole at 24 columns', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planNoEffort), { cols: 24, rows: ROWS })
 		try {
 			const row = footerRow(screen)
 			expect(row.trimEnd()).toBe('‖ Plan (read-only)')
-			expect(row).not.toContain('hypermode')
-			expect(row).not.toContain('hypermod')
 		} finally {
 			await screen.unmount()
 		}

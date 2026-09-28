@@ -254,9 +254,9 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	expect(screen.viewport().join('\n')).toContain('←/→ adjust')
 	await press(screen, '\r')
 	await shows(screen, 'Type a message')
-	const footer = screen.viewport().join('\n')
-	expect(footer).toContain('· hypermode')
-	expect(footer).not.toContain('effort hypermode')
+	const viewport = screen.viewport()
+	expect(viewport.find((row) => row.includes('┌─ MESSAGE'))).toContain(' hypermode ─┐')
+	expect(viewport.find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 })
 
 it('names xhigh on the hypermode stop when the model publishes max too', async () => {
