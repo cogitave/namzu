@@ -1492,15 +1492,18 @@ function credentialGap(
 	// one ever did, it is not a credential problem and must not be reported as
 	// one — a wrong diagnosis sends the operator to paste a key that would not
 	// have helped.
-	if (
-		!entry ||
-		!entry.constructible ||
-		!requiresCredentialForModel(entry, primary.model ?? entry.defaultModel)
-	)
-		return null
+	if (!entry || !entry.constructible) return null
+	const model = primary.model ?? entry.defaultModel
+	if (!requiresCredentialForModel(entry, model)) return null
 	const det = findDetected(detected, primary.id)
 	if (hasApiCredential(entry, det?.apiKey)) return null
-	return { providerId: primary.id, reason: missingCredentialMessage(entry) }
+	const reason =
+		entry.id === 'zen' &&
+		primary.model !== undefined &&
+		!requiresCredentialForModel(entry, entry.defaultModel)
+			? `No credential found for saved Zen model "${primary.model}". Select Zen, its anonymous option, then Space Bunny Free (${entry.defaultModel}) to continue without a key, or press "k" to enter a Zen API key and try the saved model.`
+			: missingCredentialMessage(entry)
+	return { providerId: primary.id, reason }
 }
 
 // Builtins we don't expose: `verify_outputs` — a host-side check rather

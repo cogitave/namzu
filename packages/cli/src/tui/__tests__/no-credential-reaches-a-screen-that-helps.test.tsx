@@ -148,12 +148,18 @@ vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		describeProviderModels: async () => ({
+		describeProviderModels: async (id: ProviderId) => ({
 			kind: 'ok' as const,
-			models: [
-				{ id: 'gemini-2.5-flash', name: 'Flash' },
-				{ id: 'gemini-2.5-pro', name: 'Pro' },
-			],
+			models:
+				id === 'zen'
+					? [
+							{ id: 'space-bunny-free', name: 'Space Bunny Free' },
+							{ id: 'muse-spark-1.3-contributor-free', name: 'Muse Spark Free' },
+						]
+					: [
+							{ id: 'gemini-2.5-flash', name: 'Flash' },
+							{ id: 'gemini-2.5-pro', name: 'Pro' },
+						],
 		}),
 		// The provider's answer, stubbed. Verification honesty is pinned by
 		// `credential-prompt-draws.test.tsx`; what matters here is that a good
@@ -241,6 +247,43 @@ beforeEach(() => {
 })
 
 describe('launching with a saved provider and no credential', () => {
+	it('offers a keyless Zen recovery for a saved model that is no longer anonymously available', async () => {
+		const pinned = 'muse-spark-1.3-contributor-free'
+		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'zen', model: pinned }] }
+		world.detected = [
+			{ entry: PROVIDER_REGISTRY.zen, source: { kind: 'public' }, alternatives: [] },
+		]
+		const screen = await launch()
+		try {
+			const notice = text(screen)
+			expect(notice).toContain(pinned)
+			expect(notice).toContain('Space Bunny Free')
+			expect(notice).toContain('"k" to enter a Zen API key and try the saved model')
+			expect(world.built).toBeNull()
+			expect(world.savedPrefs).toEqual([])
+
+			screen.press('\r')
+			await until(screen, 'Choose a way to use Zen')
+			screen.press('\r')
+			await until(screen, 'Choose a model')
+			expect(text(screen)).toContain('Space Bunny Free')
+			expect(text(screen)).not.toContain('Muse Spark Free')
+			screen.press('\r')
+			await until(screen, 'Type a message')
+			expect(world.built?.providers[0]).toEqual({
+				id: 'zen',
+				model: 'space-bunny-free',
+			})
+			expect(world.savedPrefs[0]?.providers[0]).toEqual({
+				id: 'zen',
+				model: 'space-bunny-free',
+			})
+			expect(world.credentials).toEqual([])
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('saves a pasted Gemini key and provider preference after session construction', async () => {
 		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'google', model: 'gemini-2.5-flash' }] }
 		const screen = await launch()
