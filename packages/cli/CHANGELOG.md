@@ -1,5 +1,11 @@
 # @namzu/cli
 
+## 33.2.1
+
+### Patch Changes
+
+- c926384: Hypermode now appears at the composer’s upper right. Activating it briefly sends a soft lavender glow from the input border’s center toward both sides; the border then rests in graphite. The footer no longer repeats the label.
+
 ## 33.2.0
 
 ### Minor Changes
