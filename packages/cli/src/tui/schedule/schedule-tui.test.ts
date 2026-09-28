@@ -320,10 +320,12 @@ describe('answering a parked scheduled run', () => {
 		expect(said.join('\n')).toContain(HANDOFF_REASON)
 		expect(said.join('\n')).toContain('site https://example.test')
 		expect(said.join('\n')).not.toContain('origin: ')
-		// The resumed turn is told the person dealt with it, so it tries again.
+		// Continuing permits one retry without claiming the handoff is resolved.
 		const note = scheduled && 'systemNote' in scheduled ? scheduled.systemNote : undefined
 		expect(note).toContain(`a tool needed a person: ${HANDOFF_REASON}`)
-		expect(note).toContain('Try the step that stopped again')
+		expect(note).toContain('that choice does not confirm the issue was resolved')
+		expect(note).toContain('Try the step that stopped again once')
+		expect(note).toContain('never type a password or a code')
 		expect(note).toMatch(/It is now \w+day, /)
 		expect(scheduled && 'pendingDecision' in scheduled).toBe(false)
 		expect(scheduled && 'model' in scheduled ? scheduled.model : undefined).toEqual({

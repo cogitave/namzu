@@ -101,13 +101,15 @@ A sign-in page, a second sign-in step, a CAPTCHA, a bot check or an HTTP authent
   Sign in to https://github.com in the browser window (profile work), then press Enter to continue · Esc to stop.
 ```
 
-Do it in the window and press Enter; the turn continues, and the model is told you dealt with it, so it opens or reads the page again rather than taking the sign-in page as the answer. Esc stops the turn. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
+Do it in the window and press Enter; the turn continues, and the model is told to retry the page once. Pressing Enter does not claim that sign-in or the challenge succeeded. If the page still needs you, the turn pauses again. Esc stops the turn. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
 
 ```text
   namzu browser login work https://github.com/login
 ```
 
 Run it in another terminal, sign in, close the window, then press Enter. Nothing is ever typed into a password or one-time-code field by the agent, whatever a rule allows.
+
+A public page can display password or code input examples without being a sign-in page. Namzu can read and navigate it. Actions targeting those controls, clicks on buttons in forms containing them, form-submitting Enter keys and all untargeted keys are refused; unrelated page controls remain usable. Page scripts can still react to an allowed click, so this check does not guarantee that a site cannot submit its own stored values. The agent can dismiss a page-created dialog but cannot accept it. Screenshots mask input and textarea controls Playwright can locate, including child frames; a closed shadow root or text drawn elsewhere in the page may still appear in an image.
 
 An HTTP 401 or 407 alone is not a password prompt. The browser pauses for HTTP authentication only when the response carries the matching authentication challenge header. The notice asks you to check access in the browser window; a challenge does not guarantee that the browser has a sign-in form. `namzu browser login` does not update the profile's "last sign-in" time for this reason alone. A bare 401 or 407 is reported as a failed page load with its status, unless the page independently shows a sign-in, CAPTCHA or bot check. The agent should tell you that the site or proxy refused the request rather than ask you to enter a password based on the status alone.
 

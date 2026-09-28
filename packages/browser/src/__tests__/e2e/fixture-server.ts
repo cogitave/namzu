@@ -70,6 +70,11 @@ export async function startFixtureServer(): Promise<FixtureServer> {
 			res.end(`<!doctype html><title>Order received</title><h1>Order received</h1><ul>${rows}</ul>`)
 			return
 		}
+		if (path === '/credential-submit') {
+			res.writeHead(200, { 'content-type': 'text/html' })
+			res.end('<!doctype html><title>Profile saved</title><h1>Profile saved</h1>')
+			return
+		}
 		const file = path === '/' ? 'index.html' : path.slice(1)
 		if (!/^[a-z-]+\.html$/.test(file)) {
 			res.writeHead(404, { 'content-type': 'text/html' })
