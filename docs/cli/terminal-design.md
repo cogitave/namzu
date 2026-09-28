@@ -65,12 +65,14 @@ frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
 
-While hypermode is on, the message box's top border names it on the
-right, `┌─ MESSAGE ──── hypermode ─┐`, in violet, and the run of `─` before
-it takes a still colour gradient. Nothing on it moves. Where colour is refused
-(`NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb`) the rule is the plain one, and below
-40 columns the tag is left off the border whole; the footer still names the
-mode there.
+While hypermode is on, the message box's top rule carries a colour gradient.
+The footer is the only persistent label for the session mode; the border does
+not repeat `hypermode`. Successfully turning the mode on sends one brief colour
+sweep along that rule, then leaves its resting gradient still. Repeating the
+selection does not replay it. Motion is skipped in non-interactive terminals,
+for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
+`TERM=dumb`). Below 40 columns, the top rule is plain; the footer still names
+the mode when it fits.
 
 ### Composer triggers
 
@@ -87,7 +89,7 @@ emoji, and the state is always also a word or mark (`?`, `(off)`,
 `unavailable …`), so a terminal without colour, or a reader who cannot tell
 the two glyphs apart, loses nothing. The row is one row at every width and
 shortens by steps (full copy from 84 terminal columns, a short form from 64,
-label and key from 44, the label alone below). The border tag and the footer are
+label and key from 44, the label alone below). The border and the footer are
 unchanged by a trigger: a one-turn effort pin shows in the row and in the
 transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
 and the footer keeps the session's own effort. The queue line names the armed

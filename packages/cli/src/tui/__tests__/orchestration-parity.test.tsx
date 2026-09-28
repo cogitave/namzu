@@ -1,7 +1,7 @@
 /**
  * The delegated-work surfaces aligned with the reference terminal: the
  * borderless rail tree, the rows delegated work leaves in the conversation,
- * the folded waiting line, the effort slider and the hypermode tag on the
+ * the folded waiting line, the effort slider and the hypermode rule on the
  * message box. Each is checked at a comfortable width, at 40 columns, and
  * with Turkish text, whose dotted/dotless i and cedilla letters are the
  * cheapest way to catch a width or case-folding assumption.
@@ -9,6 +9,7 @@
 
 import { createRequire } from 'node:module'
 
+import { Box } from 'ink'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import stringWidth from 'string-width'
 
@@ -493,7 +494,26 @@ describe('the effort slider', () => {
 })
 
 describe('hypermode on the message box and the footer', () => {
-	it('tags the top border, and leaves it plain below 40 columns', async () => {
+	it('names the mode once in the footer at 80 and 40 columns', async () => {
+		for (const cols of [80, 40]) {
+			mounted = await renderToScreen(
+				<Box flexDirection="column">
+					<ComposerFrame focus mode="hypermode">
+						<></>
+					</ComposerFrame>
+					<StatusBar cwd="/x" provider={null} model={null} hypermode state="idle" />
+				</Box>,
+				{ cols, rows: 7 },
+			)
+			const visible = mounted.viewport().join('\n')
+			expect(visible.match(/hypermode/gu)).toHaveLength(1)
+			expect(visible.split('\n').find((row) => row.includes('MESSAGE'))).not.toContain('hypermode')
+			await mounted.unmount()
+			mounted = undefined
+		}
+	})
+
+	it('keeps the top rule whole below 40 columns', async () => {
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
 				<></>
@@ -501,7 +521,7 @@ describe('hypermode on the message box and the footer', () => {
 			{ cols: 60, rows: 6 },
 		)
 		const top = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
-		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
+		expect(top).toMatch(/^┌─ MESSAGE ─+┐$/u)
 		expect([...top]).toHaveLength(60)
 		await mounted.unmount()
 		mounted = await renderToScreen(
@@ -539,7 +559,7 @@ describe('hypermode on the message box and the footer', () => {
 			)
 			const plain = mounted.writes().join('')
 			expect(plain).not.toContain('38;5;110m')
-			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+ hypermode ─┐/u)
+			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+┐/u)
 		} finally {
 			vi.unstubAllEnvs()
 		}
