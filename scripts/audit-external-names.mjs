@@ -826,15 +826,37 @@ function namedImportEnd(lines, start) {
 	return -1
 }
 
-/** Read only comment text from an imported line, masking quoted module paths first. */
-function importComment(line) {
+/** Read comments in a named import without exempting prose in a block comment. */
+function importComments(line, state) {
 	const masked = line.replace(
 		/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g,
 		(literal) => ' '.repeat(literal.length),
 	)
-	const starts = [masked.indexOf('//'), masked.indexOf('/*')].filter((index) => index >= 0)
-	if (starts.length > 0) return line.slice(Math.min(...starts))
-	return /^\s*\*/.test(line) ? line : ''
+	const comments = []
+	let cursor = 0
+	while (cursor < line.length) {
+		if (state.inBlock) {
+			const end = masked.indexOf('*/', cursor)
+			if (end < 0) {
+				comments.push(line.slice(cursor))
+				break
+			}
+			comments.push(line.slice(cursor, end + 2))
+			state.inBlock = false
+			cursor = end + 2
+			continue
+		}
+		const lineStart = masked.indexOf('//', cursor)
+		const blockStart = masked.indexOf('/*', cursor)
+		if (lineStart < 0 && blockStart < 0) break
+		if (lineStart >= 0 && (blockStart < 0 || lineStart < blockStart)) {
+			comments.push(line.slice(lineStart))
+			break
+		}
+		state.inBlock = true
+		cursor = blockStart
+	}
+	return comments.join(' ')
 }
 
 function findings(source, path) {
@@ -850,6 +872,7 @@ function findings(source, path) {
 	const hits = []
 	let inFence = false
 	let importThrough = -1
+	const importCommentState = { inBlock: false }
 	// YAML frontmatter is metadata: `related_packages` is a list of package
 	// identifiers, which is identity rather than prose.
 	let inFrontmatter = isMarkdown && source.startsWith('---')
@@ -872,10 +895,13 @@ function findings(source, path) {
 		if (family === 'js') {
 			if (index > importThrough) {
 				const end = namedImportEnd(lines, index)
-				if (end >= index) importThrough = end
+				if (end >= index) {
+					importThrough = end
+					importCommentState.inBlock = false
+				}
 			}
 			if (index <= importThrough) {
-				const comment = importComment(line)
+				const comment = importComments(line, importCommentState)
 				if (comment)
 					for (const term of TERMS)
 						if (matches(term, comment))

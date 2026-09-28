@@ -76,11 +76,17 @@ Write-Step "Node $nodeVersion, installing $NamzuPkg@$NamzuVersion"
 
 # Use the .cmd shim explicitly. Under Restricted execution policy, PowerShell
 # resolves bare `npm` to npm.ps1 and refuses to run it even when npm.cmd works.
-# `2>&1 | Out-Null` rather than a redirect: npm writes progress to stderr even
-# on success, and in PowerShell 5.1 a native command's stderr becomes an
-# ErrorRecord that trips $ErrorActionPreference = 'Stop'.
-& npm.cmd install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1 | Out-Null
-$installExit = $LASTEXITCODE
+# PowerShell 5.1 turns native stderr into ErrorRecords. Even `2>&1 | Out-Null`
+# can throw under Stop when npm succeeds but prints a warning. Let that one
+# native call continue, capture its exit code, and restore the script policy.
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    & npm.cmd install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1 | Out-Null
+    $installExit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
 
 if ($installExit -ne 0) {
     Fail @"
@@ -98,7 +104,13 @@ $env:Path += ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';
              [Environment]::GetEnvironmentVariable('Path', 'User')
 
 if (-not (Test-Have 'namzu.cmd')) {
-    $prefix = (& npm.cmd prefix --global)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $prefix = (& npm.cmd prefix --global 2>$null)
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     Fail @"
 installed, but 'namzu' is not on PATH.
   npm put it in: $prefix
@@ -106,8 +118,15 @@ installed, but 'namzu' is not on PATH.
 "@
 }
 
-$installed = (& namzu.cmd --version)
-if ($LASTEXITCODE -ne 0 -or -not $installed) {
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    $installed = (& namzu.cmd --version 2>$null)
+    $verifyExit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($verifyExit -ne 0 -or -not $installed) {
     Fail @'
 'namzu' is on PATH but did not answer --version.
   Run 'namzu doctor' to see what it says about itself.

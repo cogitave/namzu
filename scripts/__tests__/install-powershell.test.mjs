@@ -29,6 +29,9 @@ function runInstaller(nodeVersion) {
 function node { '${nodeVersion}' }
 function npm.cmd {
     $global:NpmCalls += ,($args -join ' ')
+    if ($args[0] -eq 'install') {
+        & "$env:SystemRoot\\System32\\cmd.exe" /d /c 'echo npm-warning 1>&2'
+    }
     $global:LASTEXITCODE = 0
     if ($args[0] -eq 'prefix') { 'C:\\mock-npm' }
 }
@@ -51,7 +54,7 @@ Write-Output 'mock-install-complete'
 	return spawnSync(powerShell, ['-NoProfile', '-ExecutionPolicy', 'Restricted', '-EncodedCommand', Buffer.from(wrapper, 'utf16le').toString('base64')], {
 		encoding: 'utf8',
 		env,
-		timeout: 10_000,
+		timeout: 30_000,
 		windowsHide: true,
 	})
 }
@@ -60,7 +63,7 @@ Write-Output 'mock-install-complete'
 // never on how quickly it completed.
 test('PowerShell installer uses .cmd shims under Restricted policy', { skip }, () => {
 	const result = runInstaller('v22.13.0')
-	assert.equal(result.error?.message, undefined)
+	assert.equal(result.error?.message, undefined, `stdout: ${result.stdout}; stderr: ${result.stderr}`)
 	assert.equal(result.status, 0, result.stderr)
 	assert.match(result.stdout, /policy=Restricted/)
 	assert.match(result.stdout, /test-version installed/)
@@ -69,7 +72,7 @@ test('PowerShell installer uses .cmd shims under Restricted policy', { skip }, (
 
 test('PowerShell installer rejects a Node 22 release below the CLI minimum', { skip }, () => {
 	const result = runInstaller('v22.12.9')
-	assert.equal(result.error?.message, undefined)
+	assert.equal(result.error?.message, undefined, `stdout: ${result.stdout}; stderr: ${result.stderr}`)
 	assert.equal(result.status, 1, result.stderr)
 	assert.match(result.stdout, /namzu needs Node 22\.13 or newer/)
 	assert.doesNotMatch(result.stdout, /mock-install-complete/)

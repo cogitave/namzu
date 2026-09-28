@@ -200,6 +200,12 @@ test('a wrapped named import is identity, but the next declaration and broken im
 	)
 	assert.equal(runAudit(root).status, 1)
 
+	writeFileSync(
+		source,
+		"import {\n\t/* We copied\n\tPydantic shaped this.\n\t*/\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
+	)
+	assert.equal(runAudit(root).status, 1)
+
 	writeFileSync(source, declaration.replace("} from './owner.js'", "} from './owner.js' /" + '/ Claude shaped this'))
 	assert.equal(runAudit(root).status, 1)
 

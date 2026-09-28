@@ -2,7 +2,7 @@
 
 ## 2026-09-29
 
-- **Fix** [Provider credentials](cli/credentials.md) and [Slash commands](cli/slash-commands.md): missing terminal CLI sessions now show checked credential paths and explain the distinction from desktop app sign-in. The Windows PowerShell installer uses `.cmd` shims under Restricted execution policy and checks for Node 22.13; the READMEs give separate Command Prompt, PowerShell and POSIX commands. `.changeset/windows-claude-discovery.md`, **patch** for `@namzu/cli`.
+- **Fix** [Provider credentials](cli/credentials.md) and [Slash commands](cli/slash-commands.md): missing terminal CLI sessions now show checked credential paths and explain the distinction from desktop app sign-in. The Windows PowerShell installer uses `.cmd` shims under Restricted execution policy, accepts successful npm output on stderr, and checks for Node 22.13; the READMEs give separate Command Prompt, PowerShell and POSIX commands. The external-name audit still inspects comments inside wrapped imports. `.changeset/windows-claude-discovery.md`, **patch** for `@namzu/cli`.
 
 ## 2026-09-28
 
