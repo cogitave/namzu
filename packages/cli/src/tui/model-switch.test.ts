@@ -1,3 +1,4 @@
+import { getZenModels } from '@namzu/zen/models'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -199,23 +200,28 @@ describe('resolving an active conversation model change', () => {
 	})
 
 	it.each([undefined, 'public'])(
-		'admits a listed anonymous Zen model with credential %s',
+		'admits every listed experimental Zen free model with credential %s',
 		async (apiKey) => {
-			const model = 'space-bunny-free'
-			await expect(
-				resolveModelSwitch(
-					{ model },
-					{
-						currentProvider: 'zen',
-						detected: [{ ...detected('zen'), apiKey }],
-						describeModels: listingProvider({ zen: catalogue(model) }),
-					},
-				),
-			).resolves.toEqual({ kind: 'resolved', selection: { id: 'zen', model } })
+			const freeModels = getZenModels('zen').filter(
+				(model) => model.inputPrice === 0 && model.outputPrice === 0,
+			)
+			expect(freeModels.length).toBeGreaterThan(0)
+			for (const { id: model } of freeModels) {
+				await expect(
+					resolveModelSwitch(
+						{ model },
+						{
+							currentProvider: 'zen',
+							detected: [{ ...detected('zen'), apiKey }],
+							describeModels: listingProvider({ zen: catalogue(model) }),
+						},
+					),
+				).resolves.toEqual({ kind: 'resolved', selection: { id: 'zen', model } })
+			}
 		},
 	)
 
-	it.each(['glm-5.3-flash', 'big-pickle', 'unknown-free'])(
+	it.each(['glm-5.3-flash', 'unknown-free'])(
 		'refuses anonymous Zen model %s before listing',
 		async (model) => {
 			const describeModels = listingProvider({ zen: catalogue(model) })
@@ -235,13 +241,31 @@ describe('resolving an active conversation model change', () => {
 		},
 	)
 
+	it('requires a key for Zen Go even when its model has a free price', async () => {
+		const model = 'longcat-2.5-preview-free'
+		const describeModels = listingProvider({ 'zen-go': catalogue(model) })
+		const result = await resolveModelSwitch(
+			{ model, provider: 'zen-go' },
+			{
+				currentProvider: 'zen-go',
+				detected: [{ ...detected('zen-go'), apiKey: undefined }],
+				describeModels,
+			},
+		)
+		expect(result).toMatchObject({
+			kind: 'rejected',
+			reason: expect.stringContaining('credential'),
+		})
+		expect(describeModels).not.toHaveBeenCalled()
+	})
+
 	it('does not admit an anonymous free model missing from the actual catalogue', async () => {
 		const result = await resolveModelSwitch(
 			{ model: 'space-bunny-free' },
 			{
 				currentProvider: 'zen',
 				detected: [{ ...detected('zen'), apiKey: undefined }],
-				describeModels: listingProvider({ zen: catalogue('big-pickle', 'glm-5.3-flash') }),
+				describeModels: listingProvider({ zen: catalogue('glm-5.3-flash') }),
 			},
 		)
 		expect(result).toMatchObject({ kind: 'rejected' })

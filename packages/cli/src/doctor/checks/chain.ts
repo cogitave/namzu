@@ -155,7 +155,7 @@ export async function describeProviderChain(
 			: entry.id === 'zen' && usable
 				? hasApiCredential(entry, det?.apiKey)
 					? 'credential found'
-					: 'anonymous option (inference access unverified)'
+					: 'experimental free models (gateway may refuse)'
 				: usable
 					? 'reachable'
 					: 'NOT REACHABLE'
@@ -223,10 +223,10 @@ export async function describeProviderChain(
 				unusable > 0
 					? `${unusable} of ${members.length} chain member(s) cannot be used:\n${message}`
 					: anonymousZen
-						? `provider chain configured, with unverified access:\n${message}`
+						? `provider chain configured, with experimental free-model access:\n${message}`
 						: `provider chain usable, with limitations:\n${message}`,
 			remediation: anonymousZen
-				? 'Discovering an anonymous Zen option does not prove inference access. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.'
+				? 'Zen free models are experimental; the gateway may refuse direct Namzu requests. OpenCode installation is recommended for its own client. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.'
 				: unusable > 0
 					? 'The primary still works, so turns will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.'
 					: 'The primary still works. A fallback that declares less than your primary will serve shorter or less capable turns if the chain ever falls over to it.',

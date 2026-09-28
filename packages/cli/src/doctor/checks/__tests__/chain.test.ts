@@ -31,13 +31,14 @@ function check(env: Record<string, string> = {}) {
 }
 
 describe('the provider chain check', () => {
-	it('warns that keyless Zen inference access is unverified', async () => {
+	it('warns that keyless Zen free-model access is experimental', async () => {
 		writePrefs({ version: 3, providers: [{ id: 'zen' }] })
 		const result = await check()
 		expect(result.status).toBe('warn')
-		expect(result.message).toContain('anonymous option (inference access unverified)')
+		expect(result.message).toContain('experimental free models (gateway may refuse)')
 		expect(result.message).not.toContain('reachable')
 		expect(result.remediation).toContain('OPENCODE_API_KEY')
+		expect(result.remediation).toContain('OpenCode installation is recommended')
 	})
 	it('requires a credential for a paid saved Zen model', async () => {
 		writePrefs({

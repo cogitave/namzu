@@ -1501,7 +1501,7 @@ function credentialGap(
 		entry.id === 'zen' &&
 		primary.model !== undefined &&
 		!requiresCredentialForModel(entry, entry.defaultModel)
-			? `No credential found for saved Zen model "${primary.model}". Select Zen, its anonymous option, then Space Bunny Free (${entry.defaultModel}) to continue without a key, or press "k" to enter a Zen API key and try the saved model.`
+			? `No credential found for saved Zen model "${primary.model}". Select Zen's experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them. Press "k" to enter a Zen API key and try the saved model.`
 			: missingCredentialMessage(entry)
 	return { providerId: primary.id, reason }
 }
@@ -2001,7 +2001,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose space-bunny-free for anonymous access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Try a listed experimental free model, such as space-bunny-free; OpenCode installation is recommended, and the gateway may refuse direct requests' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -5475,7 +5475,7 @@ function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>
 		provider.status === 403 &&
 		detail.includes("OpenCode's free tier can only be used from within OpenCode")
 	) {
-		return `${event.error}\nOpenCode limits this free tier to its own client; this Zen request cannot continue. To try credentialed Zen access, set OPENCODE_API_KEY, or choose another provider.`
+		return `${event.error}\nThe Zen gateway refused this experimental free-model request. OpenCode installation is recommended to use its client; Namzu sends requests directly, so installing it does not change this session. To try credentialed Zen access, set OPENCODE_API_KEY, or choose another provider.`
 	}
 	return event.error
 }

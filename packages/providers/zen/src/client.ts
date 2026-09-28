@@ -33,6 +33,12 @@ import {
 	isUnroutedZenModel,
 } from './catalogue/catalogue.js'
 import { isDirectAnonymousZenId } from './catalogue/derive.js'
+import { isExperimentalFreeZenModel } from './catalogue/experimental-free.js'
+import {
+	EXPERIMENTAL_OPENCODE_USER_AGENT,
+	experimentalOpenCodeRequestId,
+	experimentalOpenCodeSessionId,
+} from './experimental-identity.js'
 import type { ZenModel, ZenService } from './models.js'
 import { createCallOptions } from './options.js'
 import {
@@ -294,7 +300,11 @@ export class ZenProvider implements LLMProvider {
 	readonly sessionId: string
 	private readonly baseURL: string
 	private readonly timeout: number
-	private readonly requestFetch: typeof fetch
+	private readonly requestFetch: (
+		input: Parameters<typeof fetch>[0],
+		init?: RequestInit,
+		overrides?: Readonly<Record<string, string>>,
+	) => ReturnType<typeof fetch>
 	private readonly apiKey: string
 	private readonly anonymous: boolean
 
@@ -345,10 +355,11 @@ export class ZenProvider implements LLMProvider {
 		this.timeout = config.timeout ?? 120_000
 		if (!Number.isSafeInteger(this.timeout) || this.timeout <= 0)
 			throw new Error('timeout must be a positive integer in milliseconds.')
-		this.requestFetch = (input, init) => {
+		this.requestFetch = (input, init, overrides) => {
 			const headers = new Headers(init?.headers)
 			for (const [key, value] of Object.entries(attributionHeaders())) headers.set(key, value)
 			headers.set('x-opencode-session', this.sessionId)
+			if (overrides) for (const [key, value] of Object.entries(overrides)) headers.set(key, value)
 			return fetch(input, { ...init, headers, redirect: 'error' })
 		}
 	}
@@ -358,15 +369,17 @@ export class ZenProvider implements LLMProvider {
 			params.model || this.config.model || (this.anonymous ? 'space-bunny-free' : 'glm-5.3-flash')
 		const catalogue = this.runtimeCatalogue()
 		const info = findZenCatalogueModel(catalogue, this.service, model)
-		if (
-			this.anonymous &&
-			(!isDirectAnonymousZenId(model) || info?.supportsAnonymousAccess !== true)
-		)
+		const verifiedAnonymous =
+			isDirectAnonymousZenId(model) &&
+			info?.supportsAnonymousAccess === true &&
+			isExperimentalFreeZenModel(this.service, info)
+		const experimentalAnonymous = isExperimentalFreeZenModel(this.service, info)
+		if (this.anonymous && !verifiedAnonymous && !experimentalAnonymous)
 			throw new ProviderRequestError({
 				providerId: this.id,
 				kind: 'auth',
 				detail:
-					'Anonymous Zen access requires a supported free model. Configure an API key for other models.',
+					'Anonymous Zen access requires a listed free model with a known route. Configure an API key for other models.',
 			})
 		const protocol = this.config.protocol ?? info?.protocol
 		if (!protocol)
@@ -389,6 +402,23 @@ export class ZenProvider implements LLMProvider {
 			...(params.signal ? [params.signal] : []),
 		])
 		let reader: ReadableStreamDefaultReader<LanguageModelV3StreamPart> | undefined
+		const experimentalHeaders =
+			this.anonymous && experimentalAnonymous && !verifiedAnonymous && this.baseURL === ZEN_BASE_URL
+				? {
+						'User-Agent': EXPERIMENTAL_OPENCODE_USER_AGENT,
+						'x-opencode-client': 'cli',
+						'x-opencode-project': 'global',
+						'x-opencode-session': experimentalOpenCodeSessionId(this.sessionId),
+					}
+				: undefined
+		const modelFetch: typeof fetch = (input, init) =>
+			this.requestFetch(
+				input,
+				init,
+				experimentalHeaders
+					? { ...experimentalHeaders, 'x-opencode-request': experimentalOpenCodeRequestId() }
+					: undefined,
+			)
 		try {
 			signal.throwIfAborted()
 			let options: ReturnType<typeof createCallOptions>
@@ -418,21 +448,21 @@ export class ZenProvider implements LLMProvider {
 						body.generationConfig ??= {}
 						delete body.generationConfig.responseSchema
 						body.generationConfig.responseJsonSchema = params.responseFormat.json_schema.schema
-						return this.requestFetch(input, {
+						return modelFetch(input, {
 							...init,
 							body: JSON.stringify(body),
 						})
 					}
 					if (isMuseSparkResponsesModel(model, protocol))
-						return this.requestFetch(input, withoutMuseSparkEncryptedReasoning(init))
+						return modelFetch(input, withoutMuseSparkEncryptedReasoning(init))
 					if (isGoDeepSeekV4ChatModel(this.service, model, protocol))
-						return this.requestFetch(input, withGoDeepSeekV4ChatHistory(init, model))
+						return modelFetch(input, withGoDeepSeekV4ChatHistory(init, model))
 					if (isGoDeepSeekV4ResponsesModel(this.service, model, protocol))
-						return this.requestFetch(
+						return modelFetch(
 							input,
 							withGoDeepSeekV4ResponsesHistory(init, model, options.prompt),
 						).then(withGoDeepSeekReasoningTextEvents)
-					return this.requestFetch(input, init)
+					return modelFetch(input, init)
 				}) as typeof fetch,
 			}
 			let native: LanguageModelV3
@@ -750,10 +780,7 @@ export class ZenProvider implements LLMProvider {
 				seen.add(item.id)
 				const model = findZenCatalogueModel(catalogue, this.service, item.id)
 				if (model) {
-					if (
-						!this.anonymous ||
-						(isDirectAnonymousZenId(item.id) && model.supportsAnonymousAccess === true)
-					)
+					if (!this.anonymous || isExperimentalFreeZenModel(this.service, model))
 						result.push({ ...model })
 					continue
 				}

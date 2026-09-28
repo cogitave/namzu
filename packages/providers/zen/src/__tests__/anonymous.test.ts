@@ -7,19 +7,17 @@ import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 
 const freeMuse = 'muse-spark-1.3-contributor-free'
 const defaultFree = 'space-bunny-free'
-/**
- * Every id the catalogue flags `supportsAnonymousAccess`, which is deliberately
- * a list rather than a filter over the roster. A free price does not imply
- * that a third-party caller can use the model without an API key.
- *
- * `union-alpha` was here until 2026-09-18, when models.dev deleted its entry
- * and the catalogue stopped carrying it for want of limits to derive — so no
- * anonymous model is left on the Messages wire, and the `messages` branch of
- * the fixture below now runs for nobody in this list. It stays because the
- * branch is chosen by the ROSTER, not by this list: a free model on Messages
- * would need it again, and `wirePath` is what says so.
- */
-const anonymousIds = ['space-bunny-free']
+const experimentalIds = [
+	'big-pickle',
+	'ling-3.0-flash-fin-free',
+	'longcat-2.5-preview-free',
+	'mimo-v2.5-free',
+	freeMuse,
+	'nemotron-3-ultra-free',
+	'nemotron-3.5-lightning-free',
+]
+const anonymousIds = [defaultFree, ...experimentalIds]
+const experimentalAgent = 'opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 const params = {
 	model: '',
 	messages: [{ role: 'user' as const, content: 'Hello' }],
@@ -126,6 +124,15 @@ function mockNativeFetch() {
 	return transport
 }
 
+function expectNamzuIdentity(init: RequestInit | undefined, sessionId: string) {
+	const headers = new Headers(init?.headers)
+	expect(headers.get('user-agent')).toMatch(/^namzu\//)
+	expect(headers.get('x-opencode-session')).toBe(sessionId)
+	expect(headers.get('x-opencode-client')).toBeNull()
+	expect(headers.get('x-opencode-project')).toBeNull()
+	expect(headers.get('x-opencode-request')).toBeNull()
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals()
 })
@@ -145,12 +152,12 @@ describe('anonymous Zen access', () => {
 			expect(request[0]).toBe('https://opencode.ai/zen/v1/chat/completions')
 			expect(JSON.parse(String(request[1]?.body)).model).toBe(defaultFree)
 			expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
-			expect(new Headers(request[1]?.headers).get('user-agent')).toMatch(/^namzu\//)
+			expectNamzuIdentity(request[1], provider.sessionId)
 		},
 	)
 
 	it.each(anonymousIds)(
-		'admits explicitly supported %s through a caller-owned proxy',
+		'admits curated %s through a caller-owned proxy without OpenCode identity headers',
 		async (model) => {
 			const transport = mockNativeFetch()
 			const provider = new ZenProvider({
@@ -161,8 +168,7 @@ describe('anonymous Zen access', () => {
 			await collectChatCompletion(provider.chatStream(params))
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a model request')
-			// The path is read from the roster rather than assumed: the anonymous
-			// models do not share a wire, and "free" is a price and not a route.
+			// The roster supplies the route; Muse uses Responses while the others use Chat.
 			expect(request[0]).toBe(`https://proxy.example/zen/v1/${wirePath(model)}`)
 			expect(JSON.parse(String(request[1]?.body)).model).toBe(model)
 			const headers = new Headers(request[1]?.headers)
@@ -174,14 +180,80 @@ describe('anonymous Zen access', () => {
 				expect(headers.get('authorization')).toBe('Bearer public')
 			}
 			expect(headers.get('x-opencode-session')).toBe('public-conversation')
+			expectNamzuIdentity(request[1], 'public-conversation')
 		},
 	)
+
+	it.each(experimentalIds)(
+		'sends pinned OpenCode identity for anonymous %s on the official Zen host',
+		async (model) => {
+			const transport = mockNativeFetch()
+			const provider = new ZenProvider({ model, sessionId: 'experimental-conversation' })
+			const result = await collectChatCompletion(provider.chatStream(params))
+			expect(result.message.content).toBe('Ready.')
+			expect(transport).toHaveBeenCalledTimes(1)
+			const request = transport.mock.calls[0]
+			if (!request) throw new Error('Expected a model request')
+			expect(request[0]).toBe(
+				model === freeMuse
+					? 'https://opencode.ai/zen/v1/responses'
+					: 'https://opencode.ai/zen/v1/chat/completions',
+			)
+			expect(JSON.parse(String(request[1]?.body)).model).toBe(model)
+			const headers = new Headers(request[1]?.headers)
+			expect(headers.get('authorization')).toBe('Bearer public')
+			expect(headers.get('user-agent')).toBe(experimentalAgent)
+			expect(headers.get('x-opencode-client')).toBe('cli')
+			expect(headers.get('x-opencode-project')).toBe('global')
+			expect(headers.get('x-opencode-session')).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+			expect(headers.get('x-opencode-request')).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+		},
+	)
+
+	it('keeps the experimental session stable across provider constructions and changes each request ID', async () => {
+		const transport = mockNativeFetch()
+		const first = new ZenProvider({ model: 'big-pickle', sessionId: 'same-conversation' })
+		await collectChatCompletion(first.chatStream(params))
+		await collectChatCompletion(first.chatStream(params))
+		const restored = new ZenProvider({ model: freeMuse, sessionId: 'same-conversation' })
+		await collectChatCompletion(restored.chatStream(params))
+		const other = new ZenProvider({ model: freeMuse, sessionId: 'different-conversation' })
+		await collectChatCompletion(other.chatStream(params))
+		const requests = transport.mock.calls.map(([, init]) => new Headers(init?.headers))
+		expect(requests).toHaveLength(4)
+		const sessions = requests.map((headers) => headers.get('x-opencode-session'))
+		expect(sessions[0]).toBe(sessions[1])
+		expect(sessions[1]).toBe(sessions[2])
+		expect(sessions[3]).not.toBe(sessions[0])
+		const requestIds = requests.map((headers) => headers.get('x-opencode-request'))
+		expect(new Set(requestIds).size).toBe(4)
+	})
+
+	it('keeps pinned identity off keyed Zen, Zen Go, and model catalogue requests', async () => {
+		const transport = vi.fn<typeof fetch>(async (input, init) =>
+			String(input).endsWith('/models')
+				? Response.json({ data: [{ id: defaultFree }, { id: freeMuse }] })
+				: nativeResponse(String(input), JSON.parse(String(init?.body)).model),
+		)
+		vi.stubGlobal('fetch', transport)
+		const keyed = new ZenProvider({ apiKey: 'fixture', model: freeMuse, sessionId: 'keyed' })
+		await collectChatCompletion(keyed.chatStream(params))
+		const go = new ZenGoProvider({ apiKey: 'fixture', model: 'glm-5.3-flash', sessionId: 'go' })
+		await collectChatCompletion(go.chatStream(params))
+		const anonymous = new ZenProvider({ sessionId: 'discovery' })
+		expect((await anonymous.listModels()).map(({ id }) => id)).toEqual([defaultFree, freeMuse])
+		expect(transport).toHaveBeenCalledTimes(3)
+		expectNamzuIdentity(transport.mock.calls[0]?.[1], 'keyed')
+		expectNamzuIdentity(transport.mock.calls[1]?.[1], 'go')
+		expectNamzuIdentity(transport.mock.calls[2]?.[1], 'discovery')
+		expect(transport.mock.calls[2]?.[0]).toBe('https://opencode.ai/zen/v1/models')
+	})
 
 	it.each(['chat', 'responses', 'messages', 'google'] satisfies ZenProtocol[])(
 		'refuses paid and unknown models before fetch even with a %s override',
 		async (protocol) => {
 			const transport = mockNativeFetch()
-			for (const model of ['glm-5.3-flash', 'muse-spark-1.3', freeMuse, 'future-free']) {
+			for (const model of ['glm-5.3-flash', 'muse-spark-1.3', 'future-free']) {
 				const provider = new ZenProvider({ apiKey: 'public', model, protocol })
 				await expect(collectChatCompletion(provider.chatStream(params))).rejects.toMatchObject({
 					kind: 'auth',
@@ -200,14 +272,13 @@ describe('anonymous Zen access', () => {
 		},
 	)
 
-	it('lists only explicit anonymous models that are still present in the live catalogue', async () => {
+	it('lists only the eight curated models that are still served', async () => {
 		const transport = vi.fn<typeof fetch>(async () =>
 			Response.json({
 				data: [
 					{ id: 'glm-5.3-flash' },
 					{ id: 'future-free' },
 					...anonymousIds.map((id) => ({ id })),
-					{ id: freeMuse },
 				],
 			}),
 		)
@@ -218,7 +289,7 @@ describe('anonymous Zen access', () => {
 			getZenModels('zen')
 				.filter((model) => model.supportsAnonymousAccess === true)
 				.map(({ id }) => id),
-		).toEqual(anonymousIds)
+		).toEqual([defaultFree])
 		expect(getZenModels('go').some((model) => model.supportsAnonymousAccess === true)).toBe(false)
 		expect(new Headers(transport.mock.calls[0]?.[1]?.headers).get('authorization')).toBe(
 			'Bearer public',
@@ -228,44 +299,79 @@ describe('anonymous Zen access', () => {
 	})
 
 	it.each(['object', 'function'] as const)(
-		'refuses anonymous admission spoofed by a runtime catalogue %s',
+		'refuses paid, arbitrary free, and repriced curated IDs spoofed by a runtime catalogue %s',
 		async (source) => {
+			const paid = findZenModel('zen', 'glm-5.3-flash')
 			const muse = findZenModel('zen', freeMuse)
-			if (!muse) throw new Error('Expected bundled Muse model')
+			if (!paid || !muse) throw new Error('Expected bundled models')
+			const spoofedIds = [paid.id, 'future-free', freeMuse]
 			const catalogue: ZenCatalogue = {
 				version: 1,
 				fetchedAt: new Date(0).toISOString(),
-				zen: [{ ...muse, supportsAnonymousAccess: true }],
+				zen: [
+					{ ...paid, supportsAnonymousAccess: true },
+					{ ...muse, id: 'future-free', supportsAnonymousAccess: true },
+					{ ...muse, inputPrice: 1, supportsAnonymousAccess: true },
+				],
 				go: [],
 				unrouted: { zen: [], go: [] },
 			}
 			const injected = source === 'object' ? catalogue : () => catalogue
 			const transport = vi.fn<typeof fetch>(async (input) =>
 				String(input).endsWith('/models')
-					? Response.json({ data: [{ id: freeMuse }, { id: defaultFree }] })
+					? Response.json({ data: [...spoofedIds.map((id) => ({ id })), { id: defaultFree }] })
 					: Response.json({ error: { message: 'fixture request captured' } }, { status: 400 }),
 			)
 			vi.stubGlobal('fetch', transport)
 			const anonymous = new ZenProvider({ catalogue: injected })
-			await expect(
-				collectChatCompletion(anonymous.chatStream({ ...params, model: freeMuse })),
-			).rejects.toMatchObject({ kind: 'auth' })
+			for (const model of spoofedIds)
+				await expect(
+					collectChatCompletion(anonymous.chatStream({ ...params, model })),
+				).rejects.toMatchObject({ kind: 'auth' })
 			expect(transport).not.toHaveBeenCalled()
 			expect((await anonymous.listModels()).map((model) => model.id)).toEqual([defaultFree])
 			expect(transport).toHaveBeenCalledTimes(1)
 
 			const keyed = new ZenProvider({ apiKey: 'fixture', catalogue: injected })
-			expect((await keyed.listModels()).map((model) => model.id)).toEqual([freeMuse, defaultFree])
+			expect((await keyed.listModels()).map((model) => model.id)).toEqual([
+				...spoofedIds,
+				defaultFree,
+			])
 			await expect(
-				collectChatCompletion(keyed.chatStream({ ...params, model: freeMuse })),
+				collectChatCompletion(keyed.chatStream({ ...params, model: paid.id })),
 			).rejects.toMatchObject({ kind: 'bad_request' })
 			expect(transport).toHaveBeenCalledTimes(3)
-			expect(String(transport.mock.calls[2]?.[0])).toBe('https://opencode.ai/zen/v1/responses')
+			expect(String(transport.mock.calls[2]?.[0])).toBe(
+				'https://opencode.ai/zen/v1/chat/completions',
+			)
 			expect(new Headers(transport.mock.calls[2]?.[1]?.headers).get('authorization')).toBe(
 				'Bearer fixture',
 			)
 		},
 	)
+
+	it('withdraws verified direct access when a refreshed catalogue reprices Space Bunny', async () => {
+		const spaceBunny = findZenModel('zen', defaultFree)
+		if (!spaceBunny) throw new Error('Expected bundled Space Bunny model')
+		const catalogue: ZenCatalogue = {
+			version: 1,
+			fetchedAt: new Date(0).toISOString(),
+			zen: [{ ...spaceBunny, inputPrice: 1, supportsAnonymousAccess: true }],
+			go: [],
+			unrouted: { zen: [], go: [] },
+		}
+		const transport = vi.fn<typeof fetch>(async () =>
+			Response.json({ data: [{ id: defaultFree }] }),
+		)
+		vi.stubGlobal('fetch', transport)
+		const anonymous = new ZenProvider({ catalogue })
+		await expect(
+			collectChatCompletion(anonymous.chatStream({ ...params, model: defaultFree })),
+		).rejects.toMatchObject({ kind: 'auth' })
+		expect(transport).not.toHaveBeenCalled()
+		expect(await anonymous.listModels()).toEqual([])
+		expect(transport).toHaveBeenCalledTimes(1)
+	})
 
 	it('keeps the paid default and full supported discovery for a genuine credential', async () => {
 		const transport = mockNativeFetch()

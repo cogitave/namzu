@@ -15,10 +15,10 @@ other Namzu providers, connecting to OpenCode's Zen and Go services.
 Install it alongside `@namzu/sdk >=36.0.0` and the
 SDK's Zod v3 peer in a Node.js 20+ application.
 
-Zen publishes a free-model catalogue, but a listing does not establish direct
-keyless access from Namzu. On 2026-09-28, `space-bunny-free` completed a
-keyless text request and two-turn tool continuation through the real driver.
-The other seven bundled free models returned HTTP 403 to direct Namzu requests.
+Zen publishes a free-model catalogue, but a listing does not guarantee keyless
+access from Namzu. `space-bunny-free` is the verified direct default. The other
+seven bundled free models are available through an experimental request path
+that reproduces OpenCode's observed client identity. Zen can still refuse them.
 Zen Go is a separate service and requires its own API key.
 
 ```bash
@@ -67,7 +67,9 @@ supplies their actual identities instead. Reusing an ID does not reload
 history. Pass the durable messages, as above, or restore them through the
 SDK's normal persistence APIs.
 
-`sessionId` is a stable conversation label sent in `x-opencode-session`.
+`sessionId` is a stable conversation label sent in `x-opencode-session` on the
+ordinary request path. For experimental free models, the driver derives a
+stable OpenCode-shaped session header from it across turns.
 If omitted, the provider generates one once in its constructor. Preserve
 it when rebuilding the provider after restart, and create separate provider
 instances for independent conversations. This is especially relevant to
@@ -118,11 +120,13 @@ Only
 and `opencode-go` supplies Go. OAuth entries are not treated as API keys,
 and a Zen key is never reused for Go. The credential file is read only;
 Namzu does not rewrite or refresh it. An installed OpenCode executable is
-not required to construct an anonymous provider.
+not used by the direct provider requests. Installing OpenCode is recommended
+for comparing results in its own client; its presence does not grant Namzu
+access.
 
 With no usable key, Zen is discovered as an anonymous option rather than a
 signed-in subscription. Selecting it does not request a key or start a
-login flow; its picker label says `anonymous option · access unverified`.
+login flow; its picker labels the free-model access experimental.
 This is a catalogue option, not proof that the gateway will admit inference. It
 is ordered after existing credentials and reachable local providers,
 including when selected by an explicit `public` environment value, so it
@@ -130,10 +134,11 @@ does not displace them when no provider preference is saved.
 The CLI supports `--provider zen` and `--provider zen-go`; its
 model picker uses live discovery.
 
-The bundled catalogue records these free model IDs advertised by Zen. The
-driver currently marks only `space-bunny-free` for direct anonymous access;
-a runtime refresh reads the page's free list but does not treat that list alone
-as evidence that Namzu can call every model without a key:
+The bundled catalogue records these free model IDs advertised by Zen. All
+eight may be selected anonymously as an experiment; the driver still marks
+only `space-bunny-free` with `supportsAnonymousAccess` for verified direct
+access. A runtime refresh reads the page's free list but cannot add arbitrary
+anonymous IDs:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
@@ -145,17 +150,17 @@ as evidence that Namzu can call every model without a key:
 - `longcat-2.5-preview-free`
 
 This is the documented free catalogue, subject to upstream admission and
-limits. It is not a promise that the service will serve these models to Namzu:
-on 2026-09-18 every model in the then-bundled six-model set, including the
-previously verified `muse-spark-1.3-contributor-free`, answered HTTP 403
-`FreeTierError` — "OpenCode's free tier can only be used from within
-OpenCode" — over both `/responses` and `/messages`, with the public
-sentinel in the header that wire uses. On 2026-09-28, all seven free models
-other than `space-bunny-free` again returned HTTP 403; Space Bunny completed
-direct keyless inference and a tool continuation. The gateway's admission is
-model-specific and can change. The catalogue still records every free-model
-name the pages publish, while `supportsAnonymousAccess` marks only the model
-verified for direct Namzu access.
+limits. Earlier direct Namzu requests received `FreeTierError` for all seven
+models other than Space Bunny. On 2026-09-28, a full Namzu request with its
+normal system messages and tool schemas, the public sentinel and the observed
+OpenCode client headers completed seven of these eight models. Ling 3.0 Flash
+Fin Free instead returned HTTP 400, `Endpoint is unavailable`; the installed
+OpenCode 1.18.32 CLI returned the same error for that model. A smaller
+single-message request with the same headers returned `FreeTierError` for the
+seven other models, while Space Bunny completed it. Thus neither headers nor
+the free listing alone establish service: request shape and gateway behavior
+matter, and admission can change. `supportsAnonymousAccess` continues to mark
+only the verified direct Space Bunny path.
 
 The service serves more than the pages document, and the difference is
 recorded rather than ignored. Its own `/models` answer advertises two further
@@ -185,10 +190,11 @@ real credential, because anonymous admission is a claim this catalogue makes
 only about models it carries.
 
 The driver does not infer public admission from an arbitrary model name or
-zero price: the catalogue's `ZenModel.supportsAnonymousAccess` flag (the
-runtime catalogue's when one is injected, otherwise the bundled one) must be
-explicitly `true`. Paid and unknown models require a real key, even when a caller
-supplies a `protocol` override. The public convention follows OpenCode's
+zero price. `isExperimentalFreeZenModel(service, model)` admits one of the
+eight curated Zen IDs only while its active catalogue still prices it at zero;
+this is separate from the `ZenModel.supportsAnonymousAccess` flag for verified
+direct access. Paid, unknown and Zen Go models require a real key, even when a
+caller supplies a `protocol` override. The public convention follows OpenCode's
 [provider loader](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L172),
 which filters its uncredentialed catalogue and supplies `apiKey: "public"`.
 Credential entry types are defined in OpenCode's
@@ -199,7 +205,12 @@ Credential entry types are defined in OpenCode's
 [A catalogue refreshed at run time](#a-catalogue-refreshed-at-run-time)). `timeout` is a positive request timeout
 in milliseconds, defaulting to 120,000. `baseURL` permits an HTTP(S)
 host-owned proxy and rejects embedded credentials, query strings and
-fragments. Model calls receive the SDK's current attribution headers;
+fragments. Model calls normally receive the SDK's current attribution headers;
+anonymous experimental free-model calls to the official Zen endpoint send
+OpenCode-shaped `User-Agent`, client, project, session and request headers
+instead. This is an experimental compatibility attempt, not an official
+OpenCode integration. It does not invoke an installed OpenCode binary. Other
+model calls and catalogue reads retain Namzu attribution headers;
 redirects are refused.
 
 | `ZenProtocol` | Native request |
@@ -221,8 +232,9 @@ context limits, pricing or effort support.
 requests the selected service's `/models` endpoint and intersects its IDs
 with that metadata. A live model without a supported entry is not
 advertised as ready to use. Anonymous discovery additionally restricts the
-result to models marked for direct anonymous access; the current bundled set
-contains only `space-bunny-free`.
+result to the eight curated zero-price Zen models; the live `/models` answer
+can make the actual selectable list smaller. Only Space Bunny has verified
+direct anonymous access.
 
 That intersection is why the catalogue has to keep up: the service's own
 `/models` answer carries `id`, `object`, `created` and `owned_by` and nothing
@@ -489,9 +501,9 @@ unpriced tokens, which are not a verified charge.
 On 2026-09-28, a separate live check with no key used the real `ZenProvider`
 to complete a `space-bunny-free` text turn. In a second run, the model called
 a tool, then returned a value available only from that tool's result. The same
-day, one direct Namzu-shaped request to each of the other seven bundled free
-models returned HTTP 403 `FreeTierError`. This proves one working keyless route
-at that time and keeps the other seven out of Namzu's anonymous picker.
+day, one minimal direct Namzu-shaped request to each of the other seven bundled
+free models returned HTTP 403 `FreeTierError`. This established the direct
+Space Bunny route and motivated the full-request probe described above.
 
 ### Turns that disable tools
 

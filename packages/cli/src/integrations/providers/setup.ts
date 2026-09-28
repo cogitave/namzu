@@ -161,7 +161,7 @@ export async function probeHarnesses(
 					harness.provider === 'zen' &&
 					provider !== undefined &&
 					!hasApiCredential(provider.entry, provider.apiKey)
-						? 'Anonymous Zen option · inference access unverified'
+						? 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse'
 						: source
 							? `Credential detected · ${source.kind}`
 							: 'Not connected · sign in or add an API key',

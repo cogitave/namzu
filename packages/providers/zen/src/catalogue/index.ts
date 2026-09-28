@@ -26,6 +26,7 @@ export {
 	parseZenCatalogue,
 } from './catalogue.js'
 export { ZenCatalogueSourceError, type ZenOmissions } from './derive.js'
+export { isExperimentalFreeZenModel } from './experimental-free.js'
 export {
 	type FetchZenCatalogueOptions,
 	ZEN_DOCS_REF,

@@ -269,7 +269,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 		)
 		expect(refused).toMatchObject({ kind: 'error', providerError })
 		if (refused?.kind !== 'error') throw new Error('Expected an error event')
-		expect(refused.message).toContain('OpenCode limits this free tier to its own client')
+		expect(refused.message).toContain('gateway refused this experimental free-model request')
+		expect(refused.message).toContain('installing it does not change this session')
 		expect(refused.message).toContain('OPENCODE_API_KEY')
 		for (const unrelated of [
 			{ ...providerError, providerId: 'zen-go' },

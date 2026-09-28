@@ -6,12 +6,10 @@
  * only person able to see this screen at all. Everything decidable is decided
  * here, and `Picker` is left as a thin caller.
  *
- * ## The default is always offered
+ * ## The default is offered when permitted
  *
- * Every branch returns at least namzu's `defaultModel` for the provider. A screen that
- * can end with nothing selectable is a dead end for someone who came here to
- * get on with a task, and the default is exactly the value they would have got
- * by not visiting this step.
+ * Without an access filter, every branch offers namzu's `defaultModel`.
+ * A filtered path must not bring back a default whose access was withdrawn.
  *
  * ## The notice says which case it is
  *
@@ -91,7 +89,7 @@ function labelAlreadySaysFree(label: string): boolean {
 /**
  * Build the model step for one provider.
  *
- * @param defaultModel namzu's default for this provider, always offered.
+ * @param defaultModel namzu's default for this provider, offered when permitted.
  * @param listing What asking the provider produced.
  * @param currentModel The model in force now, if any — so re-opening the picker
  *   starts on what is already selected rather than resetting to the default.
@@ -102,6 +100,7 @@ export function modelStep(
 	suppliedCurrentModel?: string,
 	options: { readonly allowModel?: (id: string) => boolean } = {},
 ): ModelStep {
+	const defaultAllowed = options.allowModel?.(defaultModel) !== false
 	// A saved pin does not grant access. In particular, losing a Zen account
 	// credential must not put a paid model back into its public-only list.
 	const currentModel =
@@ -116,9 +115,9 @@ export function modelStep(
 				}
 			: suppliedListing
 	const fallback = (notice: string): ModelStep => {
-		const choices: ModelChoice[] = [
-			{ id: defaultModel, label: defaultModel, note: '(namzu default)' },
-		]
+		const choices: ModelChoice[] = defaultAllowed
+			? [{ id: defaultModel, label: defaultModel, note: '(namzu default)' }]
+			: []
 		if (currentModel && currentModel !== defaultModel) {
 			choices.push({
 				id: currentModel,
@@ -126,7 +125,14 @@ export function modelStep(
 				note: '(current)',
 			})
 		}
-		return { choices, notice, initialIndex: choices.length - 1 }
+		return {
+			choices,
+			notice:
+				choices.length === 0
+					? `${notice} No selectable models are available for this access path; choose another provider or enter a credential.`
+					: notice,
+			initialIndex: Math.max(0, choices.length - 1),
+		}
 	}
 
 	// "namzu's pick", never "its default", in all four. The row beside these
@@ -170,7 +176,7 @@ export function modelStep(
 			...(notes.length > 0 ? { note: `(${notes.join(' · ')})` } : {}),
 		})
 	}
-	if (!seen.has(defaultModel)) {
+	if (defaultAllowed && !seen.has(defaultModel)) {
 		choices.unshift({
 			id: defaultModel,
 			label: defaultModel,
@@ -181,7 +187,7 @@ export function modelStep(
 		choices.push({ id: currentModel, label: currentModel, note: '(current)' })
 	}
 
-	const wanted = currentModel ?? defaultModel
+	const wanted = currentModel ?? (defaultAllowed ? defaultModel : undefined)
 	const idx = choices.findIndex((c) => c.id === wanted)
 
 	return { choices, notice: null, initialIndex: idx >= 0 ? idx : 0 }

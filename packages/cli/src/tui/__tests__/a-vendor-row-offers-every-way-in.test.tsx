@@ -74,7 +74,7 @@ const OPENROUTER_KEY: DetectedProvider = {
 	alternatives: [],
 }
 
-/** One id with an anonymous option whose inference access is unverified. */
+/** One id with experimental free models whose inference access is unverified. */
 const FREE_ZEN: DetectedProvider = {
 	entry: PROVIDER_REGISTRY.zen,
 	source: { kind: 'public' },
@@ -271,14 +271,16 @@ it('leads to the models from the session answer of that same row', async () => {
 	expect(describeModels).toHaveBeenCalledWith('anthropic', expect.anything(), expect.anything())
 })
 
-it('offers an unverified anonymous option beside credentialed Zen access', async () => {
+it('offers experimental Zen free models beside credentialed access', async () => {
 	const screen = await open({ detected: [FREE_ZEN], describeModels: vi.fn(async () => ONE_MODEL) })
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
 
 	expect(chooser).toContain('Choose a way to use Zen')
-	expect(chooser).toContain('1. Use existing Zen · anonymous option · access unverified')
+	expect(chooser).toContain('1. Use existing Zen · Zen free models · experimental; gateway may refuse')
 	expect(chooser).toContain('2. Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
+	expect(chooser).toContain('OpenCode installation is recommended')
+	expect(chooser).toContain('Namzu sends requests directly')
 })
 
 it('keeps the key choice when an environment marker explicitly selects public Zen', async () => {
@@ -289,7 +291,7 @@ it('keeps the key choice when an environment marker explicitly selects public Ze
 	})
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
-	expect(chooser).toContain('Use existing Zen · anonymous option · access unverified')
+	expect(chooser).toContain('Use existing Zen · Zen free models · experimental; gateway may refuse')
 	expect(chooser).toContain('Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
 })
 

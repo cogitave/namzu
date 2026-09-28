@@ -15,6 +15,7 @@ import {
 	generateTopicId,
 	generateTurnId,
 } from '@namzu/sdk'
+import { getZenModels } from '@namzu/zen/models'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { emptySessionLog } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -177,6 +178,35 @@ it('admits headless --provider zen with only public discovery and no account key
 	}
 })
 
+const experimentalFreeZenModels = getZenModels('zen')
+	.filter((model) => model.inputPrice === 0 && model.outputPrice === 0)
+	.map((model) => model.id)
+
+it('admits every bundled free Zen model headlessly without a key', async () => {
+	expect(experimentalFreeZenModels.length).toBeGreaterThan(0)
+	const { createAgentSession } = await import('../agent.js')
+	for (const model of experimentalFreeZenModels) {
+		const session = await createAgentSession(
+			applyProviderFlags(
+				{ version: 3, providers: [{ id: 'zen' }], subagents: { active: [] } },
+				{ provider: 'zen', model },
+			),
+			[{ ...detected('zen'), apiKey: undefined, source: { kind: 'public' } }],
+			{ cwd, scope: scope() },
+		)
+		try {
+			expect(session.hasProvider, `${model}: ${session.errorHint ?? ''}`).toBe(true)
+			for await (const event of session.send([createUserMessage('hello')])) {
+				if (event.kind === 'error') throw new Error(event.message)
+			}
+			expect(queryCalls.at(-1)?.turnConfig?.model).toBe(model)
+		} finally {
+			await session.close()
+		}
+	}
+	expect(queryCalls).toHaveLength(experimentalFreeZenModels.length)
+})
+
 it.each([undefined, 'public'])(
 	'refuses paid and unknown headless Zen models without a real credential (%s)',
 	async (apiKey) => {
@@ -193,7 +223,7 @@ it.each([undefined, 'public'])(
 			)
 			try {
 				expect(session.hasProvider).toBe(false)
-				expect(session.errorHint).toContain('space-bunny-free')
+				expect(session.errorHint).toContain('experimental free model')
 			} finally {
 				await session.close()
 			}

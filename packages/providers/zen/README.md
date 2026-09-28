@@ -16,9 +16,9 @@ delegation.
 
 Zen publishes a free-model catalogue. Namzu defaults requests without a key to
 `space-bunny-free`, which completed keyless text and tool-continuation checks
-through the real driver on 2026-09-28. The other seven bundled free models
-returned HTTP 403 to direct Namzu requests that day. Zen Go requires its own
-API key.
+through the real driver on 2026-09-28. All eight bundled free models can be
+selected without a key through an experimental request path; the Zen gateway
+may still refuse them. Zen Go requires its own API key.
 
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3
@@ -72,11 +72,12 @@ and model ID: `chat` uses Chat Completions, `responses` uses Responses,
 `messages` uses Anthropic Messages, and `google` uses streaming
 `generateContent`. The same model family can use different wires on Zen
 and Go. Unknown IDs require an explicit `protocol` configuration; model
-names are never used to guess a wire format. Direct anonymous access is
-currently restricted to the live-verified `space-bunny-free`; the other
-documented free models remain in the catalogue for credentialed use. A
-protocol override does not
-grant access to paid or unknown models.
+names are never used to guess a wire format. The direct keyless path is verified
+for `space-bunny-free`. Seven more curated zero-price models use an experimental
+OpenCode-shaped request identity on the official Zen endpoint. Installing
+OpenCode is recommended for comparison, but Namzu sends its own requests and
+does not invoke the installed binary. A protocol override does not grant access
+to paid or unknown models.
 
 A missing, blank or `public` Zen `apiKey` selects anonymous access. Public
 availability and service limits can change. For credentialed access, the CLI
@@ -132,7 +133,7 @@ controls also depend on the wire. See the [SDK guide](../../../docs/sdk/zen.md)
 for configuration and refusal details.
 
 `listModels(signal?)` intersects the live service catalogue with supported
-models and restricts anonymous results to the curated direct-access set.
+models and restricts anonymous results to the curated zero-price free set.
 Static limits and USD-per-million-token prices are derived from the
 services' own documentation pages, models.dev and the services' `/models`
 answers, and are estimates rather than invoices: context tiers, caches, Go
@@ -174,9 +175,12 @@ with `end_turn`. This validates that model's public text and file-tool path;
 it does not establish every public or paid model, Go access, or billing.
 
 On 2026-09-28, direct keyless Namzu requests to `space-bunny-free` completed
-text inference and a tool continuation. The other seven bundled free models
-each returned HTTP 403 `FreeTierError` to one direct request. This is why
-anonymous discovery currently offers only Space Bunny Free; gateway admission
-can change.
+text inference and a tool continuation. Minimal direct requests to the other
+seven bundled free models returned HTTP 403 `FreeTierError`. A later probe with
+the full Namzu request body and experimental OpenCode-shaped identity returned
+HTTP 200 for six more; Ling returned HTTP 400 `Endpoint is unavailable`, as it
+also did in installed OpenCode. Namzu's real CLI completed text requests for
+Big Pickle and Muse Spark, plus a Big Pickle file-tool continuation. All eight
+remain selectable as experimental options; gateway admission can change.
 
 FSL-1.1-MIT, converting to MIT two years after each release.

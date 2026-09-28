@@ -1,3 +1,4 @@
+import { isExperimentalFreeZenModel } from '@namzu/zen/catalogue'
 import type { ProviderRegistryEntry } from './registry.js'
 import { findActiveZenModel } from './zen-catalogue.js'
 
@@ -13,14 +14,15 @@ export function hasApiCredential(
 }
 
 /**
- * Direct anonymous Zen admission uses the driver's curated access flag, not
- * every model the service advertises as free. Read the session's active
- * catalogue, which the background refresh can replace.
+ * Anonymous Zen selection admits the driver's explicit experimental free list.
+ * The helper also checks zero prices on the session's active catalogue, which
+ * the background refresh can replace. The separate supportsAnonymousAccess
+ * flag retains its meaning of verified direct access.
  */
 export function requiresCredentialForModel(entry: ProviderRegistryEntry, model: string): boolean {
 	return (
 		entry.requiresApiKey ||
-		(entry.id === 'zen' && findActiveZenModel('zen', model)?.supportsAnonymousAccess !== true)
+		(entry.id === 'zen' && !isExperimentalFreeZenModel('zen', findActiveZenModel('zen', model)))
 	)
 }
 

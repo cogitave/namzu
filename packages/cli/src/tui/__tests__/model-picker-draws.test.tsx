@@ -94,12 +94,13 @@ describe('the model step', () => {
 				kind: 'ok',
 				models: [
 					{ id: entry.defaultModel, name: 'Space Bunny Free' },
+					{ id: 'muse-spark-1.3-contributor-free', name: 'Muse Spark Free' },
 					{ id: 'glm-5.3-flash', name: 'Paid GLM' },
 				],
 			}),
 		})
 		try {
-			expect(lastFrame()).toContain('anonymous option · access unverified')
+			expect(lastFrame()).toContain('Zen free models · experimental')
 			// Two ways in, because a public Zen catalogue is one and an API key is
 			// another — so the row asks, and the free way it found is the first
 			// answer.
@@ -109,6 +110,9 @@ describe('the model step', () => {
 			stdin.write('\r')
 			await flush()
 			expect(lastFrame()).toContain('Space Bunny Free')
+			expect(lastFrame()).toContain('Muse Spark Free')
+			expect(lastFrame()).toContain('OpenCode installation is recommended')
+			expect(lastFrame()).toContain('gateway may refuse')
 			expect(lastFrame()).not.toContain('Paid GLM')
 			expect(lastFrame()).not.toContain('glm-5.3-flash')
 			stdin.write('\r')

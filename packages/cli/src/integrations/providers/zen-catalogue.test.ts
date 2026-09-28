@@ -357,6 +357,40 @@ describe('startZenCatalogueRefresh', () => {
 		expect(requiresCredentialForModel(zenEntry, 'space-bunny-free')).toBe(false)
 	})
 
+	it('withdraws experimental keyless access when the active catalogue reprices a free model', async () => {
+		const zenEntry = PROVIDER_REGISTRY.zen
+		expect(requiresCredentialForModel(zenEntry, 'big-pickle')).toBe(false)
+		const fresh = parseZenCatalogue({
+			...catalogue(),
+			zen: [model('big-pickle')],
+		})
+		await startZenCatalogueRefresh({
+			home: home(),
+			log: capturing().log,
+			fetchCatalogue: async () => result(fresh),
+		}).done
+		expect(requiresCredentialForModel(zenEntry, 'big-pickle')).toBe(true)
+		expect(requiresCredentialForModel(zenEntry, 'space-bunny-free')).toBe(false)
+	})
+
+	it('withdraws keyless Space Bunny when the active catalogue prices it', async () => {
+		const zenEntry = PROVIDER_REGISTRY.zen
+		const fresh = parseZenCatalogue({
+			...catalogue(),
+			zen: [
+				model('space-bunny-free', { supportsAnonymousAccess: true }),
+				model('big-pickle', { inputPrice: 0, outputPrice: 0 }),
+			],
+		})
+		await startZenCatalogueRefresh({
+			home: home(),
+			log: capturing().log,
+			fetchCatalogue: async () => result(fresh),
+		}).done
+		expect(requiresCredentialForModel(zenEntry, 'space-bunny-free')).toBe(true)
+		expect(requiresCredentialForModel(zenEntry, 'big-pickle')).toBe(false)
+	})
+
 	/**
 	 * The TUI installs its ring buffer, and `exec --json` its NDJSON sink, after
 	 * the refresh has started; each rebuilds the process logger. A refresh that

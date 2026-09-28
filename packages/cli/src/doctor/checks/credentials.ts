@@ -49,10 +49,10 @@ export const credentialSourcesCheck: DoctorCheck = {
 			switch (d.source.kind) {
 				case 'env':
 					if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-						return `${d.entry.id} (env · ${d.source.envName}=public; inference access unverified)`
+						return `${d.entry.id} (env · ${d.source.envName}=public; free models experimental)`
 					return `${d.entry.id} (env · ${d.source.envName})`
 				case 'public':
-					return `${d.entry.id} (anonymous option · inference access unverified)`
+					return `${d.entry.id} (experimental free models · gateway may refuse)`
 				case 'opencode-file':
 					return `${d.entry.id} (OpenCode API key · ${d.source.path})`
 				case 'keychain':
@@ -82,7 +82,7 @@ export const credentialSourcesCheck: DoctorCheck = {
 			...(onlyAnonymousZen
 				? {
 						remediation:
-							'Discovering an anonymous Zen option does not prove inference access. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.',
+							'Zen free models are experimental; the gateway may refuse direct Namzu requests. OpenCode installation is recommended for its own client. If a turn is refused, configure OPENCODE_API_KEY or choose another provider.',
 					}
 				: {}),
 		}
