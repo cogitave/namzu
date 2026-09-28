@@ -27,9 +27,11 @@ import {
 	type ZenOmissions,
 	checkRosterFloor,
 	derive,
+	isDirectAnonymousZenId,
 	isDisplayableName,
 	parsePage,
 	parseServed,
+	pinnedProtocolForGo,
 } from './derive.js'
 
 /** The stored shape's version. A document carrying any other is refused. */
@@ -264,6 +266,9 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
 	'supportsAnonymousAccess',
 ])
 
+/** A last-good cache cannot reinstate an id the current reviewed roster omits. */
+const REVIEWED_OMISSIONS = new Set(ZEN_OMITTED_MODELS)
+
 /** A stored catalogue that is not exactly a catalogue. */
 export class ZenCatalogueFormatError extends Error {
 	override readonly name = 'ZenCatalogueFormatError'
@@ -322,6 +327,9 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 	onlyKeys(raw, MODEL_KEYS, where)
 	const id = raw.id
 	if (typeof id !== 'string' || !MODEL_ID.test(id)) invalid(`${where}.id`, 'is not a model id')
+	if (REVIEWED_OMISSIONS.has(`${service}/${id}`)) {
+		invalid(`${where}.id`, 'is now a reviewed omission')
+	}
 	const name = raw.name
 	if (
 		typeof name !== 'string' ||
@@ -335,6 +343,10 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 	if (typeof protocol !== 'string' || !PROTOCOLS.has(protocol)) {
 		invalid(`${where}.protocol`, 'is not a Zen protocol')
 	}
+	const pinnedGoProtocol = service === 'go' ? pinnedProtocolForGo(id) : undefined
+	if (pinnedGoProtocol !== undefined && protocol !== pinnedGoProtocol) {
+		invalid(`${where}.protocol`, `does not match the pinned Go route ${pinnedGoProtocol}`)
+	}
 	if (typeof raw.supportsToolUse !== 'boolean') {
 		invalid(`${where}.supportsToolUse`, 'is not true or false')
 	}
@@ -342,6 +354,9 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 	const anonymous = raw.supportsAnonymousAccess
 	if (anonymous !== undefined && (anonymous !== true || service !== 'zen')) {
 		invalid(`${where}.supportsAnonymousAccess`, 'is only ever `true`, and only on zen')
+	}
+	if (anonymous === true && !isDirectAnonymousZenId(id)) {
+		invalid(`${where}.supportsAnonymousAccess`, 'is not a verified direct-anonymous Zen model')
 	}
 	return {
 		id,

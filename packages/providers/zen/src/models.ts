@@ -20,7 +20,7 @@ export interface ZenModel {
 	readonly outputPrice: number
 	readonly supportsToolUse: boolean
 	readonly supportsStreaming: boolean
-	/** True only for documented anonymous Zen models; omission grants no anonymous access. */
+	/** True only for verified direct-anonymous Zen models; zero price does not grant access. */
 	readonly supportsAnonymousAccess?: boolean
 	/** Exact advertised selectable effort levels; empty means no effort selector. */
 	readonly effortLevels?: readonly ReasoningEffort[]
@@ -35,7 +35,7 @@ export interface ZenModel {
  * derived is an edit to src/catalogue/derive.ts. Both survive regeneration; a
  * hand edit here does not.
  *
- * Refreshed: 2026-09-21
+ * Refreshed: 2026-09-28
  *
  * This is the BUNDLED snapshot: what the driver knows with no network. A host
  * can derive a fresher roster at run time from the same sources, by the same
@@ -44,7 +44,8 @@ export interface ZenModel {
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
- * or the run stops. Prices come from that page's per-1M-token table at the base
+ * or the run stops. Three Go ids have narrow reference-client exceptions in
+ * src/catalogue/derive.ts. Prices come from the per-1M-token table at the base
  * tier, and a model with no price row there must be named in the page's
  * free-model list and is then zero. Limits, tool support, modalities and effort
  * options come from the matching provider entry in models.dev, where the
@@ -71,9 +72,9 @@ export interface ZenModel {
  * does not expose those input kinds.
  *
  * Promotional free models with documented routes and complete metadata are
- * included at their advertised zero price; the service enforces access limits.
- * Anonymous admission is explicit rather than inferred from price, and comes
- * from the free-model list on the page. OpenCode's own loader uses the public
+ * included at their advertised zero price. Direct anonymous admission is a
+ * separate, live-verified curation in src/catalogue/derive.ts and still requires
+ * an entry in the page's free-model list. OpenCode's own loader uses the public
  * sentinel when credentials are absent:
  * https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L185
  * Unknown IDs have no inferred protocol or limits. MiniMax and Qwen demonstrate
@@ -101,6 +102,32 @@ const ZEN_MODELS = freezeModels([
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
+	{
+		id: 'gpt-6-sol',
+		name: 'GPT 6 Sol',
+		protocol: 'responses',
+		contextWindow: 1050000,
+		maxOutputTokens: 128000,
+		inputModalities: ['text', 'image', 'document'],
+		inputPrice: 2.0,
+		outputPrice: 10.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+	},
+	{
+		id: 'gpt-6-luna',
+		name: 'GPT 6 Luna',
+		protocol: 'responses',
+		contextWindow: 1050000,
+		maxOutputTokens: 128000,
+		inputModalities: ['text', 'image', 'document'],
+		inputPrice: 0.1,
+		outputPrice: 0.5,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
 	},
 	{
 		id: 'gpt-5.6-sol',
@@ -319,6 +346,19 @@ const ZEN_MODELS = freezeModels([
 		inputModalities: ['text', 'image', 'document'],
 		inputPrice: 10.0,
 		outputPrice: 50.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
+	{
+		id: 'claude-opus-5-5',
+		name: 'Claude Opus 5.5',
+		protocol: 'messages',
+		contextWindow: 1000000,
+		maxOutputTokens: 128000,
+		inputModalities: ['text', 'image', 'document'],
+		inputPrice: 4.0,
+		outputPrice: 20.0,
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -597,6 +637,19 @@ const ZEN_MODELS = freezeModels([
 		effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
 	},
 	{
+		id: 'qwen3.8-max',
+		name: 'Qwen3.8 Max',
+		protocol: 'chat',
+		contextWindow: 262144,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 2.0,
+		outputPrice: 6.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: [],
+	},
+	{
 		id: 'qwen3.8-flash',
 		name: 'Qwen3.8 Flash',
 		protocol: 'messages',
@@ -806,7 +859,6 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'big-pickle',
-		supportsAnonymousAccess: true,
 		name: 'Big Pickle',
 		protocol: 'chat',
 		contextWindow: 200000,
@@ -819,8 +871,34 @@ const ZEN_MODELS = freezeModels([
 		effortLevels: [],
 	},
 	{
-		id: 'mimo-v2.5-free',
+		id: 'space-bunny-free',
 		supportsAnonymousAccess: true,
+		name: 'Space Bunny Free',
+		protocol: 'chat',
+		contextWindow: 1048576,
+		maxOutputTokens: 524288,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
+	{
+		id: 'longcat-2.5-preview-free',
+		name: 'LongCat 2.5 Preview Free',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: [],
+	},
+	{
+		id: 'mimo-v2.5-free',
 		name: 'MiMo-V2.5 Free',
 		protocol: 'chat',
 		contextWindow: 200000,
@@ -834,7 +912,6 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'ling-3.0-flash-fin-free',
-		supportsAnonymousAccess: true,
 		name: 'Ling 3.0 Flash Fin Free',
 		protocol: 'chat',
 		contextWindow: 262144,
@@ -848,7 +925,6 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'nemotron-3-ultra-free',
-		supportsAnonymousAccess: true,
 		name: 'Nemotron 3 Ultra Free',
 		protocol: 'chat',
 		contextWindow: 1000000,
@@ -862,7 +938,6 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'nemotron-3.5-lightning-free',
-		supportsAnonymousAccess: true,
 		name: 'Nemotron 3.5 Lightning Free',
 		protocol: 'chat',
 		contextWindow: 262144,
@@ -876,7 +951,6 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'muse-spark-1.3-contributor-free',
-		supportsAnonymousAccess: true,
 		name: 'Muse Spark 1.3 Contributor Free',
 		protocol: 'responses',
 		contextWindow: 1048576,
@@ -916,6 +990,19 @@ const GO_MODELS = freezeModels([
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['low', 'medium', 'high', 'xhigh'],
+	},
+	{
+		id: 'gpt-6-luna',
+		name: 'GPT 6 Luna',
+		protocol: 'responses',
+		contextWindow: 1050000,
+		maxOutputTokens: 128000,
+		inputModalities: ['text', 'image', 'document'],
+		inputPrice: 0.1,
+		outputPrice: 0.5,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
 	},
 	{
 		id: 'gpt-5.6-luna',
@@ -970,19 +1057,6 @@ const GO_MODELS = freezeModels([
 		effortLevels: ['high', 'max'],
 	},
 	{
-		id: 'glm-5.1',
-		name: 'GLM-5.1',
-		protocol: 'chat',
-		contextWindow: 202752,
-		maxOutputTokens: 32768,
-		inputModalities: ['text'],
-		inputPrice: 1.4,
-		outputPrice: 4.4,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: [],
-	},
-	{
 		id: 'kimi-k3',
 		name: 'Kimi K3',
 		protocol: 'chat',
@@ -1035,6 +1109,19 @@ const GO_MODELS = freezeModels([
 		effortLevels: [],
 	},
 	{
+		id: 'longcat-2.5-preview-free',
+		name: 'LongCat 2.5 Preview Free',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: [],
+	},
+	{
 		id: 'deepseek-v4.1-flash',
 		name: 'DeepSeek V4.1 Flash',
 		protocol: 'chat',
@@ -1063,7 +1150,7 @@ const GO_MODELS = freezeModels([
 	{
 		id: 'deepseek-v4-flash',
 		name: 'DeepSeek V4 Flash',
-		protocol: 'chat',
+		protocol: 'responses',
 		contextWindow: 1000000,
 		maxOutputTokens: 384000,
 		inputModalities: ['text'],
@@ -1115,7 +1202,7 @@ const GO_MODELS = freezeModels([
 	{
 		id: 'minimax-m3',
 		name: 'MiniMax M3',
-		protocol: 'messages',
+		protocol: 'chat',
 		contextWindow: 1000000,
 		maxOutputTokens: 131072,
 		inputModalities: ['text', 'image'],
@@ -1128,7 +1215,7 @@ const GO_MODELS = freezeModels([
 	{
 		id: 'minimax-m2.7',
 		name: 'MiniMax M2.7',
-		protocol: 'messages',
+		protocol: 'chat',
 		contextWindow: 204800,
 		maxOutputTokens: 131072,
 		inputModalities: ['text'],
@@ -1191,19 +1278,6 @@ const GO_MODELS = freezeModels([
 		effortLevels: ['low', 'medium', 'xhigh'],
 	},
 	{
-		id: 'qwen3.7-max',
-		name: 'Qwen3.7 Max',
-		protocol: 'messages',
-		contextWindow: 1000000,
-		maxOutputTokens: 65536,
-		inputModalities: ['text'],
-		inputPrice: 2.5,
-		outputPrice: 7.5,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: [],
-	},
-	{
 		id: 'qwen3.7-plus',
 		name: 'Qwen3.7 Plus',
 		protocol: 'messages',
@@ -1212,19 +1286,6 @@ const GO_MODELS = freezeModels([
 		inputModalities: ['text', 'image'],
 		inputPrice: 0.4,
 		outputPrice: 1.6,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: [],
-	},
-	{
-		id: 'qwen3.6-plus',
-		name: 'Qwen3.6 Plus',
-		protocol: 'messages',
-		contextWindow: 1000000,
-		maxOutputTokens: 65536,
-		inputModalities: ['text', 'image'],
-		inputPrice: 0.5,
-		outputPrice: 3.0,
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: [],
@@ -1255,6 +1316,19 @@ const GO_MODELS = freezeModels([
 		supportsStreaming: true,
 		effortLevels: ['none', 'low', 'high'],
 	},
+	{
+		id: 'space-bunny-free',
+		name: 'Space Bunny Free',
+		protocol: 'chat',
+		contextWindow: 1048576,
+		maxOutputTokens: 524288,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
 ])
 
 /**
@@ -1265,6 +1339,7 @@ const GO_MODELS = freezeModels([
 export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
 	'go/deepseek-flash',
 	'go/glm-5',
+	'go/glm-5.1',
 	'go/grok-4.5',
 	'go/hy3-preview',
 	'go/kimi-k2.5',
@@ -1275,6 +1350,8 @@ export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
 	'go/minimax-m2.5',
 	'go/omen-alpha',
 	'go/qwen3.5-plus',
+	'go/qwen3.6-plus',
+	'go/qwen3.7-max',
 	'zen/claude-sonnet-4',
 	'zen/deepseek-v4-flash-free',
 	'zen/glm-5',

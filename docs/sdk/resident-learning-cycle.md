@@ -163,21 +163,19 @@ async function evaluateOneSkill(host: ResidentLearningCycleOptions) {
 }
 ```
 
-## Reproducible experiment
+## Recorded experiment
 
-The historical `learning-cycle-experiment.mjs` (replay at `f92daf81`) exercises the SDK
-workflow with explicitly scripted inference. `--live` selects only Zen's
-`muse-spark-1.3-contributor-free` at low effort and enables a real CLI resident
-admission. Both use an isolated workspace and Namzu home.
-
-For the current admission contract, use
-`node research/resident/learning-protection-study.mjs` (scripted control),
-`--regression` (a deliberately damaged protected result), or `--live --prepare`
-to prepare an isolated Muse-low experiment for actual CLI/TUI execution. See
-[the protection study](../../research/resident/learning-protection.md) for the
-fixed-candidate scope and retained results. Historical pre-protection experiments
-must be replayed against their recorded revision; their old batches do not
-establish the new admission requirement.
+The historical `learning-cycle-experiment.mjs` was run at `f92daf81` with
+scripted inference and, separately, Zen's `muse-spark-1.3-contributor-free` at
+low effort. The later `learning-protection-study.mjs` recorded the current
+admission contract. These producers still use SDK interfaces removed since
+their runs (`ToolRegistry`, `DefaultPathBuilder` and the old query and result
+shapes); their scripted and live commands do not run in this checkout. Consult
+[the protection study](../../research/resident/learning-protection.md) for its
+retained results. A new run needs a migrated, tested producer. A live Muse run
+also needs a real Zen key and fresh gateway verification: direct keyless Namzu
+requests to Muse returned HTTP 403 on 2026-09-28. A key has not been tested
+here. The old batches do not establish the new admission requirement.
 
 The host supplies a synthetic workspace routing convention after observing a
 cold knowledge gap. The experiment separates frozen behavior, retained raw

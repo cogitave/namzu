@@ -14,9 +14,11 @@ Both implement the SDK's existing `LLMProvider` interface. Namzu continues to
 own the agent loop, tools, permissions, budgets, retries, persistence and
 delegation.
 
-Zen includes public models that work without an account key or an OpenCode
-installation. Namzu defaults anonymous Zen calls to Muse Spark 1.3 Contributor
-Free (`muse-spark-1.3-contributor-free`). Zen Go still requires its own API key.
+Zen publishes a free-model catalogue. Namzu defaults requests without a key to
+`space-bunny-free`, which completed keyless text and tool-continuation checks
+through the real driver on 2026-09-28. The other seven bundled free models
+returned HTTP 403 to direct Namzu requests that day. Zen Go requires its own
+API key.
 
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3
@@ -36,7 +38,7 @@ const sessionId = generateSessionId()
 const provider = new ZenProvider({ sessionId })
 const { output, turn, identity } = await runAgent({
   provider,
-  model: 'muse-spark-1.3-contributor-free',
+  model: 'space-bunny-free',
   sessionId,
   prompt: 'Explain what an agent kernel does.',
   maxIterations: 4,
@@ -47,8 +49,9 @@ console.log(turn.stopReason)
 console.log(identity)
 ```
 
-This example makes a public model request without an account key. For paid
-Zen models, pass `apiKey`. For Go, use `ZenGoProvider` with its API key.
+This example uses the direct keyless path verified for `space-bunny-free` on
+2026-09-28. Gateway admission can change. For Go, use `ZenGoProvider` with its
+API key.
 SDK constructors do not read environment variables or credential files;
 that lookup belongs to the application or CLI.
 Keep one provider instance per conversation, and reuse its `sessionId`
@@ -62,15 +65,17 @@ across resume and compaction.
 | Zen | `zen` | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY`, then `OPENCODE_ZEN_API_KEY` |
 | Zen Go (Go service) | `zen-go` | `https://opencode.ai/zen/go/v1` | `OPENCODE_GO_API_KEY` |
 
-The SDK defaults anonymous Zen calls to `muse-spark-1.3-contributor-free`;
+The SDK defaults anonymous Zen calls to `space-bunny-free`;
 Zen with a real key and Go default to `glm-5.3-flash`. The CLI's default Zen
-model is the free Muse model. Routes are selected from the exact service
+model is also Space Bunny Free. Routes are selected from the exact service
 and model ID: `chat` uses Chat Completions, `responses` uses Responses,
 `messages` uses Anthropic Messages, and `google` uses streaming
 `generateContent`. The same model family can use different wires on Zen
 and Go. Unknown IDs require an explicit `protocol` configuration; model
-names are never used to guess a wire format. Anonymous access is restricted
-to six explicitly supported public model IDs; a protocol override does not
+names are never used to guess a wire format. Direct anonymous access is
+currently restricted to the live-verified `space-bunny-free`; the other
+documented free models remain in the catalogue for credentialed use. A
+protocol override does not
 grant access to paid or unknown models.
 
 A missing, blank or `public` Zen `apiKey` selects anonymous access. Public
@@ -81,8 +86,8 @@ entries from `OPENCODE_AUTH_CONTENT` when set, otherwise from
 `~/.local/share/opencode/auth.json`. Without an absolute XDG override, WSL
 can also reuse the paired Windows home's file. It maps `opencode` to Zen and
 `opencode-go` to Go separately, ignores OAuth entries, and never changes the
-owner's file. With no key, Zen remains available as a public provider and
-does not require a login or key prompt.
+owner's file. With no key, Zen remains selectable as an anonymous option, but
+its model listing does not verify inference access or prompt for a key.
 
 `ZenConfig` accepts `apiKey`, `sessionId`, `model`, `baseURL`, `timeout`
 and `protocol`, all optional. `ZenGoConfig` requires `apiKey` for Go.
@@ -102,7 +107,10 @@ types without loading the native transport adapters.
 
 Text, ordinary tools, inline images and documents use the SDK message
 contract. Signed reasoning, encrypted Responses items and Gemini thought
-signatures retain native ordering in versioned replay state. Replay requires
+signatures retain native ordering in versioned replay state, except that Muse
+Spark Responses requests do not ask for encrypted reasoning and do not replay
+its native reasoning items: the gateway cannot round-trip that ciphertext.
+Replay requires
 the original configured route, service, protocol, model, history prefix,
 and unchanged durable assistant text, calls and reasoning. A changed route
 or compacted history uses portable text/tool history without foreign native
@@ -124,7 +132,7 @@ controls also depend on the wire. See the [SDK guide](../../../docs/sdk/zen.md)
 for configuration and refusal details.
 
 `listModels(signal?)` intersects the live service catalogue with supported
-models and restricts anonymous results to the explicit public set.
+models and restricts anonymous results to the curated direct-access set.
 Static limits and USD-per-million-token prices are derived from the
 services' own documentation pages, models.dev and the services' `/models`
 answers, and are estimates rather than invoices: context tiers, caches, Go
@@ -164,5 +172,11 @@ also read `verification.txt`, then returned its exact nonce, absent from
 the prompt, after two model requests. The read succeeded and the turn ended
 with `end_turn`. This validates that model's public text and file-tool path;
 it does not establish every public or paid model, Go access, or billing.
+
+On 2026-09-28, direct keyless Namzu requests to `space-bunny-free` completed
+text inference and a tool continuation. The other seven bundled free models
+each returned HTTP 403 `FreeTierError` to one direct request. This is why
+anonymous discovery currently offers only Space Bunny Free; gateway admission
+can change.
 
 FSL-1.1-MIT, converting to MIT two years after each release.

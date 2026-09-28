@@ -1492,15 +1492,18 @@ function credentialGap(
 	// one ever did, it is not a credential problem and must not be reported as
 	// one — a wrong diagnosis sends the operator to paste a key that would not
 	// have helped.
-	if (
-		!entry ||
-		!entry.constructible ||
-		!requiresCredentialForModel(entry, primary.model ?? entry.defaultModel)
-	)
-		return null
+	if (!entry || !entry.constructible) return null
+	const model = primary.model ?? entry.defaultModel
+	if (!requiresCredentialForModel(entry, model)) return null
 	const det = findDetected(detected, primary.id)
 	if (hasApiCredential(entry, det?.apiKey)) return null
-	return { providerId: primary.id, reason: missingCredentialMessage(entry) }
+	const reason =
+		entry.id === 'zen' &&
+		primary.model !== undefined &&
+		!requiresCredentialForModel(entry, entry.defaultModel)
+			? `No credential found for saved Zen model "${primary.model}". Select Zen, its anonymous option, then Space Bunny Free (${entry.defaultModel}) to continue without a key, or press "k" to enter a Zen API key and try the saved model.`
+			: missingCredentialMessage(entry)
+	return { providerId: primary.id, reason }
 }
 
 // Builtins we don't expose: `verify_outputs` — a host-side check rather
@@ -1998,7 +2001,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose muse-spark-1.3-contributor-free for public access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose space-bunny-free for anonymous access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -5462,6 +5465,21 @@ export function promptExemptToolNames(
 /** A batch needs explicit approval when any call mutates state. */
 export const batchNeedsPrompt = batchNeedsReview
 
+/** Add a remedy only for OpenCode's exact public-tier refusal. */
+function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>): string {
+	const provider = event.providerError
+	const detail = provider?.detail ?? event.error
+	if (
+		provider?.providerId === 'zen' &&
+		provider.kind === 'auth' &&
+		provider.status === 403 &&
+		detail.includes("OpenCode's free tier can only be used from within OpenCode")
+	) {
+		return `${event.error}\nOpenCode limits this free tier to its own client; this Zen request cannot continue. To try credentialed Zen access, set OPENCODE_API_KEY, or choose another provider.`
+	}
+	return event.error
+}
+
 /**
  * Translate one SDK `SessionEvent` into the TUI's `AgentEvent` vocabulary, or
  * `null` for events the chat surface doesn't render (iteration markers,
@@ -5736,7 +5754,7 @@ export function toAgentEvent(
 			return {
 				kind: 'error',
 				...(event.budget ? { budget: event.budget } : {}),
-				message: event.error,
+				message: failedTurnMessage(event),
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),

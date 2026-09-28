@@ -69,6 +69,7 @@
  * row.
  */
 
+import { hasApiCredential } from '../integrations/providers/access.js'
 import {
 	ALL_PROVIDER_IDS,
 	type DetectedProvider,
@@ -200,7 +201,8 @@ export function vendorPaths(
 	const aKeyIsAlreadyHere = detected.some(
 		(provider) =>
 			!signedIn.has(provider.entry.id) &&
-			(provider.source.kind === 'env' ||
+			((provider.source.kind === 'env' &&
+				(provider.entry.id !== 'zen' || hasApiCredential(provider.entry, provider.apiKey))) ||
 				provider.source.kind === 'opencode-file' ||
 				provider.source.kind === 'stored-gemini-key'),
 	)
@@ -336,9 +338,9 @@ export function rowCredentialNeed(row: VendorRow): string | null {
  * The environment variable and not "not configured": the variable is the one
  * action that both makes the provider work now and keeps it working after a
  * restart, and a sentence that says only that something is absent leaves the
- * operator to find that name. `requiresApiKey: false` exists for providers
- * whose free catalogue works without one, so those are labelled optional rather
- * than needed.
+ * operator to find that name. `requiresApiKey: false` permits anonymous Zen
+ * selection, but its public catalogue does not prove inference access; the Zen
+ * row names the key as the way to try credentialed access.
  *
  * The fallback is unreachable for the current registry (every entry that
  * reaches this screen declares at least one variable) and is kept so that a
@@ -347,6 +349,7 @@ export function rowCredentialNeed(row: VendorRow): string | null {
 export function credentialNeed(entry: ProviderRegistryEntry): string {
 	const envName = entry.envVars[0]
 	if (!envName) return 'needs a credential'
+	if (entry.id === 'zen') return `${envName} for credentialed access`
 	return entry.requiresApiKey ? `needs ${envName}` : `${envName} optional`
 }
 

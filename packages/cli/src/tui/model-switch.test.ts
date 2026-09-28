@@ -201,7 +201,7 @@ describe('resolving an active conversation model change', () => {
 	it.each([undefined, 'public'])(
 		'admits a listed anonymous Zen model with credential %s',
 		async (apiKey) => {
-			const model = 'muse-spark-1.3-contributor-free'
+			const model = 'space-bunny-free'
 			await expect(
 				resolveModelSwitch(
 					{ model },
@@ -215,7 +215,7 @@ describe('resolving an active conversation model change', () => {
 		},
 	)
 
-	it.each(['glm-5.3-flash', 'unknown-free'])(
+	it.each(['glm-5.3-flash', 'big-pickle', 'unknown-free'])(
 		'refuses anonymous Zen model %s before listing',
 		async (model) => {
 			const describeModels = listingProvider({ zen: catalogue(model) })
@@ -237,17 +237,15 @@ describe('resolving an active conversation model change', () => {
 
 	it('does not admit an anonymous free model missing from the actual catalogue', async () => {
 		const result = await resolveModelSwitch(
-			{ model: 'muse-spark-1.3-contributor-free' },
+			{ model: 'space-bunny-free' },
 			{
 				currentProvider: 'zen',
 				detected: [{ ...detected('zen'), apiKey: undefined }],
 				describeModels: listingProvider({ zen: catalogue('big-pickle', 'glm-5.3-flash') }),
 			},
 		)
-		expect(result).toMatchObject({
-			kind: 'rejected',
-			choices: [{ provider: 'zen', model: 'big-pickle' }],
-		})
+		expect(result).toMatchObject({ kind: 'rejected' })
+		expect(result).not.toHaveProperty('choices')
 	})
 
 	it('rejects an already cancelled request without catalogue access', async () => {

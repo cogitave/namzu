@@ -7,6 +7,7 @@ import {
 	APICallError,
 	type LanguageModelV3,
 	type LanguageModelV3Content,
+	type LanguageModelV3Prompt,
 	type LanguageModelV3StreamPart,
 	type LanguageModelV3Usage,
 	type SharedV3ProviderMetadata,
@@ -31,9 +32,15 @@ import {
 	findZenCatalogueModel,
 	isUnroutedZenModel,
 } from './catalogue/catalogue.js'
+import { isDirectAnonymousZenId } from './catalogue/derive.js'
 import type { ZenModel, ZenService } from './models.js'
 import { createCallOptions } from './options.js'
-import { createReplayState, toReasoningBlocks } from './prompt.js'
+import {
+	createReplayState,
+	isGoDeepSeekV4ResponsesModel,
+	isMuseSparkResponsesModel,
+	toReasoningBlocks,
+} from './prompt.js'
 import type { ZenConfig, ZenGoConfig } from './types.js'
 
 export const ZEN_CAPABILITIES: ProviderCapabilities = {
@@ -49,6 +56,219 @@ export const ZEN_CAPABILITIES: ProviderCapabilities = {
 
 export const ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const ZEN_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+
+function withoutMuseSparkEncryptedReasoning(init?: RequestInit): RequestInit {
+	// The pinned OpenAI adapter adds this include automatically whenever a
+	// reasoning model uses store:false, even if providerOptions omits it.
+	// Muse Spark cannot round-trip that gateway-issued ciphertext. Keep the
+	// request stateless and preserve every other include the adapter may add.
+	if (typeof init?.body !== 'string')
+		throw new Error('Zen Muse Spark adapter emitted a request body that cannot be checked.')
+	const body: unknown = JSON.parse(init.body)
+	if (typeof body !== 'object' || body === null || Array.isArray(body))
+		throw new Error('Zen Muse Spark adapter emitted an invalid request body.')
+	const request = body as Record<string, unknown>
+	if (request.include !== undefined) {
+		if (
+			!Array.isArray(request.include) ||
+			!request.include.every((item) => typeof item === 'string')
+		)
+			throw new Error('Zen Muse Spark adapter emitted an invalid include list.')
+		const include = request.include.filter((item) => item !== 'reasoning.encrypted_content')
+		if (include.length > 0) request.include = include
+		else request.include = undefined
+	}
+	return { ...init, body: JSON.stringify(request) }
+}
+
+function isGoDeepSeekV4ChatModel(service: ZenService, model: string, protocol: string): boolean {
+	return (
+		service === 'go' &&
+		protocol === 'chat' &&
+		(model === 'deepseek-v4-pro' ||
+			model === 'deepseek-v4.1-flash' ||
+			model === 'deepseek-v4-flash')
+	)
+}
+
+function adapterBody(init: RequestInit | undefined, model: string): Record<string, unknown> {
+	if (typeof init?.body !== 'string')
+		throw new Error(`Zen adapter emitted a non-JSON request body for ${model}.`)
+	const body: unknown = JSON.parse(init.body)
+	if (typeof body !== 'object' || body === null || Array.isArray(body))
+		throw new Error(`Zen adapter emitted an invalid request body for ${model}.`)
+	return body as Record<string, unknown>
+}
+
+function withGoDeepSeekV4ChatHistory(init: RequestInit | undefined, model: string): RequestInit {
+	const body = adapterBody(init, model)
+	if (!Array.isArray(body.messages)) throw new Error('Go DeepSeek chat request has no messages.')
+	for (const value of body.messages) {
+		if (typeof value !== 'object' || value === null || Array.isArray(value))
+			throw new Error('Go DeepSeek chat request has an invalid message.')
+		const message = value as Record<string, unknown>
+		if (message.role !== 'assistant') continue
+		if (message.content === null) message.content = ''
+		if (message.reasoning_content === undefined || message.reasoning_content === null)
+			message.reasoning_content = ''
+		else if (typeof message.reasoning_content !== 'string')
+			throw new Error('Go DeepSeek chat request has invalid reasoning content.')
+	}
+	return { ...init, body: JSON.stringify(body) }
+}
+
+function withGoDeepSeekV4ResponsesHistory(
+	init: RequestInit | undefined,
+	model: string,
+	prompt: LanguageModelV3Prompt,
+): RequestInit {
+	const body = adapterBody(init, model)
+	if (!Array.isArray(body.input)) throw new Error('Go DeepSeek Responses request has no input.')
+	const input: Record<string, unknown>[] = []
+	let turn: Record<string, unknown>[] = []
+	const sourceTurns = prompt.filter((message) => message.role === 'assistant')
+	let sourceIndex = 0
+	const refuse = (): never => {
+		throw new ProviderRequestError({
+			providerId: 'zen-go',
+			kind: 'bad_request',
+			detail: `Go DeepSeek ${model} requires captured, nonempty reasoning_text for each previous assistant turn. This history cannot be replayed safely.`,
+		})
+	}
+	const flushTurn = () => {
+		if (turn.length === 0) return
+		const source = sourceTurns[sourceIndex++]
+		if (source?.role !== 'assistant') return refuse()
+		const messages = turn.filter((item) => item.role === 'assistant')
+		const calls = turn.filter((item) => item.type === 'function_call')
+		const sourceText = source.content
+			.filter((part) => part.type === 'text')
+			.map((part) => part.text)
+		const wireText = messages.flatMap((message) =>
+			Array.isArray(message.content)
+				? message.content
+						.filter(
+							(part) => typeof part === 'object' && part !== null && part.type === 'output_text',
+						)
+						.map((part) => part.text)
+				: [],
+		)
+		const sourceCalls = source.content
+			.filter((part) => part.type === 'tool-call')
+			.map((part) => part.toolCallId)
+		const wireCalls = calls.map((call) => call.call_id)
+		if (
+			JSON.stringify(sourceText) !== JSON.stringify(wireText) ||
+			JSON.stringify(sourceCalls) !== JSON.stringify(wireCalls)
+		)
+			refuse()
+		const captured = source.content
+			.filter((part) => part.type === 'reasoning')
+			.map((part) => part.text)
+			.filter((text) => text.trim().length > 0)
+			.join('\n')
+		if (!captured) refuse()
+		const reasoning = {
+			type: 'reasoning',
+			summary: [],
+			content: [{ type: 'reasoning_text', text: captured }],
+		}
+		// The adapter can replay a native [tool-call, text] turn as a call then
+		// an assistant message. Go rejects a message between calls and outputs.
+		input.push(reasoning, ...messages, ...calls)
+		turn = []
+	}
+	for (const value of body.input) {
+		if (typeof value !== 'object' || value === null || Array.isArray(value))
+			throw new Error('Go DeepSeek Responses request has an invalid input item.')
+		const item = value as Record<string, unknown>
+		if (item.type === 'reasoning' || item.type === 'function_call' || item.role === 'assistant') {
+			turn.push(item)
+		} else {
+			flushTurn()
+			input.push(item)
+		}
+	}
+	flushTurn()
+	if (sourceIndex !== sourceTurns.length) refuse()
+	body.input = input
+	return { ...init, body: JSON.stringify(body) }
+}
+
+function withGoDeepSeekReasoningTextEvents(response: Response): Response {
+	if (
+		!response.ok ||
+		!response.body ||
+		!response.headers.get('content-type')?.includes('text/event-stream')
+	)
+		return response
+	// @ai-sdk/openai 3.0.109 understands reasoning summary deltas but not the
+	// reasoning_text delta that Go DeepSeek streams. Translate that one event
+	// before the adapter parses SSE; the original text then enters durable replay.
+	const decoder = new TextDecoder()
+	const encoder = new TextEncoder()
+	let pending = ''
+	const rewrite = (event: string): string => {
+		const lines = event.split(/\r\n|\n|\r/)
+		const dataLines = lines.filter((line) => line.startsWith('data:'))
+		if (dataLines.length !== 1) return event
+		let value: unknown
+		try {
+			value = JSON.parse(dataLines[0]?.slice(5).trimStart() ?? '')
+		} catch {
+			return event
+		}
+		if (
+			typeof value !== 'object' ||
+			value === null ||
+			!('type' in value) ||
+			value.type !== 'response.reasoning_text.delta' ||
+			!('item_id' in value) ||
+			typeof value.item_id !== 'string' ||
+			!('delta' in value) ||
+			typeof value.delta !== 'string'
+		)
+			return event
+		const translated = {
+			...value,
+			type: 'response.reasoning_summary_text.delta',
+			summary_index: 0,
+		}
+		return lines
+			.map((line) => {
+				if (line.startsWith('data:')) return `data: ${JSON.stringify(translated)}`
+				if (line.startsWith('event:')) return 'event: response.reasoning_summary_text.delta'
+				return line
+			})
+			.join('\n')
+	}
+	const body = response.body.pipeThrough(
+		new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, controller) {
+				pending += decoder.decode(chunk, { stream: true })
+				while (true) {
+					const boundary = /\r\n\r\n|\n\n|\r\r/.exec(pending)
+					if (!boundary) break
+					const event = pending.slice(0, boundary.index)
+					pending = pending.slice(boundary.index + boundary[0].length)
+					controller.enqueue(encoder.encode(`${rewrite(event)}\n\n`))
+				}
+			},
+			flush(controller) {
+				pending += decoder.decode()
+				if (pending) controller.enqueue(encoder.encode(pending))
+			},
+		}),
+	)
+	const headers = new Headers(response.headers)
+	headers.delete('content-length')
+	headers.delete('content-encoding')
+	return new Response(body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	})
+}
 
 /**
  * The words a backend's own finish reason uses, in `LanguageModelV3FinishReason.raw`,
@@ -135,12 +355,13 @@ export class ZenProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model =
-			params.model ||
-			this.config.model ||
-			(this.anonymous ? 'muse-spark-1.3-contributor-free' : 'glm-5.3-flash')
+			params.model || this.config.model || (this.anonymous ? 'space-bunny-free' : 'glm-5.3-flash')
 		const catalogue = this.runtimeCatalogue()
 		const info = findZenCatalogueModel(catalogue, this.service, model)
-		if (this.anonymous && info?.supportsAnonymousAccess !== true)
+		if (
+			this.anonymous &&
+			(!isDirectAnonymousZenId(model) || info?.supportsAnonymousAccess !== true)
+		)
 			throw new ProviderRequestError({
 				providerId: this.id,
 				kind: 'auth',
@@ -156,7 +377,11 @@ export class ZenProvider implements LLMProvider {
 					? 'The service serves this model, but no source states its wire format. Configure protocol explicitly.'
 					: 'This model has no known wire format. Update the provider or configure protocol explicitly.',
 			})
-		const route = params.providerRoute ?? { providerId: this.id, model, chainIndex: 0 }
+		const route = params.providerRoute ?? {
+			providerId: this.id,
+			model,
+			chainIndex: 0,
+		}
 		const controller = new AbortController()
 		const signal = AbortSignal.any([
 			controller.signal,
@@ -168,7 +393,7 @@ export class ZenProvider implements LLMProvider {
 			signal.throwIfAborted()
 			let options: ReturnType<typeof createCallOptions>
 			try {
-				options = createCallOptions({ ...params, model }, route, this.service, protocol)
+				options = createCallOptions({ ...params, model }, route, this.service, protocol, info)
 			} catch (error) {
 				if (isProviderRequestError(error)) throw error
 				throw new ProviderRequestError({
@@ -193,8 +418,20 @@ export class ZenProvider implements LLMProvider {
 						body.generationConfig ??= {}
 						delete body.generationConfig.responseSchema
 						body.generationConfig.responseJsonSchema = params.responseFormat.json_schema.schema
-						return this.requestFetch(input, { ...init, body: JSON.stringify(body) })
+						return this.requestFetch(input, {
+							...init,
+							body: JSON.stringify(body),
+						})
 					}
+					if (isMuseSparkResponsesModel(model, protocol))
+						return this.requestFetch(input, withoutMuseSparkEncryptedReasoning(init))
+					if (isGoDeepSeekV4ChatModel(this.service, model, protocol))
+						return this.requestFetch(input, withGoDeepSeekV4ChatHistory(init, model))
+					if (isGoDeepSeekV4ResponsesModel(this.service, model, protocol))
+						return this.requestFetch(
+							input,
+							withGoDeepSeekV4ResponsesHistory(init, model, options.prompt),
+						).then(withGoDeepSeekReasoningTextEvents)
 					return this.requestFetch(input, init)
 				}) as typeof fetch,
 			}
@@ -225,7 +462,10 @@ export class ZenProvider implements LLMProvider {
 			const texts = new Map<string, Extract<LanguageModelV3Content, { type: 'text' }>>()
 			const thoughts = new Map<
 				string,
-				{ index: number; value: Extract<LanguageModelV3Content, { type: 'reasoning' }> }
+				{
+					index: number
+					value: Extract<LanguageModelV3Content, { type: 'reasoning' }>
+				}
 			>()
 			const tools = new Map<
 				string,
@@ -290,7 +530,10 @@ export class ZenProvider implements LLMProvider {
 						const index = thoughts.size
 						thoughts.set(part.id, { index, value })
 						content.push(value)
-						yield { id, delta: { reasoning: { index, type: 'thinking', text: '' } } }
+						yield {
+							id,
+							delta: { reasoning: { index, type: 'thinking', text: '' } },
+						}
 						break
 					}
 					case 'reasoning-delta':
@@ -358,7 +601,9 @@ export class ZenProvider implements LLMProvider {
 						)
 						yield {
 							id,
-							delta: { toolCalls: [{ index: tool.index, function: { arguments: part.delta } }] },
+							delta: {
+								toolCalls: [{ index: tool.index, function: { arguments: part.delta } }],
+							},
 						}
 						break
 					}
@@ -377,7 +622,12 @@ export class ZenProvider implements LLMProvider {
 							throw new Error('Provider-executed tools are not configured.')
 						let tool = tools.get(part.toolCallId)
 						if (!tool) {
-							tool = { index: tools.size, input: '', ended: false, value: { ...part } }
+							tool = {
+								index: tools.size,
+								input: '',
+								ended: false,
+								value: { ...part },
+							}
 							tools.set(part.toolCallId, tool)
 							content.push(tool.value)
 							yield {
@@ -401,7 +651,9 @@ export class ZenProvider implements LLMProvider {
 						if (suffix)
 							yield {
 								id,
-								delta: { toolCalls: [{ index: tool.index, function: { arguments: suffix } }] },
+								delta: {
+									toolCalls: [{ index: tool.index, function: { arguments: suffix } }],
+								},
 							}
 						tool.value.input = part.input
 						tool.value.providerMetadata = mergeMetadata(
@@ -409,7 +661,12 @@ export class ZenProvider implements LLMProvider {
 							part.providerMetadata,
 						)
 						tool.ended = true
-						yield { id, delta: { toolCallEnd: { index: tool.index, id: part.toolCallId } } }
+						yield {
+							id,
+							delta: {
+								toolCallEnd: { index: tool.index, id: part.toolCallId },
+							},
+						}
 						break
 					}
 					case 'finish':
@@ -493,7 +750,11 @@ export class ZenProvider implements LLMProvider {
 				seen.add(item.id)
 				const model = findZenCatalogueModel(catalogue, this.service, item.id)
 				if (model) {
-					if (!this.anonymous || model.supportsAnonymousAccess === true) result.push({ ...model })
+					if (
+						!this.anonymous ||
+						(isDirectAnonymousZenId(item.id) && model.supportsAnonymousAccess === true)
+					)
+						result.push({ ...model })
 					continue
 				}
 				// Served, and named by the runtime catalogue as having no known wire:
@@ -603,7 +864,13 @@ export class ZenProvider implements LLMProvider {
 		const envelope = safeErrorEnvelope(error)
 		const body = scrub(JSON.stringify(envelope))
 		if (envelope.status !== undefined)
-			return named(providerHttpError({ providerId: this.id, status: envelope.status, body }))
+			return named(
+				providerHttpError({
+					providerId: this.id,
+					status: envelope.status,
+					body,
+				}),
+			)
 		return named(
 			providerVendorError({
 				providerId: this.id,

@@ -2,11 +2,11 @@ import type { ZenCatalogue } from './catalogue/catalogue.js'
 import type { ZenProtocol } from './models.js'
 
 export interface ZenConfig {
-	/** Omit for documented free Zen models. The public sentinel also selects anonymous access. */
+	/** Omit for a model admitted to direct anonymous Zen access; `public` selects the same path. */
 	apiKey?: string
 	/** Stable conversation identity, shared by every turn and auxiliary request. */
 	sessionId?: string
-	/** Defaults to free Muse Spark 1.3 anonymously, or glm-5.3-flash with an API key. */
+	/** Defaults to Space Bunny Free anonymously, or glm-5.3-flash with an API key. */
 	model?: string
 	/** Override the service base URL, primarily for a host-owned proxy. */
 	baseURL?: string
@@ -16,11 +16,12 @@ export interface ZenConfig {
 	protocol?: ZenProtocol
 	/**
 	 * A runtime catalogue, from `@namzu/zen/catalogue`, consulted before the
-	 * bundled snapshot for every lookup: routing, anonymous admission, listing,
-	 * context windows and effort levels. A function is called at each lookup, so
-	 * a host can swap in a fresher catalogue for providers it already built;
-	 * returning `undefined` means the bundled snapshot alone. Omitted, the
-	 * provider uses the bundled snapshot and nothing is ever fetched for it.
+	 * bundled snapshot for every lookup: routing, model listing, context windows
+	 * and effort levels. Anonymous admission also requires the driver's curated
+	 * direct-access ID; a catalogue cannot add to that set. A function is called
+	 * at each lookup, so a host can swap in a fresher catalogue for providers it
+	 * already built. Returning `undefined` means the bundled snapshot alone.
+	 * Omitted, the provider uses the bundled snapshot and fetches nothing.
 	 */
 	catalogue?: ZenCatalogue | (() => ZenCatalogue | undefined)
 }

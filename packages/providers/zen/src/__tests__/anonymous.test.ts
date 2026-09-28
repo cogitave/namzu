@@ -1,15 +1,16 @@
 import { collectChatCompletion } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ZenCatalogue } from '../catalogue/catalogue.js'
 import { ZenGoProvider, ZenProvider } from '../client.js'
 import { type ZenProtocol, findZenModel, getZenModels } from '../models.js'
 import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 
 const freeMuse = 'muse-spark-1.3-contributor-free'
+const defaultFree = 'space-bunny-free'
 /**
  * Every id the catalogue flags `supportsAnonymousAccess`, which is deliberately
- * a list rather than a filter over the roster: the flag is a claim about what
- * the service admits, and re-deriving it from the roster would assert that the
- * roster equals itself.
+ * a list rather than a filter over the roster. A free price does not imply
+ * that a third-party caller can use the model without an API key.
  *
  * `union-alpha` was here until 2026-09-18, when models.dev deleted its entry
  * and the catalogue stopped carrying it for want of limits to derive — so no
@@ -18,15 +19,11 @@ const freeMuse = 'muse-spark-1.3-contributor-free'
  * branch is chosen by the ROSTER, not by this list: a free model on Messages
  * would need it again, and `wirePath` is what says so.
  */
-const anonymousIds = [
-	'big-pickle',
-	'mimo-v2.5-free',
-	'ling-3.0-flash-fin-free',
-	'nemotron-3-ultra-free',
-	'nemotron-3.5-lightning-free',
-	freeMuse,
-]
-const params = { model: '', messages: [{ role: 'user' as const, content: 'Hello' }] }
+const anonymousIds = ['space-bunny-free']
+const params = {
+	model: '',
+	messages: [{ role: 'user' as const, content: 'Hello' }],
+}
 
 /** The endpoint the roster routes a model to. */
 function wirePath(model: string): string {
@@ -43,13 +40,20 @@ function wirePath(model: string): string {
 function nativeResponse(url: string, model: string): Response {
 	const frames = url.endsWith('/responses')
 		? [
-				{ type: 'response.created', response: { id: 'anonymous-response', created_at: 1, model } },
+				{
+					type: 'response.created',
+					response: { id: 'anonymous-response', created_at: 1, model },
+				},
 				{
 					type: 'response.output_item.added',
 					output_index: 0,
 					item: { type: 'message', id: 'message-1' },
 				},
-				{ type: 'response.output_text.delta', item_id: 'message-1', delta: 'Ready.' },
+				{
+					type: 'response.output_text.delta',
+					item_id: 'message-1',
+					delta: 'Ready.',
+				},
 				{
 					type: 'response.output_item.done',
 					output_index: 0,
@@ -57,7 +61,9 @@ function nativeResponse(url: string, model: string): Response {
 				},
 				{
 					type: 'response.completed',
-					response: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } },
+					response: {
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					},
 				},
 			]
 		: url.endsWith('/messages')
@@ -75,8 +81,16 @@ function nativeResponse(url: string, model: string): Response {
 							usage: { input_tokens: 1, output_tokens: 0 },
 						},
 					},
-					{ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-					{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Ready.' } },
+					{
+						type: 'content_block_start',
+						index: 0,
+						content_block: { type: 'text', text: '' },
+					},
+					{
+						type: 'content_block_delta',
+						index: 0,
+						delta: { type: 'text_delta', text: 'Ready.' },
+					},
 					{ type: 'content_block_stop', index: 0 },
 					{
 						type: 'message_delta',
@@ -89,7 +103,11 @@ function nativeResponse(url: string, model: string): Response {
 					{
 						id: 'anonymous-chat',
 						choices: [
-							{ index: 0, delta: { role: 'assistant', content: 'Ready.' }, finish_reason: 'stop' },
+							{
+								index: 0,
+								delta: { role: 'assistant', content: 'Ready.' },
+								finish_reason: 'stop',
+							},
 						],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
 					},
@@ -114,7 +132,7 @@ afterEach(() => {
 
 describe('anonymous Zen access', () => {
 	it.each([undefined, '', ' \t ', 'public', ' public '])(
-		'uses free Muse and the public sentinel for credential %j',
+		'uses the verified free default and the public sentinel for credential %j',
 		async (apiKey) => {
 			const transport = mockNativeFetch()
 			const provider = apiKey === undefined ? new ZenProvider() : new ZenProvider({ apiKey })
@@ -124,8 +142,8 @@ describe('anonymous Zen access', () => {
 			expect(transport).toHaveBeenCalledTimes(1)
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a model request')
-			expect(request[0]).toBe('https://opencode.ai/zen/v1/responses')
-			expect(JSON.parse(String(request[1]?.body)).model).toBe(freeMuse)
+			expect(request[0]).toBe('https://opencode.ai/zen/v1/chat/completions')
+			expect(JSON.parse(String(request[1]?.body)).model).toBe(defaultFree)
 			expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
 			expect(new Headers(request[1]?.headers).get('user-agent')).toMatch(/^namzu\//)
 		},
@@ -163,7 +181,7 @@ describe('anonymous Zen access', () => {
 		'refuses paid and unknown models before fetch even with a %s override',
 		async (protocol) => {
 			const transport = mockNativeFetch()
-			for (const model of ['glm-5.3-flash', 'muse-spark-1.3', 'future-free']) {
+			for (const model of ['glm-5.3-flash', 'muse-spark-1.3', freeMuse, 'future-free']) {
 				const provider = new ZenProvider({ apiKey: 'public', model, protocol })
 				await expect(collectChatCompletion(provider.chatStream(params))).rejects.toMatchObject({
 					kind: 'auth',
@@ -171,7 +189,10 @@ describe('anonymous Zen access', () => {
 				})
 				await expect(
 					collectChatCompletion(
-						new ZenProvider({ model: freeMuse, protocol }).chatStream({ ...params, model }),
+						new ZenProvider({ model: freeMuse, protocol }).chatStream({
+							...params,
+							model,
+						}),
 					),
 				).rejects.toMatchObject({ kind: 'auth' })
 			}
@@ -206,6 +227,46 @@ describe('anonymous Zen access', () => {
 		await expect(new ZenProvider().listModels()).resolves.toEqual([])
 	})
 
+	it.each(['object', 'function'] as const)(
+		'refuses anonymous admission spoofed by a runtime catalogue %s',
+		async (source) => {
+			const muse = findZenModel('zen', freeMuse)
+			if (!muse) throw new Error('Expected bundled Muse model')
+			const catalogue: ZenCatalogue = {
+				version: 1,
+				fetchedAt: new Date(0).toISOString(),
+				zen: [{ ...muse, supportsAnonymousAccess: true }],
+				go: [],
+				unrouted: { zen: [], go: [] },
+			}
+			const injected = source === 'object' ? catalogue : () => catalogue
+			const transport = vi.fn<typeof fetch>(async (input) =>
+				String(input).endsWith('/models')
+					? Response.json({ data: [{ id: freeMuse }, { id: defaultFree }] })
+					: Response.json({ error: { message: 'fixture request captured' } }, { status: 400 }),
+			)
+			vi.stubGlobal('fetch', transport)
+			const anonymous = new ZenProvider({ catalogue: injected })
+			await expect(
+				collectChatCompletion(anonymous.chatStream({ ...params, model: freeMuse })),
+			).rejects.toMatchObject({ kind: 'auth' })
+			expect(transport).not.toHaveBeenCalled()
+			expect((await anonymous.listModels()).map((model) => model.id)).toEqual([defaultFree])
+			expect(transport).toHaveBeenCalledTimes(1)
+
+			const keyed = new ZenProvider({ apiKey: 'fixture', catalogue: injected })
+			expect((await keyed.listModels()).map((model) => model.id)).toEqual([freeMuse, defaultFree])
+			await expect(
+				collectChatCompletion(keyed.chatStream({ ...params, model: freeMuse })),
+			).rejects.toMatchObject({ kind: 'bad_request' })
+			expect(transport).toHaveBeenCalledTimes(3)
+			expect(String(transport.mock.calls[2]?.[0])).toBe('https://opencode.ai/zen/v1/responses')
+			expect(new Headers(transport.mock.calls[2]?.[1]?.headers).get('authorization')).toBe(
+				'Bearer fixture',
+			)
+		},
+	)
+
 	it('keeps the paid default and full supported discovery for a genuine credential', async () => {
 		const transport = mockNativeFetch()
 		const provider = new ZenProvider({ apiKey: 'fixture-key' })
@@ -225,7 +286,12 @@ describe('anonymous Zen access', () => {
 		const key = 'invalid-fixture-key'
 		const transport = vi.fn<typeof fetch>(async () =>
 			Response.json(
-				{ error: { type: 'authentication_error', message: `Invalid key ${key}` } },
+				{
+					error: {
+						type: 'authentication_error',
+						message: `Invalid key ${key}`,
+					},
+				},
 				{ status: 401 },
 			),
 		)

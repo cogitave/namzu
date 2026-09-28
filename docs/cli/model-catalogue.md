@@ -5,7 +5,6 @@ description: How every CLI launch refreshes the Zen and Zen Go model catalogue i
 resource: packages/cli/src/integrations/providers/zen-catalogue.ts
 tags: [cli, providers, zen, config]
 status: stable
-generated: { by: process:claude-code, at: 2026-09-22T00:00:00Z }
 ---
 
 # The model catalogue refresh
@@ -46,7 +45,10 @@ different one.
 The sources are the ones the bundled catalogue is generated from: Zen's and
 Go's documentation pages on OpenCode's `dev` branch, `https://models.dev/api.json`,
 and each service's own `/models` answer. The rules that read them are the same
-code as well (`packages/providers/zen/src/catalogue/`).
+code as well (`packages/providers/zen/src/catalogue/`). The Go page currently
+repeats its indented price table in tabs; the parser accepts matching copies
+and refuses conflicting prices. Gateway-verified route exceptions take
+precedence over a stale endpoint cell for the exact affected models.
 
 ## What the session uses
 
@@ -66,8 +68,11 @@ code as well (`packages/providers/zen/src/catalogue/`).
 
 The catalogue is used whole or not at all. A half-written, edited or
 wrong-version copy on disk is refused with one `warn` line and ignored, never
-read in part. A derivation that meets any source it cannot read in full
-produces no catalogue.
+read in part. A saved catalogue carrying a now-reviewed omitted model, one
+of the superseded Go routes, or a direct-anonymous flag on a model the
+gateway currently refuses is also rejected. An offline launch then uses the
+corrected bundle. A derivation that
+meets any source it cannot read in full produces no catalogue.
 
 An id a service serves that no source gives a wire format for is not offered:
 the model picker, `/model` and the model tool leave it out, even when the

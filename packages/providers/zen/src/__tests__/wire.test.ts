@@ -1,7 +1,7 @@
 import { type Message, collectChatCompletion, isProviderRequestError } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZenProvider } from '../client.js'
-import type { ZenProtocol, ZenService } from '../models.js'
+import { type ZenProtocol, type ZenService, findZenModel } from '../models.js'
 
 const apiKey = 'opencode-wire-test-secret'
 const sessionId = 'namzu-wire-conversation'
@@ -12,7 +12,11 @@ const tools = [
 		function: {
 			name: 'weather',
 			description: 'Read the weather',
-			parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+			parameters: {
+				type: 'object',
+				properties: { city: { type: 'string' } },
+				required: ['city'],
+			},
 		},
 	},
 ]
@@ -24,6 +28,8 @@ interface WireCase {
 	path: string
 	authHeader: string
 	replayMarker: string
+	dropsReasoning?: boolean
+	deepseekReasoningText?: boolean
 }
 
 const cases: WireCase[] = [
@@ -36,12 +42,47 @@ const cases: WireCase[] = [
 		replayMarker: 'Check the weather.',
 	},
 	{
+		protocol: 'chat',
+		service: 'go',
+		model: 'deepseek-v4-pro',
+		path: '/chat/completions',
+		authHeader: 'authorization',
+		replayMarker: 'Check the weather.',
+	},
+	{
+		protocol: 'responses',
+		service: 'go',
+		model: 'deepseek-v4-flash',
+		path: '/responses',
+		authHeader: 'authorization',
+		replayMarker: 'Check the weather.',
+		deepseekReasoningText: true,
+	},
+	{
 		protocol: 'responses',
 		service: 'zen',
 		model: 'gpt-5.6-luna',
 		path: '/responses',
 		authHeader: 'authorization',
 		replayMarker: 'encrypted-reasoning-fixture',
+	},
+	{
+		protocol: 'responses',
+		service: 'zen',
+		model: 'muse-spark-1.3-contributor-free',
+		path: '/responses',
+		authHeader: 'authorization',
+		replayMarker: 'encrypted-reasoning-fixture',
+		dropsReasoning: true,
+	},
+	{
+		protocol: 'responses',
+		service: 'go',
+		model: 'muse-spark-1.3-contributor',
+		path: '/responses',
+		authHeader: 'authorization',
+		replayMarker: 'encrypted-reasoning-fixture',
+		dropsReasoning: true,
 	},
 	{
 		protocol: 'messages',
@@ -52,12 +93,12 @@ const cases: WireCase[] = [
 		replayMarker: 'anthropic-signature-fixture',
 	},
 	{
-		protocol: 'messages',
+		protocol: 'chat',
 		service: 'go',
 		model: 'minimax-m3',
-		path: '/messages',
-		authHeader: 'x-api-key',
-		replayMarker: 'anthropic-signature-fixture',
+		path: '/chat/completions',
+		authHeader: 'authorization',
+		replayMarker: 'Check the weather.',
 	},
 	{
 		protocol: 'google',
@@ -117,7 +158,9 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 							choices: [
 								{
 									index: 0,
-									delta: { tool_calls: [{ index: 0, function: { arguments: '"Istanbul"}' } }] },
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '"Istanbul"}' } }],
+									},
 								},
 							],
 						},
@@ -125,7 +168,13 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 				: []),
 			{
 				id: 'completion-1',
-				choices: [{ index: 0, delta: {}, finish_reason: toolRound ? 'tool_calls' : 'stop' }],
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: toolRound ? 'tool_calls' : 'stop',
+					},
+				],
 				usage: {
 					prompt_tokens: 10,
 					completion_tokens: 5,
@@ -137,8 +186,12 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 		]
 	}
 	if (protocol === 'responses') {
+		const deepseek = model === 'deepseek-v4-flash'
 		return [
-			{ type: 'response.created', response: { id: 'response-1', created_at: 1, model } },
+			{
+				type: 'response.created',
+				response: { id: 'response-1', created_at: 1, model },
+			},
 			...(toolRound
 				? [
 						{
@@ -146,29 +199,41 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 							output_index: 0,
 							item: { type: 'reasoning', id: 'reasoning-1' },
 						},
+						...(!deepseek
+							? [
+									{
+										type: 'response.reasoning_summary_part.added',
+										item_id: 'reasoning-1',
+										summary_index: 0,
+									},
+								]
+							: []),
 						{
-							type: 'response.reasoning_summary_part.added',
+							type: deepseek
+								? 'response.reasoning_text.delta'
+								: 'response.reasoning_summary_text.delta',
 							item_id: 'reasoning-1',
-							summary_index: 0,
-						},
-						{
-							type: 'response.reasoning_summary_text.delta',
-							item_id: 'reasoning-1',
-							summary_index: 0,
+							...(!deepseek && { summary_index: 0 }),
 							delta: 'Check the weather.',
 						},
-						{
-							type: 'response.reasoning_summary_part.done',
-							item_id: 'reasoning-1',
-							summary_index: 0,
-						},
+						...(!deepseek
+							? [
+									{
+										type: 'response.reasoning_summary_part.done',
+										item_id: 'reasoning-1',
+										summary_index: 0,
+									},
+								]
+							: []),
 						{
 							type: 'response.output_item.done',
 							output_index: 0,
 							item: {
 								type: 'reasoning',
 								id: 'reasoning-1',
-								encrypted_content: 'encrypted-reasoning-fixture',
+								...(!deepseek && {
+									encrypted_content: 'encrypted-reasoning-fixture',
+								}),
 							},
 						},
 					]
@@ -265,20 +330,36 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 						{
 							type: 'content_block_delta',
 							index: 0,
-							delta: { type: 'signature_delta', signature: 'anthropic-signature-fixture' },
+							delta: {
+								type: 'signature_delta',
+								signature: 'anthropic-signature-fixture',
+							},
 						},
 						{ type: 'content_block_stop', index: 0 },
 					]
 				: []),
-			{ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
-			{ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } },
+			{
+				type: 'content_block_start',
+				index: 1,
+				content_block: { type: 'text', text: '' },
+			},
+			{
+				type: 'content_block_delta',
+				index: 1,
+				delta: { type: 'text_delta', text },
+			},
 			{ type: 'content_block_stop', index: 1 },
 			...(toolRound
 				? [
 						{
 							type: 'content_block_start',
 							index: 2,
-							content_block: { type: 'tool_use', id: 'call-1', name: 'weather', input: {} },
+							content_block: {
+								type: 'tool_use',
+								id: 'call-1',
+								name: 'weather',
+								input: {},
+							},
 						},
 						{
 							type: 'content_block_delta',
@@ -290,7 +371,10 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 				: []),
 			{
 				type: 'message_delta',
-				delta: { stop_reason: toolRound ? 'tool_use' : 'end_turn', stop_sequence: null },
+				delta: {
+					stop_reason: toolRound ? 'tool_use' : 'end_turn',
+					stop_sequence: null,
+				},
 				usage: { output_tokens: 5 },
 			},
 			{ type: 'message_stop' },
@@ -312,7 +396,10 @@ function frames(protocol: ZenProtocol, model: string, toolRound: boolean): unkno
 									role: 'model',
 									parts: [
 										{
-											functionCall: { name: 'weather', args: { city: 'Istanbul' } },
+											functionCall: {
+												name: 'weather',
+												args: { city: 'Istanbul' },
+											},
 											thoughtSignature: 'google-signature-fixture',
 										},
 									],
@@ -363,7 +450,18 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 				'fetch',
 				vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 					requests.push(recordRequest(input, init))
-					return new Response(sse(frames(fixture.protocol, fixture.model, requests.length === 1)), {
+					const payload = sse(frames(fixture.protocol, fixture.model, requests.length === 1))
+					const body = fixture.deepseekReasoningText
+						? new ReadableStream<Uint8Array>({
+								start(controller) {
+									const bytes = new TextEncoder().encode(payload)
+									for (let index = 0; index < bytes.length; index += 11)
+										controller.enqueue(bytes.slice(index, index + 11))
+									controller.close()
+								},
+							})
+						: payload
+					return new Response(body, {
 						headers: { 'content-type': 'text/event-stream' },
 					})
 				}),
@@ -376,7 +474,10 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 					messages,
 					tools,
 					maxTokens: 256,
-					...(fixture.protocol === 'chat' && { effort: 'high' as const }),
+					...(fixture.protocol === 'chat' &&
+						findZenModel(fixture.service, fixture.model)?.effortLevels?.includes('high') && {
+							effort: 'high' as const,
+						}),
 				}),
 			)
 			expect(first.message.content).toBe('Looking up the weather.')
@@ -406,7 +507,11 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 					replayState,
 				},
 			})
-			messages.push({ role: 'tool', toolCallId, content: 'Sunny, 23 degrees Celsius.' })
+			messages.push({
+				role: 'tool',
+				toolCallId,
+				content: 'Sunny, 23 degrees Celsius.',
+			})
 			// Persistence must not depend on object identity or an in-memory provider cache.
 			const restoredMessages: Message[] = JSON.parse(JSON.stringify(messages))
 			const restoredProvider = new ZenProvider({ apiKey, sessionId }, fixture.service)
@@ -433,13 +538,51 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 			}
 			const secondBody = requests[1]?.body
 			expect(JSON.stringify(secondBody)).toContain('Sunny, 23 degrees Celsius.')
-			expect(JSON.stringify(secondBody)).toContain(fixture.replayMarker)
+			if (fixture.deepseekReasoningText) {
+				const input = secondBody?.input as Record<string, unknown>[]
+				const reasoning = input.find((item) => item.type === 'reasoning')
+				expect(reasoning).toMatchObject({
+					content: [{ type: 'reasoning_text', text: 'Check the weather.' }],
+				})
+				expect(reasoning).not.toHaveProperty('encrypted_content')
+				expect(input.map((item) => item.type ?? item.role)).toEqual([
+					'user',
+					'reasoning',
+					'assistant',
+					'function_call',
+					'function_call_output',
+				])
+			} else if (fixture.dropsReasoning) {
+				expect(requests[0]?.body.store).toBe(false)
+				expect(secondBody?.store).toBe(false)
+				expect(requests[0]?.body).not.toHaveProperty('include')
+				expect(secondBody).not.toHaveProperty('include')
+				expect(JSON.stringify(secondBody)).not.toContain(fixture.replayMarker)
+				expect(JSON.stringify(secondBody)).not.toContain('"type":"reasoning"')
+				expect(JSON.stringify(secondBody)).toContain('Looking up the weather.')
+				expect(JSON.stringify(secondBody)).toContain('"type":"function_call"')
+			} else {
+				expect(JSON.stringify(secondBody)).toContain(fixture.replayMarker)
+			}
 			expect(JSON.stringify(secondBody)).not.toContain('skip_thought_signature_validator')
 			if (fixture.protocol === 'chat') {
-				expect(requests[0]?.body.reasoning_effort).toBe('high')
+				if (fixture.service === 'go' && fixture.model === 'deepseek-v4-pro') {
+					const messages = secondBody?.messages as Record<string, unknown>[]
+					expect(messages.filter((message) => message.role === 'assistant')).toEqual([
+						expect.objectContaining({
+							reasoning_content: 'Check the weather.',
+						}),
+					])
+				}
+				if (findZenModel(fixture.service, fixture.model)?.effortLevels?.includes('high'))
+					expect(requests[0]?.body.reasoning_effort).toBe('high')
 				expect(secondBody).toMatchObject({
 					messages: expect.arrayContaining([
-						{ role: 'tool', tool_call_id: toolCallId, content: 'Sunny, 23 degrees Celsius.' },
+						{
+							role: 'tool',
+							tool_call_id: toolCallId,
+							content: 'Sunny, 23 degrees Celsius.',
+						},
 					]),
 				})
 			} else if (fixture.protocol === 'responses') {
@@ -483,9 +626,18 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 					async () =>
 						new Response(
 							JSON.stringify({
-								error: { message: `Rate limit for ${apiKey}`, type: 'rate_limit_error' },
+								error: {
+									message: `Rate limit for ${apiKey}`,
+									type: 'rate_limit_error',
+								},
 							}),
-							{ status: 429, headers: { 'content-type': 'application/json', 'retry-after': '3' } },
+							{
+								status: 429,
+								headers: {
+									'content-type': 'application/json',
+									'retry-after': '3',
+								},
+							},
 						),
 				),
 			)
@@ -503,7 +655,11 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 				caught = error
 			}
 			expect(isProviderRequestError(caught)).toBe(true)
-			expect(caught).toMatchObject({ kind: 'throttle', providerId: provider.id, status: 429 })
+			expect(caught).toMatchObject({
+				kind: 'throttle',
+				providerId: provider.id,
+				status: 429,
+			})
 			expect(String(caught)).not.toContain(apiKey)
 			expect(JSON.stringify(caught)).not.toContain(apiKey)
 			expect(caught).not.toHaveProperty('cause')
@@ -543,7 +699,9 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 							)
 						},
 					})
-					return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+					return new Response(body, {
+						headers: { 'content-type': 'text/event-stream' },
+					})
 				}),
 			)
 			const controller = new AbortController()

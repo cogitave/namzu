@@ -164,10 +164,10 @@ it('admits headless --provider zen with only public discovery and no account key
 			if (event.kind === 'error') throw new Error(event.message)
 		}
 		const request = queryCalls[0]
-		expect(request?.turnConfig?.model).toBe('muse-spark-1.3-contributor-free')
+		expect(request?.turnConfig?.model).toBe('space-bunny-free')
 		expect(request && providerConfigurations.get(request.provider)).toEqual({
 			type: 'zen',
-			model: 'muse-spark-1.3-contributor-free',
+			model: 'space-bunny-free',
 			baseURL: 'https://opencode.ai/zen/v1',
 			catalogue: activeZenCatalogue,
 			sessionId: currentScope.sessionId,
@@ -193,7 +193,7 @@ it.each([undefined, 'public'])(
 			)
 			try {
 				expect(session.hasProvider).toBe(false)
-				expect(session.errorHint).toContain('muse-spark-1.3-contributor-free')
+				expect(session.errorHint).toContain('space-bunny-free')
 			} finally {
 				await session.close()
 			}

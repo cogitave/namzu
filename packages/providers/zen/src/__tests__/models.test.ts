@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { type ZenService, findZenModel, getZenModels } from '../models.js'
 
 describe('Zen model catalogue', () => {
-	it('routes the same model through the documented service-specific protocol', () => {
+	it('keeps documented service routes and omissions', () => {
 		expect(findZenModel('zen', 'minimax-m3')?.protocol).toBe('chat')
-		expect(findZenModel('go', 'minimax-m3')?.protocol).toBe('messages')
+		expect(findZenModel('go', 'minimax-m3')?.protocol).toBe('chat')
 		expect(findZenModel('zen', 'minimax-m2.7')?.protocol).toBe('chat')
-		expect(findZenModel('go', 'minimax-m2.7')?.protocol).toBe('messages')
+		expect(findZenModel('go', 'minimax-m2.7')?.protocol).toBe('chat')
 		expect(findZenModel('zen', 'qwen3.6-plus')?.protocol).toBe('messages')
-		expect(findZenModel('go', 'qwen3.6-plus')?.protocol).toBe('messages')
+		expect(findZenModel('go', 'qwen3.6-plus')).toBeUndefined()
 	})
 
 	it('records native routes rather than routing all non-Claude models to chat', () => {

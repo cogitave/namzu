@@ -11,7 +11,9 @@
  * ## Where each field comes from
  *
  * Routes come from the service's own documentation page, as the pair
- * (endpoint, AI SDK package) that page states per model. Both halves are read
+ * (endpoint, AI SDK package) that page states per model, except for three Go
+ * rows whose reference-client wire differs from the published pair. Their
+ * exact ids and documented wires are pinned below. Both halves are read
  * and required to agree, because a page that changed shape must stop the run
  * rather than have one half guessed: the wire a model is served on is a routing
  * fact, and the wrong one is a request to the wrong endpoint rather than a
@@ -275,7 +277,10 @@ export function parsePage(
 			})
 			continue
 		}
-		const price = line.match(/^\|\s*(.+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/)
+		// Go's Go/Go Plus tabs indent their Markdown tables. Route rows remain
+		// anchored at column zero; only a line with two actual price cells can
+		// enter the price roster after removing presentation indentation.
+		const price = line.trimStart().match(/^\|\s*(.+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/)
 		if (price) {
 			// A price cell is a dollar figure or the word "Free". Nothing else is
 			// read, so a table whose columns mean something else cannot be picked
@@ -283,7 +288,17 @@ export function parsePage(
 			const input = priceCell(price[2] as string)
 			const output = priceCell(price[3] as string)
 			if (input !== undefined && output !== undefined) {
-				prices.push({ name: (price[1] as string).trim(), input, output })
+				const name = (price[1] as string).trim()
+				const previous = prices.find((row) => row.name === name)
+				if (previous) {
+					// Both subscription tabs promise the same token prices. A
+					// disagreement needs a plan-aware catalogue, not first-row wins.
+					if (previous.input !== input || previous.output !== output) {
+						unusable(`${page} gives different token prices for "${name}" across its tables.`)
+					}
+					continue
+				}
+				prices.push({ name, input, output })
 				continue
 			}
 		}
@@ -395,6 +410,53 @@ export function protocolFor(
 	return route.protocol
 }
 
+/**
+ * Go's route table currently disagrees with the reference client's routes
+ * for these model ids. Keep the published pair validation above, then
+ * pin only the documented old wire to that reference wire. If the page changes
+ * its route again, stop so the exception can be reviewed instead of guessing.
+ */
+const GO_REFERENCE_ROUTES: Readonly<
+	Record<string, { documented: ZenProtocol; gateway: ZenProtocol }>
+> = Object.freeze({
+	'deepseek-v4-flash': { documented: 'chat', gateway: 'responses' },
+	'minimax-m2.7': { documented: 'messages', gateway: 'chat' },
+	'minimax-m3': { documented: 'messages', gateway: 'chat' },
+})
+
+/**
+ * The docs' free list states price, not third-party admission. On 2026-09-28,
+ * direct Namzu requests for seven of its eight bundled free models returned
+ * FreeTierError; Space Bunny alone completed a text turn and a two-turn tool
+ * call with the public sentinel. Keep this explicit until direct access is
+ * verified for another id. Runtime refresh and the bundled snapshot share it.
+ */
+const ZEN_DIRECT_ANONYMOUS_IDS: ReadonlySet<string> = new Set(['space-bunny-free'])
+
+/** Only live-verified direct anonymous ids may survive a persisted catalogue. */
+export function isDirectAnonymousZenId(id: string): boolean {
+	return ZEN_DIRECT_ANONYMOUS_IDS.has(id)
+}
+
+/** The reference-client Go route for an id with a known documentation mismatch. */
+export function pinnedProtocolForGo(id: string): ZenProtocol | undefined {
+	return GO_REFERENCE_ROUTES[id]?.gateway
+}
+
+function pinnedProtocolFor(row: ZenRouteRow, service: string): ZenProtocol {
+	const documented = protocolFor(row, service)
+	if (service !== 'go') return documented
+	const exception = GO_REFERENCE_ROUTES[row.id]
+	if (!exception) return documented
+	if (documented === exception.gateway) return documented
+	if (documented !== exception.documented) {
+		unusable(
+			`go.mdx changed the route for "${row.id}" to ${documented}; its reference-client route exception must be reviewed.`,
+		)
+	}
+	return exception.gateway
+}
+
 /** A models.dev model entry, as far as these rules read it. */
 interface ModelsDevEntry {
 	readonly limit?: { readonly context?: number; readonly output?: number }
@@ -465,10 +527,19 @@ export function derive(
 		const row = parsed.routes.find((candidate) => nameKey(candidate.name) === nameKey(name))
 		if (!row) {
 			unusable(
-				`The free-model list names "${name}", which the route table does not. Anonymous\n  admission is derived from that pairing, so the page has moved.`,
+				`The free-model list names "${name}", which the route table does not. Price and direct anonymous admission require that pairing, so the page has moved.`,
 			)
 		}
 		freeIds.add(row.id)
+	}
+	if (service === 'zen') {
+		for (const row of parsed.routes) {
+			if (ZEN_DIRECT_ANONYMOUS_IDS.has(row.id) && !freeIds.has(row.id)) {
+				unusable(
+					`The zen page still routes "${row.id}" but no longer names it in the free-model list. Its direct anonymous admission must be reviewed.`,
+				)
+			}
+		}
 	}
 	const documented = new Set(parsed.routes.map((row) => row.id))
 	const routeNames = new Set(parsed.routes.map((row) => nameKey(row.name)))
@@ -534,7 +605,7 @@ export function derive(
 		models.push({
 			id: row.id,
 			name: row.name,
-			protocol: protocolFor(row, service),
+			protocol: pinnedProtocolFor(row, service),
 			contextWindow,
 			maxOutputTokens,
 			inputModalities,
@@ -544,7 +615,8 @@ export function derive(
 			effortLevels: effortValues(effort?.values, `${service}/${row.id}`),
 			// Anonymous admission is a Zen concept: the Go constructor refuses an
 			// absent key outright, so the flag would mean nothing on that service.
-			supportsAnonymousAccess: service === 'zen' && freeIds.has(row.id),
+			supportsAnonymousAccess:
+				service === 'zen' && freeIds.has(row.id) && ZEN_DIRECT_ANONYMOUS_IDS.has(row.id),
 		})
 	}
 	// Incomplete metadata is a source that moved, not a decision anybody makes:

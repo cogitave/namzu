@@ -44,8 +44,9 @@ about is that it has more than one way in — a machine that found a session *an
 can take an API key has two, whether or not they were declared on the same
 registry entry. So an Anthropic row with a Claude session on the device offers
 both: keep using that session, or enter a key of one's own. So does a vendor
-whose free catalogue works without a credential, beside the key that catalogue
-does not need. And a key discovery already hands over is ONE way: the row went
+with an anonymous catalogue option beside its credentialed path; listing an
+anonymous model does not verify inference access. A key discovery already
+hands over ONE way: the row went
 and found it, and entering another is that way twice, so that row goes straight
 on.
 

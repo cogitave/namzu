@@ -10,7 +10,7 @@
 import { Box, Text, useInput, useWindowSize } from 'ink'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
-import { canSelectModel } from '../integrations/providers/access.js'
+import { canSelectModel, hasApiCredential } from '../integrations/providers/access.js'
 
 import {
 	ALL_PROVIDER_IDS,
@@ -2116,9 +2116,11 @@ function describePath(path: VendorPath): string {
 function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
+			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
+				return 'anonymous option · access unverified'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'free models · no API key'
+			return 'anonymous option · access unverified'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':

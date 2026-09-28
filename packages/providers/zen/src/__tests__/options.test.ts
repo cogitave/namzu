@@ -1,6 +1,8 @@
-import type { ChatCompletionParams } from '@namzu/sdk'
+import { type ChatCompletionParams, collectChatCompletion } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ZenCatalogue } from '../catalogue/catalogue.js'
 import { ZenGoProvider, ZenProvider } from '../client.js'
+import { findZenModel } from '../models.js'
 import { createCallOptions } from '../options.js'
 
 const params: ChatCompletionParams = {
@@ -13,11 +15,23 @@ afterEach(() => vi.unstubAllGlobals())
 describe('request intent and model discovery', () => {
 	it('maps the advertised GLM effort without inventing a medium level', () => {
 		expect(
-			createCallOptions({ ...params, effort: 'low' }, route, 'zen', 'chat').providerOptions,
+			createCallOptions(
+				{ ...params, effort: 'low' },
+				route,
+				'zen',
+				'chat',
+				findZenModel('zen', params.model),
+			).providerOptions,
 		).toEqual({ opencode: { reasoningEffort: 'low' } })
-		expect(() => createCallOptions({ ...params, effort: 'medium' }, route, 'zen', 'chat')).toThrow(
-			'does not advertise',
-		)
+		expect(() =>
+			createCallOptions(
+				{ ...params, effort: 'medium' },
+				route,
+				'zen',
+				'chat',
+				findZenModel('zen', params.model),
+			),
+		).toThrow('does not advertise')
 	})
 
 	it('keeps stateless native Responses reasoning and explicit parallel tool intent', () => {
@@ -27,6 +41,7 @@ describe('request intent and model discovery', () => {
 			{ ...route, model },
 			'zen',
 			'responses',
+			findZenModel('zen', model),
 		)
 		expect(result.providerOptions?.openai).toMatchObject({
 			store: false,
@@ -37,10 +52,35 @@ describe('request intent and model discovery', () => {
 		expect(result.maxOutputTokens).toBe(4096)
 	})
 
+	it.each([
+		['zen', 'muse-spark-1.3-contributor-free'],
+		['go', 'muse-spark-1.3-contributor'],
+	] as const)('%s Muse Spark does not request encrypted Responses reasoning', (service, model) => {
+		const result = createCallOptions(
+			{ ...params, model, effort: 'low' },
+			{
+				providerId: service === 'go' ? 'zen-go' : 'zen',
+				model,
+				chainIndex: 0,
+			},
+			service,
+			'responses',
+			findZenModel(service, model),
+		)
+		expect(result.providerOptions?.openai).toMatchObject({
+			store: false,
+			reasoningEffort: 'low',
+		})
+		expect(result.providerOptions?.openai).not.toHaveProperty('include')
+	})
+
 	it('rejects unsupported intent instead of spending on a degraded request', async () => {
 		const transport = vi.fn()
 		vi.stubGlobal('fetch', transport)
-		const provider = new ZenProvider({ apiKey: 'fixture', sessionId: 'conversation' })
+		const provider = new ZenProvider({
+			apiKey: 'fixture',
+			sessionId: 'conversation',
+		})
 		await expect(async () => {
 			for await (const _ of provider.chatStream({ ...params, topK: 10 })) {
 			}
@@ -53,7 +93,12 @@ describe('request intent and model discovery', () => {
 						role: 'user',
 						content: '',
 						attachments: [
-							{ type: 'stored', kind: 'image', ref: 'unresolved', mediaType: 'image/png' },
+							{
+								type: 'stored',
+								kind: 'image',
+								ref: 'unresolved',
+								mediaType: 'image/png',
+							},
 						],
 					},
 				],
@@ -83,7 +128,10 @@ describe('request intent and model discovery', () => {
 			}),
 		)
 		vi.stubGlobal('fetch', transport)
-		const provider = new ZenGoProvider({ apiKey: 'fixture', sessionId: 'conversation' })
+		const provider = new ZenGoProvider({
+			apiKey: 'fixture',
+			sessionId: 'conversation',
+		})
 		const models = await provider.listModels()
 		expect(models.map((model) => model.id)).toEqual(['glm-5.3-flash'])
 		expect(models[0]?.contextWindow).toBe(1_000_000)
@@ -96,6 +144,46 @@ describe('request intent and model discovery', () => {
 	it('does not treat a public catalogue as proof that the credential works', () => {
 		const provider = new ZenProvider({ apiKey: 'fixture' })
 		expect('probeCredential' in provider).toBe(false)
+	})
+
+	it('uses runtime effort levels for validation and forces reasoning on a newly discovered Responses model', async () => {
+		const bundled = findZenModel('zen', 'gpt-5.6-luna')
+		if (!bundled) throw new Error('Expected bundled Responses fixture model')
+		const catalogue: ZenCatalogue = {
+			version: 1,
+			fetchedAt: '2026-09-28T00:00:00.000Z',
+			zen: [
+				{ ...bundled, effortLevels: ['high'] },
+				{ ...bundled, id: 'future-reasoning-model', effortLevels: ['high'] },
+			],
+			go: [],
+			unrouted: { zen: [], go: [] },
+		}
+		const transport = vi.fn<typeof fetch>(async () =>
+			Response.json({ error: { message: 'fixture request captured' } }, { status: 400 }),
+		)
+		vi.stubGlobal('fetch', transport)
+		const provider = new ZenProvider({ apiKey: 'fixture', catalogue })
+		await expect(
+			collectChatCompletion(provider.chatStream({ ...params, model: bundled.id, effort: 'low' })),
+		).rejects.toMatchObject({ kind: 'bad_request' })
+		expect(transport).not.toHaveBeenCalled()
+		await expect(
+			collectChatCompletion(
+				provider.chatStream({
+					...params,
+					model: 'future-reasoning-model',
+					effort: 'high',
+				}),
+			),
+		).rejects.toMatchObject({ kind: 'bad_request' })
+		expect(transport).toHaveBeenCalledTimes(1)
+		const body = JSON.parse(String(transport.mock.calls[0]?.[1]?.body))
+		expect(body).toMatchObject({
+			model: 'future-reasoning-model',
+			reasoning: { effort: 'high' },
+			include: ['reasoning.encrypted_content'],
+		})
 	})
 
 	it('bounds chunked catalogue bodies and closes them after rejection', async () => {

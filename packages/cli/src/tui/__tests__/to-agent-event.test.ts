@@ -249,6 +249,51 @@ describe('toAgentEvent carries the stop reason across', () => {
 			),
 		).toEqual({ kind: 'error', message: 'slow down', failure, explanation })
 	})
+
+	it('explains OpenCode free-tier refusal without changing its auth metadata or other 403s', () => {
+		const providerError = {
+			kind: 'auth',
+			providerId: 'zen',
+			status: 403,
+			detail: "OpenCode's free tier can only be used from within OpenCode",
+		} as const
+		const refused = toAgentEvent(
+			{
+				type: 'turn_failed',
+				sessionId,
+				turnId,
+				error: 'Zen request failed',
+				providerError,
+			} as SessionEvent,
+			presenter,
+		)
+		expect(refused).toMatchObject({ kind: 'error', providerError })
+		if (refused?.kind !== 'error') throw new Error('Expected an error event')
+		expect(refused.message).toContain('OpenCode limits this free tier to its own client')
+		expect(refused.message).toContain('OPENCODE_API_KEY')
+		for (const unrelated of [
+			{ ...providerError, providerId: 'zen-go' },
+			{ ...providerError, status: 401 },
+			{ ...providerError, detail: 'Forbidden for this account' },
+		]) {
+			expect(
+				toAgentEvent(
+					{
+						type: 'turn_failed',
+						sessionId,
+						turnId,
+						error: 'Original provider error',
+						providerError: unrelated,
+					} as SessionEvent,
+					presenter,
+				),
+			).toMatchObject({
+				kind: 'error',
+				message: 'Original provider error',
+				providerError: unrelated,
+			})
+		}
+	})
 })
 
 describe('compaction is reported, not silent', () => {
