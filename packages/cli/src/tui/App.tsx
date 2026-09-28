@@ -9658,6 +9658,7 @@ export function App({
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
+							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 							{...(hypermode ? { mode: HYPERMODE } : {})}
 							activation={hypermodeActivation}
@@ -9783,7 +9784,6 @@ export function App({
 					provider={session?.providerSummary ?? null}
 					model={session?.modelSummary ?? null}
 					effort={reasoningEffort}
-					hypermode={hypermode}
 					goal={statusGoal}
 					state={state}
 					hint={statusHint}

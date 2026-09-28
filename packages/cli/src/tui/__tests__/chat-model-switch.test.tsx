@@ -491,9 +491,9 @@ it('turning hypermode on pins the highest level not above xhigh on a menu withou
 	const viewport = screen.viewport()
 	const frameTop = viewport.find((row) => row.includes('┌─ MESSAGE')) ?? ''
 	const frameBottom = viewport.findIndex((row) => row.includes('└') && row.includes('┘'))
-	expect(frameTop).not.toContain('hypermode')
+	expect(frameTop).toContain('hypermode')
 	expect(frameBottom).toBeGreaterThanOrEqual(0)
-	expect(viewport[frameBottom + 1]).toContain('hypermode')
+	expect(viewport[frameBottom + 1]).not.toContain('hypermode')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('high')

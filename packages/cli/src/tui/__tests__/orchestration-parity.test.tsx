@@ -493,27 +493,28 @@ describe('the effort slider', () => {
 	})
 })
 
-describe('hypermode on the message box and the footer', () => {
-	it('names the mode once in the footer at 80 and 40 columns', async () => {
-		for (const cols of [80, 40]) {
+describe('hypermode on the message box', () => {
+	it('names the mode once on the composer at 80, 40 and 24 columns', async () => {
+		for (const cols of [80, 40, 24]) {
 			mounted = await renderToScreen(
 				<Box flexDirection="column">
 					<ComposerFrame focus mode="hypermode">
 						<></>
 					</ComposerFrame>
-					<StatusBar cwd="/x" provider={null} model={null} hypermode state="idle" />
+					<StatusBar cwd="/x" provider={null} model={null} state="idle" />
 				</Box>,
 				{ cols, rows: 7 },
 			)
 			const visible = mounted.viewport().join('\n')
 			expect(visible.match(/hypermode/gu)).toHaveLength(1)
-			expect(visible.split('\n').find((row) => row.includes('MESSAGE'))).not.toContain('hypermode')
+			expect(visible.split('\n').find((row) => row.startsWith('┌'))).toContain('hypermode')
+			expect(visible.split('\n').find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 			await mounted.unmount()
 			mounted = undefined
 		}
 	})
 
-	it('keeps the top rule whole below 40 columns', async () => {
+	it('keeps both corners and prioritizes the mode label on narrow screens', async () => {
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
 				<></>
@@ -521,21 +522,21 @@ describe('hypermode on the message box and the footer', () => {
 			{ cols: 60, rows: 6 },
 		)
 		const top = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
-		expect(top).toMatch(/^┌─ MESSAGE ─+┐$/u)
+		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
 		expect([...top]).toHaveLength(60)
 		await mounted.unmount()
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
 				<></>
 			</ComposerFrame>,
-			{ cols: 39, rows: 6 },
+			{ cols: 24, rows: 6 },
 		)
-		const narrow = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? ''
-		expect(narrow).not.toContain('hypermode')
-		expect([...narrow]).toHaveLength(39)
+		const narrow = mounted.viewport().find((row) => row.startsWith('┌')) ?? ''
+		expect(narrow).toMatch(/^┌─+ hypermode ─┐$/u)
+		expect([...narrow]).toHaveLength(24)
 	})
 
-	it('draws the still gradient only where colour is allowed', async () => {
+	it('keeps the resting rule plain and the label visible without colour', async () => {
 		vi.stubEnv('NO_COLOR', undefined)
 		vi.stubEnv('FORCE_COLOR', '3')
 		vi.stubEnv('TERM', 'xterm-256color')
@@ -547,8 +548,8 @@ describe('hypermode on the message box and the footer', () => {
 				{ cols: 80, rows: 6 },
 			)
 			const coloured = mounted.writes().join('')
-			expect(coloured).toContain('\u001b[38;5;110m─')
-			expect(coloured).toContain('\u001b[38;5;221m─')
+			expect(coloured).toContain('\u001b[38;5;141m')
+			expect(coloured).not.toContain('\u001b[38;5;110m─')
 			await mounted.unmount()
 			vi.stubEnv('NO_COLOR', '1')
 			mounted = await renderToScreen(
@@ -558,18 +559,18 @@ describe('hypermode on the message box and the footer', () => {
 				{ cols: 80, rows: 6 },
 			)
 			const plain = mounted.writes().join('')
-			expect(plain).not.toContain('38;5;110m')
-			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+┐/u)
+			expect(plain).not.toContain('38;5;183m')
+			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+ hypermode ─┐/u)
 		} finally {
 			vi.unstubAllEnvs()
 		}
 	})
 
-	it('names the mode in violet in the footer', async () => {
+	it('names the mode in violet at the composer top right', async () => {
 		mounted = await renderToScreen(
-			<StatusBar cwd="/çalışma" provider="codex" model="gpt-5.6-luna" effort="max" hypermode state="idle" />,
-			{ cols: 100, rows: 3},
+			<ComposerFrame focus mode="hypermode"><></></ComposerFrame>,
+			{ cols: 100, rows: 4 },
 		)
-		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141mhypermode/u)
+		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m hypermode /u)
 	})
 })

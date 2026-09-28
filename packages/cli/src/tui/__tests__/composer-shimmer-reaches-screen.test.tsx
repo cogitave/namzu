@@ -401,7 +401,7 @@ it('fills the Working label without rerendering the input, and stops when animat
 	}
 })
 
-it('sweeps the hypermode rule once on activation, then settles without moving the draft', async () => {
+it('glows symmetrically from the composer center once, then settles without moving the draft', async () => {
 	const restoreClock = controlAnimationClock()
 	const view = (activation: number) => (
 		<ComposerFrame focus mode="hypermode" activation={activation}>
@@ -409,21 +409,36 @@ it('sweeps the hypermode rule once on activation, then settles without moving th
 		</ComposerFrame>
 	)
 	const screen = await renderToScreen(view(0), { cols: 80, rows: 12 })
+	const border = borderProbe(screen, 80, 12)
 	try {
+		const rule = async () =>
+			(await border.read())?.filter(({ x, y, glyph }) => y === 0 && glyph === '─' && x >= 11 && x <= 66) ?? []
+		expect(new Set((await rule()).map(({ color }) => color))).toEqual(new Set([239]))
 		const baseline = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1_600)
 		await screen.waitForRender()
 		expect(screen.bytesWritten()).toBe(baseline)
 		screen.rerender(view(1))
 		await screen.waitForRender()
-		const beforeSweep = screen.bytesWritten()
-		await vi.advanceTimersByTimeAsync(400)
+		await vi.advanceTimersByTimeAsync(80)
 		await screen.waitForRender()
-		expect(screen.bytesWritten()).toBeGreaterThan(beforeSweep)
-		expect(screen.writes().join('')).toContain('\u001b[38;5;231m─')
+		const near = (await rule()).filter(({ color }) => color === 183).map(({ x }) => x)
+		expect(near.length).toBeGreaterThan(0)
+		expect(near.every((x) => Math.abs(x - 38.5) < 8)).toBe(true)
+		const beforeGlow = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(320)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBeGreaterThan(beforeGlow)
+		const active = await rule()
+		const bright = active.filter(({ color }) => color === 183).map(({ x }) => x)
+		expect(bright.length).toBeGreaterThan(0)
+		expect(Math.min(...bright)).toBeLessThan(Math.min(...near))
+		expect(Math.max(...bright)).toBeGreaterThan(Math.max(...near))
+		expect(bright).toEqual(bright.map((x) => 77 - x).reverse())
+		expect(active.every(({ color }) => [239, 97, 141, 183].includes(color))).toBe(true)
 		const top = screen.viewport().find((line) => line.includes('MESSAGE')) ?? ''
 		expect([...top]).toHaveLength(80)
-		expect(top).not.toContain('hypermode')
+		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
 		expect(screen.viewport().join('\n')).toContain('Retained draft')
 		await vi.advanceTimersByTimeAsync(1_600)
 		await screen.waitForRender()
@@ -431,6 +446,7 @@ it('sweeps the hypermode rule once on activation, then settles without moving th
 		await vi.advanceTimersByTimeAsync(600)
 		await screen.waitForRender()
 		expect(screen.bytesWritten()).toBe(settled)
+		expect(new Set((await rule()).map(({ color }) => color))).toEqual(new Set([239]))
 		expect(vi.getTimerCount()).toBe(0)
 		screen.rerender(view(1))
 		await screen.waitForRender()
@@ -440,11 +456,12 @@ it('sweeps the hypermode rule once on activation, then settles without moving th
 		expect(screen.bytesWritten()).toBe(afterRepeatedSelection)
 	} finally {
 		await screen.unmount()
+		border.dispose()
 		restoreClock()
 	}
 })
 
-it('cancels the hypermode sweep while another surface owns the terminal', async () => {
+it('cancels the hypermode glow while another surface owns the terminal', async () => {
 	const restoreClock = controlAnimationClock()
 	const view = (activation: number, animate: boolean) => (
 		<ComposerFrame focus mode="hypermode" activation={activation} animate={animate}>
@@ -470,6 +487,29 @@ it('cancels the hypermode sweep while another surface owns the terminal', async 
 		await vi.advanceTimersByTimeAsync(400)
 		await screen.waitForRender()
 		expect(screen.bytesWritten()).toBe(afterReturn)
+	} finally {
+		await screen.unmount()
+		restoreClock()
+	}
+})
+
+it('keeps the mode label but skips an off-center pulse when the caption yields at 24 columns', async () => {
+	const restoreClock = controlAnimationClock()
+	const view = (activation: number) => (
+		<ComposerFrame focus mode="hypermode" activation={activation}>
+			<Text>Draft</Text>
+		</ComposerFrame>
+	)
+	const screen = await renderToScreen(view(0), { cols: 24, rows: 8 })
+	try {
+		expect(screen.viewport().join('\n')).toContain('hypermode')
+		screen.rerender(view(1))
+		await screen.waitForRender()
+		const settled = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(1_200)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(settled)
+		expect(vi.getTimerCount()).toBe(0)
 	} finally {
 		await screen.unmount()
 		restoreClock()

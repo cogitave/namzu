@@ -38,8 +38,7 @@ them. On the left: the active permission mode, colored by mode (`accept-edits`
 and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
 with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
-has set one, beside it as `· effort <level>`; [hypermode](slash-commands.md#hypermode),
-when it is on, beside that as `· hypermode` in the mode's own violet; then the working directory. When
+has set one, beside it as `· effort <level>`; then the working directory. When
 the mode is the unremarkable default (`prompt`), the left side shows a quiet
 `shift+tab to cycle` in place of a badge, rather than a line that is present in
 every state and therefore read in none. On the right: an interaction hint or a
@@ -48,16 +47,8 @@ precedence the path used to defer to, now extended to the model. The footer is
 always exactly one row: on narrow screens the working directory shrinks and
 drops first (as it already did on the old status line — a path is recoverable,
 the mode is not), then the effort label, then the cycle-key reminder, then the
-model on the right is dropped entirely, then `hypermode`, and only as a last
-resort does the mode badge itself truncate. Hypermode is not bundled with
-effort in that order and does not fall away with it: it is a persistent,
-behavior-changing session setting with no other on-screen indicator, so it
-holds the mode badge's own survival priority instead — it outlives effort, the
-working directory and the model being dropped for room, and it is dropped
-whole rather than truncated to a fragment of the word. It still never costs
-the badge a character: below the width where `hypermode` fits whole beside
-an already-fitted badge, hypermode disappears and the badge wins. This
-single line replaces two things that used to be drawn
+model on the right is dropped entirely, and only as a last resort does the
+mode badge itself truncate. This single line replaces two things that used to be drawn
 separately: the permission-mode row that used to appear inside the message
 frame above the input, and the separate status line — model, effort, working
 directory left, goal or hint right — that used to sit one blank row below the
@@ -65,14 +56,15 @@ frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
 
-While hypermode is on, the message box's top rule carries a colour gradient.
-The footer is the only persistent label for the session mode; the border does
-not repeat `hypermode`. Successfully turning the mode on sends one brief colour
-sweep along that rule, then leaves its resting gradient still. Repeating the
-selection does not replay it. Motion is skipped in non-interactive terminals,
+[Hypermode](slash-commands.md#hypermode), while on for the session, is named
+once at the message frame's upper right in violet. The top rule rests in plain
+graphite. Turning the mode on sends one short lavender glow from the visible
+rule's center toward both ends, then the rule becomes still again. Repeating
+the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
-`TERM=dumb`). Below 40 columns, the top rule is plain; the footer still names
-the mode when it fits.
+`TERM=dumb`); the label remains readable without colour. Below 28 columns,
+the label takes the `MESSAGE` caption's space and the pulse is skipped. A frame too narrow for the
+complete mode name omits the label rather than clipping it.
 
 ### Composer triggers
 
