@@ -17,7 +17,7 @@ const powerShell =
 const installer = readFileSync(fileURLToPath(new URL('../../install.ps1', import.meta.url)), 'utf8')
 const skip = !powerShell || !existsSync(powerShell) ? 'Windows PowerShell 5.1 is unavailable' : false
 
-function runInstaller(nodeVersion) {
+function runInstaller(nodeVersion, npmExit = 0) {
 	const env = {
 		...process.env,
 		NAMZU_INSTALLER_TEST_SOURCE: Buffer.from(installer, 'utf8').toString('base64'),
@@ -30,7 +30,8 @@ function node { '${nodeVersion}' }
 function npm.cmd {
     $global:NpmCalls += ,($args -join ' ')
     if ($args[0] -eq 'install') {
-        & "$env:SystemRoot\\System32\\cmd.exe" /d /c 'echo npm-warning 1>&2'
+        & "$env:SystemRoot\\System32\\cmd.exe" /d /c 'echo npm-warning 1>&2 & exit ${npmExit}'
+        return
     }
     $global:LASTEXITCODE = 0
     if ($args[0] -eq 'prefix') { 'C:\\mock-npm' }
@@ -75,5 +76,13 @@ test('PowerShell installer rejects a Node 22 release below the CLI minimum', { s
 	assert.equal(result.error?.message, undefined, `stdout: ${result.stdout}; stderr: ${result.stderr}`)
 	assert.equal(result.status, 1, result.stderr)
 	assert.match(result.stdout, /namzu needs Node 22\.13 or newer/)
+	assert.doesNotMatch(result.stdout, /mock-install-complete/)
+})
+
+test('PowerShell installer still reports a failed native npm command', { skip }, () => {
+	const result = runInstaller('v22.13.0', 42)
+	assert.equal(result.error?.message, undefined, `stdout: ${result.stdout}; stderr: ${result.stderr}`)
+	assert.equal(result.status, 1, result.stderr)
+	assert.match(result.stdout, /npm install failed \(exit 42\)/)
 	assert.doesNotMatch(result.stdout, /mock-install-complete/)
 })
