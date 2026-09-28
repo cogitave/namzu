@@ -1578,6 +1578,9 @@ const NAMZU_IDENTITY = [
 	'- A reply from a tool that delegates to ANOTHER agent (a connector that runs another agent, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
 ].join('\n')
 
+const NAMZU_BROWSER_DESKTOP_ROUTING =
+	'When the user means an already open desktop browser window, such as their Brave window, use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
+
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
  * from, and the memory store behind the memory tools.
@@ -3192,6 +3195,19 @@ export async function createAgentSession(
 		...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
 		messages: () => [],
 	})
+	const browserDesktopRouting =
+		browserControl &&
+		browserUnavailable === undefined &&
+		computerUseHost?.capabilities.windowCapture === true &&
+		computerUseHost.capabilities.windows === true &&
+		typeof computerUseHost.captureWindow === 'function' &&
+		typeof computerUseHost.executeWindow === 'function' &&
+		typeof computerUseHost.listWindows === 'function' &&
+		typeof computerUseHost.focusWindow === 'function' &&
+		manager.get('browser') &&
+		manager.get('computer_use')
+			? NAMZU_BROWSER_DESKTOP_ROUTING
+			: undefined
 	// A live toolset (a plugin's) can change between session boot and any
 	// later ask — `/tools`, `/permissions`, a review decision. `manager`
 	// itself is built once and never rebuilt for the session's lifetime, so
@@ -3453,6 +3469,7 @@ export async function createAgentSession(
 				[
 					NAMZU_IDENTITY,
 					NAMZU_WORKING_DOCTRINE,
+					browserDesktopRouting,
 					NAMZU_DELEGATION_DOCTRINE,
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
@@ -4135,6 +4152,7 @@ export async function createAgentSession(
 							[
 								NAMZU_IDENTITY,
 								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
+								browserDesktopRouting,
 								// Advice on delegating, for a session that has the Agent tool:
 								// a scheduled run whose job withholds it would only be told how
 								// to use a tool it was not sent.

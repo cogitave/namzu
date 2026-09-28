@@ -399,6 +399,36 @@ describe('buildPermissionSummary — desktop actions', () => {
 		expect(summarize({ type: 'key', keys: 'CTRL+R' }).text).not.toContain('Coordinates')
 	})
 
+	it('makes a named-window screenshot explicit in the review', () => {
+		const targeted = summarize({ type: 'screenshot', window_id: '0x1a2b' })
+		expect(targeted.complete).toBe(true)
+		expect(targeted.text).toContain('Take a screenshot of window "0x1a2b"')
+		expect(summarize({ type: 'screenshot' }).text).toContain('Take a screenshot')
+		expect(summarize({ type: 'screenshot', window_id: '', extra: true }).complete).toBe(false)
+	})
+
+	it('shows when window-scoped keyboard input can bring its target forward', () => {
+		const typed = summarize({
+			type: 'type_text',
+			text: 'hello',
+			delivery_mode: 'foreground',
+			screenshot_id: 's3',
+		})
+		expect(typed.complete).toBe(true)
+		expect(typed.text).toContain('Type "hello" (may bring the window to the front)')
+		const key = summarize({ type: 'key', keys: 'CTRL+A' })
+		expect(key.complete).toBe(true)
+		expect(key.text).toContain('Press "CTRL+A"')
+		const foreground = summarize({
+			type: 'key',
+			keys: 'CTRL+L',
+			delivery_mode: 'foreground',
+		})
+		expect(foreground.complete).toBe(true)
+		expect(foreground.text).toContain('Press "CTRL+L" (may bring the window to the front)')
+		expect(summarize({ type: 'key', keys: 'CTRL+A', at: { x: 220, y: 130 } }).complete).toBe(false)
+	})
+
 	it('names the control a ui_act ref points at, when the session knows it', () => {
 		const review = buildPermissionReview([
 			{

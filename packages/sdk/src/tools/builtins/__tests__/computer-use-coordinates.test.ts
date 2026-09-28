@@ -180,4 +180,31 @@ describe('ScreenshotFrames', () => {
 			primary: true,
 		})
 	})
+
+	it('retains raw pixels only for the latest window frame', () => {
+		const frames = new ScreenshotFrames()
+		const data = Buffer.from([1, 2, 3])
+		const shot = (id: string) => ({
+			data,
+			mimeType: 'image/png' as const,
+			width: 10,
+			height: 10,
+			window: {
+				id,
+				pid: 7,
+				app: 'brave',
+				title: 'Brave',
+				bounds: { x: 0, y: 0, width: 10, height: 10 },
+				focused: true,
+				minimized: false,
+			},
+			captureId: id,
+		})
+		frames.recordWindow({ width: 10, height: 10 }, shot('0x1'))
+		frames.recordWindow({ width: 10, height: 10 }, shot('0x2'))
+		expect(frames.get('s1')?.window?.data).toBeUndefined()
+		expect(frames.get('s2')?.window?.data).toBe(data)
+		frames.record({ width: 10, height: 10 }, assumedDisplay(10, 10))
+		expect(frames.get('s2')?.window?.data).toBeUndefined()
+	})
 })

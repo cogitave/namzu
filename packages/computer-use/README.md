@@ -80,12 +80,18 @@ report a clean completion, the host throws
 SDK returns that state to the model with `retrySafety: 'unsafe'` instead of
 inviting an automatic replay.
 
-Every coordinate and size crossing the host is in **physical pixels**: the
-pixels of the captured bitmap, never points or DPI-scaled units. A capture
+Display coordinates and sizes crossing the host are in **physical pixels**:
+the pixels of the captured bitmap, never points or DPI-scaled units. A capture
 carries `display` (origin, size, `scaleFactor`) and action points are
 relative to that display. On a Retina Mac the adapter converts to points for
 `cliclick` itself, so a click at the pixel you saw lands there; on Windows
 every backend is DPI aware.
+
+The Windows cua-driver backend can also capture one named window. Its PNG
+pixels are window-local; `executeWindow` takes an opaque capture id and
+rejects it if the window moved or the driver session changed. The SDK maps
+fitted model coordinates back to that PNG before sending input. A plain
+`screenshot` remains a display capture.
 
 `host.dispose()` stops whatever the adapter keeps running. Call it when the
 session ends.
@@ -125,6 +131,24 @@ standard streams:
 - **Windows.** `capabilities.windows` is `true`: `listWindows()` and
   `focusWindow(id)` (which restores a minimized window, gets past the
   foreground lock and reports what is actually in front afterwards).
+- **Window capture.** `capabilities.windowCapture` is `true`:
+  `captureWindow(id)` gets a PNG for that window without walking its UIA
+  tree; `executeWindow(captureId, action)` sends a click, drag, text or key to
+  the captured PID and HWND. Window text and keys default to background
+  delivery; `delivery_mode: 'foreground'` explicitly allows the driver to
+  bring the verified window forward for browser text and modifier shortcuts
+  that background delivery cannot send. To focus a browser field, click its
+  window-image point first; an atomic foreground focus-and-type is not offered
+  because the native focus click could hit an overlay. `windowScroll: false`
+  declares that window pixel scrolling
+  is refused: its background path does not deliver, and its foreground wheel
+  can reach a covering window. Use a foreground `PAGE_DOWN` key on the window
+  when appropriate. A new window capture invalidates the
+  previous token, including another window of the same process. A stale
+  token never falls back to desktop input. The pinned driver's screen-region
+  fallback may show a covering window, and its MCP result does not report
+  whether that happened; inspect the image and recapture after focusing the
+  target if it appears covered or blank.
 - **Controls (experimental).** `capabilities.uiTree` is `true`:
   `uiSnapshot(windowId?)` reads a window's UI Automation tree (the window in
   front without an id) and `uiAct(ref, action, value?)` acts on a control of
@@ -175,15 +199,22 @@ Measured on Windows 10 22H2 from WSL2, one 3440x1440 display at 100 %:
 | focus a window | not offered | 4–22 ms |
 | list windows | not offered | 1.2–1.9 s |
 
-What cua-driver does not do, and so neither does this host on Windows: it
-captures the primary display only; it has no region capture (the SDK crops a
-full capture instead); its window list includes windows Windows keeps
-cloaked (a suspended Settings app, the text-input host), and it does not say
+What cua-driver does not do, and so neither does this host on Windows: its
+plain display screenshot captures the primary display only; it has no
+display-region capture (the SDK crops a full capture instead); its window list
+includes windows Windows keeps cloaked (a suspended Settings app, the text-input
+host), and it does not say
 which window has focus — `focused` is the front-most window that is not
 minimized. A single punctuation key (`/`, `+`) is typed as text, because
 cua-driver resolves it to a key without its shift state and on a Turkish
 layout `/` came out as `7`; a chord such as `ctrl+/` still goes through
 cua-driver's key mapping.
+
+A window-only image can miss a browser permission bubble drawn outside the
+native window. The driver's fallback capture may also include pixels from a
+window covering the target; the current driver does not always identify that
+case. Take a deliberate display screenshot if the window view does not show
+the control the task needs.
 
 ## Documentation
 

@@ -13,6 +13,7 @@ import type {
 	UiElementAction,
 	UiSnapshot,
 	WindowInfo,
+	WindowInputAction,
 } from '../../types/computer-use/index.js'
 import type { ToolResultBlock } from '../../types/message/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
@@ -29,6 +30,7 @@ import {
 	toDisplayPoint,
 	toDisplayRect,
 	toImagePoint,
+	toWindowPoint,
 } from './computer-use-coordinates.js'
 import {
 	type FittedImage,
@@ -136,21 +138,36 @@ const mouseClickSchema = z.object({
 	type: z.literal('mouse_click'),
 	at: pointSchema,
 	button: mouseButtonSchema,
+	/** Accepted only to return an explicit refusal; pointer foreground is unsafe. */
+	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
 const mouseDragSchema = z.object({
 	type: z.literal('mouse_drag'),
 	from: pointSchema,
 	to: pointSchema,
 	button: mouseButtonSchema,
+	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
 const scrollSchema = z.object({
 	type: z.literal('scroll'),
 	at: pointSchema,
 	direction: z.enum(['up', 'down', 'left', 'right']),
 	amount: z.number().int().positive(),
+	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
-const typeTextSchema = z.object({ type: z.literal('type_text'), text: z.string() })
-const keySchema = z.object({ type: z.literal('key'), keys: z.string() })
+const typeTextSchema = z.object({
+	type: z.literal('type_text'),
+	text: z.string(),
+	/** Accepted only to refuse an unsafe atomic foreground focus click. */
+	at: pointSchema.optional(),
+	delivery_mode: z.enum(['background', 'foreground']).optional(),
+})
+const keySchema = z.object({
+	type: z.literal('key'),
+	keys: z.string(),
+	at: pointSchema.optional(),
+	delivery_mode: z.enum(['background', 'foreground']).optional(),
+})
 const waitSchema = z.object({ type: z.literal('wait'), ms: z.number().int().nonnegative() })
 const listWindowsSchema = z.object({ type: z.literal('list_windows') })
 const focusWindowSchema = z.object({
@@ -196,7 +213,7 @@ const batchItemSchema = z.discriminatedUnion('type', [
 const withFrame = { screenshot_id: screenshotIdSchema }
 
 const actionSchema = z.discriminatedUnion('type', [
-	z.object({ type: z.literal('screenshot') }),
+	z.object({ type: z.literal('screenshot'), window_id: z.string().min(1).optional() }),
 	z.object({ type: z.literal('zoom'), region: regionSchema, ...withFrame }),
 	cursorPositionSchema.extend(withFrame),
 	mouseMoveSchema.extend(withFrame),
@@ -365,8 +382,18 @@ function hostActionAvailable(
 	)
 }
 
+function windowCaptureAvailable(host: ComputerUseHost, caps: ComputerUseCapabilities): boolean {
+	return (
+		caps.windowCapture === true &&
+		typeof host.captureWindow === 'function' &&
+		typeof host.executeWindow === 'function'
+	)
+}
+
 function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities): ToolActionType[] {
-	const screenshot = hostActionAvailable(caps, 'screenshot')
+	const displayScreenshot = hostActionAvailable(caps, 'screenshot')
+	const window = windowCaptureAvailable(host, caps)
+	const screenshot = displayScreenshot || window
 	const windows =
 		caps.windows === true &&
 		typeof host.listWindows === 'function' &&
@@ -377,9 +404,20 @@ function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities):
 		typeof host.uiAct === 'function'
 	const available = ALL_ACTIONS.filter((action) => {
 		switch (action) {
+			case 'screenshot':
+				return screenshot
 			case 'zoom':
 			case 'wait':
 				return screenshot
+			case 'mouse_click':
+				return hostActionAvailable(caps, action) || (window && caps.mouseClickButtons?.length !== 0)
+			case 'mouse_drag':
+				return hostActionAvailable(caps, action) || (window && caps.mouseDragButtons?.length !== 0)
+			case 'type_text':
+			case 'key':
+				return hostActionAvailable(caps, action) || window
+			case 'scroll':
+				return hostActionAvailable(caps, action) || (window && caps.windowScroll !== false)
 			case 'list_windows':
 			case 'focus_window':
 				return windows
@@ -396,16 +434,17 @@ function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities):
 	return available
 }
 
-function unavailableHostActions(caps: ComputerUseCapabilities): string[] {
+function unavailableHostActions(host: ComputerUseHost, caps: ComputerUseCapabilities): string[] {
 	const unavailable: string[] = []
-	if (!caps.screenshot) unavailable.push('screenshot')
+	const window = windowCaptureAvailable(host, caps)
+	if (!caps.screenshot) unavailable.push(window ? 'display screenshot' : 'screenshot')
 	if (!caps.cursorPosition) unavailable.push('cursor_position')
-	if (!caps.mouse) unavailable.push('mouse')
-	if (!caps.keyboard) unavailable.push('keyboard')
+	if (!caps.mouse) unavailable.push(window ? 'display mouse' : 'mouse')
+	if (!caps.keyboard) unavailable.push(window ? 'display keyboard' : 'keyboard')
 	if (caps.supportedActions) {
+		const available = new Set(availableActions(host, caps))
 		for (const action of HOST_ACTIONS) {
-			if (!hostActionAvailable(caps, action) && !unavailable.includes(action))
-				unavailable.push(action)
+			if (!available.has(action) && !unavailable.includes(action)) unavailable.push(action)
 		}
 	}
 	return unavailable
@@ -421,11 +460,15 @@ function buildDescription(
 	settings: ResolvedSettings,
 ): string {
 	const available = availableActions(host, caps)
-	const unavailable = unavailableHostActions(caps)
-	const lines = [
-		`Controls the user's desktop on a ${caps.displayServer} host: screenshots, mouse and keyboard, for GUI tasks.`,
-		`Available actions: ${available.join('; ') || 'none'}.`,
-	]
+	const unavailable = unavailableHostActions(host, caps)
+	const intro = hostActionAvailable(caps, 'screenshot')
+		? `Controls the user's desktop on a ${caps.displayServer} host: screenshots, mouse and keyboard, for GUI tasks.`
+		: windowCaptureAvailable(host, caps)
+			? `Controls named windows on a ${caps.displayServer} host: window screenshots, mouse and keyboard, for GUI tasks.`
+			: available.length > 0
+				? `Offers the available computer controls on a ${caps.displayServer} host.`
+				: `Computer control is unavailable on this ${caps.displayServer} host; this tool reports the limitation.`
+	const lines = [intro, `Available actions: ${available.join('; ') || 'none'}.`]
 	if (unavailable.length > 0) {
 		lines.push(
 			caps.unavailableReason
@@ -435,7 +478,7 @@ function buildDescription(
 	}
 	if (!available.includes('screenshot')) return finish(lines, caps, available)
 	lines.push(
-		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. The tool maps your coordinates onto the display. To aim at an earlier screenshot, pass its id as screenshot_id.',
+		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. Display screenshots map onto the display. To aim at an earlier display screenshot, pass its id as screenshot_id.',
 		'Take a screenshot before your first click.',
 	)
 	if (settings.screenshotAfterActions)
@@ -462,12 +505,18 @@ function buildDescription(
 		lines.push(
 			'list_windows names the open windows with their ids; focus_window brings one to the front.',
 		)
+	if (windowCaptureAvailable(host, caps))
+		lines.push(
+			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input uses background delivery only; if a click or drag is refused, inspect a fresh image before any other action. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front. For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
+		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
 			`ui_snapshot {window_id} reads a window's controls (its accessibility tree) as text, each control you can act on with a ref such as e12; without window_id it reads the window in front. ui_act {ref, action, value} acts on one control: invoke (press a button, open a menu item), set_value (replace a field's text with value), toggle, select, expand, collapse. Prefer ui_act to clicking pixels when the control is in the tree: it does not depend on coordinates or on which window is in front, and a batch of ui_act steps (for example pressing several buttons) runs in one call. Refs are valid only until the next ui_snapshot; take a new one after the window changes.`,
 		)
 	lines.push(
-		'Typing and keys go to whichever window has focus: confirm on a screenshot that the right window is in front before type_text or key.',
+		windowCaptureAvailable(host, caps)
+			? 'After a display screenshot, typing and keys go to whichever window has focus: confirm on that screenshot that the right window is in front before type_text or key. After a named-window screenshot, input targets the captured window.'
+			: 'Typing and keys go to whichever window has focus: confirm on a screenshot that the right window is in front before type_text or key.',
 	)
 	if (available.includes('list_windows'))
 		lines.push(
@@ -519,14 +568,24 @@ const ACTION_REQUIREMENTS: Readonly<Record<ToolActionType, string>> = {
 	mouse_click: 'mouse_click needs at (button defaults to left)',
 	mouse_drag: 'mouse_drag needs from and to (button defaults to left)',
 	scroll: 'scroll needs at, direction, and amount',
-	type_text: 'type_text needs text',
-	key: 'key needs keys',
+	type_text: 'type_text needs text; delivery_mode is optional on a window screenshot',
+	key: 'key needs keys; delivery_mode is optional on a window screenshot',
 	wait: 'wait needs ms',
 	list_windows: 'list_windows needs no other fields',
 	focus_window: 'focus_window needs window_id',
 	ui_snapshot: 'ui_snapshot takes an optional window_id',
 	ui_act: 'ui_act needs ref and action, and value for set_value',
 	batch: 'batch needs actions',
+}
+
+function actionRequirement(
+	action: ToolActionType,
+	host: ComputerUseHost,
+	caps: ComputerUseCapabilities,
+): string {
+	return action === 'screenshot' && windowCaptureAvailable(host, caps)
+		? `screenshot ${hostActionAvailable(caps, 'screenshot') ? 'takes an optional' : 'requires'} window_id to capture pixels for that window`
+		: ACTION_REQUIREMENTS[action]
 }
 
 function hostModelSchema(
@@ -566,13 +625,31 @@ function hostModelSchema(
 				type: 'string',
 				description: 'Key or key chord to press, for example ENTER or CTRL+R.',
 			},
+			...(windowCaptureAvailable(host, caps)
+				? {
+						delivery_mode: {
+							type: 'string',
+							enum: ['background', 'foreground'],
+							description:
+								'For type_text or key on a window screenshot only. Foreground may briefly bring that verified window forward when background input is unavailable. Background is the default.',
+						},
+					}
+				: {}),
 			ms: {
 				type: 'integer',
 				description: `Milliseconds to wait, 0 to ${settings.maxWaitMs}.`,
 			},
 		}
-		if (present.includes('focus_window') || (!forItems && present.includes('ui_snapshot')))
-			fields.window_id = { type: 'string', description: 'A window id from list_windows.' }
+		if (
+			present.includes('focus_window') ||
+			(!forItems &&
+				(present.includes('ui_snapshot') ||
+					(present.includes('screenshot') && windowCaptureAvailable(host, caps))))
+		)
+			fields.window_id = {
+				type: 'string',
+				description: 'A window id from list_windows or supplied by the host.',
+			}
 		if (present.includes('ui_act')) {
 			fields.ref = {
 				type: 'string',
@@ -605,7 +682,7 @@ function hostModelSchema(
 		type: {
 			type: 'string',
 			enum: actions,
-			description: `Desktop action. ${actions.map((action) => ACTION_REQUIREMENTS[action]).join('; ')}.`,
+			description: `Desktop action. ${actions.map((action) => actionRequirement(action, host, caps)).join('; ')}.`,
 		},
 		...fieldSchemas(false),
 	}
@@ -648,6 +725,10 @@ function hostModelSchema(
 
 function pointLabel(point: { readonly x: number; readonly y: number }): string {
 	return `(${point.x}, ${point.y})`
+}
+
+function deliveryLabel(mode: 'background' | 'foreground' | undefined): string {
+	return mode === 'foreground' ? ' in foreground' : ''
 }
 
 function quotedText(value: string): string {
@@ -696,7 +777,7 @@ function itemLabel(
 ): string {
 	switch (input.type) {
 		case 'screenshot':
-			return 'Capture screenshot'
+			return input.window_id ? `Capture window ${input.window_id}` : 'Capture screenshot'
 		case 'zoom':
 			return `Zoom into ${input.region.width}x${input.region.height} at ${pointLabel(input.region)}`
 		case 'cursor_position':
@@ -710,9 +791,9 @@ function itemLabel(
 		case 'scroll':
 			return `Scroll ${input.direction} ${input.amount} at ${pointLabel(input.at)}`
 		case 'type_text':
-			return `Type ${quotedText(input.text)}`
+			return `Type ${quotedText(input.text)}${deliveryLabel(input.delivery_mode)}`
 		case 'key':
-			return `Press ${input.keys}`
+			return `Press ${input.keys}${deliveryLabel(input.delivery_mode)}`
 		case 'wait':
 			return waitLabel(input.ms)
 		case 'list_windows':
@@ -804,6 +885,11 @@ function isOutcomeUnknown(
 
 function errorText(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
+}
+
+/** Driver IDs are normally short opaque tokens; never put arbitrary host text in tool instructions. */
+function visibleWindowId(id: string): string {
+	return /^[A-Za-z0-9_.:-]{1,64}$/.test(id) ? id : '[window id]'
 }
 
 /** One planned step: validated, coordinates already mapped, ready to run. */
@@ -903,7 +989,8 @@ function uiElementLine(
 			(UI_ACTIONS as readonly string[]).includes(action),
 		)
 		if (actions.length > 0) parts.push(`[${actions.join(', ')}]`)
-		const at = frame && element.bounds ? centreOnImage(frame, element.bounds) : undefined
+		const at =
+			frame && !frame.window && element.bounds ? centreOnImage(frame, element.bounds) : undefined
 		if (at) parts.push(`@${pointLabel(at)}`)
 	}
 	return neutralizeEnvelopeDelimiter(parts.join(' '))
@@ -956,6 +1043,7 @@ export function createComputerUseTool(
 				windows: false,
 				regionCapture: false,
 				uiTree: false,
+				windowCapture: false,
 				unavailableReason: options.unavailableReason,
 			}
 		: host.capabilities
@@ -968,6 +1056,7 @@ export function createComputerUseTool(
 	let uiRefs = new Map<string, UiRef>()
 	let uiSnapshots = 0
 	let uiRefCount = 0
+	let uiSnapshotWindowId: string | undefined
 	const describeUiRef = (ref: string): string | undefined => {
 		const entry = uiRefs.get(ref)
 		return entry ? `${uiElementText(entry.element)} (${ref})` : undefined
@@ -975,6 +1064,7 @@ export function createComputerUseTool(
 	const label = (input: BatchItem | ActionInput): string => itemLabel(input, describeUiRef)
 
 	const refusal = (type: string): string | null => {
+		if (available.has(type)) return null
 		const required = requiredCapability(type)
 		const why = caps.unavailableReason
 			? ` ${caps.unavailableReason} Do not retry; tell the user.`
@@ -986,8 +1076,27 @@ export function createComputerUseTool(
 		return null
 	}
 
-	/** Capture the display, fit it, and number it. */
-	const capture = async (): Promise<Capture> => {
+	/** Capture the display or one explicitly named window, fit it, and number it. */
+	const capture = async (windowId?: string): Promise<Capture> => {
+		if (windowId !== undefined) {
+			if (!windowCaptureAvailable(host, caps))
+				throw new StepFailure(
+					'this host cannot capture a named window; no desktop screenshot was taken',
+				)
+			const shot = await (host.captureWindow as NonNullable<ComputerUseHost['captureWindow']>)(
+				windowId,
+			)
+			const image = await fitPng(shot.data, settings.limits)
+			if (image.sourceWidth !== shot.width || image.sourceHeight !== shot.height)
+				throw new StepFailure(
+					'the window PNG dimensions changed during capture; take a new screenshot',
+				)
+			return { frame: frames.recordWindow(image, shot), image }
+		}
+		if (!hostActionAvailable(caps, 'screenshot'))
+			throw new StepFailure(
+				'this host requires window_id for screenshots; no display screenshot was taken',
+			)
 		const result = await host.execute({ type: 'screenshot' })
 		if (result.type !== 'screenshot')
 			throw new Error(`computer_use: the host answered a screenshot with "${result.type}"`)
@@ -1003,6 +1112,10 @@ export function createComputerUseTool(
 			if (!frame)
 				throw new StepFailure(
 					`there is no screenshot ${id} (the latest is ${frames.latest()?.id ?? 'none'}); take a screenshot and use its coordinates`,
+				)
+			if (frame.window && frames.latest() !== frame)
+				throw new StepFailure(
+					`window screenshot ${id} is stale; take a new window screenshot before acting`,
 				)
 			return frame
 		}
@@ -1031,19 +1144,40 @@ export function createComputerUseTool(
 			throw new StepFailure(
 				`${field} ${pointLabel(point)} is outside screenshot ${frame.id}, which is ${frame.imageWidth}x${frame.imageHeight} (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); coordinates are pixels of the screenshot, not of the screen`,
 			)
-		return toDisplayPoint(frame, point)
+		return frame.window ? toWindowPoint(frame, point) : toDisplayPoint(frame, point)
 	}
 
-	const runHost = async (action: ComputerUseAction): Promise<string> => {
+	const runHost = async (
+		action: ComputerUseAction | WindowInputAction,
+		frame?: ScreenshotFrame,
+	): Promise<string> => {
 		try {
+			if (frame?.window) {
+				if (
+					action.type === 'screenshot' ||
+					action.type === 'cursor_position' ||
+					action.type === 'mouse_move'
+				)
+					throw new StepFailure(
+						`${action.type} has no window-scoped input path; use a display screenshot`,
+					)
+				if (frames.latest() !== frame)
+					throw new StepFailure(`window screenshot ${frame.id} is stale; capture the window again`)
+				await (host.executeWindow as NonNullable<ComputerUseHost['executeWindow']>)(
+					frame.window.captureId,
+					action as WindowInputAction,
+				)
+				return 'done'
+			}
 			const result = await host.execute(action)
 			if (result.type === 'cursor_position') {
-				const frame = frames.latest()
-				if (!frame) return `at display pixel ${pointLabel(result.point)}`
-				return `at ${pointLabel(toImagePoint(frame, result.point))} in ${frame.id}`
+				const selected = frame ?? frames.latest()
+				if (!selected) return `at display pixel ${pointLabel(result.point)}`
+				return `at ${pointLabel(toImagePoint(selected, result.point))} in ${selected.id}`
 			}
 			return 'done'
 		} catch (error) {
+			if (error instanceof StepFailure) throw error
 			if (isOutcomeUnknown(error, action.type)) throw new StepFailure(error.message, error)
 			throw new StepFailure(errorText(error))
 		}
@@ -1060,15 +1194,28 @@ export function createComputerUseTool(
 			run,
 		})
 		switch (item.type) {
-			case 'cursor_position':
-				frameFor(frameId)
-				return step(() => runHost({ type: 'cursor_position' }))
+			case 'cursor_position': {
+				const frame = frameFor(frameId)
+				if (frame.window)
+					throw new StepFailure(
+						'cursor_position is display-relative; take a display screenshot first',
+					)
+				return step(() => runHost({ type: 'cursor_position' }, frame))
+			}
 			case 'mouse_move': {
 				const frame = frameFor(frameId)
+				if (frame.window)
+					throw new StepFailure(
+						'mouse_move cannot move the OS pointer in window scope; use a click or a display screenshot',
+					)
 				const to = mapPoint(frame, item.to, 'to')
 				return step(() => runHost({ type: 'mouse_move', to }))
 			}
 			case 'mouse_click': {
+				if (item.delivery_mode)
+					throw new StepFailure(
+						'window pointer delivery_mode is unavailable; foreground input cannot verify which window is under the cursor',
+					)
 				const buttons = caps.mouseClickButtons
 				if (buttons && !buttons.includes(item.button))
 					throw new StepFailure(
@@ -1076,9 +1223,13 @@ export function createComputerUseTool(
 					)
 				const frame = frameFor(frameId)
 				const at = mapPoint(frame, item.at, 'at')
-				return step(() => runHost({ type: 'mouse_click', at, button: item.button }))
+				return step(() => runHost({ type: 'mouse_click', at, button: item.button }, frame))
 			}
 			case 'mouse_drag': {
+				if (item.delivery_mode)
+					throw new StepFailure(
+						'window pointer delivery_mode is unavailable; foreground input cannot verify which window is under the cursor',
+					)
 				const buttons = caps.mouseDragButtons
 				if (buttons && !buttons.includes(item.button))
 					throw new StepFailure(
@@ -1087,22 +1238,74 @@ export function createComputerUseTool(
 				const frame = frameFor(frameId)
 				const from = mapPoint(frame, item.from, 'from')
 				const to = mapPoint(frame, item.to, 'to')
-				return step(() => runHost({ type: 'mouse_drag', from, to, button: item.button }))
+				return step(() => runHost({ type: 'mouse_drag', from, to, button: item.button }, frame))
 			}
 			case 'scroll': {
 				const frame = frameFor(frameId)
+				if (item.delivery_mode)
+					throw new StepFailure(
+						'window pointer delivery_mode is unavailable; foreground scrolling cannot verify which window receives the wheel',
+					)
+				if (frame.window && caps.windowScroll === false)
+					throw new StepFailure(
+						'window pixel scrolling is unavailable on this host; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling',
+					)
 				const at = mapPoint(frame, item.at, 'at')
 				return step(() =>
-					runHost({ type: 'scroll', at, direction: item.direction, amount: item.amount }),
+					runHost({ type: 'scroll', at, direction: item.direction, amount: item.amount }, frame),
 				)
 			}
-			case 'type_text':
+			case 'type_text': {
+				if (item.at)
+					throw new StepFailure(
+						'type_text at is unavailable: a foreground focus click cannot verify which window is under the point; click the field first, then type',
+					)
 				requireLook()
-				return step(() => runHost({ type: 'type_text', text: item.text }))
-			case 'key':
+				const frame = frameFor(frameId)
+				if (item.delivery_mode && !frame.window)
+					throw new StepFailure('type_text delivery_mode requires a window screenshot')
+				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
+					throw new StepFailure('computer_use never types into a terminal window')
+				return step(() =>
+					runHost(
+						{
+							type: 'type_text',
+							text: item.text,
+							...(item.delivery_mode ? { delivery_mode: item.delivery_mode } : {}),
+						},
+						frame,
+					),
+				)
+			}
+			case 'key': {
+				if (item.at)
+					throw new StepFailure(
+						'key at is unavailable: a foreground focus click cannot verify which window is under the point; click the field first, then send the key',
+					)
 				requireLook()
-				return step(() => runHost({ type: 'key', keys: item.keys }))
+				const frame = frameFor(frameId)
+				if (item.delivery_mode && !frame.window)
+					throw new StepFailure(
+						'key delivery_mode requires a window screenshot; take one with screenshot {window_id}',
+					)
+				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
+					throw new StepFailure('computer_use never sends keys to a terminal window')
+				return step(() =>
+					runHost(
+						{
+							type: 'key',
+							keys: item.keys,
+							...(item.delivery_mode ? { delivery_mode: item.delivery_mode } : {}),
+						},
+						frame,
+					),
+				)
+			}
 			case 'wait':
+				if (!hostActionAvailable(caps, 'screenshot') && !frames.latest() && !uiSnapshotWindowId)
+					throw new StepFailure(
+						'this host has no display screenshot; capture or inspect a named window before waiting',
+					)
 				return step(async (signal) => {
 					await sleep(item.ms, signal)
 					return 'done'
@@ -1176,7 +1379,8 @@ export function createComputerUseTool(
 		uiSnapshots += 1
 		const id = `u${uiSnapshots}`
 		const refs = new Map<string, UiRef>()
-		const frame = frames.latest()
+		const latest = frames.latest()
+		const frame = latest?.window ? undefined : latest
 		const lines: string[] = []
 		let chars = 0
 		let shown = 0
@@ -1208,11 +1412,12 @@ export function createComputerUseTool(
 		}
 		visit(snapshot.root, 0)
 		uiRefs = refs
+		uiSnapshotWindowId = snapshot.windowId ?? input.window_id
 		const window =
 			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
 		const header = [
 			`UI snapshot ${id}${window ? ` of window ${window}` : ''}: ${shown} controls shown, ${refs.size} with a ref you can pass to ui_act. Refs are valid until the next ui_snapshot.`,
-			...(frame
+			...(frame && !frame.window
 				? [
 						`@(x, y) is a control's centre on screenshot ${frame.id}, for a click when ui_act cannot reach it.`,
 					]
@@ -1298,7 +1503,8 @@ export function createComputerUseTool(
 			throw new StepFailure(errorText(error))
 		}
 		if (windows.length === 0) return 'no windows are open'
-		const frame = frames.latest()
+		const latest = frames.latest()
+		const frame = latest?.window ? undefined : latest
 		const lines = windows.slice(0, MAX_LISTED_WINDOWS).map((window) => {
 			const where = frame
 				? (() => {
@@ -1337,6 +1543,17 @@ export function createComputerUseTool(
 	}
 
 	const describeFrame = (frame: ScreenshotFrame): string => {
+		if (frame.window) {
+			const { window } = frame.window
+			const focusWarning = window.focused
+				? ''
+				: ' This window was not first in the host window list when captured. The driver may have used a screen-region fallback containing another window; focus this window and recapture before pixel actions if the image looks covered.'
+			const coverage =
+				frame.window.captureCoverage === 'not_observable_in_window_scope'
+					? ' Browser permission bubbles outside the window may be absent.'
+					: ''
+			return `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels captured for window ${visibleWindowId(window.id)}. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); actions target this window. Take a new window screenshot if it moves or changes size. If the image is blank or shows another window, do not click it; focus the target and capture it again.${focusWarning}${coverage}`
+		}
 		const { display } = frame
 		const scaled = frame.imageWidth !== display.width || frame.imageHeight !== display.height
 		return scaled
@@ -1348,7 +1565,16 @@ export function createComputerUseTool(
 		id: frame.id,
 		width: frame.imageWidth,
 		height: frame.imageHeight,
-		display: frame.display,
+		...(frame.window
+			? {
+					window: {
+						id: visibleWindowId(frame.window.window.id),
+						pid: frame.window.window.pid,
+						bounds: frame.window.window.bounds,
+					},
+					captureCoverage: frame.window.captureCoverage,
+				}
+			: { display: frame.display }),
 		mimeType: 'image/png' as const,
 		encoding: 'base64' as const,
 	})
@@ -1356,7 +1582,7 @@ export function createComputerUseTool(
 	const pin = (frame: ScreenshotFrame): NonNullable<ToolResult['workingState']> => [
 		{
 			key: 'computer_use.screenshot',
-			text: `computer_use coordinates are pixels of screenshot ${frame.id} (${frame.imageWidth}x${frame.imageHeight}), origin top-left.`,
+			text: `computer_use coordinates are pixels of screenshot ${frame.id} (${frame.imageWidth}x${frame.imageHeight}), origin top-left${frame.window ? `, bound to window ${visibleWindowId(frame.window.window.id)}` : ''}.`,
 		},
 	]
 
@@ -1378,7 +1604,9 @@ export function createComputerUseTool(
 
 	const screenshotResult = (shot: Capture): ToolResult => ({
 		success: true,
-		output: `Screenshot ${shot.frame.id} captured (${shot.frame.imageWidth}x${shot.frame.imageHeight} of the ${shot.frame.display.width}x${shot.frame.display.height} display).`,
+		output: shot.frame.window
+			? `Screenshot ${shot.frame.id} captured (${shot.frame.imageWidth}x${shot.frame.imageHeight} of window ${visibleWindowId(shot.frame.window.window.id)}).`
+			: `Screenshot ${shot.frame.id} captured (${shot.frame.imageWidth}x${shot.frame.imageHeight} of the ${shot.frame.display.width}x${shot.frame.display.height} display).`,
 		content: [
 			{ type: 'text', text: [describeFrame(shot.frame), ...firstLookHint(shot.frame)].join('\n') },
 			imageBlock(shot.image),
@@ -1402,7 +1630,11 @@ export function createComputerUseTool(
 			)
 		const rect = toDisplayRect(frame, onImage) as Rect
 		let fitted: FittedImage
-		if (caps.regionCapture === true && typeof host.captureRegion === 'function') {
+		if (frame.window) {
+			if (!frame.window.data)
+				throw new StepFailure(`window screenshot ${frame.id} is stale; capture the window again`)
+			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits)
+		} else if (caps.regionCapture === true && typeof host.captureRegion === 'function') {
 			const piece = await host.captureRegion(rect)
 			fitted = await fitPng(piece.data, settings.limits)
 		} else {
@@ -1477,6 +1709,28 @@ export function createComputerUseTool(
 		// the screenshot in step 5 should not arrive after steps 1–4 changed
 		// the desktop.
 		const planned: PlannedStep[] = []
+		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
+		if (
+			actionFrame?.window &&
+			items.some(
+				(item, index) =>
+					item.type === 'focus_window' &&
+					items
+						.slice(index + 1)
+						.some((later) =>
+							['mouse_click', 'mouse_drag', 'scroll', 'type_text', 'key'].includes(later.type),
+						),
+			)
+		)
+			return {
+				success: false,
+				output: '',
+				error:
+					'computer_use: a window-scoped batch cannot act after focus_window changes its target; focus first, then take a new window screenshot. Nothing was run.',
+			}
+		let postWindowId =
+			actionFrame?.window?.window.id ??
+			(!hostActionAvailable(caps, 'screenshot') ? uiSnapshotWindowId : undefined)
 		for (const [index, item] of items.entries()) {
 			try {
 				planned.push(plan(item, frameId))
@@ -1507,12 +1761,26 @@ export function createComputerUseTool(
 			}
 			try {
 				const keyboard = step.item.type === 'type_text' || step.item.type === 'key'
-				if (keyboard && !frontChecked) {
+				if (keyboard && !actionFrame?.window && !frontChecked) {
 					await refuseTerminalInFront()
 					frontChecked = true
 				}
 				if (step.item.type !== 'type_text') frontChecked = false
 				const note = await step.run(signal)
+				if (step.item.type === 'focus_window' && windowCaptureAvailable(host, caps))
+					postWindowId = step.item.window_id
+				else if (
+					step.item.type === 'ui_act' &&
+					uiSnapshotWindowId &&
+					!hostActionAvailable(caps, 'screenshot') &&
+					windowCaptureAvailable(host, caps)
+				)
+					postWindowId = uiSnapshotWindowId
+				else if (
+					actionFrame?.window &&
+					['mouse_click', 'mouse_drag', 'scroll', 'type_text', 'key'].includes(step.item.type)
+				)
+					postWindowId = actionFrame.window.window.id
 				records.push({ label: step.label, status: 'done', note })
 				if (step.mutating) changed = true
 			} catch (error) {
@@ -1537,6 +1805,7 @@ export function createComputerUseTool(
 		const looks =
 			settings.screenshotAfterActions &&
 			available.has('screenshot') &&
+			(hostActionAvailable(caps, 'screenshot') || postWindowId !== undefined) &&
 			(changed || planned.some((step) => step.item.type === 'wait')) &&
 			!signal?.aborted
 		let shot: Capture | undefined
@@ -1544,7 +1813,7 @@ export function createComputerUseTool(
 		if (looks) {
 			try {
 				await sleep(settings.settleMs, signal)
-				shot = await capture()
+				shot = await capture(postWindowId)
 			} catch (error) {
 				shotError = signal?.aborted ? 'cancelled' : errorText(error)
 			}
@@ -1632,7 +1901,7 @@ export function createComputerUseTool(
 		description: buildDescription(host, caps, settings),
 		inputSchema: actionSchema,
 		modelInputSchema: hostModelSchema(host, caps, settings),
-		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => ACTION_REQUIREMENTS[action]).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom, ui_snapshot or batch inside.`,
+		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => actionRequirement(action, host, caps)).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom, ui_snapshot or batch inside.`,
 		category: 'custom',
 		permissions: [],
 		readOnly: (input: ActionInput) => isReadOnlyInput(input),
@@ -1659,7 +1928,7 @@ export function createComputerUseTool(
 			try {
 				switch (input.type) {
 					case 'screenshot':
-						return screenshotResult(await capture())
+						return screenshotResult(await capture(input.window_id))
 					case 'zoom':
 						return await zoom(input)
 					case 'ui_snapshot':

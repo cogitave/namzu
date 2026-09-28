@@ -12,6 +12,8 @@ import type {
 	UiElementAction,
 	UiSnapshot,
 	WindowInfo,
+	WindowInputAction,
+	WindowScreenshotResult,
 } from '@namzu/sdk'
 import type { Adapter } from '../types.js'
 import {
@@ -30,10 +32,9 @@ import { type UiRefFacts, toUiTree } from './ui-tree.js'
  * `cua-driver.exe mcp` process for the adapter's lifetime, spoken to as an
  * MCP server over its standard streams.
  *
- * Every input goes to cua-driver's `desktop` scope: real `SendInput` at
- * screen coordinates, which is this package's contract. Its default
- * `window` scope posts messages to a process in the background instead, a
- * different model this adapter does not expose.
+ * Display input uses `desktop` scope. A capture explicitly addressed to a
+ * window enables `window` scope, whose pixels are relative to that PNG and
+ * whose actions carry the captured PID and HWND.
  *
  * What the adapter adds on top:
  * - the animated agent cursor is switched off for its session: with it, a
@@ -88,6 +89,15 @@ interface UiRefEntry extends UiRefFacts {
 	readonly processStarts: number
 }
 
+interface WindowCaptureFrame {
+	readonly id: string
+	readonly window: WindowInfo
+	readonly width: number
+	readonly height: number
+	readonly processStarts: number
+	readonly generation: number
+}
+
 /** Replace process-local driver tokens before any UI tree leaves this adapter. */
 function withOpaqueRefs(element: UiElement, refFor: (token: string) => string): UiElement {
 	return Object.freeze({
@@ -107,6 +117,10 @@ export class CuaDriverAdapter implements Adapter {
 	private readonly client: McpStdioClient
 	/** Window id → owning pid, from the latest list; `bring_to_front` needs both. */
 	private readonly windowPids = new Map<string, number>()
+	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
+	private windowFrame: WindowCaptureFrame | undefined
+	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
+	private windowOperation: Promise<void> = Promise.resolve()
 	/** Only refs from the latest snapshot may address driver tokens. */
 	private uiRefs = new Map<string, UiRefEntry>()
 	private readonly uiRefNamespace = randomUUID()
@@ -150,6 +164,8 @@ export class CuaDriverAdapter implements Adapter {
 			mouseClickButtons: Object.freeze(['left' as const, 'right' as const, 'middle' as const]),
 			mouseDragButtons: Object.freeze(['left' as const, 'right' as const, 'middle' as const]),
 			windows: true,
+			windowCapture: true,
+			windowScroll: false,
 			// No display-relative region capture in cua-driver (its zoom is
 			// per-window and pads the region); the tool crops a full capture.
 			regionCapture: false,
@@ -289,6 +305,200 @@ export class CuaDriverAdapter implements Adapter {
 		return { ok: focusedId === windowIdOf(hwnd), focusedId }
 	}
 
+	async captureWindow(id: string): Promise<WindowScreenshotResult> {
+		return this.serializeWindowOperation(() => this.captureWindowInternal(id))
+	}
+
+	private async captureWindowInternal(id: string): Promise<WindowScreenshotResult> {
+		const target = await this.resolveWindow(id)
+		// A failed or overlapping capture invalidates the old resize ratio even
+		// if the driver returned no image. Never let it address a later action.
+		this.windowFrame = undefined
+		let captureStarts = 0
+		let captureGeneration = this.sessionGeneration
+		const result = await this.callTool(
+			'get_window_state',
+			{
+				pid: target.pid,
+				window_id: target.hwnd,
+				include_accessibility_tree: false,
+				include_screenshot: true,
+			},
+			CAPTURE_TIMEOUT_MS,
+			undefined,
+			(starts) => {
+				captureStarts = starts
+				captureGeneration = this.sessionGeneration
+			},
+		)
+		const facts = structured(result, 'get_window_state')
+		if (facts.pid !== target.pid || parseWindowId(facts.window_id) !== target.hwnd)
+			throw new Error(
+				'cua-driver: the window capture identity did not match the requested PID and HWND.',
+			)
+		const image = result.content.find(
+			(part): part is { type: 'image'; data: string; mimeType: string } =>
+				part.type === 'image' && typeof (part as { data?: unknown }).data === 'string',
+		)
+		if (!image || image.mimeType !== 'image/png')
+			throw new Error(
+				`cua-driver: window ${id} returned no PNG${typeof facts.screenshot_error === 'string' ? `: ${facts.screenshot_error}` : ''}.`,
+			)
+		const data = Buffer.from(image.data, 'base64')
+		const { width, height } = decodePngDims(data)
+		if (
+			width < 1 ||
+			height < 1 ||
+			facts.screenshot_width !== width ||
+			facts.screenshot_height !== height
+		)
+			throw new Error('cua-driver: window PNG dimensions did not match its capture metadata.')
+		const bounds = windowBounds(facts.window_bounds)
+		if (!bounds) throw new Error('cua-driver: window capture returned no valid window bounds.')
+		const windows = await this.listWindows()
+		if (
+			captureStarts === 0 ||
+			this.client.starts !== captureStarts ||
+			this.sessionGeneration !== captureGeneration
+		)
+			throw new Error(
+				'cua-driver: the driver session changed after the window capture; take a new screenshot.',
+			)
+		const listed = windows.find((window) => window.id === windowIdOf(target.hwnd))
+		if (
+			!listed ||
+			listed.pid !== target.pid ||
+			listed.minimized ||
+			!sameBounds(listed.bounds, bounds)
+		)
+			throw new Error(
+				`cua-driver: window ${id} moved, closed or was minimized during capture; take a new screenshot.`,
+			)
+		const frame: WindowCaptureFrame = {
+			id: randomUUID(),
+			window: listed,
+			width,
+			height,
+			processStarts: captureStarts,
+			generation: captureGeneration,
+		}
+		this.windowFrame = frame
+		const coverage = facts.capture_coverage
+		const browserChrome =
+			typeof coverage === 'object' && coverage !== null && 'browser_chrome' in coverage
+				? coverage.browser_chrome
+				: undefined
+		const captureCoverage =
+			typeof browserChrome === 'object' &&
+			browserChrome !== null &&
+			'status' in browserChrome &&
+			typeof browserChrome.status === 'string'
+				? browserChrome.status
+				: undefined
+		return {
+			data,
+			mimeType: 'image/png',
+			width,
+			height,
+			window: listed,
+			captureId: frame.id,
+			...(captureCoverage ? { captureCoverage } : {}),
+		}
+	}
+
+	async executeWindow(captureId: string, action: WindowInputAction): Promise<void> {
+		return this.serializeWindowOperation(() => this.executeWindowInternal(captureId, action))
+	}
+
+	private async executeWindowInternal(captureId: string, action: WindowInputAction): Promise<void> {
+		const frame = this.windowFrame
+		if (!frame || frame.id !== captureId)
+			throw new Error(
+				'computer-use: this window screenshot is stale; capture the window again before acting.',
+			)
+		const point = (value: { x: number; y: number }): void => {
+			if (
+				!Number.isInteger(value.x) ||
+				!Number.isInteger(value.y) ||
+				value.x < 0 ||
+				value.y < 0 ||
+				value.x >= frame.width ||
+				value.y >= frame.height
+			)
+				throw new Error('computer-use: window action coordinates are outside the captured PNG.')
+		}
+		if (action.type === 'mouse_click' || action.type === 'scroll') point(action.at)
+		if (action.type === 'mouse_drag') {
+			point(action.from)
+			point(action.to)
+		}
+		const target = {
+			scope: 'window',
+			pid: frame.window.pid,
+			window_id: parseWindowId(frame.window.id),
+		} as const
+		const call = async (name: string, args: Record<string, unknown>) => {
+			const windows = await this.listWindows()
+			const current = windows.find((window) => window.id === frame.window.id)
+			if (
+				!current ||
+				current.pid !== frame.window.pid ||
+				current.minimized ||
+				!sameBounds(current.bounds, frame.window.bounds) ||
+				this.windowFrame !== frame ||
+				this.sessionGeneration !== frame.generation ||
+				this.client.starts !== frame.processStarts
+			)
+				throw new Error(
+					'computer-use: the captured window changed or its driver restarted; take a new window screenshot.',
+				)
+			await this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
+		}
+		switch (action.type) {
+			case 'mouse_click':
+				try {
+					await call('click', { x: action.at.x, y: action.at.y, button: action.button })
+				} catch (error) {
+					if (!isDeliveredPointerAction(error)) throw windowPointerRefusal(error)
+				}
+				return
+			case 'mouse_drag':
+				try {
+					await call('drag', {
+						from_x: action.from.x,
+						from_y: action.from.y,
+						to_x: action.to.x,
+						to_y: action.to.y,
+						button: action.button,
+						duration_ms: DRAG.durationMs,
+						steps: DRAG.steps,
+					})
+				} catch (error) {
+					throw windowPointerRefusal(error)
+				}
+				return
+			case 'scroll':
+				throw new Error(
+					'computer-use: window pixel scrolling is unavailable on this Windows driver; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling.',
+				)
+			case 'type_text':
+				if (action.text.length > 0)
+					await call('type_text', {
+						text: action.text,
+						...(action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}),
+					})
+				return
+			case 'key': {
+				const plan = translateKeyForCuaDriver(action.keys)
+				const delivery = action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}
+				if (plan.tool === 'type_text') await call('type_text', { text: plan.text, ...delivery })
+				else if (plan.tool === 'press_key') await call('press_key', { key: plan.key, ...delivery })
+				else await call('hotkey', { keys: [...plan.keys], ...delivery })
+				return
+			}
+		}
+	}
+
 	/**
 	 * One window's controls. Without an id, the window in front — which,
 	 * for an agent run from a terminal, is usually that terminal.
@@ -425,6 +635,20 @@ export class CuaDriverAdapter implements Adapter {
 		await this.client.dispose()
 	}
 
+	private async serializeWindowOperation<T>(operation: () => Promise<T>): Promise<T> {
+		const previous = this.windowOperation
+		let release: () => void = () => undefined
+		this.windowOperation = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		await previous
+		try {
+			return await operation()
+		} finally {
+			release()
+		}
+	}
+
 	/**
 	 * cua-driver refuses an expired implicit session before dispatch, with a
 	 * structured `session_ended` code. Only that exact refusal is safe to replay.
@@ -436,8 +660,16 @@ export class CuaDriverAdapter implements Adapter {
 		timeoutMs?: number,
 		uiRef?: { readonly ref: string; readonly facts: UiRefEntry },
 		onProcess?: McpProcessCallOptions['onProcess'],
+		windowFrame?: WindowCaptureFrame,
 	): Promise<McpToolResult> {
 		await this.sessionRevival
+		if (
+			windowFrame &&
+			(this.windowFrame !== windowFrame ||
+				windowFrame.generation !== this.sessionGeneration ||
+				windowFrame.processStarts !== this.client.starts)
+		)
+			throw new McpToolError(name, 'stale window screenshot; capture the window again')
 		if (
 			uiRef &&
 			(this.uiRefs.get(uiRef.ref) !== uiRef.facts ||
@@ -447,7 +679,9 @@ export class CuaDriverAdapter implements Adapter {
 		const generation = this.sessionGeneration
 		try {
 			return await this.client.callTool(name, args, timeoutMs, {
-				...(uiRef ? { expectedStarts: uiRef.facts.processStarts } : {}),
+				...(uiRef || windowFrame
+					? { expectedStarts: uiRef?.facts.processStarts ?? windowFrame?.processStarts }
+					: {}),
 				...(onProcess ? { onProcess } : {}),
 			})
 		} catch (error) {
@@ -455,10 +689,13 @@ export class CuaDriverAdapter implements Adapter {
 			// The refusal proves the old session's element tokens are invalid,
 			// even if start_session fails and there is no successful revival.
 			if (this.sessionGeneration === generation) this.uiRefs.clear()
+			this.windowFrame = undefined
 			await this.reviveSession(generation)
 			// Element tokens belong to the old snapshot. A new lifecycle session
 			// needs a new tree before a control can be addressed again.
 			if (uiRef) throw new McpToolError(name, 'stale UI snapshot; take a new one')
+			if (windowFrame)
+				throw new McpToolError(name, 'stale window screenshot; capture the window again')
 			// One retry only. A second refusal or an unacknowledged action is
 			// returned to the host without any further automatic replay.
 			return this.client.callTool(name, args, timeoutMs, { onProcess })
@@ -472,6 +709,7 @@ export class CuaDriverAdapter implements Adapter {
 				await this.client.callTool('start_session')
 				await disableAgentCursor((name, args) => this.client.callTool(name, args))
 				this.uiRefs.clear()
+				this.windowFrame = undefined
 				this.sessionGeneration++
 			})().finally(() => {
 				this.sessionRevival = undefined
@@ -574,6 +812,20 @@ export function isDeliveredPointerAction(error: unknown): boolean {
 		/not foreground after the/.test(error.message) &&
 		!/no (mouse )?input was sent/.test(error.message)
 	)
+}
+
+/** The pinned driver suggests foreground pointer input even when it cannot bind the OS hit test to our HWND. */
+function windowPointerRefusal(error: unknown): unknown {
+	const code = error instanceof McpToolError ? error.structuredContent?.code : undefined
+	if (
+		code === 'background_unavailable' ||
+		code === 'background_occluded' ||
+		code === 'background_uipi_blocked'
+	)
+		return new Error(
+			'computer-use: this window pointer action could not be delivered safely in background. No window-scoped foreground pointer retry is available; inspect a fresh window screenshot, use a control ref if available, or deliberately capture the display before display input.',
+		)
+	return error
 }
 
 /**
@@ -710,6 +962,27 @@ function requireNumber(source: Record<string, unknown>, key: string, tool: strin
 function optionalNumber(source: Record<string, unknown>, key: string): number | undefined {
 	const value = source[key]
 	return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function windowBounds(value: unknown): WindowInfo['bounds'] | undefined {
+	if (typeof value !== 'object' || value === null) return undefined
+	const facts = value as Record<string, unknown>
+	const { x, y, width, height } = facts
+	if (
+		typeof x !== 'number' ||
+		typeof y !== 'number' ||
+		typeof width !== 'number' ||
+		typeof height !== 'number' ||
+		![x, y, width, height].every(Number.isFinite) ||
+		width <= 0 ||
+		height <= 0
+	)
+		return undefined
+	return { x, y, width, height }
+}
+
+function sameBounds(a: WindowInfo['bounds'], b: WindowInfo['bounds']): boolean {
+	return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
 function decodePngDims(buffer: Buffer): { width: number; height: number } {

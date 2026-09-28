@@ -2,6 +2,7 @@
 
 ## 2026-09-28
 
+- **Update** [The computer-use host](sdk/computer-use-host.md) and [the computer_use tool](sdk/computer-actions.md): Windows cua-driver can capture a named window and bind pixel and keyboard actions to its PID, handle, capture image and driver session. The SDK maps fitted image coordinates back to the window PNG, supports window-only hosts, allows explicit foreground delivery for window text and keys, and refuses stale frames without falling back to desktop input; the CLI review names a targeted window capture and foreground change, and routes existing browser windows to computer use when both tools are ready. The pinned driver refuses scoped pixel scrolling and atomic foreground focus-by-pixel typing because it cannot prove target ownership for their pointer events. The docs state the window-capture occlusion limit. `.changeset/window-scoped-computer-use.md`, **minor** for `@namzu/sdk`, `@namzu/computer-use` and `@namzu/cli`.
 - **Fix** [Terminal design](cli/terminal-design.md#the-composer-footer): hypermode is named once in the footer, while a short colour sweep marks a successful activation on the message frame before its gradient settles. `.changeset/cli-hypermode-activation.md`, **patch** for `@namzu/cli`.
 
 ## 2026-09-27

@@ -10,6 +10,8 @@ import type {
 	UiElementAction,
 	UiSnapshot,
 	WindowInfo,
+	WindowInputAction,
+	WindowScreenshotResult,
 } from '@namzu/sdk'
 
 /**
@@ -36,6 +38,10 @@ export interface Adapter {
 	listWindows?(): Promise<readonly WindowInfo[]>
 	/** With `capabilities.windows`. */
 	focusWindow?(id: string): Promise<FocusWindowResult>
+	/** With `capabilities.windowCapture`. */
+	captureWindow?(id: string): Promise<WindowScreenshotResult>
+	/** With `capabilities.windowCapture`. */
+	executeWindow?(captureId: string, action: WindowInputAction): Promise<void>
 	/** With `capabilities.regionCapture`. */
 	captureRegion?(rect: Rect): Promise<ScreenshotResult>
 	/** With `capabilities.uiTree`. */

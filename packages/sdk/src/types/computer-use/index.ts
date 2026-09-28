@@ -30,7 +30,7 @@ export interface ComputerUseCapabilities {
 	readonly keyboard: boolean
 	readonly cursorPosition: boolean
 	readonly clipboard: boolean
-	/** Exact action subset when known. Refines the broad flags; absent retains their legacy interpretation. */
+	/** Display action subset when known. Window capture and input are a separate path. */
 	readonly supportedActions?: readonly ComputerUseAction['type'][]
 	/** Supported click buttons; absent leaves button admission to the host. */
 	readonly mouseClickButtons?: readonly MouseButton[]
@@ -50,6 +50,16 @@ export interface ComputerUseCapabilities {
 	 * offer `list_windows` or `focus_window`, even when the methods exist.
 	 */
 	readonly windows?: boolean
+	/**
+	 * The host can capture and act on one named window without sharing the
+	 * whole desktop. Requires `captureWindow` and `executeWindow`.
+	 */
+	readonly windowCapture?: boolean
+	/**
+	 * Whether scoped pixel scrolling can be delivered safely. Explicit false
+	 * refuses it before a batch starts; absent retains host-defined behavior.
+	 */
+	readonly windowScroll?: boolean
 	/**
 	 * The host implements {@link ComputerUseHost.captureRegion}. Absent or
 	 * false, `zoom` still works: the tool crops a full capture instead, which
@@ -71,12 +81,13 @@ export interface ComputerUseCapabilities {
 // ---------------------------------------------------------------------------
 // Geometry + screenshot payload
 //
-// Units, once for the whole file: every coordinate and size a host accepts or
-// returns is in PHYSICAL pixels — the pixels of the captured bitmap, not
-// logical points or DPI-scaled units. A 3440x1440 monitor at 150 % scaling is
-// 3440x1440 here. A point a host is asked to act on is relative to the
-// top-left of the display it last captured (the primary display until a host
-// offers display selection); the host adds that display's origin itself.
+// Display actions use PHYSICAL pixels, not logical points or DPI-scaled
+// units. A 3440x1440 monitor at 150 % scaling is 3440x1440 here. A point a
+// host is asked to act on is relative to the top-left of the display it last
+// captured (the primary display until a host offers display selection); the
+// host adds that display's origin itself. Window actions are the explicit
+// exception: their coordinates are pixels of captureWindow's returned PNG,
+// which the window driver may have downscaled.
 // Window and UI-element bounds are the exception and say so: they are in
 // virtual-desktop physical pixels, because a window can span displays.
 // ---------------------------------------------------------------------------
@@ -145,6 +156,45 @@ export interface WindowInfo {
 	readonly focused: boolean
 	readonly minimized: boolean
 }
+
+/** A PNG of one window. Its pixels are window-local, not display-relative. */
+export interface WindowScreenshotResult {
+	readonly data: Buffer
+	readonly mimeType: 'image/png'
+	/** Pixel size of the exact PNG returned by the host. */
+	readonly width: number
+	readonly height: number
+	readonly window: WindowInfo
+	/**
+	 * Opaque capture token. The host rejects actions after another window
+	 * capture, driver restart, session revival, or target geometry change.
+	 */
+	readonly captureId: string
+	/** A limitation of this capture, when the driver reports one. */
+	readonly captureCoverage?: string
+}
+
+/** How input is delivered to a captured window. Foreground may briefly activate it. */
+export type WindowDeliveryMode = 'background' | 'foreground'
+
+/** Window-local actions. A window-scoped mouse move is not a real OS move. */
+export type WindowInputAction =
+	| Extract<ComputerUseAction, { readonly type: 'mouse_click' | 'mouse_drag' | 'scroll' }>
+	/** Foreground delivery sends text to the verified target window. */
+	| {
+			readonly type: 'type_text'
+			readonly text: string
+			readonly delivery_mode?: WindowDeliveryMode
+	  }
+	/**
+	 * `foreground` explicitly permits the host to bring the verified target
+	 * window forward for keys its background input path cannot deliver.
+	 */
+	| {
+			readonly type: 'key'
+			readonly keys: string
+			readonly delivery_mode?: WindowDeliveryMode
+	  }
 
 /**
  * What {@link ComputerUseHost.focusWindow} achieved. Bringing a window to
@@ -334,6 +384,14 @@ export interface ComputerUseHost {
 	 * with {@link ComputerUseCapabilities.windows}.
 	 */
 	focusWindow?(id: string): Promise<FocusWindowResult>
+	/** Capture a named window. Never silently replace a failed capture with the desktop. */
+	captureWindow?(id: string): Promise<WindowScreenshotResult>
+	/**
+	 * Act in the PNG pixel space of `captureId`. The host must verify the
+	 * capture is current and still belongs to the same process/window before
+	 * dispatching input. No implicit fallback to display input is permitted.
+	 */
+	executeWindow?(captureId: string, action: WindowInputAction): Promise<void>
 	/**
 	 * Capture one region of the current display at full physical resolution.
 	 * `rect` is display-relative physical pixels; the result's `width` and

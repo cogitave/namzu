@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The computer-use host contract
-description: What a ComputerUseHost promises the computer_use tool — physical pixels everywhere, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
+description: What a ComputerUseHost promises the computer_use tool — display and window pixel spaces, capture identity, and optional window, region-capture and accessibility-tree methods.
 resource: packages/sdk/src/types/computer-use/index.ts
 tags: [sdk, computer-use, hosts, contracts]
 generated: { by: human:bahadirarda, at: 2026-09-24T00:00:00Z }
@@ -18,10 +18,10 @@ agree on.
 
 ## Units
 
-Every coordinate and size that crosses the interface is in **physical
-pixels**: the pixels of the captured bitmap, never logical points or
-DPI-scaled units. A 3440x1440 monitor at 150 % scaling is 3440x1440 here, and
-a Retina panel is its full backing resolution.
+Display coordinates and sizes are in **physical pixels**, never logical
+points or DPI-scaled units. A 3440x1440 monitor at 150 % scaling is
+3440x1440 here, and a Retina panel is its full backing resolution. Window
+input has its own PNG pixel space, which the driver may have downscaled.
 
 - A point in an action (`mouse_click.at`, `mouse_drag.from`/`to`, …) is
   relative to the top-left of the display the host last captured (the primary
@@ -30,6 +30,11 @@ a Retina panel is its full backing resolution.
 - The rectangle given to `captureRegion` is display-relative in the same way.
 - Window and accessibility-element bounds are the exception: they are in
   **virtual-desktop** physical pixels, because a window can span displays.
+- A `captureWindow(id)` PNG uses its **own image pixels**. `executeWindow`
+  accepts points in that PNG, not display pixels. The host maps those points
+  to the real window; callers must not add the window's virtual-desktop bounds
+  to them. Some window capture backends crop the border and downscale before
+  returning the PNG.
 
 A host that works in logical units internally (macOS input APIs, a
 DPI-unaware process on Windows) converts at its own boundary. The tool never
@@ -55,11 +60,15 @@ size is the capture's own and whose scale factor is 1.
 ## Optional methods and their flags
 
 A method is offered to the model only when its capability flag is `true` and
-the method exists; either alone is not enough.
+the method exists; either alone is not enough. `windowScroll` modifies the
+window input path: `false` refuses scoped pixel scroll before a batch starts;
+`true` or absent leaves it to the host.
 
 | Flag | Methods | Used by |
 | --- | --- | --- |
 | `windows` | `listWindows()`, `focusWindow(id)` | `list_windows`, `focus_window` |
+| `windowCapture` | `captureWindow(id)`, `executeWindow(captureId, action)` | `screenshot {window_id}`, then scoped click, drag, scroll, text or key |
+| `windowScroll` | No extra method; `false` refuses scoped pixel scrolling before a batch starts | Hosts whose `executeWindow` cannot safely scroll |
 | `regionCapture` | `captureRegion(rect)` | `zoom`, which otherwise crops a full capture |
 | `uiTree` (experimental) | `uiSnapshot(windowId?)`, `uiAct(ref, action, value?)` | `ui_snapshot`, `ui_act` |
 
@@ -69,6 +78,27 @@ operating system can refuse to bring a window forward, so `focusWindow(id)`
 reports `{ ok, focusedId }` from what is actually in front afterwards, not
 from the request. `captureRegion(rect)` returns a `ScreenshotResult` whose
 `width` and `height` are the region's.
+
+`captureWindow(id)` returns a `WindowScreenshotResult`: PNG bytes and their
+exact width and height, the named `WindowInfo`, and an opaque `captureId`.
+This path can be offered even when display `screenshot`, `mouse` and `keyboard`
+are false. Such a host requires `window_id` for a screenshot and refuses a
+plain display screenshot; scoped input uses its own `executeWindow` method.
+`executeWindow(captureId, action)` takes a click, drag, scroll, text or key
+action against that capture. Text and key actions can request `foreground`
+delivery for input that the host cannot send in the background; the pinned
+Windows driver still validates the captured PID and HWND before keyboard
+input. It does not offer an atomic focus-by-pixel text or key action. The pinned
+Windows adapter reports `windowScroll: false` and refuses window pixel
+scrolling because the driver's
+background path cannot deliver it and its foreground wheel cannot prove
+which window receives the event.
+The host rejects the token when another window
+capture changes its coordinate mapping, when the target PID/HWND disappears,
+its bounds change, or the driver session restarts. A failed window capture
+never falls back to a whole-display screenshot. `mouse_move` and
+`cursor_position` have no window-scoped form: the Windows driver's window move
+animates only an overlay, not the OS cursor.
 
 `UiSnapshot`, `UiElement`, `UiElementAction` and `UiActResult` describe an
 accessibility tree (Windows UI Automation, macOS AX, AT-SPI, or a driver that
@@ -109,3 +139,15 @@ existing refs stale, even when it later reuses the same raw token. Take a new
 `uiSnapshot` before acting on a control again. A driver crash, timeout, or any
 response without the exact structured refusal does not trigger an action retry,
 because the action may already have reached the desktop.
+
+For window pixels, even the exact pre-dispatch `session_ended` refusal makes
+the previous screenshot stale: the driver's per-process resize mapping may
+have been reset. The adapter revives the session but refuses the scoped input
+until a new `captureWindow` succeeds. Its pinned cua-driver 0.28.2 backend
+uses `get_window_state` without a UIA walk for capture and sends `scope:
+"window"` with the captured PID and HWND for input. It also checks the same
+window's bounds immediately before each input. Window capture normally uses
+PrintWindow or Windows Graphics Capture; the driver's screen-region fallback
+can still see an occluding window, and browser permission bubbles rendered
+outside the native window may be absent. The host reports capture coverage
+when the driver does.
