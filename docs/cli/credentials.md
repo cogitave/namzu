@@ -13,6 +13,8 @@ Namzu discovers usable sessions independently of whether the corresponding
 external CLI executable is installed. `/setup` reports installation and
 credential availability separately. `namzu doctor --category providers`
 reports discovered source kinds and paths without printing credential values.
+When it finds no Anthropic credential, it also names the Claude Code file paths
+it checked, even if another provider such as Codex is available.
 
 ## Choosing a provider, and entering a credential
 
@@ -115,9 +117,18 @@ server is how discovery finds it.
 
 The default Claude session file is `~/.claude/.credentials.json` on Linux and
 `%USERPROFILE%\.claude\.credentials.json` on native Windows, including when
-Namzu is launched from PowerShell or Git Bash. The default macOS session is
-read from Claude's Keychain entry. These storage locations follow
+Namzu is launched from Command Prompt, PowerShell or Git Bash. The default
+macOS session is read from Claude's Keychain entry. These storage locations follow
 [Claude's credential documentation](https://code.claude.com/docs/en/authentication#credential-management).
+
+Installing or signing in to Claude Desktop does not guarantee a Claude Code
+CLI session for Namzu to reuse. The Desktop app includes a Code tab, and
+[Anthropic documents the terminal CLI as a separate installation](https://code.claude.com/docs/en/desktop-quickstart).
+If `namzu doctor --category providers` reports no Claude Code session, sign in
+from Namzu with `namzu login claude`, or install the standalone `claude` CLI
+and use its `/login` command. A detected Codex session says nothing about
+Claude Code's separate credential file. Namzu does not inspect the Desktop
+app's own OAuth storage.
 
 `CLAUDE_CONFIG_DIR` selects the directory containing `.credentials.json`.
 Relative values are resolved against Namzu's working directory; paths with

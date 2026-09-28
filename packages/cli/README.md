@@ -55,22 +55,36 @@ describe the checks and their limits.
 
 ## Install
 
-```bash
+On macOS, Linux, or WSL, npm is also available directly:
+
+```sh
 npm install -g @namzu/cli     # the binary
 npx @namzu/cli                # or run it once without installing
 ```
 
 Requires Node.js 22.13 or newer.
 
-There is also an installer, which checks the Node version, installs the package
-and then verifies the binary answers before claiming success. If the global
-prefix is not writable it retries into `~/.namzu` and names the one line to add
-to your profile; it never re-runs itself with elevated privileges.
+There are installers that check the Node version and verify the binary answers.
+The POSIX installer retries an unwritable global prefix under `~/.namzu` and
+names the line to add to your shell profile.
 
-```bash
+On macOS, Linux, or WSL:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
-# Windows
+```
+
+In Windows PowerShell:
+
+```powershell
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
+```
+
+In Windows Command Prompt (`cmd.exe`):
+
+```bat
+npm.cmd install --global @namzu/cli
+namzu.cmd --version
 ```
 
 The CLI bundles provider drivers, plus `@namzu/files` and

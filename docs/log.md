@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-29
+
+- **Fix** [Provider credentials](cli/credentials.md) and [Slash commands](cli/slash-commands.md): missing terminal CLI sessions now show checked credential paths and explain the distinction from desktop app sign-in. The Windows PowerShell installer uses `.cmd` shims under Restricted execution policy and checks for Node 22.13; the READMEs give separate Command Prompt, PowerShell and POSIX commands. `.changeset/windows-claude-discovery.md`, **patch** for `@namzu/cli`.
+
 ## 2026-09-28
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [Provider credentials](cli/credentials.md): the eight bundled free Zen models are selectable without a key through an experimental OpenCode-compatible request path; Space Bunny remains the verified direct default. A 2026-09-28 full Namzu-request probe completed seven of eight models, while Ling returned an unavailable-endpoint error and smaller requests to the other seven were refused. Installation of OpenCode is recommended for comparison but is not used by Namzu's direct model requests. `.changeset/zen-experimental-free-models.md`, **minor** for `@namzu/zen` and `@namzu/cli`.

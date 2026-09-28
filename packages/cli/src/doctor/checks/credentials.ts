@@ -2,6 +2,20 @@ import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 import { hasApiCredential } from '../../integrations/providers/access.js'
 import { discoverProviders } from '../../integrations/providers/discover.js'
+import {
+	claudeCredentialSearchPaths as sessionSearchPaths,
+	wslWindowsHome,
+} from '../../integrations/providers/harness-credentials.js'
+import { KEYCHAIN_SERVICE } from '../../integrations/providers/keychain.js'
+
+function missingClaudeSessionNote(env: NodeJS.ProcessEnv, windowsHome: string | null): string {
+	const paths = sessionSearchPaths(undefined, env, windowsHome)
+	const keychain =
+		process.platform === 'darwin' && !env.CLAUDE_CONFIG_DIR
+			? ` and macOS Keychain service ${KEYCHAIN_SERVICE}`
+			: ''
+	return `Claude Code session not detected; checked ${paths.join(', ')}${keychain}. Desktop sign-in does not guarantee a reusable Claude Code CLI session; Namzu does not read Desktop's credential store. Sign in to the standalone Claude Code CLI, or run \`namzu login claude\`.`
+}
 
 /**
  * Which credential sources namzu actually scanned, and what each yielded.
@@ -23,10 +37,14 @@ import { discoverProviders } from '../../integrations/providers/discover.js'
 export const credentialSourcesCheck: DoctorCheck = {
 	id: 'providers.credentials',
 	category: 'providers',
-	run: async (): Promise<DoctorCheckResult> => {
+	run: async (ctx): Promise<DoctorCheckResult> => {
+		const env = ctx.env as NodeJS.ProcessEnv
+		// Use one paired Windows home for discovery and its diagnostic, so the
+		// reported paths are exactly the paths the credential readers checked.
+		const windowsHome = wslWindowsHome(env)
 		let detected: Awaited<ReturnType<typeof discoverProviders>>
 		try {
-			detected = await discoverProviders()
+			detected = await discoverProviders({ env, windowsHome })
 		} catch (err) {
 			// Discovery is documented as non-throwing; if that ever stops being
 			// true, say which step failed rather than reporting "no credentials".
@@ -36,10 +54,12 @@ export const credentialSourcesCheck: DoctorCheck = {
 			}
 		}
 
+		const missingClaude = !detected.some((provider) => provider.entry.id === 'anthropic')
+		const missingNote = missingClaude ? missingClaudeSessionNote(env, windowsHome) : ''
 		if (detected.length === 0) {
 			return {
 				status: 'warn',
-				message: 'no LLM credential found',
+				message: `no LLM credential found\n${missingNote}`,
 				remediation:
 					'Namzu no longer reads the secrets file. It first reuses current Claude and Codex sessions on this device, then subscriptions signed in with `namzu login claude|codex`. API keys remain optional alternatives through ANTHROPIC_API_KEY or OPENAI_API_KEY; local Ollama and LM Studio servers are also detected.',
 			}
@@ -78,7 +98,7 @@ export const credentialSourcesCheck: DoctorCheck = {
 		)
 		return {
 			status: onlyAnonymousZen ? 'warn' : 'pass',
-			message: `${detected.length} provider source(s) discovered: ${lines.join(', ')}`,
+			message: `${detected.length} provider source(s) discovered: ${lines.join(', ')}${missingNote ? `\n${missingNote}` : ''}`,
 			...(onlyAnonymousZen
 				? {
 						remediation:

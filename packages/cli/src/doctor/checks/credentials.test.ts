@@ -7,11 +7,13 @@
  * command reached for at that moment, so the explanation has to be there.
  */
 
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 const discoverProviders = vi.fn()
 vi.mock('../../integrations/providers/discover.js', () => ({
-	discoverProviders: () => discoverProviders(),
+	discoverProviders: (options: unknown) => discoverProviders(options),
 }))
 
 const { credentialSourcesCheck } = await import('./credentials.js')
@@ -77,6 +79,33 @@ describe('the credential-sources doctor check', () => {
 		expect(result.status).toBe('pass')
 		expect(result.message).toContain('anthropic (keychain · a-keychain-item)')
 		expect(result.message).toContain('openai (env · OPENAI_API_KEY)')
+		expect(result.message).not.toContain('Claude Code session not detected')
+	})
+
+	it('names the selected Claude Code path when Codex exists but Claude does not', async () => {
+		const profile = join(tmpdir(), 'Claude profile with spaces')
+		discoverProviders.mockResolvedValue([
+			{
+				entry: { id: 'codex' },
+				source: { kind: 'codex-file', path: '/owner/auth.json' },
+				apiKey: 'secret-fixture',
+			},
+		])
+
+		const result = await credentialSourcesCheck.run({
+			...ctx,
+			env: { CLAUDE_CONFIG_DIR: profile },
+		})
+
+		expect(result.status).toBe('pass')
+		expect(discoverProviders).toHaveBeenCalledWith({
+			env: { CLAUDE_CONFIG_DIR: profile },
+			windowsHome: null,
+		})
+		expect(result.message).toContain(`checked ${join(profile, '.credentials.json')}`)
+		expect(result.message).toContain('Desktop sign-in does not guarantee')
+		expect(result.message).toContain('namzu login claude')
+		expect(result.message).not.toContain('secret-fixture')
 	})
 
 	it('does not report "no credentials" when discovery itself failed', async () => {

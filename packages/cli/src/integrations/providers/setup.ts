@@ -164,7 +164,9 @@ export async function probeHarnesses(
 						? 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse'
 						: source
 							? `Credential detected · ${source.kind}`
-							: 'Not connected · sign in or add an API key',
+							: harness.id === 'claude'
+								? 'No Claude Code session · Desktop sign-in may not supply one; run namzu login claude'
+								: 'Not connected · sign in or add an API key',
 			}
 		}),
 	)

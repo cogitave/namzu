@@ -12,19 +12,17 @@
 # `&&`; those are PowerShell 7 and would fail on the one machine this has to
 # work on.
 #
-# Verified by parsing this file with `[Parser]::ParseFile` under 5.1 itself
-# (0 errors), and that check was confirmed able to fail — an unclosed block in
-# a copy is reported. There is deliberately NO CI gate for it: CI runs Linux,
-# where the only available parser is PowerShell 7, and 7 is a superset that
-# accepts the very constructs 5.1 would reject. A gate there would pass on the
-# syntax this comment exists to forbid, which is worse than no gate — it would
-# read as coverage. `install.sh` is gated because `sh -n` on Linux does test
-# what ships; this one has to be checked on Windows, by hand, when it changes.
+# On Windows or WSL, `node --test scripts/__tests__/install-powershell.test.mjs`
+# runs this source in Windows PowerShell 5.1 under Restricted policy with mocked
+# node, npm and namzu commands. CI runs Linux without 5.1, so run that test on
+# Windows or WSL whenever this file changes. A PowerShell 7 parse on Linux
+# would not catch 5.1-only syntax failures.
 
 $ErrorActionPreference = 'Stop'
 
 $NamzuPkg = '@namzu/cli'
-$NamzuMinNode = 20
+$NamzuMinNode = 22
+$NamzuMinNodeMinor = 13
 # Pin with: $env:NAMZU_VERSION = '2.1.1'; irm ... | iex
 $NamzuVersion = if ($env:NAMZU_VERSION) { $env:NAMZU_VERSION } else { 'latest' }
 
@@ -45,24 +43,26 @@ function Test-Have($name) {
 if (-not (Test-Have 'node')) {
     Fail @'
 no Node runtime on PATH.
-  namzu runs on Node 20 or newer. Install it, then run this again:
+  namzu runs on Node 22.13 or newer. Install it, then run this again:
     winget install OpenJS.NodeJS.LTS
 '@
 }
 
 $nodeVersion = (& node -v)
-# `v20.11.1` -> 20. A non-numeric answer means something other than Node is
+# `v22.13.0` -> 22 and 13. A non-numeric answer means something other than Node is
 # responding to that name, which is worth saying rather than comparing against.
-if ($nodeVersion -notmatch '^v(\d+)\.') {
+if ($nodeVersion -notmatch '^v(\d+)\.(\d+)\.') {
     Fail "could not read a version from 'node -v'. Got: $nodeVersion"
 }
 $nodeMajor = [int]$Matches[1]
+$nodeMinor = [int]$Matches[2]
 
-if ($nodeMajor -lt $NamzuMinNode) {
-    Fail "Node $nodeVersion is too old. namzu needs Node $NamzuMinNode or newer."
+if ($nodeMajor -lt $NamzuMinNode -or
+    ($nodeMajor -eq $NamzuMinNode -and $nodeMinor -lt $NamzuMinNodeMinor)) {
+    Fail "Node $nodeVersion is too old. namzu needs Node $NamzuMinNode.$NamzuMinNodeMinor or newer."
 }
 
-if (-not (Test-Have 'npm')) {
+if (-not (Test-Have 'npm.cmd')) {
     Fail @'
 found Node but no npm on PATH.
   npm ships with Node; a PATH with one and not the other is usually a partial
@@ -74,30 +74,31 @@ Write-Step "Node $nodeVersion, installing $NamzuPkg@$NamzuVersion"
 
 # ---------------------------------------------------------------- install
 
+# Use the .cmd shim explicitly. Under Restricted execution policy, PowerShell
+# resolves bare `npm` to npm.ps1 and refuses to run it even when npm.cmd works.
 # `2>&1 | Out-Null` rather than a redirect: npm writes progress to stderr even
 # on success, and in PowerShell 5.1 a native command's stderr becomes an
 # ErrorRecord that trips $ErrorActionPreference = 'Stop'.
-& npm install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1 | Out-Null
+& npm.cmd install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1 | Out-Null
 $installExit = $LASTEXITCODE
 
 if ($installExit -ne 0) {
     Fail @"
 npm install failed (exit $installExit).
   Re-run it by hand to see why:
-    npm install --global $NamzuPkg@$NamzuVersion
+    npm.cmd install --global $NamzuPkg@$NamzuVersion
 "@
 }
 
 # ---------------------------------------------------------------- verify
 
-# A fresh global install lands in a directory this process may not have had on
-# PATH when it started, so refresh from the registry before deciding it is
-# missing. Otherwise a perfectly good install reports as broken.
-$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-            [Environment]::GetEnvironmentVariable('Path', 'User')
+# A fresh global install may land on the persisted machine or user PATH. Add
+# those entries without dropping a process-local Node/npm prefix.
+$env:Path += ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+             [Environment]::GetEnvironmentVariable('Path', 'User')
 
-if (-not (Test-Have 'namzu')) {
-    $prefix = (& npm prefix --global)
+if (-not (Test-Have 'namzu.cmd')) {
+    $prefix = (& npm.cmd prefix --global)
     Fail @"
 installed, but 'namzu' is not on PATH.
   npm put it in: $prefix
@@ -105,7 +106,7 @@ installed, but 'namzu' is not on PATH.
 "@
 }
 
-$installed = (& namzu --version)
+$installed = (& namzu.cmd --version)
 if ($LASTEXITCODE -ne 0 -or -not $installed) {
     Fail @'
 'namzu' is on PATH but did not answer --version.
