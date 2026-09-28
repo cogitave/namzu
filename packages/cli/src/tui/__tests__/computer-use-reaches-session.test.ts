@@ -19,6 +19,8 @@ import type { DetectedProvider, Preferences } from '../../integrations/providers
 
 const desktop = vi.hoisted(() => ({
 	failInitialize: false,
+	windowMethods: true,
+	windowDiscovery: true,
 	initialize: vi.fn<() => Promise<void>>(),
 	dispose: vi.fn<() => Promise<void>>(),
 	execute: vi.fn(),
@@ -35,6 +37,8 @@ vi.mock('@namzu/computer-use', () => ({
 			keyboard: true,
 			cursorPosition: true,
 			clipboard: true,
+			windowCapture: true,
+			windows: true,
 		}
 
 		async initialize() {
@@ -45,17 +49,65 @@ vi.mock('@namzu/computer-use', () => ({
 		dispose = desktop.dispose
 		execute = desktop.execute
 		getDisplayGeometry = desktop.getDisplayGeometry
+		captureWindow = desktop.windowMethods
+			? async () => {
+					throw new Error('not used')
+				}
+			: undefined
+		executeWindow = desktop.windowMethods
+			? async () => {
+					throw new Error('not used')
+				}
+			: undefined
+		listWindows = desktop.windowDiscovery ? async () => [] : undefined
+		focusWindow = desktop.windowDiscovery
+			? async (id: string) => ({ ok: true, focusedId: id })
+			: undefined
+	},
+}))
+
+vi.mock('@namzu/browser', () => ({
+	PlaywrightBrowserHost: class {
+		readonly id = 'test-browser'
+		readonly profile: string
+		readonly plan = { engine: 'windows-cdp', browser: 'chrome', warnings: [] }
+		readonly warnings: string[] = []
+		readonly running = false
+		readonly capabilities = {
+			engine: 'windows-cdp',
+			headless: false,
+			screenshot: true,
+			upload: true,
+		}
+		constructor(options: { profile: string }) {
+			this.profile = options.profile
+		}
+		async observe() {
+			throw new Error('not used')
+		}
+		async act() {
+			throw new Error('not used')
+		}
+		describeRef() {
+			return undefined
+		}
+		session() {
+			return { profile: this.profile }
+		}
+		async dispose() {}
 	},
 }))
 
 let queryToolNames: readonly string[] = []
 let queryTools: readonly LLMToolSchema[] = []
 let enforcedToolNames: readonly string[] = []
+let querySystemPrompt = ''
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
-		query: (params: { toolsets: readonly Toolset[] }) => {
+		query: (params: { toolsets: readonly Toolset[]; systemPrompt?: string }) => {
+			querySystemPrompt = params.systemPrompt ?? ''
 			const manager = new ToolManager({ toolsets: params.toolsets, messages: () => [] })
 			queryTools = manager.toLLMTools()
 			queryToolNames = queryTools.map((tool) => tool.function.name)
@@ -100,7 +152,10 @@ beforeEach(() => {
 	queryToolNames = []
 	queryTools = []
 	enforcedToolNames = []
+	querySystemPrompt = ''
 	desktop.failInitialize = false
+	desktop.windowMethods = true
+	desktop.windowDiscovery = true
 	desktop.initialize.mockReset().mockResolvedValue(undefined)
 	desktop.dispose.mockReset().mockResolvedValue(undefined)
 	desktop.execute.mockReset()
@@ -157,18 +212,74 @@ const imagelessDetected = [
 async function createSession(
 	enableComputerUse = false,
 	provider: 'anthropic' | 'openai' = 'anthropic',
+	withBrowser = false,
 ) {
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(
 		provider === 'openai' ? imagelessPrefs : prefs,
 		provider === 'openai' ? imagelessDetected : detected,
-		{ cwd: workDir, enableComputerUse },
+		{
+			cwd: workDir,
+			enableComputerUse,
+			...(withBrowser ? { browser: { profile: 'work', sites: { '*': 'ask' as const } } } : {}),
+		},
 	)
 	open.push(session)
 	return session
 }
 
 describe('computer use session reachability', () => {
+	it('routes an existing Brave window to computer_use only when both tools are ready', async () => {
+		const both = await createSession(true, 'anthropic', true)
+		for await (const _ of both.send([{ role: 'user', content: 'my open Brave window' } as never])) {
+			// drain into the mocked query boundary
+		}
+		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))
+		expect(querySystemPrompt).toContain('already open desktop browser window')
+		expect(querySystemPrompt).toContain('separate Namzu-managed browser profile')
+
+		querySystemPrompt = ''
+		desktop.failInitialize = true
+		const unavailable = await createSession(true, 'anthropic', true)
+		for await (const _ of unavailable.send([
+			{ role: 'user', content: 'my open Brave window' } as never,
+		])) {
+			// drain into the mocked query boundary
+		}
+		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+
+		querySystemPrompt = ''
+		desktop.failInitialize = false
+		desktop.windowMethods = true
+		desktop.windowDiscovery = false
+		const missingWindowDiscovery = await createSession(true, 'anthropic', true)
+		for await (const _ of missingWindowDiscovery.send([
+			{ role: 'user', content: 'my open Brave window' } as never,
+		])) {
+			// drain into the mocked query boundary
+		}
+		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+
+		querySystemPrompt = ''
+		desktop.failInitialize = false
+		desktop.windowMethods = false
+		const missingWindowMethods = await createSession(true, 'anthropic', true)
+		for await (const _ of missingWindowMethods.send([
+			{ role: 'user', content: 'my open Brave window' } as never,
+		])) {
+			// drain into the mocked query boundary
+		}
+		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+
+		querySystemPrompt = ''
+		const browserOnly = await createSession(false, 'anthropic', true)
+		for await (const _ of browserOnly.send([
+			{ role: 'user', content: 'my open Brave window' } as never,
+		])) {
+			// drain into the mocked query boundary
+		}
+		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+	})
 	it('mounts the initialized host into the registry used by a real send and owns its cleanup', async () => {
 		const session = await createSession(true)
 

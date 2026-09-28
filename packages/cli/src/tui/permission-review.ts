@@ -672,9 +672,24 @@ function computerUseAction(
 	const fields = (...names: string[]): boolean =>
 		Object.keys(item).every((key) => key === 'type' || names.includes(key) || extra.includes(key))
 	const text = (value: unknown): value is string => typeof value === 'string'
+	const delivery = (): string | null =>
+		item.delivery_mode === undefined || item.delivery_mode === 'background'
+			? ''
+			: item.delivery_mode === 'foreground'
+				? ' (may bring the window to the front)'
+				: null
 	switch (item.type) {
 		case 'screenshot':
-			return fields() ? { line: 'Take a screenshot', coordinates: false } : null
+			return fields('window_id') &&
+				(item.window_id === undefined || (text(item.window_id) && item.window_id.length > 0))
+				? {
+						line:
+							item.window_id === undefined
+								? 'Take a screenshot'
+								: `Take a screenshot of window ${JSON.stringify(item.window_id)}`,
+						coordinates: false,
+					}
+				: null
 		case 'cursor_position':
 			return fields() ? { line: 'Read the cursor position', coordinates: false } : null
 		case 'list_windows':
@@ -691,13 +706,17 @@ function computerUseAction(
 					}
 				: null
 		case 'type_text':
-			return fields('text') && text(item.text)
-				? { line: `Type ${JSON.stringify(item.text)}`, coordinates: false }
-				: null
-		case 'key':
-			return fields('keys') && text(item.keys)
-				? { line: `Press ${JSON.stringify(item.keys)}`, coordinates: false }
-				: null
+		case 'key': {
+			const field = item.type === 'type_text' ? 'text' : 'keys'
+			if (!fields(field, 'delivery_mode') || !text(item[field])) return null
+			const mode = delivery()
+			if (mode === null) return null
+			const verb = item.type === 'type_text' ? 'type' : 'press'
+			return {
+				line: `${verb === 'type' ? 'Type' : 'Press'} ${JSON.stringify(item[field])}${mode}`,
+				coordinates: false,
+			}
+		}
 		case 'mouse_move': {
 			const to = point(item.to)
 			return fields('to') && to ? { line: `Move the pointer to ${to}`, coordinates: true } : null

@@ -1,4 +1,9 @@
-import type { DisplayInfo, Point, Rect } from '../../types/computer-use/index.js'
+import type {
+	DisplayInfo,
+	Point,
+	Rect,
+	WindowScreenshotResult,
+} from '../../types/computer-use/index.js'
 
 /**
  * One screenshot the model was shown: its id, the size of the image it saw,
@@ -12,6 +17,8 @@ export interface ScreenshotFrame {
 	readonly imageHeight: number
 	/** Physical size and virtual-desktop origin of what the image shows. */
 	readonly display: DisplayInfo
+	/** Present only for an explicit capture of one window. */
+	readonly window?: Omit<WindowScreenshotResult, 'data'> & { readonly data?: Buffer }
 }
 
 /**
@@ -28,13 +35,54 @@ export class ScreenshotFrames {
 
 	constructor(private readonly capacity = 32) {}
 
+	/** Only the newest window PNG is needed for zoom; older tokens cannot act. */
+	private discardOldWindowPixels(): void {
+		for (const [id, frame] of this.frames) {
+			if (frame.window?.data)
+				this.frames.set(id, { ...frame, window: { ...frame.window, data: undefined } })
+		}
+	}
+
 	record(image: { width: number; height: number }, display: DisplayInfo): ScreenshotFrame {
+		this.discardOldWindowPixels()
 		this.counter += 1
 		const frame: ScreenshotFrame = {
 			id: `s${this.counter}`,
 			imageWidth: image.width,
 			imageHeight: image.height,
 			display,
+		}
+		this.frames.set(frame.id, frame)
+		this.newest = frame
+		while (this.frames.size > this.capacity) {
+			const oldest = this.frames.keys().next().value
+			if (oldest === undefined) break
+			this.frames.delete(oldest)
+		}
+		return frame
+	}
+
+	recordWindow(
+		image: { width: number; height: number },
+		window: WindowScreenshotResult,
+	): ScreenshotFrame {
+		this.discardOldWindowPixels()
+		this.counter += 1
+		const frame: ScreenshotFrame = {
+			id: `s${this.counter}`,
+			imageWidth: image.width,
+			imageHeight: image.height,
+			// Kept only for the common image-size helpers; a window frame never
+			// enters a display-coordinate action or virtual-desktop projection.
+			display: {
+				id: window.window.id,
+				x: window.window.bounds.x,
+				y: window.window.bounds.y,
+				width: window.width,
+				height: window.height,
+				scaleFactor: 1,
+			},
+			window,
 		}
 		this.frames.set(frame.id, frame)
 		this.newest = frame
@@ -93,6 +141,15 @@ export function toDisplayPoint(frame: ScreenshotFrame, point: Point): Point {
 	return {
 		x: axisToDisplay(point.x, frame.imageWidth, frame.display.width),
 		y: axisToDisplay(point.y, frame.imageHeight, frame.display.height),
+	}
+}
+
+/** Model image pixels to the exact PNG pixel space accepted by the window driver. */
+export function toWindowPoint(frame: ScreenshotFrame, point: Point): Point {
+	if (!frame.window) throw new Error('computer_use: expected a window screenshot')
+	return {
+		x: axisToDisplay(point.x, frame.imageWidth, frame.window.width),
+		y: axisToDisplay(point.y, frame.imageHeight, frame.window.height),
 	}
 }
 

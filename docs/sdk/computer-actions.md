@@ -58,12 +58,26 @@ model saw. A coordinate past the image's far edge is refused, not clamped:
 it was read off some other image, and acting on it would click somewhere the
 model never looked. Before the first screenshot, actions that take
 coordinates, and `type_text` and `key` (which go to whichever window has
-focus), are refused with "take a screenshot first". `cursor_position` reports
+focus after a display capture), are refused with "take a screenshot first". `cursor_position` reports
 in screenshot pixels.
 
 The latest screenshot's size is also pinned into the turn's working memory
 (`computer_use.screenshot`), so it survives compaction when older images are
 cleared.
+
+On a host with `windowCapture`, `list_windows` then
+`screenshot {window_id:"…"}` captures pixels for that named window. Its frame id binds
+the PNG, PID and window handle together. Pixel actions from that frame map
+from the fitted model image back to the driver's exact window PNG, then use
+window-scoped input. This matters when the driver already shrank the window
+and the SDK fits it a second time. The tool refuses an older window frame,
+and the host refuses one after the window moves, is minimized, is replaced,
+or its driver session restarts. Post-action screenshots of a window frame
+capture that same window. A plain `screenshot` captures the display only when
+the host offers display screenshots. A window-only host requires `window_id`
+and can still offer scoped clicks, dragging, text and keys. Neither a failed
+window capture nor a stale action silently falls back to full-desktop input
+or capture.
 
 The PNG work uses [`fast-png`](https://github.com/image-js/fast-png) and
 [`pica`](https://github.com/nodeca/pica) (Lanczos-3, pure JavaScript with a
@@ -83,15 +97,15 @@ the action still reports success and the text says to take one.
 
 | Action | Fields | Returns a screenshot |
 | --- | --- | --- |
-| `screenshot` | — | itself |
+| `screenshot` | `window_id` (optional; only on a host with window capture) | itself |
 | `zoom` | `region: { x, y, width, height }` | a closer view, not a new coordinate space |
 | `cursor_position` | — | no |
 | `mouse_move` | `to` | yes |
 | `mouse_click` | `at`, `button` (left when omitted) | yes |
 | `mouse_drag` | `from`, `to`, `button` (left when omitted) | yes |
 | `scroll` | `at`, `direction`, `amount` | yes |
-| `type_text` | `text` | yes |
-| `key` | `keys` | yes |
+| `type_text` | `text`, optional `delivery_mode` on a window screenshot | yes |
+| `key` | `keys`, optional `delivery_mode` on a window screenshot | yes |
 | `wait` | `ms` (at most `maxWaitMs` per call, 10 000 by default; a batch's waits share it) | yes |
 | `list_windows` | — | no |
 | `focus_window` | `window_id` | yes |
@@ -99,23 +113,66 @@ the action still reports success and the text says to take one.
 | `ui_act` | `ref`, `action`, `value` (for `set_value`) | yes |
 | `batch` | `actions` | one, at the end |
 
-Every action also takes an optional `screenshot_id`.
+Coordinate actions, `type_text`, `key`, `zoom` and `batch` take an optional
+`screenshot_id`. For text and keys, the id selects whether input targets a
+captured window or the display's focused window.
 
-`zoom` crops the region at full physical resolution (through
+`zoom` crops a display region at full physical resolution (through
 `captureRegion` when the host declares `regionCapture`, otherwise from a
-fresh full capture) and fits the crop to the same limits without enlarging
-it. Its text says the coordinates still refer to the screenshot it was taken
-from; zoom never starts a new coordinate space.
+fresh full capture). For a window frame, it crops the captured window PNG
+without taking another driver snapshot, which preserves its capture token.
+Both paths fit the crop without enlarging it. Coordinates still refer to the
+screenshot it came from; zoom never starts a new coordinate space.
 
 `list_windows` and `focus_window` are offered only when the host declares
 `windows` and implements both methods. The list gives each window's id,
-title, application, pid, focus and where it sits on the latest screenshot,
+title, application, pid, focus and where it sits on the latest display screenshot,
 inside an untrusted-content frame (`<namzu-untrusted-<nonce> kind="desktop-windows">`,
 the real closing tag bound to a per-render nonce nothing in the title can
 predict — see [Cross-session peer messaging](peer-messaging.md#the-real-delimiter-is-a-per-render-nonce-not-a-fixed-keyword)
 for why): a title is whatever the application shows, a web page's title in a
 browser window included. `focus_window` fails when the window in front
 afterwards is not the one asked for, and says which one is.
+
+After a window screenshot, `list_windows` omits display-relative positions:
+there is no whole-display image to place the other windows on. The same
+applies to UI-tree `@(x, y)` annotations until a display screenshot is taken.
+
+Window-scoped `type_text` and `key` target the captured PID/HWND; the tool
+refuses terminal windows. To type in a browser field, first click its point
+from the window screenshot, then send text. The driver cannot safely bind a
+single foreground focus-and-type action to that window, so these actions do
+not accept an `at` point. Text and keys default to background delivery. For
+Chromium text or modifier shortcuts such as `CTRL+L`, set
+`delivery_mode: "foreground"` on a window screenshot; the Windows driver
+rechecks the PID/HWND and may briefly bring that exact window to the front to
+send the input. `delivery_mode` on a display screenshot is refused. A
+background keyboard action that the driver refuses has not sent the input;
+use a fresh window screenshot before a foreground retry. `mouse_move` and
+`cursor_position` require a display
+screenshot because the Windows driver has no real OS cursor move in window
+scope. If a browser permission bubble is drawn outside its native window,
+the window capture may not show it; the capture result says so when the driver
+reports that limitation. The pinned driver can also fall back to a screen
+region when native window capture fails, and does not expose whether that
+region was covered by another window. If the image is blank or shows another
+window, stop pixel actions, focus the target and capture it again. A deliberate
+plain screenshot gives the broader display view when it is needed.
+
+Hosts that set `windowScroll: false` refuse scoped pixel scrolling before a
+batch starts. A host that can deliver it safely may leave the flag unset or
+set it to `true`.
+
+The pinned Windows driver uses only background pointer delivery for scoped
+clicks and drags. Foreground pointer events do not prove which window is
+under the cursor when an overlay covers the point. If the driver refuses a
+window click or drag, inspect a fresh image or use a UI control ref; take a
+deliberate display screenshot before display input if needed. Scoped pixel
+scrolling is refused because the driver's background path cannot deliver it
+and its foreground wheel can reach a covering window. On a browser page,
+`key {keys:"PAGE_DOWN", delivery_mode:"foreground"}` or arrow keys retain
+the window target when keyboard focus is appropriate. `focus_window` followed
+by automatic capture returns pixels for that window on a host with window capture.
 
 ## A window's controls
 
@@ -148,8 +205,9 @@ Window "Hesap Makinesi"
   instead of silently naming whatever holds that number now.
 - A nameless control nothing can be done with is left out and its children
   move up a level. Names and values are cut to one line of 64 characters.
-- `@(x, y)` is the control's centre on the latest screenshot, for the rare
-  control `ui_act` cannot reach; there is none before the first screenshot.
+- `@(x, y)` is the control's centre on the latest display screenshot, for
+  the rare control `ui_act` cannot reach; it is omitted after a window-only
+  screenshot or before the first display screenshot.
 - Everything the application wrote sits inside an untrusted-content frame;
   the header, refs and positions are the tool's. A name cannot close the
   frame early.
@@ -163,8 +221,11 @@ button, open a menu item), `set_value` (replace a field's text with `value`),
 action the control does not list, or `set_value` without `value`, is refused
 before anything runs; in a batch that refuses the whole batch. The host's
 refusal comes back in its own words (`that control is from an older UI
-snapshot; take a new one`). Like every action that changes something, it
-returns a screenshot afterwards.
+snapshot; take a new one`). It normally returns a screenshot afterwards.
+On a window-only host, refs work even before the first image: the tool
+captures the window named by `ui_snapshot` after acting when it has a window
+id. If the host reports no window id, it returns the action result without
+an image; take a new `ui_snapshot` to inspect the change.
 
 `ComputerUseTool.describeUiRef(ref)` (experimental) names the control a ref
 points at in the latest snapshot — `Button "Beş" (e65)` — for a host that

@@ -94,6 +94,7 @@ describe('the cua-driver adapter', () => {
 		expect(calls()[0]).toEqual({ name: 'set_agent_cursor_enabled', arguments: { enabled: false } })
 		expect(adapter.backend).toBe('cua-driver 0.28.2')
 		expect(adapter.capabilities.windows).toBe(true)
+		expect(adapter.capabilities.windowScroll).toBe(false)
 		expect(adapter.capabilities.regionCapture).toBe(false)
 		await adapter.dispose()
 	})
@@ -119,6 +120,317 @@ describe('the cua-driver adapter', () => {
 			scaleFactor: 1.5,
 			primary: true,
 		})
+		await adapter.dispose()
+	})
+
+	it('binds window PNG input to the captured PID and HWND, and refuses a moved or stale window', async () => {
+		let moved = false
+		const windows = () => [
+			{
+				window_id: 0x111,
+				pid: 42,
+				title: 'Brave',
+				app_name: 'brave.exe',
+				bounds: { x: moved ? 120 : 100, y: 80, width: 1200, height: 700 },
+				z_index: 1,
+			},
+			{
+				window_id: 0x222,
+				pid: 42,
+				title: 'Brave second',
+				app_name: 'brave.exe',
+				bounds: { x: 1300, y: 80, width: 1200, height: 700 },
+				z_index: 0,
+			},
+		]
+		const { adapter, calls } = cuaDriver({
+			list_windows: () => toolResult({ windows: windows() }),
+			get_window_state: (call) => {
+				const hwnd = call.arguments.window_id as number
+				const bounds = windows().find((window) => window.window_id === hwnd)?.bounds
+				return toolResult(
+					{
+						pid: 42,
+						window_id: hwnd,
+						window_bounds: bounds,
+						screenshot_width: 1200,
+						screenshot_height: 700,
+					},
+					[{ type: 'image', data: pngHeader(1200, 700).toString('base64'), mimeType: 'image/png' }],
+				)
+			},
+		})
+		const first = await adapter.captureWindow('0x111')
+		expect(first.window.id).toBe('0x111')
+		expect(first.width).toBe(1200)
+		expect(calls().find((call) => call.name === 'get_window_state')?.arguments).toEqual({
+			pid: 42,
+			window_id: 0x111,
+			include_accessibility_tree: false,
+			include_screenshot: true,
+		})
+		await adapter.executeWindow(first.captureId, {
+			type: 'mouse_click',
+			at: { x: 340, y: 260 },
+			button: 'left',
+		})
+		expect(calls().find((call) => call.name === 'click')?.arguments).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x111,
+			x: 340,
+			y: 260,
+			button: 'left',
+		})
+		moved = true
+		await expect(
+			adapter.executeWindow(first.captureId, {
+				type: 'mouse_click',
+				at: { x: 340, y: 260 },
+				button: 'left',
+			}),
+		).rejects.toThrow(/captured window changed/)
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
+		moved = false
+		const second = await adapter.captureWindow('0x222')
+		await expect(
+			adapter.executeWindow(first.captureId, {
+				type: 'mouse_click',
+				at: { x: 340, y: 260 },
+				button: 'left',
+			}),
+		).rejects.toThrow(/stale/)
+		await adapter.executeWindow(second.captureId, { type: 'key', keys: 'CTRL+R' })
+		expect(calls().find((call) => call.name === 'hotkey')?.arguments).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x222,
+			keys: ['ctrl', 'r'],
+		})
+		await adapter.executeWindow(second.captureId, {
+			type: 'key',
+			keys: 'CTRL+L',
+			delivery_mode: 'foreground',
+		})
+		expect(
+			calls()
+				.filter((call) => call.name === 'hotkey')
+				.at(-1)?.arguments,
+		).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x222,
+			keys: ['ctrl', 'l'],
+			delivery_mode: 'foreground',
+		})
+		await adapter.executeWindow(second.captureId, {
+			type: 'type_text',
+			text: 'hello',
+			delivery_mode: 'foreground',
+		})
+		expect(calls().find((call) => call.name === 'type_text')?.arguments).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x222,
+			text: 'hello',
+			delivery_mode: 'foreground',
+		})
+		await adapter.executeWindow(second.captureId, {
+			type: 'key',
+			keys: 'CTRL+A',
+			delivery_mode: 'foreground',
+		})
+		expect(
+			calls()
+				.filter((call) => call.name === 'hotkey')
+				.at(-1)?.arguments,
+		).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x222,
+			keys: ['ctrl', 'a'],
+			delivery_mode: 'foreground',
+		})
+		await expect(
+			adapter.executeWindow(second.captureId, {
+				type: 'scroll',
+				at: { x: 220, y: 130 },
+				direction: 'down',
+				amount: 3,
+			}),
+		).rejects.toThrow(/window pixel scrolling is unavailable/)
+		expect(calls().some((call) => call.name === 'scroll')).toBe(false)
+		expect(calls().some((call) => call.name === 'get_desktop_state')).toBe(false)
+		await adapter.dispose()
+	})
+
+	it('counts a window click already sent as done and never suggests an unsafe foreground pointer retry', async () => {
+		let clicks = 0
+		const { adapter, calls } = cuaDriver({
+			list_windows: () =>
+				toolResult({
+					windows: [
+						{
+							window_id: 0x111,
+							pid: 42,
+							title: 'Brave',
+							app_name: 'brave.exe',
+							bounds: { x: 100, y: 80, width: 1200, height: 700 },
+							z_index: 1,
+						},
+					],
+				}),
+			get_window_state: () =>
+				toolResult(
+					{
+						pid: 42,
+						window_id: 0x111,
+						window_bounds: { x: 100, y: 80, width: 1200, height: 700 },
+						screenshot_width: 1200,
+						screenshot_height: 700,
+					},
+					[{ type: 'image', data: pngHeader(1200, 700).toString('base64'), mimeType: 'image/png' }],
+				),
+			click: () => {
+				clicks++
+				return clicks === 1
+					? {
+							result: {
+								isError: true,
+								structuredContent: { code: 'foreground_unavailable' },
+								content: [
+									{
+										type: 'text',
+										text: 'foreground_unavailable: target was not foreground after the click',
+									},
+								],
+							},
+						}
+					: {
+							result: {
+								isError: true,
+								structuredContent: {
+									code: 'background_unavailable',
+									suggestion: 'retry in foreground',
+								},
+								content: [
+									{ type: 'text', text: 'Retry this action with delivery_mode:"foreground"' },
+								],
+							},
+						}
+			},
+		})
+		const shot = await adapter.captureWindow('0x111')
+		const action = { type: 'mouse_click', at: { x: 220, y: 130 }, button: 'left' } as const
+		await expect(adapter.executeWindow(shot.captureId, action)).resolves.toBeUndefined()
+		await expect(adapter.executeWindow(shot.captureId, action)).rejects.toThrow(
+			/window pointer action could not be delivered safely in background/,
+		)
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(2)
+		expect(
+			calls()
+				.filter((call) => call.name === 'click')
+				.every((call) => !('delivery_mode' in call.arguments)),
+		).toBe(true)
+		await adapter.dispose()
+	})
+
+	it('serializes a new capture before an old-frame action, refusing it without input', async () => {
+		let captured = 0
+		let captureStarted!: () => void
+		let releaseCapture!: () => void
+		const started = new Promise<void>((resolve) => {
+			captureStarted = resolve
+		})
+		const held = new Promise<void>((resolve) => {
+			releaseCapture = resolve
+		})
+		const { adapter, calls } = cuaDriver({
+			list_windows: () =>
+				toolResult({
+					windows: [
+						{
+							window_id: 0x111,
+							pid: 42,
+							title: 'Brave',
+							app_name: 'brave.exe',
+							bounds: { x: 100, y: 80, width: 1200, height: 700 },
+							z_index: 1,
+						},
+					],
+				}),
+			get_window_state: async () => {
+				captured++
+				if (captured === 2) {
+					captureStarted()
+					await held
+				}
+				return toolResult(
+					{
+						pid: 42,
+						window_id: 0x111,
+						window_bounds: { x: 100, y: 80, width: 1200, height: 700 },
+						screenshot_width: 1200,
+						screenshot_height: 700,
+					},
+					[{ type: 'image', data: pngHeader(1200, 700).toString('base64'), mimeType: 'image/png' }],
+				)
+			},
+		})
+		const first = await adapter.captureWindow('0x111')
+		const next = adapter.captureWindow('0x111')
+		await started
+		const staleAction = adapter.executeWindow(first.captureId, {
+			type: 'mouse_click',
+			at: { x: 220, y: 130 },
+			button: 'left',
+		})
+		expect(calls().some((call) => call.name === 'click')).toBe(false)
+		releaseCapture()
+		await next
+		await expect(staleAction).rejects.toThrow(/stale/)
+		expect(calls().some((call) => call.name === 'click')).toBe(false)
+		await adapter.dispose()
+	})
+
+	it('invalidates a window capture on driver session revival instead of replaying its pixel action', async () => {
+		const { adapter, calls } = cuaDriver({
+			list_windows: () =>
+				toolResult({
+					windows: [
+						{
+							window_id: 0x111,
+							pid: 42,
+							title: 'Brave',
+							app_name: 'brave.exe',
+							bounds: { x: 100, y: 80, width: 1200, height: 700 },
+							z_index: 1,
+						},
+					],
+				}),
+			get_window_state: () =>
+				toolResult(
+					{
+						pid: 42,
+						window_id: 0x111,
+						window_bounds: { x: 100, y: 80, width: 1200, height: 700 },
+						screenshot_width: 1200,
+						screenshot_height: 700,
+					},
+					[{ type: 'image', data: pngHeader(1200, 700).toString('base64'), mimeType: 'image/png' }],
+				),
+			click: () => endedSessionRefusal(),
+		})
+		const shot = await adapter.captureWindow('0x111')
+		await expect(
+			adapter.executeWindow(shot.captureId, {
+				type: 'mouse_click',
+				at: { x: 5, y: 5 },
+				button: 'left',
+			}),
+		).rejects.toThrow(/stale window screenshot/)
+		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
+		expect(calls().filter((call) => call.name === 'start_session')).toHaveLength(1)
 		await adapter.dispose()
 	})
 

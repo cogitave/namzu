@@ -11,6 +11,8 @@ import type {
 	UiElementAction,
 	UiSnapshot,
 	WindowInfo,
+	WindowInputAction,
+	WindowScreenshotResult,
 } from '@namzu/sdk'
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import type { Win32AdapterOptions } from './adapters/win32.js'
@@ -166,6 +168,25 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		const adapter = this.requireAdapter()
 		if (!adapter.focusWindow) throw unsupported('focusWindow', this._capabilities.displayServer)
 		return adapter.focusWindow(id)
+	}
+
+	/** Window-local PNG and input, only when the selected adapter supports both. */
+	async captureWindow(id: string): Promise<WindowScreenshotResult> {
+		const adapter = this.requireAdapter()
+		if (!adapter.captureWindow) throw unsupported('captureWindow', this._capabilities.displayServer)
+		return adapter.captureWindow(id)
+	}
+
+	async executeWindow(captureId: string, action: WindowInputAction): Promise<void> {
+		const adapter = this.requireAdapter()
+		if (!adapter.executeWindow) throw unsupported('executeWindow', this._capabilities.displayServer)
+		try {
+			await adapter.executeWindow(captureId, action)
+		} catch (error) {
+			if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type))
+				throw new ComputerUseOutcomeUnknownError(action.type, error)
+			throw error
+		}
 	}
 
 	/** Offered to the model only when `capabilities.regionCapture` is true. */
