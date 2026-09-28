@@ -1057,6 +1057,7 @@ export function createComputerUseTool(
 	let uiSnapshots = 0
 	let uiRefCount = 0
 	let uiSnapshotWindowId: string | undefined
+	let uiSnapshotFrame: ScreenshotFrame | undefined
 	const describeUiRef = (ref: string): string | undefined => {
 		const entry = uiRefs.get(ref)
 		return entry ? `${uiElementText(entry.element)} (${ref})` : undefined
@@ -1413,6 +1414,7 @@ export function createComputerUseTool(
 		visit(snapshot.root, 0)
 		uiRefs = refs
 		uiSnapshotWindowId = snapshot.windowId ?? input.window_id
+		uiSnapshotFrame = frames.latest()
 		const window =
 			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
 		const header = [
@@ -1710,6 +1712,8 @@ export function createComputerUseTool(
 		// the desktop.
 		const planned: PlannedStep[] = []
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
+		const explicitDisplayFrame =
+			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
 		if (
 			actionFrame?.window &&
 			items.some(
@@ -1772,7 +1776,16 @@ export function createComputerUseTool(
 				else if (
 					step.item.type === 'ui_act' &&
 					uiSnapshotWindowId &&
-					!hostActionAvailable(caps, 'screenshot') &&
+					!explicitDisplayFrame &&
+					windowCaptureAvailable(host, caps)
+				)
+					postWindowId = uiSnapshotWindowId
+				else if (
+					step.item.type === 'wait' &&
+					!changed &&
+					uiSnapshotWindowId &&
+					uiSnapshotFrame === frames.latest() &&
+					frameId === undefined &&
 					windowCaptureAvailable(host, caps)
 				)
 					postWindowId = uiSnapshotWindowId

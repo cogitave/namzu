@@ -326,6 +326,98 @@ describe('computer_use UI tree', () => {
 		expect(noId.actions).toEqual([])
 	})
 
+	it('captures the named UI target after ui_act, unless a display screenshot was selected', async () => {
+		const target = '0x261206'
+		const { host, actions } = makeUiHost({
+			capabilities: { windowCapture: true },
+			snapshot: (generation) => ({ ...calculator(generation), windowId: target }),
+		})
+		const captures: string[] = []
+		Object.assign(host, {
+			captureWindow: async (id: string) => {
+				captures.push(id)
+				return {
+					data: png,
+					mimeType: 'image/png',
+					width: 1280,
+					height: 800,
+					window: {
+						id,
+						title: id,
+						app: 'ApplicationFrameHost',
+						pid: 42,
+						bounds: { x: 100, y: 100, width: 1280, height: 800 },
+						focused: true,
+						minimized: false,
+					},
+					captureId: `window-${captures.length}`,
+				}
+			},
+			executeWindow: async () => undefined,
+		})
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'screenshot', window_id: '0x111' })
+		await run(tool, { type: 'ui_snapshot', window_id: target })
+		const acted = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		expect(acted.success).toBe(true)
+		expect(acted.data).toHaveProperty('screenshot.window.id', target)
+		expect(captures).toEqual(['0x111', target])
+		expect(actions).toEqual([])
+
+		await run(tool, { type: 'screenshot' })
+		await run(tool, { type: 'ui_snapshot', window_id: target })
+		const displayAct = await run(tool, {
+			type: 'ui_act',
+			ref: 'e6',
+			action: 'invoke',
+			screenshot_id: 's3',
+		})
+		expect(displayAct.success).toBe(true)
+		expect(displayAct.data).toHaveProperty('screenshot.display.id', 'p')
+		expect(captures).toEqual(['0x111', target])
+		expect(actions.map((action) => action.type)).toEqual(['screenshot', 'screenshot'])
+	})
+
+	it('wait follows a named UI snapshot until a newer window screenshot is taken', async () => {
+		const target = '0x261206'
+		const { host, actions } = makeUiHost({ capabilities: { windowCapture: true } })
+		const captures: string[] = []
+		Object.assign(host, {
+			captureWindow: async (id: string) => {
+				captures.push(id)
+				return {
+					data: png,
+					mimeType: 'image/png',
+					width: 1280,
+					height: 800,
+					window: {
+						id,
+						title: id,
+						app: 'ApplicationFrameHost',
+						pid: 42,
+						bounds: { x: 100, y: 100, width: 1280, height: 800 },
+						focused: true,
+						minimized: false,
+					},
+					captureId: `window-${captures.length}`,
+				}
+			},
+			executeWindow: async () => undefined,
+		})
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'ui_snapshot', window_id: target })
+		const afterUi = await run(tool, { type: 'wait', ms: 0 })
+		expect(afterUi.data).toHaveProperty('screenshot.window.id', target)
+		await run(tool, { type: 'screenshot', window_id: '0x111' })
+		const afterImage = await run(tool, { type: 'wait', ms: 0 })
+		expect(afterImage.data).toHaveProperty('screenshot.window.id', '0x111')
+		await run(tool, { type: 'ui_snapshot', window_id: target })
+		const explicitImage = await run(tool, { type: 'wait', ms: 0, screenshot_id: 's3' })
+		expect(explicitImage.data).toHaveProperty('screenshot.window.id', '0x111')
+		expect(captures).toEqual([target, '0x111', '0x111', '0x111'])
+		expect(actions).toEqual([])
+	})
+
 	it('runs a batch of ui_act steps by ref, then shows the screen once', async () => {
 		const { host, acts, actions } = makeUiHost()
 		const tool = createComputerUseTool(host, { settleMs: 0 })
