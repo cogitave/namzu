@@ -2,6 +2,8 @@
 
 ## 2026-09-28
 
+- **Fix** [The browser host](sdk/browser-host.md#a-person-is-needed): public component galleries and settings pages with password or one-time-code examples remain readable and navigable; direct credential actions, form submission and untargeted keys are refused, and page-created dialogs can only be dismissed. Screenshots mask DOM-addressable text controls, with closed shadow roots documented as a limit. Known sign-in addresses and authentication challenges still require a person. `.changeset/browser-public-credential-demos.md`, **major** for `@namzu/browser` because field presence alone no longer causes a handoff.
+- **Fix** [Browser use in the CLI](cli/browser.md) and [Scheduled tasks](cli/scheduled-tasks.md): continuing a paused turn no longer tells the model the operator completed the sign-in or challenge; it requests one retry without treating the problem as resolved. `.changeset/cli-handoff-continuation-honesty.md`, **patch** for `@namzu/cli`.
 - **Fix** [Terminal design](cli/terminal-design.md#the-composer-footer): hypermode is named once in the footer, while a short colour sweep marks a successful activation on the message frame before its gradient settles. `.changeset/cli-hypermode-activation.md`, **patch** for `@namzu/cli`.
 
 ## 2026-09-27

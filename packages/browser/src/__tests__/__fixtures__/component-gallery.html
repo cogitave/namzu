@@ -1,0 +1,30 @@
+<!doctype html><html><head><title>Component gallery</title>
+<style>
+#password-example, #code-example { position: fixed; left: 32px; width: 208px; height: 32px; box-sizing: border-box; }
+#password-example { top: 400px; }
+#code-example { top: 460px; }
+#code-frame { position: fixed; left: 32px; top: 520px; width: 240px; height: 64px; border: 0; }
+</style></head><body>
+<main>
+<h1>Component gallery</h1>
+<p>Reusable form input examples for product teams.</p>
+<label>Search components <input name="search"></label>
+<button type="button">Explore components</button>
+<section>
+<h2>Password input</h2>
+<label>Password example <input id="password-example" type="password" value="demo-password-secret"></label>
+</section>
+<section>
+<h2>One-time code input</h2>
+<div aria-label="One-time code example">
+<label>Digit 1 <input id="code-example" autocomplete="one-time-code" inputmode="numeric" value="619204"></label>
+<label>Digit 2 <input autocomplete="one-time-code" inputmode="numeric"></label>
+<label>Digit 3 <input autocomplete="one-time-code" inputmode="numeric"></label>
+<label>Digit 4 <input autocomplete="one-time-code" inputmode="numeric"></label>
+<label>Digit 5 <input autocomplete="one-time-code" inputmode="numeric"></label>
+<label>Digit 6 <input autocomplete="one-time-code" inputmode="numeric"></label>
+</div>
+</section>
+<iframe id="code-frame" src="/credential-frame.html" title="Code component preview"></iframe>
+</main>
+</body></html>

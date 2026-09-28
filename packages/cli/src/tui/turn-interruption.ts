@@ -172,8 +172,8 @@ export function handoffContinuationNote(
 ): string {
 	const flat = terminalDisplayText(reason).replace(/\s+/g, ' ').trim()
 	return [
-		`This turn stopped because a tool needed a person: ${flat}. The person has dealt with it and chose to continue.`,
-		'Try the step that stopped again (for a web page, open or reload it and read it again) before deciding it cannot be done. If it still needs a person, say so and stop; never type a password or a code.',
+		`This turn stopped because a tool needed a person: ${flat}. The person chose to continue; that choice does not confirm the issue was resolved.`,
+		'Try the step that stopped again once (for a web page, open or reload it and read it again) before deciding it cannot be done. If the tool still needs a person, explain what remains and stop; never type a password or a code.',
 		currentTimeLine(now, tz),
 	].join('\n')
 }

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +11,7 @@ import {
 	createBrowserTools,
 	toolset,
 } from '@namzu/sdk'
-import { chromium } from 'playwright-core'
+import { type Page, chromium } from 'playwright-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { LocalBrowserPlan } from '../../detect.js'
 import { ProfileBusyError } from '../../errors.js'
@@ -56,6 +57,38 @@ async function refusal(run: Promise<unknown>) {
 		return error as Record<string, unknown>
 	}
 	throw new Error('expected the call to be refused')
+}
+
+function expectOrdinaryRefusal(error: Record<string, unknown>, detail: string): void {
+	expect(error.message).toContain(detail)
+	expect(error.code).toBeUndefined()
+	expect(error.handoff).toBeUndefined()
+}
+
+/** Decode the actual PNG pixels in Chromium; no image assertion depends on timing. */
+async function pngPixels(
+	page: Page,
+	result: BrowserResult,
+	points: readonly (readonly [number, number])[],
+): Promise<number[][]> {
+	const bytes = result.screenshot?.data
+	if (!bytes) throw new Error('no screenshot bytes')
+	const dataUrl = `data:image/png;base64,${Buffer.from(bytes).toString('base64')}`
+	return page.evaluate(
+		async ({ dataUrl, points }) => {
+			const image = new Image()
+			image.src = dataUrl
+			await image.decode()
+			const canvas = document.createElement('canvas')
+			canvas.width = image.naturalWidth
+			canvas.height = image.naturalHeight
+			const context = canvas.getContext('2d')
+			if (!context) throw new Error('no canvas context')
+			context.drawImage(image, 0, 0)
+			return points.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data))
+		},
+		{ dataUrl, points },
+	)
 }
 
 /** The ref of the first snapshot line matching `pattern`. */
@@ -109,10 +142,17 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 
 	it('contract: ai-mode snapshot refs resolve through aria-ref (fails if an upgrade changes either)', async () => {
 		const snapshot = await snap()
-		expect(snapshot.page).toMatchObject({ origin: origin(), title: 'Fixture index', tab: 't1' })
+		expect(snapshot.page).toMatchObject({
+			origin: origin(),
+			title: 'Fixture index',
+			tab: 't1',
+		})
 		expect(snapshot.text).toMatch(/- link "Order form" \[ref=e\d+\]/)
 		const ref = refOf(snapshot.text, /link "Order form"/)
-		expect(host.describeRef(ref)).toEqual({ role: 'link', name: 'Order form' })
+		expect(host.describeRef(ref)).toEqual({
+			role: 'link',
+			name: 'Order form',
+		})
 		// The resolution half, directly: a fresh page, Playwright's own call.
 		const browser = await chromium.launch({ headless: true })
 		try {
@@ -129,7 +169,12 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 
 	it('clicks a link by ref and lands on the new page', async () => {
 		const ref = refOf((await snap()).text, /link "Order form"/)
-		const result = await host.act({ action: 'click', ref, origin: origin(), snapshot: true })
+		const result = await host.act({
+			action: 'click',
+			ref,
+			origin: origin(),
+			snapshot: true,
+		})
 		expect(result.snapshot?.page.url).toBe(`${origin()}/form.html`)
 		expect(result.snapshot?.text).toMatch(/button "Place order"/)
 	})
@@ -185,7 +230,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		const unknown = await refusal(host.act({ action: 'click', ref: 'e999', origin: origin() }))
 		expect(unknown.code).toBe('browser_stale_ref')
 		const moved = await refusal(host.act({ action: 'click', ref: nameRef, origin: server.other }))
-		expect(moved).toMatchObject({ code: 'browser_origin_mismatch', actual: origin() })
+		expect(moved).toMatchObject({
+			code: 'browser_origin_mismatch',
+			actual: origin(),
+		})
 		expect(browserHostErrorOf(moved)).toBeDefined()
 	})
 
@@ -205,6 +253,277 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		} finally {
 			await browser.close()
 		}
+	})
+
+	it('reads a public component gallery and allows unrelated actions without a credential handoff', async () => {
+		const visited = await host.observe({
+			action: 'navigate',
+			url: `${origin()}/component-gallery.html`,
+		})
+		expect(visited.page?.url).toBe(`${origin()}/component-gallery.html`)
+
+		const text = (await snap()).text
+		expect(text).toContain('Reusable form input examples for product teams.')
+		expect(text).toMatch(/textbox "Password example" \[ref=[^\]]+\]/)
+		expect(text).toMatch(/textbox "Digit 1" \[ref=[^\]]+\]/)
+		expect(text).toContain('[value hidden: password or one-time code]')
+		expect(text).not.toContain('demo-password-secret')
+		expect(text).not.toContain('619204')
+		expect(text).not.toContain('845723')
+
+		const passwordRef = refOf(text, /textbox "Password example"/)
+		const codeRef = refOf(text, /textbox "Digit 1"/)
+		const exploreRef = refOf(text, /button "Explore components"/)
+		const clicked = await host.act({
+			action: 'click',
+			ref: exploreRef,
+			origin: origin(),
+		})
+		expect(clicked.page?.url).toBe(`${origin()}/component-gallery.html`)
+		const [browserTool, actTool] = createBrowserTools(host)
+		const registry = new ToolManager({
+			toolsets: [toolset('test', [browserTool as ToolDefinition, actTool as ToolDefinition])],
+			messages: () => [],
+		})
+		const toolResult = await registry.execute(
+			'browser_act',
+			{ action: 'click', ref: exploreRef, origin: origin() },
+			context(work),
+		)
+		expect(toolResult.success).toBe(true)
+		expect(toolResult.error).toBeUndefined()
+		expect(toolResult.handoff).toBeUndefined()
+		const blockedTool = await registry.execute(
+			'browser_act',
+			{ action: 'click', ref: passwordRef, origin: origin() },
+			context(work),
+		)
+		expect(blockedTool.success).toBe(false)
+		expect(blockedTool.error).toContain('This action targets a password or one-time-code control')
+		expect(blockedTool.handoff).toBeUndefined()
+		expect(blockedTool.data).toBeUndefined()
+		const typed = await refusal(
+			host.act({
+				action: 'type',
+				ref: passwordRef,
+				text: 'changed-password',
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(typed, 'This action targets a password or one-time-code control')
+		const pressed = await refusal(
+			host.act({ action: 'press', ref: codeRef, key: 'X', origin: origin() }),
+		)
+		expectOrdinaryRefusal(pressed, 'This action targets a password or one-time-code control')
+		const hovered = await refusal(host.act({ action: 'hover', ref: passwordRef, origin: origin() }))
+		expectOrdinaryRefusal(hovered, 'This action targets a password or one-time-code control')
+		const fill = await refusal(
+			host.act({
+				action: 'fill_form',
+				origin: origin(),
+				fields: [
+					{
+						ref: refOf(text, /textbox "Search components"/),
+						value: 'changed-before-refusal',
+					},
+					{ ref: codeRef, value: 'changed-code' },
+				],
+			}),
+		)
+		expectOrdinaryRefusal(fill, 'This action targets a password or one-time-code control')
+		const after = (await snap()).text
+		expect(after).not.toContain('changed-before-refusal')
+		expect(after).not.toContain('changed-password')
+		expect(after).not.toContain('changed-code')
+	})
+
+	it('masks password and one-time-code pixels in page and ref screenshots, including a child frame', async () => {
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/component-gallery.html`,
+		})
+		const text = (await snap()).text
+		const passwordRef = refOf(text, /textbox "Password example"/)
+		const codeRef = refOf(text, /textbox "Digit 1"/)
+		const pageImage = await host.observe({ action: 'screenshot' })
+		expect(pageImage.screenshot?.mimeType).toBe('image/png')
+		expect(pageImage.screenshot?.width).toBeGreaterThan(272)
+		expect(pageImage.screenshot?.height).toBeGreaterThan(584)
+		const passwordImage = await host.observe({
+			action: 'screenshot',
+			ref: passwordRef,
+		})
+		const codeImage = await host.observe({
+			action: 'screenshot',
+			ref: codeRef,
+		})
+
+		const decoder = await chromium.launch({ headless: true })
+		try {
+			const page = await decoder.newPage()
+			const mask = [102, 102, 102, 255]
+			// The fixture fixes input positions. The third sample is in a child frame.
+			expect(
+				await pngPixels(page, pageImage, [
+					[136, 416],
+					[136, 476],
+					[136, 536],
+				]),
+			).toEqual([mask, mask, mask])
+			for (const image of [passwordImage, codeImage]) {
+				const shot = image.screenshot
+				if (!shot) throw new Error('no ref screenshot')
+				const center: readonly [number, number] = [
+					Math.floor(shot.width / 2),
+					Math.floor(shot.height / 2),
+				]
+				expect(await pngPixels(page, image, [center])).toEqual([mask])
+			}
+		} finally {
+			await decoder.close()
+		}
+	})
+
+	it('keeps an iframe-only credential example readable without blocking unrelated controls', async () => {
+		const visited = await host.observe({
+			action: 'navigate',
+			url: `${origin()}/iframe-credentials.html`,
+		})
+		expect(visited.page?.url).toBe(`${origin()}/iframe-credentials.html`)
+		const text = (await snap()).text
+		expect(text).toContain('The only credential field is inside the preview frame.')
+		expect(text).toContain('Embedded code')
+		expect(text).not.toContain('845723')
+		const buttonRef = refOf(text, /button "View details"/)
+		const clicked = await host.act({
+			action: 'click',
+			ref: buttonRef,
+			origin: origin(),
+		})
+		expect(clicked.page?.url).toBe(`${origin()}/iframe-credentials.html`)
+
+		const [browserTool, actTool] = createBrowserTools(host)
+		const registry = new ToolManager({
+			toolsets: [toolset('test', [browserTool as ToolDefinition, actTool as ToolDefinition])],
+			messages: () => [],
+		})
+		const toolResult = await registry.execute(
+			'browser_act',
+			{ action: 'click', ref: buttonRef, origin: origin() },
+			context(work),
+		)
+		expect(toolResult.success).toBe(true)
+		expect(toolResult.error).toBeUndefined()
+		expect(toolResult.handoff).toBeUndefined()
+		const page = (await (host as unknown as { activeTab(): Promise<{ page: Page }> }).activeTab())
+			.page
+		const code = page.frameLocator('iframe').locator('input')
+		await code.focus()
+		const before = await code.inputValue()
+		const untargeted = await refusal(host.act({ action: 'press', key: 'X', origin: origin() }))
+		expectOrdinaryRefusal(
+			untargeted,
+			'An untargeted key could reach a password or one-time-code control',
+		)
+		expect(await code.inputValue()).toBe(before)
+	})
+
+	it('does not submit stored credentials from a neutral-route form', async () => {
+		const visited = await host.observe({
+			action: 'navigate',
+			url: `${origin()}/credential-form.html`,
+		})
+		expect(visited.page?.url).toBe(`${origin()}/credential-form.html`)
+		const text = (await snap()).text
+		const emailRef = refOf(text, /textbox "Email"/)
+		const submitRef = refOf(text, /button "Save profile"/)
+		const submitRequests = () =>
+			server.requests.filter((request) => request.includes('/credential-submit')).length
+		const before = submitRequests()
+
+		const clicked = await refusal(host.act({ action: 'click', ref: submitRef, origin: origin() }))
+		expectOrdinaryRefusal(
+			clicked,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		expect(submitRequests()).toBe(before)
+		const pressed = await refusal(
+			host.act({
+				action: 'press',
+				ref: emailRef,
+				key: 'Enter',
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(
+			pressed,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		const space = await refusal(
+			host.act({
+				action: 'press',
+				ref: submitRef,
+				key: 'Space',
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(
+			space,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		expect(submitRequests()).toBe(before)
+		const typed = await refusal(
+			host.act({
+				action: 'type',
+				ref: emailRef,
+				text: 'changed@example.com',
+				submit: true,
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(
+			typed,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		expect(submitRequests()).toBe(before)
+		const after = await snap()
+		expect(after.page.url).toBe(`${origin()}/credential-form.html`)
+		expect(after.text).toContain('ada@example.com')
+		expect(after.text).not.toContain('changed@example.com')
+		expect(after.text).not.toContain('stored-password-secret')
+	})
+
+	it('recognizes a password input associated with a form by form=id even when outside it', async () => {
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/credential-associated-form.html`,
+		})
+		const text = (await snap()).text
+		const submitRef = refOf(text, /button "Save associated profile"/)
+		const emailRef = refOf(text, /textbox "Email"/)
+		const submitRequests = () =>
+			server.requests.filter((request) => request.includes('/credential-submit')).length
+		const before = submitRequests()
+
+		const clicked = await refusal(host.act({ action: 'click', ref: submitRef, origin: origin() }))
+		expectOrdinaryRefusal(
+			clicked,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		const pressed = await refusal(
+			host.act({
+				action: 'press',
+				ref: emailRef,
+				key: 'Enter',
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(
+			pressed,
+			'This action could submit a form containing a password or one-time-code control',
+		)
+		expect(submitRequests()).toBe(before)
+		expect((await snap()).page.url).toBe(`${origin()}/credential-associated-form.html`)
 	})
 
 	it('stops on a sign-in page with the handoff data, and never types into its password box', async () => {
@@ -227,7 +546,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 				origin: origin(),
 			}),
 		)
-		expect(typed).toMatchObject({ code: 'browser_human_required', reason: 'credential-field' })
+		expectOrdinaryRefusal(typed, 'This action targets a password or one-time-code control')
 		const filled = await refusal(
 			host.act({
 				action: 'fill_form',
@@ -238,14 +557,18 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 				],
 			}),
 		)
-		expect(filled).toMatchObject({ code: 'browser_human_required', reason: 'credential-field' })
+		expectOrdinaryRefusal(filled, 'This action targets a password or one-time-code control')
 		// The refusal came before anything was typed: the email box is still empty.
 		expect(text).not.toContain('a@b.c')
 		expect((await snap()).text).not.toContain('a@b.c')
 	})
 
 	it('never shows a password or one-time code the page already holds', async () => {
-		await refusal(host.observe({ action: 'navigate', url: `${origin()}/autofill.html` }))
+		const visited = await host.observe({
+			action: 'navigate',
+			url: `${origin()}/autofill.html`,
+		})
+		expect(visited.page?.url).toBe(`${origin()}/autofill.html`)
 		const text = (await snap()).text
 		expect(text).toContain('ada@example.com')
 		expect(text).not.toContain('hunter2secret')
@@ -279,9 +602,15 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		const wall = await refusal(
 			host.observe({ action: 'navigate', url: `${origin()}/challenge.html` }),
 		)
-		expect(wall).toMatchObject({ code: 'browser_human_required', reason: 'bot-block' })
+		expect(wall).toMatchObject({
+			code: 'browser_human_required',
+			reason: 'bot-block',
+		})
 		const basic = await refusal(host.observe({ action: 'navigate', url: `${origin()}/basic` }))
-		expect(basic).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
+		expect(basic).toMatchObject({
+			code: 'browser_human_required',
+			reason: 'http-auth',
+		})
 	})
 
 	it('reports bare 401 and 407 as failed access, without a password handoff', async () => {
@@ -323,19 +652,34 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 
 	it('keeps a visible sign-in handoff even when its response is a bare 401', async () => {
 		const denied = await refusal(
-			host.observe({ action: 'navigate', url: `${origin()}/bare-401-sign-in` }),
+			host.observe({
+				action: 'navigate',
+				url: `${origin()}/bare-401-sign-in`,
+			}),
 		)
-		expect(denied).toMatchObject({ code: 'browser_human_required', reason: 'sign-in' })
+		expect(denied).toMatchObject({
+			code: 'browser_human_required',
+			reason: 'sign-in',
+		})
 	})
 
 	it('keeps 401 evidence when a history move has no destination', async () => {
 		for (const path of ['/basic', '/bare-401']) {
-			await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
+			await host.observe({
+				action: 'navigate',
+				url: `${origin()}/index.html`,
+			})
 			const denied = await refusal(host.observe({ action: 'navigate', url: `${origin()}${path}` }))
 			const stillDenied = await refusal(host.observe({ action: 'forward' }))
 			if (path === '/basic') {
-				expect(denied).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
-				expect(stillDenied).toMatchObject({ code: 'browser_human_required', reason: 'http-auth' })
+				expect(denied).toMatchObject({
+					code: 'browser_human_required',
+					reason: 'http-auth',
+				})
+				expect(stillDenied).toMatchObject({
+					code: 'browser_human_required',
+					reason: 'http-auth',
+				})
 			} else {
 				expect(denied.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
 				expect(stillDenied.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
@@ -343,7 +687,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			const tabs = await host.observe({ action: 'tabs', op: 'list' })
 			expect(tabs.tabs?.find((tab) => tab.active)?.url).toBe(`${origin()}${path}`)
 		}
-		const recovered = await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
+		const recovered = await host.observe({
+			action: 'navigate',
+			url: `${origin()}/index.html`,
+		})
 		expect(recovered.page?.url).toBe(`${origin()}/index.html`)
 	})
 
@@ -354,7 +701,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			request.endsWith('/bare-401'),
 		).length
 		const hash = await refusal(
-			host.observe({ action: 'navigate', url: `${origin()}/bare-401#section` }),
+			host.observe({
+				action: 'navigate',
+				url: `${origin()}/bare-401#section`,
+			}),
 		)
 		expect(hash.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
 		const hashBack = await refusal(host.observe({ action: 'back' }))
@@ -364,7 +714,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		)
 
 		const withButton = await refusal(
-			host.observe({ action: 'navigate', url: `${origin()}/bare-401-history` }),
+			host.observe({
+				action: 'navigate',
+				url: `${origin()}/bare-401-history`,
+			}),
 		)
 		expect(withButton.message).toContain('HTTP 401 without a WWW-Authenticate challenge')
 		const ref = refOf((await snap()).text, /button "Change address"/)
@@ -401,11 +754,18 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('opens a site the caller asked for, even at ask', async () => {
-		const result = await host.observe({ action: 'navigate', url: `${server.other}/index.html` })
+		const result = await host.observe({
+			action: 'navigate',
+			url: `${server.other}/index.html`,
+		})
 		expect(result.page?.origin).toBe(server.other)
 		// It may be read; acting there is for the gate to review (ask), so the host lets it through.
 		const ref = refOf((await snap()).text, /link "Order form"/)
-		const clicked = await host.act({ action: 'click', ref, origin: server.other })
+		const clicked = await host.act({
+			action: 'click',
+			ref,
+			origin: server.other,
+		})
 		expect(clicked.page?.url).toBe(`${server.other}/form.html`)
 	})
 
@@ -417,7 +777,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			sites: { [server.allowed]: 'act', '*': 'ask' },
 		})
 		try {
-			await fresh.observe({ action: 'navigate', url: `${origin()}/popup.html` })
+			await fresh.observe({
+				action: 'navigate',
+				url: `${origin()}/popup.html`,
+			})
 			const text = (await fresh.observe({ action: 'snapshot' })).snapshot?.text ?? ''
 			const opened = await fresh.act({
 				action: 'click',
@@ -453,17 +816,28 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			).length
 			expect(after).toBe(before)
 
-			const selected = await fresh.observe({ action: 'tabs', op: 'select', tab: 't2' })
+			const selected = await fresh.observe({
+				action: 'tabs',
+				op: 'select',
+				tab: 't2',
+			})
 			expect(selected.page?.tab).toBe('t2')
-			const closed = await fresh.observe({ action: 'tabs', op: 'close', tab: 't2' })
+			const closed = await fresh.observe({
+				action: 'tabs',
+				op: 'close',
+				tab: 't2',
+			})
 			expect(closed.tabs?.map((t) => t.tab)).toEqual(['t1'])
 		} finally {
 			await fresh.dispose()
 		}
 	})
 
-	it('surfaces a dialog, holds other actions, and answers it', async () => {
-		await host.observe({ action: 'navigate', url: `${origin()}/dialog.html` })
+	it('surfaces a dialog, holds other actions, and only lets the agent dismiss it', async () => {
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/dialog.html`,
+		})
 		const text = (await snap()).text
 		const clicked = await host.act({
 			action: 'click',
@@ -474,22 +848,108 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		const shown = await snap()
 		expect(shown.text).toContain('- dialog (confirm) "Delete everything?"')
 		await expect(
-			host.act({ action: 'click', ref: refOf(text, /button "Delete"/), origin: origin() }),
+			host.act({
+				action: 'click',
+				ref: refOf(text, /button "Delete"/),
+				origin: origin(),
+			}),
 		).rejects.toThrow(/dialog is open/)
-		const answered = await host.act({
+		const refused = await refusal(
+			host.act({
+				action: 'dialog',
+				accept: true,
+				origin: origin(),
+			}),
+		)
+		expectOrdinaryRefusal(refused, 'The agent cannot accept a page-created dialog')
+		expect((await snap()).text).toContain('- dialog (confirm) "Delete everything?"')
+		const dismissed = await host.act({
 			action: 'dialog',
-			accept: true,
+			accept: false,
 			origin: origin(),
 			snapshot: true,
 		})
-		expect(answered.message).toMatch(/accepted/)
-		expect(answered.snapshot?.text).toContain('confirmed')
+		expect(dismissed.message).toMatch(/dismissed/)
+		expect(dismissed.snapshot?.text).toContain('cancelled')
+	})
+
+	it('refuses to accept a page-created dialog on a credential page but can dismiss it', async () => {
+		const submitRequests = () =>
+			server.requests.filter((request) => request.includes('/credential-submit')).length
+		const before = submitRequests()
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/credential-dialog.html`,
+		})
+		const buttonRef = refOf((await snap()).text, /button "Ask to save profile"/)
+		const opened = await host.act({
+			action: 'click',
+			ref: buttonRef,
+			origin: origin(),
+		})
+		expect(opened.message).toContain('confirm dialog is open')
+		const shown = await snap()
+		expect(shown.text).toContain('- dialog (confirm) "Submit stored credentials?"')
+
+		const denied = await refusal(host.act({ action: 'dialog', accept: true, origin: origin() }))
+		expectOrdinaryRefusal(denied, 'The agent cannot accept a page-created dialog')
+		expect(submitRequests()).toBe(before)
+		expect((await snap()).text).toContain('- dialog (confirm) "Submit stored credentials?"')
+
+		const dismissed = await host.act({
+			action: 'dialog',
+			accept: false,
+			origin: origin(),
+			snapshot: true,
+		})
+		expect(dismissed.message).toContain('dismissed')
+		expect(dismissed.snapshot?.text).toContain('cancelled')
+		expect(submitRequests()).toBe(before)
+	})
+
+	it('refuses a confirmation after an agent click adds a credential field', async () => {
+		const submitRequests = () =>
+			server.requests.filter((request) => request.includes('/credential-submit')).length
+		const before = submitRequests()
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/credential-dynamic-confirm.html`,
+		})
+		expect((await snap()).text).not.toContain('textbox "Password"')
+		const buttonRef = refOf((await snap()).text, /button "Open confirmation"/)
+		const opened = await host.act({
+			action: 'click',
+			ref: buttonRef,
+			origin: origin(),
+		})
+		expect(opened.message).toContain('confirm dialog is open')
+		expect((await snap()).text).toContain('- dialog (confirm) "Submit newly added credentials?"')
+
+		const denied = await refusal(host.act({ action: 'dialog', accept: true, origin: origin() }))
+		expectOrdinaryRefusal(denied, 'The agent cannot accept a page-created dialog')
+		expect(submitRequests()).toBe(before)
+		expect((await snap()).text).toContain('- dialog (confirm) "Submit newly added credentials?"')
+
+		const dismissed = await host.act({
+			action: 'dialog',
+			accept: false,
+			origin: origin(),
+			snapshot: true,
+		})
+		expect(dismissed.message).toContain('dismissed')
+		expect(dismissed.snapshot?.text).toContain('cancelled')
+		expect(dismissed.snapshot?.text).toContain('textbox "Password"')
+		expect(dismissed.snapshot?.text).not.toContain('stored-password-secret')
+		expect(submitRequests()).toBe(before)
 	})
 
 	it('uploads a file into a file input', async () => {
 		const file = join(work, 'invoice.txt')
 		writeFileSync(file, 'hello')
-		await host.observe({ action: 'navigate', url: `${origin()}/upload.html` })
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/upload.html`,
+		})
 		const text = (await snap()).text
 		const ref = refOf(text, /button "Attachment"/)
 		const result = await host.act({
@@ -503,7 +963,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('cancels a download and says so', async () => {
-		await host.observe({ action: 'navigate', url: `${origin()}/download.html` })
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/download.html`,
+		})
 		const ref = refOf((await snap()).text, /link "Get the report"/)
 		const result = await host.act({ action: 'click', ref, origin: origin() })
 		expect(result.message).toContain('A download of "report.pdf" was cancelled')
@@ -511,7 +974,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('leaves hidden prompt-injection text out of the snapshot', async () => {
-		await host.observe({ action: 'navigate', url: `${origin()}/injection.html` })
+		await host.observe({
+			action: 'navigate',
+			url: `${origin()}/injection.html`,
+		})
 		const text = (await snap()).text
 		expect(text).toContain('Revenue grew four percent.')
 		expect(text).toContain('Costs were flat.')
@@ -528,18 +994,26 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			sites: { [server.allowed]: 'read' },
 		})
 		try {
-			await small.observe({ action: 'navigate', url: `${origin()}/form.html` })
+			await small.observe({
+				action: 'navigate',
+				url: `${origin()}/form.html`,
+			})
 			const first = (await small.observe({ action: 'snapshot' })).snapshot
 			expect(first?.text.length).toBeLessThanOrEqual(120)
 			expect(first?.nextCursor).toBeDefined()
 			const second = (
-				await small.observe({ action: 'snapshot', cursor: first?.nextCursor as string })
+				await small.observe({
+					action: 'snapshot',
+					cursor: first?.nextCursor as string,
+				})
 			).snapshot
 			expect(second?.text).not.toBe(first?.text)
 			// read: navigate and observe, never act.
 			const denied = await refusal(small.act({ action: 'press', key: 'Tab', origin: origin() }))
 			expect(denied.code).toBe('browser_site_denied')
-			const screenshot: BrowserResult = await small.observe({ action: 'screenshot' })
+			const screenshot: BrowserResult = await small.observe({
+				action: 'screenshot',
+			})
 			expect(screenshot.screenshot?.mimeType).toBe('image/png')
 			expect(screenshot.screenshot?.width).toBeGreaterThan(0)
 		} finally {
@@ -556,7 +1030,10 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		})
 		try {
 			const denied = await refusal(
-				strict.observe({ action: 'navigate', url: `${server.other}/index.html` }),
+				strict.observe({
+					action: 'navigate',
+					url: `${server.other}/index.html`,
+				}),
 			)
 			expect(denied.code).toBe('browser_site_denied')
 		} finally {
@@ -594,7 +1071,10 @@ describe.skipIf(!HEADED)('PlaywrightBrowserHost headed', { timeout: 60_000 }, ()
 		})
 		try {
 			expect(host.capabilities.headless).toBe(false)
-			await host.observe({ action: 'navigate', url: `${server.allowed}/index.html` })
+			await host.observe({
+				action: 'navigate',
+				url: `${server.allowed}/index.html`,
+			})
 			const text = (await host.observe({ action: 'snapshot' })).snapshot?.text ?? ''
 			const clicked = await host.act({
 				action: 'click',

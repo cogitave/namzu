@@ -194,7 +194,9 @@ describe('a turn a tool paused for a person', () => {
 		expect(resumed[0]?.pendingDecision).toBeUndefined()
 		// Told why it goes on now; the last result alone read as final.
 		expect(resumed[0]?.systemNote).toContain(`a tool needed a person: ${REASON}`)
-		expect(resumed[0]?.systemNote).toContain('Try the step that stopped again')
+		expect(resumed[0]?.systemNote).toContain('that choice does not confirm the issue was resolved')
+		expect(resumed[0]?.systemNote).toContain('Try the step that stopped again once')
+		expect(resumed[0]?.systemNote).toContain('never type a password or a code')
 		expect(abandoned).toHaveLength(0)
 		await until(
 			() => (harness.lastFrame() ?? '').includes(PAUSED_TURN_LINES.resuming),
