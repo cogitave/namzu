@@ -44,8 +44,8 @@ about is that it has more than one way in — a machine that found a session *an
 can take an API key has two, whether or not they were declared on the same
 registry entry. So an Anthropic row with a Claude session on the device offers
 both: keep using that session, or enter a key of one's own. So does a vendor
-with an anonymous catalogue option beside its credentialed path; listing an
-anonymous model does not verify inference access. A key discovery already
+with experimental free Zen models beside its credentialed path; listing a free
+model does not verify inference access. A key discovery already
 hands over ONE way: the row went
 and found it, and entering another is that way twice, so that row goes straight
 on.
@@ -67,6 +67,25 @@ and LM Studio are two different local servers. Nine vendors is the most this
 list can draw — the seven that can be set up with a typed credential plus the
 two local servers discovery can add — so the digit shortcut reaches every row
 there can be, one keystroke each, and the arrows reach the rest of what fits.
+
+### Experimental Zen free models
+
+With no Zen API key, the picker and headless `--provider zen --model <id>` can
+select the free models in Namzu's bundled Zen catalogue. The selected model
+must resolve against the active catalogue or its bundled fallback at zero price;
+an unknown model, a paid Zen model, or any Zen Go model needs its own API key.
+This is an experimental path. The Zen gateway may refuse a direct request even
+when its catalogue lists the model as free. Space Bunny Free has been verified
+for direct anonymous access; the other free models have not. The
+`supportsAnonymousAccess` flag continues to mean verified direct access, not
+experimental eligibility.
+
+The chooser and `/setup` recommend installing OpenCode for its own client.
+Namzu sends Zen requests directly and does not invoke that binary, so installing
+OpenCode does not change a Namzu session's request or guarantee that the gateway
+will accept it. Set `OPENCODE_API_KEY` for credentialed Zen access if a free
+request is refused. `OPENCODE_GO_API_KEY` is separate and does not authorize
+Zen requests.
 
 On a terminal too short for the whole screen, the list is scrolled rather than
 drawn past the bottom of it: the rows that do not fit are reached with the arrow

@@ -12,7 +12,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Anonymous Zen option · inference access unverified',
+			access: 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),
@@ -32,7 +32,10 @@ it('requires a separate confirmation, rechecks installation and keeps connection
 		await screen!.waitForRender()
 		expect(screen!.viewport().join('\n')).toContain('Not installed')
 	})
-	expect(screen.viewport().join('\n')).toContain('inference access unverified')
+	expect(screen.viewport().join('\n')).toContain('Zen free models · experimental')
+	expect(screen.viewport().join('\n')).toContain('OpenCode installation recommended')
+	expect(screen.viewport().join('\n')).toContain('gateway may refuse')
+	expect(screen.viewport().join('\n')).toContain('Namzu connects directly')
 	screen.press('i')
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('npm install --global opencode-ai')

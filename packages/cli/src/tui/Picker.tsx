@@ -503,10 +503,20 @@ export function Picker({
 			const showListing = (listing: ModelListing) => {
 				if (!ownsOperation(operation)) return
 				finishOperation(operation)
-				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
-					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
-				})
-				setModelPhase({ provider: current, step, returnToProviders })
+			const step = modelStep(current.entry.defaultModel, listing, activeModel, {
+				allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
+			})
+			const experimentalNotice =
+				current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
+					? 'Zen free models are experimental. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them.'
+					: null
+			setModelPhase({
+				provider: current,
+				step: experimentalNotice
+					? { ...step, notice: [experimentalNotice, step.notice].filter(Boolean).join(' ') }
+					: step,
+				returnToProviders,
+			})
 				setCursor(step.initialIndex)
 			}
 			void describeModels(current.entry.id, current, operation.controller.signal)
@@ -1208,6 +1218,12 @@ export function Picker({
 	// provider — every other row is answered by Enter as it always was — so this
 	// is the one screen this change adds, and it is reached one way.
 	if (pathRow) {
+		const experimentalZen = pathRow.paths.some(
+			(path) =>
+				path.kind === 'detected' &&
+				path.detected.entry.id === 'zen' &&
+				!hasApiCredential(path.detected.entry, path.detected.apiKey),
+		)
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 				{buildNoticeBox(true)}
@@ -1216,9 +1232,14 @@ export function Picker({
 				</Text>
 				<Text color={theme.text.muted}>
 					{pathRow.detected.length > 0
-						? `Already usable here — ${rowSourceText(pathRow)}.`
+						? `${experimentalZen ? 'Available to try here' : 'Already usable here'} — ${rowSourceText(pathRow)}.`
 						: 'Nothing on this device is set up for it yet.'}
 				</Text>
+				{experimentalZen ? (
+					<Text color={theme.status.warn}>
+						OpenCode installation is recommended. Namzu sends requests directly; the gateway may refuse free models.
+					</Text>
+				) : null}
 				<Box flexDirection="column" paddingTop={1}>
 					{pathRow.paths.map((path, index) => (
 						<Text
@@ -1597,7 +1618,11 @@ function ModelStepView({
 					) : null}
 					<Box flexDirection="column">
 						{choices.length === 0 ? (
-							<Text color={theme.text.muted}>No matching models · Ctrl+U clears</Text>
+							<Text color={theme.text.muted}>
+								{step.choices.length === 0
+									? 'No selectable models for this access path'
+									: 'No matching models · Ctrl+U clears'}
+							</Text>
 						) : null}
 						{window.items.map((c, visibleIndex) => {
 							const index = window.start + visibleIndex
@@ -2117,10 +2142,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-				return 'anonymous option · access unverified'
+				return 'Zen free models · experimental; gateway may refuse'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'anonymous option · access unverified'
+			return 'Zen free models · experimental; gateway may refuse'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':

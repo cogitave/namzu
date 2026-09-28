@@ -248,7 +248,7 @@ beforeEach(() => {
 
 describe('launching with a saved provider and no credential', () => {
 	it('offers a keyless Zen recovery for a saved model that is no longer anonymously available', async () => {
-		const pinned = 'muse-spark-1.3-contributor-free'
+		const pinned = 'glm-5.3-flash'
 		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'zen', model: pinned }] }
 		world.detected = [
 			{ entry: PROVIDER_REGISTRY.zen, source: { kind: 'public' }, alternatives: [] },
@@ -257,6 +257,9 @@ describe('launching with a saved provider and no credential', () => {
 		try {
 			const notice = text(screen)
 			expect(notice).toContain(pinned)
+			expect(notice).toContain("Zen's experimental free")
+			expect(notice).toContain('models, such as')
+			expect(notice).toContain('gateway may refuse')
 			expect(notice).toContain('Space Bunny Free')
 			expect(notice).toContain('"k" to enter a Zen API key and try the saved model')
 			expect(world.built).toBeNull()
@@ -267,7 +270,7 @@ describe('launching with a saved provider and no credential', () => {
 			screen.press('\r')
 			await until(screen, 'Choose a model')
 			expect(text(screen)).toContain('Space Bunny Free')
-			expect(text(screen)).not.toContain('Muse Spark Free')
+			expect(text(screen)).toContain('Muse Spark Free')
 			screen.press('\r')
 			await until(screen, 'Type a message')
 			expect(world.built?.providers[0]).toEqual({
@@ -279,6 +282,22 @@ describe('launching with a saved provider and no credential', () => {
 				model: 'space-bunny-free',
 			})
 			expect(world.credentials).toEqual([])
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('resumes a saved experimental free Zen model without asking for a credential', async () => {
+		const pinned = 'muse-spark-1.3-contributor-free'
+		world.prefs = { ...SAVED_PREFS, providers: [{ id: 'zen', model: pinned }] }
+		world.detected = [
+			{ entry: PROVIDER_REGISTRY.zen, source: { kind: 'public' }, alternatives: [] },
+		]
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 40 })
+		try {
+			await until(screen, 'Type a message')
+			expect(world.built?.providers[0]).toEqual({ id: 'zen', model: pinned })
+			expect(world.savedPrefs).toEqual([])
 		} finally {
 			await screen.unmount()
 		}

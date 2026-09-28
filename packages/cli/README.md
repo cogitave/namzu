@@ -171,10 +171,12 @@ OPENROUTER_API_KEY`), and selecting one opens the paste field for that provider.
 Zen and Zen Go appear as separate providers in `/model` (press
 `p` to change providers). Without a key, Zen defaults to `space-bunny-free`,
 which completed keyless text and tool-continuation turns through Namzu on
-2026-09-28. The other seven bundled free models returned HTTP 403 to direct
-Namzu requests that day, so they are not offered for anonymous selection.
-Selecting the anonymous option does not open a login or key prompt. Use a Zen
-API key for credentialed access to other models.
+2026-09-28. The other seven bundled free models are also selectable without a
+key through an experimental request path; the gateway may refuse them.
+Selecting the anonymous option does not open a login or key prompt. Installing
+OpenCode is recommended for comparing results in its own client; Namzu sends
+requests directly and does not use that installation. Use a Zen API key for
+credentialed access to paid models.
 
 For paid Zen models, set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY`; Go
 requires `OPENCODE_GO_API_KEY` or its own installed API credential. When both
@@ -191,11 +193,12 @@ only API-key entries, and leaves the file unchanged. OAuth entries are not
 converted into API keys, and a Zen key is never reused for Go. Keys entered
 in the picker remain temporary.
 Anonymous Zen is listed after existing accounts and reachable local providers
-and carries the label `anonymous option · access unverified`.
+and marks its free-model access experimental.
 
 ```bash
 namzu exec --provider zen "Explain this project"
 namzu exec --provider zen --model space-bunny-free "Explain this project"
+namzu exec --provider zen --model big-pickle "Explain this project"
 namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 

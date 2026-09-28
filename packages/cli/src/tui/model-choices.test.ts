@@ -32,6 +32,24 @@ it('retains a paid current Zen pin when an account credential is present', () =>
 	expect(step.choices.map((choice) => choice.id)).toContain('glm-5.3-flash')
 })
 
+it('does not restore a default that the access filter has withdrawn', () => {
+	const allowModel = (id: string) => id === 'big-pickle'
+	const listed = modelStep(
+		'space-bunny-free',
+		{ kind: 'ok', models: [{ id: 'big-pickle', name: 'Big Pickle' }] },
+		undefined,
+		{ allowModel },
+	)
+	expect(listed.choices.map((choice) => choice.id)).toEqual(['big-pickle'])
+	expect(listed.initialIndex).toBe(0)
+
+	const unavailable = modelStep('space-bunny-free', { kind: 'timeout' }, undefined, {
+		allowModel,
+	})
+	expect(unavailable.choices).toEqual([])
+	expect(unavailable.notice).toContain('No selectable models')
+})
+
 describe('modelStep', () => {
 	it('offers the listed models', () => {
 		const step = modelStep(DEFAULT, {

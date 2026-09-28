@@ -29,7 +29,7 @@ describe('the credential-sources doctor check', () => {
 			},
 		])
 		const result = await credentialSourcesCheck.run(ctx)
-		expect(result.message).toContain('anonymous option · inference access unverified')
+		expect(result.message).toContain('experimental free models · gateway may refuse')
 		expect(result.message).toContain('OpenCode API key · /owner/auth.json')
 		expect(result.message).not.toContain('secret-fixture')
 		expect(result.message).not.toContain('credential(s) found')
@@ -41,9 +41,10 @@ describe('the credential-sources doctor check', () => {
 			])
 			const result = await credentialSourcesCheck.run(ctx)
 			expect(result.status).toBe('warn')
-			expect(result.message).toContain('inference access unverified')
+			expect(result.message).toMatch(/experimental|free models/)
 			expect(result.message).not.toContain('available')
 			expect(result.remediation).toContain('OPENCODE_API_KEY')
+			expect(result.remediation).toContain('OpenCode installation is recommended')
 		}
 	})
 	it('warns when nothing is found, and says the secrets file is no longer read', async () => {

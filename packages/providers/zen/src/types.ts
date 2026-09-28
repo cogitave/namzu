@@ -2,7 +2,7 @@ import type { ZenCatalogue } from './catalogue/catalogue.js'
 import type { ZenProtocol } from './models.js'
 
 export interface ZenConfig {
-	/** Omit for a model admitted to direct anonymous Zen access; `public` selects the same path. */
+	/** Omit for a listed free Zen model; `public` selects the same experimental path. */
 	apiKey?: string
 	/** Stable conversation identity, shared by every turn and auxiliary request. */
 	sessionId?: string
@@ -18,7 +18,7 @@ export interface ZenConfig {
 	 * A runtime catalogue, from `@namzu/zen/catalogue`, consulted before the
 	 * bundled snapshot for every lookup: routing, model listing, context windows
 	 * and effort levels. Anonymous admission also requires the driver's curated
-	 * direct-access ID; a catalogue cannot add to that set. A function is called
+	 * free-model ID and zero price; a catalogue cannot add an arbitrary ID. A function is called
 	 * at each lookup, so a host can swap in a fresher catalogue for providers it
 	 * already built. Returning `undefined` means the bundled snapshot alone.
 	 * Omitted, the provider uses the bundled snapshot and fetches nothing.
