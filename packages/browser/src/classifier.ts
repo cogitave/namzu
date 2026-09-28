@@ -152,10 +152,10 @@ function isTwoFactorAddress(rawUrl: string): boolean {
  * then a CAPTCHA, a bot wall, a second factor, and last a sign-in. All of it
  * is read by the host; nothing the model says reaches this function.
  *
- * It errs toward stopping. A page with a visible password box is treated as
- * a sign-in even when it is a settings page, because the cost of a false stop
- * is a question to the operator and the cost of a false pass is an agent
- * typing near a credential.
+ * Credential fields alone do not make a public content page a sign-in page:
+ * component galleries and settings pages can contain them. A bare HTTP 401
+ * plus a credential field is independent evidence of an authentication page.
+ * Field-level checks still refuse credential entry on every page.
  */
 export function classifyHumanRequired(
 	signals: BrowserPageSignals,
@@ -168,8 +168,13 @@ export function classifyHumanRequired(
 		return 'http-auth'
 	if (signals.frameUrls.some(isCaptchaFrame)) return 'captcha'
 	if (isBotBlockTitle(signals.title)) return 'bot-block'
-	if (signals.oneTimeCodeFields > 0 || isTwoFactorAddress(signals.url)) return 'two-factor'
-	if (signals.passwordFields > 0 || isSignInAddress(signals.url, options)) return 'sign-in'
+	const signInAddress = isSignInAddress(signals.url, options)
+	if (
+		isTwoFactorAddress(signals.url) ||
+		((signals.status === 401 || signInAddress) && signals.oneTimeCodeFields > 0)
+	)
+		return 'two-factor'
+	if (signInAddress || (signals.status === 401 && signals.passwordFields > 0)) return 'sign-in'
 	return undefined
 }
 

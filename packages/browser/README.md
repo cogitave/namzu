@@ -135,8 +135,12 @@ Whatever the permission gate allowed:
   `Proxy-Authenticate`) stops the call with `browser_human_required` and the
   command that opens a visible window for a person. A bare 401 or 407 fails
   with an access-denied or unavailable message instead of a password handoff.
-- Nothing is typed into a password or one-time-code field, and their values
-  never appear in a snapshot.
+- Nothing is typed into a detected password or one-time-code field, and detected
+  values are hidden in snapshots. Public pages with credential examples remain
+  readable and unrelated controls remain usable. Direct credential actions,
+  submission of their forms and untargeted keys are refused; page-created
+  dialogs can only be dismissed. Screenshots mask input and textarea controls
+  Playwright can locate; closed shadow roots and text elsewhere may remain visible.
 - Downloads are cancelled and reported. Text nobody can see (`aria-hidden`,
   off-page, transparent, 1-pixel) is left out of snapshots.
 

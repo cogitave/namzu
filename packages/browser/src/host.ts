@@ -46,12 +46,7 @@ import {
 	BrowserUnavailableError,
 	ProfileBusyError,
 } from './errors.js'
-import {
-	type ElementFieldFacts,
-	countCredentialFields,
-	fieldFacts,
-	focusedFieldFacts,
-} from './page-scripts.js'
+import { type ElementFieldFacts, countCredentialFields, fieldFacts } from './page-scripts.js'
 import { BrowserSitePolicy, type BrowserSiteRules, DEFAULT_BROWSER_SITE_RULES } from './policy.js'
 import {
 	type BrowserLease,
@@ -146,6 +141,7 @@ const EVENT_SETTLE_MS = 150
 /** Smallest frame that can hold a CAPTCHA a person is meant to solve. */
 const CAPTCHA_FRAME_MIN_PX = 30
 const REMEMBERED_DOCUMENTS_MAX = 64
+const SCREENSHOT_INPUT_MASK_COLOR = '#666666'
 
 function firstLine(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error)
@@ -179,9 +175,6 @@ function quoteShort(value: string, max = 80): string {
 	const flat = value.replace(/\s+/g, ' ').trim()
 	return JSON.stringify(flat.length > max ? `${flat.slice(0, max - 1)}…` : flat)
 }
-
-/** Keys that type nothing: allowed while a credential field has focus. */
-const NON_TYPING_KEYS = new Set(['Tab', 'Shift+Tab', 'Escape', 'Enter'])
 
 /**
  * A {@link BrowserHost} that runs Chromium (or an installed Chrome or Edge)
@@ -561,7 +554,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		this.pendingDialog = { tab, dialog }
 		this.notes.push(
-			`A ${dialog.type()} dialog is open on tab ${tab.id}. Take a snapshot to read it, then answer it with browser_act dialog.`,
+			`A ${dialog.type()} dialog is open on tab ${tab.id}. Take a snapshot to read it, then dismiss it with browser_act dialog or ask the operator to use the browser window.`,
 		)
 	}
 
@@ -1039,15 +1032,25 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const tab = await this.activeTab()
 		if (this.pendingDialog?.tab === tab) {
 			throw new Error(
-				'A dialog is open; answer it with browser_act dialog before taking a screenshot.',
+				'A dialog is open; dismiss it with browser_act dialog before taking a screenshot.',
 			)
 		}
+		// Screenshots are image blocks sent to the model. Mask DOM-addressable
+		// inputs regardless of their names, including child frames and refs.
+		// Closed shadow roots and page-drawn text remain outside this mask.
+		const mask = tab.page.frames().map((frame) => frame.locator('input, textarea'))
 		const data =
 			ref !== undefined
-				? await (await this.resolveRef(tab, ref)).screenshot({ type: 'png' })
+				? await (await this.resolveRef(tab, ref)).screenshot({
+						type: 'png',
+						mask,
+						maskColor: SCREENSHOT_INPUT_MASK_COLOR,
+					})
 				: await tab.page.screenshot({
 						type: 'png',
 						fullPage: fullPage === true,
+						mask,
+						maskColor: SCREENSHOT_INPUT_MASK_COLOR,
 					})
 		const bytes = new Uint8Array(data)
 		const size = pngSize(bytes)
@@ -1185,10 +1188,72 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	// Acting
 	// -------------------------------------------------------------------------
 
-	private async guardField(tab: Tab, locator: Locator): Promise<ElementFieldFacts> {
+	private async guardField(locator: Locator): Promise<ElementFieldFacts> {
 		const facts = await locator.evaluate(fieldFacts)
-		if (isCredentialField(facts)) throw this.humanRequired('credential-field', tab)
+		if (isCredentialField(facts)) {
+			throw new Error(
+				'This action targets a password or one-time-code control. Ask the operator to use the browser window.',
+			)
+		}
 		return facts
+	}
+
+	/** Refuse direct form submission while a form holds a password or code input. */
+	private async guardCredentialForm(
+		locator: Locator,
+		action: 'click' | 'press' | 'type-submit',
+		key?: string,
+	): Promise<void> {
+		const context = await locator.evaluate((element) => {
+			const label = element.closest('label') as HTMLLabelElement | null
+			const labelledField = label?.control
+				? {
+						tag: label.control.tagName.toLowerCase(),
+						type: label.control instanceof HTMLInputElement ? label.control.type.toLowerCase() : '',
+						autocomplete: label.control.getAttribute('autocomplete') ?? '',
+						name: label.control.getAttribute('name') ?? '',
+						id: label.control.id,
+						label: label.textContent ?? '',
+					}
+				: undefined
+			const button = element.closest('button, input[type="submit"], input[type="image"]')
+			const associated = (button ?? element) as HTMLInputElement
+			const form = associated.form ?? element.closest('form')
+			const fields = form
+				? Array.from(form.elements)
+						.filter(
+							(field) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement,
+						)
+						.map((field) => ({
+							tag: field.tagName.toLowerCase(),
+							type: field instanceof HTMLInputElement ? field.type.toLowerCase() : '',
+							autocomplete: field.getAttribute('autocomplete') ?? '',
+							name: field.getAttribute('name') ?? '',
+							id: field.id,
+							label: [
+								field.getAttribute('aria-label') ?? '',
+								field.getAttribute('placeholder') ?? '',
+								...Array.from((field as HTMLInputElement).labels ?? []).map(
+									(label) => label.textContent ?? '',
+								),
+							].join(' '),
+						}))
+				: []
+			return { isFormButton: button !== null, labelledField, fields }
+		})
+		if (context.labelledField && isCredentialField(context.labelledField)) {
+			throw new Error('This action targets a password or one-time-code control.')
+		}
+		if (!context.fields.some(isCredentialField)) return
+		if (
+			(action === 'click' && context.isFormButton) ||
+			(action === 'press' && (context.isFormButton || /enter|return/i.test(key ?? ''))) ||
+			action === 'type-submit'
+		) {
+			throw new Error(
+				'This action could submit a form containing a password or one-time-code control. Ask the operator to use the browser window.',
+			)
+		}
 	}
 
 	private async runAct(action: BrowserActAction): Promise<BrowserResult> {
@@ -1210,9 +1275,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		if (action.action === 'dialog') return this.answerDialog(tab, action)
 		if (this.pendingDialog?.tab === tab) {
-			throw new Error('A dialog is open on this tab; answer it with browser_act dialog first.')
+			throw new Error('A dialog is open on this tab; dismiss it with browser_act dialog first.')
 		}
-
 		const checkpoint = await this.beginDocumentResponseChange(tab)
 		try {
 			await this.perform(tab, action)
@@ -1236,6 +1300,11 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	): Promise<BrowserResult> {
 		const pending = this.pendingDialog
 		if (!pending || pending.tab !== tab) throw new Error('No dialog is open on this tab.')
+		if (action.accept) {
+			throw new Error(
+				'The agent cannot accept a page-created dialog. Dismiss it, or ask the operator to use the browser window.',
+			)
+		}
 		this.pendingDialog = undefined
 		const checkpoint = pending.checkpoint ?? {
 			previous: this.documentResponse(tab),
@@ -1244,13 +1313,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		}
 		this.clearDocumentResponse(tab)
 		try {
-			if (action.accept) await pending.dialog.accept(action.promptText)
-			else await pending.dialog.dismiss()
+			await pending.dialog.dismiss()
 		} catch (error) {
 			this.setDocumentResponse(tab, checkpoint.previous)
 			throw new BrowserOutcomeUnknownError('dialog', error)
 		}
-		this.notes.unshift(action.accept ? 'The dialog was accepted.' : 'The dialog was dismissed.')
+		this.notes.unshift('The dialog was dismissed.')
 		await this.settle()
 		this.checkLanding(tab)
 		await this.settle()
@@ -1269,6 +1337,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		switch (action.action) {
 			case 'click': {
 				const locator = await this.resolveRef(tab, action.ref)
+				await this.guardField(locator)
+				await this.guardCredentialForm(locator, 'click')
 				await locator.click({ trial: true })
 				await this.unknownOnFailure('click', () =>
 					action.doubleClick ? locator.dblclick() : locator.click(),
@@ -1277,13 +1347,15 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			}
 			case 'hover': {
 				const locator = await this.resolveRef(tab, action.ref)
+				await this.guardField(locator)
 				await locator.hover({ trial: true })
 				await this.unknownOnFailure('hover', () => locator.hover())
 				return
 			}
 			case 'type': {
 				const locator = await this.resolveRef(tab, action.ref)
-				await this.guardField(tab, locator)
+				await this.guardField(locator)
+				if (action.submit) await this.guardCredentialForm(locator, 'type-submit')
 				await locator.click({ trial: true })
 				await this.unknownOnFailure('type', async () => {
 					await locator.fill(action.text)
@@ -1299,7 +1371,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				}[] = []
 				for (const field of action.fields) {
 					const locator = await this.resolveRef(tab, field.ref)
-					const facts = await this.guardField(tab, locator)
+					const facts = await this.guardField(locator)
 					if (facts.kind === 'file') {
 						throw new Error(`${field.ref} is a file input; use browser_act upload for it.`)
 					}
@@ -1328,27 +1400,24 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			case 'press': {
 				if (action.ref !== undefined) {
 					const locator = await this.resolveRef(tab, action.ref)
-					const facts = await locator.evaluate(fieldFacts)
-					if (isCredentialField(facts) && !NON_TYPING_KEYS.has(action.key)) {
-						throw this.humanRequired('credential-field', tab)
-					}
+					await this.guardField(locator)
+					await this.guardCredentialForm(locator, 'press', action.key)
 					await this.unknownOnFailure('press', () => locator.press(action.key))
 					return
 				}
-				const focused = await tab.page.evaluate(focusedFieldFacts).catch(() => null)
-				if (focused && isCredentialField(focused) && !NON_TYPING_KEYS.has(action.key)) {
-					throw this.humanRequired('credential-field', tab)
-				}
-				await this.unknownOnFailure('press', () => tab.page.keyboard.press(action.key))
-				return
+				throw new Error(
+					'An untargeted key could reach a password or one-time-code control, including one inside a closed shadow root. Use a specific control instead.',
+				)
 			}
 			case 'upload': {
 				const locator = await this.resolveRef(tab, action.ref)
+				await this.guardField(locator)
 				const facts = await locator.evaluate(fieldFacts)
 				if (facts.kind === 'file') {
 					await this.unknownOnFailure('upload', () => locator.setInputFiles(action.path))
 					return
 				}
+				await this.guardCredentialForm(locator, 'click')
 				await locator.click({ trial: true })
 				await this.unknownOnFailure('upload', async () => {
 					const [chooser] = await Promise.all([

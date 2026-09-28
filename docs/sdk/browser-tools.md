@@ -104,7 +104,7 @@ Page: https://shop.example.com — "Your cart" (tab t1)
 
 The origin is re-canonicalised, and a value that is not an origin is shown as `unknown`. The title is page-controlled, so it is quoted, flattened to one line, cut at 120 characters, has hidden characters shown as `<U+XXXX>` and has the envelope's delimiter defanged. Below the header, the snapshot text is wrapped with `wrapUntrusted` (`kind="web-page"`, `origin` attribute). A closing tag inside the page is defanged, and the frame marks provenance but does not refuse anything. At most `BROWSER_SNAPSHOT_MAX_CHARS` (20000) characters come back per call. `capabilities.snapshotMaxChars` can lower it. A host that pages returns `nextCursor`, and the tool tells the model to pass it back. A host that does not page is cut, and the tool says so. `formatBrowserPageHeader(page)` is exported for a host that shows the same line elsewhere.
 
-A screenshot comes back as a text block (the header) and an image block. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
+A screenshot comes back as a text block (the header) and an image block. The Namzu Playwright host masks input and textarea controls that Playwright can locate, including child frames and element screenshots; closed shadow roots and text rendered elsewhere may remain visible. Another host must provide its own protection. `tabs list` lists each tab's header, with `*` on the active one. A `message` the host returns is shown outside the envelope, so it must be the host's own words, never page text.
 
 ## The host contract
 

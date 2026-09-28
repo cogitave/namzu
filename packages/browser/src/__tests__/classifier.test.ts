@@ -23,12 +23,12 @@ describe('classifyHumanRequired over the fixture pages', () => {
 		it(`${name} → ${expected.reason ?? 'no person needed'}`, () => {
 			expect(
 				classifyHumanRequired({
-					url: NEUTRAL,
+					url: `https://shop.example.test/${name}`,
 					title: expected.title,
 					passwordFields: expected.passwordFields,
 					oneTimeCodeFields: expected.oneTimeCodeFields,
 					frameUrls: expected.frameUrls,
-					...(expected.status !== undefined ? { status: expected.status } : {}),
+					status: expected.status ?? 200,
 				}),
 			).toBe(expected.reason)
 		})
@@ -36,6 +36,24 @@ describe('classifyHumanRequired over the fixture pages', () => {
 })
 
 describe('classifyHumanRequired', () => {
+	it('does not turn credential component examples on a public page into a page-wide handoff', () => {
+		for (const [passwordFields, oneTimeCodeFields] of [
+			[1, 0],
+			[0, 6],
+			[1, 6],
+		] as const) {
+			expect(
+				classifyHumanRequired({
+					...quiet,
+					url: 'https://www.boardui.com/components',
+					status: 200,
+					passwordFields,
+					oneTimeCodeFields,
+				}),
+			).toBeUndefined()
+		}
+	})
+
 	it('requires the matching challenge header for an HTTP credential prompt', () => {
 		expect(classifyHumanRequired({ ...quiet, status: 401 })).toBeUndefined()
 		expect(classifyHumanRequired({ ...quiet, status: 407 })).toBeUndefined()
@@ -80,6 +98,9 @@ describe('classifyHumanRequired', () => {
 
 	it('keeps independently observed human handoffs on a bare HTTP denial', () => {
 		expect(classifyHumanRequired({ ...quiet, status: 401, passwordFields: 1 })).toBe('sign-in')
+		expect(classifyHumanRequired({ ...quiet, status: 401, oneTimeCodeFields: 1 })).toBe(
+			'two-factor',
+		)
 		expect(
 			classifyHumanRequired({
 				...quiet,
@@ -124,6 +145,14 @@ describe('classifyHumanRequired', () => {
 			classifyHumanRequired({
 				...quiet,
 				url: 'https://github.com/sessions/two-factor/app',
+			}),
+		).toBe('two-factor')
+		expect(
+			classifyHumanRequired({
+				...quiet,
+				url: 'https://example.com/login',
+				status: 200,
+				oneTimeCodeFields: 1,
 			}),
 		).toBe('two-factor')
 	})
