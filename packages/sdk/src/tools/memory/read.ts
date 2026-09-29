@@ -6,6 +6,7 @@ import {
 } from '../../store/memory/links.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type { MemoryContent, MemoryIndexEntry, MemoryStore } from '../../types/memory/index.js'
+import { hasConditionalMemoryWrites } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { allMemoryEntries, resolveMemoryReference } from './resolve.js'
@@ -43,7 +44,13 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 
 			let entry: MemoryIndexEntry | undefined
 			let content: MemoryContent | undefined
-			if (store.getRecord) {
+			let revision: string | undefined
+			if (hasConditionalMemoryWrites(store)) {
+				const record = await store.getVersionedRecord(memoryId)
+				entry = record?.entry
+				content = record?.content
+				revision = record?.revision
+			} else if (store.getRecord) {
 				const record = await store.getRecord(memoryId)
 				entry = record?.entry
 				content = record?.content
@@ -92,9 +99,24 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 			// A JSON body stays exactly the stored text, parseable as it was
 			// before these notes existed; its age and links are in `data`.
 			const annotate = notes.length > 0 && content.format !== 'json'
+			const output = annotate ? `${content.content}\n\n---\n${notes.join('\n')}` : content.content
 			return {
 				success: true,
-				output: annotate ? `${content.content}\n\n---\n${notes.join('\n')}` : content.content,
+				output,
+				// The executor sends output or content to the model, not data. Keep
+				// output byte-compatible (including JSON) while exposing the token
+				// in a separate model-visible text block.
+				...(revision !== undefined
+					? {
+							content: [
+								{ type: 'text' as const, text: output },
+								{
+									type: 'text' as const,
+									text: `Memory revision: ${revision}. Pass it as revision to update_memory or delete_memory to reject stale changes.`,
+								},
+							],
+						}
+					: {}),
 				data: {
 					id: content.id,
 					format: content.format,
@@ -102,6 +124,7 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 					...(entry?.name !== undefined ? { name: entry.name } : {}),
 					...(entry?.type !== undefined ? { type: entry.type } : {}),
 					...(entry ? { updatedAt: entry.updatedAt } : {}),
+					...(revision !== undefined ? { revision } : {}),
 					...(resolved.length > 0 ? { links: resolved } : {}),
 				},
 			}

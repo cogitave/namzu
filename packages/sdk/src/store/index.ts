@@ -36,6 +36,7 @@ export {
 	slugifyMemoryName,
 } from './memory/naming.js'
 export type { MemoryContentRejection } from './memory/naming.js'
+export { MemoryRevisionConflictError } from './memory/revision.js'
 
 // Was that answer any good — recorded per message, durably, with
 // compare-and-set. Every consumer used to invent its own side table for the

@@ -43,6 +43,9 @@ outlives the result it came from.
 redaction** — a credential removed at the last boundary before it enters
 context — and not for neutralising an attack: editing a payload presumes you
 understood it well enough to defang it.
+When a tool also returns separate model-visible content blocks, a rewrite
+replaces that entire channel with the rewritten text. Keeping the original
+blocks would let them bypass the redaction. A `pass` keeps the blocks intact.
 
 The two refusals are deliberately distinct. `refuse` is recoverable: the
 `tool_use` fails carrying the reason, and the model chooses something else.

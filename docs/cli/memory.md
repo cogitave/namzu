@@ -151,10 +151,18 @@ The model's tools work on the same files. `save_memory` creates a memory (a name
 another memory holds is refused and pointed at `update_memory`),
 `search_memory` finds memories, `read_memory` reads one by ID or name, with its
 age and its `[[name]]` links resolved, `update_memory` corrects or archives
-one by ID or by the name the index shows, and `delete_memory` removes it. A
-memory whose file would exceed 256 KiB, or that contains a NUL character, is
-refused before it is written, so one oversized save cannot stop the store. A fresh session in the same project reads
-the same files.
+one by ID or by the name the index shows, and `delete_memory` removes it.
+
+A `read_memory` result also supplies an opaque revision. The model can pass it to
+`update_memory` or `delete_memory` to refuse a stale correction or deletion
+after another writer or a hand edit changed the record. Without a revision,
+those tools retain their ordinary last-writer-wins behavior. A JSON body's
+tool output stays exactly the stored JSON; the revision is delivered alongside
+it in a separate model-visible text block.
+
+A memory whose file would exceed 256 KiB, or that contains a NUL character, is
+refused before it is written, so one oversized save cannot stop the store. A
+fresh session in the same project reads the same files.
 
 ### Moving the older memory in
 

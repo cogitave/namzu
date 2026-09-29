@@ -5,15 +5,16 @@ import { dirname, join, resolve } from 'node:path'
 import { NamzuError } from '../../types/errors/index.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
+	ConditionalMemoryStore,
 	CreateMemoryParams,
 	MemoryContent,
 	MemoryIndexEntry,
 	MemoryRecord,
 	MemorySearchParams,
 	MemorySearchResult,
-	MemoryStore,
 	MemoryType,
 	UpdateMemoryParams,
+	VersionedMemoryRecord,
 } from '../../types/memory/index.js'
 import { assertMemoryStatus, isMemoryType } from '../../types/memory/index.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
@@ -47,6 +48,7 @@ import {
 	acquireMemoryOperationLock,
 	validateMemoryLockTimeout,
 } from './operation-lock.js'
+import { MemoryRevisionConflictError, assertMemoryRevision, memoryRevision } from './revision.js'
 
 /**
  * Versioned like every other record this SDK persists. A memory file carries
@@ -296,7 +298,7 @@ function decodeMemoryFile(
  * holds with {@link MemoryNameConflictError}, and derives a free one from the
  * title when none is given.
  */
-export class MarkdownMemoryStore implements MemoryStore {
+export class MarkdownMemoryStore implements ConditionalMemoryStore {
 	private readonly directory: string
 	private readonly log: Logger
 	private readonly lockTimeoutMs: number
@@ -587,6 +589,15 @@ export class MarkdownMemoryStore implements MemoryStore {
 		})
 	}
 
+	async getVersionedRecord(id: MemoryId): Promise<VersionedMemoryRecord | undefined> {
+		return this.withLoaded(async (_dir, loaded) => {
+			const memory = loaded.get(id)
+			if (!memory) return undefined
+			const record = structuredClone({ entry: memory.entry, content: memory.content })
+			return { ...record, revision: memoryRevision(record) }
+		})
+	}
+
 	/** The current record held under `name`, archived included, or `undefined`. */
 	async getByName(name: string): Promise<MemoryRecord | undefined> {
 		return this.withLoaded(async (_dir, loaded) => {
@@ -603,10 +614,35 @@ export class MarkdownMemoryStore implements MemoryStore {
 	}
 
 	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
+		return this.updateInternal(id, updates)
+	}
+
+	async updateIfRevision(
+		id: MemoryId,
+		updates: UpdateMemoryParams,
+		expectedRevision: string,
+	): Promise<MemoryIndexEntry> {
+		const updated = await this.updateInternal(id, updates, expectedRevision)
+		if (!updated) throw new MemoryRevisionConflictError(id)
+		return updated
+	}
+
+	private async updateInternal(
+		id: MemoryId,
+		updates: UpdateMemoryParams,
+		expectedRevision?: string,
+	): Promise<MemoryIndexEntry | undefined> {
 		if (updates.status !== undefined) assertMemoryStatus(updates.status)
 		assertOptionalMemoryFields(updates)
 		return this.mutate(async (dir, loaded) => {
 			const existing = loaded.get(id)
+			if (expectedRevision !== undefined) {
+				assertMemoryRevision(
+					id,
+					existing ? { entry: existing.entry, content: existing.content } : undefined,
+					expectedRevision,
+				)
+			}
 			if (!existing) return undefined
 			const entries = this.entries(loaded)
 			if (updates.name !== undefined) {
@@ -645,8 +681,24 @@ export class MarkdownMemoryStore implements MemoryStore {
 	}
 
 	async delete(id: MemoryId): Promise<boolean> {
+		return this.deleteInternal(id)
+	}
+
+	async deleteIfRevision(id: MemoryId, expectedRevision: string): Promise<void> {
+		const deleted = await this.deleteInternal(id, expectedRevision)
+		if (!deleted) throw new MemoryRevisionConflictError(id)
+	}
+
+	private async deleteInternal(id: MemoryId, expectedRevision?: string): Promise<boolean> {
 		return this.mutate(async (dir, loaded) => {
 			const existing = loaded.get(id)
+			if (expectedRevision !== undefined) {
+				assertMemoryRevision(
+					id,
+					existing ? { entry: existing.entry, content: existing.content } : undefined,
+					expectedRevision,
+				)
+			}
 			if (!existing) return false
 			try {
 				await unlink(existing.path)
