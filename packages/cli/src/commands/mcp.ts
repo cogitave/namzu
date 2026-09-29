@@ -1,7 +1,7 @@
 import { loadConfig } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
-import { clearMcpOAuthCredentials } from '../integrations/mcp/oauth-store.js'
+import { clearMcpOAuthCredentials, isSecureMcpOAuthUrl } from '../integrations/mcp/oauth-store.js'
 import {
 	type McpServerSpec,
 	connectDeadlineFor,
@@ -31,7 +31,7 @@ const HELP = [
 	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
-	'  namzu mcp test <name> [--trust]    Check the effective server and usable tools',
+	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
 	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
 	'  namzu mcp logout <name>',
 	'',
@@ -211,17 +211,19 @@ async function testMcpServer(
 		toolCount: number,
 		reason?: string,
 		warning?: string,
+		resourceHelperCount = 0,
 	): void => {
 		ctx.formatter.print({
 			name: displayName,
 			status,
 			transport,
 			toolCount,
+			...(resourceHelperCount > 0 ? { resourceHelperCount } : {}),
 			...(reason ? { reason } : {}),
 			...(warning ? { warning } : {}),
 			text:
 				status === 'connected'
-					? `${displayName}: connected; ${toolCount} usable ${toolCount === 1 ? 'tool' : 'tools'}.${warning ? ` ${warning}` : ''}`
+					? `${displayName}: connected; ${toolCount} server ${toolCount === 1 ? 'tool or prompt' : 'tools or prompts'}.${resourceHelperCount > 0 ? ` ${resourceHelperCount} resource helpers available.` : ''}${warning ? ` ${warning}` : ''}`
 					: `${displayName}: unavailable; ${reason ?? 'the server did not become ready'}.`,
 		})
 	}
@@ -260,6 +262,7 @@ async function testMcpServer(
 	const transport =
 		hasCommand && hasUrl ? 'invalid' : hasCommand ? 'stdio' : hasUrl ? 'http' : 'invalid'
 	let toolCount = 0
+	let resourceHelperCount = 0
 	let reason: string | undefined
 	let warning: string | undefined
 	let connection: Awaited<ReturnType<typeof connectMcpServers>> | undefined
@@ -271,9 +274,14 @@ async function testMcpServer(
 			reason = safeTestReason(failed.reason, spec, displayName)
 		} else {
 			const connected = current.connected.find((server) => server.name === name)
-			toolCount = connected?.toolCount ?? 0
+			// The MCP toolset's first entry contains server tools and prompts;
+			// its second entry contains deferred resource helpers. Counting both
+			// as server tools can turn an empty tools/list and resources/list into
+			// a misleading "2 usable tools" diagnosis.
+			toolCount = connected ? (connection.toolsets[0]?.tools().length ?? 0) : 0
+			resourceHelperCount = connected ? (connection.toolsets[1]?.tools().length ?? 0) : 0
 			if (!connected) reason = 'server did not reach a connected state'
-			else if (toolCount === 0) warning = 'No usable tools were exposed.'
+			else if (toolCount === 0) warning = 'No server tools or prompts were exposed.'
 		}
 	} catch {
 		reason = 'MCP connection or tool discovery failed; inspect the server logs'
@@ -284,12 +292,19 @@ async function testMcpServer(
 			reason = 'MCP connection shutdown failed; inspect the server process'
 		}
 	}
-	report(reason ? 'unavailable' : 'connected', transport, toolCount, reason, warning)
+	report(
+		reason ? 'unavailable' : 'connected',
+		transport,
+		toolCount,
+		reason,
+		warning,
+		resourceHelperCount,
+	)
 	return reason ? EXIT_FAIL : EXIT_OK
 }
 
 /** Never print a transport's raw error: it can contain URLs, credentials or server stderr. */
-function safeTestReason(reason: string, spec: McpServerSpec, name: string): string {
+export function safeTestReason(reason: string, spec: McpServerSpec, name: string): string {
 	if (reason === 'server spec must be a mapping') return reason
 	if (reason.startsWith('it declares both a command and a url')) {
 		return 'server declares both a command and a URL; choose one'
@@ -317,7 +332,9 @@ function safeTestReason(reason: string, spec: McpServerSpec, name: string): stri
 		)
 		return hasAuthorizationHeader
 			? 'HTTP 401: check the configured Authorization header'
-			: `HTTP 401: sign in with namzu mcp login ${name}`
+			: canSignInToMcpUrl(spec.url)
+				? `HTTP 401: sign in with namzu mcp login ${name}`
+				: 'HTTP 401: OAuth sign-in requires HTTPS or a loopback endpoint'
 	}
 	if (/HTTP 403\b/i.test(reason))
 		return 'HTTP 403: server refused access; check account permissions'
@@ -342,6 +359,15 @@ function safeTestReason(reason: string, spec: McpServerSpec, name: string): stri
 		return 'server connected but tool discovery failed; inspect the server logs'
 	}
 	return 'MCP connection or tool discovery failed; inspect the server logs'
+}
+
+function canSignInToMcpUrl(raw: string | undefined): boolean {
+	if (!raw) return false
+	try {
+		return isSecureMcpOAuthUrl(new URL(raw))
+	} catch {
+		return false
+	}
 }
 
 function parseMcpAction(args: readonly string[]): McpAction {

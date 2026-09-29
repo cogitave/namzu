@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { runCli } from '../../cli.js'
+import { safeTestReason } from '../mcp.js'
 
 const initialCwd = process.cwd()
 const origins: Server[] = []
@@ -220,6 +221,23 @@ it('reports HTTP 401 without exposing the endpoint query or server body', async 
 	expect(`${stdout}${stderr}`).not.toContain(secret)
 })
 
+it('does not suggest OAuth login for an HTTP endpoint that the login command refuses', () => {
+	expect(
+		safeTestReason(
+			'HTTP 401: authentication required',
+			{ url: 'http://remote.example/mcp' },
+			'remote',
+		),
+	).toBe('HTTP 401: OAuth sign-in requires HTTPS or a loopback endpoint')
+	expect(
+		safeTestReason(
+			'HTTP 401: authentication required',
+			{ url: 'https://remote.example/mcp' },
+			'remote',
+		),
+	).toBe('HTTP 401: sign in with namzu mcp login remote')
+})
+
 it('accepts a connected server with no exposed tools and marks that limit', async () => {
 	const origin = createServer(async (request, response) => {
 		let body = ''
@@ -251,8 +269,46 @@ it('accepts a connected server with no exposed tools and marks that limit', asyn
 		status: 'connected',
 		transport: 'http',
 		toolCount: 0,
-		warning: 'No usable tools were exposed.',
+		warning: 'No server tools or prompts were exposed.',
 	})
+})
+
+it('does not count deferred resource helpers as published server tools', async () => {
+	const origin = createServer(async (request, response) => {
+		let body = ''
+		for await (const chunk of request) body += String(chunk)
+		const message = JSON.parse(body) as { id: number; method: string }
+		const result =
+			message.method === 'server/discover'
+				? { supportedVersions: ['2026-07-28'], capabilities: { tools: {}, resources: {} } }
+				: message.method === 'resources/list'
+					? { resources: [] }
+					: { tools: [] }
+		response
+			.writeHead(200, { 'content-type': 'application/json' })
+			.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }))
+	})
+	await new Promise<void>((resolve) => origin.listen(0, '127.0.0.1', resolve))
+	origins.push(origin)
+	writeFileSync(
+		join(project, 'namzu.config.json'),
+		JSON.stringify({
+			mcpServers: {
+				empty: { url: `http://127.0.0.1:${(origin.address() as AddressInfo).port}/mcp` },
+			},
+		}),
+	)
+
+	const result = await testServer('empty')
+	expect(result.code).toBe(0)
+	expect(result.output).toMatchObject({
+		name: 'empty',
+		status: 'connected',
+		toolCount: 0,
+		resourceHelperCount: 2,
+		warning: 'No server tools or prompts were exposed.',
+	})
+	expect(result.output.text).toContain('0 server tools or prompts')
 })
 
 it('reports a malformed effective entry instead of dereferencing it', async () => {

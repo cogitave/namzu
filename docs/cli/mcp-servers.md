@@ -43,9 +43,11 @@ trusted; `--trust` accepts it for this test only, without recording permanent
 trust.
 
 The result reports `connected` or `unavailable`, transport (`stdio` or `http`),
-and the count of tools the agent can use after the server's allow/deny rules.
-A connected server with zero tools succeeds and carries a warning: a server may
-intentionally expose no tools. A connection, discovery or configuration failure
+and `toolCount`: the number of admitted server tools and prompts. It reports
+deferred resource helper definitions separately as `resourceHelperCount`; two
+helpers do not establish that the server published any resources. A connected
+server with zero server tools or prompts succeeds and carries a warning. A
+connection, discovery or configuration failure
 returns a nonzero exit code with a named, bounded reason. `--format json` and
 `--format yaml` expose the same fields. Neither output includes the endpoint URL,
 command arguments, header values, environment values or untrusted server error
