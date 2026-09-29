@@ -167,7 +167,7 @@ it('redacts an error-only failed result before the next real provider request', 
 		toolResultGuardrails: [
 			({ output }) => {
 				screened.push(output)
-				return { action: 'rewrite', output: '[redacted failure]' }
+				return { action: 'rewrite', output: output.replace(secret, '[redacted failure]') }
 			},
 		],
 		agentId: 'failed-result-redaction',
@@ -185,7 +185,10 @@ it('redacts an error-only failed result before the next real provider request', 
 	expect(provider.requests).toHaveLength(2)
 	const toolMessages = provider.requests[1]?.messages.filter((message) => message.role === 'tool')
 	expect(toolMessages).toHaveLength(1)
-	expect(JSON.stringify(toolMessages)).toContain('[redacted failure]')
+	expect(toolMessages?.[0]?.content).toBe('Error: [redacted failure]')
 	expect(JSON.stringify(toolMessages)).not.toContain(secret)
+	expect(run.messages.find((message) => message.role === 'tool')?.content).toBe(
+		'Error: [redacted failure]',
+	)
 	expect(JSON.stringify(run.messages)).not.toContain(secret)
 })

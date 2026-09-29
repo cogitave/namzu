@@ -138,11 +138,26 @@ export async function screenToolResult(
 	// original content blocks in place would expose the text it just redacted.
 	// Rich blocks cannot be screened through the text-only verdict either, so
 	// a rewrite replaces the complete model-visible content with its text.
+	if (rewritten && !result.success) {
+		// Reconstruct the failure fields when the rewrite kept the normal
+		// formatting. Keeping the whole formatted text in `error` would make
+		// the executor add a second `Error:` prefix to the visible result.
+		const marker = '\n\nError: '
+		const lastMarker = current.lastIndexOf(marker)
+		const output = lastMarker >= 0 ? current.slice(0, lastMarker) : ''
+		const error =
+			lastMarker >= 0
+				? current.slice(lastMarker + marker.length)
+				: current.startsWith('Error: ')
+					? current.slice('Error: '.length)
+					: current
+		const visible = output.trim() ? `${output}\n\nError: ${error}` : `Error: ${error}`
+		return { ...result, output, error, content: visible }
+	}
 	return rewritten
 		? {
 				...result,
-				output: result.success ? current : '',
-				...(result.success ? {} : { error: current }),
+				output: current,
 				content: current,
 			}
 		: result
