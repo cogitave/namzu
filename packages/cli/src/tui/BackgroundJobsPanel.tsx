@@ -124,7 +124,7 @@ export function BackgroundJobsPanel({
 		const selectedIndex = selected ? jobs.findIndex((job) => job.id === selected.id) : 0
 		const start = Math.max(0, Math.min(selectedIndex - Math.floor(pageSize / 2), jobs.length - pageSize))
 		const shown = jobs.slice(start, start + pageSize)
-		const stop = selected?.status === 'running' ? ' · x stop' : ''
+		const stop = selected?.status === 'running' && !busyJobId ? ' · x stop' : ''
 		const listHint = jobs.length === 0
 			? 'esc close'
 			: fitClosingHint(
@@ -182,7 +182,7 @@ export function BackgroundJobsPanel({
 	const commandRows = allCommandRows.slice(0, 2)
 	const commandMore = allCommandRows.length > 2
 	const shownOutput = outputRows.map((text, index) => ({ index, text })).slice(start, end)
-	const canStop = detailed.status === 'running' && busyJobId !== detailed.id
+	const canStop = detailed.status === 'running' && !busyJobId
 	const earlierOutputOmitted =
 		(output?.droppedBytes ?? 0) > 0 ||
 		(output?.chunk !== undefined && Buffer.byteLength(output.chunk) > MAX_VISIBLE_OUTPUT_BYTES)

@@ -203,6 +203,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 						}
 						jobs = [exited]
 						announceExit(exited)
+						// This fake's turn represents a kernel that put the exit in model context.
+						opts?.onJobNoticeDelivered?.(['job_1'])
 						yield { kind: 'delta', text: 'finished' }
 					}
 					yield { kind: 'done', stopReason: 'end_turn' }
@@ -315,7 +317,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
 })
 
-it('clears the shell count on an exit during a turn without an idle duplicate', async () => {
+it('clears the shell count and shows one exit row when the kernel delivered the notice', async () => {
 	scenario = 'exit'
 	jobs = [runningJob()]
 	outputs.set('job_1', outputFor('build output\n'))
@@ -326,12 +328,27 @@ it('clears the shell count on an exit during a turn without an idle duplicate', 
 	await turnSettled
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
-	expect(screen.scrollback().join('\n')).not.toContain('background job job_1 (npm run dev) exited')
+	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (npm run dev) exited'))).toHaveLength(1)
 
 	await submit(screen, 'next turn')
 	expect(sendOptions).toHaveLength(2)
 	expect(sendOptions[1]?.extraSystem ?? '').not.toContain('Background jobs that ended')
 	expect(sendOptions[1]?.extraSystem ?? '').not.toContain('job_1')
+})
+
+it('keeps a live CLI session shell visible after /new changes the conversation', async () => {
+	jobs = [runningJob()]
+	outputs.set('job_1', outputFor('still serving\n'))
+	const screen = await mount(100, 28)
+	await submit(screen, '/new')
+	await screen.waitForRender()
+	expect(sessionCreations).toBe(1)
+	expect(screen.viewport().join('\n')).toContain('1 shell running · /jobs to manage')
+	await submit(screen, '/jobs')
+	expect(screen.viewport().join('\n')).toContain('npm run dev')
+	screen.press('\r')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('still serving')
 })
 
 it('drops the old job panel when a new session reuses the same job id', async () => {

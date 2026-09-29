@@ -18,7 +18,7 @@ The model passes `run_in_background: true` to `bash` for work that legitimately 
 
 While a shell job runs, a line below the composer footer shows the number of running shells and points to `/jobs`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.
 
-`/jobs` opens a session-scoped list of running and finished shell jobs. Move with Up/Down and press Enter for a job's status, command and retained output. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to return to the list or composer, and `q` to close the view. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
+`/jobs` opens a session-scoped list of running and finished shell jobs. Move with Up/Down and press Enter for a job's status, command and retained output. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to return to the list or composer, and `q` to close the view. While a stop is pending, the stop hint disappears until that action settles. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
 
 The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary into the transcript when that is more useful than opening the view.
 
@@ -48,18 +48,16 @@ permission policy.
 
 # Learning that it ended
 
-`wait_for_job` is the model asking; the notices below are the kernel telling it without being asked, for a job nothing is blocked on:
+`wait_for_job` is the model asking; the notices below tell it without being asked, for a job nothing is blocked on:
 
-- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`; the transcript shows a job row marked `J`.
+- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`. The session listener shows a job row marked `J` as soon as the exit occurs.
 - **At the end of a turn**, for a job the model awaited, the turn suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
 - **On the way out**, for an awaited job whose exit lands after that hold's grace has already run out — so the job was about to be named abandoned — but before the turn finishes settling, `deliverArrivedJobExits` still catches it: the same `runtime-context` message reaches `Turn.messages` instead of the job landing on `abandonedJobIds`.
-- **Between turns**, the session hears the exit itself: the `J` job row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
+- **Between turns, or after the turn's last delivery point**, the session hears the exit itself: the `J` job row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
 
-One of these four announces any given exit — never more than one, with the narrow exception named below. The first three are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to one of them is neither delivered again by another nor counted as a reason to open one. The fourth is the session's, and it only ever sees an exit that landed with no turn open — the case the kernel is not there to hear.
+The session keeps each exit until the kernel acknowledges that its notice entered a tool result or recorded `job-exit` context, or a later completed turn carries it in its opening context. An exit after the last tool result may still occur before the turn settles; that exit is carried to the next turn. An early failed or aborted send does not consume a pending exit. The transcript shows one `J` row per exit, whether the kernel also emits its event or the session first observes the process closing. The exception below is about what the model reads, not duplicate transcript rows.
 
 If the process cannot start, its job still finishes and announces one exit when the child closes. It has no process exit code: the spawn error is not a command's exit status. An error from a process that already started does not by itself end the job; the registry waits for that process to close.
-
-A residual window escapes all four, known and left narrow rather than closed: an exit that lands after `settleOutstandingWork` has run (the kernel has looked for the last time) but before the CLI clears `abortRef` (`App.tsx` ~4867, the flag the session's own listener checks before it will queue anything) is announced by nobody.
 
 None of them knows a `wait_for_job` call is already blocked on the same job: unlike the delegated-task inbox, which lets a blocking `wait_for_task` claim a completion so it is not also announced, nothing here suppresses the notice for a job `wait_for_job` is about to report on its own. A job that exits during a `wait_for_job` call can therefore surface twice — once as that call's own result, once as the `[Background job update]` line on the same or a later tool result. Redundant, not contradictory: both describe the same exit.
 
@@ -73,7 +71,7 @@ So the kernel suspends instead. When the model stops calling tools and a job it 
 - **the operator types** → the message is delivered and the model gets that turn instead; the job is untouched, because ending a wait is not ending the work;
 - **the grace runs out** → the turn settles and names the job on the turn's `abandonedJobIds`, which is a statement, not a stop.
 
-A job that ends in the moment between the last of those and the turn settling is delivered on the way out, as the same `runtime-context` message on `Turn.messages`, and is not named on `abandonedJobIds` — it finished, so claiming the turn walked away from it would be false. That moment is the kernel's alone: the session announces only exits that land with no turn in flight, and this one lands while the turn is still finishing.
+A job that ends in the moment between the last of those and the turn settling is delivered on the way out, as the same `runtime-context` message on `Turn.messages`, and is not named on `abandonedJobIds` — it finished, so claiming the turn walked away from it would be false. The kernel acknowledges that delivery to the session; an exit after the last delivery point remains pending for the next turn.
 
 The grace is half of what the turn has left before it must start finishing — the same grace a delegated task gets, since one wait covers both — under a ceiling of its own for the job half: **two minutes**, or `NAMZU_JOB_HOLD_MAX_MS`.
 
@@ -93,6 +91,8 @@ The intent lasts for the rest of the turn, so `wait_for_job` on a process meant 
 A job is its **process group**, not its shell. A command that backgrounds its real work (`python3 -m http.server 8765 &`) returns from the shell at once; the job stays `running` while any process it started is alive, ends with the shell's exit code when the last one is gone, and a stop takes the survivors with it.
 
 Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). The `/jobs` view and `/jobs list` show every job started this session with its state — running for how long, exited with which code, stopped.
+
+Here, session means the live CLI agent session. `/new` and `/resume` change the conversation inside it; they do not stop or reassign its shell jobs. The same `/jobs` list remains available until the CLI agent session closes. A separate Namzu process has its own job registry and cannot address these jobs.
 
 # Under a sandbox
 

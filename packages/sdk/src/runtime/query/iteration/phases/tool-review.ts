@@ -186,6 +186,7 @@ export async function* runToolReview(
 		// block must be answered by a `tool_result` with the same id, so a
 		// user message wedged between them is rejected by the provider. Same
 		// delivery a denial already uses, without the refusal.
+		let jobNoticeDelivered = false
 		for (const msg of attachRepeatNotice(
 			attachNotice(
 				attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
@@ -194,12 +195,16 @@ export async function* runToolReview(
 				// The exits that text accounts for have now been read, so the
 				// record of them stops being pending work. Left standing, it
 				// buys the model a turn the next time any job queues a notice.
-				() => ctx.awaitedJobs?.noticesDelivered(),
+				() => {
+					ctx.awaitedJobs?.noticesDelivered()
+					jobNoticeDelivered = true
+				},
 			),
 			notices,
 		)) {
 			ctx.recorder.pushMessage(msg)
 		}
+		if (jobNoticeDelivered) ctx.onJobNoticeDelivered?.()
 		// The complete tool-result batch is already in history before host policy
 		// may react, so a replacement cannot split provider-required adjacency.
 		// Commit each accepted observation before entering the next one. A single

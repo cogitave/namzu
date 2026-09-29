@@ -144,6 +144,25 @@ describe('the shell jobs child screen', () => {
 		}
 	})
 
+	it('does not offer stop for a second job while a stop request is in flight', async () => {
+		const jobs = [job('job_1', 'npm run dev'), job('job_2', 'pnpm build')]
+		const base = {
+			jobs,
+			selectedJobId: 'job_2',
+			tailOffset: 0,
+			readJob: () => output('ready\n'),
+			rows: 24,
+			columns: 80,
+			now: NOW,
+			busyJobId: 'job_1',
+		}
+		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId={null} />, { cols: 80, rows: 24 })
+		expect(screen.viewport().join('\n')).not.toContain('x stop')
+		await screen.unmount()
+		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_2" />, { cols: 80, rows: 24 })
+		expect(screen.viewport().join('\n')).not.toContain('x stop')
+	})
+
 	it('bounds a noisy process to its latest output and reports both kinds of omission', () => {
 		const long = `HEAD${'old'.repeat(12_000)}\nTAIL`
 		const rows = backgroundJobOutputRows(output(long, 100), 40)

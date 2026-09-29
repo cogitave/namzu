@@ -7,6 +7,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import type { UserCommand } from '../../user-commands/store.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import {
+	initPrompt,
 	kernelCommandDescriptors,
 	matchSlashCommands,
 	mergeHostCommands,
@@ -519,18 +520,20 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'also inspect this', '\r')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('steering the active turn')),
+				() => screen.viewport().some((line) => line.includes('Steering · next model boundary')),
 				'live-input preview never appeared',
 			)
 			expect(delivered).toEqual([])
-			expect(screen.scrollback().join('\n')).not.toContain('also inspect this')
+			expect(screen.viewport().join('\n')).toContain('also inspect this [1 attachment]')
 
 			await typeAndPress(screen, 'then do this', '\t')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('1 message queued')),
+				() => screen.viewport().some((line) => line.includes('Queued · next turn')),
 				'Tab submission never entered the next-turn queue',
 			)
+			expect(screen.viewport().join('\n')).toContain('then do this')
+			expect(screen.viewport().join('\n')).toContain('Alt+Up edit last message')
 
 			releaseFirstTurn()
 			await waitUntil(screen, () => delivered[0]?.length === 1, 'SDK never drained the live input')
@@ -606,7 +609,8 @@ describe('the two composer destinations', () => {
 			expect(removeCancelledListener).toHaveBeenCalledTimes(1)
 			expect(delivered).toEqual([])
 			expect(sent).toHaveLength(1)
-			expect(screen.viewport().join('\n')).toContain('1 message steering the active turn')
+			expect(screen.viewport().join('\n')).toContain('Steering · next model boundary')
+			expect(screen.viewport().join('\n')).toContain('also inspect the new evidence')
 
 			// Readiness remains true until the provider boundary asks for the messages.
 			await expect(waitForInbound(new AbortController().signal)).resolves.toBeUndefined()
@@ -655,6 +659,322 @@ describe('the two composer destinations', () => {
 				content: 'tab-second',
 			})
 		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps an undrained steer ahead of a replacement for a recalled earlier Tab message', async () => {
+		drainFirstTurn = false
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'queued A', '\t')
+			await typeAndPress(screen, 'steer S', '\r')
+			screen.press('\x1b[1;3A')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('› queued A'), 'earlier queued item was not recalled')
+			screen.press('\x15') // Ctrl+U clears the recalled draft.
+			await screen.waitForRender()
+			await typeAndPress(screen, 'queued B', '\t')
+			releaseFirstTurn()
+			await waitUntil(screen, () => sent.length === 3, 'undelivered input was not requeued')
+			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual(['steer S', 'queued B'])
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('recalls the newest queued prompt with its image without overwriting a live draft', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'older queued', '\t')
+			screen.press('\x1bv')
+			await screen.waitForRender()
+			await typeAndPress(screen, 'newer queued', '\t')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('newer queued'),
+				'queued preview did not appear',
+			)
+
+			screen.press(' ')
+			screen.press(' ')
+			await screen.waitForRender()
+			screen.press('\x1b[1;3A')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('newer queued')
+			expect(screen.viewport().join('\n')).not.toContain('Image #1')
+			screen.press('\x15')
+			await screen.waitForRender()
+
+			screen.press('\x1bv')
+			await screen.waitForRender()
+			screen.press('\x1b[1;3A')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('Image #1')
+			expect(screen.viewport().join('\n')).toContain('newer queued')
+			screen.press('\x7f') // Remove this draft-only image, leaving the queued one intact.
+			await screen.waitForRender()
+
+			screen.press('keep this draft')
+			await screen.waitForRender()
+			screen.press('\x1b[1;3A') // Alt+Up
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('keep this draft')
+			expect(screen.viewport().join('\n')).toContain('newer queued')
+			expect(screen.scrollback().join('\n')).toContain(
+				'Send or clear the current draft before recalling a queued message.',
+			)
+
+			screen.press('\x15') // Clear this one-line draft without sending it.
+			await screen.waitForRender()
+			// Both key events arrive before React can restore the first recalled
+			// draft. The second must not pop the older FIFO entry as well.
+			screen.press('\x1b[1;3A')
+			screen.press('\x1b[1;3A')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Image #1'),
+				'queued attachment was not restored to the composer',
+			)
+			expect(screen.viewport().join('\n')).toContain('newer queued')
+			expect(screen.viewport().join('\n')).toContain('older queued')
+			expect(screen.viewport().join('\n')).not.toContain('keep this draft')
+			expect(sent).toHaveLength(1)
+
+			// Sending the restored draft back to the queue must preserve FIFO and
+			// the image bytes; recall itself must not start a model turn.
+			screen.press('\t')
+			await screen.waitForRender()
+			releaseFirstTurn()
+			await waitUntil(screen, () => sent.length === 3, 'queued prompts never ran')
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'older queued' })
+			expect(sent[2]?.at(-1)).toMatchObject({
+				role: 'user',
+				content: 'newer queued',
+				attachments: [image],
+			})
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('keeps typing that arrives immediately after Alt+Up and submits the restored image', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			screen.press('\x1bv')
+			await screen.waitForRender()
+			await typeAndPress(screen, 'queued text', '\t')
+			screen.press('\x1b[1;3A')
+			screen.press(' suffix')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('queued text suffix'), 'typing after recall was lost')
+			screen.press('\r')
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered[0]?.length === 1, 'the recalled steer was not delivered')
+			expect(delivered[0]?.[0]).toMatchObject({ role: 'user', content: 'queued text suffix', attachments: [image] })
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('keeps a new paste chip when Alt+Up arrives before a render', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		const pasted = 'first pasted line\nsecond pasted line'
+		try {
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'queued original', '\t')
+			screen.press(`\x1b[200~${pasted}\x1b[201~`)
+			screen.press('\x1b[1;3A')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('Pasted text #1')
+			expect(screen.viewport().join('\n')).toContain('queued original')
+			screen.press('\r')
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered[0]?.length === 1, 'the paste was not steered')
+			expect(delivered[0]?.[0]).toMatchObject({ role: 'user', content: pasted })
+			await waitUntil(screen, () => sent.length === 2, 'the queued prompt was lost')
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'queued original' })
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('recalls a queued slash command as typed while keeping its model prompt expanded', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, '/init ', '\t')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('↳ /init'), 'the authored command was not previewed')
+			screen.press('\x1b[1;3A')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('› /init'), 'the authored command was not recalled')
+			screen.press(' ')
+			screen.press('\t')
+			releaseFirstTurn()
+			await waitUntil(screen, () => sent.length === 2, 'the recalled command did not run')
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: initPrompt([]) })
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('Esc promotes an undrained steer ahead of the next-turn queue exactly once', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			screen.press('\x1bv')
+			await screen.waitForRender()
+			await typeAndPress(screen, 'interrupt with image', '\r')
+			await typeAndPress(screen, 'after interruption', '\t')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('after interruption'),
+				'pending next-turn input was not visible',
+			)
+
+			// Kitty's complete Esc sequence has no terminal ambiguity delay.
+			screen.press('\x1b[27u')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				'Esc did not interrupt the active turn',
+			)
+			expect(sent).toHaveLength(1)
+			expect(delivered).toEqual([])
+			releaseFirstTurn()
+			await waitUntil(screen, () => sent.length === 3, 'recovered input never ran')
+
+			expect(delivered[0]).toEqual([])
+			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
+				'interrupt with image',
+				'after interruption',
+			])
+			expect(sent[1]?.at(-1)).toMatchObject({ attachments: [image] })
+			expect(sent).toHaveLength(3)
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('Esc without a steer holds queued input so it can be recalled instead of lost', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'keep after stop', '\t')
+			screen.press('\x1b[27u')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				'Esc did not interrupt the active turn',
+			)
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
+			expect(sent).toHaveLength(1)
+			expect(screen.viewport().join('\n')).toContain('keep after stop')
+
+			screen.press('\x1b[1;3A')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('› keep after stop')),
+				'queued input was not recalled',
+			)
+			expect(screen.viewport().join('\n')).not.toContain('Queued · next turn')
+			expect(sent).toHaveLength(1)
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 2, 'recalled input never started')
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'keep after stop' })
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('a fresh Enter after Esc runs before the held next-turn queue', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'held follow-up', '\t')
+			screen.press('\x1b[27u')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				'Esc did not interrupt the active turn',
+			)
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
+			expect(sent).toHaveLength(1)
+			await typeAndPress(screen, 'urgent new instruction', '\r')
+			await waitUntil(screen, () => sent.length === 3, 'fresh instruction and held queue never ran')
+			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
+				'urgent new instruction',
+				'held follow-up',
+			])
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('releasing the last held queue item by recall lets a Tab resubmission run', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'revise after stop', '\t')
+			screen.press('\x1b[27u')
+			await waitUntil(screen, () => screen.scrollback().join('\n').includes('Interrupted.'), 'Esc did not interrupt')
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
+			screen.press('\x1b[1;3A')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('› revise after stop'), 'recall did not restore the draft')
+			screen.press('\t')
+			await waitUntil(screen, () => sent.length === 2, 'the resubmitted prompt remained held')
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'revise after stop' })
+		} finally {
+			releaseFirstTurn()
 			await screen.unmount()
 		}
 	})

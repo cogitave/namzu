@@ -188,6 +188,7 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
+import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import {
 	HYPERMODE,
@@ -785,6 +786,10 @@ type QueuedPrompt =
 			readonly attachments?: readonly MessageAttachment[]
 			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
 			readonly skillFlow?: true
+			/** Only an operator-composed message can be returned to the composer. */
+			readonly recallable?: true
+			/** The typed command when a slash action expanded it into `text` for the model. */
+			readonly recallText?: string
 			/**
 			 * Composer triggers armed when the operator sent it (`./triggers/`).
 			 * Only the composer's own submit sets this; see `SubmitMeta`.
@@ -800,12 +805,16 @@ type QueuedPrompt =
 
 type HumanQueuedPrompt = Extract<QueuedPrompt, { readonly kind: 'human' }>
 
+function isRecallableHumanPrompt(prompt: QueuedPrompt | undefined): prompt is HumanQueuedPrompt {
+	return prompt?.kind === 'human' && prompt.recallable === true
+}
+
 interface LiveInput {
 	readonly prompt: HumanQueuedPrompt
 	readonly message: Message
 	readonly attachedFiles: number
-	/** Queue length at acceptance, used to preserve cross-channel submission order. */
-	readonly queueBoundary: number
+	/** Queue identities present at acceptance; recalls may remove any of them. */
+	readonly queuedBefore: readonly QueuedPrompt[]
 }
 
 interface ActiveTurnInbox {
@@ -821,11 +830,14 @@ function mergeUndeliveredLiveInput(
 	undelivered: readonly LiveInput[],
 ): readonly QueuedPrompt[] {
 	const merged = [...queued]
-	let inserted = 0
+	let lastInsertedIndex = -1
 	for (const input of undelivered) {
-		const index = Math.min(input.queueBoundary + inserted, merged.length)
+		let lastPredecessorIndex = -1
+		for (const predecessor of input.queuedBefore)
+			lastPredecessorIndex = Math.max(lastPredecessorIndex, merged.indexOf(predecessor))
+		const index = Math.max(lastPredecessorIndex, lastInsertedIndex) + 1
 		merged.splice(index, 0, input.prompt)
-		inserted += 1
+		lastInsertedIndex = index
 	}
 	return merged
 }
@@ -847,6 +859,8 @@ type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 
 interface QueuePause {
 	readonly outcome: QueuePauseOutcome
+	/** Esc pauses the queue so the next explicit Enter can run before it. */
+	readonly source?: 'operator-interrupt'
 }
 
 function goalRoundPrompt(authority: GoalRoundAuthority): string {
@@ -1085,27 +1099,29 @@ export function App({
 		summaries: 0,
 		reclaimedTokens: 0,
 	})
-	// Jobs that ended while no turn was running.
-	//
-	// Only those: an exit that lands mid-turn belongs to the kernel, which
-	// rides it out on the next tool result or, for a job the model awaited,
-	// delivers it as the message that releases its own suspend. Queueing one
-	// here as well would announce the same exit twice, so the `abortRef`
-	// check below is the boundary between the two owners rather than an
-	// optimisation. Between turns the kernel is not listening, so the exit is
-	// held here and handed to the next send as part of the system text; the
-	// transcript row is written at once.
-	const idleJobNoticesRef = useRef<string[]>([])
+	// Keep exits until the kernel acknowledges delivery or a later completed
+	// turn carries them. An exit after the last tool result still needs that
+	// next turn, while every exit gets one immediate transcript row.
+	const idleJobNoticesRef = useRef<{
+		readonly ownerSession: AgentSession | null
+		readonly pending: Map<string, string>
+		readonly delivered: Set<string>
+		readonly shown: Set<string>
+	}>({ ownerSession: null, pending: new Map(), delivered: new Set(), shown: new Set() })
 	const [jobSnapshot, setJobSnapshot] = useState<{
 		readonly ownerSession: AgentSession | null
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
-	const drainIdleJobNotices = (): string | undefined => {
-		if (idleJobNoticesRef.current.length === 0) return undefined
-		const lines = idleJobNoticesRef.current
-		idleJobNoticesRef.current = []
-		return `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`
+	const snapshotIdleJobNotices = (): { readonly ids: readonly string[]; readonly text?: string } => {
+		if (idleJobNoticesRef.current.ownerSession !== session) return { ids: [] }
+		const pending = idleJobNoticesRef.current.pending
+		if (pending.size === 0) return { ids: [] }
+		const lines = [...pending.values()]
+		return {
+			ids: [...pending.keys()],
+			text: `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`,
+		}
 	}
 	// Commands the operator ran with `!` since the last turn. The model did
 	// not see them happen; it reads them here on its next turn.
@@ -1117,14 +1133,20 @@ export function App({
 		return `What the operator did outside you since your last turn — commands they ran in their own shell, files they put back — with the output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
+		const notices = {
+			ownerSession: session,
+			pending: new Map<string, string>(),
+			delivered: new Set<string>(),
+			shown: new Set<string>(),
+		}
+		idleJobNoticesRef.current = notices
 		setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		if (!session?.onJobExit) return
 		return session.onJobExit((job) => {
 			// The visible running-shell count belongs to the session even when
 			// the kernel owns this exit's model/transcript notice.
-			if (previousSessionRef.current !== session) return
+			if (previousSessionRef.current !== session || idleJobNoticesRef.current !== notices) return
 			setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
-			if (abortRef.current !== null) return
 			const text = describeJobExit({
 				jobId: job.id,
 				command: job.command,
@@ -1132,8 +1154,14 @@ export function App({
 				...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
 				...(job.signal ? { signal: job.signal } : {}),
 			})
-			idleJobNoticesRef.current.push(text)
-			pushMessage('system', text, false, 'J')
+			// SDK delivery can run before this listener on a host with different
+			// subscription order. The tombstone keeps that acknowledged exit out of
+			// the next turn even when its UI event arrives later.
+			if (!notices.delivered.has(job.id)) notices.pending.set(job.id, text)
+			if (!notices.shown.has(job.id)) {
+				notices.shown.add(job.id)
+				pushMessage('system', text, false, 'J')
+			}
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -1198,6 +1226,10 @@ export function App({
 	const settledRef = useRef<number>(0)
 	// Complete prompts waiting for the one queue pump that may start a turn.
 	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
+	// Esc can make the screen idle before an aborted iterator settles. Recheck
+	// the queue when that iterator releases its turn token, even if `idle` did
+	// not change and no new prompt was appended in its finally block.
+	const [queueSettleVersion, setQueueSettleVersion] = useState(0)
 	/** Return-submitted prompts accepted by the active turn but not yet drained by the SDK. */
 	const [pendingSteers, setPendingSteers] = useState<readonly LiveInput[]>([])
 	// Kept synchronous with the rendered queue so a turn's `finally` can decide
@@ -2083,6 +2115,25 @@ export function App({
 		},
 		[nextId],
 	)
+	const recallQueuedPrompt = useCallback(() => {
+		const pending = queuedRef.current
+		let index = pending.length - 1
+		while (index >= 0 && !isRecallableHumanPrompt(pending[index])) index -= 1
+		if (index < 0) {
+			pushMessage('system', 'No queued message to edit.')
+			return null
+		}
+		const prompt = pending[index]
+		if (!isRecallableHumanPrompt(prompt)) return null
+		const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
+		replaceQueued(remaining)
+		if (remaining.length === 0) setQueuePause(null)
+		return {
+			text: prompt.recallText ?? prompt.text,
+			...(prompt.attachments ? { attachments: prompt.attachments } : {}),
+			...(prompt.triggers ? { triggers: prompt.triggers } : {}),
+		}
+	}, [pushMessage, replaceQueued, setQueuePause])
 
 	/**
 	 * The skill proposal's per-conversation facts: whether this conversation
@@ -4140,6 +4191,29 @@ export function App({
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
 	const shellFurniture = runningShellCount > 0 ? 1 : 0
+	const pendingInputItems = pendingSteers.map((input) => ({
+		text: input.prompt.recallText ?? input.prompt.text,
+		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
+	}))
+	const queuedInputItems = queued.map((prompt) => ({
+		text: prompt.kind === 'goal' ? 'Automatic goal continuation' : prompt.recallText ?? prompt.text,
+		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
+	}))
+	const recallableQueued = queued.filter(isRecallableHumanPrompt).at(-1)
+	const canRecallQueued = recallableQueued !== undefined
+	const pendingInputVisible =
+		phase === 'ready' &&
+		agentSurface === null && outputViewer === null && jobSurface === null &&
+		permission === null && saveSkillPrompt === null && scheduleReviewPrompt === null &&
+		textPrompt === null && choicePicker === null && copyPicker === null
+	const pendingInputFurniture = pendingInputVisible
+		? pendingInputPanelRows({
+			pendingSteers: pendingInputItems,
+			queued: queuedInputItems,
+			rows: terminal.rows,
+			canRecall: canRecallQueued,
+		})
+		: 0
 	// Where the streaming reply stands among the finalized rows: a row written
 	// while it streams is drawn below it, as it will be once it has finished.
 	const streamingAt = messages.findIndex((m) => m.pending)
@@ -4159,12 +4233,12 @@ export function App({
 		messages,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + shellFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + shellFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
-	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + shellFurniture >= terminal.rows
+	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + shellFurniture + pendingInputFurniture >= terminal.rows
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
@@ -4181,7 +4255,7 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -4587,7 +4661,7 @@ export function App({
 	 * leave it hanging with its reply unsaved. It is the same decision Ctrl+C
 	 * sends at that prompt, for the same reason.
 	 */
-	const interruptTurn = useCallback((): boolean => {
+	const interruptTurn = useCallback((recoverInput = false): boolean => {
 		const cancelledSwitch = cancelPendingModelSwitch()
 		for (const pending of permissionQueueRef.current.splice(0)) {
 			pending.resolve({ kind: 'reject', feedback: 'User interrupted.' })
@@ -4605,24 +4679,39 @@ export function App({
 				const activeSessionId = scopeRef.current?.sessionId
 				if (activeSessionId) goalActivation.disarm(activeSessionId)
 				wakeGoalDriver()
-				discardQueued()
+				if (recoverInput && queuedRef.current.length > 0) setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+				else discardQueued()
 				setState('idle')
 				return true
 			}
-			if (cancelledSwitch) discardQueued()
+			if (cancelledSwitch) {
+				if (recoverInput && queuedRef.current.length > 0) setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+				else discardQueued()
+			}
 			return cancelledSwitch
 		}
 		ac.abort(new TurnCancelled('user'))
+		// Esc with a pending steer means "let this instruction interrupt the
+		// answer". The kernel has not drained these inputs yet, so reclaim them
+		// before closing the inbox and let the queue pump start them first after
+		// the aborted turn settles. Ctrl+C keeps its deliberate cancel-all path.
+		const undeliveredSteers = recoverInput ? (activeTurnInboxRef.current?.close() ?? []) : []
 		const activeSessionId = scopeRef.current?.sessionId
 		if (activeSessionId) goalActivation.disarm(activeSessionId)
 		wakeGoalDriver()
 		activeTurnTokenRef.current = null
 		activeTurnInboxRef.current = null
 		setPendingSteers([])
-		// Dropped now so a second interrupt does not re-abort, and the queue with
-		// it: interrupting means stop, not "run the next one".
+		// Dropped now so a second interrupt does not re-abort.
 		abortRef.current = null
-		discardQueued()
+		if (recoverInput && undeliveredSteers.length > 0) {
+			replaceQueued([...undeliveredSteers.map((input) => input.prompt), ...queuedRef.current])
+			setQueuePause(null)
+		} else if (recoverInput && queuedRef.current.length > 0) {
+			// Esc without a pending steer stops the current turn; queued future
+			// instructions stay visible but do not start on a cancelled answer.
+			setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+		} else discardQueued()
 		clearActiveTools()
 		setState('idle')
 		return true
@@ -4631,7 +4720,9 @@ export function App({
 		clearActiveTools,
 		discardQueued,
 		goalActivation,
+		replaceQueued,
 		resolvePermission,
+		setQueuePause,
 		wakeGoalDriver,
 	])
 
@@ -5889,9 +5980,12 @@ export function App({
 					break
 				}
 				case 'job':
-					// The kernel saw it end during a turn; the model reads the notice
-					// on its next tool result, the operator reads this row.
-					pushMessage('system', describeJobExit(event), false, 'J')
+					// The session listener normally painted this at exit time. A host
+					// without that listener still gets the kernel event; never paint twice.
+					if (!idleJobNoticesRef.current.shown.has(event.jobId)) {
+						idleJobNoticesRef.current.shown.add(event.jobId)
+						pushMessage('system', describeJobExit(event), false, 'J')
+					}
 					break
 				case 'context':
 					// Into the TRANSCRIPT, not a status line. A status indicator is
@@ -6433,6 +6527,7 @@ export function App({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
+			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = { ids: [] }
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -6448,6 +6543,9 @@ export function App({
 						(destination === goalRound.sessionId &&
 							goalActivation.isArmed(goalRound.sessionId, goalRound)))
 				) {
+					// Keep these notices pending until a completed send commits them.
+					// An early throw or abort never proves the model received context.
+					idleNoticeSnapshot = snapshotIdleJobNotices()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -6476,8 +6574,16 @@ export function App({
 						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => inbox.drain(),
 						waitForInbound: (signal) => inbox.waitForInbound(signal),
+						onJobNoticeDelivered: (ids) => {
+							const notices = idleJobNoticesRef.current
+							if (notices.ownerSession !== session) return
+							for (const id of ids) {
+								notices.delivered.add(id)
+								notices.pending.delete(id)
+							}
+						},
 						extraSystem:
-							[composeSkillsPrompt(activeSkills), drainIdleJobNotices(), drainOperatorShell()]
+							[composeSkillsPrompt(activeSkills), idleNoticeSnapshot.text, drainOperatorShell()]
 								.filter((part): part is string => Boolean(part))
 								.join('\n\n') || undefined,
 						onConversationMessages: (messages) => {
@@ -6526,6 +6632,9 @@ export function App({
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
 			} finally {
+				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
+					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
+				}
 				const undeliveredLiveInput = inbox.close()
 				const ownsInbox = activeTurnInboxRef.current === inbox
 				if (ownsInbox) {
@@ -6600,6 +6709,7 @@ export function App({
 				// The kernel recorded the turn in the session log as it ran; nothing is
 				// left to publish once the loop has unwound.
 				unsettledTurnGenerationsRef.current.delete(turnToken)
+				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
 					const selection = pending.selection
@@ -8230,10 +8340,13 @@ export function App({
 			//
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
-			advanceQueueContinuation()
+			const wasHeldByInterrupt = queuePauseRef.current?.source === 'operator-interrupt'
+			if (mode === 'submit') advanceQueueContinuation()
 			const prompt: HumanQueuedPrompt = {
 				kind: 'human',
 				text: outgoing,
+				...(meta.source === 'composer' && !skillFlow ? { recallable: true as const } : {}),
+				...(meta.source === 'composer' && !skillFlow && outgoing !== value ? { recallText: value } : {}),
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
 				...(armedTriggers.length > 0 && !skillFlow ? { triggers: armedTriggers } : {}),
@@ -8254,7 +8367,7 @@ export function App({
 							prompt,
 							message: createUserMessage(expanded.sendText, prompt.attachments),
 							attachedFiles: expanded.attached.length,
-							queueBoundary: queuedRef.current.length,
+							queuedBefore: [...queuedRef.current],
 						})
 					) {
 						bindSteeredTriggers(armedTriggers)
@@ -8262,7 +8375,8 @@ export function App({
 					}
 				}
 			}
-			enqueueQueued(prompt)
+			if (mode === 'submit' && wasHeldByInterrupt) replaceQueued([prompt, ...queuedRef.current])
+			else enqueueQueued(prompt)
 		},
 		[
 			activeSkills,
@@ -8291,6 +8405,7 @@ export function App({
 			rawOutput,
 			rememberProjectNote,
 			removeStoredCredential,
+			replaceQueued,
 			resetTranscript,
 			runConversationExport,
 			session,
@@ -8611,6 +8726,7 @@ export function App({
 		state,
 		phase,
 		queued,
+		queueSettleVersion,
 		modelSwitchVersion,
 		queuePause,
 		textPrompt,
@@ -9411,10 +9527,10 @@ export function App({
 				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
 			}
-			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
-			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
+			// Esc interrupts the running turn. Its pending steer can start a fresh
+			// turn, while a next-turn queue remains visible for the operator.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
-				interruptTurn()
+				interruptTurn(true)
 				pushMessage('system', 'Interrupted.')
 				return
 			}
@@ -9448,7 +9564,7 @@ export function App({
 					return
 				}
 				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
-					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture,
+					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
 					settled: settledRef.current, raw: rawOutput })
 				if (collapsible.length === 0 || (expanding && projected.settled > settledRef.current)) {
 					setOutputViewer(block)
@@ -9544,7 +9660,8 @@ export function App({
 				)
 		: undefined
 	const jobStatusHint = jobSurface?.detailJobId
-		? backgroundJobs.some((job) => job.id === jobSurface.detailJobId && job.status === 'running')
+		? !jobSurface.busyJobId &&
+			backgroundJobs.some((job) => job.id === jobSurface.detailJobId && job.status === 'running')
 			? 'shell output · x stop · esc list'
 			: 'shell output · esc list'
 		: 'shells · enter inspect · esc close'
@@ -9864,38 +9981,19 @@ export function App({
 								childSurfaceOpen
 							}
 						>
-							{pendingSteers.length > 0 &&
-							permission === null &&
-							textPrompt === null &&
-							choicePicker === null &&
-							copyPicker === null &&
-							!childSurfaceOpen ? (
-								<Box paddingX={1}>
-									<Text color={theme.accent.user}>
-										↳ {pendingSteers.length} message
-										{pendingSteers.length > 1 ? 's' : ''} steering the active turn — waiting for its
-										next response boundary
-									</Text>
-								</Box>
-							) : null}
-							{queued.length > 0 &&
-							permission === null &&
-							textPrompt === null &&
-							choicePicker === null &&
-							copyPicker === null &&
-							!childSurfaceOpen ? (
-								<Box paddingX={1}>
-									<Text color={theme.text.muted}>
-										{queuePause ? '‖' : '⏎'} {queued.length} message
-										{queued.length > 1 ? 's' : ''} queued —{' '}
-										{queuePause
-											? queuePause.outcome === 'paused'
-												? 'held after a resumable turn paused; wait for recovery, change model, or send a message to release it'
-												: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
-											: 'sending when ready'}
-										{queuedTriggerLabels(queued)}
-									</Text>
-								</Box>
+							{pendingInputVisible ? (
+								<PendingInputPanel
+									pendingSteers={pendingInputItems}
+									queued={queuedInputItems}
+									columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+									rows={terminal.rows}
+									canRecall={canRecallQueued}
+									{...(recallableQueued
+						? { recallItem: { text: recallableQueued.recallText ?? recallableQueued.text, attachmentCount: recallableQueued.attachments?.length } }
+										: {})}
+									queuedTags={queuedTriggerLabels(queued)}
+									held={queuePause}
+								/>
 							) : null}
 							<Composer
 								reasoningEffortLevels={session?.reasoningEffortLevels}
@@ -9939,6 +10037,7 @@ export function App({
 								}
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={openAgentCockpit}
+								onRecallQueued={recallQueuedPrompt}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
 									...command,

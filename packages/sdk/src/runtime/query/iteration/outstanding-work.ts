@@ -260,6 +260,7 @@ export function deliverAwaitedJobExits(ctx: IterationContext): boolean {
 		'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
 	})
 	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
+	ctx.onJobNoticeDelivered?.()
 	return true
 }
 
@@ -383,4 +384,5 @@ export function deliverArrivedJobExits(ctx: IterationContext): void {
 		'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
 	})
 	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
+	ctx.onJobNoticeDelivered?.()
 }

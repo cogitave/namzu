@@ -678,6 +678,8 @@ export interface SendOptions {
 	readonly inboundMessages?: () => Message[]
 	/** Resolve when undelivered input exists; abort removes this waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	/** Job exits the SDK actually inserted into model context during this turn. */
+	readonly onJobNoticeDelivered?: (jobIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
@@ -5132,6 +5134,7 @@ async function* runTurn({
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
+			...(opts?.onJobNoticeDelivered ? { onJobNoticeDelivered: opts.onJobNoticeDelivered } : {}),
 			turnConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
