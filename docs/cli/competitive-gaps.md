@@ -161,6 +161,38 @@ and a distribution feature needs an explicit trust, update and permission
 contract. This audit did not establish a comparable user need or an
 acceptance test for those additions.
 
+## MCP, plugins and memory: 2026-09-29
+
+This pass inspected the [Pydantic AI checkout at
+`65a8efe7`](https://github.com/pydantic/pydantic-ai/tree/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c)
+and Namzu's current CLI and SDK source. The two applications have different
+hosts and storage ownership; the comparison is about observable contracts.
+
+| Area | What Namzu already gets right | Remaining acceptance boundary |
+| --- | --- | --- |
+| Session data | One hash-chained session log is the source of truth; the SQLite search index is rebuildable. Current-conversation `search_conversation` reads retained evidence with ownership checks and cursors. | Project-wide search is not exposed to a model or operator. If added, results need project and writer scope, session/turn/time provenance, bounded pages, a stale-index marker, and no implied authority to replay an old action. The [existing index search](../../packages/sdk/src/store/session-index/index.ts) is a starting primitive, not that feature. |
+| Stored memory | Project memory is separate from the session log, with explicit memory tools and bounded automatic recall admission. Built-in stores now support optional record-revision checks so a stale update can be refused. | Disk search still reads every candidate body for a nonempty query before applying `limit`; the [measured scan](../sdk/memory-research.md) read 500 bodies for one result. Pydantic Harness [bounds files and characters and reports truncation](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_ai_harness/pydantic_ai_harness/memory/_store.py#L762). Add scan and byte budgets with an honest `truncated` result, or a crash-recoverable index, before claiming bounded search cost. |
+| MCP connection diagnosis | Namzu's MCP toolset handles live catalogue changes, progress, prompts and resources. `namzu mcp test <name>` now probes the effective config for one server and counts usable tools without starting its siblings. | Pydantic CLI exposes per-server [start, restart, status, tools and logs](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/mcp/_command.py#L18). A future interactive repair flow should show the same effective source, failure phase and redacted stderr, and must never turn a project server on before trust admission. A successful protocol handshake with zero usable tools must remain visible as such. |
+| Loading capabilities | Deferred toolsets let the model discover selected tools, and plugins can contribute tools, hooks, skills and MCP servers behind explicit CLI enablement. | This is narrower than Pydantic AI's [on-demand capability](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/docs/capabilities/on-demand.md#L92), which gates a bundle's instructions, hooks, tools and settings under a stable ID and reconstructs loaded state on resume. Prototype a bundle only with explicit permission and lifecycle ownership, durable loaded IDs, provider-wire tests and measured prompt savings; an extra model round trip can cost more than the hidden schemas save. |
+
+Pydantic Harness [places stored memory in a user request
+part](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py#L225)
+while its static memory guidance remains instructions. Namzu must preserve the
+same trust boundary: model-authored memory text is evidence for the next request,
+not operator policy. The normal turn, resume and compaction paths need the same
+provider-wire assertion. This is more urgent than changing the store format.
+
+Local plugin installation and reload are still manual. Pydantic CLI's
+[install and lifecycle commands](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/mcp/_command.py#L18)
+manage MCP server entries, not plugin packages; they establish the interactive
+server-management comparison above, not plugin parity. A separate plugin CLI
+design should start with an explicit local path, show the manifest
+and source scope, pin the content reviewed by the operator, and make disable or
+remove reversible. Marketplace discovery is a separate distribution decision.
+For protocol task support, first prove cancellation, reconnect and result
+recovery against a server fixture; plain `tools/call` does not supply that
+lifecycle by itself.
+
 ## Scheduled tasks
 
 Reviewed on 2026-09-23 against Hermes Agent commit
