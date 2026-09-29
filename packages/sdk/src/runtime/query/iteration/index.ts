@@ -643,10 +643,16 @@ export class IterationOrchestrator {
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
-					const contextSections =
-						this.ctx.promptContributions?.render('context', {
+					const deferredMcpContext =
+						this.ctx.showDeferredToolContext !== false
+							? this.ctx.tools.toUntrustedDeferredContext(stepAllowedTools)
+							: ''
+					const contextSections = [
+						...(this.ctx.promptContributions?.render('context', {
 							iteration: iterationNum,
-						}) ?? []
+						}) ?? []),
+						...(deferredMcpContext ? [deferredMcpContext] : []),
+					]
 
 					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
 						.filter(Boolean)

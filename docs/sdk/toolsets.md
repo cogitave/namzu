@@ -228,7 +228,7 @@ This history preserves schema discovery across resume and fork, while
 `isReady()` remains a fresh host check on every use. Old name-only receipts
 must be rediscovered after upgrading.
 
-`toLLMTools`, `toPromptSection`, `toTierGuidance` and `searchDeferred(query,
+`toLLMTools`, `toPromptSection`, `toUntrustedDeferredContext`, `toTierGuidance` and `searchDeferred(query,
 limit?)` render from the derivation above. `sourceOf(name)` returns the
 owning toolset's `ToolSourceRef` — what `ToolDefinition.provenance` used to
 carry on the tool itself, before it was retired in favour of this. `view()`

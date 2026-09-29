@@ -98,6 +98,8 @@ export interface IterationContext {
 	readonly structuredOutput?: StructuredOutputConfig
 	readonly tools: ToolManager
 	readonly allowedTools?: string[]
+	/** The minimal context level omits tool discovery from both system and request context. */
+	readonly showDeferredToolContext?: boolean
 	readonly recorder: TurnRecorder
 	readonly toolExecutor: ToolExecutor
 	readonly guard: GuardCoordinator
