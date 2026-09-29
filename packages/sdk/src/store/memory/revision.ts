@@ -71,16 +71,39 @@ function canonicalRecord(record: MemoryRecord): string {
 		if (object instanceof Date) return ['date', id, encode(object.getTime())]
 		if (object instanceof RegExp)
 			return ['regexp', id, object.source, object.flags, object.lastIndex]
-		if (object instanceof ArrayBuffer)
-			return ['array-buffer', id, Buffer.from(object).toString('hex')]
-		if (ArrayBuffer.isView(object))
+		if (object instanceof ArrayBuffer) {
+			const buffer = object as ArrayBuffer & {
+				readonly maxByteLength?: number
+				readonly resizable?: boolean
+			}
+			return [
+				'array-buffer',
+				id,
+				buffer.byteLength,
+				buffer.maxByteLength,
+				buffer.resizable,
+				Buffer.from(buffer).toString('hex'),
+			]
+		}
+		if (ArrayBuffer.isView(object)) {
+			// A view exposes its entire backing buffer through `.buffer`, even
+			// when its visible slice is one byte. Structured cloning keeps that
+			// backing and preserves aliases between multiple views.
+			if (
+				(typeof SharedArrayBuffer !== 'undefined' && object.buffer instanceof SharedArrayBuffer) ||
+				(object.buffer instanceof ArrayBuffer &&
+					(object.buffer as ArrayBuffer & { readonly resizable?: boolean }).resizable === true)
+			)
+				throw new MemoryRevisionUnavailableError()
 			return [
 				'array-buffer-view',
 				id,
 				object.constructor.name,
 				object.byteOffset,
-				Buffer.from(object.buffer, object.byteOffset, object.byteLength).toString('hex'),
+				object.byteLength,
+				encode(object.buffer),
 			]
+		}
 		if (object instanceof Error) {
 			return ['error', id, object.name, object.message, object.stack, encode(object.cause)]
 		}

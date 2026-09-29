@@ -56,7 +56,11 @@ writes happen in one millisecond. Do not interpret or persist the token as a
 timestamp or monotonically increasing number.
 
 The in-memory store fingerprints structured-clone snapshots, including BigInt,
-Map, Set, Date, typed arrays and cyclic metadata. If a legacy in-memory record
+Map, Set, Date, typed arrays and cyclic metadata. A view's revision includes
+its entire accessible backing buffer, not just its visible slice. A view backed
+by `SharedArrayBuffer` or a resizable `ArrayBuffer` cannot receive a stable
+synchronous revision and is refused for conditional writes. Direct resizable
+`ArrayBuffer` metadata includes its resize attributes in the revision. If a legacy in-memory record
 contains metadata whose full value cannot be fingerprinted synchronously (for
 example a Blob), `getVersionedRecord` refuses to issue a token. `read_memory`
 still returns that record without a revision; a conditional update cannot be

@@ -9,7 +9,7 @@ import type { ConditionalMemoryStore } from '../../../types/memory/index.js'
 import { DiskMemoryStore } from '../disk.js'
 import { MarkdownMemoryStore } from '../markdown.js'
 import { InMemoryMemoryStore } from '../memory.js'
-import { MemoryRevisionConflictError } from '../revision.js'
+import { MemoryRevisionConflictError, MemoryRevisionUnavailableError } from '../revision.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -186,6 +186,90 @@ it('tracks cloneable in-memory metadata that JSON would omit or flatten', async 
 		MemoryRevisionConflictError,
 	)
 	expect(await store.get(entry.id)).toBeDefined()
+})
+
+it('fingerprints the full backing buffer exposed by a narrow view', async () => {
+	const store = new InMemoryMemoryStore()
+	const backing = new ArrayBuffer(4)
+	const view = new Uint8Array(backing, 1, 1)
+	const { entry } = await store.create({
+		title: 'View metadata',
+		summary: '',
+		content: 'Body',
+		metadata: { view },
+	})
+	const stale = await store.getVersionedRecord(entry.id)
+	if (!stale) throw new Error('Expected a revision')
+	new Uint8Array(backing)[0] = 7
+	const visible = (await store.getRecord(entry.id))?.content.metadata?.view as Uint8Array
+	expect(new Uint8Array(visible.buffer)[0]).toBe(7)
+	expect((await store.getVersionedRecord(entry.id))?.revision).not.toBe(stale.revision)
+	await expect(
+		store.updateIfRevision(entry.id, { content: 'Stale overwrite' }, stale.revision),
+	).rejects.toBeInstanceOf(MemoryRevisionConflictError)
+})
+
+function resizableBuffer(): ArrayBuffer & { readonly resizable?: boolean } {
+	return Reflect.construct(ArrayBuffer, [4, { maxByteLength: 8 }])
+}
+
+it('distinguishes equal bytes in fixed and resizable ArrayBuffers', async () => {
+	const resizable = resizableBuffer()
+	if (!resizable.resizable) return
+	vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+	const store = new InMemoryMemoryStore()
+	const { entry } = await store.create({
+		title: 'Buffer metadata',
+		summary: '',
+		content: 'Body',
+		metadata: { buffer: new ArrayBuffer(4) },
+	})
+	const stale = await store.getVersionedRecord(entry.id)
+	if (!stale) throw new Error('Expected a revision')
+	await store.update(entry.id, { metadata: { buffer: resizable } })
+	expect((await store.getVersionedRecord(entry.id))?.revision).not.toBe(stale.revision)
+	await expect(
+		store.updateIfRevision(entry.id, { content: 'Stale overwrite' }, stale.revision),
+	).rejects.toBeInstanceOf(MemoryRevisionConflictError)
+})
+
+it('does not offer a revision for resizable-backed views with different tracking modes', async () => {
+	const backing = resizableBuffer()
+	if (!backing.resizable) return
+	const store = new InMemoryMemoryStore()
+	const { entry } = await store.create({
+		title: 'Resizable view',
+		summary: '',
+		content: 'Body',
+		metadata: { view: new Uint8Array(backing) },
+	})
+	expect(await store.getRecord(entry.id)).toBeDefined()
+	await expect(store.getVersionedRecord(entry.id)).rejects.toBeInstanceOf(
+		MemoryRevisionUnavailableError,
+	)
+	await expect(
+		store.updateIfRevision(entry.id, { content: 'Unsafe overwrite' }, 'unknown'),
+	).rejects.toBeInstanceOf(MemoryRevisionUnavailableError)
+	expect((await store.getRecord(entry.id))?.content.content).toBe('Body')
+})
+
+it('does not offer a revision for views backed by shared memory', async () => {
+	if (typeof SharedArrayBuffer === 'undefined') return
+	const store = new InMemoryMemoryStore()
+	const { entry } = await store.create({
+		title: 'Shared view',
+		summary: '',
+		content: 'Body',
+		metadata: { view: new Uint8Array(new SharedArrayBuffer(4)) },
+	})
+	expect(await store.getRecord(entry.id)).toBeDefined()
+	await expect(store.getVersionedRecord(entry.id)).rejects.toBeInstanceOf(
+		MemoryRevisionUnavailableError,
+	)
+	await expect(
+		store.updateIfRevision(entry.id, { content: 'Unsafe overwrite' }, 'unknown'),
+	).rejects.toBeInstanceOf(MemoryRevisionUnavailableError)
+	expect((await store.getRecord(entry.id))?.content.content).toBe('Body')
 })
 
 it('refuses a Markdown hand edit even when updatedAt is unchanged', async () => {
