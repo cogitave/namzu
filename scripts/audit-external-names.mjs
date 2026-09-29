@@ -464,6 +464,7 @@ const RESEARCH_SOURCE_DOCS = new Map([
 	[
 		'pydantic',
 		new Set([
+			'docs/cli/competitive-gaps.md',
 			'docs/cli/harness-efficiency-review.md',
 			'docs/cli/task-context.md',
 			'docs/sdk/framework-gap-audit.md',
