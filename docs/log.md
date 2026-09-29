@@ -2,6 +2,7 @@
 
 ## 2026-09-29
 
+- **Fix** Kubernetes transport tests: the unchanged-pod case now uses a stable unreachable address; another process could claim its former just-closed loopback port and return an unrelated protocol response. `.changeset/sandbox-unchanged-pod-test.md`, **patch** for `@namzu/sandbox`.
 - **Fix** CLI unit tests: bound workers at four on many-core hosts so the scheduled-session retention test can finish its real session writes within the existing timeout. `.changeset/cli-test-worker-bound.md`, **patch** for `@namzu/cli`.
 - **Fix** SDK unit tests: cap workers at four on many-core hosts; the full suite had three five-second wall-clock timeouts with unrestricted workers and passed all 9,572 tests with four. `.changeset/sdk-test-worker-bound.md`, **patch** for `@namzu/sdk`.
 - **Update** [Structured memory](sdk/memory.md#search) and [CLI memory](cli/memory.md): `search_memory` scans at most 256 indexed candidates per call, reports incomplete pages, and accepts `scan_offset` to reach older records. Automatic recall uses the same configurable recent-candidate default. Disk search opens only that page's bodies; Markdown still validates all files before searching. `.changeset/memory-search-scan-budget.md`, **minor** for `@namzu/sdk`.

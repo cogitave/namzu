@@ -678,8 +678,9 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 	it('leaves the original error standing when the pod is UNCHANGED', async () => {
 		// The re-read answers with the same uid at an address that WOULD
 		// work, so a transport that adopted any refreshed handle would
-		// succeed here. A pod that is still there and still refusing
-		// connections is the guest's problem, and retrying it would hide it.
+		// succeed here. The old address is black-holed: a just-closed
+		// ephemeral loopback port could be claimed by another test process
+		// before this dial, producing an unrelated server's response instead.
 		const { port } = await startAgent(POD_UID)
 		let connections = 0
 		listener?.on('connection', () => {
@@ -694,7 +695,7 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 			}),
 		)
 		const transport = new KubernetesAgentTransport(
-			{ kind: 'tcp', host: '127.0.0.1', port: await closedPort(), token: POD_UID },
+			{ kind: 'tcp', ...BLACKHOLE_ADDRESS, token: POD_UID },
 			{ refreshHandle },
 		)
 
