@@ -17,14 +17,9 @@ import { MCPReconnectSupervisor } from '../reconnect.js'
  * stop-before-disconnect ordering is the contract, and a supervisor that
  * ignored it would reconnect exactly what a host had just torn down.
  *
- * What these do NOT pin, measured rather than assumed: deleting the `stopped`
- * checks INSIDE the recovery loop leaves every test green. `stop()` also
- * clears the pending timer, so the wait those checks guard never resolves and
- * the loop never resumes to read them. They are a second belt on a path the
- * first one already holds — correct to keep, since a future refactor that
- * moves the wait off a clearable timer would need them, but not currently
- * observable. Recorded so the next reader does not take the green run as proof
- * they are load-bearing.
+ * Stop settles a pending backoff, then the loop observes `stopped`. A connect
+ * already in progress may settle later; neither success nor failure may read
+ * a policy scope the host has since disposed or report a late reconnect.
  */
 
 type Listener = (event: { type: string; clientId?: string; error?: string }) => void
@@ -32,6 +27,9 @@ type Listener = (event: { type: string; clientId?: string; error?: string }) => 
 function fakeClient(connect: () => Promise<unknown>) {
 	const listeners: Listener[] = []
 	let connected = true
+	const disconnect = vi.fn(async () => {
+		connected = false
+	})
 	return {
 		client: {
 			isConnected: () => connected,
@@ -39,6 +37,7 @@ function fakeClient(connect: () => Promise<unknown>) {
 				await connect()
 				connected = true
 			},
+			disconnect,
 			onLifecycle: (l: Listener) => {
 				listeners.push(l)
 				return () => {
@@ -53,6 +52,7 @@ function fakeClient(connect: () => Promise<unknown>) {
 			for (const l of [...listeners]) l({ type })
 		},
 		listenerCount: () => listeners.length,
+		disconnect,
 	}
 }
 
@@ -126,8 +126,7 @@ describe('a transport that drops is reconnected', () => {
 	})
 
 	it('abandons a backoff already in flight when stopped', async () => {
-		// Teardown must not have to wait out a 30-second wait. Deleting either
-		// `stopped` check inside the loop fails this.
+		// Teardown must settle the pending wait, not only clear its timer.
 		const connect = vi.fn(async () => {
 			throw new Error('down')
 		})
@@ -140,10 +139,52 @@ describe('a transport that drops is reconnected', () => {
 		expect(connect).toHaveBeenCalledTimes(1)
 
 		supervisor.stop()
+		await vi.advanceTimersByTimeAsync(0)
+		expect(Reflect.get(supervisor, 'inFlight')).toBe(false)
 		await vi.advanceTimersByTimeAsync(5_000)
 
 		expect(connect).toHaveBeenCalledTimes(1)
 	})
+
+	it.each(['resolves', 'rejects'] as const)(
+		'ignores a connect that %s after stop and policy disposal',
+		async (outcome) => {
+			let finishConnect: ((error?: Error) => void) | undefined
+			const connect = vi.fn(
+				() =>
+					new Promise<void>((resolve, reject) => {
+						finishConnect = (error) => (error ? reject(error) : resolve())
+					}),
+			)
+			const onReconnected = vi.fn()
+			let disposed = false
+			const readPolicy = vi.fn(() => {
+				if (disposed) throw new Error('policy scope disposed')
+				return { initialDelayMs: 10, onReconnected }
+			})
+			const { client, drop, disconnect } = fakeClient(connect)
+			const supervisor = new MCPReconnectSupervisor(client, readPolicy)
+			supervisor.start()
+
+			drop()
+			await vi.advanceTimersByTimeAsync(10)
+			expect(connect).toHaveBeenCalledTimes(1)
+			const policyReadsBeforeStop = readPolicy.mock.calls.length
+
+			supervisor.stop()
+			await client.disconnect()
+			disposed = true
+			supervisor.start()
+			finishConnect?.(outcome === 'rejects' ? new Error('late connect failure') : undefined)
+			await vi.advanceTimersByTimeAsync(0)
+
+			expect(readPolicy).toHaveBeenCalledTimes(policyReadsBeforeStop)
+			expect(onReconnected).not.toHaveBeenCalled()
+			expect(disconnect).toHaveBeenCalledTimes(2)
+			expect(client.isConnected()).toBe(false)
+			expect(Reflect.get(supervisor, 'inFlight')).toBe(false)
+		},
+	)
 
 	it('runs one recovery when a failure emits both error and close', async () => {
 		// A transport commonly reports both for the same fault. Two loops
