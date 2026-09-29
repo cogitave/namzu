@@ -271,7 +271,7 @@ async function testMcpServer(
 		const current = connection.current()
 		const failed = current.failed.find((server) => server.name === name)
 		if (failed) {
-			reason = safeTestReason(failed.reason, spec, displayName)
+			reason = safeTestReason(failed.reason, spec)
 		} else {
 			const connected = current.connected.find((server) => server.name === name)
 			// The MCP toolset's first entry contains server tools and prompts;
@@ -304,7 +304,7 @@ async function testMcpServer(
 }
 
 /** Never print a transport's raw error: it can contain URLs, credentials or server stderr. */
-export function safeTestReason(reason: string, spec: McpServerSpec, name: string): string {
+export function safeTestReason(reason: string, spec: McpServerSpec): string {
 	if (reason === 'server spec must be a mapping') return reason
 	if (reason.startsWith('it declares both a command and a url')) {
 		return 'server declares both a command and a URL; choose one'
@@ -335,7 +335,7 @@ export function safeTestReason(reason: string, spec: McpServerSpec, name: string
 		return hasAuthorizationHeader
 			? 'HTTP 401: check the configured Authorization header'
 			: canSignInToMcpUrl(spec.url)
-				? `HTTP 401: sign in with namzu mcp login ${name}`
+				? 'HTTP 401: sign in to this server with namzu mcp login <name>'
 				: 'HTTP 401: OAuth sign-in requires HTTPS or a loopback endpoint'
 	}
 	if (/HTTP 403\b/i.test(reason))

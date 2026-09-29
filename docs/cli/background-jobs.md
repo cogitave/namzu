@@ -22,6 +22,8 @@ While a shell job runs, a line below the composer footer shows the number of run
 
 The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary into the transcript when that is more useful than opening the view.
 
+An exit that arrives while no model turn is open appears in the transcript and is included in the next request as an observation. Its command and status are request context, not system instructions. Once the kernel acknowledges an exit, the CLI does not announce it again.
+
 # Waiting for one
 
 `wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.

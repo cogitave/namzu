@@ -22,6 +22,7 @@ const PREFS: Preferences = {
 }
 
 const sends: (SendOptions | undefined)[] = []
+const contextAt = (index: number) => sends[index]?.hostContext?.().join('\n\n') ?? ''
 let announce: ((job: BackgroundJob) => void) | undefined
 let acknowledgeFirstExit = true
 let acknowledgeBeforeListener = false
@@ -149,8 +150,8 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 
 	// The exit landed while the first turn was running, so the kernel had it.
 	// The next turn must not open by announcing it a second time.
-	expect(sends[1]?.extraSystem ?? '').not.toContain('job_1')
-	expect(sends[1]?.extraSystem ?? '').not.toContain('Background jobs that ended')
+	expect(contextAt(1)).not.toContain('job_1')
+	expect(contextAt(1)).not.toContain('Background jobs that ended')
 	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
@@ -158,9 +159,10 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	announce?.(exited('job_2', 'pnpm test'))
 	await say(screen, 'third', 3)
 
-	expect(sends[2]?.extraSystem ?? '').toContain('Background jobs that ended since your last turn')
-	expect(sends[2]?.extraSystem ?? '').toContain('job_2')
-	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+	expect(contextAt(2)).toContain('Background jobs that ended since your last turn')
+	expect(contextAt(2)).toContain('job_2')
+	expect(contextAt(2)).not.toContain('job_1')
+	expect(sends[2]?.extraSystem ?? '').not.toContain('job_2')
 })
 
 it('carries an exit after the final tool result into the next model turn', async () => {
@@ -172,10 +174,10 @@ it('carries an exit after the final tool result into the next model turn', async
 	await say(screen, 'first', 1)
 	await say(screen, 'second', 2)
 
-	expect(sends[1]?.extraSystem ?? '').toContain('Background jobs that ended since your last turn')
-	expect(sends[1]?.extraSystem ?? '').toContain('job_1')
+	expect(contextAt(1)).toContain('Background jobs that ended since your last turn')
+	expect(contextAt(1)).toContain('job_1')
 	await say(screen, 'third', 3)
-	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+	expect(contextAt(2)).not.toContain('job_1')
 })
 
 it('keeps an exit pending when the next send fails before accepting context', async () => {
@@ -187,9 +189,9 @@ it('keeps an exit pending when the next send fails before accepting context', as
 
 	await say(screen, 'first', 1)
 	await say(screen, 'retry', 2)
-	expect(sends[1]?.extraSystem ?? '').toContain('job_1')
+	expect(contextAt(1)).toContain('job_1')
 	await say(screen, 'later', 3)
-	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+	expect(contextAt(2)).not.toContain('job_1')
 })
 
 it('does not requeue an exit acknowledged before the CLI exit listener runs', async () => {
@@ -200,6 +202,19 @@ it('does not requeue an exit acknowledged before the CLI exit listener runs', as
 
 	await say(screen, 'first', 1)
 	await say(screen, 'second', 2)
-	expect(sends[1]?.extraSystem ?? '').not.toContain('job_1')
+	expect(contextAt(1)).not.toContain('job_1')
 	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
+})
+
+it('delivers operator shell output as request context, not as a system instruction', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+	screen.press('!printf SHELL_OBSERVATION')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('SHELL_OBSERVATION'))
+	await say(screen, 'what happened', 1)
+	expect(contextAt(0)).toContain('SHELL_OBSERVATION')
+	expect(sends[0]?.extraSystem ?? '').not.toContain('SHELL_OBSERVATION')
 })

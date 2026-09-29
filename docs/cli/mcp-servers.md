@@ -53,6 +53,8 @@ returns a nonzero exit code with a named, bounded reason. `--format json` and
 command arguments, header values, environment values or untrusted server error
 body. A failure that cannot be classified safely asks you to inspect the server
 logs instead of printing its raw error.
+The HTTP 401 hint uses the literal `<name>` placeholder; supply the server
+name as an argument rather than copying a configured name into a shell command.
 
 ```sh
 namzu mcp test tickets

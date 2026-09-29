@@ -195,6 +195,7 @@ it('returns a safe, named reason when a local command cannot start', async () =>
 
 it('reports HTTP 401 without exposing the endpoint query or server body', async () => {
 	const secret = 'private-endpoint-token-618'
+	const serverName = 'private; echo INJECTED'
 	const origin = createServer(async (request, response) => {
 		for await (const _chunk of request) {
 			// Consume the request before responding, as a real MCP origin does.
@@ -206,36 +207,29 @@ it('reports HTTP 401 without exposing the endpoint query or server body', async 
 	const endpoint = `http://127.0.0.1:${(origin.address() as AddressInfo).port}/mcp?token=${secret}`
 	writeFileSync(
 		join(project, 'namzu.config.json'),
-		JSON.stringify({ mcpServers: { private: { url: endpoint } } }),
+		JSON.stringify({ mcpServers: { [serverName]: { url: endpoint } } }),
 	)
 
-	const result = await testServer('private')
+	const result = await testServer(serverName)
 	expect(result.code).not.toBe(0)
 	expect(result.output).toMatchObject({
-		name: 'private',
+		name: serverName,
 		status: 'unavailable',
 		transport: 'http',
 		toolCount: 0,
-		reason: 'HTTP 401: sign in with namzu mcp login private',
+		reason: 'HTTP 401: sign in to this server with namzu mcp login <name>',
 	})
 	expect(`${stdout}${stderr}`).not.toContain(secret)
+	expect(result.output.reason).not.toContain('echo INJECTED')
 })
 
 it('does not suggest OAuth login for an HTTP endpoint that the login command refuses', () => {
 	expect(
-		safeTestReason(
-			'HTTP 401: authentication required',
-			{ url: 'http://remote.example/mcp' },
-			'remote',
-		),
+		safeTestReason('HTTP 401: authentication required', { url: 'http://remote.example/mcp' }),
 	).toBe('HTTP 401: OAuth sign-in requires HTTPS or a loopback endpoint')
 	expect(
-		safeTestReason(
-			'HTTP 401: authentication required',
-			{ url: 'https://remote.example/mcp' },
-			'remote',
-		),
-	).toBe('HTTP 401: sign in with namzu mcp login remote')
+		safeTestReason('HTTP 401: authentication required', { url: 'https://remote.example/mcp' }),
+	).toBe('HTTP 401: sign in to this server with namzu mcp login <name>')
 })
 
 it('accepts a connected server with no exposed tools and marks that limit', async () => {

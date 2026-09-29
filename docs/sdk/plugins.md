@@ -24,6 +24,8 @@ Each plugin MCP declaration accepts `name`, `command`, `args`, `env` and optiona
 
 `runAgent({ pluginManager: manager })` now mounts the manager's toolsets, registers its enabled plugins' untrusted prompt contributions, and runs its hooks together. The manager remains caller-owned: `runAgent` does not enable plugins or close their connections. Instruction contributions present when the invocation starts join its prompt registry; disabling a plugin during the turn makes its captured renderer return nothing. A plugin whose contribution was absent at the start joins the next invocation. Toolsets retain their plugin source and deferred availability. A host that calls `drainQuery` directly still composes these parts itself.
 
+Text returned by a `user_prompt_submit` hook is request context in a user-role step-context message. It is visible on each iteration of that request, but is absent from the system prompt and saved conversation. A hook may still refuse the prompt through its explicit `skip` result; text it prints does not become a new operator instruction.
+
 ```ts sketch
 const plugin = definePlugin({
   name: 'audit',
