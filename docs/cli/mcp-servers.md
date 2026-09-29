@@ -30,6 +30,33 @@ For a local command, repeat `--env VARIABLE` before `--` to pass only that named
 
 Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
 
+### Test the effective server
+
+Run `namzu mcp test <name>` to check the server a new session would actually use.
+It resolves the selected profile, project and managed overrides, connects only
+that named server, lists its available tools, then closes the connection. It
+makes no model request and does not invoke any server tool. For an HTTP server
+with OAuth, the test reuses a saved grant or tells you to run
+`namzu mcp login <name>`; it never opens an authorization page itself. A stdio
+test starts the configured command. The working directory must already be
+trusted; `--trust` accepts it for this test only, without recording permanent
+trust.
+
+The result reports `connected` or `unavailable`, transport (`stdio` or `http`),
+and the count of tools the agent can use after the server's allow/deny rules.
+A connected server with zero tools succeeds and carries a warning: a server may
+intentionally expose no tools. A connection, discovery or configuration failure
+returns a nonzero exit code with a named, bounded reason. `--format json` and
+`--format yaml` expose the same fields. Neither output includes the endpoint URL,
+command arguments, header values, environment values or untrusted server error
+body. A failure that cannot be classified safely asks you to inspect the server
+logs instead of printing its raw error.
+
+```sh
+namzu mcp test tickets
+namzu --profile work --format json mcp test tickets --trust
+```
+
 ## One entry
 
 ```json
