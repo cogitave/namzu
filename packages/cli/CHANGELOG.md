@@ -1,5 +1,49 @@
 # @namzu/cli
 
+## 35.0.0
+
+### Major Changes
+
+- b7d83ec: An MCP server that finishes connecting or discovering tools after its startup deadline is now closed after that late result. The configured `connectTimeoutMs` applies to connection and discovery as one budget, rather than allowing each phase the full time separately. Servers whose combined handshake and discovery took longer than the configured deadline but whose individual phases each fit previously connected; raise that server's `connectTimeoutMs` if it needs more time. Timed-out servers remain named failures and cannot leave an unreported live connection behind. Values above Node's maximum timer delay of 2,147,483,647 ms are now refused by server name; lower any such value to that limit or less.
+- b7d83ec: Plugin `user_prompt_submit` annotations now reach the model as user-role request context instead of system instructions. The CLI gives operator shell output and idle background-job exits the same request-context role. Hosts that used these observation channels to issue policy must move that policy to an explicit trusted instruction; the observations remain visible to the model on the current request.
+
+  The `namzu mcp test` HTTP 401 hint now uses a literal `<name>` placeholder instead of embedding the configured server name in a runnable shell command.
+
+- b7d83ec: Memory and saved resident state now reach the model as request-only user-role context rather than system guidance. In the SDK, `createMemoryRecallStep` returns `PrepareStepResult.context` instead of `system`; hosts that read or compose the hook result must use `context` and pass it through the normal preparation chain. Resident continuation, wake evidence, skill catalogues and learned text also move from system `dynamic` or `turn` contributions to `context`; hosts that inspect placements must migrate. `context` contributions now render once before `prepareStep` so their estimated cost reduces preparation headroom; hosts relying on a contribution to observe preparation side effects in the same model step must move that logic to a later stage. The CLI moves file-backed `USER.md` and `MEMORY.md`, its stored-memory index, and automatic recall out of system prompts on new sends, resident turns and resumes. Interactive resident turns now place admitted data in the new `SendOptions.extraContext` request-only field; their fixed doctrine remains in `extraSystem`. Hosts that relied on memory files or resident data as system instructions must pass trusted guidance explicitly. This changes default provider-visible roles and may change model behavior and prompt-cache accounting; request-only context still uses input tokens on each request and the CLI bounds memory against estimated remaining request room.
+- b7d83ec: Plugin MCP server declarations now reject fields they do not implement, including `url`, `headers`, `inheritEnv` and `requireApproval`. Those fields were previously accepted and silently removed while the declared stdio command still started. Remove unsupported fields from `plugin.json` or an in-code plugin; configure a remote server through the host's MCP settings and express approval in host source permissions. Plugin MCP startup now has a ten-second deadline across connection and discovery, configurable with `connectTimeoutMs` up to one hour, and cleans up a failed connection before rolling back the plugin.
+
+  Hosts supplying `ConfigRegistry` must move plugin reconnect-policy overrides from `mcp.<server-name>` to `mcp.plugin.<plugin-name>.<server-name>`; the old key was shared by unrelated plugins and is no longer read. A `ConfigScope` now has `dispose()` to release its live namespace and watchers while retaining saved overrides. Plugin disable and failed enable release their scopes, and overlapping enable, disable and uninstall calls for one plugin id now settle in call order.
+
+  Plugin MCP drift is now tracked by full plugin source id rather than bare server name: hosts that relied on a drift event between two unrelated plugins using the same local server label should compare those sources explicitly. The baseline now follows the one admitted listing actually mounted as tools, including reconnect and list-change refreshes; a second startup listing is gone.
+
+### Minor Changes
+
+- 2b1cbb5: Show running background shells beside the composer and let operators inspect their retained output or stop a shell in `/jobs`. Use `/jobs list` for the previous text summary.
+- b7d83ec: Add `namzu mcp test <name>` to check the effective MCP server selected by the current profile and project. It connects only that server, reports the usable tool count or a safe failure reason, and closes the connection. The working directory must be trusted; pass `--trust` to accept it for this test only. After adding a server, run this command before starting an agent to find connection, authentication or tool discovery problems.
+- 2b1cbb5: Show submitted steering and next-turn messages in the TUI with their text and attachments. Alt+Up recalls the latest authored queued message, and Esc preserves pending input when it interrupts a turn.
+
+### Patch Changes
+
+- b7d83ec: Malformed `mcpServers` entries with invalid `args`, `env`, `headers`, `inheritEnv`, command, URL or working-directory types now fail by server name. One bad entry no longer aborts a session or prevents earlier successful connections from being closed.
+- b7d83ec: The CLI test runner now uses at most four workers on many-core machines. This prevents healthy session and scheduled-run tests from hitting their wall-clock timeout under heavy test contention; CLI runtime behavior and APIs are unchanged.
+- 2b1cbb5: Hosts can use `QueryParams.onJobNoticeDelivered(jobIds)` to distinguish background job exits recorded for the model from exits that still need delivery on a later turn. The CLI now keeps a late exit pending for the next turn, retains it after a failed or aborted send, and shows its transcript row once.
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [2b1cbb5]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+  - @namzu/sdk@49.0.0
+  - @namzu/browser@2.0.0
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.2.2
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.1.3
+  - @namzu/openrouter@3.0.3
+
 ## 34.1.1
 
 ### Patch Changes

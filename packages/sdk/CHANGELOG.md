@@ -1,5 +1,40 @@
 # Changelog
 
+## 49.0.0
+
+### Major Changes
+
+- b7d83ec: `ToolManager.toPromptSection()` no longer includes server-authored description hints for deferred MCP tools. It still lists their names. If a host calls this method directly and relied on those hints in its system prompt, call `toUntrustedDeferredContext()` separately and put its labelled output in a request-only context message after history. The SDK query path does this automatically, bounds the hint list to 4,000 characters plus its provenance frame, prices the largest permitted rendering before step preparation and filters it to permitted tools. Hosts preparing their own steps can call `snapshotUntrustedDeferredContext()` for the same bounded snapshot. MCP tools remain searchable by their full descriptions through `search_tools`.
+- b7d83ec: Plugin `user_prompt_submit` annotations now reach the model as user-role request context instead of system instructions. The CLI gives operator shell output and idle background-job exits the same request-context role. Hosts that used these observation channels to issue policy must move that policy to an explicit trusted instruction; the observations remain visible to the model on the current request.
+
+  The `namzu mcp test` HTTP 401 hint now uses a literal `<name>` placeholder instead of embedding the configured server name in a runnable shell command.
+
+- b7d83ec: Memory and saved resident state now reach the model as request-only user-role context rather than system guidance. In the SDK, `createMemoryRecallStep` returns `PrepareStepResult.context` instead of `system`; hosts that read or compose the hook result must use `context` and pass it through the normal preparation chain. Resident continuation, wake evidence, skill catalogues and learned text also move from system `dynamic` or `turn` contributions to `context`; hosts that inspect placements must migrate. `context` contributions now render once before `prepareStep` so their estimated cost reduces preparation headroom; hosts relying on a contribution to observe preparation side effects in the same model step must move that logic to a later stage. The CLI moves file-backed `USER.md` and `MEMORY.md`, its stored-memory index, and automatic recall out of system prompts on new sends, resident turns and resumes. Interactive resident turns now place admitted data in the new `SendOptions.extraContext` request-only field; their fixed doctrine remains in `extraSystem`. Hosts that relied on memory files or resident data as system instructions must pass trusted guidance explicitly. This changes default provider-visible roles and may change model behavior and prompt-cache accounting; request-only context still uses input tokens on each request and the CLI bounds memory against estimated remaining request room.
+- b7d83ec: Plugin MCP server declarations now reject fields they do not implement, including `url`, `headers`, `inheritEnv` and `requireApproval`. Those fields were previously accepted and silently removed while the declared stdio command still started. Remove unsupported fields from `plugin.json` or an in-code plugin; configure a remote server through the host's MCP settings and express approval in host source permissions. Plugin MCP startup now has a ten-second deadline across connection and discovery, configurable with `connectTimeoutMs` up to one hour, and cleans up a failed connection before rolling back the plugin.
+
+  Hosts supplying `ConfigRegistry` must move plugin reconnect-policy overrides from `mcp.<server-name>` to `mcp.plugin.<plugin-name>.<server-name>`; the old key was shared by unrelated plugins and is no longer read. A `ConfigScope` now has `dispose()` to release its live namespace and watchers while retaining saved overrides. Plugin disable and failed enable release their scopes, and overlapping enable, disable and uninstall calls for one plugin id now settle in call order.
+
+  Plugin MCP drift is now tracked by full plugin source id rather than bare server name: hosts that relied on a drift event between two unrelated plugins using the same local server label should compare those sources explicitly. The baseline now follows the one admitted listing actually mounted as tools, including reconnect and list-change refreshes; a second startup listing is gone.
+
+- b7d83ec: `wait_for_job` now returns `success: true` when its idle or total wait bound is reached. Previously that outcome returned `success: false` and was treated as a failed tool call. Callers that used `success === false` to detect a wait timeout must check `data.timedOut` (`idle` or `wall`) instead. The job keeps running in either case.
+
+  The tool now includes a bounded partial output preview and absolute `nextOffset` on timeout, and accepts `from_offset` on the next call so callers can continue without receiving the same bytes again. It reports output omitted by the wait's 32 KiB cap separately from bytes lost by the job registry's retention cap.
+
+### Minor Changes
+
+- 2b1cbb5: Hosts can use `QueryParams.onJobNoticeDelivered(jobIds)` to distinguish background job exits recorded for the model from exits that still need delivery on a later turn. The CLI now keeps a late exit pending for the next turn, retains it after a failed or aborted send, and shows its transcript row once.
+- b7d83ec: Built-in memory stores now offer opt-in revision-checked updates and deletion. Read an opaque token with `getVersionedRecord` or `read_memory`, then pass it to `updateIfRevision`, `deleteIfRevision`, `update_memory`, or `delete_memory`. A stale token reports a conflict without applying the change. Existing calls without a revision keep their last-writer-wins behavior; custom stores need to implement the full conditional interface to accept revisions.
+
+  In-memory revisions cover cloneable BigInt, Map, Set, Date, cyclic metadata and the full backing buffers visible through typed-array views. Direct resizable `ArrayBuffer` values include their resize attributes. When metadata cannot be fingerprinted synchronously, including views backed by `SharedArrayBuffer` or resizable `ArrayBuffer`, `read_memory` still reads it but offers no revision; conditional writes fail closed.
+
+  When a tool-result guardrail rewrites text, it also replaces separate model-visible content blocks and the original failure error, so neither channel can bypass redaction.
+
+- b7d83ec: Memory searches can now bound candidate scans with `maxScanned` and continue using `scanOffset`. Results report `truncated`, `scannedCount` and `nextScanOffset`, with `totalCount` counting only matches in an incomplete page. `search_memory` uses a 256-candidate page and accepts `scan_offset`; repeat with the returned offset when an older memory may match. Automatic recall also searches at most 256 recent candidates by default, configurable through `MemoryRecallOptions.maxScanned`. Disk stores select the page before reading its bodies. A direct `list` call without `maxScanned` retains its full-search behavior.
+
+### Patch Changes
+
+- b7d83ec: The SDK unit test runner now uses at most four workers on machines with many CPU cores. This prevents valid asynchronous tests from hitting their wall-clock timeout under test-worker contention; package runtime behavior and APIs are unchanged.
+
 ## 48.3.1
 
 ### Patch Changes
