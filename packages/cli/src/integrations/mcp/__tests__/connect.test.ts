@@ -671,6 +671,24 @@ describe('a server that does not work is named, never merely absent', () => {
 		await mcp.close()
 	})
 
+	it('refuses a deadline above Node timer range before opening the server', async () => {
+		// Node turns 2_147_483_648 ms into a 1 ms timer. An operator who
+		// intended a long wait would see an immediate, misleading timeout.
+		const mcp = await connectMcpServers(
+			{ excessive: { command: 'never-started', connectTimeoutMs: 2_147_483_648 } },
+			{ cwd: dir },
+		)
+
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed).toEqual([
+			{
+				name: 'excessive',
+				reason: expect.stringContaining('at most 2147483647'),
+			},
+		])
+		await mcp.close()
+	})
+
 	it('does not let one broken server take the working ones with it', async () => {
 		const good = writeServer('tickets.js', WORKING_SERVER)
 
