@@ -841,7 +841,7 @@ describe('KubernetesAgentTransport connect failure handling', () => {
 describe('KubernetesAgentTransport DNS re-resolution', () => {
 	let serverA: Server | undefined
 	let serverB: Server | undefined
-	let originalLookup: typeof dns.lookup
+	const originalLookup = dns.lookup
 
 	afterEach(async () => {
 		dns.lookup = originalLookup
@@ -852,7 +852,6 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 	})
 
 	it('reaches a different target when the hostname resolves differently between calls', async () => {
-		const SHARED_PORT = 34_217
 		const reply = (label: string) => (socket: Socket) => {
 			const reader = new __framing.FrameReader()
 			socket.on('data', (chunk: Buffer) => {
@@ -868,14 +867,14 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 		serverB = createServer(reply('server-b'))
 		await new Promise<void>((resolve, reject) => {
 			serverA?.once('error', reject)
-			serverA?.listen(SHARED_PORT, '127.0.0.1', resolve)
+			serverA?.listen(0, '127.0.0.1', resolve)
 		})
+		const sharedPort = (serverA.address() as AddressInfo).port
 		await new Promise<void>((resolve, reject) => {
 			serverB?.once('error', reject)
-			serverB?.listen(SHARED_PORT, '127.0.0.2', resolve)
+			serverB?.listen(sharedPort, '127.0.0.2', resolve)
 		})
 
-		originalLookup = dns.lookup
 		// Alternating rather than "first call here, everything after there":
 		// this transport is built directly, with no readiness fence to fill
 		// its capability cache, so the first `readFile` of its life opens a
@@ -900,7 +899,7 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 		const transport = new KubernetesAgentTransport({
 			kind: 'tcp',
 			host: 'agent.fake-service.svc.cluster.local',
-			port: SHARED_PORT,
+			port: sharedPort,
 			token: POD_UID,
 		})
 
