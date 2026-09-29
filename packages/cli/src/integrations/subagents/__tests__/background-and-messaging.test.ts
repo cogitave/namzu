@@ -16,7 +16,7 @@ import {
 	mcpJsonSchemaToZod,
 	toolset,
 } from '@namzu/sdk'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -49,6 +49,7 @@ async function backgroundTurn() {
 	const childUnwound = deferred<void>()
 	const childRequests: ChatCompletionParams[] = []
 	const parentRequests: ChatCompletionParams[] = []
+	const fourthParentRequest = deferred<void>()
 	const order: string[] = []
 	let childReleased = false
 	let childCount = 0
@@ -159,6 +160,7 @@ async function backgroundTurn() {
 		name: 'Background parent',
 		chatStream(params) {
 			parentRequests.push(params)
+			if (parentRequests.length === 4) fourthParentRequest.resolve()
 			return parentScript.chatStream(params)
 		},
 	}
@@ -206,6 +208,15 @@ async function backgroundTurn() {
 		signal: caller.signal,
 	})
 	pending.catch(() => {})
+	// A premature parent completion must wake the assertion too. Neither
+	// path measures how quickly a shared CI machine runs the child.
+	const fourthRequestOrStop = Promise.race([
+		fourthParentRequest.promise,
+		pending.then(
+			() => {},
+			() => {},
+		),
+	])
 	const context: ToolContext = {
 		sessionId: parent.scope.sessionId,
 		turnId: parent.scope.turnId,
@@ -226,6 +237,7 @@ async function backgroundTurn() {
 		gateway,
 		completionInbox,
 		parentRequests,
+		fourthRequestOrStop,
 		childRequests,
 		childStarted,
 		order,
@@ -248,7 +260,8 @@ async function backgroundTurn() {
 it('does independent work, delivers one correction at the next child boundary, and receives one completion', async () => {
 	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		await turn.fourthRequestOrStop
+		expect(turn.parentRequests).toHaveLength(4)
 		expect(turn.independentWhileHeld()).toBe(true)
 		expect(turn.order).toEqual(['child started', 'parent independent work'])
 		expect(turn.childCount()).toBe(1)
@@ -317,12 +330,13 @@ it('does independent work, delivers one correction at the next child boundary, a
 	} finally {
 		await turn.close()
 	}
-})
+}, 30_000)
 
 it('a refused send leaves no transcript row', async () => {
 	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		await turn.fourthRequestOrStop
+		expect(turn.parentRequests).toHaveLength(4)
 		const taskId = turn.taskId()
 		expect(taskId).toBeDefined()
 		const before = turn.runtime.activity
@@ -364,12 +378,13 @@ it('a refused send leaves no transcript row', async () => {
 	} finally {
 		await turn.close()
 	}
-})
+}, 30_000)
 
 it('a correction is rendered once', async () => {
 	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		await turn.fourthRequestOrStop
+		expect(turn.parentRequests).toHaveLength(4)
 		const taskId = turn.taskId()
 		const deliveredRows = () =>
 			turn.runtime.activity
@@ -391,12 +406,13 @@ it('a correction is rendered once', async () => {
 	} finally {
 		await turn.close()
 	}
-})
+}, 30_000)
 
 it('cancels a background child with its parent after the launch call has already returned', async () => {
 	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		await turn.fourthRequestOrStop
+		expect(turn.parentRequests).toHaveLength(4)
 		const signal = await turn.childStarted.promise
 		expect(turn.independentWhileHeld()).toBe(true)
 		expect(signal.aborted).toBe(false)
@@ -414,4 +430,4 @@ it('cancels a background child with its parent after the launch call has already
 	} finally {
 		await turn.close()
 	}
-})
+}, 30_000)

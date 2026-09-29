@@ -91,6 +91,7 @@ export async function waitForJobWithBounds(
 	let output = ''
 	let droppedBytes = 0
 	let settled = false
+	let poll: ReturnType<typeof setInterval> | undefined
 
 	/** Read whatever is new since `cursor`, and count it as progress if it is. */
 	const drain = (): void => {
@@ -153,6 +154,7 @@ export async function waitForJobWithBounds(
 					}
 				}
 			}, POLL_INTERVAL_MS)
+			poll = tick
 			// Never the reason a process stays alive — this races a real
 			// exit promise, so the wait is held open by work that is
 			// genuinely outstanding rather than by this timer.
@@ -162,6 +164,7 @@ export async function waitForJobWithBounds(
 		return await Promise.race([exited, expiry])
 	} finally {
 		settled = true
+		if (poll !== undefined) clearInterval(poll)
 	}
 }
 

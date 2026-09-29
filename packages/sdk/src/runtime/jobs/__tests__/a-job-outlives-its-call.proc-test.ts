@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -59,6 +60,25 @@ const alive = (pid: number): boolean => {
 }
 
 describe('a background job survives the call that started it', () => {
+	it('announces one exit when a real child fails to spawn', async () => {
+		const registry = new BackgroundJobRegistry()
+		const cwd = await workdir()
+		const notices: string[] = []
+		registry.onExit((exited) => notices.push(exited.id))
+
+		const job = registry.start({
+			owner: OWNER,
+			command: 'missing executable',
+			workingDirectory: cwd,
+			spawn: () => ({ child: spawn(join(cwd, 'missing-executable')) }),
+		})
+		await registry.waitForExit(job.id)
+
+		expect(registry.get(job.id).status).toBe('exited')
+		expect(registry.get(job.id).exitCode).toBeUndefined()
+		expect(notices).toEqual([job.id])
+	})
+
 	it('is still running when start() returns, and finishes on its own', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()

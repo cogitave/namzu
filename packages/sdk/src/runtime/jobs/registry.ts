@@ -246,6 +246,8 @@ export class BackgroundJobRegistry {
 			buffer: '',
 			produced: 0,
 			exit: new Promise<void>((resolve) => {
+				let spawned = child.pid !== undefined
+				let failedToSpawn = false
 				const finalize = (code: number | null, signal: NodeJS.Signals | null): void => {
 					entry.record = {
 						...entry.record,
@@ -260,6 +262,15 @@ export class BackgroundJobRegistry {
 					resolve()
 					this.announceExit(entry.record)
 				}
+				child.once('spawn', () => {
+					spawned = true
+				})
+				child.on('error', () => {
+					// A failed spawn emits both `error` and `close`. Waiting for
+					// `close` also covers errors on an already-running process
+					// (such as a failed kill) without announcing a false exit.
+					if (!spawned) failedToSpawn = true
+				})
 				child.once('close', (code, signal) => {
 					// The job is the process GROUP, not the shell. A command that
 					// backgrounds its real work (`server &`) exits the shell at
@@ -270,21 +281,17 @@ export class BackgroundJobRegistry {
 					// job whose shell has ended stays running while its group is
 					// alive, and ends — with the shell's exit code — when the
 					// group is empty.
+					const exitCode = failedToSpawn ? null : code
 					if (entry.record.status !== 'killed' && groupAlive(child.pid)) {
 						const poll = setInterval(() => {
 							if (groupAlive(child.pid)) return
 							clearInterval(poll)
-							finalize(code, signal)
+							finalize(exitCode, signal)
 						}, GROUP_POLL_MS)
 						poll.unref()
 						return
 					}
-					finalize(code, signal)
-				})
-				child.once('error', () => {
-					entry.record = { ...entry.record, status: 'exited', exitedAt: Date.now() }
-					resolve()
-					this.announceExit(entry.record)
+					finalize(exitCode, signal)
 				})
 			}),
 		}

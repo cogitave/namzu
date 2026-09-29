@@ -104,7 +104,9 @@ describe('a foreground run-now that does not return', () => {
 	it('interrupted by a signal, records the run as interrupted before exiting', async () => {
 		const job = confirmedJob(sb, {
 			permissions: { preset: 'read-only' },
-			budget: { timeoutMs: 1_000 },
+			// This case tests SIGHUP, so the watchdog must not win while the
+			// real session setup is delayed on a busy CI runner.
+			budget: { timeoutMs: 60_000 },
 		})
 		let asked: () => void = () => {}
 		const reached = new Promise<void>((resolve) => {
@@ -128,5 +130,5 @@ describe('a foreground run-now that does not return', () => {
 			status: 'interrupted',
 			reason: 'the run was interrupted (SIGHUP)',
 		})
-	})
+	}, 30_000)
 })

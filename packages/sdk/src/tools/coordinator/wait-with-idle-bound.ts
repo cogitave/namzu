@@ -69,6 +69,7 @@ export async function waitForTaskWithBounds(
 	const startedAt = now()
 	let lastProgressAt = startedAt
 	let settled = false
+	let poll: ReturnType<typeof setInterval> | undefined
 
 	const detach = gateway.onTaskProgress?.((id) => {
 		if (id === taskId) lastProgressAt = now()
@@ -107,6 +108,7 @@ export async function waitForTaskWithBounds(
 					}
 				}
 			}, POLL_INTERVAL_MS)
+			poll = tick
 			// Never the reason a process stays alive. This one is safe to unref
 			// where the park recorder was not, because nothing AWAITS it alone:
 			// it races a real completion promise, so the wait is held open by
@@ -117,6 +119,7 @@ export async function waitForTaskWithBounds(
 		return await Promise.race([completion, expiry])
 	} finally {
 		settled = true
+		if (poll !== undefined) clearInterval(poll)
 		detach?.()
 	}
 }

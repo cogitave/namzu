@@ -49,6 +49,8 @@ permission policy.
 
 One of these four announces any given exit — never more than one, with the narrow exception named below. The first three are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to one of them is neither delivered again by another nor counted as a reason to open one. The fourth is the session's, and it only ever sees an exit that landed with no turn open — the case the kernel is not there to hear.
 
+If the process cannot start, its job still finishes and announces one exit when the child closes. It has no process exit code: the spawn error is not a command's exit status. An error from a process that already started does not by itself end the job; the registry waits for that process to close.
+
 A residual window escapes all four, known and left narrow rather than closed: an exit that lands after `settleOutstandingWork` has run (the kernel has looked for the last time) but before the CLI clears `abortRef` (`App.tsx` ~4867, the flag the session's own listener checks before it will queue anything) is announced by nobody.
 
 None of them knows a `wait_for_job` call is already blocked on the same job: unlike the delegated-task inbox, which lets a blocking `wait_for_task` claim a completion so it is not also announced, nothing here suppresses the notice for a job `wait_for_job` is about to report on its own. A job that exits during a `wait_for_job` call can therefore surface twice — once as that call's own result, once as the `[Background job update]` line on the same or a later tool result. Redundant, not contradictory: both describe the same exit.
