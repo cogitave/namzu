@@ -64,11 +64,13 @@ Started in the home directory with no `NAMZU_HOME`, the project's
 once, as the user memory, and is not injected a second time under the project
 heading.
 
-Curated files are read at the start of each send or resume. Editing or deleting a
-file affects that next snapshot, including after a new session or restart. A turn
-already in progress keeps its curated snapshot through its model steps. Edit the
-file to correct or remove a line; the slash command inspects, and appends only
-with `--user`.
+Curated files are read at the start of each send or resume. Their content is
+placed in a request-only user-role `step-context` message, after conversation
+history; it is not system guidance or saved as an operator message. Editing or
+deleting a file affects the next snapshot, including after a new session or
+restart. A turn already in progress keeps its snapshot through its model steps.
+Edit the file to correct or remove a line; the slash command inspects, and
+appends only with `--user`.
 
 Each section keeps at most the first 8,000 characters in the model prompt, with a
 notice naming the omitted amount. A trailing partial line may be omitted too;
@@ -126,7 +128,8 @@ text an active memory already holds is not saved again; the terminal names the
 memory that holds it. A session with no provider has no store, and its notes are
 appended to the curated project file as before.
 
-Every send and resume puts the index in the system prompt under
+Every send and resume takes a snapshot of the index and offers it, subject to
+the current request budget, in a request-only user-role `step-context` message under
 `## Stored memories (index)`: one line per active memory you or the model
 saved, `- [name](name.md) — description`, each at most 150 characters (a note's
 name is its first words, at most 32 characters, so the description keeps most
@@ -135,8 +138,8 @@ to search for them. What the runtime writes after a turn by itself — the sessi
 memory promoter's record (`metadata.source: 'session-memory'`), or
 consolidation's with `compaction.consolidate` — is kept in the same directory
 and found by recall and `search_memory`, but never listed: it is written after
-almost every turn, and a system prompt that changed with it
-would lose its prompt cache nearly every turn. Your `feedback` and `user`
+almost every turn, and listing it would make the index noisy and cost more
+request tokens. Your `feedback` and `user`
 memories (notes, `/memory add --type`, hand-written files) come first, then the
 model's, then the rest, by name within each; the order changes only when a
 listed memory does, and the 200-line cap drops `project` and `reference` lines
@@ -147,14 +150,49 @@ rendered from the files at that moment. A memory file the store cannot read
 leaves that turn without the index and shows a notice naming the file; the turn
 still runs.
 
+The snapshot stays fixed across model steps in that send or resume; the next
+send or resume reads the files again. File-backed curated memory, the stored
+index and automatic recall all enter request-only user-role context. Any of
+these files can be changed by an agent tool when filesystem access allows it,
+and stored records can contain model-authored text. Request-only context is
+not saved in conversation history or included in later compaction as an
+operator message. This role limits the authority assigned to memory; it cannot
+guarantee that the model will ignore a malicious instruction inside it. To
+provide trusted system guidance, pass explicit system instructions through
+the host, such as `SendOptions.extraSystem`, rather than placing them in a
+memory file. Hosts that depended on `USER.md` or `MEMORY.md` appearing in the
+system prompt must migrate those instructions. Moving changing memory after
+history preserves a cacheable system prefix where the provider supports it,
+but memory context still consumes input tokens on each request and a cache
+hit is not guaranteed.
+
+After compaction, optional recall and any model selection, the CLI admits
+file and index memory against the estimated room left in the selected model's
+request. A crowded window may shorten either section with an omission notice,
+or omit it when there is too little room to show a useful fragment. The
+automatic recall stage uses its own budget first; memory files and the index
+use the room that remains. The full files remain available through memory and
+file tools.
+
 The model's tools work on the same files. `save_memory` creates a memory (a name
 another memory holds is refused and pointed at `update_memory`),
 `search_memory` finds memories, `read_memory` reads one by ID or name, with its
 age and its `[[name]]` links resolved, `update_memory` corrects or archives
-one by ID or by the name the index shows, and `delete_memory` removes it. A
-memory whose file would exceed 256 KiB, or that contains a NUL character, is
-refused before it is written, so one oversized save cannot stop the store. A fresh session in the same project reads
-the same files.
+one by ID or by the name the index shows, and `delete_memory` removes it.
+For a word search, `search_memory` examines up to 256 recent candidates at a
+time. An incomplete page says so and gives a `scan_offset` for the next page;
+an empty incomplete page does not claim that no older memory matches.
+
+A `read_memory` result also supplies an opaque revision. The model can pass it to
+`update_memory` or `delete_memory` to refuse a stale correction or deletion
+after another writer or a hand edit changed the record. Without a revision,
+those tools retain their ordinary last-writer-wins behavior. A JSON body's
+tool output stays exactly the stored JSON; the revision is delivered alongside
+it in a separate model-visible text block.
+
+A memory whose file would exceed 256 KiB, or that contains a NUL character, is
+refused before it is written, so one oversized save cannot stop the store. A
+fresh session in the same project reads the same files.
 
 ### Moving the older memory in
 

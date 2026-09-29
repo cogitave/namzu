@@ -13,7 +13,8 @@ import { type IncomingMessage, type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { MCPClient, type MCPJsonRpcMessage, type MCPTransport } from '@namzu/sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import {
@@ -432,6 +433,84 @@ describe('a server that does not work is named, never merely absent', () => {
 		await mcp.close()
 	}, 40_000)
 
+	it('closes a connection that completes after its startup deadline and first teardown', async () => {
+		// Use the real MCPClient state machine with a delayed transport connect.
+		// The timeout is deterministic; no wall-clock race or child process is
+		// needed to prove that a late handshake can reopen a closed client.
+		vi.useFakeTimers()
+		let releaseConnect: (() => void) | undefined
+		let onMessage: ((message: MCPJsonRpcMessage) => void) | undefined
+		let onClose: (() => void) | undefined
+		let open = false
+		let closes = 0
+		const transport: MCPTransport = {
+			connect: () =>
+				new Promise<void>((resolve) => {
+					releaseConnect = () => {
+						open = true
+						resolve()
+					}
+				}),
+			close: async () => {
+				closes++
+				open = false
+				onClose?.()
+			},
+			isConnected: () => open,
+			send: async (message) => {
+				const id = message.id
+				if (id === undefined) return
+				queueMicrotask(() =>
+					onMessage?.({
+						jsonrpc: '2.0',
+						id,
+						result:
+							message.method === 'initialize'
+								? {
+										protocolVersion: (message.params as { protocolVersion?: string })
+											?.protocolVersion,
+										serverInfo: { name: 'late', version: '1' },
+										capabilities: {},
+									}
+								: {},
+					}),
+				)
+			},
+			onMessage: (handler) => {
+				onMessage = handler
+			},
+			onClose: (handler) => {
+				onClose = handler
+			},
+			onError: () => {},
+		}
+		const createTransport = vi
+			.spyOn(
+				MCPClient.prototype as unknown as { createTransport: () => MCPTransport },
+				'createTransport',
+			)
+			.mockReturnValue(transport)
+		try {
+			const pending = connectMcpServers(
+				{ late: { command: 'unused', connectTimeoutMs: 100 } },
+				{ cwd: dir },
+			)
+			await vi.advanceTimersByTimeAsync(100)
+			const mcp = await pending
+			expect(mcp.failed[0]?.name).toBe('late')
+			expect(mcp.failed[0]?.reason).toContain('did not answer within 100ms')
+			expect(closes).toBe(1)
+
+			releaseConnect?.()
+			await vi.advanceTimersByTimeAsync(0)
+			expect(closes).toBe(2)
+			expect(open).toBe(false)
+		} finally {
+			createTransport.mockRestore()
+			vi.useRealTimers()
+		}
+	})
+
 	it('gives a slow server the connect deadline its spec asks for', async () => {
 		// The default deadline is for a wedged server; a Python SDK server that
 		// cold-boots in 15-20s is a working server it refuses. Proven both ways
@@ -592,6 +671,24 @@ describe('a server that does not work is named, never merely absent', () => {
 		await mcp.close()
 	})
 
+	it('refuses a deadline above Node timer range before opening the server', async () => {
+		// Node turns 2_147_483_648 ms into a 1 ms timer. An operator who
+		// intended a long wait would see an immediate, misleading timeout.
+		const mcp = await connectMcpServers(
+			{ excessive: { command: 'never-started', connectTimeoutMs: 2_147_483_648 } },
+			{ cwd: dir },
+		)
+
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed).toEqual([
+			{
+				name: 'excessive',
+				reason: expect.stringContaining('at most 2147483647'),
+			},
+		])
+		await mcp.close()
+	})
+
 	it('does not let one broken server take the working ones with it', async () => {
 		const good = writeServer('tickets.js', WORKING_SERVER)
 
@@ -605,6 +702,48 @@ describe('a server that does not work is named, never merely absent', () => {
 		try {
 			expect(mcp.failed.map((f) => f.name)).toEqual(['broken'])
 			expect(mcp.connected.map((c) => c.name)).toEqual(['tickets'])
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it('keeps an already connected sibling owned when later config entries have invalid runtime shapes', async () => {
+		const good = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: { command: process.execPath, args: [good] },
+				badArgs: {
+					command: process.execPath,
+					args: { unexpected: true } as never,
+				},
+				badEnv: { command: process.execPath, env: { TOKEN: 42 } as never },
+				badHeaders: {
+					url: 'https://example.test/mcp',
+					headers: { Authorization: 42 } as never,
+				},
+				badInheritance: {
+					command: process.execPath,
+					inheritEnv: 'TOKEN' as never,
+				},
+				badTransport: { command: 42 as never, url: 'https://example.test/mcp' },
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected.map((server) => server.name)).toEqual(['tickets'])
+			expect(mcp.failed).toEqual([
+				{ name: 'badArgs', reason: 'args must be a list of strings' },
+				{ name: 'badEnv', reason: 'env must be a mapping of string values' },
+				{
+					name: 'badHeaders',
+					reason: 'headers must be a mapping of string values',
+				},
+				{
+					name: 'badInheritance',
+					reason: 'inheritEnv must be a list of environment variable names',
+				},
+				{ name: 'badTransport', reason: 'command must be a string' },
+			])
 		} finally {
 			await mcp.close()
 		}
@@ -695,12 +834,17 @@ describe('${VAR} expansion in env and headers values', () => {
 			API_TOKEN: 'secret-1',
 		} as NodeJS.ProcessEnv)
 		expect(typeof transport).not.toBe('string')
-		expect((transport as { env?: Record<string, string> }).env).toEqual({ TOKEN: 'secret-1' })
+		expect((transport as { env?: Record<string, string> }).env).toEqual({
+			TOKEN: 'secret-1',
+		})
 	})
 
 	it('transportFor expands header values for an http server', () => {
 		const transport = transportFor(
-			{ url: 'https://example.invalid/mcp', headers: { 'X-Token': '${API_TOKEN}' } },
+			{
+				url: 'https://example.invalid/mcp',
+				headers: { 'X-Token': '${API_TOKEN}' },
+			},
 			dir,
 			{ API_TOKEN: 'secret-1' } as NodeJS.ProcessEnv,
 		)
@@ -735,7 +879,9 @@ describe('${VAR} expansion in env and headers values', () => {
 			{
 				secure: {
 					url: 'https://example.invalid/mcp',
-					headers: { Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}' },
+					headers: {
+						Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}',
+					},
 				},
 			},
 			{ cwd: dir },

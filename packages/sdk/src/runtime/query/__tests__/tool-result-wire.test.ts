@@ -1,13 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
+import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
+import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolResult } from '../../../types/tool/index.js'
-import { generateSessionId } from '../../../utils/id.js'
+import {
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
+} from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
+import { drainQuery } from '../index.js'
+
+registerMock()
 
 const SESSION_ID = generateSessionId()
 
@@ -134,4 +146,49 @@ describe('rich tool content reaches the message', () => {
 		expect(batch.results[0]?.output).toContain('omitted')
 		expect(batch.results[0]?.output.length).toBeLessThanOrEqual(200)
 	})
+})
+
+it('redacts an error-only failed result before the next real provider request', async () => {
+	const secret = 'PRIVATE_ERROR_TOKEN'
+	const screened: string[] = []
+	const provider = new MockLLMProvider({
+		turns: [{ toolCalls: [{ name: 'lookup', args: {} }] }, { text: 'done' }],
+	})
+	const run = await drainQuery({
+		provider,
+		toolsets: [
+			testToolset({
+				name: 'lookup',
+				description: 'Fixture lookup',
+				inputSchema: z.object({}),
+				execute: async () => ({ success: false, output: '', error: secret }),
+			}),
+		],
+		toolResultGuardrails: [
+			({ output }) => {
+				screened.push(output)
+				return { action: 'rewrite', output: output.replace(secret, '[redacted failure]') }
+			},
+		],
+		agentId: 'failed-result-redaction',
+		agentName: 'Failed result redaction',
+		messages: [createUserMessage('Run the fixture lookup.')],
+		workingDirectory: process.cwd(),
+		turnConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 3 },
+		projectId: generateProjectId(),
+		sessionId: generateSessionId(),
+		tenantId: generateTenantId(),
+		topicId: generateTopicId(),
+	})
+	expect(run.status).toBe('completed')
+	expect(screened).toContain(`Error: ${secret}`)
+	expect(provider.requests).toHaveLength(2)
+	const toolMessages = provider.requests[1]?.messages.filter((message) => message.role === 'tool')
+	expect(toolMessages).toHaveLength(1)
+	expect(toolMessages?.[0]?.content).toBe('Error: [redacted failure]')
+	expect(JSON.stringify(toolMessages)).not.toContain(secret)
+	expect(run.messages.find((message) => message.role === 'tool')?.content).toBe(
+		'Error: [redacted failure]',
+	)
+	expect(JSON.stringify(run.messages)).not.toContain(secret)
 })

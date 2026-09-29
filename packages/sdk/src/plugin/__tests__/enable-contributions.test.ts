@@ -2,16 +2,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ConfigRegistry } from '../../config/registry.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId } from '../../types/ids/index.js'
 import type { PluginDefinition } from '../../types/plugin/index.js'
 import type { Logger } from '../../utils/logger.js'
+import { definePlugin } from '../define.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 
 const mockConnect = vi.fn(async (): Promise<unknown> => undefined)
 const mockDisconnect = vi.fn(async (): Promise<void> => undefined)
 const mockListTools = vi.fn(async (): Promise<unknown[]> => [])
+const mockUnsubscribeNotification = vi.fn()
 
 vi.mock('../../connector/mcp/client.js', () => ({
 	// `function`, not an arrow, and it has to stay that way: `lifecycle.ts`
@@ -30,7 +33,9 @@ vi.mock('../../connector/mcp/client.js', () => ({
 	// here. Suppressed rather than exempted file-wide, so the rule keeps working
 	// everywhere else in this file.
 	// biome-ignore lint/complexity/useArrowFunction: a constructible mock implementation cannot be an arrow function.
-	MCPClient: vi.fn().mockImplementation(function (config: { serverName: string }) {
+	MCPClient: vi.fn().mockImplementation(function (config: {
+		serverName: string
+	}) {
 		return {
 			id: 'mcp-client-mock',
 			connect: mockConnect,
@@ -49,7 +54,7 @@ vi.mock('../../connector/mcp/client.js', () => ({
 			// is a fixture unlike production and the wiring fails only at runtime.
 			isConnected: () => true,
 			onLifecycle: () => () => {},
-			onNotification: () => () => {},
+			onNotification: () => mockUnsubscribeNotification,
 		}
 	}),
 }))
@@ -139,6 +144,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 		mockConnect.mockReset()
 		mockDisconnect.mockReset()
 		mockListTools.mockReset()
+		mockUnsubscribeNotification.mockReset()
 	})
 
 	it('revokes plugin instructions from an already-started prompt when disabled', async () => {
@@ -239,6 +245,148 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 	})
 
 	describe('mcpServers wiring', () => {
+		function pendingMcpPlugin(name: string) {
+			let connectStarted!: () => void
+			const connecting = new Promise<void>((resolve) => {
+				connectStarted = resolve
+			})
+			let finishConnect!: () => void
+			const pendingConnect = new Promise<void>((resolve) => {
+				finishConnect = resolve
+			})
+			mockConnect.mockImplementation(() => {
+				connectStarted()
+				return pendingConnect
+			})
+			mockDisconnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
+			const root = mkdtempSync(join(tmpdir(), 'namzu-plugin-lifecycle-'))
+			tempRoots.push(root)
+			const registry = new PluginRegistry()
+			const configRegistry = new ConfigRegistry()
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots: { project: root, user: root },
+				configRegistry,
+				log: makeLogger(),
+			})
+			const plugin = mgr.installDefined(
+				definePlugin({ name, mcpServers: [{ name: 'srv', command: '/bin/true' }] }),
+			)
+			return { mgr, registry, configRegistry, plugin, connecting, finishConnect }
+		}
+
+		it('reserves an id while enable is pending so a second enable cannot overwrite ownership', async () => {
+			const { mgr, plugin, connecting, finishConnect } = pendingMcpPlugin('overlap')
+			const first = mgr.enable(plugin.id)
+			const second = mgr.enable(plugin.id)
+			const refused = expect(second).rejects.toThrow(/status is "enabled"/)
+			await connecting
+			expect(mockConnect).toHaveBeenCalledOnce()
+			finishConnect()
+			await first
+			await refused
+			expect(mockConnect).toHaveBeenCalledOnce()
+			await mgr.disable(plugin.id)
+			expect(toolNames(mgr)).toEqual([])
+		})
+
+		it('waits for an in-flight enable before disabling its contributions', async () => {
+			const { mgr, plugin, configRegistry, connecting, finishConnect } =
+				pendingMcpPlugin('disable-pending')
+			const enabling = mgr.enable(plugin.id)
+			const disabling = mgr.disable(plugin.id)
+			const settled = Promise.allSettled([enabling, disabling])
+			await connecting
+			expect(mockDisconnect).not.toHaveBeenCalled()
+			finishConnect()
+			expect(await settled).toEqual([{ status: 'fulfilled' }, { status: 'fulfilled' }])
+			expect(toolNames(mgr)).toEqual([])
+			expect(configRegistry.namespaces()).toEqual([])
+			expect(mockDisconnect).toHaveBeenCalledOnce()
+		})
+
+		it('waits for an in-flight enable before uninstalling its admission', async () => {
+			const { mgr, registry, plugin, configRegistry, connecting, finishConnect } =
+				pendingMcpPlugin('uninstall-pending')
+			const enabling = mgr.enable(plugin.id)
+			const uninstalling = mgr.uninstall(plugin.id)
+			const settled = Promise.allSettled([enabling, uninstalling])
+			await connecting
+			expect(registry.get(plugin.id)).toBeDefined()
+			finishConnect()
+			expect(await settled).toEqual([{ status: 'fulfilled' }, { status: 'fulfilled' }])
+			expect(registry.get(plugin.id)).toBeUndefined()
+			expect(mgr.toolsets).toEqual([])
+			expect(configRegistry.namespaces()).toEqual([])
+			expect(mockDisconnect).toHaveBeenCalledOnce()
+		})
+
+		it('releases reconnect-policy namespace on disable and failed enable, then permits retry', async () => {
+			mockConnect.mockResolvedValue(undefined)
+			mockDisconnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
+			const configRegistry = new ConfigRegistry()
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'retryable',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true' }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				configRegistry,
+				log: makeLogger(),
+			})
+
+			await mgr.enable(pluginId)
+			expect(configRegistry.namespaces()).toEqual(['mcp.plugin.retryable.srv'])
+			await mgr.disable(pluginId)
+			expect(configRegistry.namespaces()).toEqual([])
+			mockConnect.mockRejectedValueOnce(new Error('handshake refused'))
+			await expect(mgr.enable(pluginId)).rejects.toThrow('handshake refused')
+			expect(configRegistry.namespaces()).toEqual([])
+			await mgr.enable(pluginId)
+			expect(configRegistry.namespaces()).toEqual(['mcp.plugin.retryable.srv'])
+			await mgr.disable(pluginId)
+		})
+
+		it('keeps reconnect policies independent for plugins using the same server name', async () => {
+			mockConnect.mockResolvedValue(undefined)
+			mockDisconnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
+			const root = mkdtempSync(join(tmpdir(), 'namzu-plugin-policy-'))
+			tempRoots.push(root)
+			const registry = new PluginRegistry()
+			const configRegistry = new ConfigRegistry()
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots: { project: root, user: root },
+				configRegistry,
+				log: makeLogger(),
+			})
+			const first = mgr.installDefined(
+				definePlugin({ name: 'first', mcpServers: [{ name: 'shared', command: '/bin/true' }] }),
+			)
+			const second = mgr.installDefined(
+				definePlugin({ name: 'second', mcpServers: [{ name: 'shared', command: '/bin/true' }] }),
+			)
+
+			await mgr.enable(first.id)
+			await mgr.enable(second.id)
+			expect(configRegistry.namespaces()).toEqual([
+				'mcp.plugin.first.shared',
+				'mcp.plugin.second.shared',
+			])
+			await mgr.disable(first.id)
+			expect(configRegistry.namespaces()).toEqual(['mcp.plugin.second.shared'])
+			await mgr.uninstall(second.id)
+			expect(configRegistry.namespaces()).toEqual([])
+		})
+
 		it('uninstalls manager-owned contributions after the public registry status is overwritten', async () => {
 			mockConnect.mockResolvedValue(undefined)
 			mockDisconnect.mockResolvedValue(undefined)
@@ -267,11 +415,19 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 			await mgr.enable(installed.id)
 			const enabled = registry.getOrThrow(installed.id)
-			registry.register({ ...enabled, status: 'disabled', enabledAt: undefined })
+			registry.register({
+				...enabled,
+				status: 'disabled',
+				enabledAt: undefined,
+			})
 			await expect(mgr.enable(installed.id)).rejects.toThrow(/status is "enabled"/)
 			expect(mockConnect).toHaveBeenCalledOnce()
 
-			registry.register({ ...enabled, status: 'installed', enabledAt: undefined })
+			registry.register({
+				...enabled,
+				status: 'installed',
+				enabledAt: undefined,
+			})
 			await mgr.uninstall(installed.id)
 
 			expect(mockDisconnect).toHaveBeenCalledOnce()
@@ -302,7 +458,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			await mgr.enable(pluginId)
 
 			expect(mockConnect).toHaveBeenCalledOnce()
-			expect(mockListTools).toHaveBeenCalledTimes(2)
+			expect(mockListTools).toHaveBeenCalledOnce()
 			expect(toolNames(mgr)).toEqual([
 				'fs-plugin__mcp__fs__read_file',
 				'fs-plugin__mcp__fs__write_file',
@@ -391,9 +547,145 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/connect refused/)
 
-			// Rollback: first server's tools unregistered, first client disconnected.
+			// Rollback owns both clients, including the one whose handshake failed.
 			expect(toolNames(mgr)).toEqual([])
-			expect(mockDisconnect).toHaveBeenCalledOnce()
+			expect(mockDisconnect).toHaveBeenCalledTimes(2)
+		})
+
+		it('bounds a silent plugin server even when rollback disconnect also stalls', async () => {
+			let started!: () => void
+			const connecting = new Promise<void>((resolve) => {
+				started = resolve
+			})
+			let disconnectStarted!: () => void
+			const disconnecting = new Promise<void>((resolve) => {
+				disconnectStarted = resolve
+			})
+			mockConnect.mockImplementationOnce(() => {
+				started()
+				return new Promise<never>(() => {})
+			})
+			mockDisconnect.mockImplementationOnce(() => {
+				disconnectStarted()
+				return new Promise<never>(() => {})
+			})
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'silent',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				// Attach the rejection handler before advancing the fake clock.
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				await connecting
+				await vi.advanceTimersByTimeAsync(500)
+				await disconnecting
+				await vi.advanceTimersByTimeAsync(5_000)
+				await refused
+				expect(mockDisconnect).toHaveBeenCalledOnce()
+				expect(toolNames(mgr)).toEqual([])
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it('disconnects again if a timed-out handshake resolves after rollback', async () => {
+			let finishConnect!: () => void
+			const pendingConnect = new Promise<void>((resolve) => {
+				finishConnect = resolve
+			})
+			let connectStarted!: () => void
+			const connecting = new Promise<void>((resolve) => {
+				connectStarted = resolve
+			})
+			mockConnect.mockImplementationOnce(() => {
+				connectStarted()
+				return pendingConnect
+			})
+			mockDisconnect.mockResolvedValue(undefined)
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'late-connect',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				await connecting
+				await vi.advanceTimersByTimeAsync(500)
+				await refused
+				expect(mockDisconnect).toHaveBeenCalledOnce()
+				finishConnect()
+				await vi.advanceTimersByTimeAsync(0)
+				expect(mockDisconnect).toHaveBeenCalledTimes(2)
+				expect(toolNames(mgr)).toEqual([])
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it('closes a toolset that finishes discovery after the startup deadline', async () => {
+			mockConnect.mockResolvedValue(undefined)
+			mockDisconnect.mockResolvedValue(undefined)
+			let finishDiscovery!: (tools: unknown[]) => void
+			const discovering = new Promise<unknown[]>((resolve) => {
+				finishDiscovery = resolve
+			})
+			let listingStarted!: () => void
+			const listing = new Promise<void>((resolve) => {
+				listingStarted = resolve
+			})
+			mockListTools.mockImplementationOnce(() => {
+				listingStarted()
+				return discovering
+			})
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'late',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				// Await the listing's invocation, then advance only the fake clock.
+				await listing
+				await vi.advanceTimersByTimeAsync(500)
+				await refused
+				finishDiscovery([{ name: 'late', inputSchema: { type: 'object' } }])
+				await vi.advanceTimersByTimeAsync(0)
+				expect(toolNames(mgr)).toEqual([])
+				expect(mockUnsubscribeNotification).toHaveBeenCalledOnce()
+			} finally {
+				vi.useRealTimers()
+			}
 		})
 	})
 })

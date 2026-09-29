@@ -80,6 +80,11 @@ export interface MemoryRecord {
 	readonly content: MemoryContent
 }
 
+/** A full record and an opaque token for that exact logical snapshot. */
+export interface VersionedMemoryRecord extends MemoryRecord {
+	readonly revision: string
+}
+
 export interface MemorySearchParams {
 	readonly query?: string
 	readonly tags?: string[]
@@ -87,11 +92,22 @@ export interface MemorySearchParams {
 	readonly limit?: number
 	/** Match at least one exact normalized word token before limiting results. Empty means no constraint. */
 	readonly requiredIdentifiers?: readonly string[]
+	/** Maximum indexed candidates to examine in one page; omitted scans all. */
+	readonly maxScanned?: number
+	/** Skip this many candidates in newest-first scan order; a new search starts at zero. */
+	readonly scanOffset?: number
 }
 
 export interface MemorySearchResult {
 	readonly entries: readonly MemoryIndexEntry[]
+	/** Exact unless truncated is true; then counts matches in the scanned candidates only. */
 	readonly totalCount: number
+	/** True when the search stopped before examining all eligible candidates. */
+	readonly truncated?: boolean
+	/** Number of eligible candidates examined in this page. */
+	readonly scannedCount?: number
+	/** Pass as scanOffset to inspect the next page; absent when this scan reached the end. */
+	readonly nextScanOffset?: number
 }
 
 export interface CreateMemoryParams {
@@ -126,6 +142,33 @@ export interface MemoryStore {
 	update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined>
 	delete(id: MemoryId): Promise<boolean>
 	list(params?: MemorySearchParams): Promise<MemorySearchResult>
+}
+
+/**
+ * Opt-in compare-and-set operations. A supplied revision is checked together
+ * with the mutation, under the store's own coordination boundary. Implementing
+ * only one of these methods is not enough to advertise conditional writes.
+ */
+export interface ConditionalMemoryStore extends MemoryStore {
+	/** The record and a token covering its complete logical snapshot. */
+	getVersionedRecord(id: MemoryId): Promise<VersionedMemoryRecord | undefined>
+	/** Throw MemoryRevisionConflictError if the record changed or disappeared. */
+	updateIfRevision(
+		id: MemoryId,
+		updates: UpdateMemoryParams,
+		expectedRevision: string,
+	): Promise<MemoryIndexEntry>
+	/** Throw MemoryRevisionConflictError if the record changed or disappeared. */
+	deleteIfRevision(id: MemoryId, expectedRevision: string): Promise<void>
+}
+
+export function hasConditionalMemoryWrites(store: MemoryStore): store is ConditionalMemoryStore {
+	const candidate = store as Partial<ConditionalMemoryStore>
+	return (
+		typeof candidate.getVersionedRecord === 'function' &&
+		typeof candidate.updateIfRevision === 'function' &&
+		typeof candidate.deleteIfRevision === 'function'
+	)
 }
 
 export interface MemoryIndex {

@@ -30,6 +30,37 @@ For a local command, repeat `--env VARIABLE` before `--` to pass only that named
 
 Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
 
+### Test the effective server
+
+Run `namzu mcp test <name>` to check the server a new session would actually use.
+It resolves the selected profile, project and managed overrides, connects only
+that named server, lists its available tools, then closes the connection. It
+makes no model request and does not invoke any server tool. For an HTTP server
+with OAuth, the test reuses a saved grant or tells you to run
+`namzu mcp login <name>`; it never opens an authorization page itself. A stdio
+test starts the configured command. The working directory must already be
+trusted; `--trust` accepts it for this test only, without recording permanent
+trust.
+
+The result reports `connected` or `unavailable`, transport (`stdio` or `http`),
+and `toolCount`: the number of admitted server tools and prompts. It reports
+deferred resource helper definitions separately as `resourceHelperCount`; two
+helpers do not establish that the server published any resources. A connected
+server with zero server tools or prompts succeeds and carries a warning. A
+connection, discovery or configuration failure
+returns a nonzero exit code with a named, bounded reason. `--format json` and
+`--format yaml` expose the same fields. Neither output includes the endpoint URL,
+command arguments, header values, environment values or untrusted server error
+body. A failure that cannot be classified safely asks you to inspect the server
+logs instead of printing its raw error.
+The HTTP 401 hint uses the literal `<name>` placeholder; supply the server
+name as an argument rather than copying a configured name into a shell command.
+
+```sh
+namzu mcp test tickets
+namzu --profile work --format json mcp test tickets --trust
+```
+
 ## One entry
 
 ```json
@@ -58,7 +89,7 @@ Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warnin
 | `env` | stdio | Variables set for the child. Written into the config file, so not for secrets — unless a value is a `${VAR}` reference (below). |
 | `inheritEnv` | stdio | Names of variables copied from the operator's own environment. The child gets process plumbing plus what is named, never the whole environment — a server that needs one token is granted that token, and a reviewer can see which. |
 | `url`, `headers` | HTTP | The server's endpoint and the headers every request carries. Redirects are refused: a credentialed body is never replayed to a location the config did not name. A header value may also be a `${VAR}` reference (below). |
-| `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number; anything else is refused with a reason. |
+| `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number no greater than 2,147,483,647 ms, Node's maximum timer delay; anything else is refused with a reason. |
 | `eraProbeTimeoutMs` | both | How long this server's era probe — see below — waits for an answer, in milliseconds. Defaults to the SDK's own `2000`, clamped to `connectTimeoutMs`. Must be a positive number; anything else is refused with a reason. |
 | `allow`, `deny` | both | Lists of server-reported tool, prompt or resource names, before the `mcp__` prefix. `deny` wins over `allow`; malformed lists fail that server by name. |
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |
@@ -108,7 +139,7 @@ A `${VAR_NAME}` reference to a variable that is not set in the operator's enviro
 
 ## The connect deadline
 
-The default of ten seconds exists for a wedged server: a process that spawns, opens its pipe and never speaks would otherwise hold the whole session open before the first turn, with no error and no failure, just a namzu that does not start. The client's own per-request timeout cannot cover that case.
+The default of ten seconds exists for a wedged server: a process that spawns, opens its pipe and never speaks would otherwise hold the whole session open before the first turn, with no error and no failure, just a namzu that does not start. The client's own per-request timeout cannot cover that case. The deadline covers connection and tool discovery together. If an in-flight handshake or discovery settles after the deadline, the CLI closes its late connection and toolsets instead of leaving an unreported server running.
 
 A server whose first spawn is genuinely slow is a different thing. A Python SDK server cold-boots in fifteen to twenty seconds on some machines, and under that default it is a working server the CLI refuses, so a headless `namzu exec` that depends on it stops before its first model call with `server "name" did not answer within 10000ms`. `connectTimeoutMs` raises the bound for that server alone; the others keep the deadline that protects the session. The value is named in the failure, so a deadline that is still too short says so.
 
@@ -118,7 +149,7 @@ Before it offers the legacy `initialize` handshake, `connect()` asks the server 
 
 ## When a server does not work
 
-Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number. What is done about it differs by surface. A person in the interactive session sees the line and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
+Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number, or a known field such as `args`, `env`, `inheritEnv` or `headers` had the wrong shape. A malformed entry cannot stop a different configured server from connecting or prevent an earlier connection from being closed. What is done about a failure differs by surface. A person in the interactive session sees the line and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot `namzu exec` leaves nothing behind.
 

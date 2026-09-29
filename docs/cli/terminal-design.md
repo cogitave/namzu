@@ -581,6 +581,8 @@ interrupts the current turn and its children.
 
 ## Terminal boundaries
 
+A command entered with `!` runs in the operator's shell. Its captured output reaches the next model request as an observation in user-role context; text printed by that command has no system-prompt authority. The CLI still shows the result in the transcript.
+
 The interface uses the normal terminal buffer so completed output remains in
 native scrollback. Its transcript owner remains mounted through startup and
 provider pickers, with the live rows hidden while a picker owns the screen.

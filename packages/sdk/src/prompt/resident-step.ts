@@ -58,8 +58,8 @@ export interface ResidentStepPromptOptions {
  * contributions. Register them on the registry supplied to `query`.
  *
  * The static contribution carries stable work guidance and the host's output
- * contract. The dynamic contribution captures this invocation's state and
- * approved learning, outside the cached prefix. Both remain present on every
+ * contract. The context contribution captures this invocation's state and
+ * approved learning as request-only user-role context. Both remain present on every
  * iteration; build fresh contributions for the next admitted step.
  *
  * Project instructions and authorization remain on their existing host/runtime
@@ -128,14 +128,14 @@ export function createResidentStepContributions(
 		}),
 		Object.freeze({
 			id: 'namzu.resident-step.continuation',
-			placement: 'dynamic' as const,
+			placement: 'context' as const,
 			render: () => snapshot,
 		}),
 		...(boundNames.length
 			? [
 					Object.freeze({
 						id: 'namzu.resident-step.source-bound-learning',
-						placement: 'turn' as const,
+						placement: 'context' as const,
 						render: () => {
 							let sources: readonly ResidentLearningSource[] = []
 							try {

@@ -74,6 +74,12 @@ const rendered = (bundle: ReturnType<typeof createResidentStepContext>, placemen
 		.map((c) => c.render({ iteration: 1 }))
 		.filter(Boolean)
 		.join('\n')
+const selected = (bundle: ReturnType<typeof createResidentStepContext>) =>
+	bundle.contributions
+		.find((c) => c.id === 'namzu.resident-step.selected-learning')
+		?.render({
+			iteration: 1,
+		}) ?? ''
 
 describe('resident guidance disclosure', () => {
 	it('does not advertise or disclose explorer policies in a task admission', async () => {
@@ -94,34 +100,34 @@ describe('resident guidance disclosure', () => {
 		}
 		input.learning = { ...input.learning, skills: [original, policy] }
 		const bundle = createResidentStepContext(input)
-		expect(rendered(bundle, 'dynamic')).not.toContain(policy.description)
+		expect(rendered(bundle, 'context')).not.toContain(policy.description)
 		const read = await bundle.tools[0]!.execute({ name: policy.name }, context)
 		expect(read.success).toBe(false)
 		expect(read.output).toContain('different-purpose')
 		expect(read.output).not.toContain(policy.body)
-		expect(rendered(bundle, 'turn')).toBe('')
+		expect(selected(bundle)).toBe('')
 		const onlyPolicy = createResidentStepContext({
 			...input,
 			learning: { ...input.learning, skills: [policy] },
 		})
 		expect(onlyPolicy.tools).toEqual([])
-		expect(rendered(onlyPolicy, 'dynamic')).not.toContain(policy.description)
+		expect(rendered(onlyPolicy, 'context')).not.toContain(policy.description)
 	})
 	it('advertises metadata without executing instructions and freezes the admitted content', async () => {
 		const input = options()
 		const body = input.learning.skills[0]!.body
 		const bundle = createResidentStepContext(input)
-		expect(rendered(bundle, 'static') + rendered(bundle, 'dynamic')).not.toContain(body)
-		expect(rendered(bundle, 'dynamic')).toContain(input.learning.skills[0]!.description)
-		expect(rendered(bundle, 'dynamic')).toContain('report-style')
-		expect(rendered(bundle, 'turn')).toBe('')
+		expect(rendered(bundle, 'static') + rendered(bundle, 'context')).not.toContain(body)
+		expect(rendered(bundle, 'context')).toContain(input.learning.skills[0]!.description)
+		expect(rendered(bundle, 'context')).toContain('report-style')
+		expect(selected(bundle)).toBe('')
 		;(input.learning.skills[0] as { body: string }).body = 'CHANGED OUTSIDE ADMISSION'
 		const result = await bundle.tools[0]!.execute({ name: 'checked-identifiers' }, context)
 		expect(result.success).toBe(true)
 		expect(result.output).toContain(body)
-		expect(rendered(bundle, 'turn')).toContain(body)
-		expect(rendered(bundle, 'dynamic')).not.toContain(body)
-		expect(rendered(createResidentStepContext(options()), 'turn')).toBe('')
+		expect(selected(bundle)).toContain(body)
+		expect(rendered(bundle, 'static')).not.toContain(body)
+		expect(selected(createResidentStepContext(options()))).toBe('')
 	})
 	it('rejects foreign turns and unavailable names without selecting or leaking a body', async () => {
 		const bundle = createResidentStepContext(options())
@@ -132,7 +138,7 @@ describe('resident guidance disclosure', () => {
 		expect(denied.success).toBe(false)
 		expect(denied.output).toBe('')
 		expect((await bundle.tools[0]!.execute({ name: 'unknown' }, context)).success).toBe(false)
-		expect(rendered(bundle, 'turn')).toBe('')
+		expect(selected(bundle)).toBe('')
 	})
 	it('checks source bindings at read time and every subsequent request, including changed and missing sources', async () => {
 		const input = options()
@@ -151,14 +157,14 @@ describe('resident guidance disclosure', () => {
 		expect((await read()).success).toBe(false)
 		sources = [{ key: 'host:source', revision: 'v1' }]
 		expect((await read()).success).toBe(true)
-		expect(rendered(bundle, 'turn')).toContain(skill.body)
+		expect(selected(bundle)).toContain(skill.body)
 		sources = [{ key: 'host:source', revision: 'v2' }]
-		expect(rendered(bundle, 'turn')).not.toContain(skill.body)
-		expect(rendered(bundle, 'turn')).toContain('changed-source')
+		expect(selected(bundle)).not.toContain(skill.body)
+		expect(selected(bundle)).toContain('changed-source')
 		expect((await read()).success).toBe(false)
 		sources = []
-		expect(rendered(bundle, 'turn')).toContain('unverified-source')
-		expect(rendered(bundle, 'static') + rendered(bundle, 'dynamic')).not.toContain(skill.body)
+		expect(selected(bundle)).toContain('unverified-source')
+		expect(rendered(bundle, 'static') + rendered(bundle, 'context')).not.toContain(skill.body)
 	})
 	it('does not allow a malformed resolver to replay earlier guidance', async () => {
 		let broken = false
@@ -171,8 +177,8 @@ describe('resident guidance disclosure', () => {
 		expect((await bundle.tools[0]!.execute({ name: 'checked-identifiers' }, context)).success).toBe(
 			false,
 		)
-		expect(rendered(bundle, 'turn')).toContain('unavailable')
-		expect(rendered(bundle, 'turn')).not.toContain(learning().skills[0]!.body)
+		expect(selected(bundle)).toContain('unavailable')
+		expect(selected(bundle)).not.toContain(learning().skills[0]!.body)
 	})
 	it('bounds advertised metadata and never partially injects a selected instruction', async () => {
 		const input = options()
@@ -205,7 +211,7 @@ describe('resident guidance disclosure', () => {
 		const read = await bundle.tools[0]!.execute({ name: 'skill-0' }, context)
 		expect(read.success).toBe(true)
 		expect(read.output).toContain(input.learning.skills[0]!.body)
-		const current = rendered(bundle, 'turn')
+		const current = selected(bundle)
 		expect(current).not.toContain('INSTRUCTION_START')
 		expect(current).toContain('withheld or omitted')
 	})
@@ -217,7 +223,7 @@ describe('resident guidance disclosure', () => {
 				{ ...context, abortSignal: AbortSignal.abort() },
 			),
 		).resolves.toMatchObject({ success: false, output: '' })
-		expect(rendered(bundle, 'turn')).toBe('')
+		expect(selected(bundle)).toBe('')
 		expect(createResidentStepContext({ ...options(), learning: undefined }).tools).toEqual([])
 	})
 })

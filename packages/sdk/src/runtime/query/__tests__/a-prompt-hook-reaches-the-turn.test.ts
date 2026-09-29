@@ -54,13 +54,14 @@ async function run(
 ) {
 	const events: SessionEvent[] = []
 	const sessionId = generateSessionId()
+	const provider = new MockLLMProvider({
+		turns: [
+			{ text: 'the answer', usage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } },
+		],
+	})
 	const result = await drainQuery(
 		{
-			provider: new MockLLMProvider({
-				turns: [
-					{ text: 'the answer', usage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } },
-				],
-			}),
+			provider,
 			toolsets: [],
 			agentId: 'a',
 			agentName: 'A',
@@ -94,7 +95,7 @@ async function run(
 			events.push(event)
 		},
 	)
-	return { result, events, sessionId }
+	return { result, events, sessionId, requests: provider.requests }
 }
 
 const pick = (seen: Seen[], event: PluginHookEvent) => seen.find((s) => s.event === event)?.ctx
@@ -110,14 +111,27 @@ describe('the prompt, before the model sees it', () => {
 		expect(order.indexOf('user_prompt_submit')).toBeLessThan(order.indexOf('turn_start'))
 	})
 
-	it('carries what the hook added into the system prompt', async () => {
+	it('carries hook output as request context without granting system authority', async () => {
 		const seen: Seen[] = []
-		const { events } = await run(seen, {
+		const { events, requests } = await run(seen, {
 			answer: (event) =>
 				event === 'user_prompt_submit' ? [{ action: 'annotate', text: 'branch: feat/x' }] : [],
 		})
 		const started = events.find((e) => e.type === 'turn_started')
-		expect(started?.type === 'turn_started' ? started.systemPrompt : '').toContain('branch: feat/x')
+		expect(started?.type === 'turn_started' ? started.systemPrompt : '').not.toContain(
+			'branch: feat/x',
+		)
+		expect(
+			requests[0]?.messages.some(
+				(message) =>
+					message.role === 'system' && String(message.content).includes('branch: feat/x'),
+			),
+		).toBe(false)
+		expect(
+			requests[0]?.messages.some(
+				(message) => message.role === 'user' && String(message.content).includes('branch: feat/x'),
+			),
+		).toBe(true)
 	})
 
 	it('ends the turn, failed and naming the reason, when the hook refuses the prompt', async () => {

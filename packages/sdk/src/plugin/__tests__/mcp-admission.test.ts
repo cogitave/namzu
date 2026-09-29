@@ -25,6 +25,8 @@ import type { MCPToolDefinition } from '../../types/connector/index.js'
 
 let advertised: MCPToolDefinition[] = []
 let advertisedPrompts: { name: string; description?: string }[] = []
+let scriptedListings: MCPToolDefinition[][] = []
+let listCalls = 0
 let clientCount = 0
 let notificationListeners: Array<(method: string) => void> = []
 
@@ -62,7 +64,8 @@ vi.mock('../../connector/mcp/client.js', () => ({
 			}
 		}
 		async listTools(): Promise<MCPToolDefinition[]> {
-			return advertised
+			listCalls += 1
+			return scriptedListings.shift() ?? advertised
 		}
 		async listPrompts() {
 			return advertisedPrompts
@@ -129,6 +132,8 @@ async function harness(config: Record<string, unknown> = {}): Promise<Harness> {
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), 'namzu-mcp-admit-'))
 	clientCount = 0
+	listCalls = 0
+	scriptedListings = []
 	notificationListeners = []
 	advertised = [tool('read_file'), tool('write_file'), tool('delete_everything')]
 	advertisedPrompts = [{ name: 'safe_prompt' }, { name: 'sneaky_prompt' }]
@@ -222,14 +227,10 @@ describe('a server that changes its tools between connections is reported', () =
 		const h = await harness({ onMCPToolDrift })
 		const first = await h.enable('srv-a')
 
-		// The rug pull: advertise something benign while a host is deciding,
-		// swap it afterwards. A NEW client connects to the SAME server, which
-		// is why the remembered set is keyed by server name — keyed by client
-		// id, as it was, every connection was its own first and this could
-		// never fire.
+		// The rug pull: the same plugin source connects again with new tools.
 		await h.manager.disable(first)
 		advertised = [...advertised, tool('exfiltrate')]
-		await h.enable('srv-b')
+		await h.manager.enable(first)
 
 		expect(onMCPToolDrift).toHaveBeenCalledTimes(1)
 		expect(onMCPToolDrift.mock.calls[0]?.[0]).toMatchObject({
@@ -255,7 +256,7 @@ describe('a server that changes its tools between connections is reported', () =
 			tool('write_file'),
 			tool('delete_everything'),
 		]
-		await h.enable('srv-b')
+		await h.manager.enable(first)
 
 		expect(onMCPToolDrift).toHaveBeenCalledTimes(1)
 		expect(onMCPToolDrift.mock.calls[0]?.[0]).toMatchObject({ drift: { changed: ['read_file'] } })
@@ -267,7 +268,7 @@ describe('a server that changes its tools between connections is reported', () =
 		const first = await h.enable('srv-a')
 
 		await h.manager.disable(first)
-		await h.enable('srv-b')
+		await h.manager.enable(first)
 
 		expect(onMCPToolDrift).not.toHaveBeenCalled()
 	})
@@ -284,8 +285,41 @@ describe('a server that changes its tools between connections is reported', () =
 		// A tool the policy refuses either way. Reporting drift for it would
 		// train a host to ignore the warning that matters.
 		advertised = [...advertised, tool('another_denied_one')]
-		await h.enable('srv-b')
+		await h.manager.enable(first)
 
+		expect(onMCPToolDrift).not.toHaveBeenCalled()
+	})
+
+	it('records the exact listed tools that become callable, using one listing per enable', async () => {
+		const onMCPToolDrift = vi.fn()
+		const h = await harness({ onMCPToolDrift })
+		scriptedListings = [
+			[tool('benign')],
+			[tool('benign'), tool('newly_added')],
+			[tool('benign')],
+			[tool('benign'), tool('newly_added')],
+		]
+		const id = await h.enable('probe')
+		expect(h.registered).toContain('probe__mcp__files__benign')
+		expect(h.registered).not.toContain('probe__mcp__files__newly_added')
+		await h.manager.disable(id)
+		await h.manager.enable(id)
+		expect(h.registered).toContain('probe__mcp__files__newly_added')
+		expect(onMCPToolDrift).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				serverName: 'files',
+				drift: expect.objectContaining({ added: ['newly_added'] }),
+			}),
+		)
+		expect(listCalls).toBe(2)
+	})
+
+	it('keeps two plugins with the same local server name as different drift owners', async () => {
+		const onMCPToolDrift = vi.fn()
+		const h = await harness({ onMCPToolDrift })
+		await h.enable('first')
+		advertised = [...advertised, tool('only_second_has_this')]
+		await h.enable('second')
 		expect(onMCPToolDrift).not.toHaveBeenCalled()
 	})
 })

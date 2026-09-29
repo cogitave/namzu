@@ -1588,6 +1588,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				: {}),
 			tools: toolManager,
 			allowedTools: effectiveAllowedTools,
+			showDeferredToolContext: params.contextLevel !== 'minimal',
 			recorder: ctx.recorder,
 			toolExecutor,
 			guard,
@@ -1829,7 +1830,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					if (annotations.length > 0) {
 						promptContributions.replace({
 							id: 'hooks:user_prompt_submit',
-							placement: 'dynamic',
+							placement: 'context',
 							render: () => `Context from the operator's hooks:\n\n${annotations.join('\n\n')}`,
 						})
 					}

@@ -31,16 +31,38 @@ async function fixture() {
 }
 
 describe('bounded memory recall', () => {
-	it('finds body-only facts without a model search call and preserves upstream guidance', async () => {
+	it('limits automatic recall to recent candidates while leaving older memory searchable', async () => {
+		const store = new InMemoryMemoryStore()
+		let time = 1_000
+		const clock = vi.spyOn(Date, 'now').mockImplementation(() => ++time)
+		try {
+			await store.create({ title: 'Old fact', summary: '', content: 'ambermarker is active' })
+			await store.create({ title: 'New fact', summary: '', content: 'unrelated' })
+			await store.create({ title: 'Newest fact', summary: '', content: 'unrelated' })
+		} finally {
+			clock.mockRestore()
+		}
+		expect(
+			await createMemoryRecallStep({ store, maxScanned: 2 })(context('Tell me about ambermarker')),
+		).toBeUndefined()
+		expect(
+			(await createMemoryRecallStep({ store, maxScanned: 3 })(context('Tell me about ambermarker')))
+				?.context,
+		).toContain('ambermarker is active')
+	})
+
+	it('finds body-only facts in request context while preserving earlier context', async () => {
 		const { recall, entry } = await fixture()
 		const result = await recall({
 			...context(),
-			prepared: { system: 'Keep the answer brief.' },
+			prepared: { system: 'Keep the answer brief.', context: 'Earlier request context.' },
 		})
-		expect(result?.system).toContain('Keep the answer brief.')
-		expect(result?.system).toContain('historical claims')
-		expect(result?.system).toContain('14 hours')
-		expect(result?.system).toContain(entry.id)
+		expect(result?.system).toBeUndefined()
+		expect(result?.context).toContain('Earlier request context.')
+		expect(result?.context).not.toContain('Keep the answer brief.')
+		expect(result?.context).toContain('historical claims')
+		expect(result?.context).toContain('14 hours')
+		expect(result?.context).toContain(entry.id)
 	})
 
 	it('uses the latest operator topic and ignores runtime or project instruction text', async () => {
@@ -57,7 +79,7 @@ describe('bounded memory recall', () => {
 				...current,
 				messages: [...messages, createRuntimeContextMessage('cerulean-cache', 'steering')],
 			}),
-		).toMatchObject({ system: expect.stringContaining('14 hours') })
+		).toMatchObject({ context: expect.stringContaining('14 hours') })
 	})
 
 	it.each(['continue', 'devam kardeşim', ''])(
@@ -72,13 +94,13 @@ describe('bounded memory recall', () => {
 
 	it('refreshes edited records and drops archived or deleted records on the next step', async () => {
 		const { store, entry, recall } = await fixture()
-		expect((await recall(context()))?.system).toContain('14 hours')
+		expect((await recall(context()))?.context).toContain('14 hours')
 		await store.update(entry.id, {
 			content: 'cerulean-cache expires after 28 hours',
 		})
 		const corrected = await recall(context())
-		expect(corrected?.system).toContain('28 hours')
-		expect(corrected?.system).not.toContain('14 hours')
+		expect(corrected?.context).toContain('28 hours')
+		expect(corrected?.context).not.toContain('14 hours')
 		await store.update(entry.id, { status: 'archived' })
 		expect(await recall(context())).toBeUndefined()
 		await store.update(entry.id, { status: 'active' })
@@ -107,11 +129,11 @@ describe('bounded memory recall', () => {
 			maxChars: 1200,
 			maxMemories: 2,
 		})(context())
-		expect(recalled?.system?.length).toBeLessThanOrEqual(1200)
-		const records = recalled?.system?.split('\n').filter((line) => line.startsWith('{')) ?? []
+		expect(recalled?.context?.length).toBeLessThanOrEqual(1200)
+		const records = recalled?.context?.split('\n').filter((line) => line.startsWith('{')) ?? []
 		expect(records.length).toBeLessThanOrEqual(2)
 		for (const line of records) expect(() => JSON.parse(line)).not.toThrow()
-		expect(recalled?.system).not.toContain('<')
+		expect(recalled?.context).not.toContain('<')
 	})
 
 	it('bounds a stalled store and schedules no reads after the deadline', async () => {
@@ -140,7 +162,7 @@ describe('bounded memory recall', () => {
 			content: `${'x'.repeat(50)}😀${'y'.repeat(118)} cerulean ${'z'.repeat(1500)}`,
 		})
 		const result = await createMemoryRecallStep({ store, maxChars: 1200 })(context('cerulean'))
-		const line = result?.system?.split('\n').find((line) => line.startsWith('{'))
+		const line = result?.context?.split('\n').find((line) => line.startsWith('{'))
 		expect(line).toBeDefined()
 		const { excerpt } = JSON.parse(line ?? '{}') as { excerpt: string }
 		expect(excerpt).toContain('cerulean')
@@ -150,7 +172,7 @@ describe('bounded memory recall', () => {
 	it('uses the host baseline when there is no kernel-maintained current user message', async () => {
 		const { store } = await fixture()
 		const recall = createMemoryRecallStep({ store, query: 'cerulean-cache' })
-		expect((await recall({ ...context(), messages: [] }))?.system).toContain('14 hours')
+		expect((await recall({ ...context(), messages: [] }))?.context).toContain('14 hours')
 		expect(
 			await recall({
 				...context('continue'),
@@ -227,15 +249,15 @@ it('does not stack timed-out recalls across hooks sharing a store and reads fres
 	}
 	expect(list).toHaveBeenCalledTimes(1)
 	const unrelated = await fixture()
-	expect((await unrelated.recall(context()))?.system).toContain('14 hours')
+	expect((await unrelated.recall(context()))?.context).toContain('14 hours')
 	release({ entries: [entry], totalCount: 1 })
 	await new Promise((resolve) => setTimeout(resolve, 0))
 	expect(get).not.toHaveBeenCalled()
 	await store.update(entry.id, { content: 'cerulean-cache expires after 28 hours' })
 	list.mockImplementation(original)
 	const fresh = await recall(context())
-	expect(fresh?.system).toContain('28 hours')
-	expect(fresh?.system).not.toContain('14 hours')
+	expect(fresh?.context).toContain('28 hours')
+	expect(fresh?.context).not.toContain('14 hours')
 })
 
 it('holds the admission slot through a stalled record read, including cancellation', async () => {
@@ -261,7 +283,7 @@ it('holds the admission slot through a stalled record read, including cancellati
 	expect(list).toHaveBeenCalledTimes(1)
 	release(record)
 	await new Promise((resolve) => setTimeout(resolve, 0))
-	expect((await createMemoryRecallStep({ store })(context()))?.system).toContain('14 hours')
+	expect((await createMemoryRecallStep({ store })(context()))?.context).toContain('14 hours')
 })
 
 it('releases admission after a rejected store operation', async () => {
@@ -269,7 +291,7 @@ it('releases admission after a rejected store operation', async () => {
 	vi.spyOn(store, 'list').mockRejectedValueOnce(new Error('disk failed'))
 	const recall = createMemoryRecallStep({ store })
 	await expect(recall(context())).rejects.toThrow('disk failed')
-	expect((await recall(context()))?.system).toContain('14 hours')
+	expect((await recall(context()))?.context).toContain('14 hours')
 })
 
 it('rejects unit-only matches when the query names a different technical identifier', async () => {
@@ -281,9 +303,9 @@ it('rejects unit-only matches when the query names a different technical identif
 	})
 	const query = context('What is quartz9 delay in seconds?')
 	expect(await createMemoryRecallStep({ store, identifierGrounding: true })(query)).toBeUndefined()
-	expect((await createMemoryRecallStep({ store })(query))?.system).toContain('19 seconds')
+	expect((await createMemoryRecallStep({ store })(query))?.context).toContain('19 seconds')
 	expect(
-		(await createMemoryRecallStep({ store, identifierGrounding: false })(query))?.system,
+		(await createMemoryRecallStep({ store, identifierGrounding: false })(query))?.context,
 	).toContain('19 seconds')
 })
 
@@ -295,12 +317,14 @@ it('retains body-only identifiers, Unicode normalization and comparison queries'
 		content: 'KOBALT7 timeout is 23 seconds.',
 	})
 	const recall = createMemoryRecallStep({ store, identifierGrounding: true })
-	expect((await recall(context('Compare kobalt7 and quartz9 timeouts.')))?.system).toContain(
+	expect((await recall(context('Compare kobalt7 and quartz9 timeouts.')))?.context).toContain(
 		'23 seconds',
 	)
-	expect((await recall(context('What is ＫＯＢＡＬＴ７ timeout?')))?.system).toContain('23 seconds')
+	expect((await recall(context('What is ＫＯＢＡＬＴ７ timeout?')))?.context).toContain(
+		'23 seconds',
+	)
 	expect(await recall(context('What is kobalt70 timeout?'))).toBeUndefined()
-	expect((await recall(context('What timeout was observed?')))?.system).toContain('23 seconds')
+	expect((await recall(context('What timeout was observed?')))?.context).toContain('23 seconds')
 })
 
 it('applies identifier eligibility before the top-k limit', async () => {
@@ -319,8 +343,8 @@ it('applies identifier eligibility before the top-k limit', async () => {
 	const result = await createMemoryRecallStep({ store, identifierGrounding: true })(
 		context('What is the current configured timeout value for kobalt7 in seconds?'),
 	)
-	expect(result?.system).toContain('23 seconds')
-	expect(result?.system).not.toContain('19 seconds')
+	expect(result?.context).toContain('23 seconds')
+	expect(result?.context).not.toContain('19 seconds')
 })
 
 it('rechecks identifiers even when a custom store ignores the search constraint', async () => {

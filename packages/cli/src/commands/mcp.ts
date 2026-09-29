@@ -1,8 +1,13 @@
 import { loadConfig } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
-import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
-import { clearMcpOAuthCredentials } from '../integrations/mcp/oauth-store.js'
-import { type McpServerSpec, transportFor } from '../integrations/mcp/servers.js'
+import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { clearMcpOAuthCredentials, isSecureMcpOAuthUrl } from '../integrations/mcp/oauth-store.js'
+import {
+	type McpServerSpec,
+	connectDeadlineFor,
+	connectMcpServers,
+	transportFor,
+} from '../integrations/mcp/servers.js'
 import {
 	addUserMcpServer,
 	isUserMcpName,
@@ -10,12 +15,13 @@ import {
 	removeUserMcpServer,
 	summarizeUserMcpServer,
 } from '../integrations/mcp/user-config.js'
+import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { loginMcpServer } from './mcp-oauth-login.js'
-import type { CommandDef } from './types.js'
+import type { CommandContext, CommandDef } from './types.js'
 
 const HELP = [
-	'Usage: namzu mcp <list|get|add|remove|login|logout> [arguments]',
+	'Usage: namzu mcp <list|get|add|remove|test|login|logout> [arguments]',
 	'',
 	'Manage tool servers in your user config (~/.namzu/config.yaml).',
 	'Project and managed config can override these entries.',
@@ -25,16 +31,18 @@ const HELP = [
 	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
+	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
 	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
 	'  namzu mcp logout <name>',
 	'',
 	'Use --format json for structured output. Values of headers, environment',
-	'variables and command arguments are hidden in list/get output.',
+	'variables and command arguments are hidden in list/get/test output.',
 ].join('\n')
 
 type McpAction =
 	| { readonly kind: 'list' }
 	| { readonly kind: 'get' | 'remove'; readonly name: string }
+	| { readonly kind: 'test'; readonly name: string; readonly trust: boolean }
 	| { readonly kind: 'add'; readonly name: string; readonly spec: McpServerSpec }
 	| {
 			readonly kind: 'login'
@@ -55,6 +63,9 @@ export const mcpCommand: CommandDef = {
 		if (action.kind === 'error') {
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
+		}
+		if (action.kind === 'test') {
+			return testMcpServer(action.name, action.trust, ctx)
 		}
 		if (action.kind === 'login' || action.kind === 'logout') {
 			try {
@@ -187,6 +198,180 @@ export const mcpCommand: CommandDef = {
 	},
 }
 
+/** Probe only the named effective server; a test must not start its siblings. */
+async function testMcpServer(
+	name: string,
+	trustFlag: boolean,
+	ctx: CommandContext,
+): Promise<number> {
+	const displayName = oneLine(name)
+	const report = (
+		status: 'connected' | 'unavailable',
+		transport: 'stdio' | 'http' | 'invalid',
+		toolCount: number,
+		reason?: string,
+		warning?: string,
+		resourceHelperCount = 0,
+	): void => {
+		ctx.formatter.print({
+			name: displayName,
+			status,
+			transport,
+			toolCount,
+			...(resourceHelperCount > 0 ? { resourceHelperCount } : {}),
+			...(reason ? { reason } : {}),
+			...(warning ? { warning } : {}),
+			text:
+				status === 'connected'
+					? `${displayName}: connected; ${toolCount} server ${toolCount === 1 ? 'tool or prompt' : 'tools or prompts'}.${resourceHelperCount > 0 ? ` ${resourceHelperCount} resource helpers available.` : ''}${warning ? ` ${warning}` : ''}`
+					: `${displayName}: unavailable; ${reason ?? 'the server did not become ready'}.`,
+		})
+	}
+
+	const trust = decideHeadlessTrust({ cwd: process.cwd(), trustFlag })
+	if (!trust.allowed) {
+		report(
+			'unavailable',
+			'invalid',
+			0,
+			'project is not trusted; open namzu here or pass --trust for this test',
+		)
+		return EXIT_UNTRUSTED
+	}
+	let selected: unknown
+	try {
+		// `mcp list/get` intentionally read the user file for repair. A test
+		// instead checks what a new session would run, including project,
+		// selected-profile and managed overrides.
+		selected = loadConfig({ profile: ctx.selectedProfile, cwd: trust.cwd }).mcpServers?.[name]
+	} catch {
+		report('unavailable', 'invalid', 0, 'effective MCP configuration could not be loaded')
+		return EXIT_BAD_CONFIG
+	}
+	if (selected === undefined) {
+		report('unavailable', 'invalid', 0, 'no server with this name in effective MCP configuration')
+		return EXIT_USAGE
+	}
+	if (typeof selected !== 'object' || selected === null || Array.isArray(selected)) {
+		report('unavailable', 'invalid', 0, 'server specification must be a mapping')
+		return EXIT_BAD_CONFIG
+	}
+	const spec = selected as McpServerSpec
+	const hasCommand = typeof spec.command === 'string' && spec.command.trim().length > 0
+	const hasUrl = typeof spec.url === 'string' && spec.url.trim().length > 0
+	const transport =
+		hasCommand && hasUrl ? 'invalid' : hasCommand ? 'stdio' : hasUrl ? 'http' : 'invalid'
+	let toolCount = 0
+	let resourceHelperCount = 0
+	let reason: string | undefined
+	let warning: string | undefined
+	let connection: Awaited<ReturnType<typeof connectMcpServers>> | undefined
+	try {
+		connection = await connectMcpServers({ [name]: spec }, { cwd: trust.cwd })
+		const current = connection.current()
+		const failed = current.failed.find((server) => server.name === name)
+		if (failed) {
+			reason = safeTestReason(failed.reason, spec)
+		} else {
+			const connected = current.connected.find((server) => server.name === name)
+			// The MCP toolset's first entry contains server tools and prompts;
+			// its second entry contains deferred resource helpers. Counting both
+			// as server tools can turn an empty tools/list and resources/list into
+			// a misleading "2 usable tools" diagnosis.
+			toolCount = connected ? (connection.toolsets[0]?.tools().length ?? 0) : 0
+			resourceHelperCount = connected ? (connection.toolsets[1]?.tools().length ?? 0) : 0
+			if (!connected) reason = 'server did not reach a connected state'
+			else if (toolCount === 0) warning = 'No server tools or prompts were exposed.'
+		}
+	} catch {
+		reason = 'MCP connection or tool discovery failed; inspect the server logs'
+	} finally {
+		try {
+			await connection?.close()
+		} catch {
+			reason = 'MCP connection shutdown failed; inspect the server process'
+		}
+	}
+	report(
+		reason ? 'unavailable' : 'connected',
+		transport,
+		toolCount,
+		reason,
+		warning,
+		resourceHelperCount,
+	)
+	return reason ? EXIT_FAIL : EXIT_OK
+}
+
+/** Never print a transport's raw error: it can contain URLs, credentials or server stderr. */
+export function safeTestReason(reason: string, spec: McpServerSpec): string {
+	if (reason === 'server spec must be a mapping') return reason
+	if (reason.startsWith('it declares both a command and a url')) {
+		return 'server declares both a command and a URL; choose one'
+	}
+	if (reason.startsWith('it declares neither a command nor a url')) {
+		return 'server declares neither a command nor a URL'
+	}
+	const badShape = /^(command|url|cwd|args|inheritEnv|env|headers) must be\b/.exec(reason)
+	if (badShape) return `invalid ${badShape[1]} setting`
+	const unsetVariable = /^references \$\{([A-Za-z_][A-Za-z0-9_]*)\}, which is not set/.exec(reason)
+	if (unsetVariable) return `environment variable ${unsetVariable[1]} is not set`
+	for (const field of [
+		'connectTimeoutMs',
+		'eraProbeTimeoutMs',
+		'allow',
+		'deny',
+		'maxRetries',
+		'requireApproval',
+		'readOnlyHintTrusted',
+		'instructions',
+	]) {
+		if (reason.startsWith(`${field} `)) return `invalid ${field} setting`
+	}
+	if (/HTTP 401\b|authorization required|authentication required/i.test(reason)) {
+		const hasAuthorizationHeader = Object.keys(spec.headers ?? {}).some(
+			(key) => key.toLowerCase() === 'authorization',
+		)
+		return hasAuthorizationHeader
+			? 'HTTP 401: check the configured Authorization header'
+			: canSignInToMcpUrl(spec.url)
+				? 'HTTP 401: sign in to this server with namzu mcp login <name>'
+				: 'HTTP 401: OAuth sign-in requires HTTPS or a loopback endpoint'
+	}
+	if (/HTTP 403\b/i.test(reason))
+		return 'HTTP 403: server refused access; check account permissions'
+	if (/HTTP 404\b/i.test(reason)) return 'HTTP 404: check the configured MCP endpoint'
+	const httpStatus = /HTTP ([45]\d\d)\b/i.exec(reason)
+	if (httpStatus) return `HTTP ${httpStatus[1]}: server rejected the request`
+	if (/did not answer within|timed out|timeout/i.test(reason)) {
+		const deadline = connectDeadlineFor(spec)
+		return typeof deadline === 'number'
+			? `connection or tool discovery timed out after ${deadline}ms; check server logs`
+			: 'connection or tool discovery timed out; check connectTimeoutMs and server logs'
+	}
+	if (/\bENOENT\b/i.test(reason)) return 'server command could not be found'
+	if (/\bEACCES\b|\bEPERM\b/i.test(reason)) return 'server command could not be executed'
+	if (/StdioTransport: not connected or stdin not writable/i.test(reason)) {
+		return 'stdio server did not start or closed before the handshake; check command, cwd and server logs'
+	}
+	if (/\bECONNREFUSED\b/i.test(reason)) return 'connection refused by the server'
+	if (/\bENOTFOUND\b|\bEAI_AGAIN\b/i.test(reason)) return 'server hostname could not be resolved'
+	if (/certificate|\bTLS\b/i.test(reason)) return 'TLS certificate validation failed'
+	if (/tools\/list|discovering its tools/i.test(reason)) {
+		return 'server connected but tool discovery failed; inspect the server logs'
+	}
+	return 'MCP connection or tool discovery failed; inspect the server logs'
+}
+
+function canSignInToMcpUrl(raw: string | undefined): boolean {
+	if (!raw) return false
+	try {
+		return isSecureMcpOAuthUrl(new URL(raw))
+	} catch {
+		return false
+	}
+}
+
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
@@ -218,11 +403,18 @@ function parseMcpAction(args: readonly string[]): McpAction {
 	if ((verb === 'get' || verb === 'remove') && args.length === 2 && name !== undefined) {
 		return { kind: verb, name }
 	}
+	if (
+		verb === 'test' &&
+		name &&
+		(args.length === 2 || (args.length === 3 && args[2] === '--trust'))
+	) {
+		return { kind: 'test', name, trust: args[2] === '--trust' }
+	}
 	if (verb !== 'add' || !name || !isUserMcpName(name)) {
 		return {
 			kind: 'error',
 			message:
-				'Usage: namzu mcp <list|get|add|remove|login|logout>; new server names must start with a letter and use only letters, digits, _ or -.',
+				'Usage: namzu mcp <list|get|add|remove|test|login|logout>; new server names must start with a letter and use only letters, digits, _ or -.',
 		}
 	}
 	let url: string | undefined

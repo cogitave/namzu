@@ -57,6 +57,11 @@ async function driveAgent(turns: unknown[]): Promise<Turn> {
 		availability: vi.fn(() => 'active'),
 		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		toLLMTools: vi.fn(() => []),
+		snapshotUntrustedDeferredContext: vi.fn(() => ({
+			all: '',
+			maxRenderedChars: 0,
+			forNames: () => '',
+		})),
 		register: vi.fn(),
 		unregister: vi.fn(),
 	} as unknown as ToolManager

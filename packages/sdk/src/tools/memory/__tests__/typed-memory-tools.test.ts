@@ -136,9 +136,9 @@ describe('typed memory through the model tools', () => {
 			steps: [],
 			prepared: {},
 		})
-		expect(recall?.system).toContain('"age":"20 days old"')
-		expect(recall?.system).toContain('"name":"retry-helper"')
-		expect(recall?.system).toContain('Verify it against the current code')
+		expect(recall?.context).toContain('"age":"20 days old"')
+		expect(recall?.context).toContain('"name":"retry-helper"')
+		expect(recall?.context).toContain('Verify it against the current code')
 	})
 
 	it('adds no verification notice to recall of a fresh memory', async () => {
@@ -156,9 +156,9 @@ describe('typed memory through the model tools', () => {
 			steps: [],
 			prepared: {},
 		})
-		expect(recall?.system).toContain('14 hours')
-		expect(recall?.system).not.toContain('"age"')
-		expect(recall?.system).not.toContain('point-in-time')
+		expect(recall?.context).toContain('14 hours')
+		expect(recall?.context).not.toContain('"age"')
+		expect(recall?.context).not.toContain('point-in-time')
 	})
 
 	it('updates a memory by the name the index shows, as well as by id', async () => {

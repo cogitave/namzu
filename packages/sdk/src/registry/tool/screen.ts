@@ -83,7 +83,13 @@ export async function screenToolResult(
 ): Promise<ToolResult> {
 	if (!guardrails || guardrails.length === 0) return result
 
-	let current = result.output
+	// Failed tools are rendered from BOTH output and error. Screen the same
+	// text the executor would show, including an error-only failure.
+	let current = result.success
+		? result.output
+		: result.output.trim()
+			? `${result.output}\n\nError: ${result.error ?? 'Tool execution failed'}`
+			: `Error: ${result.error ?? 'Tool execution failed'}`
 	let rewritten = false
 
 	for (const [index, spec] of guardrails.entries()) {
@@ -128,5 +134,31 @@ export async function screenToolResult(
 		}
 	}
 
-	return rewritten ? { ...result, output: current } : result
+	// `content` wins over `output` on the model wire. A rewrite that leaves
+	// original content blocks in place would expose the text it just redacted.
+	// Rich blocks cannot be screened through the text-only verdict either, so
+	// a rewrite replaces the complete model-visible content with its text.
+	if (rewritten && !result.success) {
+		// Reconstruct the failure fields when the rewrite kept the normal
+		// formatting. Keeping the whole formatted text in `error` would make
+		// the executor add a second `Error:` prefix to the visible result.
+		const marker = '\n\nError: '
+		const lastMarker = current.lastIndexOf(marker)
+		const output = lastMarker >= 0 ? current.slice(0, lastMarker) : ''
+		const error =
+			lastMarker >= 0
+				? current.slice(lastMarker + marker.length)
+				: current.startsWith('Error: ')
+					? current.slice('Error: '.length)
+					: current
+		const visible = output.trim() ? `${output}\n\nError: ${error}` : `Error: ${error}`
+		return { ...result, output, error, content: visible }
+	}
+	return rewritten
+		? {
+				...result,
+				output: current,
+				content: current,
+			}
+		: result
 }

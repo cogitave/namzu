@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -30,6 +31,11 @@ export default defineConfig({
 	test: {
 		// Keeps the kernel's default state root out of the user's home.
 		globalSetup: ['../../tools/vitest-state-root.mjs'],
+		// The fake API and short-deadline suites use real event-loop timers.
+		// Dozens of workers on a many-core host can starve them long enough to
+		// fail valid lifecycle assertions. Keep useful parallelism without that
+		// unrelated scheduling pressure.
+		maxWorkers: Math.min(4, availableParallelism()),
 		exclude: ['**/node_modules/**', '**/dist/**', '**/*.smoke.test.ts'],
 	},
 })

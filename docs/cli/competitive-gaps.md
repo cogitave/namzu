@@ -161,6 +161,42 @@ and a distribution feature needs an explicit trust, update and permission
 contract. This audit did not establish a comparable user need or an
 acceptance test for those additions.
 
+## MCP, plugins and memory: 2026-09-29
+
+This pass inspected the [Pydantic AI checkout at
+`65a8efe7`](https://github.com/pydantic/pydantic-ai/tree/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c)
+and Namzu's current CLI and SDK source. The two applications have different
+hosts and storage ownership; the comparison is about observable contracts.
+
+| Area | What Namzu already gets right | Remaining acceptance boundary |
+| --- | --- | --- |
+| Session data | One hash-chained session log is the source of truth; the SQLite search index is rebuildable. Current-conversation `search_conversation` reads retained evidence with ownership checks and cursors. | Project-wide search is not exposed to a model or operator. If added, results need project and writer scope, session/turn/time provenance, bounded pages, a stale-index marker, and no implied authority to replay an old action. The [existing index search](../../packages/sdk/src/store/session-index/index.ts) is a starting primitive, not that feature. |
+| Stored memory | Project memory is separate from the session log, with explicit memory tools and bounded automatic recall admission. Built-in stores support optional record-revision checks so a stale update can be refused. SDK `search_memory` now caps each candidate page at 256 and reports incomplete pages with a continuation offset; the disk store selects before opening bodies. | The [earlier measured scan](../sdk/memory-research.md) read 500 bodies for one result because `limit` alone capped output. The new candidate cap bounds that count per tool call, but it is not a byte budget: disk records may be large, and the CLI's Markdown store loads every file to validate integrity before searching. Pydantic Harness [bounds files and characters and reports truncation](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_ai_harness/pydantic_ai_harness/memory/_store.py#L762). A byte-bound, crash-recoverable index remains the next storage design task. |
+| MCP connection diagnosis | Namzu's MCP toolset handles live catalogue changes, progress, prompts and resources. `namzu mcp test <name>` now probes the effective config for one server and counts usable tools without starting its siblings. | Pydantic CLI exposes per-server [start, restart, status, tools and logs](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/mcp/_command.py#L18). A future interactive repair flow should show the same effective source, failure phase and redacted stderr, and must never turn a project server on before trust admission. A successful protocol handshake with zero usable tools must remain visible as such. |
+| Loading capabilities | Deferred toolsets let the model discover selected tools, and plugins can contribute tools, hooks, skills and MCP servers behind explicit CLI enablement. | This is narrower than Pydantic AI's [on-demand capability](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/docs/capabilities/on-demand.md#L92), which gates a bundle's instructions, hooks, tools and settings under a stable ID and reconstructs loaded state on resume. Prototype a bundle only with explicit permission and lifecycle ownership, durable loaded IDs, provider-wire tests and measured prompt savings; an extra model round trip can cost more than the hidden schemas save. |
+
+Pydantic Harness [places stored memory in a user request
+part](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py#L225)
+while its static memory guidance remains instructions. Namzu must preserve the
+same trust boundary: model-authored memory text is evidence for the next request,
+not operator policy. CLI provider-wire regressions now verify this role on
+ordinary and resident turns, paused-turn resume, and a turn after actual
+compaction. This boundary is more urgent than changing the store format.
+
+Local plugin installation and reload are still manual. Pydantic CLAI2
+[discovers single-file plugins and rebuilds their hosts on reload](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/plugin_loader.py#L161),
+and its [CLI accepts `/plugins add` and `/plugins reload`
+without a restart](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/docs/harness/clai2.md#L467).
+Namzu requires a manifest directory and a restart after changing installed
+plugin files. This is a real CLI usability gap, separate from SDK capability
+composition and MCP server setup. A plugin CLI design should start with an
+explicit local path, show the manifest
+and source scope, pin the content reviewed by the operator, and make disable or
+remove reversible. Marketplace discovery is a separate distribution decision.
+For protocol task support, first prove cancellation, reconnect and result
+recovery against a server fixture; plain `tools/call` does not supply that
+lifecycle by itself.
+
 ## Scheduled tasks
 
 Reviewed on 2026-09-23 against Hermes Agent commit

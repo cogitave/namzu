@@ -6546,6 +6546,7 @@ export function App({
 					// Keep these notices pending until a completed send commits them.
 					// An early throw or abort never proves the model received context.
 					idleNoticeSnapshot = snapshotIdleJobNotices()
+					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -6566,7 +6567,12 @@ export function App({
 						...(turnHypermode ? { hypermode: true } : {}),
 						// Read at every iteration, so an after-turn trigger a steer
 						// binds to this turn is said from the next one on.
-						hostContext: () => st.contextTexts ?? [],
+						hostContext: () =>
+							[
+								...(st.contextTexts ?? []),
+								idleNoticeSnapshot.text,
+								operatorShellSnapshot,
+							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
@@ -6582,10 +6588,7 @@ export function App({
 								notices.pending.delete(id)
 							}
 						},
-						extraSystem:
-							[composeSkillsPrompt(activeSkills), idleNoticeSnapshot.text, drainOperatorShell()]
-								.filter((part): part is string => Boolean(part))
-								.join('\n\n') || undefined,
+						extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 						onConversationMessages: (messages) => {
 							// State-only: opaque reasoning/signatures must reach the next
 							// provider and durable store without becoming transcript text.

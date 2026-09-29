@@ -736,10 +736,11 @@ export interface SendOptions {
 	 */
 	readonly onPermission?: PermissionFn
 	/**
-	 * Extra system context to inject for this turn (e.g. active skills),
-	 * merged after the persistent memory block.
+	 * Extra system context to inject for this turn (e.g. active skills).
 	 */
 	readonly extraSystem?: string
+	/** Request-only user-role context for this send; absent from durable history. */
+	readonly extraContext?: string
 	/**
 	 * A standing note for this turn's system prompt, after `extraSystem`: what
 	 * a host needs the model to know about the circumstances of the turn (a
@@ -1881,6 +1882,22 @@ export interface AgentSessionOptions {
 	readonly openUrl?: boolean
 }
 
+function clipRequestContext(
+	prompt: string,
+	limit: number,
+	kind: 'memory' | 'context',
+): string | null {
+	if (!Number.isFinite(limit) || prompt.length <= limit) return prompt
+	const notice = `\n[Further ${kind} text omitted for this request.]`
+	if (limit < notice.length + 64) return null
+	let end = Math.floor(limit) - notice.length
+	// Do not leave half of a Unicode supplementary character at the boundary.
+	if (end > 0 && /[\uD800-\uDBFF]/.test(prompt[end - 1] ?? '')) end--
+	const lineEnd = prompt.lastIndexOf('\n', end)
+	if (lineEnd > end / 2) end = lineEnd
+	return prompt.slice(0, end).trimEnd() + notice
+}
+
 export async function createAgentSession(
 	prefs: Preferences,
 	detected: readonly DetectedProvider[],
@@ -2432,6 +2449,61 @@ export async function createAgentSession(
 			}
 		}
 	}
+	// File-backed memory and the stored index can contain text written by a
+	// model or its tools. Admit their bounded snapshot after optional recalls
+	// and model selection, without copying it into history.
+	const memoryContextSteps = (
+		filePrompt: string | null,
+		storedPrompt: string | null,
+	): PrepareStep[] =>
+		filePrompt || storedPrompt
+			? [
+					({ prepared, contextBudget }) => {
+						// One character per remaining token is conservative relative to the
+						// kernel's estimate and leaves room for response and later recall.
+						const budget = contextBudget
+							? Math.max(0, Math.floor(contextBudget.remainingTokens) - 100)
+							: Number.POSITIVE_INFINITY
+						let fileLimit = filePrompt
+							? Math.max(
+									0,
+									Math.min(filePrompt.length, storedPrompt ? Math.floor((budget - 2) / 2) : budget),
+								)
+							: 0
+						const storedLimit = storedPrompt
+							? Math.max(
+									0,
+									Math.min(storedPrompt.length, budget - fileLimit - (filePrompt ? 2 : 0)),
+								)
+							: 0
+						if (filePrompt && storedPrompt)
+							fileLimit = Math.max(0, Math.min(filePrompt.length, budget - storedLimit - 2))
+						const block = [
+							filePrompt ? clipRequestContext(filePrompt, fileLimit, 'memory') : null,
+							storedPrompt ? clipRequestContext(storedPrompt, storedLimit, 'memory') : null,
+						]
+							.filter(Boolean)
+							.join('\n\n')
+						return block
+							? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
+							: undefined
+					},
+				]
+			: []
+	const extraContextSteps = (prompt: string | undefined): PrepareStep[] =>
+		prompt
+			? [
+					({ prepared, contextBudget }) => {
+						const limit = contextBudget
+							? Math.max(0, Math.floor(contextBudget.remainingTokens) - 100)
+							: Number.POSITIVE_INFINITY
+						const block = clipRequestContext(prompt, limit, 'context')
+						return block
+							? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
+							: undefined
+					},
+				]
+			: []
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
 	// SDK's computer_use definition, so even an installed, healthy package was
@@ -3467,10 +3539,7 @@ export async function createAgentSession(
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
 			const storedMemory = await storedMemoryPrompt()
 			if (storedMemory.notice) cliLogger().warn(storedMemory.notice)
-			const memoryPrompt =
-				[composeMemoryPrompt(curatedMemory), storedMemory.prompt]
-					.filter((part): part is string => Boolean(part))
-					.join('\n\n') || null
+			const curatedMemoryPrompt = composeMemoryPrompt(curatedMemory)
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
@@ -3485,7 +3554,6 @@ export async function createAgentSession(
 					NAMZU_DELEGATION_DOCTRINE,
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
-					memoryPrompt,
 					systemNote,
 					turnSkills.overflowNote,
 				]
@@ -3598,6 +3666,7 @@ export async function createAgentSession(
 								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
 						...evidenceRecallFor(entry.sessionId),
+						...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 					],
 					...(options.compaction?.consolidate
 						? { consolidateInto: memoryStore }
@@ -4050,10 +4119,7 @@ export async function createAgentSession(
 								shed: false,
 							}
 						}
-						const memoryPrompt =
-							[composeMemoryPrompt(curatedMemory), storedMemory.prompt]
-								.filter((part): part is string => Boolean(part))
-								.join('\n\n') || null
+						const curatedMemoryPrompt = composeMemoryPrompt(curatedMemory)
 						currentOnQuestion = opts?.onQuestion
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
@@ -4158,7 +4224,7 @@ export async function createAgentSession(
 							for (const contribution of bundle.contributions)
 								promptContributions.register(contribution)
 							// These are invocation snapshots, not the stable working policy.
-							const invocationContext = [environmentPrompt, memoryPrompt, opts?.extraSystem]
+							const invocationContext = [environmentPrompt, opts?.extraSystem]
 								.filter((text): text is string => Boolean(text))
 								.join('\n\n')
 							promptContributions.register({
@@ -4188,7 +4254,6 @@ export async function createAgentSession(
 									? NAMZU_PLAN_MODE_DOCTRINE
 									: undefined,
 								residentContext ? undefined : environmentPrompt,
-								residentContext ? undefined : memoryPrompt,
 								residentContext ? undefined : opts?.extraSystem,
 								residentContext ? undefined : opts?.systemNote,
 								turnSkills.overflowNote,
@@ -4294,6 +4359,9 @@ export async function createAgentSession(
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
 									...savedAgentsSteps(turnScope.sessionId),
+									// A host-supplied resident step may select the request model.
+									// Run it before every budgeted recall and memory admission.
+									...(options.residentEvidenceRecall ? [options.residentEvidenceRecall] : []),
 									...(options.memory?.recall === false
 										? []
 										: [
@@ -4305,7 +4373,8 @@ export async function createAgentSession(
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
 									...evidenceRecallFor(turnScope.sessionId),
-									...(options.residentEvidenceRecall ? [options.residentEvidenceRecall] : []),
+									...extraContextSteps(opts?.extraContext),
+									...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 								],
 								taskStore: turnTaskStore,
 								systemPrompt,

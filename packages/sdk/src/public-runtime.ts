@@ -506,6 +506,7 @@ export {
 	MEMORY_VERIFY_NOTICE,
 	MemoryContentRejectedError,
 	MemoryNameConflictError,
+	MemoryRevisionConflictError,
 	describeMemoryAge,
 	isMemoryName,
 	memoryIndexLine,
@@ -1143,6 +1144,7 @@ export {
 	MEMORY_TYPES,
 	assertMemoryStatus,
 	assertMemoryType,
+	hasConditionalMemoryWrites,
 	isMemoryType,
 } from './types/memory/index.js'
 export {

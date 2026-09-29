@@ -515,6 +515,30 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		expect(m.toPromptSection()).toContain('Use search_tools to load these before use:')
 	})
 
+	it('snapshots bounded MCP hints and filters the same candidates for a step', () => {
+		const remoteTools = Array.from({ length: 60 }, (_, index) =>
+			makeTool(`remote_${index}`, {
+				description: `Server hint ${index} ${'x'.repeat(90)}`,
+			}),
+		)
+		const m = manager([
+			deferred(toolset({ id: 'mcp:test', kind: 'mcp_server', name: 'test' }, remoteTools)),
+		])
+		const snapshot = m.snapshotUntrustedDeferredContext()
+		expect(snapshot.all).toContain('remote_0')
+		expect(snapshot.all).not.toContain('remote_59')
+		expect(snapshot.all.length).toBeLessThan(4_500)
+		expect(snapshot.maxRenderedChars).toBeGreaterThanOrEqual(snapshot.all.length)
+		const selected = snapshot.forNames(['remote_1'])
+		expect(selected).toContain('remote_1')
+		expect(selected).not.toContain('remote_0')
+		expect(selected.length).toBeLessThan(snapshot.all.length)
+		expect(snapshot.forNames(['remote_59'])).toContain('remote_59')
+		expect(snapshot.forNames(['remote_59']).length).toBeLessThanOrEqual(snapshot.maxRenderedChars)
+		expect(snapshot.forNames([])).toBe('')
+		expect(m.toPromptSection()).toContain('- remote_59')
+	})
+
 	it('toTierGuidance renders via the configured template, null without one', () => {
 		const withoutTiers = manager([toolset('a', [makeTool('t')])])
 		expect(withoutTiers.toTierGuidance()).toBeNull()
@@ -965,6 +989,27 @@ describe('ToolManager — result screening (resultGuardrails)', () => {
 		const result = await m.execute('lookup', {}, makeContext())
 		expect(result.output).toBe('[redacted] and [redacted]')
 		expect(result.success).toBe(true)
+	})
+
+	it('a rewrite replaces separate model-visible content blocks too', async () => {
+		const tool = makeTool('lookup', {
+			async execute() {
+				return {
+					success: true,
+					output: 'secret and token',
+					content: [
+						{ type: 'text' as const, text: 'secret and token' },
+						{ type: 'text' as const, text: 'secret copied into another block' },
+					],
+				}
+			},
+		})
+		const m = manager([toolset('a', [tool])], {
+			resultGuardrails: [() => ({ action: 'rewrite' as const, output: '[redacted]' })],
+		})
+		const result = await m.execute('lookup', {}, makeContext())
+		expect(result.output).toBe('[redacted]')
+		expect(result.content).toBe('[redacted]')
 	})
 
 	it('a screen that throws fails closed — refusing rather than halting, because one broken screen is not a lost run', async () => {

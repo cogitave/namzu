@@ -26,6 +26,56 @@ export function matchesMemoryIdentifier(text: string, identifiers: ReadonlySet<s
 	return false
 }
 
+interface MemoryScanSelection {
+	readonly entries: readonly MemoryIndexEntry[]
+	readonly truncated: boolean
+	readonly scannedCount: number
+	readonly nextScanOffset?: number
+}
+
+/** Select a bounded, resumable snapshot of indexed candidates before reading any bodies. */
+export function selectMemorySearchCandidates(
+	entries: readonly MemoryIndexEntry[],
+	params: MemorySearchParams,
+): MemoryScanSelection {
+	if (
+		params.maxScanned !== undefined &&
+		(!Number.isSafeInteger(params.maxScanned) || params.maxScanned < 1)
+	) {
+		throw new RangeError('maxScanned must be a positive safe integer')
+	}
+	if (
+		params.scanOffset !== undefined &&
+		(!Number.isSafeInteger(params.scanOffset) || params.scanOffset < 0)
+	) {
+		throw new RangeError('scanOffset must be a nonnegative safe integer')
+	}
+	const query = terms(params.query ?? '')
+	if (params.query?.trim() && query.size === 0)
+		return { entries: [], truncated: false, scannedCount: 0 }
+	const bodySearch =
+		query.size > 0 ||
+		Boolean(params.requiredIdentifiers?.length) ||
+		params.maxScanned !== undefined ||
+		params.scanOffset !== undefined
+	if (!bodySearch) return { entries, truncated: false, scannedCount: 0 }
+	const ordered = [...entries].sort(
+		(a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+	)
+	const start = params.scanOffset ?? 0
+	const selected = ordered.slice(
+		start,
+		params.maxScanned === undefined ? undefined : start + params.maxScanned,
+	)
+	const next = start + selected.length
+	return {
+		entries: selected,
+		truncated: next < ordered.length,
+		scannedCount: selected.length,
+		...(next < ordered.length ? { nextScanOffset: next } : {}),
+	}
+}
+
 /** Shared lexical ranking; a caller-owned index can omit body content. */
 export function searchMemoryEntries(
 	entries: readonly MemoryIndexEntry[],
@@ -36,13 +86,13 @@ export function searchMemoryEntries(
 	const identifiers = new Set(
 		params.requiredIdentifiers?.map((id) => id.normalize('NFKC').toLowerCase()),
 	)
-	if (params.query?.trim() && query.size === 0) return { entries: [], totalCount: 0 }
-	const ranked = entries
-		.filter(
-			(entry) =>
-				(!params.status || entry.status === params.status) &&
-				(!params.tags?.length || params.tags.every((tag) => entry.tags.includes(tag))),
-		)
+	const candidates = entries.filter(
+		(entry) =>
+			(!params.status || entry.status === params.status) &&
+			(!params.tags?.length || params.tags.every((tag) => entry.tags.includes(tag))),
+	)
+	const selection = selectMemorySearchCandidates(candidates, params)
+	const ranked = selection.entries
 		.filter(
 			(entry) =>
 				!identifiers.size ||
@@ -79,6 +129,15 @@ export function searchMemoryEntries(
 	return {
 		entries: ranked.slice(0, params.limit ?? ranked.length).map(({ entry }) => entry),
 		totalCount: ranked.length,
+		...(params.maxScanned !== undefined || params.scanOffset !== undefined
+			? {
+					truncated: selection.truncated,
+					scannedCount: selection.scannedCount,
+					...(selection.nextScanOffset !== undefined
+						? { nextScanOffset: selection.nextScanOffset }
+						: {}),
+				}
+			: {}),
 	}
 }
 

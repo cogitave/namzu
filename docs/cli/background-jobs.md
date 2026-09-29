@@ -22,16 +22,18 @@ While a shell job runs, a line below the composer footer shows the number of run
 
 The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary into the transcript when that is more useful than opening the view.
 
+An exit that arrives while no model turn is open appears in the transcript and is included in the next request as an observation. Its command and status are request context, not system instructions. Once the kernel acknowledges an exit, the CLI does not announce it again.
+
 # Waiting for one
 
-`wait_for_job` blocks inside one tool call until a job ends, and returns its accumulated output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.
+`wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.
 
 The wait is bounded two ways, and either one gives up **without stopping the job**:
 
 - a total bound (`timeout_ms`, default 5 minutes, capped at 1 hour) that counts elapsed time and is never refreshed;
 - an idle bound (`idle_timeout_ms`, default 2 minutes) that counts time since the job's output last grew, and resets on every new byte — a job that is still producing output is never cut off for being slow, only for going quiet.
 
-Either timeout is reported as a normal result naming which clock ran out, with the output read so far and a `next_offset` to resume from — the model can call `wait_for_job` again, or fall back to `job read`. The defaults come from `NAMZU_JOB_WAIT_TIMEOUT_MS` / `NAMZU_JOB_WAIT_IDLE_MS`, with `NAMZU_JOB_WAIT_MAX_MS` as the ceiling either call may request.
+Either timeout is a successful observation, with `data.timedOut` naming `idle` or `wall`; it does not mean the job failed. The result includes the output read so far and an absolute UTF-8 byte `next_offset`. Pass that value as `from_offset` to the next `wait_for_job`, or to `job read`, to receive only later bytes. The waiter keeps at most the last 32 KiB of output in a result and names any earlier bytes it omitted. It separately names bytes the job registry has already dropped from its retained output. A cursor after omitted bytes remains usable for later output; the notice makes the gap explicit. The defaults come from `NAMZU_JOB_WAIT_TIMEOUT_MS` / `NAMZU_JOB_WAIT_IDLE_MS`, with `NAMZU_JOB_WAIT_MAX_MS` as the ceiling either call may request.
 
 # Permissions
 

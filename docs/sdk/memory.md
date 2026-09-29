@@ -35,11 +35,56 @@ project's state directory, so separate sessions in that project share records.
 | Operation | Result |
 | --- | --- |
 | `create(params)` | New active record, returning index entry and content with an opaque memory UUID. |
-| `list(params?)` | Matching index entries and `totalCount` before the result limit. |
+| `list(params?)` | Matching index entries and `totalCount` before the result limit. With `maxScanned`, `totalCount` covers only the scanned candidate page when `truncated` is true; `nextScanOffset` continues from that page. |
 | `get(id)` | Full content, format and optional metadata, or `undefined`. |
 | `getRecord?(id)` | Current `{ entry, content }` snapshot, or `undefined`. |
 | `update(id, updates)` | Updated index entry, or `undefined` when absent. |
 | `delete(id)` | Whether the record existed and was removed. |
+
+### Conditional updates and deletion
+
+The built-in stores also implement `ConditionalMemoryStore`. Its
+`getVersionedRecord(id)` returns `{ entry, content, revision }`, where `revision`
+is an opaque token for the complete logical record, including body and metadata.
+Pass that token to `updateIfRevision(id, updates, revision)` or
+`deleteIfRevision(id, revision)`. If the record changed or disappeared, either
+method throws `MemoryRevisionConflictError` without applying that change. Read
+the record again before retrying. The token is derived from the record, not
+stored in its file, so existing JSON indexes and Markdown frontmatter need no
+migration. It detects content edits even when `updatedAt` stays the same or two
+writes happen in one millisecond. Do not interpret or persist the token as a
+timestamp or monotonically increasing number.
+
+The in-memory store fingerprints structured-clone snapshots, including BigInt,
+Map, Set, Date, typed arrays and cyclic metadata. A view's revision includes
+its entire accessible backing buffer, not just its visible slice. A view backed
+by `SharedArrayBuffer` or a resizable `ArrayBuffer` cannot receive a stable
+synchronous revision and is refused for conditional writes. Direct resizable
+`ArrayBuffer` metadata includes its resize attributes in the revision. If a legacy in-memory record
+contains metadata whose full value cannot be fingerprinted synchronously (for
+example a Blob), `getVersionedRecord` refuses to issue a token. `read_memory`
+still returns that record without a revision; a conditional update cannot be
+claimed for it. Remove that metadata or use an unconditional correction before
+requesting another revision. Values that cannot be structured-cloned, such as
+functions, already cannot be returned by `getRecord`.
+
+`MemoryStore.update` and `MemoryStore.delete` retain their existing behavior for
+callers that do not supply a revision: the last accepted write wins. The
+conditional check and mutation share each built-in store's coordination
+boundary. Disk and Markdown stores use their directory operation lock across
+cooperating Namzu processes; the in-memory store completes the check and change
+in one synchronous operation turn. A separate editor that changes a Markdown
+file while a store operation holds that lock does not participate in it.
+
+Custom stores may opt in by implementing all three conditional methods and
+their atomic check-and-change semantics. `hasConditionalMemoryWrites(store)`
+checks that the methods are present; it cannot verify a custom store's
+coordination. Memory tools refuse a supplied revision on stores without the
+full interface instead of falling back to an unconditional write. On a capable
+store, `read_memory` returns the token in `data.revision` and a separate
+model-visible text block; `update_memory` and `delete_memory` accept optional
+`revision` and report `revision_conflict` when it is stale. A JSON memory body
+remains unchanged and parseable in `read_memory.output`.
 
 ### Typed fields
 
@@ -70,7 +115,7 @@ explicit inspection, and setting `status: 'active'` reactivates it. Direct store
 an archived record. Deletion removes the store record, not earlier transcripts
 or copies made by callers.
 
-Both shipped stores implement optional `getRecord`. They read metadata and body
+All three built-in stores implement optional `getRecord`. They read metadata and body
 together at one operation boundary and return a defensive copy. This lets a
 caller recheck the current status after a search selected an older entry. It does
 not reserve that record against a later update or make a sequence of separate
@@ -235,6 +280,15 @@ expires after 14 hours” through the shared identifier terms. There is no
 stemming, synonym expansion, embedding or semantic verification. Contradictory
 records can both match. Disk searches read candidate bodies under the operation
 lock; a result limit bounds returned rows, not the amount of content scanned.
+Set `maxScanned` to cap candidates examined per call. The disk store selects
+that page before opening body files. `scanOffset` starts at the next candidate
+position and `nextScanOffset` points to the next page when `truncated` is true.
+Candidate pages use newest update first, then memory ID; `totalCount` counts
+matches in the page, not the whole store, until the scan reaches the end. An
+updated record can move between pages during a multi-call search, so restart
+the search when the store changes. Markdown memory still loads and validates
+all files before searching, to refuse corrupt or conflicting records; its
+search result is bounded but its file-read cost is not.
 
 `MemorySearchParams.requiredIdentifiers` optionally requires at least one exact
 word-token match in ID, title, summary or body **before** ranking/limiting.
@@ -265,7 +319,7 @@ operations available to the model.
 
 | Tool | Contract |
 | --- | --- |
-| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default limit of 10 and an allowed range of 1–50. |
+| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default result limit of 10 and an allowed range of 1–50. It examines at most 256 recent candidates per call and reports `truncated`, `scannedCount` and `nextScanOffset`; pass the latter as `scan_offset` to search the next candidate page. Results within a page are ranked and limited, so narrow a broad query if `totalCount` exceeds the returned entries. |
 | `read_memory` | Reads a complete record by its ID or its name. For a `text` or `markdown` record, the output is the body followed by `---` and the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. A `json` record's output is its body exactly, still parseable; `data` carries `updatedAt`, `name`, `type` and resolved `links` for every format. |
 | `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. |
 | `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status. Takes the record's ID or its name — what a prompt carrying the index shows. Refuses an empty update, an unknown name and a name another record holds. |
@@ -289,10 +343,15 @@ current evidence.
 
 `createMemoryRecallStep({ store })` returns a `PrepareStep` hook. Supply it as
 `prepareStep` to `query` or `drainQuery`, or include it in an ordered preparation
-chain. It preserves guidance from earlier stages and adds only an ephemeral
-system block for the next request. The block is not appended to saved
-conversation history. Explicit `read_memory` results remain ordinary tool
-history and have their normal retention behavior.
+chain. It preserves earlier `prepared.context` and adds an ephemeral
+`PrepareStepResult.context` block for the next request. The kernel sends it
+after conversation history as a labelled user-role `step-context` message;
+it does not grant system authority or enter saved conversation history.
+Earlier `prepared.system` guidance remains in the system message. Hosts that
+previously read the hook's returned `.system` must read `.context` instead.
+Explicit `read_memory` results remain ordinary tool history and have their
+normal retention behavior. Stored text can still influence the model; this
+role separation is not a guarantee against prompt injection.
 
 Recall selects active records using meaningful terms from the latest operator
 message in `PrepareStepContext.latestUserMessage`. The runtime carries that
@@ -312,10 +371,13 @@ the changed direction. Runtime worker reports do not become operator intent.
 when that runtime field is absent, followed by an eligible message still in the
 history. Generic prompts such as “continue” do not list arbitrary memories.
 
-Defaults are three records, 6,000 added characters including source labels and
-framing, and a 1,000 ms deadline for the whole pass. `maxMemories`, `maxChars`
-and `timeoutMs` accept positive safe integers. Available context headroom can
-reduce the character allowance further through `contextBudget.remainingTokens`;
+Defaults are three records selected from at most 256 recent candidates, 6,000
+added characters including source labels and framing, and a 1,000 ms deadline
+for the whole pass. `maxMemories`, `maxScanned`, `maxChars` and `timeoutMs`
+accept positive safe integers. An older record outside automatic recall's
+candidate page remains reachable through `search_memory` with `scan_offset`.
+Available context headroom can reduce the character allowance further through
+`contextBudget.remainingTokens`;
 this uses the runtime's context estimate, not a tokenizer or billing guarantee.
 If even the framing cannot fit, the hook skips recall without reading the store.
 
@@ -361,9 +423,12 @@ as `"12 days old"`, and the block then ends with `MEMORY_VERIFY_NOTICE`: memorie
 are point-in-time, so a file, function, flag or command one names must be
 verified against the current code before it is relied on. The first aged record
 pays for the notice out of the character budget; a block of fresh records spends
-nothing on it. `now` overrides the clock. This framing is
-not a truth check or a security boundary. Current instructions and fresh evidence
-take precedence, and changeable facts need verification.
+nothing on it. `now` overrides the clock. This framing is not a truth check.
+Current instructions and fresh evidence take precedence, and changeable facts
+need verification. The request-only block costs input tokens on every request;
+placing it after the history preserves a cacheable system and history prefix
+where the provider supports that layout, without guaranteeing a cache hit or
+lower total token use.
 
 The CLI enables this hook by default. Set `memory.recall: false` in CLI
 configuration to disable automatic recall while retaining the explicit tools.
@@ -400,7 +465,7 @@ const context = {
 }
 
 const prepared = await recall(context)
-console.log(prepared?.system) // Includes the saved claim and its source ID.
+console.log(prepared?.context) // Includes the saved claim and its source ID.
 
 await store.update(entry.id, { status: 'archived' })
 console.log(await recall(context)) // undefined: archived records are excluded.
@@ -413,6 +478,10 @@ useful extracted user requirements, decisions, discoveries, failures and
 environment claims. It does not save a record for a candidate with none of those
 claims. `maxPerCategory` defaults to 20. Summaries carry actual claims; the full
 record also carries extraction omissions and files touched when present.
+The extractor records failed tool results as failures. Reaching a
+`wait_for_job` idle or total wait bound is a successful observation of a still
+running job, so that result alone does not create a failure memory. A later
+job exit remains available to the turn through the normal job notice.
 
 Promoted records carry the `session-memory` tag, the `session:<id>` and `turn:<id>` tags, a digest of the selected
 claim sections, `type: 'project'`, and `verification: 'unverified'`. The promoter trims claims and

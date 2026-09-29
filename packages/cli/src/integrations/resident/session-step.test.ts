@@ -113,7 +113,7 @@ function renderedResidentContext(options: SendOptions): string {
 		? createResidentStepContributions(options.residentContext)
 				.map((part) => part.render({}))
 				.join('\n\n')
-		: (options.extraSystem ?? '')
+		: [options.extraSystem, options.extraContext].filter(Boolean).join('\n\n')
 }
 
 function creationOptions(): AgentSessionOptions {
@@ -197,6 +197,8 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		await new ResidentHost(f.agenda, step).run({ signal, maxSteps: 1 })
 		expect(sent[0].residentContext).toBeUndefined()
 		expect(sent[0].extraSystem).toContain('Only the supplied saved state continues')
+		expect(sent[0].extraSystem).not.toContain(f.pursuit.state.objective)
+		expect(sent[0].extraContext).toContain(f.pursuit.state.objective)
 	})
 	it.each([undefined, 'eager', 'deferred'] as const)(
 		'passes tool loading %s through admission without changing permissions',

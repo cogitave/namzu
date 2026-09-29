@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { OperationDeadlineExpired } from '../../readiness.js'
 import { KubernetesAcquireError, ReadinessPollTimeout, buildKubernetesBackend } from '../index.js'
 import {
 	type FakeApiServer,
@@ -68,11 +69,10 @@ describe('a claim that never becomes Ready', () => {
 		// give-up is a TYPE — see `acquireBoundPod` in `workspace.ts`, which
 		// is the caller that would otherwise blame the CNI for a 5xx.
 		//
-		// An ACQUIRE now reports that clock as one of seven named reasons, and
-		// keeps the poll's own give-up underneath it: a host that already
-		// caught `ReadinessPollTimeout` finds it as the `cause`, and the
-		// workspace lifecycle — which does not go through acquire — still
-		// catches the class directly.
+		// An ACQUIRE reports the clock as a named reason and preserves the
+		// phase that expired. Under load, the same short budget can expire in
+		// the initial POST before polling starts. Once a claim GET was issued,
+		// the poll's own typed give-up must be the cause.
 		server = await startFakeApiServer((req) => {
 			if (req.method === 'POST') return { status: 201, body: {} }
 			if (req.method === 'GET' && req.path.includes('/sandboxclaims/')) {
@@ -95,7 +95,11 @@ describe('a claim that never becomes Ready', () => {
 		expect(acquire.reason).toBe('not-ready')
 		expect(acquire.retryable).toBe(true)
 		expect(acquire.controllerReason).toBeUndefined()
-		expect(acquire.cause).toBeInstanceOf(ReadinessPollTimeout)
+		if (acquire.cause instanceof OperationDeadlineExpired) {
+			expect(server.matching('GET', '/sandboxclaims/')).toHaveLength(0)
+		} else {
+			expect(acquire.cause).toBeInstanceOf(ReadinessPollTimeout)
+		}
 	})
 
 	it('polls the claim rather than watching it', async () => {

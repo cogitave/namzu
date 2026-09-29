@@ -3,14 +3,15 @@ import { dirname, join, resolve } from 'node:path'
 import { NamzuError } from '../../types/errors/index.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
+	ConditionalMemoryStore,
 	CreateMemoryParams,
 	MemoryContent,
 	MemoryIndexEntry,
 	MemoryRecord,
 	MemorySearchParams,
 	MemorySearchResult,
-	MemoryStore,
 	UpdateMemoryParams,
+	VersionedMemoryRecord,
 } from '../../types/memory/index.js'
 import { assertMemoryStatus, isMemoryType } from '../../types/memory/index.js'
 import { generateMemoryId, isEntityId } from '../../utils/id.js'
@@ -18,7 +19,7 @@ import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import { SCHEMA_VERSION_KEY, defineSchema } from '../schema.js'
-import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
+import { InMemoryMemoryIndex, searchMemoryEntries, selectMemorySearchCandidates } from './index.js'
 import {
 	MemoryNameConflictError,
 	assertOptionalMemoryFields,
@@ -31,6 +32,7 @@ import {
 	acquireMemoryOperationLock,
 	validateMemoryLockTimeout,
 } from './operation-lock.js'
+import { MemoryRevisionConflictError, assertMemoryRevision, memoryRevision } from './revision.js'
 
 /**
  * This store's on-disk format, versioned as a unit — which is how a
@@ -181,7 +183,7 @@ export interface DiskMemoryStoreConfig {
 	lockTimeoutMs?: number
 }
 
-export class DiskMemoryStore implements MemoryStore {
+export class DiskMemoryStore implements ConditionalMemoryStore {
 	private readonly baseDir: string
 	private readonly log: Logger
 	private readonly lockTimeoutMs: number
@@ -355,18 +357,54 @@ export class DiskMemoryStore implements MemoryStore {
 		})
 	}
 
+	async getVersionedRecord(id: MemoryId): Promise<VersionedMemoryRecord | undefined> {
+		return this.withAuthoritativeIndex(async (location) => {
+			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
+			const entry = this.index.getEntry(id)
+			if (!entry) return undefined
+			const record = structuredClone({ entry, content: await this.readContent(location, id) })
+			return { ...record, revision: memoryRevision(record) }
+		})
+	}
+
 	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
+		return this.updateInternal(id, updates)
+	}
+
+	async updateIfRevision(
+		id: MemoryId,
+		updates: UpdateMemoryParams,
+		expectedRevision: string,
+	): Promise<MemoryIndexEntry> {
+		const updated = await this.updateInternal(id, updates, expectedRevision)
+		if (!updated) throw new MemoryRevisionConflictError(id)
+		return updated
+	}
+
+	private async updateInternal(
+		id: MemoryId,
+		updates: UpdateMemoryParams,
+		expectedRevision?: string,
+	): Promise<MemoryIndexEntry | undefined> {
 		if (updates.status !== undefined) assertMemoryStatus(updates.status)
 		assertOptionalMemoryFields(updates)
 		return this.withAuthoritativeIndex(async (location) => {
 			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
 			const existing = this.index.getEntry(id)
+			const existingContent = existing ? await this.readContent(location, id) : undefined
+			if (expectedRevision !== undefined) {
+				assertMemoryRevision(
+					id,
+					existing && existingContent ? { entry: existing, content: existingContent } : undefined,
+					expectedRevision,
+				)
+			}
 			if (!existing) return undefined
 			if (updates.name !== undefined) {
 				const holder = nameHolder(this.index.allEntries(), updates.name, id)
 				if (holder) throw new MemoryNameConflictError(updates.name, holder.id)
 			}
-			const existingContent = await this.readContent(location, id)
+			if (!existingContent) invalidContent(id, 'the indexed content record is missing')
 			const updated: MemoryIndexEntry = withOptionalFields(
 				{
 					...existing,
@@ -403,9 +441,27 @@ export class DiskMemoryStore implements MemoryStore {
 	}
 
 	async delete(id: MemoryId): Promise<boolean> {
+		return this.deleteInternal(id)
+	}
+
+	async deleteIfRevision(id: MemoryId, expectedRevision: string): Promise<void> {
+		const deleted = await this.deleteInternal(id, expectedRevision)
+		if (!deleted) throw new MemoryRevisionConflictError(id)
+	}
+
+	private async deleteInternal(id: MemoryId, expectedRevision?: string): Promise<boolean> {
 		return this.withAuthoritativeIndex(async (location) => {
 			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
-			if (!this.index.getEntry(id)) return false
+			const entry = this.index.getEntry(id)
+			if (expectedRevision !== undefined) {
+				const content = entry ? await this.readContent(location, id) : undefined
+				assertMemoryRevision(
+					id,
+					entry && content ? { entry, content } : undefined,
+					expectedRevision,
+				)
+			}
+			if (!entry) return false
 
 			try {
 				await unlink(this.contentPath(location, id))
@@ -432,12 +488,31 @@ export class DiskMemoryStore implements MemoryStore {
 				query: undefined,
 				limit: undefined,
 				requiredIdentifiers: undefined,
+				maxScanned: undefined,
+				scanOffset: undefined,
 			})
+			const selection = selectMemorySearchCandidates(candidates.entries, params)
 			const contents = new Map<MemoryId, string>()
-			for (const entry of candidates.entries) {
+			for (const entry of selection.entries) {
 				contents.set(entry.id, (await this.readContent(location, entry.id)).content)
 			}
-			return searchMemoryEntries(candidates.entries, params, (id) => contents.get(id) ?? '')
+			const matched = searchMemoryEntries(
+				selection.entries,
+				{ ...params, maxScanned: undefined, scanOffset: undefined },
+				(id) => contents.get(id) ?? '',
+			)
+			return {
+				...matched,
+				...(params.maxScanned !== undefined || params.scanOffset !== undefined
+					? {
+							truncated: selection.truncated,
+							scannedCount: selection.scannedCount,
+							...(selection.nextScanOffset !== undefined
+								? { nextScanOffset: selection.nextScanOffset }
+								: {}),
+						}
+					: {}),
+			}
 		})
 	}
 

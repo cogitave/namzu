@@ -678,8 +678,9 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 	it('leaves the original error standing when the pod is UNCHANGED', async () => {
 		// The re-read answers with the same uid at an address that WOULD
 		// work, so a transport that adopted any refreshed handle would
-		// succeed here. A pod that is still there and still refusing
-		// connections is the guest's problem, and retrying it would hide it.
+		// succeed here. The old address is black-holed: a just-closed
+		// ephemeral loopback port could be claimed by another test process
+		// before this dial, producing an unrelated server's response instead.
 		const { port } = await startAgent(POD_UID)
 		let connections = 0
 		listener?.on('connection', () => {
@@ -694,7 +695,7 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 			}),
 		)
 		const transport = new KubernetesAgentTransport(
-			{ kind: 'tcp', host: '127.0.0.1', port: await closedPort(), token: POD_UID },
+			{ kind: 'tcp', ...BLACKHOLE_ADDRESS, token: POD_UID },
 			{ refreshHandle },
 		)
 
@@ -840,7 +841,7 @@ describe('KubernetesAgentTransport connect failure handling', () => {
 describe('KubernetesAgentTransport DNS re-resolution', () => {
 	let serverA: Server | undefined
 	let serverB: Server | undefined
-	let originalLookup: typeof dns.lookup
+	const originalLookup = dns.lookup
 
 	afterEach(async () => {
 		dns.lookup = originalLookup
@@ -851,7 +852,6 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 	})
 
 	it('reaches a different target when the hostname resolves differently between calls', async () => {
-		const SHARED_PORT = 34_217
 		const reply = (label: string) => (socket: Socket) => {
 			const reader = new __framing.FrameReader()
 			socket.on('data', (chunk: Buffer) => {
@@ -867,14 +867,14 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 		serverB = createServer(reply('server-b'))
 		await new Promise<void>((resolve, reject) => {
 			serverA?.once('error', reject)
-			serverA?.listen(SHARED_PORT, '127.0.0.1', resolve)
+			serverA?.listen(0, '127.0.0.1', resolve)
 		})
+		const sharedPort = (serverA.address() as AddressInfo).port
 		await new Promise<void>((resolve, reject) => {
 			serverB?.once('error', reject)
-			serverB?.listen(SHARED_PORT, '127.0.0.2', resolve)
+			serverB?.listen(sharedPort, '127.0.0.2', resolve)
 		})
 
-		originalLookup = dns.lookup
 		// Alternating rather than "first call here, everything after there":
 		// this transport is built directly, with no readiness fence to fill
 		// its capability cache, so the first `readFile` of its life opens a
@@ -899,7 +899,7 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 		const transport = new KubernetesAgentTransport({
 			kind: 'tcp',
 			host: 'agent.fake-service.svc.cluster.local',
-			port: SHARED_PORT,
+			port: sharedPort,
 			token: POD_UID,
 		})
 

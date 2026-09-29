@@ -10,6 +10,8 @@ export interface MemoryRecallOptions {
 	readonly store: MemoryStore
 	/** Maximum active records considered per request. Default 3. */
 	readonly maxMemories?: number
+	/** Maximum recent candidate records searched per request. Default 256. */
+	readonly maxScanned?: number
 	/** Maximum added characters, including source labels and framing. Default 6,000. */
 	readonly maxChars?: number
 	/** Deadline for the entire read-only recall pass. Default 1,000ms. */
@@ -149,6 +151,7 @@ function positive(value: number, name: string): number {
  */
 export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareStep {
 	const maxMemories = positive(options.maxMemories ?? 3, 'maxMemories')
+	const maxScanned = positive(options.maxScanned ?? 256, 'maxScanned')
 	const maxChars = positive(options.maxChars ?? 6_000, 'maxChars')
 	const timeoutMs = positive(options.timeoutMs ?? 1_000, 'timeoutMs')
 	const ageNoticeAfterMs = positive(options.ageNoticeAfterMs ?? 86_400_000, 'ageNoticeAfterMs')
@@ -187,6 +190,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 				query: terms.join(' '),
 				status: 'active',
 				limit: maxMemories,
+				maxScanned,
 				...(anchors.size ? { requiredIdentifiers: [...anchors] } : {}),
 			})
 			let block = HEADER
@@ -276,7 +280,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 					}, timeoutMs)
 				}),
 			])
-			return block ? { system: [prepared.system, block].filter(Boolean).join('\n\n') } : undefined
+			return block ? { context: [prepared.context, block].filter(Boolean).join('\n\n') } : undefined
 		} finally {
 			if (timer) clearTimeout(timer)
 			if (onAbort) signal?.removeEventListener('abort', onAbort)

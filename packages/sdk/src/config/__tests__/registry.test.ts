@@ -136,6 +136,27 @@ describe('namespaces', () => {
 		expect(() => registry.register('taken', Schema)).toThrow(ConfigNamespaceCollisionError)
 		expect(() => registry.register('taken', Schema)).toThrow('taken')
 	})
+
+	it('releases only its own registration and preserves the latest override', () => {
+		const registry = new ConfigRegistry()
+		const first = registry.register('reusable', Schema)
+		const watched = vi.fn()
+		first.watch(watched)
+		first.update({ attempts: 8 })
+		first.dispose()
+		expect(registry.namespaces()).toEqual([])
+		expect(() => first.get()).toThrow(/no longer registered/)
+		expect(() => first.update({ attempts: 9 })).toThrow(/no longer registered/)
+		expect(() => first.watch(watched)).toThrow(/no longer registered/)
+
+		const second = registry.register('reusable', Schema)
+		expect(second.get().attempts).toBe(8)
+		first.dispose()
+		expect(registry.namespaces()).toEqual(['reusable'])
+		second.update({ attempts: 10 })
+		expect(second.get().attempts).toBe(10)
+		expect(watched).toHaveBeenCalledOnce()
+	})
 })
 
 describe('persistence', () => {

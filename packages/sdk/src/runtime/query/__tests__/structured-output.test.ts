@@ -88,6 +88,11 @@ function harness(opts: {
 		listNames: vi.fn(() => [...registry.keys()]),
 		availability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),
+		snapshotUntrustedDeferredContext: vi.fn(() => ({
+			all: '',
+			maxRenderedChars: 0,
+			forNames: () => '',
+		})),
 	} as unknown as ToolManager
 
 	const activityStore = new ActivityStore(TURN_ID, {

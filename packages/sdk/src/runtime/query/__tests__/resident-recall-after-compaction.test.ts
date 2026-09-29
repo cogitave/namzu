@@ -140,7 +140,17 @@ it.each(['structured', 'sliding-window'] as const)(
 				.map((message) => message.content)
 				.join('\n')
 			expect(system).toContain('search_resident_history')
-			expect(system).toContain(`"throughRevision":${snapshot.revision}`)
+			expect(system).not.toContain(`"throughRevision":${snapshot.revision}`)
+			const runtimeContext = request.messages
+				.filter(
+					(message) =>
+						message.role === 'user' &&
+						message.source?.type === 'runtime-context' &&
+						message.source.kind === 'step-context',
+				)
+				.map((message) => message.content)
+				.join('\n')
+			expect(runtimeContext).toContain(`"throughRevision":${snapshot.revision}`)
 			expect(request.tools?.map((tool) => tool.function.name)).toContain('read_resident_history')
 		}
 		const exactReads = events.filter(

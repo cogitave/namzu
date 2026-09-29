@@ -70,6 +70,8 @@ import {
  * namzu that does not start.
  */
 export const CONNECT_TIMEOUT_MS = 10_000
+/** Node sets an overflowing timeout to 1 ms instead of waiting longer. */
+const MAX_CONNECT_TIMEOUT_MS = 2_147_483_647
 
 /**
  * How long shutting one server down may take before it is given up on.
@@ -160,6 +162,51 @@ export interface McpServerSpec {
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
+
+/**
+ * Config loading preserves individual server entries so the connector can
+ * report each bad entry by name. Check their runtime shape here before using
+ * arrays or string values: the TypeScript interface cannot validate YAML.
+ */
+function serverSpecProblem(value: unknown): string | undefined {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		return 'server spec must be a mapping'
+	}
+	const spec = value as Record<string, unknown>
+	for (const key of ['command', 'url', 'cwd'] as const) {
+		if (spec[key] !== undefined && typeof spec[key] !== 'string') {
+			return `${key} must be a string`
+		}
+	}
+	if (
+		spec.args !== undefined &&
+		(!Array.isArray(spec.args) || !spec.args.every((arg) => typeof arg === 'string'))
+	) {
+		return 'args must be a list of strings'
+	}
+	if (
+		spec.inheritEnv !== undefined &&
+		(!Array.isArray(spec.inheritEnv) ||
+			!spec.inheritEnv.every(
+				(name) => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name),
+			))
+	) {
+		return 'inheritEnv must be a list of environment variable names'
+	}
+	for (const key of ['env', 'headers'] as const) {
+		const record = spec[key]
+		if (
+			record !== undefined &&
+			(typeof record !== 'object' ||
+				record === null ||
+				Array.isArray(record) ||
+				!Object.values(record).every((item) => typeof item === 'string'))
+		) {
+			return `${key} must be a mapping of string values`
+		}
+	}
+	return undefined
+}
 
 export interface ConnectedMcpServer {
 	readonly name: string
@@ -429,7 +476,11 @@ function withSavedMcpOAuth(
 		if (!current) throw mcpOAuthUnauthorized()
 		const headers = new Headers(init?.headers)
 		headers.set('Authorization', `Bearer ${current.access_token}`)
-		const retried = await rawFetch(input, { ...init, headers, redirect: 'manual' })
+		const retried = await rawFetch(input, {
+			...init,
+			headers,
+			redirect: 'manual',
+		})
 		if (retried.status === 401) {
 			void retried.body?.cancel().catch(() => undefined)
 			throw mcpOAuthUnauthorized()
@@ -463,13 +514,38 @@ function withSavedMcpOAuth(
 	return { ...transport, fetch: oauthFetch }
 }
 
-async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+async function withDeadline<T>(
+	work: Promise<T>,
+	ms: number,
+	what: string,
+	onLate?: (result: PromiseSettledResult<T>) => void,
+): Promise<T> {
 	let timer: NodeJS.Timeout | undefined
+	let timedOut = false
+	if (onLate) {
+		// Promise.race stops waiting, not the underlying connect/discovery.
+		// Keep ownership of whichever result arrives after the timeout.
+		void work
+			.then(
+				(value) => {
+					if (timedOut) onLate({ status: 'fulfilled', value })
+				},
+				(reason: unknown) => {
+					if (timedOut) onLate({ status: 'rejected', reason })
+				},
+			)
+			.catch(() => {
+				// The late cleanup is best effort; startup already reported failure.
+			})
+	}
 	try {
 		return await Promise.race([
 			work,
 			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error(`${what} did not answer within ${ms}ms`)), ms)
+				timer = setTimeout(() => {
+					timedOut = true
+					reject(new Error(`${what} did not answer within ${ms}ms`))
+				}, ms)
 			}),
 		])
 	} finally {
@@ -489,8 +565,8 @@ const reasonOf = (err: unknown): string => (err instanceof Error ? err.message :
 export function connectDeadlineFor(spec: McpServerSpec): number | string {
 	const ms = spec.connectTimeoutMs
 	if (ms === undefined) return CONNECT_TIMEOUT_MS
-	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
-		return `connectTimeoutMs must be a positive number of milliseconds, got ${JSON.stringify(ms)}`
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || ms > MAX_CONNECT_TIMEOUT_MS) {
+		return `connectTimeoutMs must be a positive number of milliseconds at most ${MAX_CONNECT_TIMEOUT_MS}, got ${JSON.stringify(ms)}`
 	}
 	return ms
 }
@@ -579,8 +655,9 @@ export async function connectMcpServers(
 	// of nothing and the failure output arrive interleaved, for a saving that
 	// matters only to someone running many servers, who has other problems.
 	for (const [name, spec] of entries) {
-		if (typeof spec !== 'object' || spec === null) {
-			startupFailed.push({ name, reason: 'server spec must be a mapping' })
+		const shapeProblem = serverSpecProblem(spec)
+		if (shapeProblem) {
+			startupFailed.push({ name, reason: shapeProblem })
 			continue
 		}
 		const transport = transportFor(spec, options.cwd)
@@ -611,11 +688,17 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: reasonOf(error) })
 			continue
 		}
-		const client = new MCPClient({
-			serverName: name,
-			transport: connectedTransport,
-			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
-		})
+		let client: MCPClient
+		try {
+			client = new MCPClient({
+				serverName: name,
+				transport: connectedTransport,
+				...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
+			})
+		} catch (error) {
+			startupFailed.push({ name, reason: reasonOf(error) })
+			continue
+		}
 		const discovery = {
 			added: new Set<string>(),
 			removed: new Set<string>(),
@@ -625,8 +708,26 @@ export async function connectMcpServers(
 				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
 			>(),
 		}
+		const deadlineAt = Date.now() + deadline
+		let closeTail: Promise<void> = Promise.resolve()
+		const closeClient = (): Promise<void> => {
+			const closing = closeTail.then(() =>
+				withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`),
+			)
+			closeTail = closing.catch(() => {})
+			return closing
+		}
+		const closeLateClient = () => {
+			void closeClient().catch(() => {})
+		}
 		try {
-			await withDeadline(client.connect(), deadline, `server "${name}"`)
+			await withDeadline(client.connect(), deadline, `server "${name}"`, closeLateClient)
+			const remaining = deadlineAt - Date.now()
+			if (remaining <= 0) {
+				throw new Error(
+					`server "${name}" discovering its tools did not answer within ${deadline}ms`,
+				)
+			}
 			const discovered = await withDeadline(
 				mcpToolset(client, {
 					...toolsetOptions,
@@ -637,8 +738,26 @@ export async function connectMcpServers(
 					},
 					onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
 				}),
-				deadline,
+				remaining,
 				`server "${name}" discovering its tools`,
+				(result) => {
+					if (result.status === 'rejected') {
+						closeLateClient()
+						return
+					}
+					void (async () => {
+						await Promise.all(
+							result.value.map((entry) =>
+								withDeadline(
+									Promise.resolve(entry.close?.()),
+									CLOSE_TIMEOUT_MS,
+									`closing late toolset "${name}"`,
+								).catch(() => {}),
+							),
+						)
+						closeLateClient()
+					})().catch(() => {})
+				},
 			)
 			const mounted = spec.requireApproval
 				? discovered.map((entry) => requireApproval(entry))
@@ -658,7 +777,7 @@ export async function connectMcpServers(
 			// under one of the two answers is a shutdown path waiting to hang.
 			// Nothing here reads the client's state afterwards either.
 			try {
-				await withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`)
+				await closeClient()
 			} catch {
 				// Already gone, never started, or refusing to answer. The failure is
 				// already recorded and there is nothing further to do about it.
