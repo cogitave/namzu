@@ -16,10 +16,17 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { ProviderSetup } from './ProviderSetup.js'
 import { ToolOutputViewer } from './ToolOutputViewer.js'
+import {
+	BackgroundJobsPanel,
+	backgroundJobOutputPageSize,
+	backgroundJobsPageSize,
+	maxBackgroundJobTailOffset,
+} from './BackgroundJobsPanel.js'
 import { join, relative } from 'node:path'
 import {
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
+	type BackgroundJob,
 	DiskMessageFeedbackStore,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
@@ -869,6 +876,15 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
  */
 const LIVE_FURNITURE_ROWS = 10
 
+type JobSurface = {
+	readonly ownerSession: AgentSession
+	readonly selectedJobId: string | null
+	readonly detailJobId: string | null
+	readonly tailOffset: number
+	readonly busyJobId?: string
+	readonly notice?: string
+}
+
 const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal }) =>
 	editDraftInExternalEditor(seed, { cwd, signal })
 
@@ -1080,6 +1096,11 @@ export function App({
 	// held here and handed to the next send as part of the system text; the
 	// transcript row is written at once.
 	const idleJobNoticesRef = useRef<string[]>([])
+	const [jobSnapshot, setJobSnapshot] = useState<{
+		readonly ownerSession: AgentSession | null
+		readonly jobs: readonly BackgroundJob[]
+	}>({ ownerSession: null, jobs: [] })
+	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
 	const drainIdleJobNotices = (): string | undefined => {
 		if (idleJobNoticesRef.current.length === 0) return undefined
 		const lines = idleJobNoticesRef.current
@@ -1096,8 +1117,13 @@ export function App({
 		return `What the operator did outside you since your last turn — commands they ran in their own shell, files they put back — with the output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
+		setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		if (!session?.onJobExit) return
 		return session.onJobExit((job) => {
+			// The visible running-shell count belongs to the session even when
+			// the kernel owns this exit's model/transcript notice.
+			if (previousSessionRef.current !== session) return
+			setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
 			if (abortRef.current !== null) return
 			const text = describeJobExit({
 				jobId: job.id,
@@ -1325,6 +1351,32 @@ export function App({
 	 */
 	const [narration, setNarration] = useState<readonly SubagentNarrationLine[]>([])
 	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
+	const [jobSurfaceState, setJobSurfaceState] = useState<JobSurface | null>(null)
+	const jobSurface = jobSurfaceState?.ownerSession === session ? jobSurfaceState : null
+	const jobSurfaceRef = useRef<JobSurface | null>(null)
+	const jobSurfaceCommittedRef = useRef<JobSurface | null>(null)
+	const setJobSurface = useCallback((next: JobSurface | null) => {
+		const wasVisible = jobSurfaceCommittedRef.current !== null
+		jobSurfaceRef.current = next
+		if (next === null) jobSurfaceCommittedRef.current = null
+		else if (wasVisible) jobSurfaceCommittedRef.current = next
+		setJobSurfaceState(next)
+	}, [])
+	useLayoutEffect(() => {
+		jobSurfaceCommittedRef.current = jobSurface
+	}, [jobSurface])
+	useEffect(() => setJobSurface(null), [session, setJobSurface])
+	const [jobClock, setJobClock] = useState(Date.now())
+	const hasRunningBackgroundJob = backgroundJobs.some((job) => job.status === 'running')
+	const jobSurfaceOpen = jobSurface !== null
+	useEffect(() => {
+		if (!jobSurfaceOpen || !hasRunningBackgroundJob) return
+		const timer = setInterval(() => {
+			setJobClock(Date.now())
+			setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
+		}, 1000)
+		return () => clearInterval(timer)
+	}, [jobSurfaceOpen, hasRunningBackgroundJob, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const setAgentSurface = useCallback((next: AgentSurface | null) => {
@@ -1687,9 +1739,10 @@ export function App({
 	} | null>(null)
 	const saveSkillPromptRef = useRef<typeof saveSkillPrompt>(null)
 	const setSaveSkillPrompt = useCallback((next: typeof saveSkillPrompt) => {
+		if (next) setJobSurface(null)
 		saveSkillPromptRef.current = next
 		setSaveSkillPromptState(next)
-	}, [])
+	}, [setJobSurface])
 	const [scheduleReviewPrompt, setScheduleReviewPromptState] = useState<{
 		readonly token: number
 		readonly request: ScheduleReviewRequest
@@ -1698,9 +1751,10 @@ export function App({
 	const scheduleReviewTokenRef = useRef(0)
 	const scheduleReviewPromptRef = useRef<typeof scheduleReviewPrompt>(null)
 	const setScheduleReviewPrompt = useCallback((next: typeof scheduleReviewPrompt) => {
+		if (next) setJobSurface(null)
 		scheduleReviewPromptRef.current = next
 		setScheduleReviewPromptState(next)
-	}, [])
+	}, [setJobSurface])
 	const saveSkillNotifyRef = useRef<(() => void) | null>(null)
 	const saveSkillToolRef = useRef<ReturnType<typeof buildSaveSkillTool> | null>(null)
 	if (saveSkillToolRef.current === null) {
@@ -4084,6 +4138,8 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
+	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
+	const shellFurniture = runningShellCount > 0 ? 1 : 0
 	// Where the streaming reply stands among the finalized rows: a row written
 	// while it streams is drawn below it, as it will be once it has finished.
 	const streamingAt = messages.findIndex((m) => m.pending)
@@ -4103,12 +4159,12 @@ export function App({
 		messages,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + shellFurniture,
 		raw: rawOutput,
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
-	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture >= terminal.rows
+	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + shellFurniture >= terminal.rows
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
@@ -4125,7 +4181,7 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -4134,10 +4190,10 @@ export function App({
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
 	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
-	if (agentSurface === null && outputViewer === null && scheduleReviewPrompt === null)
+	if (agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null)
 		settledRef.current = nextSettled
 	const renderedSettled =
-		agentSurface === null && outputViewer === null && scheduleReviewPrompt === null
+		agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null
 			? nextSettled
 			: settledRef.current
 
@@ -5329,10 +5385,11 @@ export function App({
 				}
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setSelectedChoice(0)
+				setJobSurface(null)
 				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
+		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, setJobSurface, resolveQuestion],
 	)
 	const reviewSchedule = useCallback(
 		(request: ScheduleReviewRequest, signal?: AbortSignal) =>
@@ -5570,8 +5627,13 @@ export function App({
 					setActiveTools(activeToolsRef.current)
 					break
 				}
-				case 'tool-end': {
-					const running = activeToolsRef.current
+			case 'tool-end': {
+				// A background bash call creates its job before this event. A job
+				// action may also stop one. Re-read the owning session here so the
+				// shell rail updates while the model continues its turn.
+				if (event.toolName === 'bash' || event.toolName === 'job')
+					setJobSnapshot({ ownerSession: previousSessionRef.current, jobs: previousSessionRef.current?.jobs?.() ?? [] })
+				const running = activeToolsRef.current
 					// Match strictly by toolUseId. Never fall back to "the first
 					// active tool" — under parallel calls that mis-attributes a
 					// result to the wrong call. If no id matches, render the
@@ -6949,7 +7011,7 @@ export function App({
 			let skillFlow = false
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
-				switch (slash.kind) {
+					switch (slash.kind) {
 					case 'message':
 						if (slash.statusRows) {
 							setMessages((previous) => [...previous, {
@@ -7002,6 +7064,17 @@ export function App({
 							},
 							() => pushMessage('system', renderAgents(agentIds)),
 						)
+						return
+					}
+					case 'jobs': {
+						const current = session?.jobs?.() ?? []
+						if (!session) {
+							pushMessage('system', 'Shell jobs are available after a session starts.')
+							return
+						}
+						setJobSnapshot({ ownerSession: session, jobs: current })
+						setJobClock(Date.now())
+						setJobSurface({ ownerSession: session, selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null, detailJobId: null, tailOffset: 0 })
 						return
 					}
 					case 'abandon': {
@@ -8890,6 +8963,102 @@ export function App({
 				if (kind) resolvePermission({ kind })
 				return
 			}
+			// The shell view observes only this AgentSession's jobs. Consent always
+			// takes precedence above; the composer stays mounted but hidden below.
+			const shellView = jobSurfaceRef.current
+			if (shellView) {
+				if (shellView.ownerSession !== session) {
+					setJobSurface(null)
+					return
+				}
+				// The Return that submitted /jobs must not also inspect or stop a
+				// row before the new screen has painted.
+				if (jobSurfaceCommittedRef.current !== shellView) return
+				if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+					setJobSurface(null)
+					return
+				}
+				if (key.escape) {
+					setJobSurface(shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null)
+					return
+				}
+				const selectedId = shellView.detailJobId ?? shellView.selectedJobId ?? backgroundJobs[0]?.id
+				const selectedJob = backgroundJobs.find((job) => job.id === selectedId)
+				if (input.toLowerCase() === 'x' && selectedJob?.status === 'running' && session?.stopJob && !shellView.busyJobId) {
+					const owner = session
+					const stopJob = owner.stopJob
+					if (!stopJob) return
+					setJobSurface({ ...shellView, busyJobId: selectedJob.id, notice: undefined })
+					void stopJob(selectedJob.id).then(
+						(result) => {
+							if (previousSessionRef.current !== owner) return
+							setJobSnapshot({ ownerSession: owner, jobs: owner.jobs?.() ?? [] })
+							const current = jobSurfaceRef.current
+							if (current?.busyJobId === selectedJob.id)
+								setJobSurface({
+									...current,
+									busyJobId: undefined,
+									notice: result.status === 'killed'
+										? `Stopped ${selectedJob.id}.`
+										: result.status === 'exited'
+											? `${selectedJob.id} had already exited (${result.exitCode ?? '?'}).`
+											: `Stop request for ${selectedJob.id} did not finish.`,
+								})
+						},
+						(error) => {
+							if (previousSessionRef.current !== owner) return
+							const current = jobSurfaceRef.current
+							if (current?.busyJobId === selectedJob.id)
+								setJobSurface({ ...current, busyJobId: undefined, notice: `Could not stop ${selectedJob.id}: ${error instanceof Error ? error.message : String(error)}` })
+						},
+					)
+					return
+				}
+				if (shellView.detailJobId) {
+					let output
+					try { output = session?.readJob?.(shellView.detailJobId) } catch { output = undefined }
+					const max = maxBackgroundJobTailOffset(output, terminal.rows, Math.max(1, terminal.columns - 2))
+					const page = backgroundJobOutputPageSize(terminal.rows)
+					const offset = Math.min(shellView.tailOffset, max)
+					const next = key.home || input === 'g'
+						? max
+						: key.end || input === 'G'
+							? 0
+							: key.pageUp
+								? Math.min(max, offset + page)
+								: key.pageDown
+									? Math.max(0, offset - page)
+									: key.upArrow
+										? Math.min(max, offset + 1)
+										: key.downArrow
+											? Math.max(0, offset - 1)
+											: null
+					if (next !== null) setJobSurface({ ...shellView, tailOffset: next, notice: undefined })
+					return
+				}
+				if (key.return && selectedJob) {
+					setJobSurface({ ...shellView, selectedJobId: selectedJob.id, detailJobId: selectedJob.id, tailOffset: 0, notice: undefined })
+					return
+				}
+				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+					const current = Math.max(0, backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId))
+					const page = backgroundJobsPageSize(terminal.rows)
+					const next = key.home
+						? 0
+						: key.end
+							? backgroundJobs.length - 1
+							: key.pageUp
+								? Math.max(0, current - page)
+								: key.pageDown
+									? Math.min(backgroundJobs.length - 1, current + page)
+									: key.upArrow
+										? Math.max(0, current - 1)
+										: Math.min(backgroundJobs.length - 1, current + 1)
+					const job = backgroundJobs[next]
+					if (job) setJobSurface({ ...shellView, selectedJobId: job.id, notice: undefined })
+				}
+				return
+			}
 			// The active child count already advertises this key beside Working.
 			// Open the same retained cockpit as `/agent`; Enter then drills into a
 			// child's transcript. Keep the shortcut below consent so it can never
@@ -9279,7 +9448,7 @@ export function App({
 					return
 				}
 				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
-					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
+					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture,
 					settled: settledRef.current, raw: rawOutput })
 				if (collapsible.length === 0 || (expanding && projected.settled > settledRef.current)) {
 					setOutputViewer(block)
@@ -9343,6 +9512,7 @@ export function App({
 		: undefined
 	const lifecycleOwnsViewport =
 		outputViewer !== null ||
+		jobSurface !== null ||
 		scheduleReviewPrompt !== null ||
 		phase === 'trust' ||
 		phase === 'resume' ||
@@ -9360,7 +9530,8 @@ export function App({
 		choicePicker === null &&
 		copyPicker === null &&
 		scheduleReviewPrompt === null &&
-		agentSurface === null
+		agentSurface === null &&
+		jobSurface === null
 			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
 			: null
 	// The effort chooser is a left-to-right slider wherever its stops fit on
@@ -9371,7 +9542,12 @@ export function App({
 					choicePicker.options.map((option) => option.label),
 					Math.max(1, (terminal.columns ?? 80) - 2),
 				)
-			: undefined
+		: undefined
+	const jobStatusHint = jobSurface?.detailJobId
+		? backgroundJobs.some((job) => job.id === jobSurface.detailJobId && job.status === 'running')
+			? 'shell output · x stop · esc list'
+			: 'shell output · esc list'
+		: 'shells · enter inspect · esc close'
 	const statusHint =
 		conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
@@ -9395,8 +9571,10 @@ export function App({
 										: agentSurface.focus === 'phases'
 											? 'agent phases — enter agents · esc return'
 											: 'agents — enter inspect · left phases · esc return'
-									: agentSurface?.kind === 'transcript'
+							: agentSurface?.kind === 'transcript'
 										? 'observing agent — esc agents · q parent'
+										: jobSurface
+											? jobStatusHint
 										: textPrompt
 											? 'editor open · enter apply · esc cancel'
 											: choicePicker
@@ -9460,6 +9638,7 @@ export function App({
 		phase !== 'resume' &&
 		phase !== 'edit' &&
 		phase !== 'picker'
+	const childSurfaceOpen = agentSurface !== null || outputViewer !== null || jobSurface !== null
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
@@ -9543,7 +9722,7 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						{agentSurface === null && outputViewer === null && scheduleReviewPrompt === null ? (
+						{agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
 								activeTools={visibleActiveTools}
@@ -9570,7 +9749,7 @@ export function App({
 						{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && outputViewer === null && permission === null && scheduleReviewPrompt === null ? (
+						{agentSurface === null && outputViewer === null && jobSurface === null && permission === null && scheduleReviewPrompt === null ? (
 							<TaskList tasks={liveTasks} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
@@ -9626,13 +9805,12 @@ export function App({
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
 								emptyNotice={textPrompt.emptyNotice}
-								hidden={permission !== null || scheduleReviewPrompt !== null || (agentSurface !== null || outputViewer !== null)}
+								hidden={permission !== null || scheduleReviewPrompt !== null || childSurfaceOpen}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
 						) : permission === null && scheduleReviewPrompt === null &&
-						  agentSurface === null &&
-						  outputViewer === null &&
+						  !childSurfaceOpen &&
 						  choicePicker?.kind === 'reasoning-effort' &&
 						  effortSlider ? (
 							<EffortSlider
@@ -9643,7 +9821,7 @@ export function App({
 								layout={effortSlider}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 							/>
-						) : permission === null && scheduleReviewPrompt === null && agentSurface === null && outputViewer === null && choicePicker ? (
+						) : permission === null && scheduleReviewPrompt === null && !childSurfaceOpen && choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
@@ -9654,7 +9832,7 @@ export function App({
 								selected={selectedChoice}
 								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
-						) : permission === null && scheduleReviewPrompt === null && agentSurface === null && outputViewer === null && copyPicker ? (
+						) : permission === null && scheduleReviewPrompt === null && !childSurfaceOpen && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -9674,7 +9852,7 @@ export function App({
 								copyPicker === null &&
 								saveSkillPrompt === null &&
 								scheduleReviewPrompt === null &&
-								agentSurface === null && outputViewer === null
+								!childSurfaceOpen
 							}
 							hidden={
 								permission !== null ||
@@ -9683,7 +9861,7 @@ export function App({
 								textPrompt !== null ||
 								choicePicker !== null ||
 								copyPicker !== null ||
-								(agentSurface !== null || outputViewer !== null)
+								childSurfaceOpen
 							}
 						>
 							{pendingSteers.length > 0 &&
@@ -9691,7 +9869,7 @@ export function App({
 							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null &&
-							agentSurface === null && outputViewer === null ? (
+							!childSurfaceOpen ? (
 								<Box paddingX={1}>
 									<Text color={theme.accent.user}>
 										↳ {pendingSteers.length} message
@@ -9705,7 +9883,7 @@ export function App({
 							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null &&
-							agentSurface === null && outputViewer === null ? (
+							!childSurfaceOpen ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
 										{queuePause ? '‖' : '⏎'} {queued.length} message
@@ -9724,12 +9902,13 @@ export function App({
 								onCycleMode={cyclePermissionMode}
 								disabled={
 									outputViewer !== null ||
+									jobSurface !== null ||
 									phase !== 'ready' ||
 									state === 'awaiting-permission' ||
 									compacting ||
 									conversationMutation !== null ||
 									externalEditorRequest !== null ||
-									(agentSurface !== null || outputViewer !== null)
+									childSurfaceOpen
 								}
 								hidden={
 									permission !== null ||
@@ -9738,7 +9917,7 @@ export function App({
 									textPrompt !== null ||
 									choicePicker !== null ||
 									copyPicker !== null ||
-									(agentSurface !== null || outputViewer !== null)
+									childSurfaceOpen
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -9790,6 +9969,15 @@ export function App({
 					permissionMode={displayedPermissionMode}
 					canCycleMode
 				/>
+				{showComposerSurface && !childSurfaceOpen && permission === null && scheduleReviewPrompt === null && runningShellCount > 0 ? (
+					<Box>
+						<Text color={theme.text.secondary} wrap="truncate-end">
+							{terminal.columns < 38
+								? `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} · /jobs`
+								: `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} running · /jobs to manage`}
+						</Text>
+					</Box>
+				) : null}
 				{/* The parent's commentary, between the footer line and the rail:
 				    below the footer like every other panel, and above the rail's
 				    border so it reads as the turn talking rather than as chrome the
@@ -9801,12 +9989,14 @@ export function App({
 				permission === null &&
 				agentSurface === null &&
 				outputViewer === null &&
+				jobSurface === null &&
 				scheduleReviewPrompt === null ? (
 					<AgentNarrationBand lines={narration} />
 				) : null}
 				{showComposerSurface &&
 				agentSurface === null &&
 				outputViewer === null &&
+				jobSurface === null &&
 				scheduleReviewPrompt === null &&
 				liveSubagents.length > 0 ? (
 					// The active agents remain in memory while the schedule review
@@ -9853,6 +10043,20 @@ export function App({
 						rows={terminal.rows}
 						columns={terminal.columns}
 						onClose={() => setOutputViewer(null)}
+					/>
+				) : null}
+				{jobSurface && permission === null && scheduleReviewPrompt === null ? (
+					<BackgroundJobsPanel
+						jobs={backgroundJobs}
+						selectedJobId={jobSurface.selectedJobId}
+						detailJobId={jobSurface.detailJobId}
+						tailOffset={jobSurface.tailOffset}
+						readJob={(id) => session?.readJob?.(id)}
+						rows={terminal.rows}
+						columns={Math.max(1, terminal.columns - 2)}
+						now={jobClock}
+						busyJobId={jobSurface.busyJobId}
+						notice={jobSurface.notice}
 					/>
 				) : null}
 			</Box>

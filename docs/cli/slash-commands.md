@@ -39,7 +39,7 @@ explain why they cannot run and are checked again when selected.
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show usage and cost for the current or latest turn; `/cost details` adds pricing and scope information. |
-| `/jobs` | List background jobs started this session, running and ended. |
+| `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this session runs, by event. |
 | `/context` | Show the latest context measurement and cleanup summary; `/context details` adds thresholds and cleanup counters. |

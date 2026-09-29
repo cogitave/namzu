@@ -14,6 +14,14 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
+# Watching and managing shells in the TUI
+
+While a shell job runs, a line below the composer footer shows the number of running shells and points to `/jobs`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.
+
+`/jobs` opens a session-scoped list of running and finished shell jobs. Move with Up/Down and press Enter for a job's status, command and retained output. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to return to the list or composer, and `q` to close the view. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
+
+The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary into the transcript when that is more useful than opening the view.
+
 # Waiting for one
 
 `wait_for_job` blocks inside one tool call until a job ends, and returns its accumulated output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.
@@ -84,7 +92,7 @@ The intent lasts for the rest of the turn, so `wait_for_job` on a process meant 
 
 A job is its **process group**, not its shell. A command that backgrounds its real work (`python3 -m http.server 8765 &`) returns from the shell at once; the job stays `running` while any process it started is alive, ends with the shell's exit code when the last one is gone, and a stop takes the survivors with it.
 
-Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). `/jobs` lists every job started this session with its state — running for how long, exited with which code, stopped.
+Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). The `/jobs` view and `/jobs list` show every job started this session with its state — running for how long, exited with which code, stopped.
 
 # Under a sandbox
 

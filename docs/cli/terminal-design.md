@@ -56,6 +56,14 @@ frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
 
+When a background shell is running, a separate single-line status appears
+below the composer footer with its count and `/jobs` entry point. It yields
+while a permission or child view owns the screen, and a short label fits narrow
+terminals. The `/jobs` child view keeps the input draft mounted, lets the
+operator inspect bounded, escaped shell output, and stops a selected running
+job on `x`. A new question from a tool closes the shell view so the question
+is visible and answerable.
+
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the message frame's upper right in violet. The top rule rests in plain
 graphite. Turning the mode on sends one short lavender glow from the visible

@@ -1340,8 +1340,12 @@ describe('/context', () => {
 })
 
 describe('/jobs', () => {
-	it('says there are none, and why there may be none', () => {
-		const r = runSlash('/jobs', context())
+	it('opens the interactive shell view', () => {
+		expect(runSlash('/jobs', context())).toEqual({ kind: 'jobs' })
+	})
+
+	it('keeps a plain list for noninteractive inspection', () => {
+		const r = runSlash('/jobs list', context())
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
 		expect(r.content).toContain('No background jobs this session')
@@ -1349,7 +1353,7 @@ describe('/jobs', () => {
 
 	it('lists each job with its state', () => {
 		const r = runSlash(
-			'/jobs',
+			'/jobs list',
 			context({
 				jobs: () => [
 					{ id: 'job_1', command: 'npm run dev', status: 'running', startedAt: Date.now() - 5_000 },
