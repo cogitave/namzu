@@ -16,6 +16,7 @@ import {
 	MarkdownMemoryStore,
 	MockLLMProvider,
 	ProviderRegistry,
+	createAssistantMessage,
 	createUserMessage,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -340,6 +341,84 @@ it('keeps file and stored memory in request-only user context on ordinary and re
 	expect(resident.system).not.toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
 	expect(resident.context).toContain('CURATED_OPERATOR_DIRECTIVE')
 	expect(resident.context).toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
+})
+
+it('keeps file and stored memory in request-only user context after actual compaction', async () => {
+	const fileMarker = 'CURATED_FILE_AFTER_COMPACTION'
+	const indexMarker = 'STORED_INDEX_AFTER_COMPACTION'
+	writeFileSync(join(appHome, 'USER.md'), fileMarker)
+	const scripted = new MockLLMProvider({
+		turns: [
+			{ error: { message: 'context_length_exceeded: force fixture compaction', status: 400 } },
+			{ text: 'Answered after compaction.' },
+		],
+		onRequest: (params) => requests.push({ ...params, messages: structuredClone(params.messages) }),
+	})
+	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
+	const sessionEvents: string[] = []
+	const { session, state } = await makeSession(false, cwd, {
+		compaction: { strategy: 'structured', contextWindowTokens: 64_000 },
+		onSessionEvent: (event) => sessionEvents.push(event.type),
+	})
+	await new MarkdownMemoryStore({ directory: state.paths.memoryDir() }).create({
+		title: 'Compaction memory',
+		summary: 'Stored index fixture',
+		content: 'A saved claim.',
+		description: indexMarker,
+	})
+
+	// A scripted provider overflow forces the real compactor, independent of
+	// wall time or a guessed trigger threshold. Older turns give it a span to shed.
+	const history = Array.from({ length: 8 }, (_, index) => [
+		createUserMessage(`Earlier request ${index}: ${'context '.repeat(450)}`),
+		createAssistantMessage(`Earlier answer ${index}: ${'reasoning '.repeat(450)}`),
+	]).flat()
+	let durableHistory = ''
+	const events: AgentEvent[] = []
+	for await (const event of session.send(
+		[...history, createUserMessage('Inspect current memory after compaction.')],
+		{
+			onConversationMessages: (messages) => {
+				durableHistory = JSON.stringify(messages)
+			},
+		},
+	))
+		events.push(event)
+
+	expect(events.some((event) => event.kind === 'error')).toBe(false)
+	expect(sessionEvents).toContain('compaction_completed')
+	expect(requests).toHaveLength(2)
+	expect(
+		requests[0]?.messages.some(
+			(message) => message.role === 'system' && message.source?.type === 'compaction-summary',
+		),
+	).toBe(false)
+	const request = requests[1]
+	if (!request) throw new Error('Compacted request did not reach the provider')
+	const summary = request.messages.find(
+		(message) => message.role === 'system' && message.source?.type === 'compaction-summary',
+	)
+	expect(summary?.role).toBe('system')
+	expect(durableHistory).not.toBe('')
+	const context = request.messages
+		.filter(
+			(message) =>
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				message.source.kind === 'step-context',
+		)
+		.map((message) => message.content)
+		.join('\n')
+	const system = request.messages
+		.filter((message) => message.role === 'system')
+		.map((message) => message.content)
+		.join('\n')
+	for (const marker of [fileMarker, indexMarker]) {
+		expect(context).toContain(marker)
+		expect(system).not.toContain(marker)
+		expect(summary?.content).not.toContain(marker)
+		expect(durableHistory).not.toContain(marker)
+	}
 })
 
 it('delivers explicit admitted resident data as request-only context beside fixed system guidance', async () => {

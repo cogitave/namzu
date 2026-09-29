@@ -179,8 +179,9 @@ Pydantic Harness [places stored memory in a user request
 part](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py#L225)
 while its static memory guidance remains instructions. Namzu must preserve the
 same trust boundary: model-authored memory text is evidence for the next request,
-not operator policy. The normal turn, resume and compaction paths need the same
-provider-wire assertion. This is more urgent than changing the store format.
+not operator policy. CLI provider-wire regressions now verify this role on
+ordinary and resident turns, paused-turn resume, and a turn after actual
+compaction. This boundary is more urgent than changing the store format.
 
 Local plugin installation and reload are still manual. Pydantic CLAI2
 [discovers single-file plugins and rebuilds their hosts on reload](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/plugin_loader.py#L161),
