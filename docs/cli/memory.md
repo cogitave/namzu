@@ -152,6 +152,9 @@ another memory holds is refused and pointed at `update_memory`),
 `search_memory` finds memories, `read_memory` reads one by ID or name, with its
 age and its `[[name]]` links resolved, `update_memory` corrects or archives
 one by ID or by the name the index shows, and `delete_memory` removes it.
+For a word search, `search_memory` examines up to 256 recent candidates at a
+time. An incomplete page says so and gives a `scan_offset` for the next page;
+an empty incomplete page does not claim that no older memory matches.
 
 A `read_memory` result also supplies an opaque revision. The model can pass it to
 `update_memory` or `delete_memory` to refuse a stale correction or deletion

@@ -92,11 +92,22 @@ export interface MemorySearchParams {
 	readonly limit?: number
 	/** Match at least one exact normalized word token before limiting results. Empty means no constraint. */
 	readonly requiredIdentifiers?: readonly string[]
+	/** Maximum indexed candidates to examine in one page; omitted scans all. */
+	readonly maxScanned?: number
+	/** Skip this many candidates in newest-first scan order; a new search starts at zero. */
+	readonly scanOffset?: number
 }
 
 export interface MemorySearchResult {
 	readonly entries: readonly MemoryIndexEntry[]
+	/** Exact unless truncated is true; then counts matches in the scanned candidates only. */
 	readonly totalCount: number
+	/** True when the search stopped before examining all eligible candidates. */
+	readonly truncated?: boolean
+	/** Number of eligible candidates examined in this page. */
+	readonly scannedCount?: number
+	/** Pass as scanOffset to inspect the next page; absent when this scan reached the end. */
+	readonly nextScanOffset?: number
 }
 
 export interface CreateMemoryParams {

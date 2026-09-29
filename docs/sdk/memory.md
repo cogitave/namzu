@@ -35,7 +35,7 @@ project's state directory, so separate sessions in that project share records.
 | Operation | Result |
 | --- | --- |
 | `create(params)` | New active record, returning index entry and content with an opaque memory UUID. |
-| `list(params?)` | Matching index entries and `totalCount` before the result limit. |
+| `list(params?)` | Matching index entries and `totalCount` before the result limit. With `maxScanned`, `totalCount` covers only the scanned candidate page when `truncated` is true; `nextScanOffset` continues from that page. |
 | `get(id)` | Full content, format and optional metadata, or `undefined`. |
 | `getRecord?(id)` | Current `{ entry, content }` snapshot, or `undefined`. |
 | `update(id, updates)` | Updated index entry, or `undefined` when absent. |
@@ -276,6 +276,15 @@ expires after 14 hours” through the shared identifier terms. There is no
 stemming, synonym expansion, embedding or semantic verification. Contradictory
 records can both match. Disk searches read candidate bodies under the operation
 lock; a result limit bounds returned rows, not the amount of content scanned.
+Set `maxScanned` to cap candidates examined per call. The disk store selects
+that page before opening body files. `scanOffset` starts at the next candidate
+position and `nextScanOffset` points to the next page when `truncated` is true.
+Candidate pages use newest update first, then memory ID; `totalCount` counts
+matches in the page, not the whole store, until the scan reaches the end. An
+updated record can move between pages during a multi-call search, so restart
+the search when the store changes. Markdown memory still loads and validates
+all files before searching, to refuse corrupt or conflicting records; its
+search result is bounded but its file-read cost is not.
 
 `MemorySearchParams.requiredIdentifiers` optionally requires at least one exact
 word-token match in ID, title, summary or body **before** ranking/limiting.
@@ -306,7 +315,7 @@ operations available to the model.
 
 | Tool | Contract |
 | --- | --- |
-| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default limit of 10 and an allowed range of 1–50. |
+| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default result limit of 10 and an allowed range of 1–50. It examines at most 256 recent candidates per call and reports `truncated`, `scannedCount` and `nextScanOffset`; pass the latter as `scan_offset` to search the next candidate page. Results within a page are ranked and limited, so narrow a broad query if `totalCount` exceeds the returned entries. |
 | `read_memory` | Reads a complete record by its ID or its name. For a `text` or `markdown` record, the output is the body followed by `---` and the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. A `json` record's output is its body exactly, still parseable; `data` carries `updatedAt`, `name`, `type` and resolved `links` for every format. |
 | `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. |
 | `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status. Takes the record's ID or its name — what a prompt carrying the index shows. Refuses an empty update, an unknown name and a name another record holds. |

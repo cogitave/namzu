@@ -96,4 +96,35 @@ describe('persistent memory search composition', () => {
 		expect(result.output).toContain('independent index fact')
 		expect(list).not.toHaveBeenCalled()
 	})
+
+	it('says a zero-match page is incomplete and can find an older body-only match', async () => {
+		const store = new InMemoryMemoryStore()
+		let time = 1_000
+		const clock = vi.spyOn(Date, 'now').mockImplementation(() => ++time)
+		try {
+			await store.create({ title: 'Old fact', summary: '', content: 'ambermarker' })
+			for (let index = 0; index < 256; index += 1) {
+				await store.create({ title: `Recent ${index}`, summary: '', content: 'other fact' })
+			}
+		} finally {
+			clock.mockRestore()
+		}
+		const tools = registry(buildMemoryTools(store))
+		const first = await tools.execute(
+			'search_memory',
+			{ query: 'ambermarker', limit: 1 },
+			context(process.cwd()),
+		)
+		expect(first.output).toContain('Search incomplete; continue with scan_offset 256')
+		expect(first.output).not.toBe('No memories found.')
+		expect(first.data).toMatchObject({ totalCount: 0, truncated: true, nextScanOffset: 256 })
+
+		const second = await tools.execute(
+			'search_memory',
+			{ query: 'ambermarker', limit: 1, scan_offset: 256 },
+			context(process.cwd()),
+		)
+		expect(second.output).toContain('Old fact')
+		expect(second.data).toMatchObject({ totalCount: 1, truncated: false, scannedCount: 1 })
+	})
 })

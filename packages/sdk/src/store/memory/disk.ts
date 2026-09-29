@@ -19,7 +19,7 @@ import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import { SCHEMA_VERSION_KEY, defineSchema } from '../schema.js'
-import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
+import { InMemoryMemoryIndex, searchMemoryEntries, selectMemorySearchCandidates } from './index.js'
 import {
 	MemoryNameConflictError,
 	assertOptionalMemoryFields,
@@ -488,12 +488,31 @@ export class DiskMemoryStore implements ConditionalMemoryStore {
 				query: undefined,
 				limit: undefined,
 				requiredIdentifiers: undefined,
+				maxScanned: undefined,
+				scanOffset: undefined,
 			})
+			const selection = selectMemorySearchCandidates(candidates.entries, params)
 			const contents = new Map<MemoryId, string>()
-			for (const entry of candidates.entries) {
+			for (const entry of selection.entries) {
 				contents.set(entry.id, (await this.readContent(location, entry.id)).content)
 			}
-			return searchMemoryEntries(candidates.entries, params, (id) => contents.get(id) ?? '')
+			const matched = searchMemoryEntries(
+				selection.entries,
+				{ ...params, maxScanned: undefined, scanOffset: undefined },
+				(id) => contents.get(id) ?? '',
+			)
+			return {
+				...matched,
+				...(params.maxScanned !== undefined || params.scanOffset !== undefined
+					? {
+							truncated: selection.truncated,
+							scannedCount: selection.scannedCount,
+							...(selection.nextScanOffset !== undefined
+								? { nextScanOffset: selection.nextScanOffset }
+								: {}),
+						}
+					: {}),
+			}
 		})
 	}
 
