@@ -182,11 +182,14 @@ same trust boundary: model-authored memory text is evidence for the next request
 not operator policy. The normal turn, resume and compaction paths need the same
 provider-wire assertion. This is more urgent than changing the store format.
 
-Local plugin installation and reload are still manual. Pydantic CLI's
-[install and lifecycle commands](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/mcp/_command.py#L18)
-manage MCP server entries, not plugin packages; they establish the interactive
-server-management comparison above, not plugin parity. A separate plugin CLI
-design should start with an explicit local path, show the manifest
+Local plugin installation and reload are still manual. Pydantic CLAI2
+[discovers single-file plugins and rebuilds their hosts on reload](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/src/pydantic_clai2/pydantic_clai2/plugin_loader.py#L161),
+and its [CLI accepts `/plugins add` and `/plugins reload`
+without a restart](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bdf70c9215c6c/docs/harness/clai2.md#L467).
+Namzu requires a manifest directory and a restart after changing installed
+plugin files. This is a real CLI usability gap, separate from SDK capability
+composition and MCP server setup. A plugin CLI design should start with an
+explicit local path, show the manifest
 and source scope, pin the content reviewed by the operator, and make disable or
 remove reversible. Marketplace discovery is a separate distribution decision.
 For protocol task support, first prove cancellation, reconnect and result
