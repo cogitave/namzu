@@ -312,6 +312,8 @@ export function safeTestReason(reason: string, spec: McpServerSpec, name: string
 	if (reason.startsWith('it declares neither a command nor a url')) {
 		return 'server declares neither a command nor a URL'
 	}
+	const badShape = /^(command|url|cwd|args|inheritEnv|env|headers) must be\b/.exec(reason)
+	if (badShape) return `invalid ${badShape[1]} setting`
 	const unsetVariable = /^references \$\{([A-Za-z_][A-Za-z0-9_]*)\}, which is not set/.exec(reason)
 	if (unsetVariable) return `environment variable ${unsetVariable[1]} is not set`
 	for (const field of [

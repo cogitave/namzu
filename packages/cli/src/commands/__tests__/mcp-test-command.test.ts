@@ -326,3 +326,19 @@ it('reports a malformed effective entry instead of dereferencing it', async () =
 		reason: 'server specification must be a mapping',
 	})
 })
+
+it('names an invalid nested server setting in the test report', async () => {
+	writeFileSync(
+		join(project, 'namzu.config.json'),
+		JSON.stringify({ mcpServers: { broken: { command: process.execPath, args: { bad: true } } } }),
+	)
+	const result = await testServer('broken')
+	expect(result.code).not.toBe(0)
+	expect(result.output).toMatchObject({
+		name: 'broken',
+		status: 'unavailable',
+		transport: 'stdio',
+		toolCount: 0,
+		reason: 'invalid args setting',
+	})
+})
