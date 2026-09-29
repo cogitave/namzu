@@ -61,8 +61,14 @@ is plugin-authored context. It is labelled as untrusted material in each model
 request while this plugin is enabled, and disappears when the plugin is
 disabled. Tools and hooks declare
 JavaScript module paths; MCP servers declare their stdio command, optional
-arguments and environment. `connectors` and `personas` in plugin manifests are
-not supported and are refused rather than ignored.
+arguments and environment. A plugin MCP server may set `connectTimeoutMs`
+(a positive integer up to one hour; default 10,000 ms) for its entire startup
+handshake and discovery. Unknown fields inside a plugin MCP server declaration
+are refused at manifest load time. In particular, plugin manifests do not
+accept `url`, `headers`, `inheritEnv` or `requireApproval`: configure a remote
+server in `mcpServers`, and use a source permission rule for a plugin-owned
+server. `connectors` and `personas` in plugin manifests are not supported and
+are refused rather than ignored.
 
 A JavaScript tool module must export complete tool definitions, including an
 `inputSchema` that the SDK can parse and render. A missing or unusable schema
@@ -73,8 +79,10 @@ Review executable plugins before enabling loading: module imports and hooks
 execute in the CLI process, and MCP servers start child processes. Tool approval
 is not a sandbox for plugin startup code. Project trust and admitted scope roots
 still apply. Refused manifests stop plugin startup and roll back already loaded
-contributions. Namzu does not install another application's plugin format or
-download a marketplace through this menu.
+contributions. A failed or timed-out MCP handshake starts bounded transport
+shutdown before rollback completes. The shipped stdio transport escalates to
+process termination if its child does not exit. Namzu does not install another
+application's plugin format or download a marketplace through this menu.
 
 ## Inspect and control the session
 

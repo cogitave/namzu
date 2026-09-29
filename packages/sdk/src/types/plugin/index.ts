@@ -371,6 +371,8 @@ export interface PluginMCPServerConfig {
 	readonly command: string
 	readonly args?: readonly string[]
 	readonly env?: Readonly<Record<string, string>>
+	/** Maximum time to connect and discover this server. Default 10,000 ms. */
+	readonly connectTimeoutMs?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -392,12 +394,15 @@ export interface PluginManifest {
 	readonly personas?: readonly string[]
 }
 
-export const PluginMCPServerConfigSchema = z.object({
-	name: z.string().min(1),
-	command: z.string().min(1),
-	args: z.array(z.string()).optional(),
-	env: z.record(z.string()).optional(),
-})
+export const PluginMCPServerConfigSchema = z
+	.object({
+		name: z.string().min(1),
+		command: z.string().min(1),
+		args: z.array(z.string()).optional(),
+		env: z.record(z.string()).optional(),
+		connectTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
+	})
+	.strict()
 
 export const PluginManifestSchema = z.object({
 	name: z

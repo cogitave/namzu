@@ -62,6 +62,66 @@ interface PluginAdmission {
 	readonly inCode?: DefinedPlugin
 }
 
+const DEFAULT_PLUGIN_MCP_CONNECT_TIMEOUT_MS = 10_000
+const PLUGIN_MCP_CLOSE_TIMEOUT_MS = 5_000
+
+/** One deadline across handshake and all initial discovery requests. */
+async function beforePluginMcpDeadline<T>(
+	work: () => Promise<T>,
+	deadlineAt: number,
+	timeoutMs: number,
+	serverName: string,
+	onLate?: (value: T) => void,
+): Promise<T> {
+	const expired = (): Error =>
+		new Error(`Plugin MCP server "${serverName}" did not answer within ${timeoutMs}ms`)
+	const remaining = deadlineAt - Date.now()
+	if (remaining <= 0) throw expired()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	let timedOut = false
+	try {
+		const pending = work()
+		// A timed-out discovery can still finish after rollback. In particular,
+		// mcpToolset() starts a reconnect supervisor just before it returns.
+		// Close that late result without publishing any of its tools.
+		void pending.then(
+			(value) => {
+				if (timedOut) onLate?.(value)
+			},
+			() => {},
+		)
+		return await Promise.race([
+			pending,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					timedOut = true
+					reject(expired())
+				}, remaining)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
+/** Teardown is best-effort, but one stalled close must not block rollback or disable. */
+async function closePluginMcpWithin(work: () => Promise<void>, label: string): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		await Promise.race([
+			work(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error(`${label} did not close within ${PLUGIN_MCP_CLOSE_TIMEOUT_MS}ms`)),
+					PLUGIN_MCP_CLOSE_TIMEOUT_MS,
+				)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
 /** Dynamic imports bypass ToolDefinition's TypeScript contract. */
 function assertPluginTool(
 	value: unknown,
@@ -100,6 +160,9 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 			command: server.command,
 			...(server.args ? { args: Object.freeze([...server.args]) } : {}),
 			...(server.env ? { env: Object.freeze({ ...server.env }) } : {}),
+			...(server.connectTimeoutMs !== undefined
+				? { connectTimeoutMs: server.connectTimeoutMs }
+				: {}),
 		}),
 	)
 	return Object.freeze({
@@ -703,9 +766,29 @@ export class PluginLifecycleManager {
 			},
 			logger: this.log,
 		})
-
-		await client.connect()
+		// A failed handshake still owns a transport (and possibly a child
+		// process). Put it under rollback ownership before the first await.
 		contributions.mcpClients.push(client)
+		const timeoutMs = config.connectTimeoutMs ?? DEFAULT_PLUGIN_MCP_CONNECT_TIMEOUT_MS
+		const deadlineAt = Date.now() + timeoutMs
+		const closeLateClient = () => {
+			void closePluginMcpWithin(
+				() => client.disconnect(),
+				`Plugin MCP server "${config.name}" after late connection`,
+			).catch((error) => {
+				this.log.warn('Late MCP disconnect failed', {
+					'namzu.mcp.client_id': client.id,
+					'exception.message': toErrorMessage(error),
+				})
+			})
+		}
+		await beforePluginMcpDeadline(
+			() => client.connect(),
+			deadlineAt,
+			timeoutMs,
+			config.name,
+			closeLateClient,
+		)
 
 		// The toolset owns reconnection and reads this policy on each attempt.
 		const policyScope = this.configRegistry?.register(
@@ -715,18 +798,41 @@ export class PluginLifecycleManager {
 		// Preserve cross-disable drift detection. The live toolset below owns
 		// changes during this enablement; this manager-owned discovery remembers
 		// the server's earlier admission across clients and plugin lifetimes.
-		await this.mcpDiscovery.discoverFrom(client)
+		await beforePluginMcpDeadline(
+			() => this.mcpDiscovery.discoverFrom(client),
+			deadlineAt,
+			timeoutMs,
+			config.name,
+		)
 		const sourceId = `plugin:${pluginName}/mcp:${config.name}`
 		const policy = this.mcpToolPolicies?.[config.name] ?? this.mcpToolPolicies?.['*']
-		const entries = await mcpToolset(client, {
-			id: sourceId,
-			availability: 'deferred',
-			allow: policy?.allow,
-			deny: policy?.deny,
-			reconnect: policyScope ? () => policyScope.get() : {},
-			onDrift: this.onMCPToolDrift,
-			logger: this.log,
-		})
+		const entries = await beforePluginMcpDeadline(
+			() =>
+				mcpToolset(client, {
+					id: sourceId,
+					availability: 'deferred',
+					allow: policy?.allow,
+					deny: policy?.deny,
+					reconnect: policyScope ? () => policyScope.get() : {},
+					onDrift: this.onMCPToolDrift,
+					logger: this.log,
+				}),
+			deadlineAt,
+			timeoutMs,
+			config.name,
+			(lateEntries) => {
+				for (const entry of lateEntries) {
+					void closePluginMcpWithin(async () => {
+						await entry.close?.()
+					}, `Late MCP toolset ${entry.source.id}`).catch((error) => {
+						this.log.warn('Late MCP toolset close failed', {
+							'namzu.toolset.source_id': entry.source.id,
+							'exception.message': toErrorMessage(error),
+						})
+					})
+				}
+			},
+		)
 		contributions.mcpToolsets.push(...entries)
 		const wrapped = entries.map((entry) =>
 			prefixed(entry, `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}`),
@@ -780,18 +886,34 @@ export class PluginLifecycleManager {
 		operation: 'rollback' | 'disable',
 	): Promise<void> {
 		for (const unsubscribe of contributions.mcpUnsubscribers) unsubscribe()
-		for (const entry of contributions.mcpToolsets) await entry.close?.()
-		for (const client of contributions.mcpClients) {
-			try {
-				await client.disconnect()
-			} catch (error) {
-				this.log.warn('MCP disconnect failed', {
-					'namzu.plugin.operation': operation,
-					'namzu.mcp.client_id': client.id,
-					'exception.message': toErrorMessage(error),
-				})
-			}
-		}
+		await Promise.all(
+			contributions.mcpToolsets.map(async (entry) => {
+				try {
+					await closePluginMcpWithin(async () => {
+						await entry.close?.()
+					}, `MCP toolset ${entry.source.id}`)
+				} catch (error) {
+					this.log.warn('MCP toolset close failed', {
+						'namzu.plugin.operation': operation,
+						'namzu.toolset.source_id': entry.source.id,
+						'exception.message': toErrorMessage(error),
+					})
+				}
+			}),
+		)
+		await Promise.all(
+			contributions.mcpClients.map(async (client) => {
+				try {
+					await closePluginMcpWithin(() => client.disconnect(), `MCP client ${client.id}`)
+				} catch (error) {
+					this.log.warn('MCP disconnect failed', {
+						'namzu.plugin.operation': operation,
+						'namzu.mcp.client_id': client.id,
+						'exception.message': toErrorMessage(error),
+					})
+				}
+			}),
+		)
 		for (const names of contributions.mcpNamesBySource.values()) {
 			for (const name of names) this.removeContributedTool(name)
 		}
