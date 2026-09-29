@@ -13,7 +13,8 @@ import { type IncomingMessage, type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { MCPClient, type MCPJsonRpcMessage, type MCPTransport } from '@namzu/sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import {
@@ -431,6 +432,84 @@ describe('a server that does not work is named, never merely absent', () => {
 		expect(Date.now() - started, 'the deadline has to actually bound it').toBeLessThan(30_000)
 		await mcp.close()
 	}, 40_000)
+
+	it('closes a connection that completes after its startup deadline and first teardown', async () => {
+		// Use the real MCPClient state machine with a delayed transport connect.
+		// The timeout is deterministic; no wall-clock race or child process is
+		// needed to prove that a late handshake can reopen a closed client.
+		vi.useFakeTimers()
+		let releaseConnect: (() => void) | undefined
+		let onMessage: ((message: MCPJsonRpcMessage) => void) | undefined
+		let onClose: (() => void) | undefined
+		let open = false
+		let closes = 0
+		const transport: MCPTransport = {
+			connect: () =>
+				new Promise<void>((resolve) => {
+					releaseConnect = () => {
+						open = true
+						resolve()
+					}
+				}),
+			close: async () => {
+				closes++
+				open = false
+				onClose?.()
+			},
+			isConnected: () => open,
+			send: async (message) => {
+				const id = message.id
+				if (id === undefined) return
+				queueMicrotask(() =>
+					onMessage?.({
+						jsonrpc: '2.0',
+						id,
+						result:
+							message.method === 'initialize'
+								? {
+										protocolVersion: (message.params as { protocolVersion?: string })
+											?.protocolVersion,
+										serverInfo: { name: 'late', version: '1' },
+										capabilities: {},
+									}
+								: {},
+					}),
+				)
+			},
+			onMessage: (handler) => {
+				onMessage = handler
+			},
+			onClose: (handler) => {
+				onClose = handler
+			},
+			onError: () => {},
+		}
+		const createTransport = vi
+			.spyOn(
+				MCPClient.prototype as unknown as { createTransport: () => MCPTransport },
+				'createTransport',
+			)
+			.mockReturnValue(transport)
+		try {
+			const pending = connectMcpServers(
+				{ late: { command: 'unused', connectTimeoutMs: 100 } },
+				{ cwd: dir },
+			)
+			await vi.advanceTimersByTimeAsync(100)
+			const mcp = await pending
+			expect(mcp.failed[0]?.name).toBe('late')
+			expect(mcp.failed[0]?.reason).toContain('did not answer within 100ms')
+			expect(closes).toBe(1)
+
+			releaseConnect?.()
+			await vi.advanceTimersByTimeAsync(0)
+			expect(closes).toBe(2)
+			expect(open).toBe(false)
+		} finally {
+			createTransport.mockRestore()
+			vi.useRealTimers()
+		}
+	})
 
 	it('gives a slow server the connect deadline its spec asks for', async () => {
 		// The default deadline is for a wedged server; a Python SDK server that

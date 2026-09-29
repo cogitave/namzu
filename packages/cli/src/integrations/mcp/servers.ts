@@ -512,13 +512,38 @@ function withSavedMcpOAuth(
 	return { ...transport, fetch: oauthFetch }
 }
 
-async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+async function withDeadline<T>(
+	work: Promise<T>,
+	ms: number,
+	what: string,
+	onLate?: (result: PromiseSettledResult<T>) => void,
+): Promise<T> {
 	let timer: NodeJS.Timeout | undefined
+	let timedOut = false
+	if (onLate) {
+		// Promise.race stops waiting, not the underlying connect/discovery.
+		// Keep ownership of whichever result arrives after the timeout.
+		void work
+			.then(
+				(value) => {
+					if (timedOut) onLate({ status: 'fulfilled', value })
+				},
+				(reason: unknown) => {
+					if (timedOut) onLate({ status: 'rejected', reason })
+				},
+			)
+			.catch(() => {
+				// The late cleanup is best effort; startup already reported failure.
+			})
+	}
 	try {
 		return await Promise.race([
 			work,
 			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error(`${what} did not answer within ${ms}ms`)), ms)
+				timer = setTimeout(() => {
+					timedOut = true
+					reject(new Error(`${what} did not answer within ${ms}ms`))
+				}, ms)
 			}),
 		])
 	} finally {
@@ -681,8 +706,26 @@ export async function connectMcpServers(
 				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
 			>(),
 		}
+		const deadlineAt = Date.now() + deadline
+		let closeTail: Promise<void> = Promise.resolve()
+		const closeClient = (): Promise<void> => {
+			const closing = closeTail.then(() =>
+				withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`),
+			)
+			closeTail = closing.catch(() => {})
+			return closing
+		}
+		const closeLateClient = () => {
+			void closeClient().catch(() => {})
+		}
 		try {
-			await withDeadline(client.connect(), deadline, `server "${name}"`)
+			await withDeadline(client.connect(), deadline, `server "${name}"`, closeLateClient)
+			const remaining = deadlineAt - Date.now()
+			if (remaining <= 0) {
+				throw new Error(
+					`server "${name}" discovering its tools did not answer within ${deadline}ms`,
+				)
+			}
 			const discovered = await withDeadline(
 				mcpToolset(client, {
 					...toolsetOptions,
@@ -693,8 +736,26 @@ export async function connectMcpServers(
 					},
 					onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
 				}),
-				deadline,
+				remaining,
 				`server "${name}" discovering its tools`,
+				(result) => {
+					if (result.status === 'rejected') {
+						closeLateClient()
+						return
+					}
+					void (async () => {
+						await Promise.all(
+							result.value.map((entry) =>
+								withDeadline(
+									Promise.resolve(entry.close?.()),
+									CLOSE_TIMEOUT_MS,
+									`closing late toolset "${name}"`,
+								).catch(() => {}),
+							),
+						)
+						closeLateClient()
+					})().catch(() => {})
+				},
 			)
 			const mounted = spec.requireApproval
 				? discovered.map((entry) => requireApproval(entry))
@@ -714,7 +775,7 @@ export async function connectMcpServers(
 			// under one of the two answers is a shutdown path waiting to hang.
 			// Nothing here reads the client's state afterwards either.
 			try {
-				await withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`)
+				await closeClient()
 			} catch {
 				// Already gone, never started, or refusing to answer. The failure is
 				// already recorded and there is nothing further to do about it.
