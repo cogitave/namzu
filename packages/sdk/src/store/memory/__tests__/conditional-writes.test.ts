@@ -76,7 +76,7 @@ describe.each(['memory', 'disk', 'markdown'] as const)('%s conditional memory wr
 			metadata: { source: { version: 1 } },
 		})
 		const stale = await store.getVersionedRecord(entry.id)
-		expect(stale?.revision).toMatch(/^m1:[a-f0-9]{64}$/)
+		expect(stale?.revision).toMatch(/^m2:[a-f0-9]{64}$/)
 		await other.update(entry.id, {
 			content: 'New body',
 			metadata: { source: { version: 2 } },
@@ -133,6 +133,59 @@ describe.each(['memory', 'disk', 'markdown'] as const)('%s conditional memory wr
 			MemoryRevisionConflictError,
 		)
 	})
+})
+
+it('tracks cloneable in-memory metadata that JSON would omit or flatten', async () => {
+	vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+	const store = new InMemoryMemoryStore()
+	const loop: Record<string, unknown> = { value: 1 }
+	loop.self = loop
+	const shared = { value: 1 }
+	const metadata = {
+		big: 1n,
+		map: new Map([['key', 1]]),
+		set: new Set([1]),
+		date: new Date('2026-01-01T00:00:00Z'),
+		loop,
+		left: shared,
+		right: shared,
+	}
+	const { entry } = await store.create({
+		title: 'Special metadata',
+		summary: 'Special metadata',
+		content: 'Body',
+		metadata,
+	})
+	const original = await store.getVersionedRecord(entry.id)
+	if (!original) throw new Error('Expected a memory revision')
+	let previous = original.revision
+	async function changedAfter(mutate: () => unknown) {
+		await mutate()
+		const current = await store.getVersionedRecord(entry.id)
+		expect(current?.revision).not.toBe(previous)
+		await expect(
+			store.updateIfRevision(entry.id, { content: 'Stale overwrite' }, previous),
+		).rejects.toBeInstanceOf(MemoryRevisionConflictError)
+		expect((await store.get(entry.id))?.content).toBe('Body')
+		if (!current) throw new Error('Expected a changed revision')
+		previous = current.revision
+	}
+	await changedAfter(() => metadata.map.set('key', 2))
+	await changedAfter(() => metadata.set.add(2))
+	await changedAfter(() => metadata.date.setUTCFullYear(2027))
+	await changedAfter(() => {
+		loop.value = 2
+	})
+	await changedAfter(() => store.update(entry.id, { metadata: { ...metadata, big: 2n } }))
+	await changedAfter(() =>
+		store.update(entry.id, {
+			metadata: { ...metadata, big: 2n, left: { value: 1 }, right: { value: 1 } },
+		}),
+	)
+	await expect(store.deleteIfRevision(entry.id, original.revision)).rejects.toBeInstanceOf(
+		MemoryRevisionConflictError,
+	)
+	expect(await store.get(entry.id)).toBeDefined()
 })
 
 it('refuses a Markdown hand edit even when updatedAt is unchanged', async () => {
