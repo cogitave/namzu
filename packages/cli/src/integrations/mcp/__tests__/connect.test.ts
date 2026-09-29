@@ -609,6 +609,48 @@ describe('a server that does not work is named, never merely absent', () => {
 			await mcp.close()
 		}
 	})
+
+	it('keeps an already connected sibling owned when later config entries have invalid runtime shapes', async () => {
+		const good = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: { command: process.execPath, args: [good] },
+				badArgs: {
+					command: process.execPath,
+					args: { unexpected: true } as never,
+				},
+				badEnv: { command: process.execPath, env: { TOKEN: 42 } as never },
+				badHeaders: {
+					url: 'https://example.test/mcp',
+					headers: { Authorization: 42 } as never,
+				},
+				badInheritance: {
+					command: process.execPath,
+					inheritEnv: 'TOKEN' as never,
+				},
+				badTransport: { command: 42 as never, url: 'https://example.test/mcp' },
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected.map((server) => server.name)).toEqual(['tickets'])
+			expect(mcp.failed).toEqual([
+				{ name: 'badArgs', reason: 'args must be a list of strings' },
+				{ name: 'badEnv', reason: 'env must be a mapping of string values' },
+				{
+					name: 'badHeaders',
+					reason: 'headers must be a mapping of string values',
+				},
+				{
+					name: 'badInheritance',
+					reason: 'inheritEnv must be a list of environment variable names',
+				},
+				{ name: 'badTransport', reason: 'command must be a string' },
+			])
+		} finally {
+			await mcp.close()
+		}
+	})
 })
 
 describe('a spec that is not a server', () => {
@@ -695,12 +737,17 @@ describe('${VAR} expansion in env and headers values', () => {
 			API_TOKEN: 'secret-1',
 		} as NodeJS.ProcessEnv)
 		expect(typeof transport).not.toBe('string')
-		expect((transport as { env?: Record<string, string> }).env).toEqual({ TOKEN: 'secret-1' })
+		expect((transport as { env?: Record<string, string> }).env).toEqual({
+			TOKEN: 'secret-1',
+		})
 	})
 
 	it('transportFor expands header values for an http server', () => {
 		const transport = transportFor(
-			{ url: 'https://example.invalid/mcp', headers: { 'X-Token': '${API_TOKEN}' } },
+			{
+				url: 'https://example.invalid/mcp',
+				headers: { 'X-Token': '${API_TOKEN}' },
+			},
 			dir,
 			{ API_TOKEN: 'secret-1' } as NodeJS.ProcessEnv,
 		)
@@ -735,7 +782,9 @@ describe('${VAR} expansion in env and headers values', () => {
 			{
 				secure: {
 					url: 'https://example.invalid/mcp',
-					headers: { Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}' },
+					headers: {
+						Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}',
+					},
 				},
 			},
 			{ cwd: dir },

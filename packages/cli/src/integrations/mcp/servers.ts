@@ -161,6 +161,51 @@ export interface McpServerSpec {
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
 
+/**
+ * Config loading preserves individual server entries so the connector can
+ * report each bad entry by name. Check their runtime shape here before using
+ * arrays or string values: the TypeScript interface cannot validate YAML.
+ */
+function serverSpecProblem(value: unknown): string | undefined {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		return 'server spec must be a mapping'
+	}
+	const spec = value as Record<string, unknown>
+	for (const key of ['command', 'url', 'cwd'] as const) {
+		if (spec[key] !== undefined && typeof spec[key] !== 'string') {
+			return `${key} must be a string`
+		}
+	}
+	if (
+		spec.args !== undefined &&
+		(!Array.isArray(spec.args) || !spec.args.every((arg) => typeof arg === 'string'))
+	) {
+		return 'args must be a list of strings'
+	}
+	if (
+		spec.inheritEnv !== undefined &&
+		(!Array.isArray(spec.inheritEnv) ||
+			!spec.inheritEnv.every(
+				(name) => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name),
+			))
+	) {
+		return 'inheritEnv must be a list of environment variable names'
+	}
+	for (const key of ['env', 'headers'] as const) {
+		const record = spec[key]
+		if (
+			record !== undefined &&
+			(typeof record !== 'object' ||
+				record === null ||
+				Array.isArray(record) ||
+				!Object.values(record).every((item) => typeof item === 'string'))
+		) {
+			return `${key} must be a mapping of string values`
+		}
+	}
+	return undefined
+}
+
 export interface ConnectedMcpServer {
 	readonly name: string
 	readonly toolCount: number
@@ -429,7 +474,11 @@ function withSavedMcpOAuth(
 		if (!current) throw mcpOAuthUnauthorized()
 		const headers = new Headers(init?.headers)
 		headers.set('Authorization', `Bearer ${current.access_token}`)
-		const retried = await rawFetch(input, { ...init, headers, redirect: 'manual' })
+		const retried = await rawFetch(input, {
+			...init,
+			headers,
+			redirect: 'manual',
+		})
 		if (retried.status === 401) {
 			void retried.body?.cancel().catch(() => undefined)
 			throw mcpOAuthUnauthorized()
@@ -579,8 +628,9 @@ export async function connectMcpServers(
 	// of nothing and the failure output arrive interleaved, for a saving that
 	// matters only to someone running many servers, who has other problems.
 	for (const [name, spec] of entries) {
-		if (typeof spec !== 'object' || spec === null) {
-			startupFailed.push({ name, reason: 'server spec must be a mapping' })
+		const shapeProblem = serverSpecProblem(spec)
+		if (shapeProblem) {
+			startupFailed.push({ name, reason: shapeProblem })
 			continue
 		}
 		const transport = transportFor(spec, options.cwd)
@@ -611,11 +661,17 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: reasonOf(error) })
 			continue
 		}
-		const client = new MCPClient({
-			serverName: name,
-			transport: connectedTransport,
-			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
-		})
+		let client: MCPClient
+		try {
+			client = new MCPClient({
+				serverName: name,
+				transport: connectedTransport,
+				...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
+			})
+		} catch (error) {
+			startupFailed.push({ name, reason: reasonOf(error) })
+			continue
+		}
 		const discovery = {
 			added: new Set<string>(),
 			removed: new Set<string>(),

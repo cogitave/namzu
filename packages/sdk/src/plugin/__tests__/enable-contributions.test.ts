@@ -12,6 +12,7 @@ import { PluginLifecycleManager } from '../lifecycle.js'
 const mockConnect = vi.fn(async (): Promise<unknown> => undefined)
 const mockDisconnect = vi.fn(async (): Promise<void> => undefined)
 const mockListTools = vi.fn(async (): Promise<unknown[]> => [])
+const mockUnsubscribeNotification = vi.fn()
 
 vi.mock('../../connector/mcp/client.js', () => ({
 	// `function`, not an arrow, and it has to stay that way: `lifecycle.ts`
@@ -30,7 +31,9 @@ vi.mock('../../connector/mcp/client.js', () => ({
 	// here. Suppressed rather than exempted file-wide, so the rule keeps working
 	// everywhere else in this file.
 	// biome-ignore lint/complexity/useArrowFunction: a constructible mock implementation cannot be an arrow function.
-	MCPClient: vi.fn().mockImplementation(function (config: { serverName: string }) {
+	MCPClient: vi.fn().mockImplementation(function (config: {
+		serverName: string
+	}) {
 		return {
 			id: 'mcp-client-mock',
 			connect: mockConnect,
@@ -49,7 +52,7 @@ vi.mock('../../connector/mcp/client.js', () => ({
 			// is a fixture unlike production and the wiring fails only at runtime.
 			isConnected: () => true,
 			onLifecycle: () => () => {},
-			onNotification: () => () => {},
+			onNotification: () => mockUnsubscribeNotification,
 		}
 	}),
 }))
@@ -139,6 +142,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 		mockConnect.mockReset()
 		mockDisconnect.mockReset()
 		mockListTools.mockReset()
+		mockUnsubscribeNotification.mockReset()
 	})
 
 	it('revokes plugin instructions from an already-started prompt when disabled', async () => {
@@ -267,11 +271,19 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 			await mgr.enable(installed.id)
 			const enabled = registry.getOrThrow(installed.id)
-			registry.register({ ...enabled, status: 'disabled', enabledAt: undefined })
+			registry.register({
+				...enabled,
+				status: 'disabled',
+				enabledAt: undefined,
+			})
 			await expect(mgr.enable(installed.id)).rejects.toThrow(/status is "enabled"/)
 			expect(mockConnect).toHaveBeenCalledOnce()
 
-			registry.register({ ...enabled, status: 'installed', enabledAt: undefined })
+			registry.register({
+				...enabled,
+				status: 'installed',
+				enabledAt: undefined,
+			})
 			await mgr.uninstall(installed.id)
 
 			expect(mockDisconnect).toHaveBeenCalledOnce()
@@ -391,9 +403,143 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/connect refused/)
 
-			// Rollback: first server's tools unregistered, first client disconnected.
+			// Rollback owns both clients, including the one whose handshake failed.
 			expect(toolNames(mgr)).toEqual([])
-			expect(mockDisconnect).toHaveBeenCalledOnce()
+			expect(mockDisconnect).toHaveBeenCalledTimes(2)
+		})
+
+		it('bounds a silent plugin server even when rollback disconnect also stalls', async () => {
+			let started!: () => void
+			const connecting = new Promise<void>((resolve) => {
+				started = resolve
+			})
+			let disconnectStarted!: () => void
+			const disconnecting = new Promise<void>((resolve) => {
+				disconnectStarted = resolve
+			})
+			mockConnect.mockImplementationOnce(() => {
+				started()
+				return new Promise<never>(() => {})
+			})
+			mockDisconnect.mockImplementationOnce(() => {
+				disconnectStarted()
+				return new Promise<never>(() => {})
+			})
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'silent',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				await connecting
+				await vi.advanceTimersByTimeAsync(500)
+				await disconnecting
+				await vi.advanceTimersByTimeAsync(5_000)
+				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				expect(mockDisconnect).toHaveBeenCalledOnce()
+				expect(toolNames(mgr)).toEqual([])
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it('disconnects again if a timed-out handshake resolves after rollback', async () => {
+			let finishConnect!: () => void
+			const pendingConnect = new Promise<void>((resolve) => {
+				finishConnect = resolve
+			})
+			let connectStarted!: () => void
+			const connecting = new Promise<void>((resolve) => {
+				connectStarted = resolve
+			})
+			mockConnect.mockImplementationOnce(() => {
+				connectStarted()
+				return pendingConnect
+			})
+			mockDisconnect.mockResolvedValue(undefined)
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'late-connect',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				await connecting
+				await vi.advanceTimersByTimeAsync(500)
+				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				expect(mockDisconnect).toHaveBeenCalledOnce()
+				finishConnect()
+				await vi.advanceTimersByTimeAsync(0)
+				expect(mockDisconnect).toHaveBeenCalledTimes(2)
+				expect(toolNames(mgr)).toEqual([])
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it('closes a toolset that finishes discovery after the startup deadline', async () => {
+			mockConnect.mockResolvedValue(undefined)
+			mockDisconnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValueOnce([{ name: 'first', inputSchema: { type: 'object' } }])
+			let finishDiscovery!: (tools: unknown[]) => void
+			const discovering = new Promise<unknown[]>((resolve) => {
+				finishDiscovery = resolve
+			})
+			let secondListingStarted!: () => void
+			const secondListing = new Promise<void>((resolve) => {
+				secondListingStarted = resolve
+			})
+			mockListTools.mockImplementationOnce(() => {
+				secondListingStarted()
+				return discovering
+			})
+			const { registry, scopeRoots } = makePluginRegistry({
+				manifest: {
+					name: 'late',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true', connectTimeoutMs: 500 }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				scopeRoots,
+				log: makeLogger(),
+			})
+			vi.useFakeTimers()
+			try {
+				const enabling = mgr.enable(pluginId)
+				// File read and the first listing are real async work. Await the
+				// second listing's invocation, then advance only the fake clock.
+				await secondListing
+				await vi.advanceTimersByTimeAsync(500)
+				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				finishDiscovery([{ name: 'late', inputSchema: { type: 'object' } }])
+				await vi.advanceTimersByTimeAsync(0)
+				expect(toolNames(mgr)).toEqual([])
+				expect(mockUnsubscribeNotification).toHaveBeenCalledOnce()
+			} finally {
+				vi.useRealTimers()
+			}
 		})
 	})
 })
