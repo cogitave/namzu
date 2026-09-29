@@ -29,7 +29,8 @@ full descriptions and can load their schemas; moving the hint does not remove
 the tool from discovery. A host that renders `ToolManager.toPromptSection()`
 itself can use `toUntrustedDeferredContext()` in a request-only context
 channel to provide the same hints without treating server text as a system
-instruction. Hints are capped at 4,000 characters per request. The runtime
+instruction. The list of hints is capped at 4,000 characters per request;
+its untrusted provenance frame adds a small amount of text. The runtime
 captures them before step preparation, prices the broad snapshot against
 context room, and filters that snapshot to the step's permitted tools. Hosts
 that prepare their own steps can use `snapshotUntrustedDeferredContext()` for
