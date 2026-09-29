@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-29
+
+- **Fix** [Background jobs](cli/background-jobs.md#learning-that-it-ended): a failed spawn now announces its job's exit once, after the child closes, without presenting a synthetic errno as the command's exit code; an error from an already-running process does not announce an early exit. Completed and aborted job or delegated-task waits release their polling timers. SDK awaited-job tests control exits instead of relying on relative `sleep` durations; idle-stream and agent front-door tests no longer abort valid runs after one second; large-input lexer tests no longer compare stopwatch ratios. CLI background-child and scheduled-run tests now wait for the events they assert without a short poll or competing watchdog. `.changeset/sdk-idle-timeout-test-race.md`, **patch** for `@namzu/sdk` and `@namzu/cli`.
+
 ## 2026-09-28
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [Provider credentials](cli/credentials.md): the eight bundled free Zen models are selectable without a key through an experimental OpenCode-compatible request path; Space Bunny remains the verified direct default. A 2026-09-28 full Namzu-request probe completed seven of eight models, while Ling returned an unavailable-endpoint error and smaller requests to the other seven were refused. Installation of OpenCode is recommended for comparison but is not used by Namzu's direct model requests. `.changeset/zen-experimental-free-models.md`, **minor** for `@namzu/zen` and `@namzu/cli`.

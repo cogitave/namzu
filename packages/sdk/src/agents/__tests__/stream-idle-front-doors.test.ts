@@ -55,40 +55,26 @@ describe('agent front doors preserve the provider idle override', () => {
 		return dir
 	}
 
-	async function withSafety<T>(caller: AbortController, operation: () => Promise<T>): Promise<T> {
-		const timer = setTimeout(
-			() => caller.abort(new Error('test safety bound: front door dropped idle timeout')),
-			1_000,
-		)
-		try {
-			return await operation()
-		} finally {
-			clearTimeout(timer)
-		}
-	}
-
 	it('runAgent forwards it into the query run config', async () => {
 		const provider = new NoRetryStallProvider()
 		const caller = new AbortController()
 		const workingDirectory = await directory()
-		const result = await withSafety(caller, () =>
-			runAgent({
-				provider,
-				model: 'mock-model',
-				prompt: 'stall once',
-				workingDirectory,
-				streamIdleTimeoutMs: 10,
-				signal: caller.signal,
-				...scope,
-			}),
-		)
+		const result = await runAgent({
+			provider,
+			model: 'mock-model',
+			prompt: 'stall once',
+			workingDirectory,
+			streamIdleTimeoutMs: 10,
+			signal: caller.signal,
+			...scope,
+		})
 
 		// A stalled stream is a recoverable fault: the turn pauses to be resumed.
 		expect(result.turn.stopReason).toBe('paused')
 		expect(result.turn.lastProviderError?.kind).toBe('network')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
-	})
+	}, 30_000)
 
 	it('ReactiveAgent forwards it into the query run config', async () => {
 		const provider = new NoRetryStallProvider()
@@ -106,26 +92,26 @@ describe('agent front doors preserve the provider idle override', () => {
 			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
-			timeoutMs: 5_000,
+			// The idle override is the subject; the overall turn deadline must
+			// not decide the result while setup is delayed on a shared runner.
+			timeoutMs: 30_000,
 			streamIdleTimeoutMs: 10,
 			maxIterations: 1,
 			...scope,
 		} satisfies ReactiveAgentConfig
-		const result = await withSafety(caller, () =>
-			agent.run(
-				{
-					messages: [createUserMessage('stall once')],
-					workingDirectory,
-					signal: caller.signal,
-				},
-				config,
-			),
+		const result = await agent.run(
+			{
+				messages: [createUserMessage('stall once')],
+				workingDirectory,
+				signal: caller.signal,
+			},
+			config,
 		)
 
 		expect(result.stopReason).toBe('paused')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
-	})
+	}, 30_000)
 
 	it('SupervisorAgent forwards it into the query run config', async () => {
 		const provider = new NoRetryStallProvider()
@@ -146,24 +132,23 @@ describe('agent front doors preserve the provider idle override', () => {
 			systemPrompt: 'Answer directly.',
 			model: 'mock-model',
 			tokenBudget: 100_000,
-			timeoutMs: 5_000,
+			// The provider idle override should win before the turn deadline.
+			timeoutMs: 30_000,
 			streamIdleTimeoutMs: 10,
 			maxIterations: 1,
 			...scope,
 		} satisfies SupervisorAgentConfig
-		const result = await withSafety(caller, () =>
-			agent.run(
-				{
-					messages: [createUserMessage('stall once')],
-					workingDirectory,
-					signal: caller.signal,
-				},
-				config,
-			),
+		const result = await agent.run(
+			{
+				messages: [createUserMessage('stall once')],
+				workingDirectory,
+				signal: caller.signal,
+			},
+			config,
 		)
 
 		expect(result.status).toBe('failed')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
-	})
+	}, 30_000)
 })

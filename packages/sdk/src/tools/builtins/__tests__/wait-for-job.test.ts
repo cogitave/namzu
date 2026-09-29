@@ -219,6 +219,7 @@ describe('an already-exited job', () => {
 			// result depended on a poll tick firing, this would hang against
 			// a fake clock that never moves.
 			const outcome = await waitForJobWithBounds(jobs, 'job_1', { wallMs: 60_000, idleMs: 5_000 })
+			expect(vi.getTimerCount(), 'a completed wait retained its polling timer').toBe(0)
 
 			expect(outcome.kind).toBe('exited')
 			if (outcome.kind !== 'exited') return
@@ -246,6 +247,7 @@ describe('an abandoned wait', () => {
 			controller.abort(new Error('stop pressed'))
 
 			await expect(waiting).rejects.toThrow('stop pressed')
+			expect(vi.getTimerCount(), 'an aborted wait retained its polling timer').toBe(0)
 			expect(jobs.kill, 'aborting a WAIT must never stop the WORK').not.toHaveBeenCalled()
 		} finally {
 			vi.useRealTimers()
