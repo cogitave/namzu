@@ -367,10 +367,13 @@ the changed direction. Runtime worker reports do not become operator intent.
 when that runtime field is absent, followed by an eligible message still in the
 history. Generic prompts such as “continue” do not list arbitrary memories.
 
-Defaults are three records, 6,000 added characters including source labels and
-framing, and a 1,000 ms deadline for the whole pass. `maxMemories`, `maxChars`
-and `timeoutMs` accept positive safe integers. Available context headroom can
-reduce the character allowance further through `contextBudget.remainingTokens`;
+Defaults are three records selected from at most 256 recent candidates, 6,000
+added characters including source labels and framing, and a 1,000 ms deadline
+for the whole pass. `maxMemories`, `maxScanned`, `maxChars` and `timeoutMs`
+accept positive safe integers. An older record outside automatic recall's
+candidate page remains reachable through `search_memory` with `scan_offset`.
+Available context headroom can reduce the character allowance further through
+`contextBudget.remainingTokens`;
 this uses the runtime's context estimate, not a tokenizer or billing guarantee.
 If even the framing cannot fit, the hook skips recall without reading the store.
 

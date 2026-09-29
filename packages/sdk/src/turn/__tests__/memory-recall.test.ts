@@ -31,6 +31,26 @@ async function fixture() {
 }
 
 describe('bounded memory recall', () => {
+	it('limits automatic recall to recent candidates while leaving older memory searchable', async () => {
+		const store = new InMemoryMemoryStore()
+		let time = 1_000
+		const clock = vi.spyOn(Date, 'now').mockImplementation(() => ++time)
+		try {
+			await store.create({ title: 'Old fact', summary: '', content: 'ambermarker is active' })
+			await store.create({ title: 'New fact', summary: '', content: 'unrelated' })
+			await store.create({ title: 'Newest fact', summary: '', content: 'unrelated' })
+		} finally {
+			clock.mockRestore()
+		}
+		expect(
+			await createMemoryRecallStep({ store, maxScanned: 2 })(context('Tell me about ambermarker')),
+		).toBeUndefined()
+		expect(
+			(await createMemoryRecallStep({ store, maxScanned: 3 })(context('Tell me about ambermarker')))
+				?.context,
+		).toContain('ambermarker is active')
+	})
+
 	it('finds body-only facts in request context while preserving earlier context', async () => {
 		const { recall, entry } = await fixture()
 		const result = await recall({
