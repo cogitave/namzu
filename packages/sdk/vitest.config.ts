@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 import { sdkTestIsolation } from './vitest.shared.js'
@@ -5,6 +6,11 @@ import { sdkTestIsolation } from './vitest.shared.js'
 export default defineConfig({
 	test: {
 		...sdkTestIsolation,
+		// A many-core host can start dozens of CPU-bound workers at once. That
+		// delayed valid async tests past Vitest's five-second wall-clock limit;
+		// the same 9,572 tests pass with four workers. Keep smaller CI hosts at
+		// their natural parallelism while bounding large development machines.
+		maxWorkers: Math.min(4, availableParallelism()),
 		// `*.proc-test.ts` is deliberately OUT of the default run and has its
 		// own script and CI step. Those tests spawn a child process to prove
 		// something no in-process test can — that a run survives on its own
