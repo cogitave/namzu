@@ -5,6 +5,7 @@ import {
 } from '../../../compaction/extractor.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
+import { CHARS_PER_TOKEN } from '../../../constants/limits.js'
 import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
 	STRUCTURED_OUTPUT_REPROMPT,
@@ -554,11 +555,23 @@ export class IterationOrchestrator {
 					// reaches the provider even if a stage changes external state.
 					const contextSections =
 						this.ctx.promptContributions?.render('context', { iteration: iterationNum }) ?? []
-					const contextText = contextSections.join('\n\n')
+					const deferredMcpHints =
+						this.ctx.showDeferredToolContext !== false
+							? this.ctx.tools.snapshotUntrustedDeferredContext()
+							: undefined
+					const pricedContextText = [
+						...contextSections,
+						...(deferredMcpHints?.all ? [deferredMcpHints.all] : []),
+					].join('\n\n')
 					const shaping: StepShaping = {
 						...this.stepShaping(),
-						requestContextTokens: contextText
-							? estimateMessageTokens(stepContextMessage(contextText))
+						requestContextTokens: pricedContextText
+							? estimateMessageTokens(stepContextMessage(pricedContextText)) +
+								Math.ceil(
+									((deferredMcpHints?.maxRenderedChars ?? 0) -
+										(deferredMcpHints?.all.length ?? 0)) /
+										CHARS_PER_TOKEN,
+								)
 							: 0,
 					}
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
@@ -576,6 +589,11 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 
 					const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
+					const deferredMcpContext = deferredMcpHints?.forNames(stepAllowedTools) ?? ''
+					const contextText = [
+						...contextSections,
+						...(deferredMcpContext ? [deferredMcpContext] : []),
+					].join('\n\n')
 					const llmTools = this.ctx.tools
 						.toLLMTools(stepAllowedTools)
 						.filter(

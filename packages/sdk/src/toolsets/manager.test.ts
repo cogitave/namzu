@@ -515,6 +515,30 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		expect(m.toPromptSection()).toContain('Use search_tools to load these before use:')
 	})
 
+	it('snapshots bounded MCP hints and filters the same candidates for a step', () => {
+		const remoteTools = Array.from({ length: 60 }, (_, index) =>
+			makeTool(`remote_${index}`, {
+				description: `Server hint ${index} ${'x'.repeat(90)}`,
+			}),
+		)
+		const m = manager([
+			deferred(toolset({ id: 'mcp:test', kind: 'mcp_server', name: 'test' }, remoteTools)),
+		])
+		const snapshot = m.snapshotUntrustedDeferredContext()
+		expect(snapshot.all).toContain('remote_0')
+		expect(snapshot.all).not.toContain('remote_59')
+		expect(snapshot.all.length).toBeLessThan(4_500)
+		expect(snapshot.maxRenderedChars).toBeGreaterThanOrEqual(snapshot.all.length)
+		const selected = snapshot.forNames(['remote_1'])
+		expect(selected).toContain('remote_1')
+		expect(selected).not.toContain('remote_0')
+		expect(selected.length).toBeLessThan(snapshot.all.length)
+		expect(snapshot.forNames(['remote_59'])).toContain('remote_59')
+		expect(snapshot.forNames(['remote_59']).length).toBeLessThanOrEqual(snapshot.maxRenderedChars)
+		expect(snapshot.forNames([])).toBe('')
+		expect(m.toPromptSection()).toContain('- remote_59')
+	})
+
 	it('toTierGuidance renders via the configured template, null without one', () => {
 		const withoutTiers = manager([toolset('a', [makeTool('t')])])
 		expect(withoutTiers.toTierGuidance()).toBeNull()

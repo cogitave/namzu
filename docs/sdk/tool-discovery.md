@@ -21,6 +21,19 @@ a live connection. A failed or throwing check suspends the toolset.
 `search_tools` searches deferred tools by name, description and model-facing
 argument names. It reveals the five highest-ranked permitted matches and
 returns up to five further matches as explicitly unrevealed suggestions.
+The system prompt lists the names of deferred MCP tools without repeating
+their server-authored descriptions. Those short descriptions reach the model
+as a labelled, untrusted `step-context` message after conversation history,
+only for tools permitted in that request. `search_tools` still searches their
+full descriptions and can load their schemas; moving the hint does not remove
+the tool from discovery. A host that renders `ToolManager.toPromptSection()`
+itself can use `toUntrustedDeferredContext()` in a request-only context
+channel to provide the same hints without treating server text as a system
+instruction. Hints are capped at 4,000 characters per request. The runtime
+captures them before step preparation, prices the broad snapshot against
+context room, and filters that snapshot to the step's permitted tools. Hosts
+that prepare their own steps can use `snapshotUntrustedDeferredContext()` for
+the same bounded snapshot. The minimal context level omits both listings.
 Generic words such as `tool`, `search` and `read` do not reveal whole
 catalogues. An exact tool name still matches, including short or generic
 names such as `ls` and `read`; it does not reveal tools that merely contain
