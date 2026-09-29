@@ -1,5 +1,21 @@
 # @namzu/sandbox
 
+## 24.0.0
+
+### Patch Changes
+
+- b7d83ec: Sandbox unit tests now limit worker parallelism on many-core hosts. Kubernetes transport tests also use a stable unreachable address for an unchanged pod and accept an acquire deadline that expires during the initial API request before readiness polling starts. Published runtime behavior is unchanged.
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [2b1cbb5]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+- Updated dependencies [b7d83ec]
+  - @namzu/sdk@49.0.0
+
 ## 23.0.1
 
 ### Patch Changes
