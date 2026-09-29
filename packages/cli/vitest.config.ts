@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -49,6 +50,10 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
 	test: {
 		testTimeout: 15_000,
+		// This suite creates real sessions and child processes. On hosts with
+		// dozens of cores, unrestricted workers contend for disk and CPU long
+		// enough to expire an otherwise healthy scheduled-run test.
+		maxWorkers: Math.min(4, availableParallelism()),
 		// LOG-05: every entry point now installs a REAL stderr sink instead of
 		// forcing the level to `silent` via `configureLogger`, so a `ctx` a
 		// test built by hand without a `logging` field falls back to
