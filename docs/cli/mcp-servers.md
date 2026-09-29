@@ -58,7 +58,7 @@ Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warnin
 | `env` | stdio | Variables set for the child. Written into the config file, so not for secrets — unless a value is a `${VAR}` reference (below). |
 | `inheritEnv` | stdio | Names of variables copied from the operator's own environment. The child gets process plumbing plus what is named, never the whole environment — a server that needs one token is granted that token, and a reviewer can see which. |
 | `url`, `headers` | HTTP | The server's endpoint and the headers every request carries. Redirects are refused: a credentialed body is never replayed to a location the config did not name. A header value may also be a `${VAR}` reference (below). |
-| `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number; anything else is refused with a reason. |
+| `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number no greater than 2,147,483,647 ms, Node's maximum timer delay; anything else is refused with a reason. |
 | `eraProbeTimeoutMs` | both | How long this server's era probe — see below — waits for an answer, in milliseconds. Defaults to the SDK's own `2000`, clamped to `connectTimeoutMs`. Must be a positive number; anything else is refused with a reason. |
 | `allow`, `deny` | both | Lists of server-reported tool, prompt or resource names, before the `mcp__` prefix. `deny` wins over `allow`; malformed lists fail that server by name. |
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |

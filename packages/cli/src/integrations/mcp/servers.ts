@@ -70,6 +70,8 @@ import {
  * namzu that does not start.
  */
 export const CONNECT_TIMEOUT_MS = 10_000
+/** Node sets an overflowing timeout to 1 ms instead of waiting longer. */
+const MAX_CONNECT_TIMEOUT_MS = 2_147_483_647
 
 /**
  * How long shutting one server down may take before it is given up on.
@@ -563,8 +565,8 @@ const reasonOf = (err: unknown): string => (err instanceof Error ? err.message :
 export function connectDeadlineFor(spec: McpServerSpec): number | string {
 	const ms = spec.connectTimeoutMs
 	if (ms === undefined) return CONNECT_TIMEOUT_MS
-	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
-		return `connectTimeoutMs must be a positive number of milliseconds, got ${JSON.stringify(ms)}`
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || ms > MAX_CONNECT_TIMEOUT_MS) {
+		return `connectTimeoutMs must be a positive number of milliseconds at most ${MAX_CONNECT_TIMEOUT_MS}, got ${JSON.stringify(ms)}`
 	}
 	return ms
 }
