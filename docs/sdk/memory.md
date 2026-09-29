@@ -41,6 +41,38 @@ project's state directory, so separate sessions in that project share records.
 | `update(id, updates)` | Updated index entry, or `undefined` when absent. |
 | `delete(id)` | Whether the record existed and was removed. |
 
+### Conditional updates and deletion
+
+The built-in stores also implement `ConditionalMemoryStore`. Its
+`getVersionedRecord(id)` returns `{ entry, content, revision }`, where `revision`
+is an opaque token for the complete logical record, including body and metadata.
+Pass that token to `updateIfRevision(id, updates, revision)` or
+`deleteIfRevision(id, revision)`. If the record changed or disappeared, either
+method throws `MemoryRevisionConflictError` without applying that change. Read
+the record again before retrying. The token is derived from the record, not
+stored in its file, so existing JSON indexes and Markdown frontmatter need no
+migration. It detects content edits even when `updatedAt` stays the same or two
+writes happen in one millisecond. Do not interpret or persist the token as a
+timestamp or monotonically increasing number.
+
+`MemoryStore.update` and `MemoryStore.delete` retain their existing behavior for
+callers that do not supply a revision: the last accepted write wins. The
+conditional check and mutation share each built-in store's coordination
+boundary. Disk and Markdown stores use their directory operation lock across
+cooperating Namzu processes; the in-memory store completes the check and change
+in one synchronous operation turn. A separate editor that changes a Markdown
+file while a store operation holds that lock does not participate in it.
+
+Custom stores may opt in by implementing all three conditional methods and
+their atomic check-and-change semantics. `hasConditionalMemoryWrites(store)`
+checks that the methods are present; it cannot verify a custom store's
+coordination. Memory tools refuse a supplied revision on stores without the
+full interface instead of falling back to an unconditional write. On a capable
+store, `read_memory` returns the token in `data.revision` and a separate
+model-visible text block; `update_memory` and `delete_memory` accept optional
+`revision` and report `revision_conflict` when it is stale. A JSON memory body
+remains unchanged and parseable in `read_memory.output`.
+
 ### Typed fields
 
 `MemoryIndexEntry` and `CreateMemoryParams` carry three optional fields:
@@ -70,7 +102,7 @@ explicit inspection, and setting `status: 'active'` reactivates it. Direct store
 an archived record. Deletion removes the store record, not earlier transcripts
 or copies made by callers.
 
-Both shipped stores implement optional `getRecord`. They read metadata and body
+All three built-in stores implement optional `getRecord`. They read metadata and body
 together at one operation boundary and return a defensive copy. This lets a
 caller recheck the current status after a search selected an older entry. It does
 not reserve that record against a later update or make a sequence of separate

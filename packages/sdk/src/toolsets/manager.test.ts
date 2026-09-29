@@ -967,6 +967,27 @@ describe('ToolManager — result screening (resultGuardrails)', () => {
 		expect(result.success).toBe(true)
 	})
 
+	it('a rewrite replaces separate model-visible content blocks too', async () => {
+		const tool = makeTool('lookup', {
+			async execute() {
+				return {
+					success: true,
+					output: 'secret and token',
+					content: [
+						{ type: 'text' as const, text: 'secret and token' },
+						{ type: 'text' as const, text: 'secret copied into another block' },
+					],
+				}
+			},
+		})
+		const m = manager([toolset('a', [tool])], {
+			resultGuardrails: [() => ({ action: 'rewrite' as const, output: '[redacted]' })],
+		})
+		const result = await m.execute('lookup', {}, makeContext())
+		expect(result.output).toBe('[redacted]')
+		expect(result.content).toBe('[redacted]')
+	})
+
 	it('a screen that throws fails closed — refusing rather than halting, because one broken screen is not a lost run', async () => {
 		const m = manager([toolset('a', [toolReturning('possibly hostile')])], {
 			resultGuardrails: [

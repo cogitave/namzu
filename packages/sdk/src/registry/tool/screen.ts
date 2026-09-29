@@ -128,5 +128,15 @@ export async function screenToolResult(
 		}
 	}
 
-	return rewritten ? { ...result, output: current } : result
+	// `content` wins over `output` on the model wire. A rewrite that leaves
+	// original content blocks in place would expose the text it just redacted.
+	// Rich blocks cannot be screened through the text-only verdict either, so
+	// a rewrite replaces the complete model-visible content with its text.
+	return rewritten
+		? {
+				...result,
+				output: current,
+				...(result.content !== undefined ? { content: current } : {}),
+			}
+		: result
 }
