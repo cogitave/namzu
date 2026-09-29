@@ -47,15 +47,19 @@ describe('memory controls the next actual model request', () => {
 				{ text: 'The obsolete memory is archived.' },
 			],
 		})
-		const requests: string[] = []
+		const requests: { system: string; context: string }[] = []
 		const original = provider.chatStream.bind(provider)
 		vi.spyOn(provider, 'chatStream').mockImplementation((params) => {
-			requests.push(
-				params.messages
+			requests.push({
+				system: params.messages
 					.filter((m) => m.role === 'system')
 					.map((m) => m.content)
 					.join('\n'),
-			)
+				context: params.messages
+					.filter((m) => m.role === 'user' && m.source?.type === 'runtime-context')
+					.map((m) => m.content)
+					.join('\n'),
+			})
 			return original(params)
 		})
 		const run = await drainQuery({
@@ -84,10 +88,11 @@ describe('memory controls the next actual model request', () => {
 		})
 		expect(run.status).toBe('completed')
 		expect(requests).toHaveLength(3)
-		expect(requests[0]).toContain('14 hours')
-		expect(requests[1]).toContain('28 hours')
-		expect(requests[1]).not.toContain('14 hours')
-		expect(requests[2]).not.toContain('Retrieved project memory')
+		expect(requests[0]?.system).not.toContain('Retrieved project memory')
+		expect(requests[0]?.context).toContain('14 hours')
+		expect(requests[1]?.context).toContain('28 hours')
+		expect(requests[1]?.context).not.toContain('14 hours')
+		expect(requests[2]?.context).not.toContain('Retrieved project memory')
 		expect(JSON.stringify(run.messages)).not.toContain('Retrieved project memory')
 		expect((await store.list({ status: 'archived' })).entries[0]?.id).toBe(entry.id)
 	})

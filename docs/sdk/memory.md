@@ -330,10 +330,15 @@ current evidence.
 
 `createMemoryRecallStep({ store })` returns a `PrepareStep` hook. Supply it as
 `prepareStep` to `query` or `drainQuery`, or include it in an ordered preparation
-chain. It preserves guidance from earlier stages and adds only an ephemeral
-system block for the next request. The block is not appended to saved
-conversation history. Explicit `read_memory` results remain ordinary tool
-history and have their normal retention behavior.
+chain. It preserves earlier `prepared.context` and adds an ephemeral
+`PrepareStepResult.context` block for the next request. The kernel sends it
+after conversation history as a labelled user-role `step-context` message;
+it does not grant system authority or enter saved conversation history.
+Earlier `prepared.system` guidance remains in the system message. Hosts that
+previously read the hook's returned `.system` must read `.context` instead.
+Explicit `read_memory` results remain ordinary tool history and have their
+normal retention behavior. Stored text can still influence the model; this
+role separation is not a guarantee against prompt injection.
 
 Recall selects active records using meaningful terms from the latest operator
 message in `PrepareStepContext.latestUserMessage`. The runtime carries that
@@ -402,9 +407,12 @@ as `"12 days old"`, and the block then ends with `MEMORY_VERIFY_NOTICE`: memorie
 are point-in-time, so a file, function, flag or command one names must be
 verified against the current code before it is relied on. The first aged record
 pays for the notice out of the character budget; a block of fresh records spends
-nothing on it. `now` overrides the clock. This framing is
-not a truth check or a security boundary. Current instructions and fresh evidence
-take precedence, and changeable facts need verification.
+nothing on it. `now` overrides the clock. This framing is not a truth check.
+Current instructions and fresh evidence take precedence, and changeable facts
+need verification. The request-only block costs input tokens on every request;
+placing it after the history preserves a cacheable system and history prefix
+where the provider supports that layout, without guaranteeing a cache hit or
+lower total token use.
 
 The CLI enables this hook by default. Set `memory.recall: false` in CLI
 configuration to disable automatic recall while retaining the explicit tools.
@@ -441,7 +449,7 @@ const context = {
 }
 
 const prepared = await recall(context)
-console.log(prepared?.system) // Includes the saved claim and its source ID.
+console.log(prepared?.context) // Includes the saved claim and its source ID.
 
 await store.update(entry.id, { status: 'archived' })
 console.log(await recall(context)) // undefined: archived records are excluded.

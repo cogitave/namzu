@@ -252,7 +252,6 @@ describe('explicit tool loading reaches the real session and query', () => {
 				const prompt = JSON.stringify(first.messages)
 				for (const retained of [
 					'PROJECT_INSTRUCTION_MUST_REMAIN',
-					'CURATED_MEMORY_MUST_REMAIN',
 					'RESIDENT_CONTINUITY_MUST_REMAIN',
 					'## How you work',
 					'### Planning and delegating',
@@ -265,6 +264,12 @@ describe('explicit tool loading reaches the real session and query', () => {
 					'Before using a tool listed under deferred_tools',
 				])
 					expect(prompt).toContain(retained)
+				expect(
+					JSON.stringify(first.messages.filter((message) => message.role === 'system')),
+				).not.toContain('CURATED_MEMORY_MUST_REMAIN')
+				expect(
+					JSON.stringify(first.messages.filter((message) => message.role === 'user')),
+				).toContain('CURATED_MEMORY_MUST_REMAIN')
 				// A send's runtime tools and activation never mutate the source registry.
 				expect(session.toolNames()).toEqual(initialSessionTools)
 			}

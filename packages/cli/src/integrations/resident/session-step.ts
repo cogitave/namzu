@@ -157,18 +157,10 @@ function validateFlags({ ctx, flags }: ResidentSessionStepOptions): void {
 		throw new Error('--gate-retries requires --gate and a whole number above zero.')
 }
 
-function residentContext(
-	pursuit: ResidentPursuit,
-	context: ResidentStepContext,
-	skills: string | undefined,
+function residentSystemContext(
 	history?: ResidentHistoryScope,
 	outputInstructions = DECISION_CONTRACT,
 ): string {
-	const { state } = pursuit
-	const learning = projectResidentLearning(context.learning, {
-		maxChars: 12_000,
-		skillNames: context.learning?.skills.map((skill) => skill.name) ?? [],
-	})
 	return [
 		'Perform one useful step of this explicitly authorized resident pursuit. Work only within its objective and the current project permissions.',
 		'Each resident step uses an isolated session. Only the supplied saved state continues between steps; do not assume earlier conversation or tool transcripts are present.',
@@ -178,6 +170,22 @@ function residentContext(
 					'Use search_resident_tools and read_resident_tool for original retained tool text across earlier settled invocations. Follow returned cursors and byte offsets, check isError and preview flags. Missing or changed output is unavailable, not permission to replay actions. Use search_resident_history and read_resident_history to recover decisions and accepted inputs missing from the last summary. Browse without a query or search an exact phrase; follow pagination. Recorded claims are not current verification: check newer corrections and mutable evidence. Do not replay an action to recover its output.',
 				]
 			: []),
+		outputInstructions,
+	].join('\n\n')
+}
+
+function residentSnapshotContext(
+	pursuit: ResidentPursuit,
+	context: ResidentStepContext,
+	skills: string | undefined,
+	history?: ResidentHistoryScope,
+): string {
+	const { state } = pursuit
+	const learning = projectResidentLearning(context.learning, {
+		maxChars: 12_000,
+		skillNames: context.learning?.skills.map((skill) => skill.name) ?? [],
+	})
+	return [
 		JSON.stringify({
 			identity: state.identity,
 			objective: state.objective,
@@ -196,7 +204,6 @@ function residentContext(
 			? [`${learning.omitted} learning entries were omitted from this bounded context.`]
 			: []),
 		...(skills ? [skills] : []),
-		outputInstructions,
 	].join('\n\n')
 }
 
@@ -434,13 +441,8 @@ export function createResidentSessionStep(
 					permissionMode: mode.mode,
 					...(options.contextProfile === 'interactive'
 						? {
-								extraSystem: residentContext(
-									pursuit,
-									context,
-									skills,
-									history?.scope,
-									outputInstructions,
-								),
+								extraSystem: residentSystemContext(history?.scope, outputInstructions),
+								extraContext: residentSnapshotContext(pursuit, context, skills, history?.scope),
 							}
 						: {
 								residentLearningDisclosure: options.learningDisclosure ?? 'on-demand',

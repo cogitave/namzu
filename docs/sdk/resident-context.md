@@ -107,7 +107,7 @@ export function promptForStep(state: ResidentState, learning?: ResidentLearningS
 
 The `static` contribution (`namzu.resident-step.guidance`) carries concise work
 and evidence standards, authority boundaries, optional read-only guidance, and
-the host's output instructions. The `dynamic` contribution
+the host's output instructions. The `context` contribution
 (`namzu.resident-step.continuation`) carries identity, the whole objective, prior
 summary, admission number, the complete pending `wakeEvidence`
 batch, approved learning and supplied skills. Wake entries remain in commit
@@ -116,13 +116,17 @@ guidance asks the step to resolve contradictions and retain still-relevant
 evidence in its next summary before settlement consumes the batch.
 Without a batch it supplies the single `wakeReason`; with a batch the latest
 reason is not repeated separately, avoiding duplicate context.
-Changing that snapshot leaves the static prefix unchanged when the host's
-guidance and output contract remain the same.
+The context contribution reaches the model as a request-only user-role message
+after conversation history. It is re-rendered for each request, not saved in
+durable history, and does not acquire system authority. Changing that snapshot
+leaves the static prefix unchanged when the host's guidance and output contract
+remain the same. The on-demand skill catalogue, selected learning and eager
+source-bound learning also use this context placement.
 
 When the host mounts [resident recall tools](resident-recall.md), pass their
 source's scope as `history`. The factory rejects a different tenant, resident or
 pursuit, adds static retrieval guidance and captures the upper revision in the
-dynamic snapshot. Changing that revision does not change the static prefix.
+request-only snapshot. Changing that revision does not change the static prefix.
 The reference survives compaction; historical text is fetched only when a tool
 is called. Do not pass this option without mounting and authorizing the tools.
 
@@ -140,15 +144,11 @@ turn and context content do not invalidate the segmented static prefix.
 Both contributions capture text when the factory is called. Later mutation of
 the supplied objects cannot change an admitted invocation's context. Create
 fresh contributions for each new admission; register each pair once per
-registry. The SDK's `query` renders static and dynamic contributions at invocation
-start and includes both in every iteration. They form the leading system floor
-preserved by compaction. A `turn` contribution is instead rendered before each
-model request and stays outside durable history; reserve it for state that must
-change within an invocation and must carry system authority. A `context`
-contribution is rendered on the same schedule but delivered as
-[request-only step context](step-context.md#prompt-placements) after the
-history, so a change to it leaves the cached conversation prefix intact; use it
-for an observation rather than an instruction.
+registry. The SDK's `query` includes static guidance in the system floor
+preserved by compaction and renders the admitted snapshot through
+[request-only step context](step-context.md#prompt-placements) on every model
+request, including after compaction. A `turn` contribution would carry system
+authority; the resident factories use `context` for saved or selected text.
 
 The saved summary is identified as a report of previous work. Guidance asks the
 model to retain useful evidence and unfinished work, check mutable state when
