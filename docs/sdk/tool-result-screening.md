@@ -33,7 +33,7 @@ outlives the result it came from.
 | --- | --- |
 | `toolName` | A refusal has to be routable: "a result was refused" is not something a model can act on. |
 | `input` | The validated arguments, so a screen can compare the answer against what was asked. |
-| `output` | The text the model would read. |
+| `output` | The text the model would read, including a failed tool's formatted `error`. |
 | `success` | Whether the tool reported success. A failure's text is model-visible too, and comes from the same place its output does. |
 | `provenance` | Who produced it, when it was not this process — the connected server's name, as the MCP adapter sets it. A screen reading only the value cannot tell a connected server's words from a first-party tool's, and the `server:tool` spelling an exemption list accepts is derived from it. |
 
@@ -45,7 +45,9 @@ context — and not for neutralising an attack: editing a payload presumes you
 understood it well enough to defang it.
 When a tool also returns separate model-visible content blocks, a rewrite
 replaces that entire channel with the rewritten text. Keeping the original
-blocks would let them bypass the redaction. A `pass` keeps the blocks intact.
+blocks would let them bypass the redaction. A failed tool's original `error`
+is replaced too, so it cannot leak when the executor formats the failure. A
+`pass` keeps the result intact.
 
 The two refusals are deliberately distinct. `refuse` is recoverable: the
 `tool_use` fails carrying the reason, and the model chooses something else.

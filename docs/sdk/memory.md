@@ -55,6 +55,15 @@ migration. It detects content edits even when `updatedAt` stays the same or two
 writes happen in one millisecond. Do not interpret or persist the token as a
 timestamp or monotonically increasing number.
 
+The in-memory store fingerprints structured-clone snapshots, including BigInt,
+Map, Set, Date, typed arrays and cyclic metadata. If a legacy in-memory record
+contains metadata whose full value cannot be fingerprinted synchronously (for
+example a Blob), `getVersionedRecord` refuses to issue a token. `read_memory`
+still returns that record without a revision; a conditional update cannot be
+claimed for it. Remove that metadata or use an unconditional correction before
+requesting another revision. Values that cannot be structured-cloned, such as
+functions, already cannot be returned by `getRecord`.
+
 `MemoryStore.update` and `MemoryStore.delete` retain their existing behavior for
 callers that do not supply a revision: the last accepted write wins. The
 conditional check and mutation share each built-in store's coordination

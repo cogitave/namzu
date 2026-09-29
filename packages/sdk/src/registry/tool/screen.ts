@@ -83,7 +83,13 @@ export async function screenToolResult(
 ): Promise<ToolResult> {
 	if (!guardrails || guardrails.length === 0) return result
 
-	let current = result.output
+	// Failed tools are rendered from BOTH output and error. Screen the same
+	// text the executor would show, including an error-only failure.
+	let current = result.success
+		? result.output
+		: result.output.trim()
+			? `${result.output}\n\nError: ${result.error ?? 'Tool execution failed'}`
+			: `Error: ${result.error ?? 'Tool execution failed'}`
 	let rewritten = false
 
 	for (const [index, spec] of guardrails.entries()) {
@@ -135,8 +141,9 @@ export async function screenToolResult(
 	return rewritten
 		? {
 				...result,
-				output: current,
-				...(result.content !== undefined ? { content: current } : {}),
+				output: result.success ? current : '',
+				...(result.success ? {} : { error: current }),
+				content: current,
 			}
 		: result
 }

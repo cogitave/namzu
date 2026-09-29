@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { MemoryRevisionUnavailableError } from '../../../store/memory/revision.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
@@ -55,7 +56,7 @@ describe('memory lifecycle tools', () => {
 		})
 		const first = await registry.execute('read_memory', { id: entry.id }, context)
 		expect(first.success).toBe(true)
-		expect(first.data).toMatchObject({ revision: expect.stringMatching(/^m1:[a-f0-9]{64}$/) })
+		expect(first.data).toMatchObject({ revision: expect.stringMatching(/^m2:[a-f0-9]{64}$/) })
 		const staleRevision = revisionIn(first.data)
 
 		await store.update(entry.id, { content: '28 hours' })
@@ -103,6 +104,30 @@ describe('memory lifecycle tools', () => {
 				.success,
 		).toBe(true)
 		expect(await store.getRecord(entry.id)).toBeUndefined()
+	})
+
+	it('reads a legacy in-memory Blob without offering a revision it cannot verify', async () => {
+		const store = new InMemoryMemoryStore()
+		const { entry } = await store.create({
+			title: 'Opaque metadata',
+			summary: 'A legacy in-memory record',
+			content: 'Readable body',
+			metadata: { attachment: new Blob(['private bytes']) },
+		})
+		const registry = new ToolManager({
+			toolsets: [testToolset(...buildMemoryTools(store))],
+			messages: () => [],
+		})
+		const read = await registry.execute('read_memory', { id: entry.id }, context)
+		expect(read).toMatchObject({ success: true, output: expect.stringContaining('Readable body') })
+		expect(read.data).not.toHaveProperty('revision')
+		await expect(store.getVersionedRecord(entry.id)).rejects.toBeInstanceOf(
+			MemoryRevisionUnavailableError,
+		)
+		await expect(
+			store.updateIfRevision(entry.id, { content: 'Unsafe overwrite' }, 'm2:stale'),
+		).rejects.toBeInstanceOf(MemoryRevisionUnavailableError)
+		expect((await store.get(entry.id))?.content).toBe('Readable body')
 	})
 
 	it('refuses a supplied revision on a custom store without the full conditional contract', async () => {

@@ -4,6 +4,7 @@ import {
 	describeMemoryAge,
 	memoryLinkNames,
 } from '../../store/memory/links.js'
+import { MemoryRevisionUnavailableError } from '../../store/memory/revision.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type { MemoryContent, MemoryIndexEntry, MemoryStore } from '../../types/memory/index.js'
 import { hasConditionalMemoryWrites } from '../../types/memory/index.js'
@@ -46,10 +47,19 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 			let content: MemoryContent | undefined
 			let revision: string | undefined
 			if (hasConditionalMemoryWrites(store)) {
-				const record = await store.getVersionedRecord(memoryId)
-				entry = record?.entry
-				content = record?.content
-				revision = record?.revision
+				try {
+					const record = await store.getVersionedRecord(memoryId)
+					entry = record?.entry
+					content = record?.content
+					revision = record?.revision
+				} catch (error) {
+					if (!(error instanceof MemoryRevisionUnavailableError)) throw error
+					// Legacy in-memory records may hold cloneable host objects with
+					// inaccessible bytes. Read them without claiming CAS support.
+					const record = await store.getRecord?.(memoryId)
+					entry = record?.entry
+					content = record?.content ?? (await store.get(memoryId))
+				}
 			} else if (store.getRecord) {
 				const record = await store.getRecord(memoryId)
 				entry = record?.entry
