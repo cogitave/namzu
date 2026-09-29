@@ -274,7 +274,10 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	expect(sent[0]?.context.join('\n')).toContain(SAVE_CONTEXT)
 	await typeKeys('second task')
 	harness.stdin.write('\t')
-	await until(() => shown().includes('1 message queued'), 'Tab did not queue')
+	await until(
+		() => /(?:Queue→next|Queued · next turn).*second task/u.test(plain(harness.lastFrame() ?? '')),
+		'Tab did not put the authored task in the next-turn queue',
+	)
 
 	release()
 	await until(() => sent.length === 3, 'the follow-up and the queued prompt did not both run')

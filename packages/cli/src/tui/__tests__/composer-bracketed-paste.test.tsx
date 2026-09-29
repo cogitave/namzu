@@ -59,6 +59,26 @@ it('inserts a short paste at the cursor without interpreting a pasted return as 
 	}
 })
 
+it('submits a long paste even when Enter arrives before the next render', async () => {
+	const onSubmit = vi.fn()
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const pasted = `first line\nsecond line ${'x'.repeat(80)}`
+	try {
+		await screen.waitForRender()
+		screen.press(`\x1b[200~${pasted}\x1b[201~`)
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+			pasted,
+			undefined,
+			'submit',
+			expect.objectContaining({ source: 'composer' }),
+		)
+	} finally {
+		await screen.unmount()
+	}
+})
+
 it('keeps type-ahead that arrives in one long read as typed text, not a chip that splits a word', async () => {
 	const onSubmit = vi.fn()
 	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })

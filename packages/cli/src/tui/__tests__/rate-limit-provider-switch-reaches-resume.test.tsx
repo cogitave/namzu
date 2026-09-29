@@ -243,11 +243,15 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	await until(screen, () => world.requests.length === 1, 'First turn did not start')
 	await press(screen, 'Dependent queued work')
 	await press(screen, '\t')
-	await until(screen, () => screen.viewport().join('\n').includes('message queued'), 'Dependent prompt was not queued')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Queued · next turn') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		'Dependent prompt was not queued',
+	)
 	releaseFirstSend()
 	await until(
 		screen,
-		() => world.parked && screen.viewport().join('\n').includes('held after a resumable turn paused'),
+		() => world.parked && screen.viewport().join('\n').includes('Queued · held after a resumable turn paused') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
 		'Rate limit did not hold the dependent queue',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])

@@ -551,7 +551,8 @@ describe('/resume while a turn is running', () => {
 		await tick(60)
 		await submit(harness, 'go')
 		await queue(harness, 'FOLLOWUP')
-		await untilFrame(harness, 'queued', 'the follow-up was not queued')
+		await untilFrame(harness, 'Queued · next turn', 'the follow-up was not queued')
+		expect(harness.lastFrame()).toContain('↳ FOLLOWUP')
 
 		harness.stdin.write('/resume')
 		await tick(30)
@@ -574,7 +575,8 @@ describe('/resume while a turn is running', () => {
 		await tick(60)
 		await submit(harness, 'go')
 		await queue(harness, 'IDLE_EDGE_FOLLOWUP')
-		await untilFrame(harness, 'queued', 'the follow-up was not queued')
+		await untilFrame(harness, 'Queued · next turn', 'the follow-up was not queued')
+		expect(harness.lastFrame()).toContain('↳ IDLE_EDGE_FOLLOWUP')
 
 		harness.stdin.write('/resume')
 		await tick(30)

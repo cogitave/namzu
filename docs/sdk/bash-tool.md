@@ -44,6 +44,20 @@ bash reads one startup file even non-interactively, the one `BASH_ENV` names, an
 
 Background jobs (`run_in_background`) run in the same shell (`packages/sdk/src/runtime/jobs/registry.ts`).
 
+## Job-exit delivery to a host
+
+A host can pass a session-owned `BackgroundJobRegistry` as
+`QueryParams.backgroundJobs` and its session id as `backgroundJobOwner`, so jobs
+survive the turn that starts them. Subscribe to the registry's `onExit` to
+show an immediate status update and retain each exit for the next turn. The
+turn sends a notice on a tool result or a recorded `job-exit` context message
+when it can. `QueryParams.onJobNoticeDelivered(jobIds)` acknowledges only
+those notices, after they enter the turn's messages. The host can remove the
+acknowledged ids from its pending set. An exit after the last delivery point
+receives no acknowledgment and should be passed to the next model turn; an
+exit event by itself is not proof that the model received it. The [CLI job
+view](../cli/background-jobs.md#learning-that-it-ended) uses this handoff.
+
 # In a sandbox
 
 A sandbox runs the guest's own binaries, and a microVM or Kubernetes image may have no bash. The tool passes the guest `/bin/sh -c '<launcher>' sh '<command>'`, where the launcher runs `bash -c` when `command -v bash` finds one and `/bin/sh -c` when it does not (`sandboxShellSpawn`). The command travels as an argument and is never spliced into the launcher's text. The startup variables above are dropped from the `env` the tool hands the sandbox; the guest's environment is otherwise the sandbox's allowlist. A background job in a sandbox (`Sandbox.spawnDetached`) goes through the same launcher.

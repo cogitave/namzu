@@ -262,7 +262,7 @@ it('holds an already queued turn until the name editor closes', async () => {
 	await waitUntil(screen, () => painted(screen).includes('first turn is working'))
 	screen.press('queued after rename')
 	screen.press('\t')
-	await waitUntil(screen, () => painted(screen).includes('1 message queued'))
+	await waitUntil(screen, () => painted(screen).includes('Queue→next queued after rename'))
 	screen.press('/rename')
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Rename conversation'))

@@ -6,7 +6,8 @@
  * autocomplete dropdown is open), Tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
- * Ctrl+G edits the draft in VISUAL/EDITOR, Backspace deletes, Alt+W drops or
+ * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
+ * message into an empty composer, Backspace deletes, Alt+W drops or
  * arms the composer trigger nearest the cursor (`./triggers/`).
  */
 
@@ -110,6 +111,8 @@ export interface ComposerProps {
 	 * is the host's answer to give, not a value this key press can hold.
 	 */
 	readonly onOpenAgentPanel?: () => void
+	/** Recall the latest operator-authored next-turn message into an empty draft. */
+	readonly onRecallQueued?: () => Omit<ComposerDraft, 'token'> | null
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 	/**
@@ -186,6 +189,8 @@ export interface ComposerDraft {
 	readonly token: number
 	readonly text: string
 	readonly attachments?: readonly MessageAttachment[]
+	/** Keep a queued message's explicit trigger decisions when it is recalled. */
+	readonly triggers?: readonly TriggerId[]
 }
 
 const MIN_SUGGESTIONS = 6
@@ -497,6 +502,7 @@ export function Composer({
 	onDraftRestored,
 	onDraftPresenceChange,
 	onOpenAgentPanel,
+	onRecallQueued,
 	onCycleMode,
 	triggers,
 	turnActive = false,
@@ -524,9 +530,21 @@ export function Composer({
 	// Large pastes are held as attachments (shown as chips) instead of being
 	// dumped into the input, then folded into the message on submit.
 	const [pastes, setPastes] = useState<readonly string[]>([])
+	const pastesRef = useRef<readonly string[]>([])
+	const replacePastes = useCallback((next: readonly string[] | ((previous: readonly string[]) => readonly string[])) => {
+		const resolved = typeof next === 'function' ? next(pastesRef.current) : next
+		pastesRef.current = resolved
+		setPastes(resolved)
+	}, [])
 	// Pasted images and restored durable attachments, shown as chips and sent
 	// back in the exact SDK union on submit.
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
+	const attachmentsRef = useRef<readonly MessageAttachment[]>([])
+	const replaceAttachments = useCallback((next: readonly MessageAttachment[] | ((previous: readonly MessageAttachment[]) => readonly MessageAttachment[])) => {
+		const resolved = typeof next === 'function' ? next(attachmentsRef.current) : next
+		attachmentsRef.current = resolved
+		setAttachments(resolved)
+	}, [])
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
@@ -672,32 +690,41 @@ export function Composer({
 		setBuffer('', 0, 'typed')
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
-		setPastes([])
-		setAttachments([])
+		replacePastes([])
+		replaceAttachments([])
 		setEditPreviousArmed(false)
-	}, [setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex])
+	}, [replaceAttachments, replacePastes, setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex])
 
-	useEffect(() => {
-		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
-		restoredTokenRef.current = draftToRestore.token
-		setBuffer(draftToRestore.text, draftToRestore.text.length, 'restored')
+	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
+	const restoreDraft = useCallback((draft: Omit<ComposerDraft, 'token'>) => {
+		setBuffer(draft.text, draft.text.length, 'restored')
+		if (triggers && draft.triggers?.length) {
+			const selected = new Set(draft.triggers)
+			const hits = detectTriggers(draft.text, triggers.registry, triggers.context, {
+				nonTyped: spansRef.current,
+				suggest: true,
+			}).hits
+			overridesRef.current = hits
+				.filter((hit) => selected.has(hit.id))
+				.map((hit) => ({ id: hit.id, start: hit.start, end: hit.end, state: 'armed' as const }))
+			setTriggerVersion((version) => version + 1)
+		}
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
 		setHistorySearch(null)
-		setPastes([])
-		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
+		replacePastes([])
+		replaceAttachments(draft.attachments ? [...draft.attachments] : [])
 		setEditPreviousArmed(false)
+	}, [replaceAttachments, replacePastes, setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex, triggers])
+
+	useEffect(() => {
+		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
+		restoredTokenRef.current = draftToRestore.token
+		restoreDraft(draftToRestore)
 		onDraftRestored?.(draftToRestore.token)
-	}, [
-		draftToRestore,
-		onDraftRestored,
-		setBuffer,
-		setHistoryIndex,
-		setHistorySearch,
-		setSelectedIndex,
-	])
+	}, [draftToRestore, onDraftRestored, restoreDraft])
 
 	// Bracketed paste is one event even when the terminal splits its bytes.
 	// Its newlines are content, never Enter/shortcut events.
@@ -707,7 +734,7 @@ export function Composer({
 			const normalized = text.replace(/\r\n?/g, '\n')
 			if (normalized.length === 0) return
 			if (normalized.includes('\n') || normalized.length > PASTE_THRESHOLD) {
-				setPastes((previous) => [...previous, normalized])
+				replacePastes((previous) => [...previous, normalized])
 				return
 			}
 			const position = cursorRef.current
@@ -766,6 +793,15 @@ export function Composer({
 				}
 				return false
 			}
+			if (key.meta && key.upArrow && onRecallQueued) {
+				if (valueRef.current.length > 0 || pastesRef.current.length > 0 || attachmentsRef.current.length > 0) {
+					onNotice?.('Send or clear the current draft before recalling a queued message.')
+					return
+				}
+				const recalled = onRecallQueued()
+				if (recalled) restoreDraft(recalled)
+				return
+			}
 			if (
 				!hasLiveSuggestions &&
 				onStepReasoningEffort &&
@@ -784,12 +820,13 @@ export function Composer({
 			}
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
-				const message = [valueRef.current, ...pastes]
+				const message = [valueRef.current, ...pastesRef.current]
 					.map((s) => s.trim())
 					.filter(Boolean)
 					.join('\n\n')
-				if (message.length === 0 && attachments.length === 0) return false
-				const submittedAttachments = attachments.length > 0 ? attachments : undefined
+				const currentAttachments = attachmentsRef.current
+				if (message.length === 0 && currentAttachments.length === 0) return false
+				const submittedAttachments = currentAttachments.length > 0 ? currentAttachments : undefined
 				// Read again from what the last key left, not from the last render.
 				const detection = detect(valueRef.current)
 				// The message is the draft trimmed: offsets move by what the trim took.
@@ -801,7 +838,7 @@ export function Composer({
 					source: 'composer',
 					triggers: armed,
 					onlyTriggers:
-						armed.length > 0 && detection.onlyTriggers && pastes.length === 0 && attachments.length === 0,
+						armed.length > 0 && detection.onlyTriggers && pastesRef.current.length === 0 && currentAttachments.length === 0,
 				})
 				reset()
 				return true
@@ -887,7 +924,7 @@ export function Composer({
 					return
 				}
 				const empty =
-					valueRef.current.length === 0 && pastes.length === 0 && attachments.length === 0
+					valueRef.current.length === 0 && pastesRef.current.length === 0 && attachmentsRef.current.length === 0
 				if (empty && onEditPrevious) {
 					if (editPreviousArmed) {
 						setEditPreviousArmed(false)
@@ -910,12 +947,12 @@ export function Composer({
 			if (key.backspace) {
 				// Backspace on an empty line removes the last durable attachment first,
 				// then pasted text.
-				if (valueRef.current.length === 0 && attachments.length > 0) {
-					setAttachments((p) => p.slice(0, -1))
+				if (valueRef.current.length === 0 && attachmentsRef.current.length > 0) {
+					replaceAttachments((p) => p.slice(0, -1))
 					return
 				}
-				if (valueRef.current.length === 0 && pastes.length > 0) {
-					setPastes((p) => p.slice(0, -1))
+				if (valueRef.current.length === 0 && pastesRef.current.length > 0) {
+					replacePastes((p) => p.slice(0, -1))
 					return
 				}
 				const position = cursorRef.current
@@ -1038,7 +1075,7 @@ export function Composer({
 				}
 				verticalColumnRef.current = null
 				if (historyIndexRef.current < 0) {
-					if (valueRef.current.length === 0 && pastes.length === 0 && attachments.length === 0) {
+					if (valueRef.current.length === 0 && pastesRef.current.length === 0 && attachmentsRef.current.length === 0) {
 						onOpenAgentPanel?.()
 					}
 					return
@@ -1060,14 +1097,14 @@ export function Composer({
 					onNotice?.('External editor support is unavailable in this terminal.')
 					return
 				}
-				const seed = [valueRef.current, ...pastes]
+				const seed = [valueRef.current, ...pastesRef.current]
 					.map((part) => part.trim())
 					.filter(Boolean)
 					.join('\n\n')
 				void onExternalEdit(seed)
 					.then((edited) => {
 						const cleaned = edited.trimEnd()
-						setPastes([])
+						replacePastes([])
 						setHistoryIndex(-1)
 						setHistorySearch(null)
 						setSelectedIndex(0)
@@ -1091,7 +1128,7 @@ export function Composer({
 			if ((key.ctrl || key.meta) && input === 'v') {
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
-					setAttachments((p) => [...p, read.image])
+					replaceAttachments((p) => [...p, read.image])
 				} else if (read.kind === 'empty') {
 					onNotice?.('No image on the clipboard. Copy one, then press Ctrl+V.')
 				} else {
@@ -1159,7 +1196,7 @@ export function Composer({
 			// the model received. A real paste reaches `usePaste` above, where a
 			// long one is still a chip.
 			if (input.includes('\n')) {
-				setPastes((p) => [...p, input])
+				replacePastes((p) => [...p, input])
 				return
 			}
 			setSelectedIndex(0)

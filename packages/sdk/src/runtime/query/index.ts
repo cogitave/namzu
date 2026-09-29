@@ -264,6 +264,12 @@ export interface QueryParams {
 	 * finishes.
 	 */
 	backgroundJobOwner?: string
+	/**
+	 * Called with job ids only when their exit notices enter model context:
+	 * a tool result or a recorded job-exit message. An exit event alone does not
+	 * mean the model saw it. A host can carry unacknowledged exits to its next turn.
+	 */
+	onJobNoticeDelivered?: (jobIds: readonly string[]) => void
 
 	/**
 	 * What else goes in this turn's prompt.
@@ -1319,6 +1325,20 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// subscription that fills it below, because the wait-intent recorder needs
 		// to ask whether its text has been read yet.
 		const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
+		const pendingJobNoticeIds = new Set<string>()
+		const acknowledgeJobNotices = () => {
+			if (pendingJobNoticeIds.size === 0) return
+			const ids = [...pendingJobNoticeIds]
+			pendingJobNoticeIds.clear()
+			try {
+				params.onJobNoticeDelivered?.(ids)
+			} catch (error) {
+				// A host observer cannot retract model-visible context or fail the turn.
+				ctx.log.warn('A background job notice observer failed', {
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
 		// Jobs the model told `wait_for_job` it is waiting on, which is the only
 		// thing that can hold this turn open for a job. Built only where there is a
 		// registry, so a host with no background mode carries no recorder and the
@@ -1425,6 +1445,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			jobNotices?.steer(
 				`Background job ${job.id} (${job.command}) ${outcome}. Read its output with the job tool if you need it.`,
 			)
+			pendingJobNoticeIds.add(job.id)
 			void eventTranslator
 				.emitEvent({
 					type: 'background_job_exited',
@@ -1582,6 +1603,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			promptContributions,
 			...(params.steering ? { steering: params.steering } : {}),
 			...(jobNotices ? { jobNotices } : {}),
+			...(jobNotices ? { onJobNoticeDelivered: acknowledgeJobNotices } : {}),
 			...(awaitedJobs ? { awaitedJobs } : {}),
 			checkpointMgr,
 			planManager: ctx.planManager,

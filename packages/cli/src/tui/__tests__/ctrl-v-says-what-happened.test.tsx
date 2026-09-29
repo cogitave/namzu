@@ -230,13 +230,15 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #1')
 		await submit(harness, 'queued first')
-		await frameShows(harness.lastFrame, '1 message steering the active turn')
+		await frameShows(harness.lastFrame, 'Steering · next model boundary')
+		await frameShows(harness.lastFrame, 'queued first [1 attachment]')
 
 		clipboard = { kind: 'image', image: secondImage }
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #1')
 		await submit(harness, 'queued second')
-		await frameShows(harness.lastFrame, '2 messages steering the active turn')
+		await frameShows(harness.lastFrame, 'queued second [1 attachment]')
+		expect(harness.lastFrame()).toContain('queued first [1 attachment]')
 
 		firstGate?.release()
 		await sendsReach(3)

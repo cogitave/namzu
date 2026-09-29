@@ -141,6 +141,8 @@ export interface IterationContext {
 	readonly onSteeringDelivered?: (text: string) => void
 	/** Exit notices for the turn's background jobs, drained into the next tool result. */
 	readonly jobNotices?: SteeringChannel
+	/** Acknowledge exit notices only after their text enters model context. */
+	readonly onJobNoticeDelivered?: () => void
 	/**
 	 * Background jobs the model said it is waiting on, which is the only kind
 	 * the loop holds a finishing run open for.

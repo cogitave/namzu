@@ -77,6 +77,8 @@ export type SlashAction =
 	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
 	 */
 	| { kind: 'agents'; args: readonly string[] }
+	/** Open the session's interactive background shell list. */
+	| { kind: 'jobs' }
 	| { kind: 'settings-picker' }
 	| TurnLimitsAction
 	| { kind: 'provider-setup' }
@@ -270,7 +272,7 @@ export interface SlashContext {
 	readonly hooks?: () => HooksConfig | undefined
 	/** Directories besides the working directory the file tools may reach, absolute. */
 	readonly directories?: () => readonly string[]
-	/** This session's background jobs, running and ended; empty under a sandbox. */
+	/** This session's background jobs, running and ended. */
 	readonly jobs: () => readonly {
 		readonly id: string
 		readonly command: string
@@ -1201,12 +1203,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'jobs',
-		description: 'List background jobs started this session, running and ended.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderJobs(ctx.jobs()),
-		}),
+		description: 'Inspect background shells, read output, and stop a running shell.',
+		help: { usage: ['/jobs', '/jobs list'] },
+		action: (ctx, args) =>
+			args.length === 0
+				? { kind: 'jobs' }
+				: args.length === 1 && args[0] === 'list'
+					? { kind: 'message', role: 'system', content: renderJobs(ctx.jobs()) }
+					: { kind: 'message', role: 'system', content: 'Usage: /jobs [list]' },
 	},
 	{
 		name: 'release-notes',
@@ -1563,7 +1567,7 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 /** The session's background jobs, as an operator would ask about them. */
 export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 	if (jobs.length === 0) {
-		return 'No background jobs this session. The agent starts one with `run_in_background` on bash; under a sandbox none can be started.'
+		return 'No background jobs this session. The agent starts one with `run_in_background` on bash.'
 	}
 	const lines = jobs.map((job) => {
 		const state =
@@ -1578,7 +1582,7 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} this session:`,
 		...lines,
 		'',
-		'The agent reads one with the job tool; ask it to stop one, or /exit stops them all.',
+		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',
 	].join('\n')
 }
 

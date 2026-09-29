@@ -40,6 +40,7 @@ import {
 	type AuthorizationRule,
 	BOOT_EVENT_NAMES,
 	type BackgroundJob,
+	type BackgroundJobOutput,
 	BackgroundJobRegistry,
 	type CheckpointId,
 	type CompactionConfig,
@@ -118,6 +119,7 @@ import {
 	WebFetchTool,
 	abandonTurn,
 	batchNeedsReview,
+	bindOwner,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
 	buildResidentHistoryTools,
@@ -676,6 +678,8 @@ export interface SendOptions {
 	readonly inboundMessages?: () => Message[]
 	/** Resolve when undelivered input exists; abort removes this waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	/** Job exits the SDK actually inserted into model context during this turn. */
+	readonly onJobNoticeDelivered?: (jobIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
@@ -919,6 +923,10 @@ export interface AgentSession {
 	readonly presenter: ToolPresenter
 	/** This session's background jobs, running and ended. Absent on a session with no registry. */
 	readonly jobs?: () => readonly BackgroundJob[]
+	/** Read retained output from a job owned by this session; foreign ids are unknown. */
+	readonly readJob?: (id: string, fromOffset?: number) => BackgroundJobOutput
+	/** Stop a job owned by this session, including its child process tree. */
+	readonly stopJob?: (id: string) => Promise<BackgroundJob>
 	/** The shell hooks this session runs, by event; what `/hooks` lists. */
 	readonly hooks?: HooksConfig
 	/** Files as they were before each turn's writes; what `/restore` uses. */
@@ -2363,6 +2371,7 @@ export async function createAgentSession(
 	// runs on the host and must not sit beside a sandbox in one tool context.
 	const jobRegistry = backgroundJobs ? new BackgroundJobRegistry() : undefined
 	const jobOwner = scope.sessionId
+	const ownedJobs = jobRegistry ? bindOwner(jobRegistry, jobOwner) : undefined
 	// Session-scoped and mutable: `/add-dir` adds to it, and every turn reads
 	// it fresh — the query, the sandbox binds and the environment prompt.
 	const directories: string[] = []
@@ -3822,7 +3831,14 @@ export async function createAgentSession(
 		agentIds: allowedAgentIds,
 		currentTaskStore,
 		resetTaskStore,
-		jobs: () => jobRegistry?.list(jobOwner) ?? [],
+		jobs: () => ownedJobs?.list() ?? [],
+		...(ownedJobs
+			? {
+					readJob: (id: string, fromOffset?: number) =>
+						ownedJobs.read(id, fromOffset === undefined ? {} : { fromOffset }),
+					stopJob: (id: string) => ownedJobs.kill(id),
+				}
+			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		checkpoints,
 		directories: sessionDirectories,
@@ -5118,6 +5134,7 @@ async function* runTurn({
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
+			...(opts?.onJobNoticeDelivered ? { onJobNoticeDelivered: opts.onJobNoticeDelivered } : {}),
 			turnConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),

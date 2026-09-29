@@ -52,9 +52,29 @@ mode badge itself truncate. This single line replaces two things that used to be
 separately: the permission-mode row that used to appear inside the message
 frame above the input, and the separate status line — model, effort, working
 directory left, goal or hint right — that used to sit one blank row below the
-frame. Transient notices (steering/queue counts, an `/effort` or model-switch
-confirmation) stay inside the message frame, above the input, where they were
-before.
+frame. Pending input and transient notices stay inside the message frame,
+above the input.
+
+While a turn runs, Enter steers a submitted message to that turn's next model
+boundary; Tab holds it for the next turn. A bounded preview above the composer
+shows the first pending steer and queued message, plus attachment counts and
+overflow counts. On terminals below 24 rows, it uses at most three lines: the
+steer, the queue, and an Alt+Up hint with the most recent operator-composed
+message that can be recalled. Taller terminals show separate delivery headings
+and two messages per group. Control characters in a submitted message are
+escaped before display. Alt+Up restores a queued message into an empty draft
+without losing attachments or armed triggers. A held queue is labeled as such;
+after Esc, a new Enter message runs before that queue. The preview's rows are
+counted in the transcript's live-window budget so it does not overdraw a short
+terminal.
+
+When a background shell is running, a separate single-line status appears
+below the composer footer with its count and `/jobs` entry point. It yields
+while a permission or child view owns the screen, and a short label fits narrow
+terminals. The `/jobs` child view keeps the input draft mounted, lets the
+operator inspect bounded, escaped shell output, and stops a selected running
+job on `x`. A new question from a tool closes the shell view so the question
+is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the message frame's upper right in violet. The top rule rests in plain
@@ -84,9 +104,9 @@ shortens by steps (full copy from 84 terminal columns, a short form from 64,
 label and key from 44, the label alone below). The border and the footer are
 unchanged by a trigger: a one-turn effort pin shows in the row and in the
 transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
-and the footer keeps the session's own effort. The queue line names the armed
-triggers of queued messages (`⏎ 1 message queued — sending when ready · ✦ save
-as skill`).
+and the footer keeps the session's own effort. The queued-message heading names
+armed triggers on taller terminals; a compact terminal prioritizes the next
+message's text.
 
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on

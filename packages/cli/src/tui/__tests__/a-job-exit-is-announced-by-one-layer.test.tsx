@@ -1,17 +1,9 @@
 /**
  * One job exit, one announcement.
  *
- * Two layers can tell the model a background job ended, and they divide the
- * cases rather than sharing them. The kernel owns the exit that lands while a
- * run is open — it rides out on the next tool result, or, since the turn now
- * holds itself open for a job the model awaited, as the message that releases
- * that hold. The session owns the exit that lands when no turn is open: the
- * kernel is not there to hear it, so it is held and opens the next turn.
- *
- * The seam between them is `abortRef`, and it is load-bearing rather than
- * incidental. Drop it and every exit during a turn is announced twice — once
- * by the kernel, once as "jobs that ended since your last turn" — which is the
- * duplicate-delivery defect the task-completion inbox was built to avoid.
+ * The kernel may deliver an exit on a tool result or an awaited-job context
+ * message. The CLI carries only exits the kernel did not acknowledge, including
+ * one that lands after the last result but before the turn settles.
  */
 
 import type { BackgroundJob } from '@namzu/sdk'
@@ -31,6 +23,9 @@ const PREFS: Preferences = {
 
 const sends: (SendOptions | undefined)[] = []
 let announce: ((job: BackgroundJob) => void) | undefined
+let acknowledgeFirstExit = true
+let acknowledgeBeforeListener = false
+let failFirstSend = false
 
 function exited(id: string, command: string): BackgroundJob {
 	return {
@@ -100,9 +95,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 			},
 			send: async function* (_messages, opts?: SendOptions): AsyncIterable<AgentEvent> {
 				sends.push(opts)
-				// Mid-run, which is the kernel's case: this is the moment the
-				// hold would take the exit and put it in front of the model.
-				if (sends.length === 1) announce?.(exited('job_1', 'pnpm build'))
+				if (sends.length === 1) {
+					if (acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['job_1'])
+					announce?.(exited('job_1', 'pnpm build'))
+					if (acknowledgeFirstExit && !acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['job_1'])
+					if (failFirstSend) throw new Error('provider failed before accepting context')
+					yield { kind: 'job', jobId: 'job_1', command: 'pnpm build', status: 'exited', exitCode: 0 }
+				}
 				yield { kind: 'delta', text: 'ok' }
 				yield { kind: 'done', stopReason: 'end_turn' }
 			},
@@ -119,6 +118,9 @@ afterEach(async () => {
 	mounted = null
 	sends.length = 0
 	announce = undefined
+	acknowledgeFirstExit = true
+	acknowledgeBeforeListener = false
+	failFirstSend = false
 	vi.restoreAllMocks()
 })
 
@@ -149,6 +151,7 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	// The next turn must not open by announcing it a second time.
 	expect(sends[1]?.extraSystem ?? '').not.toContain('job_1')
 	expect(sends[1]?.extraSystem ?? '').not.toContain('Background jobs that ended')
+	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
 	// exit with no turn open reaches nobody else, so the session carries it.
@@ -158,4 +161,45 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	expect(sends[2]?.extraSystem ?? '').toContain('Background jobs that ended since your last turn')
 	expect(sends[2]?.extraSystem ?? '').toContain('job_2')
 	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+})
+
+it('carries an exit after the final tool result into the next model turn', async () => {
+	acknowledgeFirstExit = false
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+
+	await say(screen, 'first', 1)
+	await say(screen, 'second', 2)
+
+	expect(sends[1]?.extraSystem ?? '').toContain('Background jobs that ended since your last turn')
+	expect(sends[1]?.extraSystem ?? '').toContain('job_1')
+	await say(screen, 'third', 3)
+	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+})
+
+it('keeps an exit pending when the next send fails before accepting context', async () => {
+	acknowledgeFirstExit = false
+	failFirstSend = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+
+	await say(screen, 'first', 1)
+	await say(screen, 'retry', 2)
+	expect(sends[1]?.extraSystem ?? '').toContain('job_1')
+	await say(screen, 'later', 3)
+	expect(sends[2]?.extraSystem ?? '').not.toContain('job_1')
+})
+
+it('does not requeue an exit acknowledged before the CLI exit listener runs', async () => {
+	acknowledgeBeforeListener = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+
+	await say(screen, 'first', 1)
+	await say(screen, 'second', 2)
+	expect(sends[1]?.extraSystem ?? '').not.toContain('job_1')
+	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
 })

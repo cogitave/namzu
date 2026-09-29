@@ -39,7 +39,7 @@ explain why they cannot run and are checked again when selected.
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show usage and cost for the current or latest turn; `/cost details` adds pricing and scope information. |
-| `/jobs` | List background jobs started this session, running and ended. |
+| `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this session runs, by event. |
 | `/context` | Show the latest context measurement and cleanup summary; `/context details` adds thresholds and cleanup counters. |
@@ -340,7 +340,9 @@ terminals place descriptions below labels.
 ## Keys that are not commands
 
 - **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
-- **Esc** while a turn runs interrupts it. **Ctrl+C** is reserved for exit.
+- **Enter** during a turn steers a message into that turn at its next model boundary. **Tab** queues a message for a later turn. The message frame previews both destinations, including the message text and attachment count.
+- **Alt+Up** on an empty composer recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
+- **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+C** is reserved for exit.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
