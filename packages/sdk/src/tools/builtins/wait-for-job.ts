@@ -35,6 +35,12 @@ const MAX_WAIT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_MAX_MS', 60 * 60 * 1000)
 
 const inputSchema = z.object({
 	id: z.string().describe('The job id, as returned by bash with run_in_background.'),
+	from_offset: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe('Resume after a previous wait: pass its next_offset to receive only new output.'),
 	timeout_ms: z
 		.number()
 		.int()
@@ -60,7 +66,7 @@ type WaitForJobInput = z.infer<typeof inputSchema>
 export const WaitForJobTool = defineTool({
 	name: 'wait_for_job',
 	description:
-		'Block until a background job started by bash with run_in_background ends, and return its accumulated output in one call. Use this instead of calling job with action "read" in a loop: it costs one call and no waiting turns. Gives up — WITHOUT stopping the job — if it runs too long or goes quiet for too long; either outcome says so, and the job keeps running either way.',
+		'Block until a background job started by bash with run_in_background ends, and return its bounded output in one call. Use this instead of calling job with action "read" in a loop: it costs one call and no waiting turns. A wait that runs too long or goes quiet returns its output and next_offset without stopping the job; pass that offset as from_offset on the next wait to avoid repeats.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
@@ -128,6 +134,7 @@ export const WaitForJobTool = defineTool({
 			outcome = await waitForJobWithBounds(jobs, input.id, {
 				wallMs: input.timeout_ms ?? DEFAULT_TIMEOUT_MS,
 				idleMs: input.idle_timeout_ms ?? DEFAULT_IDLE_TIMEOUT_MS,
+				...(input.from_offset === undefined ? {} : { fromOffset: input.from_offset }),
 				signal: context.abortSignal,
 			})
 		} catch {
@@ -144,26 +151,32 @@ export const WaitForJobTool = defineTool({
 			}
 		}
 
+		const notices = [
+			...(outcome.droppedBytes > 0
+				? [`[${outcome.droppedBytes} bytes were dropped by the job's output retention cap]`]
+				: []),
+			...(outcome.omittedOutputBytes > 0
+				? [`[${outcome.omittedOutputBytes} earlier bytes omitted from this bounded wait result]`]
+				: []),
+		]
+		const observed = `${notices.length > 0 ? `${notices.join('\n')}\n` : ''}${outcome.output || '(no new output)'}`
+
 		if (outcome.kind === 'timeout') {
 			return {
-				success: false,
-				output: describeJobWaitTimeout(input.id, outcome),
+				// The wait observed a bound, not a failed command. A tool error
+				// would also be promoted as a durable failure by the turn's memory.
+				success: true,
+				output: `${describeJobWaitTimeout(input.id, outcome)}\n\n${observed}\n\n[next_offset ${outcome.nextOffset}]`,
 				data: {
 					jobId: input.id,
 					timedOut: outcome.cause,
 					nextOffset: outcome.nextOffset,
 					droppedBytes: outcome.droppedBytes,
+					omittedOutputBytes: outcome.omittedOutputBytes,
 				},
 			}
 		}
 
-		// The dropped count is stated, never absorbed — same rule `job read`
-		// follows, for the same reason: a job whose middle vanished quietly
-		// reads as a complete result that happens to be short.
-		const notice =
-			outcome.droppedBytes > 0
-				? `[${outcome.droppedBytes} bytes were dropped before this point — the job produced output faster than the retention cap holds]\n`
-				: ''
 		const status =
 			outcome.exitCode === undefined
 				? outcome.status
@@ -171,12 +184,13 @@ export const WaitForJobTool = defineTool({
 
 		return {
 			success: true,
-			output: `${notice}${outcome.output || '(no output)'}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}]`,
+			output: `${observed}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}]`,
 			data: {
 				jobId: input.id,
 				status: outcome.status,
 				nextOffset: outcome.nextOffset,
 				droppedBytes: outcome.droppedBytes,
+				omittedOutputBytes: outcome.omittedOutputBytes,
 				...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
 			},
 		}

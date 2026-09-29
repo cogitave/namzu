@@ -4,13 +4,17 @@ import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { WaitForJobTool } from '../../../tools/builtins/wait-for-job.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { Toolset } from '../../../toolsets/types.js'
+import { createMemoryPromoter } from '../../../turn/memory-promoter.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
+import type { SessionMemoryCandidate } from '../../../types/session/memory-promotion.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -115,6 +119,90 @@ function waitUntilAborted(signal: AbortSignal): Promise<void> {
 }
 
 describe('a turn suspends for a job the model awaited, and pays no tokens for it', () => {
+	it('does not promote an expected wait timeout as a failure after the job succeeds', async () => {
+		class CompletesOnSecondWait extends ControlledJobs {
+			private waits = 0
+
+			override waitForExit(
+				id: string,
+				opts: { signal?: AbortSignal } = {},
+			): Promise<BackgroundJob> {
+				const waiting = super.waitForExit(id, opts)
+				this.waits++
+				if (this.waits === 2) queueMicrotask(() => this.finish(id))
+				return waiting
+			}
+		}
+		const backgroundJobs = new CompletesOnSecondWait()
+		const store = new InMemoryMemoryStore()
+		const promote = createMemoryPromoter({ store })
+		const candidates: SessionMemoryCandidate[] = []
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'synthetic job' } }],
+				},
+				{
+					toolCalls: [
+						{
+							id: 'c2',
+							name: 'wait_for_job',
+							args: { id: 'job_1', timeout_ms: 1 },
+						},
+					],
+				},
+				{
+					toolCalls: [
+						{
+							id: 'c3',
+							name: 'wait_for_job',
+							args: { id: 'job_1', from_offset: 0 },
+						},
+					],
+				},
+				{ text: 'the job finished' },
+			],
+		})
+		const run = await drainQuery({
+			provider,
+			toolsets: [tools()],
+			agentId: 'job-memory-fixture',
+			agentName: 'Job memory fixture',
+			messages: [createUserMessage('wait for the synthetic job to finish')],
+			workingDirectory: process.cwd(),
+			...ids(),
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 6,
+				tokenBudget: 200_000,
+				timeoutMs: 30_000,
+			},
+			compactionConfig: CompactionConfigSchema.parse({
+				strategy: 'structured',
+			}),
+			backgroundJobs,
+			promoteMemory: async (candidate) => {
+				candidates.push(candidate)
+				await promote(candidate)
+			},
+		})
+
+		expect(run.status).toBe('completed')
+		expect(backgroundJobs.get('job_1').status).toBe('exited')
+		expect(provider.requests).toHaveLength(4)
+		expect(provider.requests[2]?.messages).toContainEqual(
+			expect.objectContaining({
+				role: 'tool',
+				toolCallId: 'c2',
+				isError: false,
+				content: expect.stringContaining('has been running'),
+			}),
+		)
+		expect(candidates).toHaveLength(1)
+		expect(candidates[0]?.failures).toEqual([])
+		expect((await store.list()).totalCount).toBe(0)
+	}, 60_000)
+
 	it('waits without a provider request, then gives the model one turn with the exit', async () => {
 		const backgroundJobs = new ControlledJobs()
 		const provider = new MockLLMProvider({

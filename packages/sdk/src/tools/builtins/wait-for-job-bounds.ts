@@ -1,4 +1,5 @@
 import type { BackgroundJobRegistryRef } from '../../types/tool/index.js'
+import { subscribeToAbort } from '../../utils/abort.js'
 
 /**
  * Waiting on a background job, bounded by two different questions — the
@@ -42,6 +43,8 @@ interface JobWaitProgress {
 	readonly output: string
 	readonly nextOffset: number
 	readonly droppedBytes: number
+	/** Earlier bytes omitted from this wait's own bounded output, separately from registry loss. */
+	readonly omittedOutputBytes: number
 }
 
 export type JobWaitOutcome =
@@ -67,12 +70,27 @@ export type JobWaitOutcome =
  */
 const POLL_INTERVAL_MS = 1_000
 
+/** Leave room for the status and recovery instructions inside the tool-result budget. */
+const MAX_WAIT_OUTPUT_BYTES = 32 * 1024
+
+function boundedTail(value: string): { output: string; omittedBytes: number } {
+	const bytes = Buffer.from(value, 'utf8')
+	if (bytes.length <= MAX_WAIT_OUTPUT_BYTES) return { output: value, omittedBytes: 0 }
+	let start = bytes.length - MAX_WAIT_OUTPUT_BYTES
+	// The cap is in bytes, but the displayed tail must begin at a UTF-8 character.
+	while (start < bytes.length && ((bytes[start] ?? 0) & 0xc0) === 0x80) start++
+	return {
+		output: bytes.subarray(start).toString('utf8'),
+		omittedBytes: start,
+	}
+}
+
 /**
- * Await a job under both bounds, accumulating its output as it goes.
+ * Await a job under both bounds, retaining a bounded tail as it goes.
  *
- * Returns the output gathered so far either way: a completed wait has all
- * of it, and a timed-out one has everything read up to the moment it gave
- * up, so the caller never has to throw away a partial answer.
+ * A completed or timed-out wait returns the bytes it observed up to its
+ * absolute cursor. If the displayed tail could not hold all of them, its
+ * omitted-byte count keeps that gap visible to the caller.
  */
 export async function waitForJobWithBounds(
 	jobs: Pick<BackgroundJobRegistryRef, 'read' | 'waitForExit'>,
@@ -90,8 +108,16 @@ export async function waitForJobWithBounds(
 	let cursor = options.fromOffset ?? 0
 	let output = ''
 	let droppedBytes = 0
+	let omittedOutputBytes = 0
 	let settled = false
 	let poll: ReturnType<typeof setInterval> | undefined
+	// Each bounded wait owns its exit subscription. A timeout must release that
+	// subscription even when the job itself runs forever.
+	const waitAbort = new AbortController()
+	const forwardAbort = (): void => waitAbort.abort(options.signal?.reason)
+	let disposeCallerAbort = () => {}
+	if (options.signal?.aborted) forwardAbort()
+	else if (options.signal) disposeCallerAbort = subscribeToAbort(options.signal, forwardAbort)
 
 	/** Read whatever is new since `cursor`, and count it as progress if it is. */
 	const drain = (): void => {
@@ -99,11 +125,15 @@ export async function waitForJobWithBounds(
 		if (chunk.droppedBytes > 0) droppedBytes += chunk.droppedBytes
 		if (chunk.nextOffset > cursor) lastProgressAt = now()
 		cursor = chunk.nextOffset
-		if (chunk.chunk) output += chunk.chunk
+		if (chunk.chunk) {
+			const bounded = boundedTail(output + chunk.chunk)
+			output = bounded.output
+			omittedOutputBytes += bounded.omittedBytes
+		}
 	}
 
 	try {
-		const exited = waitForExit(id, { signal: options.signal }).then((job): JobWaitOutcome => {
+		const exited = waitForExit(id, { signal: waitAbort.signal }).then((job): JobWaitOutcome => {
 			// One last read: the job can exit between ticks, and the bytes
 			// it wrote in its final moment are exactly the ones a caller
 			// most wants — the error, the summary line, the exit trace.
@@ -115,6 +145,7 @@ export async function waitForJobWithBounds(
 				output,
 				nextOffset: cursor,
 				droppedBytes,
+				omittedOutputBytes,
 			}
 		})
 
@@ -136,6 +167,7 @@ export async function waitForJobWithBounds(
 						output,
 						nextOffset: cursor,
 						droppedBytes,
+						omittedOutputBytes,
 					})
 					return
 				}
@@ -150,6 +182,7 @@ export async function waitForJobWithBounds(
 							output,
 							nextOffset: cursor,
 							droppedBytes,
+							omittedOutputBytes,
 						})
 					}
 				}
@@ -165,6 +198,8 @@ export async function waitForJobWithBounds(
 	} finally {
 		settled = true
 		if (poll !== undefined) clearInterval(poll)
+		disposeCallerAbort()
+		waitAbort.abort(new Error('Job wait finished'))
 	}
 }
 
@@ -174,7 +209,7 @@ export function describeJobWaitTimeout(
 	outcome: Extract<JobWaitOutcome, { kind: 'timeout' }>,
 ): string {
 	const seconds = Math.round(outcome.elapsedMs / 1000)
-	const resume = `call wait_for_job again, or job read with from_offset ${outcome.nextOffset}, to see what it does next`
+	const resume = `call wait_for_job or job read with from_offset ${outcome.nextOffset} to see only what comes next`
 	if (outcome.cause === 'idle') {
 		return `Job ${id} went quiet: no new output for a while, after ${seconds}s. It has not been stopped and may still be working — ${resume}.`
 	}

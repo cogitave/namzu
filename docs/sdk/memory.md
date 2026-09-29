@@ -413,6 +413,10 @@ useful extracted user requirements, decisions, discoveries, failures and
 environment claims. It does not save a record for a candidate with none of those
 claims. `maxPerCategory` defaults to 20. Summaries carry actual claims; the full
 record also carries extraction omissions and files touched when present.
+The extractor records failed tool results as failures. Reaching a
+`wait_for_job` idle or total wait bound is a successful observation of a still
+running job, so that result alone does not create a failure memory. A later
+job exit remains available to the turn through the normal job notice.
 
 Promoted records carry the `session-memory` tag, the `session:<id>` and `turn:<id>` tags, a digest of the selected
 claim sections, `type: 'project'`, and `verification: 'unverified'`. The promoter trims claims and

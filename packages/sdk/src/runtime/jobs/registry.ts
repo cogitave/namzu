@@ -4,7 +4,7 @@ import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { hostShellSpawn } from '../../tools/command-shell.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
-import { awaitWithAbort } from '../../utils/await-with-abort.js'
+import { subscribeToAbort } from '../../utils/abort.js'
 
 /**
  * Work that outlives a tool call, owned by whoever started it.
@@ -343,13 +343,30 @@ export class BackgroundJobRegistry {
 		const entry = this.jobs.get(id)
 		if (!entry) throw new UnknownBackgroundJobError({ id })
 		if (entry.record.status !== 'running') return Promise.resolve(entry.record)
-		// `entry` is the same object the `finalize` closure in `start()`
-		// mutates in place, so reading `entry.record` after `exit` settles
-		// sees the final status — the same trick `kill()` already relies on.
-		return awaitWithAbort(
-			entry.exit.then(() => entry.record),
-			opts.signal,
-		)
+		if (!opts.signal) {
+			// Keep the original promise path for callers without cancellation.
+			return entry.exit.then(() => entry.record)
+		}
+		const signal = opts.signal
+		if (signal.aborted) return Promise.reject(signal.reason)
+
+		// A Promise.race against entry.exit leaves a continuation on that
+		// never-ending promise after cancellation. An exit listener can instead
+		// be removed as soon as this particular wait is abandoned.
+		return new Promise<BackgroundJob>((resolve, reject) => {
+			let disposeAbort = () => {}
+			const unsubscribe = this.onExit((job) => {
+				if (job.id !== id) return
+				unsubscribe()
+				disposeAbort()
+				resolve(job)
+			})
+			disposeAbort = subscribeToAbort(signal, () => {
+				unsubscribe()
+				disposeAbort()
+				reject(signal.reason)
+			})
+		})
 	}
 
 	/**
