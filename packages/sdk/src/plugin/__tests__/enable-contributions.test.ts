@@ -441,11 +441,13 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			vi.useFakeTimers()
 			try {
 				const enabling = mgr.enable(pluginId)
+				// Attach the rejection handler before advancing the fake clock.
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
 				await connecting
 				await vi.advanceTimersByTimeAsync(500)
 				await disconnecting
 				await vi.advanceTimersByTimeAsync(5_000)
-				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				await refused
 				expect(mockDisconnect).toHaveBeenCalledOnce()
 				expect(toolNames(mgr)).toEqual([])
 			} finally {
@@ -483,9 +485,10 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			vi.useFakeTimers()
 			try {
 				const enabling = mgr.enable(pluginId)
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
 				await connecting
 				await vi.advanceTimersByTimeAsync(500)
-				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				await refused
 				expect(mockDisconnect).toHaveBeenCalledOnce()
 				finishConnect()
 				await vi.advanceTimersByTimeAsync(0)
@@ -528,11 +531,12 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			vi.useFakeTimers()
 			try {
 				const enabling = mgr.enable(pluginId)
+				const refused = expect(enabling).rejects.toThrow(/did not answer within 500ms/)
 				// File read and the first listing are real async work. Await the
 				// second listing's invocation, then advance only the fake clock.
 				await secondListing
 				await vi.advanceTimersByTimeAsync(500)
-				await expect(enabling).rejects.toThrow(/did not answer within 500ms/)
+				await refused
 				finishDiscovery([{ name: 'late', inputSchema: { type: 'object' } }])
 				await vi.advanceTimersByTimeAsync(0)
 				expect(toolNames(mgr)).toEqual([])
