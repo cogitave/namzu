@@ -73,6 +73,14 @@ registry's policy: `replace` always overwrites, regardless of
 mutates a registered connector definition to prove a manager captured a
 detached snapshot, for instance, rather than a live reference.
 
+`ConfigRegistry.register(namespace, schema)` returns a `ConfigScope` that owns
+that registration. Call `scope.dispose()` when its component stops. Disposal
+removes the live namespace and watchers but keeps persisted overrides; a new
+registration in the same registry reads the latest saved value. A disposed
+scope refuses `get`, `update` and `watch`, and disposing it again cannot remove
+a later owner's registration under the same name. A live registration still
+throws `ConfigNamespaceCollisionError` on a second owner.
+
 ## `warn-skip`
 
 The third policy, `'warn-skip'`, logs and keeps the existing item, discarding

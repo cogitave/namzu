@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ToolManager } from '../../toolsets/manager.js'
 import type { MCPToolDefinition } from '../../types/connector/index.js'
@@ -215,6 +215,52 @@ describe('mcpToolset', () => {
 	})
 
 	describe('list_changed', () => {
+		it('ignores an older listing that arrives after a newer committed refresh', async () => {
+			const server = scriptedMcpServer({ serverName: 'demo', tools: [echoTool] })
+			await server.client.connect()
+			const snapshots: string[][] = []
+			const drifts: string[][] = []
+			const ts = await mcpToolset(server.client, {
+				onToolsAdmitted: (tools) => snapshots.push(tools.map((tool) => tool.name)),
+				onDrift: (event) => drifts.push(event.drift.added),
+			})
+			let finishOlder!: (tools: MCPToolDefinition[]) => void
+			const older = new Promise<MCPToolDefinition[]>((resolve) => {
+				finishOlder = resolve
+			})
+			let olderStarted!: () => void
+			const started = new Promise<void>((resolve) => {
+				olderStarted = resolve
+			})
+			const newer = { ...echoTool, name: 'newer' }
+			const listing = vi.spyOn(server.client, 'listTools')
+			listing.mockImplementationOnce(() => {
+				olderStarted()
+				return older
+			})
+			listing.mockResolvedValue([echoTool, newer])
+
+			try {
+				server.fireListChanged('tools')
+				await started
+				const changed = waitForChange(ts[0].onChange)
+				server.fireListChanged('tools')
+				await changed
+				expect(allTools(ts).map((tool) => tool.name)).toContain('mcp__demo__newer')
+
+				finishOlder([echoTool])
+				const changedAgain = waitForChange(ts[0].onChange)
+				server.fireListChanged('tools')
+				await changedAgain
+				expect(allTools(ts).map((tool) => tool.name)).toContain('mcp__demo__newer')
+				expect(snapshots).toEqual([['echo'], ['echo', 'newer'], ['echo', 'newer']])
+				expect(drifts).toEqual([['newer']])
+			} finally {
+				listing.mockRestore()
+				await ts[0].close?.()
+			}
+		})
+
 		it('refreshes and fires onChange when the server advertises tools.listChanged', async () => {
 			const server = scriptedMcpServer({ serverName: 'demo', tools: [echoTool] })
 			await server.client.connect()

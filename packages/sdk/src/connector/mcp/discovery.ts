@@ -55,10 +55,10 @@ export class MCPToolDiscovery {
 	private log: Logger
 	private options: MCPToolDiscoveryOptions
 	/**
-	 * Last admitted tool set per SERVER, for drift detection.
+	 * Last admitted tool set per owner identity, for drift detection.
 	 *
-	 * Keyed by server name rather than client id, and the difference is the
-	 * whole point. A client id is minted per connection, so on the path a
+	 * Plain discovery uses the server name; plugin discovery supplies its
+	 * qualified source id. A client id is minted per connection, so on the path a
 	 * real MCP server actually takes — a plugin enabling, connecting, and
 	 * being disabled again — every discovery was the first one that id had
 	 * ever seen, and drift could not fire however many times the server
@@ -119,9 +119,15 @@ export class MCPToolDiscovery {
 		return results
 	}
 
-	async discoverFrom(client: MCPClient): Promise<MCPDiscoveredTool[]> {
+	async discoverFrom(
+		client: MCPClient,
+		options?: { readonly isCurrent?: () => boolean },
+	): Promise<MCPDiscoveredTool[]> {
 		const state = client.getState()
 		const advertised = await client.listTools()
+		// A newer listing can finish before this one. Do not let the older
+		// generation replace the baseline or emit a drift event after that.
+		if (options?.isCurrent?.() === false) return []
 
 		// The boundary. Without it the REMOTE side decides what enters the
 		// agent's registry, which inverts least privilege: a server could
@@ -144,13 +150,23 @@ export class MCPToolDiscovery {
 			})
 		}
 
-		this.detectDrift(client.id, state.serverName, admitted)
+		this.detectDrift(state.serverName, client.id, state.serverName, admitted)
 
 		return admitted.map((tool) => ({
 			tool,
 			clientId: client.id,
 			serverName: state.serverName,
 		}))
+	}
+
+	/** Record the exact already-admitted snapshot another owner mounted. */
+	recordAdmittedTools(
+		identity: string,
+		clientId: string,
+		serverName: string,
+		admitted: readonly MCPToolDefinition[],
+	): void {
+		this.detectDrift(identity, clientId, serverName, [...admitted])
 	}
 
 	/**
@@ -251,9 +267,14 @@ export class MCPToolDiscovery {
 		})
 	}
 
-	private detectDrift(clientId: string, serverName: string, admitted: MCPToolDefinition[]): void {
-		const previous = this.lastSeen.get(serverName)
-		this.lastSeen.set(serverName, admitted)
+	private detectDrift(
+		identity: string,
+		clientId: string,
+		serverName: string,
+		admitted: MCPToolDefinition[],
+	): void {
+		const previous = this.lastSeen.get(identity)
+		this.lastSeen.set(identity, admitted)
 		if (!previous) return
 
 		const drift = diffTools(previous, admitted)
