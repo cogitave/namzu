@@ -83,6 +83,7 @@ export class MCPReconnectSupervisor {
 	private stopped = false
 	private inFlight = false
 	private timer?: ReturnType<typeof setTimeout>
+	private finishWait?: () => void
 
 	constructor(
 		private readonly client: MCPClient,
@@ -106,7 +107,7 @@ export class MCPReconnectSupervisor {
 
 	/** Begin watching. Idempotent. */
 	start(): void {
-		if (!this.policy().enabled || this.unsubscribe || this.stopped) return
+		if (this.stopped || this.unsubscribe || !this.policy().enabled) return
 		this.unsubscribe = this.client.onLifecycle((event) => {
 			if (event.type !== 'mcp_client_disconnected' && event.type !== 'mcp_client_error') return
 			void this.recover()
@@ -124,8 +125,9 @@ export class MCPReconnectSupervisor {
 		this.stopped = true
 		this.unsubscribe?.()
 		this.unsubscribe = undefined
-		if (this.timer) clearTimeout(this.timer)
-		this.timer = undefined
+		// Clearing the timer alone strands recover() inside an unresolved
+		// promise. Settle it so the stopped check can retire the loop.
+		this.finishWait?.()
 	}
 
 	private async recover(): Promise<void> {
@@ -154,9 +156,22 @@ export class MCPReconnectSupervisor {
 
 				try {
 					await this.client.connect()
+					// A host may stop the supervisor and dispose its live policy
+					// while connect() is still settling. Do not read that policy or
+					// publish a reconnect callback after teardown. A successful
+					// late connect also needs a second close: the host may have
+					// finished its own disconnect before this connect settled.
+					if (this.stopped) {
+						this.closeLateConnection()
+						return
+					}
 					await this.policy().onReconnected?.()
 					return
 				} catch {
+					if (this.stopped) {
+						this.closeLateConnection()
+						return
+					}
 					// Deliberately swallowed: a failed attempt is the normal
 					// case here and the client has already logged and emitted
 					// its own error. Re-raising would surface a routine retry
@@ -164,15 +179,30 @@ export class MCPReconnectSupervisor {
 					delay = Math.min(delay * 2, this.policy().maxDelayMs)
 				}
 			}
+			if (this.stopped) return
 			this.policy().onGaveUp?.(this.policy().maxAttempts)
 		} finally {
 			this.inFlight = false
 		}
 	}
 
+	private closeLateConnection(): void {
+		// A failed handshake can leave an opened transport, too. Stop is
+		// synchronous and the host's disable path has its own bounded close;
+		// keep this late cleanup best-effort without delaying recovery exit.
+		void this.client.disconnect().catch(() => {})
+	}
+
 	private wait(ms: number): Promise<void> {
 		return new Promise((resolve) => {
-			this.timer = setTimeout(resolve, ms)
+			const finish = () => {
+				if (this.timer) clearTimeout(this.timer)
+				this.timer = undefined
+				if (this.finishWait === finish) this.finishWait = undefined
+				resolve()
+			}
+			this.finishWait = finish
+			this.timer = setTimeout(finish, ms)
 		})
 	}
 }
