@@ -177,6 +177,42 @@ test('provider selection fixtures may name wire keys without exempting adjacent 
 	assert.match(result.stderr, /packages\/cli\/src\/tui\/unrelated.ts/)
 })
 
+test('a wrapped named import is identity, but the next declaration and broken imports are audited', () => {
+	const root = repository()
+	const source = join(root, 'packages/sdk/src/clean.ts')
+	const declaration =
+		"import {\n\tclaudeCredentialSearchPaths as sessionPaths,\n} from './owner.js'\n"
+	writeFileSync(source, declaration)
+	assert.equal(runAudit(root).status, 0)
+
+	writeFileSync(source, `${declaration}const claudeKernel = 1\n`)
+	assert.equal(runAudit(root).status, 1)
+
+	writeFileSync(
+		source,
+		"import {\n\t/" + "/ We copied Claude to name this.\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
+	)
+	assert.equal(runAudit(root).status, 1)
+
+	writeFileSync(
+		source,
+		"import {\n\t/* Pydantic shaped this. */\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
+	)
+	assert.equal(runAudit(root).status, 1)
+
+	writeFileSync(
+		source,
+		"import {\n\t/* We copied\n\tPydantic shaped this.\n\t*/\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
+	)
+	assert.equal(runAudit(root).status, 1)
+
+	writeFileSync(source, declaration.replace("} from './owner.js'", "} from './owner.js' /" + '/ Claude shaped this'))
+	assert.equal(runAudit(root).status, 1)
+
+	writeFileSync(source, 'import {\n\tclaudeCredentialSearchPaths,\n}\nconst local = 1\n')
+	assert.equal(runAudit(root).status, 1)
+})
+
 test('device provider attribution stays scoped to integration docs and exact credential accesses', () => {
 	const root = repository()
 	mkdirSync(join(root, 'docs/cli'), { recursive: true })

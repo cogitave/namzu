@@ -109,6 +109,18 @@ export function readClaudeFileCredentialCandidates(
 	env: NodeJS.ProcessEnv = process.env,
 	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
 ): readonly HarnessCredentialCandidate<AgentOAuthCredential>[] {
+	return claudeCredentialSearchPaths(home, env, windowsHome).flatMap((path) => {
+		const credential = readClaudeCredentialFile(path)
+		return credential ? [{ path, credential }] : []
+	})
+}
+
+/** The same Claude Code owner files discovery checks, including the paired WSL Windows home. */
+export function claudeCredentialSearchPaths(
+	home: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
+): readonly string[] {
 	// The override selects one owner store. A missing or unusable custom
 	// credential must not revive another account from either default home.
 	const paths = env.CLAUDE_CONFIG_DIR
@@ -117,11 +129,7 @@ export function readClaudeFileCredentialCandidates(
 				claudeCredentialsPath(home, env),
 				...(windowsHome ? [claudeCredentialsPath(windowsHome, {})] : []),
 			]
-	const unique = [...new Set(paths)]
-	return unique.flatMap((path) => {
-		const credential = readClaudeCredentialFile(path)
-		return credential ? [{ path, credential }] : []
-	})
+	return [...new Set(paths)]
 }
 
 export function codexCredentialsPath(

@@ -813,6 +813,52 @@ function selfCheck() {
 	process.exit(2)
 }
 
+/** A named import's continuation is still an import, even after Biome wraps it. */
+function namedImportEnd(lines, start) {
+	if (!/^\s*import(?:\s+type)?\s*\{/.test(lines[start])) return -1
+	// Require an actual closing brace and module source before exempting any
+	// following line. A broken import must not hide the rest of a file.
+	for (let index = start; index < Math.min(start + 32, lines.length); index++) {
+		if (/\}\s*from\s*['"]/.test(lines[index])) return index
+		if (/^\s*}\s*$/.test(lines[index]))
+			return /^\s*from\s*['"]/.test(lines[index + 1] ?? '') ? index + 1 : -1
+	}
+	return -1
+}
+
+/** Read comments in a named import without exempting prose in a block comment. */
+function importComments(line, state) {
+	const masked = line.replace(
+		/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g,
+		(literal) => ' '.repeat(literal.length),
+	)
+	const comments = []
+	let cursor = 0
+	while (cursor < line.length) {
+		if (state.inBlock) {
+			const end = masked.indexOf('*/', cursor)
+			if (end < 0) {
+				comments.push(line.slice(cursor))
+				break
+			}
+			comments.push(line.slice(cursor, end + 2))
+			state.inBlock = false
+			cursor = end + 2
+			continue
+		}
+		const lineStart = masked.indexOf('//', cursor)
+		const blockStart = masked.indexOf('/*', cursor)
+		if (lineStart < 0 && blockStart < 0) break
+		if (lineStart >= 0 && (blockStart < 0 || lineStart < blockStart)) {
+			comments.push(line.slice(lineStart))
+			break
+		}
+		state.inBlock = true
+		cursor = blockStart
+	}
+	return comments.join(' ')
+}
+
 function findings(source, path) {
 	// Exempt outright. These files exist to name a service or to carry its
 	// wire values, including in the examples that show how to use them;
@@ -825,11 +871,14 @@ function findings(source, path) {
 
 	const hits = []
 	let inFence = false
+	let importThrough = -1
+	const importCommentState = { inBlock: false }
 	// YAML frontmatter is metadata: `related_packages` is a list of package
 	// identifiers, which is identity rather than prose.
 	let inFrontmatter = isMarkdown && source.startsWith('---')
 
-	source.split('\n').forEach((line, index) => {
+	const lines = source.split('\n')
+	lines.forEach((line, index) => {
 		if (inFrontmatter) {
 			if (index > 0 && line.trim() === '---') inFrontmatter = false
 			return
@@ -842,7 +891,24 @@ function findings(source, path) {
 		}
 		if (inFence) return
 
-		// Import paths are identity, not prose.
+		// Imported names and paths are identity, including wrapped named imports.
+		if (family === 'js') {
+			if (index > importThrough) {
+				const end = namedImportEnd(lines, index)
+				if (end >= index) {
+					importThrough = end
+					importCommentState.inBlock = false
+				}
+			}
+			if (index <= importThrough) {
+				const comment = importComments(line, importCommentState)
+				if (comment)
+					for (const term of TERMS)
+						if (matches(term, comment))
+							hits.push({ path, line: index + 1, name: term.name, text: line.trim() })
+				return
+			}
+		}
 		if (/^\s*import\s|^\s*export\s.*\sfrom\s/.test(line)) return
 
 		if (isMarkdown) {

@@ -293,24 +293,34 @@ to the slots you asked for, so it never means more than it checked.
 
 ### The terminal agent
 
-```bash
-# Install it
+For macOS, Linux, or WSL, run the POSIX installer in a shell:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
+```
 
-# Windows
+For native Windows PowerShell, run the PowerShell installer:
+
+```powershell
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
+```
 
-# Or, if you would rather not pipe a script into a shell
-npm install -g @namzu/cli
+For native Windows Command Prompt (`cmd.exe`), use npm's command shim:
 
-# Or run it once without installing
+```bat
+npm.cmd install --global @namzu/cli
+namzu.cmd --version
+```
+
+On macOS, Linux, or WSL, you can also run Namzu once without installing:
+
+```sh
 npx @namzu/cli
 ```
 
-The installer checks for Node 20+, installs the package, and then verifies the
-binary answers before claiming success. If your global prefix is not writable
-it retries into `~/.namzu` and tells you the one line to add to your profile —
-it never re-runs itself with elevated privileges.
+The CLI requires Node 22.13 or newer. Both installers check the version and
+verify the binary answers. The POSIX installer retries an unwritable global
+prefix under `~/.namzu` and tells you the line to add to your shell profile.
 
 Bare `namzu` opens an interactive terminal agent. The same binary is
 scriptable: `namzu exec` for a single headless prompt, `namzu exec --json` for
@@ -580,7 +590,8 @@ should weigh honestly:
   `@namzu/lsp` are pre-1.0** and their APIs still move. The kernel itself is
   the stable surface.
 
-Node 20 or newer is declared; CI exercises 22 and 24.
+The SDK declares Node 20 or newer; the CLI requires Node 22.13 or newer. CI
+exercises 22 and 24.
 
 ## Contributing
 

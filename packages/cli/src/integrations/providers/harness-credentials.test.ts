@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+	claudeCredentialSearchPaths,
 	claudeCredentialsPath,
 	codexCredentialsPath,
 	preferFresherCredential,
@@ -30,6 +31,19 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 describe('readClaudeFileCredential', () => {
+	it('reports the same default, paired Windows, or selected profile paths that discovery reads', () => {
+		const linuxHome = home()
+		const windowsHome = home()
+		const selected = join(linuxHome, 'selected Claude profile')
+		expect(claudeCredentialSearchPaths(linuxHome, {}, windowsHome)).toEqual([
+			claudeCredentialsPath(linuxHome, {}),
+			claudeCredentialsPath(windowsHome, {}),
+		])
+		expect(
+			claudeCredentialSearchPaths(linuxHome, { CLAUDE_CONFIG_DIR: selected }, windowsHome),
+		).toEqual([join(selected, '.credentials.json')])
+	})
+
 	it('reads the configured profile and pins a relative directory to its exact owner path', () => {
 		const root = home()
 		const custom = join(root, 'Claude profile with spaces')
