@@ -38,6 +38,8 @@ export interface StepShaping {
 	readonly ctx: IterationContext
 	readonly latestUserMessage: () => UserMessage | undefined
 	readonly steps: () => readonly StepResult[]
+	/** Request-only contributions already rendered for this model step. */
+	readonly requestContextTokens?: number
 }
 
 export { stepContextMessage }
@@ -108,7 +110,13 @@ export function stepContext(
 			windowTokens: window.tokens,
 			remainingTokens: Math.max(
 				0,
-				Math.floor(window.tokens - measureContext(ctx).tokens - preparedTokens - responseReserve),
+				Math.floor(
+					window.tokens -
+						measureContext(ctx).tokens -
+						(shaping.requestContextTokens ?? 0) -
+						preparedTokens -
+						responseReserve,
+				),
 			),
 		},
 		steps: steps(),

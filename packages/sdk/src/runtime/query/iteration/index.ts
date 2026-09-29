@@ -3,6 +3,7 @@ import {
 	extractFromAssistantMessage,
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
+import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
@@ -548,13 +549,25 @@ export class IterationOrchestrator {
 					// Shape this step before calling the model. `stopWhen` decides
 					// whether to keep going; this decides HOW. No-op when the host
 					// supplied no hook.
+					// Render request-only contributions once before preparation. Their
+					// estimated cost reduces every stage's headroom, and the same text
+					// reaches the provider even if a stage changes external state.
+					const contextSections =
+						this.ctx.promptContributions?.render('context', { iteration: iterationNum }) ?? []
+					const contextText = contextSections.join('\n\n')
+					const shaping: StepShaping = {
+						...this.stepShaping(),
+						requestContextTokens: contextText
+							? estimateMessageTokens(stepContextMessage(contextText))
+							: 0,
+					}
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
-					const step = await prepareStep(this.stepShaping(), iterationNum)
+					const step = await prepareStep(shaping, iterationNum)
 					// Preparation inference belongs to the turn, not the main-model step.
 					usageBefore = { ...recorder.tokenUsage }
 					costBefore = { ...recorder.costInfo }
 					stepModel = step.model ?? model
-					await selectContextModel(this.stepShaping(), stepModel)
+					await selectContextModel(shaping, stepModel)
 					// Preserve post-compaction preparation/recall semantics. A changed
 					// model needs a second check against its own window; never replay
 					// host preparation effects merely to rebuild its request guidance.
@@ -643,11 +656,6 @@ export class IterationOrchestrator {
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
-					const contextSections =
-						this.ctx.promptContributions?.render('context', {
-							iteration: iterationNum,
-						}) ?? []
-
 					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
@@ -655,15 +663,14 @@ export class IterationOrchestrator {
 						? [...workingMemory.history, createSystemMessage(stepPreamble)]
 						: [...workingMemory.history]
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
-					if (contextSections.length > 0)
-						requestHistory.push(stepContextMessage(contextSections.join('\n\n')))
+					if (contextText) requestHistory.push(stepContextMessage(contextText))
 					if (step.context) requestHistory.push(stepContextMessage(step.context))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
-					appendWorkContext(this.stepShaping(), messages, iterationNum, step)
+					appendWorkContext(shaping, messages, iterationNum, step)
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()

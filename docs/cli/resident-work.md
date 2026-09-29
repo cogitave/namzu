@@ -45,8 +45,13 @@ verification commands; the tool permission mode does not sandbox those commands.
 work and evidence guidance from the current objective, saved summary, wake
 reason and approved learning. The CLI also supplies current environment,
 memory recall and host instructions outside the stable prefix. These snapshots
-are captured for each admitted invocation and remain present on every model
-iteration, including after compaction.
+are captured for each admitted invocation and offered on every model
+iteration, including after compaction. Under a tight request budget, the
+interactive profile may shorten its admitted context with an omission notice.
+The fixed resident doctrine and host
+output contract use system guidance. Saved summaries, wake inputs, learning,
+skill text and other admitted data use request-only user-role context; their
+contents do not gain system authority or enter durable conversation history.
 
 Evaluated learning defaults to `--learning-disclosure on-demand`. The model sees
 bounded skill descriptions, then calls `read_resident_skill` for guidance relevant
@@ -59,7 +64,8 @@ source withholds it; an earlier tool result remains historical evidence.
 Use `--learning-disclosure eager` to keep automatic inclusion of accepted learning.
 This setting applies to `run` and `start`, including the background worker; it is
 not persisted by `add`. It is independent of tool schema loading and is rejected
-with the `interactive` context profile, which keeps its existing prompt behavior.
+with the `interactive` context profile, which retains the coding doctrine and
+plan guidance while presenting resident state as request-only context.
 These are learned resident instructions, separate from filesystem/plugin skills.
 Learned [exploration policies](../sdk/exploration-policies.md) are excluded from
 ordinary task context, its catalogue and skill-read results. Learning hosts select
@@ -79,9 +85,10 @@ coding plan and wait for the user to leave plan mode. The host retains its
 decision format, answer validation and claim settlement rules.
 
 Use `--context-profile interactive` to retain the previous CLI coding doctrine
-and interactive plan guidance, including the resident continuation appended to
-that prompt. This option is invocation-local and reaches the managed worker;
-it is not saved by `add`. Ordinary interactive chat is unchanged.
+and interactive plan guidance. Its fixed resident instructions remain in the
+system prompt; the resident continuation and learned or file-backed text use
+request-only user context. This option is invocation-local and reaches the
+managed worker; it is not saved by `add`.
 
 In the [2026-09-11 context comparison](../../research/resident/context-profile.md),
 both profiles waited for reviewer evidence, retained the prior summary, reread

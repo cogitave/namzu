@@ -80,11 +80,13 @@ function registry(options: Partial<ResidentStepPromptOptions> = {}): PromptContr
 }
 
 function segments(options: Partial<ResidentStepPromptOptions> = {}) {
-	return new PromptBuilder({
+	const contributions = registry(options)
+	const prompt = new PromptBuilder({
 		tools: emptyTools(),
 		systemPrompt: 'You are the host assistant.',
-		contributions: registry(options),
+		contributions,
 	}).buildSegmented()
+	return { ...prompt, context: contributions.render('context', {}).join('\n\n') }
 }
 
 function learning(): ResidentLearningState {
@@ -136,9 +138,9 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		})
 		const prompt = new PromptBuilder({ tools: emptyTools(), contributions }).buildSegmented()
 		expect(prompt.static + prompt.dynamic).not.toContain(candidate.body)
-		expect(contributions.render('turn', { iteration: 1 }).join('\n')).toContain(candidate.body)
+		expect(contributions.render('context', { iteration: 1 }).join('\n')).toContain(candidate.body)
 		current = 'two'
-		const changed = contributions.render('turn', { iteration: 2 }).join('\n')
+		const changed = contributions.render('context', { iteration: 2 }).join('\n')
 		expect(changed).not.toContain(candidate.body)
 		expect(changed).toContain('changed-source')
 		const unavailable = registry({
@@ -147,7 +149,9 @@ describe('resident context separates stable guidance from the admitted snapshot'
 				throw new Error('offline')
 			},
 		})
-		expect(unavailable.render('turn', { iteration: 1 }).join('\n')).toContain('unverified-source')
+		expect(unavailable.render('context', { iteration: 1 }).join('\n')).toContain(
+			'unverified-source',
+		)
 	})
 	it('binds history to the admitted pursuit and changes its boundary outside the static prefix', () => {
 		const history = {
@@ -160,8 +164,8 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		const next = segments({ history: { ...history, throughRevision: 9 } })
 		expect(first.static).toContain('search_resident_history')
 		expect(next.static).toBe(first.static)
-		expect(first.dynamic).toContain('"throughRevision":3')
-		expect(next.dynamic).toContain('"throughRevision":9')
+		expect(first.context).toContain('"throughRevision":3')
+		expect(next.context).toContain('"throughRevision":9')
 		expect(() =>
 			segments({ history: { ...history, pursuitId: 'bb810d6f-e5f8-4fc2-9c7f-4f76d9d2bd8e' } }),
 		).toThrow('different pursuit')
@@ -174,10 +178,12 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		const contributions = registry({ state: state({ wakeEvidence: evidence }) })
 		evidence[0]!.reason = 'Mutated after admission.'
 		const prompt = new PromptBuilder({ tools: emptyTools(), contributions }).buildSegmented()
-		expect(prompt.dynamic).toContain('BUILD-ALPHA')
-		expect(prompt.dynamic).toContain('SECURITY-BETA')
-		expect(prompt.dynamic.match(/SECURITY-BETA/g)).toHaveLength(1)
-		expect(prompt.dynamic).not.toContain('Mutated after admission')
+		const context = contributions.render('context', {}).join('\n\n')
+		expect(context).toContain('BUILD-ALPHA')
+		expect(context).toContain('SECURITY-BETA')
+		expect(context.match(/SECURITY-BETA/g)).toHaveLength(1)
+		expect(context).not.toContain('Mutated after admission')
+		expect(prompt.dynamic).not.toContain('BUILD-ALPHA')
 		expect(prompt.static).not.toContain('BUILD-ALPHA')
 		expect(prompt.static).toContain('later input does not erase an earlier failure')
 	})
@@ -194,11 +200,11 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		expect(first.static).toContain(OUTPUT)
 		expect(first.static).toContain('You are the host assistant.')
 		expect(first.static).not.toContain('ALPHA-471')
-		expect(first.dynamic).toContain('ALPHA-471')
-		expect(next.dynamic).toContain('BETA-822')
-		expect(next.dynamic).not.toContain('ALPHA-471')
-		for (const prompt of [first, next]) expect(prompt.dynamic).toContain(state().objective)
-		expect(JSON.parse(next.dynamic.split('\n\n')[1] ?? '')).toMatchObject({
+		expect(first.context).toContain('ALPHA-471')
+		expect(next.context).toContain('BETA-822')
+		expect(next.context).not.toContain('ALPHA-471')
+		for (const prompt of [first, next]) expect(prompt.context).toContain(state().objective)
+		expect(JSON.parse(next.context.split('\n\n')[1] ?? '')).toMatchObject({
 			identity: state().identity,
 			admission: 3,
 			wakeReason: 'Report the finished verification.',
@@ -236,8 +242,8 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		options.skillsContext = 'A later skill must not leak.'
 		options.outputInstructions = 'A later response contract must not leak.'
 		expect(contributions.list().map((part) => part.render({}))).toEqual(before)
-		expect(contributions.render('dynamic', {}).join('\n')).toContain('Captured preference.')
-		expect(contributions.render('dynamic', {}).join('\n')).toContain('Captured skill context.')
+		expect(contributions.render('context', {}).join('\n')).toContain('Captured preference.')
+		expect(contributions.render('context', {}).join('\n')).toContain('Captured skill context.')
 	})
 
 	it('projects approved learning with the existing bound and explicit omission count', () => {
@@ -256,11 +262,11 @@ describe('resident context separates stable guidance from the admitted snapshot'
 				skillNames: current.skills.map((skill) => skill.name),
 			})
 			const prompt = segments({ learning: current })
-			expect(prompt.dynamic).toContain(projection.text)
+			expect(prompt.context).toContain(projection.text)
 			expect(prompt.static).not.toContain(current.identity!.text)
 			if (projection.omitted)
-				expect(prompt.dynamic).toContain(`${projection.omitted} learning entries were omitted`)
-			else expect(prompt.dynamic).toContain(current.skills[0]!.body)
+				expect(prompt.context).toContain(`${projection.omitted} learning entries were omitted`)
+			else expect(prompt.context).toContain(current.skills[0]!.body)
 		}
 	})
 
@@ -305,11 +311,7 @@ it('preserves resident state and project policy when older conversation is compa
 	const policy = createProjectInstructionMessage('Project policy: preserve the audit ledger.', [
 		'AGENTS.md',
 	])
-	const messages: Message[] = [
-		createSystemMessage(prompt.static, 'cache'),
-		createSystemMessage(prompt.dynamic, 'ephemeral'),
-		policy,
-	]
+	const messages: Message[] = [createSystemMessage(prompt.static, 'cache'), policy]
 	for (let index = 0; index < 8; index++) {
 		messages.push(
 			createUserMessage(`Old investigation ${index}: ${'x'.repeat(200)}`),
@@ -344,10 +346,10 @@ it('preserves resident state and project policy when older conversation is compa
 		true,
 	)
 	expect(messages[0]?.content).toBe(prompt.static)
-	expect(messages[1]?.content).toBe(prompt.dynamic)
-	expect(messages[1]?.content).toContain('BUILD-ALPHA')
-	expect(messages[1]?.content).toContain('SECURITY-BETA')
-	expect(messages[1]?.content).toContain('"throughRevision":3')
+	expect(JSON.stringify(messages)).not.toContain('BUILD-ALPHA')
+	expect(prompt.context).toContain('BUILD-ALPHA')
+	expect(prompt.context).toContain('SECURITY-BETA')
+	expect(prompt.context).toContain('"throughRevision":3')
 	expect(messages[0]?.content).toContain('search_resident_history')
 	expect(messages).toContainEqual(policy)
 })
@@ -412,6 +414,15 @@ it('keeps the admitted objective, evidence and project policy through every quer
 	expect(inspections).toBe(2)
 	expect(provider.requests).toHaveLength(3)
 	expect(JSON.stringify(provider.requests[0]?.messages)).toContain(candidate.body)
+	expect(
+		provider.requests[0]?.messages.some(
+			(message) =>
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				typeof message.content === 'string' &&
+				message.content.includes(candidate.body),
+		),
+	).toBe(true)
 	for (const request of provider.requests.slice(1)) {
 		expect(JSON.stringify(request.messages)).not.toContain(candidate.body)
 		expect(JSON.stringify(request.messages)).toContain('changed-source')
@@ -421,8 +432,16 @@ it('keeps the admitted objective, evidence and project policy through every quer
 		for (const retained of [state().objective, 'ALPHA-471', 'Project policy:', OUTPUT])
 			expect(text).toContain(retained)
 		const system = request.messages.filter((message) => message.role === 'system')
-		expect(system[0]?.content).not.toContain('ALPHA-471')
-		expect(system[1]?.content).toContain('ALPHA-471')
+		expect(JSON.stringify(system)).not.toContain('ALPHA-471')
+		expect(JSON.stringify(system)).not.toContain('SOURCE_BOUND_SENTINEL')
+		expect(
+			request.messages.some(
+				(message) =>
+					message.role === 'user' &&
+					message.source?.type === 'runtime-context' &&
+					message.content.includes('ALPHA-471'),
+			),
+		).toBe(true)
 	}
 	expect(run.messages.some((message) => String(message.content).includes('BETA-822'))).toBe(true)
 })

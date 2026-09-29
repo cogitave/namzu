@@ -493,8 +493,18 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	})
 	expect(observed).toEqual(['NEW_QUEUED_OPERATOR_TASK', 'NEW_QUEUED_OPERATOR_TASK'])
 	expect(JSON.stringify(queuedProvider.requests[0]?.messages)).toContain('NEW_QUEUED_OPERATOR_TASK')
-	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).toContain('NEW_TASK_RECALL')
-	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).not.toContain('OLD_TASK_RECALL')
+	const recallMessage = queuedProvider.requests[0]?.messages.at(-1)
+	expect(recallMessage?.role).toBe('user')
+	if (recallMessage?.role !== 'user') throw new Error('Expected request-only recall context')
+	expect(recallMessage?.source).toMatchObject({ type: 'runtime-context', kind: 'step-context' })
+	expect(recallMessage?.content).toContain('NEW_TASK_RECALL')
+	expect(recallMessage?.content).not.toContain('OLD_TASK_RECALL')
+	expect(
+		queuedProvider.requests[0]?.messages
+			.filter((message) => message.role === 'system')
+			.map((message) => message.content)
+			.join('\n'),
+	).not.toContain('NEW_TASK_RECALL')
 
 	// A recorded intent is an authority, so an id naming a message that is
 	// not operator intent, or no message at all, is refused instead of
@@ -606,10 +616,17 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 	expect(budgets[1]?.remainingTokens).toBeLessThan(budgets[0]?.remainingTokens ?? 0)
 	expect(signals).toHaveLength(2)
 	expect(signals[0]).toBe(signals[1])
-	const preamble = provider.requests[0]?.messages.at(-1)?.content
-	expect(preamble).toContain('Retrieved project memory')
-	expect(preamble).toContain('Earlier guidance')
-	expect(preamble).toContain('billing-audit')
+	const request = provider.requests[0]?.messages
+	const recallContext = request?.at(-1)
+	expect(recallContext?.role).toBe('user')
+	expect(recallContext?.content).toContain('Retrieved project memory')
+	const system = request
+		?.filter((message) => message.role === 'system')
+		.map((message) => message.content)
+		.join('\n')
+	expect(system).toContain('Earlier guidance')
+	expect(system).toContain('billing-audit')
+	expect(system).not.toContain('Retrieved project memory')
 })
 
 it('recomputes headroom for a stage-selected model instead of using the base model window', async () => {

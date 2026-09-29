@@ -276,7 +276,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 					}, timeoutMs)
 				}),
 			])
-			return block ? { system: [prepared.system, block].filter(Boolean).join('\n\n') } : undefined
+			return block ? { context: [prepared.context, block].filter(Boolean).join('\n\n') } : undefined
 		} finally {
 			if (timer) clearTimeout(timer)
 			if (onAbort) signal?.removeEventListener('abort', onAbort)

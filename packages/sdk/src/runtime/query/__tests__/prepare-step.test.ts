@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { CompactionConfigSchema } from '../../../config/runtime.js'
 
+import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -47,6 +49,8 @@ async function run(opts: {
 	turns: NonNullable<ConstructorParameters<typeof MockLLMProvider>[0]>['turns']
 	prepareStep?: PrepareStepChain
 	toolNames?: string[]
+	promptContributions?: PromptContributionRegistry
+	contextWindowTokens?: number
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-prepare-'))
 	dirs.push(workingDirectory)
@@ -77,6 +81,15 @@ async function run(opts: {
 		projectId: '0006f657-8f03-4d79-80ad-417dc503ed59' as ProjectId,
 		tenantId: '56c9d35c-1e5e-4c5b-b04b-6ff1134d4d38' as TenantId,
 		...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
+		...(opts.promptContributions ? { promptContributions: opts.promptContributions } : {}),
+		...(opts.contextWindowTokens
+			? {
+					compactionConfig: CompactionConfigSchema.parse({
+						strategy: 'structured',
+						contextWindowTokens: opts.contextWindowTokens,
+					}),
+				}
+			: {}),
 	})
 
 	return { result, provider, calls }
@@ -287,12 +300,70 @@ it('accounts for preceding context stages and composes them in declaration order
 		],
 	})
 	expect(budgets[0]! - budgets[1]!).toBeGreaterThan(1000)
-	expect(provider.requests[0]!.messages.at(-1)!.content).toContain('DATA-'.repeat(1000) + ' END')
+	expect(provider.requests[0]!.messages.at(-1)!.content).toContain(`${'DATA-'.repeat(1000)} END`)
 	expect(
 		provider.requests[0]!.messages.filter((m) => m.role === 'system').some(
 			(m) => m.content === 'Policy',
 		),
 	).toBe(true)
+})
+
+it('prices one request-only contribution before preparation and sends that same snapshot under a small window', async () => {
+	let baselineRoom = -1
+	await run({
+		turns: [{ text: 'done' }],
+		contextWindowTokens: 8_192,
+		prepareStep: ({ contextBudget }) => {
+			baselineRoom = contextBudget?.remainingTokens ?? -1
+			return undefined
+		},
+	})
+	let current = `SAVED_RESIDENT_SUMMARY ${'x'.repeat(4_000)}`
+	let renders = 0
+	const contributions = new PromptContributionRegistry()
+	contributions.register({
+		id: 'test.resident-summary',
+		placement: 'context',
+		render: () => {
+			renders++
+			return current
+		},
+	})
+	let remaining = -1
+	const { provider } = await run({
+		turns: [{ text: 'done' }],
+		contextWindowTokens: 8_192,
+		promptContributions: contributions,
+		prepareStep: ({ contextBudget }) => {
+			remaining = contextBudget?.remainingTokens ?? -1
+			current = 'MUTATED_AFTER_PREPARATION'
+			const budgetedMemory = Math.max(0, remaining - 100)
+			return { context: `BOUNDED_MEMORY ${'m'.repeat(budgetedMemory)}` }
+		},
+	})
+	expect(baselineRoom).toBeGreaterThan(1_000)
+	expect(remaining).toBeGreaterThan(0)
+	expect(remaining).toBeLessThan(baselineRoom - 1_000)
+	expect(renders).toBe(1)
+	const userContext = provider.requests[0]!.messages.filter(
+		(message) => message.role === 'user' && message.source?.type === 'runtime-context',
+	)
+	expect(
+		userContext.some(
+			(message) =>
+				typeof message.content === 'string' && message.content.includes('SAVED_RESIDENT_SUMMARY'),
+		),
+	).toBe(true)
+	expect(
+		userContext.some(
+			(message) =>
+				typeof message.content === 'string' && message.content.includes('BOUNDED_MEMORY'),
+		),
+	).toBe(true)
+	expect(JSON.stringify(provider.requests[0]!.messages)).not.toContain('MUTATED_AFTER_PREPARATION')
+	expect(
+		JSON.stringify(provider.requests[0]!.messages.filter((message) => message.role === 'system')),
+	).not.toContain('SAVED_RESIDENT_SUMMARY')
 })
 
 it('allows a later stage to clear context without clearing system policy', async () => {

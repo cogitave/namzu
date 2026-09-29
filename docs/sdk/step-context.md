@@ -52,10 +52,19 @@ step in the resuming process can still tell what the turn did before it paused.
 
 Pass the callback as `prepareStep`, or as a stage in its ordered array, to
 `query`/`drainQuery`. Later stages see the accumulated `prepared.context` and its
-estimated token cost in `contextBudget.remainingTokens`. They may compose it,
-replace it, or clear it with an empty string. An omitted field preserves the
+estimated token cost in `contextBudget.remainingTokens`. The kernel renders
+`context` prompt contributions once after compaction and before the first
+preparation stage, subtracts their estimated tokens from that budget, and sends
+the same snapshot on the provider request. A contribution therefore cannot
+observe a preparation stage's side effects in that same model step. Later
+preparation stages may compose earlier `prepared.context`, replace it, or clear
+it with an empty string. An omitted field preserves the
 preceding stage's decision. Every new step starts without the previous step's
 context. Preparation keeps its existing fail-open semantics.
+The budget is recalculated when a stage selects a different model, but the
+kernel does not shorten context an earlier stage already produced. A host that
+routes to a smaller model should place its budget-limited context stages after
+the routing stage.
 
 An SDK evidence-recall failure can contribute a bounded availability note while
 remaining an error in diagnostics. This tells the model that automatic recall
@@ -172,10 +181,15 @@ automatic summarization or output eviction is introduced by the context field.
 The CLI uses this field for its bounded context inventory. It composes preceding
 context contributions and leaves system contributions untouched. It registers
 its turn-start repository snapshot (`git status` and recent commits, first
-iteration only) under the `context` placement. SDK tests check
+iteration only) under the `context` placement. The CLI's file-backed `USER.md`
+and `MEMORY.md`, its stored-memory index, and the SDK's automatic memory recall
+also use request-only step context. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.
+Resident continuation, wake evidence and learned guidance use the same
+request-only channel; fixed resident doctrine and the host output contract
+remain system guidance.
 
 ## Derived work context
 

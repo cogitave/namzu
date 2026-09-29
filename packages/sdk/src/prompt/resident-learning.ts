@@ -103,7 +103,7 @@ export function createResidentStepContext(
 			...contributions,
 			Object.freeze({
 				id: 'namzu.resident-step.learning-catalogue',
-				placement: 'dynamic' as const,
+				placement: 'context' as const,
 				render: () =>
 					[
 						'## Available evaluated resident skills',
@@ -113,7 +113,7 @@ export function createResidentStepContext(
 			}),
 			Object.freeze({
 				id: 'namzu.resident-step.selected-learning',
-				placement: 'turn' as const,
+				placement: 'context' as const,
 				render: () => {
 					if (!selected.size) return null
 					try {
