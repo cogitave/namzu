@@ -236,10 +236,10 @@ describe('a completion always wins', () => {
 			)
 
 			finish()
-			await vi.advanceTimersByTimeAsync(10)
-
+			expect(vi.getTimerCount()).toBe(1)
 			const outcome = await waiting
 			expect(outcome.kind).toBe('completed')
+			expect(vi.getTimerCount(), 'a completed task wait retained its polling timer').toBe(0)
 		} finally {
 			vi.useRealTimers()
 		}

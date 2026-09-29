@@ -1,3 +1,6 @@
+import type { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
@@ -14,7 +17,11 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
-import { BackgroundJobRegistry } from '../../jobs/registry.js'
+import {
+	type BackgroundJob,
+	BackgroundJobRegistry,
+	type StartJobParams,
+} from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -76,12 +83,45 @@ afterEach(async () => {
 	}
 })
 
+class ControlledJobs extends BackgroundJobRegistry {
+	private readonly children = new Map<string, EventEmitter>()
+
+	override start(params: StartJobParams): BackgroundJob {
+		const child = Object.assign(new EventEmitter(), {
+			pid: undefined,
+			stdout: new PassThrough(),
+			stderr: new PassThrough(),
+		})
+		const job = super.start({
+			...params,
+			spawn: () => ({ child: child as unknown as ReturnType<typeof spawn> }),
+		})
+		this.children.set(job.id, child)
+		return job
+	}
+
+	finish(id: string): void {
+		const child = this.children.get(id)
+		if (!child) throw new Error(`No synthetic process for ${id}`)
+		child.emit('close', 0, null)
+	}
+}
+
+function waitUntilAborted(signal: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal.aborted) return resolve()
+		signal.addEventListener('abort', () => resolve(), { once: true })
+	})
+}
+
 describe('a turn suspends for a job the model awaited, and pays no tokens for it', () => {
 	it('waits without a provider request, then gives the model one turn with the exit', async () => {
-		const backgroundJobs = new BackgroundJobRegistry()
+		const backgroundJobs = new ControlledJobs()
 		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 1.5' } }] },
+				{
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'held job' } }],
+				},
 				WAIT_BRIEFLY,
 				{ text: 'still waiting on it' },
 				{ text: 'the job finished' },
@@ -89,9 +129,10 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		})
 		// Sampled at the moment the job stops, which is the far end of the
 		// hold: whatever the model had cost by then is what the wait cost. The
-		// job outlasts the three scripted turns by a wide margin, so the
-		// sample is taken inside the hold rather than beside it.
+		// synthetic job stays live until the hold has begun, so the sample
+		// cannot move with CI host scheduling.
 		let requestsWhenJobExited = -1
+		let holds = 0
 		backgroundJobs.onExit(() => {
 			requestsWhenJobExited = provider.requests.length
 		})
@@ -111,9 +152,19 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				timeoutMs: 30_000,
 			},
 			backgroundJobs,
+			waitForInbound: (signal) => {
+				holds += 1
+				expect(provider.requests.length).toBe(3)
+				expect(backgroundJobs.get('job_1').status).toBe('running')
+				backgroundJobs.finish('job_1')
+				return waitUntilAborted(signal)
+			},
 		})
 
 		expect(run.status).toBe('completed')
+		expect(holds).toBe(1)
+		expect(backgroundJobs.get('job_1').status).toBe('exited')
+		expect(run.abandonedJobIds).toBeUndefined()
 		// Three turns had been asked for when the job ended: start, wait,
 		// "still waiting". The hold spent real time and no tokens.
 		expect(requestsWhenJobExited, 'the hold asked the model something while it waited').toBe(3)
@@ -142,18 +193,51 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		// settled over a job it was supposed to be waiting for. The same
 		// instant return ends the delegated-task leg of this race, which is
 		// why it is a regression in the older half of the hold too.
-		const backgroundJobs = new BackgroundJobRegistry()
+		class FirstJobExitsDuringRead extends ControlledJobs {
+			private firstExitQueued = false
+
+			override waitForExit(
+				id: string,
+				opts: { signal?: AbortSignal } = {},
+			): Promise<BackgroundJob> {
+				const waiting = super.waitForExit(id, opts)
+				if (id === 'job_1' && !this.firstExitQueued) {
+					this.firstExitQueued = true
+					queueMicrotask(() => this.finish(id))
+				}
+				return waiting
+			}
+		}
+		const backgroundJobs = new FirstJobExitsDuringRead()
+		let holds = 0
 		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 0.5' } }] },
-				{ toolCalls: [{ id: 'c2', name: 'start', args: { command: 'sleep 3' } }] },
-				// Long enough that `job_1` exits inside the call: its notice is
-				// then queued while a tool result is still being assembled, so
-				// it rides out on THIS batch and is read.
 				{
-					toolCalls: [{ id: 'c3', name: 'wait_for_job', args: { id: 'job_1', timeout_ms: 5_000 } }],
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'first job' } }],
 				},
-				{ toolCalls: [{ id: 'c4', name: 'wait_for_job', args: { id: 'job_2', timeout_ms: 50 } }] },
+				{
+					toolCalls: [{ id: 'c2', name: 'start', args: { command: 'second job' } }],
+				},
+				// `job_1` closes after waitForExit attaches, while this tool
+				// result is still assembling; its notice rides on that batch.
+				{
+					toolCalls: [
+						{
+							id: 'c3',
+							name: 'wait_for_job',
+							args: { id: 'job_1', timeout_ms: 5_000 },
+						},
+					],
+				},
+				{
+					toolCalls: [
+						{
+							id: 'c4',
+							name: 'wait_for_job',
+							args: { id: 'job_2', timeout_ms: 50 },
+						},
+					],
+				},
 				{ text: 'job_2 is still going' },
 				{ text: 'job_2 finished too' },
 			],
@@ -174,9 +258,19 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				timeoutMs: 30_000,
 			},
 			backgroundJobs,
+			waitForInbound: (signal) => {
+				holds += 1
+				expect(provider.requests.length).toBe(5)
+				expect(backgroundJobs.get('job_1').status).toBe('exited')
+				expect(backgroundJobs.get('job_2').status).toBe('running')
+				backgroundJobs.finish('job_2')
+				return waitUntilAborted(signal)
+			},
 		})
 
 		expect(run.status).toBe('completed')
+		expect(holds).toBe(1)
+		expect(backgroundJobs.get('job_2').status).toBe('exited')
 		// Six scripted turns, the last of them the one the hold bought. Five
 		// would mean the turn settled at the text turn instead of waiting.
 		expect(provider.requests.length).toBe(6)
@@ -213,7 +307,9 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const backgroundJobs = new BackgroundJobRegistry()
 		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }] },
+				{
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }],
+				},
 				WAIT_BRIEFLY,
 				{ text: 'it is still going' },
 			],
@@ -276,7 +372,9 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const backgroundJobs = new BackgroundJobRegistry()
 		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }] },
+				{
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }],
+				},
 				{ text: 'the server is running in the background' },
 			],
 		})
@@ -316,7 +414,9 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		leftRunning.push({ registry: backgroundJobs, owner })
 		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }] },
+				{
+					toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }],
+				},
 				WAIT_BRIEFLY,
 				{ text: 'waiting' },
 				{ text: 'reading your message' },

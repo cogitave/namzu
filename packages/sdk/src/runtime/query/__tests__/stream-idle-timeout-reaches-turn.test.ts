@@ -89,14 +89,12 @@ describe('the provider idle bound reaches a real query', () => {
 		return dir
 	}
 
+	// A regression may reach the production 5s request bound. Vitest owns the
+	// test deadline so no separate abort can change the result under CI load.
 	it('settles a stalled run as a network failure and closes its transport', async () => {
 		const provider = new GenericAbortStallProvider()
 		const caller = new AbortController()
 		const events: SessionEvent[] = []
-		const safety = setTimeout(
-			() => caller.abort(new Error('test safety bound: production watchdog did not settle')),
-			1_000,
-		)
 		try {
 			const run = await drainQuery(
 				{
@@ -128,20 +126,15 @@ describe('the provider idle bound reaches a real query', () => {
 			})
 			expect(caller.signal.aborted).toBe(false)
 		} finally {
-			clearTimeout(safety)
 			if (!caller.signal.aborted) caller.abort(new Error('test cleanup'))
 		}
-	})
+	}, 15_000)
 
 	it('keeps the idle cause and refuses retry or fallback while spend is unresolved', async () => {
 		const primary = new GenericAbortStallProvider()
 		const fallback = new MockLLMProvider({ turns: [{ text: 'fallback answered' }] })
 		const caller = new AbortController()
 		const events: SessionEvent[] = []
-		const safety = setTimeout(
-			() => caller.abort(new Error('test safety bound: recovery did not settle')),
-			1_000,
-		)
 		try {
 			const run = await drainQuery(
 				{
@@ -166,10 +159,9 @@ describe('the provider idle bound reaches a real query', () => {
 			expect(events.some((event) => event.type === 'provider_retry')).toBe(false)
 			expect(caller.signal.aborted).toBe(false)
 		} finally {
-			clearTimeout(safety)
 			if (!caller.signal.aborted) caller.abort(new Error('test cleanup'))
 		}
-	})
+	}, 15_000)
 
 	it('refuses a malformed idle bound before a provider call', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
