@@ -75,6 +75,11 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		listNames: vi.fn(() => Object.keys(defs)),
 		availability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),
+		snapshotUntrustedDeferredContext: vi.fn(() => ({
+			all: '',
+			maxRenderedChars: 0,
+			forNames: () => '',
+		})),
 		register: vi.fn(),
 		unregister: vi.fn(),
 	} as unknown as ToolManager

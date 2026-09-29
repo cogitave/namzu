@@ -24,7 +24,7 @@ describe.each(['text', 'json'] as const)('%s memory read on the model wire', (fo
 			format,
 		})
 		const revision = (await store.getVersionedRecord(entry.id))?.revision
-		expect(revision).toMatch(/^m1:[a-f0-9]{64}$/)
+		expect(revision).toMatch(/^m2:[a-f0-9]{64}$/)
 		const requests: Message[][] = []
 		const run = await drainQuery({
 			provider: new MockLLMProvider({
