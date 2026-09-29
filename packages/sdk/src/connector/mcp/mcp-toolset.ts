@@ -5,7 +5,11 @@ import { NAMZU } from '../../constants/telemetry/index.js'
 import { ToolsetConflictError } from '../../toolsets/combine.js'
 import type { Toolset, ToolsetAvailability } from '../../toolsets/types.js'
 import { deferred } from '../../toolsets/wrappers.js'
-import type { MCPResource, MCPServerCapabilities } from '../../types/connector/index.js'
+import type {
+	MCPResource,
+	MCPServerCapabilities,
+	MCPToolDefinition,
+} from '../../types/connector/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { ToolSource } from '../../types/toolset/index.js'
 import { toErrorMessage } from '../../utils/error.js'
@@ -103,6 +107,8 @@ export interface MCPToolsetOptions {
 	 * added and removed names apply at the next refresh boundary.
 	 */
 	readonly onDrift?: (event: { serverName: string; clientId: string; drift: MCPToolDrift }) => void
+	/** The exact admitted server listing processed at construction and each committed refresh. */
+	readonly onToolsAdmitted?: (tools: readonly MCPToolDefinition[]) => void
 	/** Current tool, prompt and resource names refused by this server's policy. */
 	readonly onRefused?: (event: {
 		serverName: string
@@ -320,14 +326,20 @@ export async function mcpToolset(
 	let promptDefs: ToolDefinition[] = []
 	let mainTools: ToolDefinition[] = []
 	let closed = false
+	let toolRefreshGeneration = 0
+	let admittedToolSnapshot: readonly MCPToolDefinition[] = []
 	const listeners = new Set<() => void>()
 
 	function rebuildMain(): void {
 		mainTools = [...toolDefs, ...promptDefs]
 	}
 
-	async function refreshTools(): Promise<void> {
-		const discovered = await discovery.discoverFrom(client)
+	async function refreshTools(): Promise<boolean> {
+		const generation = ++toolRefreshGeneration
+		const discovered = await discovery.discoverFrom(client, {
+			isCurrent: () => !closed && generation === toolRefreshGeneration,
+		})
+		if (closed || generation !== toolRefreshGeneration) return false
 		const previous = new Map(toolDefs.map((definition) => [definition.name, definition]))
 		toolDefs = discovered.map((d) => {
 			const name = mcpToolsetName(serverName, d.tool.name)
@@ -346,6 +358,8 @@ export async function mcpToolset(
 			if (!discovered.some((entry) => entry.tool.name === name)) heldToolNames.delete(name)
 		}
 		rebuildMain()
+		admittedToolSnapshot = discovered.map((entry) => entry.tool)
+		return true
 	}
 
 	async function refreshPrompts(): Promise<void> {
@@ -414,9 +428,12 @@ export async function mcpToolset(
 		}
 	}
 	assertUnique()
+	options.onToolsAdmitted?.(admittedToolSnapshot)
 
 	const notify = (): void => {
+		if (closed) return
 		assertUnique()
+		options.onToolsAdmitted?.(admittedToolSnapshot)
 		for (const listener of listeners) listener()
 	}
 	const onChange = (listener: () => void): (() => void) => {
@@ -449,7 +466,11 @@ export async function mcpToolset(
 		if (closed) return
 		if (method === 'notifications/tools/list_changed') {
 			if (!currentCapabilities()?.tools?.listChanged) return
-			void refreshTools().then(notify).catch(onRefreshFailure('tools'))
+			void refreshTools()
+				.then((updated) => {
+					if (updated) notify()
+				})
+				.catch(onRefreshFailure('tools'))
 		} else if (method === 'notifications/prompts/list_changed') {
 			if (!currentCapabilities()?.prompts?.listChanged) return
 			void refreshPrompts().then(notify).catch(onRefreshFailure('prompts'))

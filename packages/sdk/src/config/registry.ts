@@ -48,6 +48,8 @@ export interface ConfigScope<T> {
 	update(patch: Partial<T> | Record<string, unknown>): T
 	/** Called after a successful update. Returns an unsubscribe. */
 	watch(listener: (next: T, previous: T) => void): () => void
+	/** Release this registration, including its watchers, while retaining saved overrides. */
+	dispose(): void
 }
 
 export class ConfigNamespaceCollisionError extends RegistryCollisionError {
@@ -149,13 +151,30 @@ export class ConfigRegistry {
 			watchers: new Set(),
 		}
 		this.entries.set(namespace, entry as Entry<unknown>)
+		const assertOwned = (): void => {
+			if (this.entries.get(namespace) !== (entry as Entry<unknown>)) {
+				throw new Error(`Configuration namespace "${namespace}" is no longer registered.`)
+			}
+		}
 
 		return {
-			get: () => entry.resolved,
-			update: (patch) => this.applyUpdate(namespace, entry, patch),
+			get: () => {
+				assertOwned()
+				return entry.resolved
+			},
+			update: (patch) => {
+				assertOwned()
+				return this.applyUpdate(namespace, entry, patch)
+			},
 			watch: (listener) => {
+				assertOwned()
 				entry.watchers.add(listener)
 				return () => entry.watchers.delete(listener)
+			},
+			dispose: () => {
+				if (this.entries.get(namespace) !== (entry as Entry<unknown>)) return
+				this.entries.delete(namespace)
+				entry.watchers.clear()
 			},
 		}
 	}
@@ -178,9 +197,11 @@ export class ConfigRegistry {
 		const next = entry.schema.parse({ ...entry.base, ...candidateOverride })
 
 		const previous = entry.resolved
+		const storeKey = this.storeKey(namespace)
+		this.store.save(storeKey, candidateOverride)
+		this.persisted[storeKey] = candidateOverride
 		entry.override = candidateOverride
 		entry.resolved = next
-		this.store.save(this.storeKey(namespace), candidateOverride)
 
 		for (const watcher of entry.watchers) {
 			try {
