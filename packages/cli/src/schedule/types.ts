@@ -11,15 +11,13 @@ import type { PermissionsConfig } from '../permissions/rules.js'
 
 /** The format before `runKind`/`script`/`check-failed` existed. Always readable. */
 export const SCHEDULE_FORMAT_VERSION_LEGACY = 1
+/** Script jobs and results without the opt-in structured report. */
+export const SCHEDULE_FORMAT_VERSION_SCRIPT = 2
 /**
- * The current format. A job/run-result/history record is written at this
- * version only when it actually carries what a `SCHEDULE_FORMAT_VERSION_LEGACY`
- * reader cannot interpret (`runKind !== 'agent'`, a `script` block, a
- * `check-failed` status, `gateResult` or `scriptOutput`); everything else is
- * still written at the legacy version, unchanged, so an old namzu keeps
- * reading every job and record it always could.
+ * The current maximum readable format. New workspace, source delivery, or
+ * structured-report jobs use v3; old jobs keep their original v1/v2 version.
  */
-export const SCHEDULE_FORMAT_VERSION = 2
+export const SCHEDULE_FORMAT_VERSION = 3
 
 /** What a scheduled run may do. Required on every job; there is no default. */
 export interface SchedulePermissionSet {
@@ -68,7 +66,7 @@ export type ConfirmationSurface = 'cli-tty' | 'tui' | 'tool-confirmed' | 'cli-no
 export type ScheduleRunKind = 'agent' | 'script' | 'script+agent'
 
 export interface ScheduleJob {
-	readonly v: 1 | 2
+	readonly v: 1 | 2 | 3
 	readonly kind: 'schedule-job'
 	readonly id: string
 	readonly name: string
@@ -91,12 +89,26 @@ export interface ScheduleJob {
 		readonly shell: 'bash' | 'sh'
 		/** Separate from `budget.timeoutMs`. */
 		readonly timeoutMs: number
+		/** Pure scripts only; stdout follows the structured report protocol. */
+		readonly report?: 'json-v1'
 	}
 	/** Present only for `runKind: 'script+agent'`. */
 	readonly wakeGate?: {
 		/** Cap on the gate's `context` string, cut with an explicit marker. */
 		readonly maxContextChars: number
 	}
+	/** Pure scripts only. Absent keeps the existing project-folder behavior. */
+	readonly workspace?: 'none'
+	/** Optional delivery back to the conversation that created the job. */
+	readonly delivery?: {
+		readonly kind: 'source-conversation'
+		readonly sessionId: string
+		readonly projectSlug: string
+		readonly projectId: string
+		readonly tenantId: string
+	}
+	/** Exact pending run IDs whose source delivery the operator approved waiving. */
+	readonly deliveryWaiverRunIds?: readonly string[]
 	readonly folder: { readonly path: string; readonly canonical: string }
 	readonly trust: {
 		readonly canonical: string
@@ -154,23 +166,40 @@ export type ScheduleRunStatus =
 	 */
 	| 'check-failed'
 
-/** `v:2` only when the job actually uses what a `v:1` reader cannot interpret. */
-export function jobFormatVersion(job: Pick<ScheduleJob, 'runKind'>): 1 | 2 {
+/** v3 marks new ownership and report fields; ordinary old jobs stay v1/v2. */
+export function jobFormatVersion(job: {
+	readonly runKind?: ScheduleRunKind
+	readonly script?: { readonly report?: 'json-v1' }
+	readonly workspace?: 'none'
+	readonly delivery?: ScheduleJob['delivery']
+	readonly deliveryWaiverRunIds?: readonly string[]
+}): 1 | 2 | 3 {
+	if (
+		job.script?.report === 'json-v1' ||
+		job.workspace ||
+		job.delivery ||
+		job.deliveryWaiverRunIds?.length
+	)
+		return SCHEDULE_FORMAT_VERSION
 	return job.runKind !== undefined && job.runKind !== 'agent'
-		? SCHEDULE_FORMAT_VERSION
+		? SCHEDULE_FORMAT_VERSION_SCRIPT
 		: SCHEDULE_FORMAT_VERSION_LEGACY
 }
 
-/** `v:2` only when the record carries what a `v:1` reader cannot interpret. */
+/** New report fields require v3; ordinary script results stay v2. */
 export function runResultVersion(fields: {
 	readonly status: ScheduleRunStatus
 	readonly gateResult?: unknown
 	readonly scriptOutput?: unknown
-}): 1 | 2 {
+	readonly scriptReport?: unknown
+	readonly scriptStateRevision?: unknown
+}): 1 | 2 | 3 {
+	if (fields.scriptReport !== undefined || fields.scriptStateRevision !== undefined)
+		return SCHEDULE_FORMAT_VERSION
 	return fields.status === 'check-failed' ||
 		fields.gateResult !== undefined ||
 		fields.scriptOutput !== undefined
-		? SCHEDULE_FORMAT_VERSION
+		? SCHEDULE_FORMAT_VERSION_SCRIPT
 		: SCHEDULE_FORMAT_VERSION_LEGACY
 }
 
@@ -194,7 +223,11 @@ export interface ActiveRun {
 	readonly scheduledFor?: string
 	readonly startedAt: string
 	readonly daemonEpoch: string
+	/** Pinned at dispatch: a script has no session lease during its script phase. */
+	readonly noSessionGraceMs?: number
 	readonly status: 'running' | 'awaiting-approval'
+	/** Source binding captured at dispatch, so later edits do not redirect this run. */
+	readonly delivery?: NonNullable<ScheduleJob['delivery']>
 	readonly sessionId?: string
 	/** The session's project directory name under `projects/`. */
 	readonly projectSlug?: string
@@ -225,6 +258,11 @@ export interface ScheduleJobState {
 		readonly queuedAt: string
 	}
 	readonly activeRun?: ActiveRun
+	/** Finalized runs awaiting source delivery and/or a durable script-state commit. */
+	readonly deliveryPending?: readonly {
+		readonly result: ScheduleRunResult
+		readonly delivery?: NonNullable<ScheduleJob['delivery']>
+	}[]
 	readonly lastRun?: {
 		readonly runId: string
 		readonly scheduledFor?: string
@@ -246,13 +284,15 @@ export interface ScheduleJobState {
 	readonly lastIncident?: { readonly signature: string; readonly at: string }
 	/** The last definition-change notification, by digest, so it is told once. */
 	readonly lastHoldNotice?: string
+	/** Last source-delivery issue already surfaced, keyed to avoid repeat notices. */
+	readonly lastDeliveryIssue?: { readonly key: string; readonly reason: string }
 	/** Sessions of this job's runs already archived by retention, newest last. */
 	readonly archivedSessions?: readonly string[]
 }
 
 export type ScheduleHistoryRecord =
 	| {
-			readonly v: 1 | 2
+			readonly v: 1 | 2 | 3
 			readonly kind: 'run'
 			readonly at: string
 			readonly runId: string
@@ -317,6 +357,7 @@ export type ScheduleHistoryRecord =
 				| 'paused'
 				| 'resumed'
 				| 'removed'
+				| 'delivery-waived'
 				| 'completed'
 				| 'expired'
 				| 'tampered'
@@ -329,7 +370,7 @@ export type ScheduleHistoryRecord =
 
 /** What a fire child leaves behind. Authoritative over its exit code. */
 export interface ScheduleRunResult {
-	readonly v: 1 | 2
+	readonly v: 1 | 2 | 3
 	readonly kind: 'schedule-run-result'
 	readonly runId: string
 	readonly jobId: string
@@ -367,6 +408,15 @@ export interface ScheduleRunResult {
 	}
 	/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
 	readonly scriptOutput?: { readonly stdout: string; readonly stderr: string }
+	/** Opt-in pure script report parsed from stdout. */
+	readonly scriptReport?: {
+		readonly v: 1
+		readonly state: 'quiet' | 'changed'
+		readonly summary?: string
+		readonly nextState?: string
+	}
+	/** Nonnegative safe integer revision of scheduler-owned state used by a report-enabled run. */
+	readonly scriptStateRevision?: number
 	readonly startedAt: string
 	readonly endedAt?: string
 }

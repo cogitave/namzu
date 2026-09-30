@@ -25,6 +25,8 @@ a working directory picks its project; this page says what is on disk.
 ├── schedule/                         scheduled jobs and their scheduler (see Scheduled tasks)
 │   ├── jobs/<job-id>.json            job definitions; jobs/.revisions/ holds compare-and-set markers
 │   ├── state/<job-id>.json           what the scheduler remembers between evaluations
+│   ├── script-state/<job-id>.json    last committed state of a reporting script
+│   ├── deliveries/<session-id>/     source-conversation notices, one immutable file per result
 │   ├── claims/<job-id>/<key>.json    one per occurrence ever started, published with link
 │   ├── history/<job-id>.jsonl        runs, skips, missed occurrences and job changes
 │   ├── runs/<job-id>/<run-id>.json   each run's result; <run-id>.log beside it is the run's output
@@ -54,6 +56,9 @@ a working directory picks its project; this page says what is on disk.
 A temporary scratch directory per session lives outside the home, at
 `$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/`. On POSIX it is created
 with mode 0700 and refused if it is a symlink or owned by another user.
+For a confirmed no-project script job, a separate private working directory
+is created beside `NAMZU_HOME`, under `<NAMZU_HOME>-schedule-workspaces/<job-id>/`.
+It is not a session or a filesystem sandbox.
 
 ## What each piece is
 
@@ -72,9 +77,11 @@ with mode 0700 and refused if it is a symlink or owned by another user.
 | `cli/zen-catalogue.json` | The last Zen and Zen Go model catalogue a launch's background refresh derived and validated; see [The model catalogue refresh](model-catalogue.md). | Yes. The next launch uses the bundled catalogue until its refresh lands and writes a new one. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
 | `schedule/jobs/` | Scheduled job definitions. Run sessions live under `projects/<slug>/` like any other, titled `Scheduled: <job> · <time>`. | Deleting a file deletes the job; `namzu schedule remove` is the way. |
+| `schedule/deliveries/` | Durable notices returned to the exact conversation that proposed a job. They are displayed by the TUI but never appended as model messages. | No, unless losing those notices is intended. |
+| `schedule/script-state/` | Last committed opaque state for jobs using the JSON script report. The scheduler advances it only after the run result is settled. | No; deleting it makes the next script poll start from empty state. |
 | `schedule/history/`, `schedule/runs/`, `schedule/daemon/log/` | Records and output of past runs, and the scheduler's log. | Yes. |
 | `schedule/claims/` | Which occurrences already started. | Only while the scheduler is stopped: deleting one while it runs can re-run an occurrence after a backward clock jump inside the catch-up window. |
-| `schedule/state/` | The scheduler's memory of each job. | Only while the scheduler is stopped; it is rebuilt, and occurrences within the catch-up window may then be caught up again. |
+| `schedule/state/` | The scheduler's memory of each job, including source results still awaiting delivery. | Only while the scheduler is stopped and no delivery is pending; occurrences within the catch-up window may then be caught up again. |
 | Old run sessions | The scheduler **archives** (never deletes) a job's completed-run sessions beyond its newest `retention.keepSessions` (default 20), so `/resume` stays usable. | `namzu schedule prune --delete` deletes old runs and their sessions after listing them, a removed job's included, and a removed job's history once none of its runs is left. |
 
 ## Why one log per session

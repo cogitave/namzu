@@ -66,7 +66,7 @@ export function jobRequest(sb: Sandbox, over: Partial<JobRequest> = {}): JobRequ
 		name: 'nightly',
 		prompt: over.runKind === 'script' ? '' : 'Check the dependencies.',
 		when: '0 3 * * *',
-		folder: sb.project,
+		...(over.workspace === 'none' ? {} : { folder: sb.project }),
 		tz: 'UTC',
 		permissions: { preset: 'read-only' },
 		...(over.runKind === 'script' ? {} : { model: 'deepseek/deepseek-chat' }),
@@ -87,7 +87,7 @@ export function confirmedJob(
 		now,
 		osHome: sb.osHome,
 	})
-	return createJob(sb.paths, confirmJob(built, 'cli-tty', now))
+	return createJob(sb.paths, confirmJob(built, 'cli-tty', now, { paths: sb.paths }))
 }
 
 export const DEEPSEEK: DetectedProvider = {

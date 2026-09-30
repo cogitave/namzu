@@ -201,6 +201,17 @@ describe('schedule tool', () => {
 		).toBe(false)
 	})
 
+	it('returns a host deletion refusal to the model', async () => {
+		const { host } = fakeHost('create', {
+			delete: async () => {
+				throw new Error('a source result is still pending delivery')
+			},
+		})
+		const result = await tool(host).execute({ action: 'delete', job: 'nightly' }, context)
+		expect(result.success).toBe(false)
+		expect(result.error).toBe('a source result is still pending delivery')
+	})
+
 	it('lists through the host, current folder by default', async () => {
 		const { host } = fakeHost('create')
 		const result = await tool(host).execute({ action: 'list' }, context)
@@ -403,6 +414,46 @@ describe('schedule tool: kind and script', () => {
 		)
 	})
 
+	it('passes a project-free script without inventing a folder', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute({ ...scriptInput, workspace: 'none' }, context)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.objectContaining({ runKind: 'script', workspace: 'none' }),
+		)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.not.objectContaining({ folder: expect.anything() }),
+		)
+	})
+
+	it('passes an opt-in JSON report only on a pure script', async () => {
+		const { host } = fakeHost('create')
+		const script = { body: 'printf report', shell: 'bash', report: 'json-v1' }
+		const result = await tool(host).execute({ ...scriptInput, script }, context)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(expect.objectContaining({ script }))
+		const other = fakeHost('create')
+		const refused = await tool(other.host).execute(
+			{ ...scriptInput, kind: 'script+agent', prompt: 'report it', script },
+			context,
+		)
+		expect(refused.error).toMatch(/script\.report is only for a pure script/)
+		expect(other.host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses a project-free workspace with a folder or an agent phase', async () => {
+		const { host } = fakeHost('create')
+		for (const proposed of [
+			{ ...scriptInput, workspace: 'none', folder: '/tmp/visible' },
+			{ ...createInput, workspace: 'none' },
+			{ ...scriptInput, kind: 'script+agent', prompt: 'report', workspace: 'none' },
+		]) {
+			const result = await tool(host).execute(proposed, context)
+			expect(result.error).toMatch(/workspace: 'none'/)
+		}
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
 	it('describes a created pure script as having history but no session', async () => {
 		const { host } = fakeHost('create', {
 			preview: async () => ({
@@ -454,14 +505,18 @@ describe('schedule tool: kind and script', () => {
 	it('describes script requirements without requiring a prompt for them', () => {
 		const schedule = tool(fakeHost('create').host)
 		const description = schedule.description
-		expect(description).toContain('agent and script+agent also need prompt')
-		expect(description).toContain('script and script+agent also need script')
+		expect(description).toContain('agent and script+agent need prompt')
+		expect(description).toContain('script and script+agent need script')
 		expect(description).toContain("pure script, use permissions {rules:{},unmatched:'deny'}")
 		expect(description).toContain('read-only denies bash and blocks every script')
 		expect(description).toContain('home, root and NAMZU_HOME are invalid')
+		expect(description).toContain("workspace:'none' and omit folder")
+		expect(description).toContain("script.report:'json-v1'")
+		expect(description).toContain('session_loop (/loop)')
 		const schema = schedule.inputSchema as unknown as {
 			shape: {
 				folder: { description?: string }
+				workspace: { description?: string }
 				permissions: {
 					description?: string
 					unwrap(): { shape: { preset: { description?: string } } }
@@ -469,6 +524,7 @@ describe('schedule tool: kind and script', () => {
 			}
 		}
 		expect(schema.shape.folder.description).toContain("operator's home directory")
+		expect(schema.shape.workspace.description).toContain('not a sandbox or a write boundary')
 		expect(schema.shape.permissions.description).toContain('{rules:{}, unmatched:"deny"}')
 		expect(schema.shape.permissions.unwrap().shape.preset.description).toContain(
 			'its bash deny blocks every script',

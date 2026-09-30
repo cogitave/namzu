@@ -17,6 +17,7 @@ import {
 	NOOP_LOGGER,
 	buildScheduleTools,
 	defineTool,
+	generateScheduleRunId,
 	hostCommandShell,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
@@ -31,12 +32,14 @@ import {
 	recordingContext,
 	sandbox,
 } from '../../schedule/__tests__/fixtures.js'
+import { confirmJob } from '../../schedule/build.js'
 import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
 import { ScheduleDaemon } from '../../schedule/daemon/daemon.js'
 import { runFire } from '../../schedule/fire/fire.js'
+import { plannedScratchFolder } from '../../schedule/folder.js'
 import { appendHistory, foldHistory, readHistory } from '../../schedule/store/history.js'
 import { confirmationHolds, listJobs, readJob, updateJob } from '../../schedule/store/jobs.js'
-import { readState } from '../../schedule/store/state.js'
+import { readState, writeState } from '../../schedule/store/state.js'
 import {
 	type PermissionRequest,
 	type ScreenPermissionRequest,
@@ -141,6 +144,7 @@ async function handoffParkedRun() {
 }
 
 async function runUntilParked(job: ReturnType<typeof confirmedJob>, runAgent: typeof agent) {
+	let childExit: Promise<number> | undefined
 	const d = new ScheduleDaemon({
 		paths: sb.paths,
 		log: NOOP_LOGGER,
@@ -148,8 +152,8 @@ async function runUntilParked(job: ReturnType<typeof confirmedJob>, runAgent: ty
 		epoch: 'e',
 		maxConcurrentRuns: 1,
 		notifications: false,
-		spawnFire: (req) => ({
-			exited: runFire(
+		spawnFire: (req) => {
+			childExit = runFire(
 				recordingContext(),
 				sb.paths,
 				{
@@ -160,9 +164,9 @@ async function runUntilParked(job: ReturnType<typeof confirmedJob>, runAgent: ty
 					trigger: req.trigger,
 				},
 				{ agent: runAgent, keepLogging: true },
-			),
-			terminate: () => {},
-		}),
+			)
+			return { exited: childExit, terminate: () => {} }
+		},
 		notify: async () => {},
 		fingerprint: () => 'x',
 		watchJobs: false,
@@ -170,13 +174,9 @@ async function runUntilParked(job: ReturnType<typeof confirmedJob>, runAgent: ty
 	await d.claimOwnership()
 	d.requestRunNow(job.id)
 	await d.tick()
-	for (
-		let i = 0;
-		i < 300 && readState(sb.paths, job.id).activeRun?.status !== 'awaiting-approval';
-		i++
-	) {
-		await new Promise((r) => setTimeout(r, 10))
-	}
+	if (!childExit) throw new Error('the scheduled child was not started')
+	await childExit
+	await d.settled()
 	const run = readState(sb.paths, job.id).activeRun
 	expect(run?.status).toBe('awaiting-approval')
 	return { job, run: run as NonNullable<typeof run>, daemon: d }
@@ -293,7 +293,8 @@ describe('answering a parked scheduled run', () => {
 	})
 
 	it('offers Continue or Abandon for a run a tool paused for a person, and Continue calls the model with the results', async () => {
-		const { job, run } = await handoffParkedRun()
+		const { job, run, daemon } = await handoffParkedRun()
+		await daemon.releaseOwnership()
 		expect(probeRuns).toBe(1)
 		const said: string[] = []
 		const questions: UserQuestion[] = []
@@ -463,7 +464,8 @@ describe('answering a parked scheduled run', () => {
 
 	it('records the run’s end in its job once the answered turn is over, with no scheduler, once', async () => {
 		const marker = join(sb.project, 'marker')
-		const { job, run } = await parkedRun(marker)
+		const { job, run, daemon } = await parkedRun(marker)
+		await daemon.releaseOwnership()
 		// Still parked: nothing to settle, the run stays waiting.
 		await settleAnsweredPark(sb.paths, job.id)
 		expect(readState(sb.paths, job.id).activeRun?.status).toBe('awaiting-approval')
@@ -762,6 +764,7 @@ describe('the schedule tool’s host', () => {
 		answer: string,
 		cwd = () => sb.project,
 		review?: Parameters<typeof createScheduleToolHost>[0]['review'],
+		sourceConversation?: Parameters<typeof createScheduleToolHost>[0]['sourceConversation'],
 	) {
 		const said: string[] = []
 		const questions: { options: { id: string }[] }[] = []
@@ -772,6 +775,7 @@ describe('the schedule tool’s host', () => {
 			model: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
 			config: () => ({}),
 			sessionId: () => undefined,
+			...(sourceConversation ? { sourceConversation } : {}),
 			say: (t) => said.push(t),
 			ask: async (q) => {
 				questions.push(q as never)
@@ -792,6 +796,197 @@ describe('the schedule tool’s host', () => {
 		tz: 'UTC',
 		permissions: { preset: 'read-only', unmatched: 'deny' },
 	}
+	const sourceConversation = {
+		kind: 'source-conversation' as const,
+		sessionId: 'source-session',
+		projectSlug: 'source-project',
+		projectId: 'project-id',
+		tenantId: 'tenant-id',
+	}
+
+	it('previews a no-project script without creating a folder and binds its source conversation on confirmation', async () => {
+		const {
+			host: scheduleHost,
+			tool,
+			said,
+		} = host(
+			'create',
+			() => sb.home,
+			undefined,
+			() => sourceConversation,
+		)
+		const draft = {
+			name: 'project-free',
+			runKind: 'script' as const,
+			workspace: 'none' as const,
+			script: { body: 'echo status', shell: 'bash' as const },
+			when: 'every 1m',
+			permissions: { rules: {}, unmatched: 'deny' as const },
+		}
+		const preview = await scheduleHost.preview(draft)
+		expect(preview.workspace).toBe('none')
+		expect(preview.delivery).toEqual(sourceConversation)
+		expect(existsSync(preview.folder)).toBe(false)
+		const result = await tool.execute({ action: 'create', ...draft, kind: 'script' }, {} as never)
+		expect(result.success).toBe(true)
+		const [job] = listJobs(sb.paths).jobs
+		expect(job?.workspace).toBe('none')
+		expect(job?.delivery).toEqual(sourceConversation)
+		expect(existsSync(job?.folder.canonical as string)).toBe(true)
+		expect(said[0]).toContain('private scratch directory')
+		expect(said[0]).toContain('post back to the source conversation')
+		expect(said[0]).not.toContain(job?.folder.canonical)
+		const listed = await tool.execute({ action: 'list' }, {} as never)
+		expect(listed.output).toContain('Private scheduler workspace (no project)')
+	})
+
+	it('an edit preserves a no-project script workspace, job id and source binding', async () => {
+		const create = host(
+			'create',
+			() => sb.home,
+			undefined,
+			() => sourceConversation,
+		)
+		const made = await create.tool.execute(
+			{
+				action: 'create',
+				name: 'project-free',
+				kind: 'script',
+				workspace: 'none',
+				script: { body: 'echo status', shell: 'bash' },
+				when: 'every 1m',
+				permissions: { rules: {}, unmatched: 'deny' },
+			},
+			{} as never,
+		)
+		expect(made.success).toBe(true)
+		const [before] = listJobs(sb.paths).jobs
+		const changed = await host('save', () => sb.home).tool.execute(
+			{ action: 'update', job: 'project-free', when: 'every 5m' },
+			{} as never,
+		)
+		expect(changed.success).toBe(true)
+		const [after] = listJobs(sb.paths).jobs
+		expect(after?.id).toBe(before?.id)
+		expect(after?.folder).toEqual(before?.folder)
+		expect(after?.workspace).toBe('none')
+		expect(after?.delivery).toEqual(sourceConversation)
+	})
+
+	it('a model edit preserves source waiver run IDs confirmed by the operator', async () => {
+		const original = confirmedJob(sb, {
+			runKind: 'script',
+			script: { body: 'echo status', shell: 'bash' },
+			permissions: { rules: {}, unmatched: 'deny' },
+		})
+		const runId = generateScheduleRunId()
+		updateJob(sb.paths, original.id, original.revision, (job) =>
+			confirmJob(
+				{ ...job, delivery: undefined, deliveryWaiverRunIds: [runId] },
+				'cli-tty',
+				new Date(),
+				{ paths: sb.paths },
+			),
+		)
+		const changed = await host('save', () => sb.home).tool.execute(
+			{ action: 'update', job: original.name, when: 'every 5m' },
+			{} as never,
+		)
+		expect(changed.success).toBe(true)
+		const after = readJob(sb.paths, original.id)
+		expect(after?.deliveryWaiverRunIds).toEqual([runId])
+		expect(after && confirmationHolds(after)).toBe(true)
+	})
+
+	it('changes a pure script between a project and private workspace only after review', async () => {
+		const script = {
+			action: 'create',
+			name: 'project-check',
+			kind: 'script',
+			script: { body: 'echo status', shell: 'bash' },
+			when: 'every 1m',
+			permissions: { rules: {}, unmatched: 'deny' },
+		}
+		expect((await host('create').tool.execute(script, {} as never)).success).toBe(true)
+		const [before] = listJobs(sb.paths).jobs
+		const scratch = plannedScratchFolder(sb.home, before?.id as string)
+		expect(existsSync(scratch)).toBe(false)
+		const proposal = { action: 'update', job: 'project-check', workspace: 'none' }
+		expect((await host('cancel').tool.execute(proposal, {} as never)).success).toBe(false)
+		expect(existsSync(scratch)).toBe(false)
+		expect((await host('save').tool.execute(proposal, {} as never)).success).toBe(true)
+		const [privateJob] = listJobs(sb.paths).jobs
+		expect(privateJob?.id).toBe(before?.id)
+		expect(privateJob?.workspace).toBe('none')
+		expect(privateJob?.folder.canonical).toBe(scratch)
+		expect(existsSync(scratch)).toBe(true)
+		const restored = await host('save').tool.execute(
+			{ action: 'update', job: 'project-check', folder: sb.project },
+			{} as never,
+		)
+		expect(restored.success).toBe(true)
+		const [projectJob] = listJobs(sb.paths).jobs
+		expect(projectJob?.id).toBe(before?.id)
+		expect(projectJob?.workspace).toBeUndefined()
+		expect(projectJob?.folder.canonical).toBe(sb.project)
+	})
+
+	it('refuses TUI and model deletion while a source result awaits delivery', async () => {
+		const job = confirmedJob(sb, { name: 'pending-result' })
+		writeState(sb.paths, {
+			...readState(sb.paths, job.id),
+			deliveryPending: [
+				{
+					result: {
+						v: 1,
+						kind: 'schedule-run-result',
+						jobId: job.id,
+						runId: generateScheduleRunId(),
+						status: 'completed',
+						exitCode: 0,
+						startedAt: '2026-09-30T08:00:00.000Z',
+						endedAt: '2026-09-30T08:00:01.000Z',
+					},
+				},
+			],
+		})
+		const said: string[] = []
+		let asked = false
+		await runScheduleCommand(['remove', job.name], {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: (line) => said.push(line),
+			ask: async () => {
+				asked = true
+				return { kind: 'answer', selectedOptionIds: ['yes'] }
+			},
+		})
+		expect(asked).toBe(false)
+		expect(said.join('\n')).toContain('source result still settling')
+		const blocked = await host('yes').tool.execute({ action: 'delete', job: job.name }, {} as never)
+		expect(blocked.success).toBe(false)
+		expect(blocked.error).toContain('source result still settling')
+		expect(listJobs(sb.paths).jobs).toContainEqual(expect.objectContaining({ id: job.id }))
+	})
+
+	it('refuses deletion while a scheduled run is active', async () => {
+		const job = confirmedJob(sb, { name: 'active-run' })
+		writeState(sb.paths, {
+			...readState(sb.paths, job.id),
+			activeRun: {
+				runId: generateScheduleRunId(),
+				key: 'due-1',
+				trigger: 'manual',
+				startedAt: '2026-09-30T08:00:00.000Z',
+				daemonEpoch: 'test',
+				status: 'running',
+			},
+		})
+		const blocked = await host('yes').tool.execute({ action: 'delete', job: job.name }, {} as never)
+		expect(blocked.success).toBe(false)
+		expect(listJobs(sb.paths).jobs).toContainEqual(expect.objectContaining({ id: job.id }))
+	})
 
 	it('shows its own computation with Cancel first, and creates a job only on Create', async () => {
 		const { tool, said, questions } = host('cancel')
@@ -1117,6 +1312,26 @@ describe('the schedule tool’s host', () => {
 				{} as never,
 			)
 			expect(rejected.error).toMatch(/pure script job has no agent budget/)
+		})
+
+		it('keeps the optional structured report in the saved pure script and names it in review', async () => {
+			const { tool, said } = host('create')
+			const result = await tool.execute(
+				{
+					...scriptInput,
+					name: 'reported-ticker',
+					script: {
+						body: 'printf \'{"v":1,"state":"quiet"}\\n\'',
+						shell: 'bash',
+						report: 'json-v1',
+					},
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			expect(said[0]).toContain('Script report: JSON v1 (quiet/changed; optional scheduler state)')
+			const [job] = listJobs(sb.paths).jobs
+			expect(job?.script?.report).toBe('json-v1')
 		})
 
 		it('confirms a polling script without generic success notices, then updates that choice', async () => {

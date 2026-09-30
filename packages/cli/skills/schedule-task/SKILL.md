@@ -1,6 +1,6 @@
 ---
 name: schedule-task
-description: How to propose a scheduled job that runs later with nobody watching - choosing its permission set, schedule, time zone and budget, and wording its prompt for an unattended run. Use when the user asks for something to happen on a schedule, every night, every hour, at a time, or while namzu is closed.
+description: How to choose an open-conversation loop or propose a durable scheduled job, with its workspace, permissions, schedule, time zone and budget. Use when the user asks for something to repeat, happen later, or run while namzu is closed.
 invocation: both
 metadata:
   namzu-requires-tools: schedule
@@ -8,7 +8,17 @@ metadata:
 
 # Scheduling a task
 
-A scheduled job runs later in a folder with **nobody watching**. An agent
+First decide whether the request belongs to this open conversation or needs
+to survive when Namzu closes. For a repeat in this same conversation **only
+while the TUI is open**, use `session_loop` (or tell the operator `/loop`). It
+re-sends the prompt between turns under the conversation's current permission
+mode. It stops firing when the TUI closes; resuming the conversation later
+restores an unexpired loop. Never describe `/loop` as a background service.
+
+For a durable task, use `schedule`. It runs later with **nobody watching**,
+including while Namzu is closed when the scheduler service is installed. The
+conversation that requested a job owns it and can receive its important
+result; that is separate from the directory in which a run executes. An agent
 job runs a prompt in a new conversation; a pure script job runs the exact
 confirmed script with no model or session. It cannot ask questions. An agent
 call that its permission set does not allow either waits for the operator
@@ -19,6 +29,16 @@ until they do.
 
 Ask the user whatever you cannot infer, then propose. Do not create a job
 the user did not ask for.
+
+If the task needs no project files, do not create a visible project folder
+merely because the current directory is home, root or `NAMZU_HOME`. Use the
+job's `workspace: "none"` option with `kind: "script"`, and omit `folder`.
+The scheduler makes a private working directory after confirmation. This
+changes the working directory, not the script's authority: it still runs as
+the operator on the host, and the directory is not a write boundary. The
+source conversation can receive the significant result. If a task does
+need project files, use the actual existing project folder; ask the user when
+the project cannot be identified.
 
 ## 0. Choosing a kind
 
@@ -80,6 +100,17 @@ When a polling script sends its own notification only on a change, set
 generic “finished” desktop notice after successful no-change runs. This
 choice does not turn off failure or approval notices; leave it unset for
 jobs where routine completion notices are wanted (subject to rate limits).
+
+For a pure script that should report a result only when something changes,
+set `script.report: "json-v1"`. It must print exactly one JSON object line
+to stdout: `{"v":1,"state":"quiet"}` for no change, or
+`{"v":1,"state":"changed","summary":"what changed"}` for a result.
+An optional string `nextState` persists in scheduler-owned state; the
+previous value arrives as `NAMZU_SCHEDULE_STATE`. Keep diagnostic output on
+stderr so stdout stays one JSON line. The operator reviews this protocol
+and the exact script. The raw JSON is not the result shown in the source
+conversation. Omit `report` for an ordinary script; it is not supported on
+`script+agent` gates.
 
 The operator confirms the **exact script text**, once; a later change needs
 re-confirmation, so do not propose a script expecting to iterate on it live
@@ -205,7 +236,8 @@ alone:
 
 - Say what to do, in which files or commands, and what "done" means.
 - Say where the result goes: a file to write, or the run's final message
-  (the operator reads it in the run's conversation).
+  (the operator reads it in the run's conversation). For a job owned by the
+  source conversation, state what significant result should appear there.
 - Say what to do when something is missing or fails: stop and report it in
   the final message. Never guess, never retry destructively.
 - Name the commands the rules allow, so the run does not wander into calls
@@ -225,24 +257,27 @@ report its error. Do not install or change anything."
 
 Call `schedule` with `name` (lowercase, digits, dashes), `when` and
 `permissions`, plus `prompt` (unless `kind` is `"script"`) and `script`
-(when `kind` is not `"agent"`). Leave `folder` unset only when the session's
-folder is a valid job folder. The file system root, the operator's home
-directory itself, `NAMZU_HOME`, and any folder containing `NAMZU_HOME` are
-refused. If the session is in one of those, choose an existing project
-subfolder or create a dedicated one when permitted, then set `folder`
-explicitly. Leave `tz`, `execution`, `budget` and `headed` unset unless the
-user asked for them. The operator sees one confirmation screen with the job
+(when `kind` is not `"agent"`). For a job that needs project files, leave
+`folder` unset only when the session's folder is the actual project and a
+valid job folder. The file system root, the operator's home directory itself,
+`NAMZU_HOME`, and any folder containing `NAMZU_HOME` are refused. In those
+locations, set `folder` to the actual existing project directory. For a
+project-free pure script, set `workspace: "none"` and omit `folder` instead
+of making a directory for the job. Leave `tz`, `execution`, `budget` and
+`headed` unset unless the user asked for them. The operator sees one
+confirmation screen with the job
 as it will run, and every value you set that differs from the default is
 marked as yours. Do not ask them to confirm again in chat. Afterwards,
 `schedule` with `action: "list"` shows every job, in any folder, and the
 operator manages them with `/schedule` or `namzu schedule list`.
 
 To change a job, call `schedule` with `action: "update"`, `job` (its name)
-and only the fields that change (`prompt`, `when`, `folder`, `tz`, `budget`,
-`notifyOnFinish`, or `permissions` as the whole new set). The operator sees what changes and
-confirms it; the job keeps its history. Never delete a job and create it
-again to change it: its history is lost. Jobs run only when the scheduler service is
-installed: if the result says none is installed, tell the user to run
+and only the fields that change (`prompt`, `when`, `folder`, `workspace`,
+`kind`, `script`, `tz`, `budget`, `notifyOnFinish`, or `permissions` as the
+whole new set). The operator sees what changes and confirms it; the job
+keeps its history. Never delete a job and create it again to change it: its
+history is lost. Jobs run only when the scheduler service is installed: if
+the result says none is installed, tell the user to run
 `namzu schedule install`; do not say the job is set up and running.
 
 ## Browser access

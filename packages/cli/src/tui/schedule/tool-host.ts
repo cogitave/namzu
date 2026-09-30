@@ -87,6 +87,8 @@ export interface ScheduleUi {
 	readonly model: () => { readonly provider: string; readonly model?: string } | undefined
 	readonly config: () => Pick<NamzuCliConfig, 'limits'>
 	readonly sessionId: () => string | undefined
+	/** The persisted requesting conversation, if this session has been materialized. */
+	readonly sourceConversation?: () => ScheduleJobPreview['delivery']
 	/** Show a system line in the transcript. */
 	readonly say: (text: string) => void
 	/** Ask the person on the terminal. */
@@ -112,13 +114,23 @@ function canonicalCwd(cwd: string): string {
 	}
 }
 
+/** A private scheduler workspace has no project config, even if a file appears in it. */
+function jobPermissionLayers(job: ScheduleJob, home: string) {
+	return readPermissionLayers({
+		cwd: job.folder.canonical,
+		home,
+		...(job.workspace === 'none' ? { includeProject: false } : {}),
+	})
+}
+
 /** A job as the tool reports it; `here` when it runs in the session's folder, which alone shows its prompt. */
 function summary(job: ScheduleJob, here: boolean, home: string): ScheduleJobSummary {
 	const tz = job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone()
 	const state = readState(schedulePaths(home), job.id)
 	return {
 		name: job.name,
-		folder: job.folder.canonical,
+		folder:
+			job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical,
 		state: job.state,
 		schedule: describeSchedule(job.schedule, { tz }),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
@@ -164,6 +176,11 @@ function confirmationBody(
 			? [
 					`${p.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${p.script.shell}; shell commands checked against the scheduled-run floor and deny rules)`,
 					...p.script.body.split('\n').map((l) => `  │ ${l}`),
+					...(p.script.report === 'json-v1'
+						? [
+								'Script report: JSON v1 (quiet/changed; optional scheduler state); stdout must be one JSON object line.',
+							]
+						: []),
 					p.runKind === 'script'
 						? 'Runs exactly as shown; code passed to another interpreter is not parsed by the shell checker and must be reviewed here'
 						: 'Runs exactly as shown; code passed to another interpreter is not parsed by the shell checker, and the permission set governs the agent phase',
@@ -274,6 +291,12 @@ export function updateRequest(
 	// combination outright) — and the wake-gate cap only ever applies to a
 	// `runKind` that stays (or becomes) `'script+agent'`.
 	const runKind = changes.runKind ?? current.runKind
+	const privateWorkspace =
+		changes.workspace === 'none' || (current.workspace === 'none' && changes.folder === undefined)
+	if (changes.workspace === 'none' && changes.folder !== undefined)
+		throw new JobRequestError("workspace: 'none' cannot be combined with folder")
+	if (privateWorkspace && runKind !== 'script')
+		throw new JobRequestError("workspace: 'none' is only for a pure script job")
 	if (runKind === 'script' && changes.prompt !== undefined)
 		throw new JobRequestError('a pure script job has no prompt; remove prompt')
 	if (runKind === 'script' && changes.budget !== undefined)
@@ -294,7 +317,11 @@ export function updateRequest(
 		prompt: runKind === 'script' ? '' : (changes.prompt ?? current.prompt),
 		when: changes.when ?? '',
 		...(spec ? { spec } : {}),
-		folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
+		...(privateWorkspace
+			? { workspace: 'none' as const }
+			: {
+					folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
+				}),
 		...(tz ? { tz } : {}),
 		...(runKind ? { runKind } : {}),
 		...(script ? { script } : {}),
@@ -319,6 +346,10 @@ export function updateRequest(
 		pauseAfterFailures: current.failurePolicy.pauseAfterFailures,
 		approvalTtlMs: current.approvalTtlMs,
 		createdBy: current.createdBy,
+		...(current.delivery ? { delivery: current.delivery } : {}),
+		...(current.deliveryWaiverRunIds?.length
+			? { deliveryWaiverRunIds: current.deliveryWaiverRunIds }
+			: {}),
 		// `unmatched: allow` on the host is the operator's choice
 		// (`--allow-unattended-host`); a change that keeps the permissions
 		// keeps it, and the tool can never propose it.
@@ -346,6 +377,8 @@ export function chosenByTheModel(
 	const session = resolve(cwd)
 	if (draft.folder !== undefined && resolve(session, draft.folder) !== session)
 		out.push(`folder ${job.folder.canonical}, not this session's`)
+	if (draft.workspace === 'none')
+		out.push('private no-project workspace instead of this session’s working directory')
 	if (draft.permissions.execution === 'sandbox')
 		out.push('commands run in the sandbox; the default is this machine')
 	const iterations = limits.maxIterations || DEFAULT_MAX_ITERATIONS
@@ -384,7 +417,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		extra: readonly string[],
 		now: Date,
 	): Promise<{ preview: ScheduleJobPreview; policy: CompiledJobPolicy }> => {
-		const layers = readPermissionLayers({ cwd: job.folder.canonical })
+		const layers = jobPermissionLayers(job, ui.home())
 		const policy = compileJobPolicy(job.permissions, {
 			layers,
 			namzuHome: ui.home(),
@@ -414,7 +447,8 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			}
 		}
 		const roots = [ui.cwd(), ...ui.extraRoots()]
-		const outside = !roots.some((root) => within(root, job.folder.canonical))
+		const outside =
+			job.workspace !== 'none' && !roots.some((root) => within(root, job.folder.canonical))
 		const perDay = runsPerDay(job.schedule, now)
 		const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
 		const networkCapable =
@@ -435,6 +469,8 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		const preview: ScheduleJobPreview = {
 			name: job.name,
 			folder: job.folder.canonical,
+			...(job.workspace === 'none' ? { workspace: 'none' as const } : {}),
+			...(job.delivery ? { delivery: job.delivery } : {}),
 			outsideSessionRoots: outside,
 			prompt: job.prompt,
 			...(job.runKind && job.runKind !== 'agent' ? { runKind: job.runKind } : {}),
@@ -490,6 +526,12 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		// confirmation shows it line by line, so the model may propose one.
 		browserGrants: true,
 		async preview(draft: ScheduleJobDraft): Promise<ScheduleJobPreview> {
+			if (draft.workspace === 'none' && draft.runKind !== 'script')
+				throw new JobRequestError("workspace: 'none' is only for a pure script job")
+			if (draft.workspace === 'none' && draft.folder !== undefined)
+				throw new JobRequestError("workspace: 'none' cannot be combined with folder")
+			if (draft.script?.report !== undefined && draft.runKind !== 'script')
+				throw new JobRequestError('script.report is only for a pure script job')
 			if (draft.runKind === 'script' && draft.budget !== undefined)
 				throw new JobRequestError(
 					'a pure script job has no agent budget; remove budget and use script.timeoutMs for its timeout',
@@ -502,13 +544,15 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			if (!model && draft.runKind !== 'script')
 				throw new Error('This session has no model; a scheduled job runs on the session’s model.')
 			const now = new Date()
-			const folder = resolve(ui.cwd(), draft.folder ?? '.')
+			const folder = draft.workspace === 'none' ? undefined : resolve(ui.cwd(), draft.folder ?? '.')
+			const delivery = ui.sourceConversation?.()
 			const job = buildJob(
 				{
 					name: draft.name,
 					prompt: draft.prompt ?? '',
 					when: draft.when,
-					folder,
+					...(folder ? { folder } : {}),
+					...(draft.workspace === 'none' ? { workspace: 'none' as const } : {}),
 					...(draft.runKind ? { runKind: draft.runKind } : {}),
 					...(draft.script ? { script: draft.script } : {}),
 					...(draft.tz ? { tz: draft.tz } : {}),
@@ -530,6 +574,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 						surface: 'tool',
 						...(ui.sessionId() ? { sessionId: ui.sessionId() as string } : {}),
 					},
+					...(delivery ? { delivery } : {}),
 				},
 				{ paths: paths(), config: ui.config(), now },
 			)
@@ -597,6 +642,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				paths(),
 				confirmJob(entry.job, 'tool-confirmed', new Date(), {
 					paused: options.paused,
+					paths: paths(),
 				}),
 			)
 			history(job, 'created')
@@ -626,6 +672,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 					paths: paths(),
 					config: ui.config(),
 					now,
+					jobId: current.id,
 				}),
 			)
 			const { preview, policy } = await previewOf(job, [], now)
@@ -633,7 +680,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				confirmationView(
 					j,
 					compileJobPolicy(j.permissions, {
-						layers: readPermissionLayers({ cwd: j.folder.canonical }),
+						layers: jobPermissionLayers(j, ui.home()),
 						namzuHome: ui.home(),
 						folder: j.folder,
 					}),
@@ -707,6 +754,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				next = updateJob(paths(), entry.current.id, entry.current.revision, () =>
 					confirmJob(entry.job, 'tool-confirmed', now, {
 						paused: entry.current.state === 'paused',
+						paths: paths(),
 					}),
 				)
 			} catch (error) {
@@ -809,6 +857,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 
 		async delete(ref) {
 			const job = findJob(paths(), ref)
+			const state = readState(paths(), job.id)
+			if (state.activeRun || state.deliveryPending?.length)
+				throw new Error(
+					`${job.name} has a run or source result still settling. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
+				)
 			deleteJob(paths(), job.id)
 			history(job, 'removed')
 		},

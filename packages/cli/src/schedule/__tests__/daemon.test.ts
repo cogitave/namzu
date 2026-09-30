@@ -98,7 +98,6 @@ function daemon(over: Partial<ConstructorParameters<typeof ScheduleDaemon>[0]> =
 
 /** Let the exit handlers and finalisation settle. */
 async function settle(d: ScheduleDaemon): Promise<void> {
-	for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 5))
 	await d.settled()
 }
 

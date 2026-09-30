@@ -283,7 +283,9 @@ export interface PermissionLayer {
  * every file, so it needs the layers apart. Validated as the cascade
  * validates them; a file that fails to parse throws the same error.
  */
-export function readPermissionLayers(opts: LoadConfigOptions = {}): PermissionLayer[] {
+export function readPermissionLayers(
+	opts: LoadConfigOptions & { readonly includeProject?: boolean } = {},
+): PermissionLayer[] {
 	const cwd = opts.cwd ?? process.cwd()
 	const env = opts.env ?? process.env
 	const userPath = join(
@@ -295,7 +297,11 @@ export function readPermissionLayers(opts: LoadConfigOptions = {}): PermissionLa
 	const layers: PermissionLayer[] = []
 	for (const [source, path, config] of [
 		['user-file', userPath, readYamlIfExists(userPath)],
-		['project-file', projectPath, readJsonIfExists(projectPath)],
+		[
+			'project-file',
+			projectPath,
+			opts.includeProject === false ? {} : readJsonIfExists(projectPath),
+		],
 		['managed', managedPath, readJsonIfExists(managedPath)],
 	] as const) {
 		const browserDenies = Object.entries(config.browser?.sites ?? {})

@@ -72,6 +72,68 @@ describe('a foreground run-now', () => {
 		expect(runs[0]).toMatchObject({ status: 'completed', trigger: 'manual' })
 	})
 
+	it('leaves completion to a daemon that takes ownership during the foreground run', async () => {
+		const job = confirmedJob(sb, { permissions: { preset: 'read-only' } })
+		let fetched: () => void = () => {}
+		let finishFetch: () => void = () => {}
+		const fetchStarted = new Promise<void>((resolve) => {
+			fetched = resolve
+		})
+		const fetchGate = new Promise<void>((resolve) => {
+			finishFetch = resolve
+		})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async () => {
+				fetched()
+				await fetchGate
+				return completion()
+			}),
+		)
+		const foreground = runNowCommand(recordingContext(), [job.name, '--home', sb.home], { agent })
+		await fetchStarted
+		const runId = readState(sb.paths, job.id).activeRun?.runId
+		expect(runId).toBeDefined()
+		const clock = Date.now()
+		const d = new ScheduleDaemon({
+			paths: sb.paths,
+			log: NOOP_LOGGER,
+			version: 't',
+			epoch: 'takeover',
+			maxConcurrentRuns: 1,
+			notifications: false,
+			spawnFire: () => {
+				throw new Error('the active foreground run must be adopted')
+			},
+			notify: async () => {},
+			fingerprint: () => 'x',
+			watchJobs: false,
+			now: () => clock,
+			monotonic: () => clock,
+		})
+		expect(await d.claimOwnership()).toBe(true)
+		try {
+			finishFetch()
+			expect(await foreground).toBe(0)
+			expect(readState(sb.paths, job.id).activeRun?.runId).toBe(runId)
+			await d.tick()
+			await d.settled()
+			const state = readState(sb.paths, job.id)
+			expect(state.activeRun).toBeUndefined()
+			expect(state.lastRun?.runId).toBe(runId)
+			expect(state.counters.runs).toBe(1)
+			expect(
+				readHistory(sb.paths, job.id).filter(
+					(record) =>
+						record.kind === 'run' && record.runId === runId && record.status === 'completed',
+				),
+			).toHaveLength(1)
+		} finally {
+			finishFetch()
+			await d.releaseOwnership()
+		}
+	})
+
 	it('a park is recorded, found by /resume, and holds the next occurrence', async () => {
 		const job = confirmedJob(
 			sb,

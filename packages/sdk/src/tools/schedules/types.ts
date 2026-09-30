@@ -33,11 +33,15 @@ export interface ScheduleJobDraft {
 		readonly body: string
 		readonly shell: 'bash' | 'sh'
 		readonly timeoutMs?: number
+		/** Pure scripts only: one JSON v1 report line on stdout per run. */
+		readonly report?: 'json-v1'
 	}
 	/** Schedule words: `every 30m`, `0 9 * * 1-5`, `at 09:00`, `in 2h`. */
 	readonly when: string
-	/** Folder the job runs in. Absent: the session's working directory. */
+	/** Project folder the job runs in. Absent: the session's folder, unless `workspace` is `'none'`. */
 	readonly folder?: string
+	/** A private scheduler workspace for a pure script; omit `folder` when set. */
+	readonly workspace?: 'none'
 	/** IANA zone for a cron expression or a local time. Absent: the host's. */
 	readonly tz?: string
 	/** Enable routine completion notices. Absent: the host's usual setting. */
@@ -95,8 +99,18 @@ export interface ScheduleBrowserGrant {
 /** What the person confirming is shown. Every field is the host's own computation. */
 export interface ScheduleJobPreview {
 	readonly name: string
-	/** The canonical folder the job would run in. */
+	/** The canonical working directory, including the private planned path for `workspace: 'none'`. */
 	readonly folder: string
+	/** The private scheduler workspace is used instead of a project folder. */
+	readonly workspace?: 'none'
+	/** Host-bound source conversation that receives results; absent for older hosts. */
+	readonly delivery?: {
+		readonly kind: 'source-conversation'
+		readonly sessionId: string
+		readonly projectSlug: string
+		readonly projectId: string
+		readonly tenantId: string
+	}
 	/** True when `folder` is outside the session's working directory and added directories. */
 	readonly outsideSessionRoots: boolean
 	/** Empty for a pure `'script'` job, whose prompt is unused. */
@@ -108,6 +122,7 @@ export interface ScheduleJobPreview {
 		readonly body: string
 		readonly shell: 'bash' | 'sh'
 		readonly timeoutMs: number
+		readonly report?: 'json-v1'
 	}
 	/** The schedule in words, with its zone. */
 	readonly schedule: string
@@ -142,6 +157,7 @@ export interface ScheduleJobPreview {
 /** A job as the `list` action reports it. */
 export interface ScheduleJobSummary {
 	readonly name: string
+	/** Canonical project path, or a host-provided label for a private workspace. */
 	readonly folder: string
 	readonly state: string
 	readonly schedule: string
@@ -167,6 +183,8 @@ export interface ScheduleJobChanges {
 	readonly prompt?: string
 	readonly when?: string
 	readonly folder?: string
+	/** Switch a pure script to a private scheduler workspace; omit `folder` when set. */
+	readonly workspace?: 'none'
 	readonly tz?: string
 	/** Whether routine Namzu desktop completion notices are enabled. */
 	readonly notifyOnFinish?: boolean

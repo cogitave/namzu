@@ -45,7 +45,9 @@ export interface JobListing {
 	readonly state: string
 	readonly schedule: string
 	readonly tz: string
-	readonly folder: string
+	/** Absent for a no-project job, whose scratch cwd is an internal detail. */
+	readonly folder?: string
+	readonly workspace?: 'none'
 	/** Absent: `'agent'`, unchanged from before this field existed. */
 	readonly kind?: 'script' | 'script+agent'
 	readonly nextFireAt?: string
@@ -67,7 +69,9 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 		state: displayState(job),
 		schedule: describeSchedule(job.schedule, { tz: tzOf(job) }),
 		tz: tzOf(job),
-		folder: job.folder.canonical,
+		...(job.workspace === 'none'
+			? { workspace: 'none' as const }
+			: { folder: job.folder.canonical }),
 		...(job.runKind && job.runKind !== 'agent' ? { kind: job.runKind } : {}),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastRun: state.lastRun } : {}),
@@ -140,7 +144,7 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		return [
 			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}${kind}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
-			`  ${r.folder}`,
+			`  ${r.workspace === 'none' ? 'workspace: none (private scratch directory)' : r.folder}`,
 			...(r.activeRun?.resumeCommand
 				? [
 						r.activeRun.handoff
@@ -195,7 +199,11 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 			return EXIT_OK
 		}
 		const policy = compileJobPolicy(job.permissions, {
-			layers: readPermissionLayers({ cwd: job.folder.canonical }),
+			layers: readPermissionLayers({
+				cwd: job.folder.canonical,
+				env: { ...process.env, NAMZU_HOME: paths.home },
+				...(job.workspace === 'none' ? { includeProject: false } : {}),
+			}),
 			namzuHome: paths.home,
 			folder: job.folder,
 		})
@@ -206,11 +214,20 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 					`${job.name}  [${displayState(job)}]  id ${job.id}`,
 					`When        ${describeSchedule(job.schedule, { tz })}`,
 					`Next        ${when(state.nextFireAt, tz)}`,
-					`Folder      ${job.folder.canonical}`,
+					...(job.workspace === 'none'
+						? ['Workspace   none (private scratch directory for this job)']
+						: [`Folder      ${job.folder.canonical}`]),
 					...(job.runKind === 'script'
-						? ['Scope       this folder is the script’s working directory, not a write boundary']
+						? [
+								job.workspace === 'none'
+									? 'Scope       private scratch directory is the script’s working directory, not a write boundary'
+									: 'Scope       this folder is the script’s working directory, not a write boundary',
+							]
 						: []),
 					`Notify      ${job.notify.finished ? 'routine completion notices enabled (rate limited)' : 'no routine completed-run notice; failures still notify'}`,
+					...(job.delivery?.kind === 'source-conversation'
+						? ['Results     post back to the source conversation']
+						: []),
 					...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
 						? [
 								state.activeRun.handoff
@@ -226,11 +243,19 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 					...(job.runKind === 'script'
 						? [
 								`Budget      0 tokens; script timeout ${job.script?.timeoutMs ?? 'unknown'} ms per run`,
+								...(job.script?.report === 'json-v1'
+									? ['Report      json-v1 (structured status and scheduler-owned state)']
+									: []),
 							]
 						: [
 								`Budget      ${job.budget.tokenBudget} tokens, ${job.budget.maxIterations} iterations, ${Math.round(job.budget.timeoutMs / 60_000)} min`,
 							]),
 					`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,
+					...(state.deliveryPending?.length
+						? [
+								`Pending     result delivery or state update; scheduler will retry${state.lastDeliveryIssue ? ` (${sanitizeLine(state.lastDeliveryIssue.reason, 200)})` : ''}`,
+							]
+						: []),
 					...(job.runKind === 'script'
 						? [
 								'Script check  shell commands meet the floor and deny rules; review interpreter code yourself',

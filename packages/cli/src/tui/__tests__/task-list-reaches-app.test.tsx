@@ -122,7 +122,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 const { App } = await import('../App.js')
 
 const ctx: TuiContext = {
-	cwd: process.cwd(),
+	// The footer must not depend on a worktree name containing "owner".
+	cwd: '/workspace/namzu',
 	version: '0.0.0-test',
 	rules: [],
 	skipPermissions: false,

@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Scheduled tasks
-description: Prompts that run later in a folder while namzu is closed — creating and confirming jobs, the required permission set, what one run is, approvals, missed runs, notifications, history and the limits of the design.
+description: Jobs that run later while namzu is closed — project or private workspaces, source conversation results, script reports, approvals, missed runs and history.
 resource: packages/cli/src/schedule/
 tags: [cli, schedule, automation, permissions]
 status: stable
@@ -10,10 +10,14 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 
 # Scheduled tasks
 
-A scheduled job runs later, in a folder, while namzu is closed: every night at
+A scheduled job runs later while namzu is closed: every night at
 03:00, every 30 minutes, once tomorrow at 09:00. An `agent` run opens a
 conversation you can `/resume`; a pure `script` run uses no model or session.
 Each run gets a line in the job's history and may send a desktop notification.
+A job proposed in a durable TUI conversation can return noteworthy results to
+that exact conversation as host-owned notices. Those notices are visible when
+the conversation is open or resumed; they are not model replies and do not
+enter the model's message history.
 A model run uses the permission set you wrote down when you created it, and a
 call that set does not allow **waits for you or is refused — it is never
 approved on its own**.
@@ -94,9 +98,64 @@ proposal). This suppresses Namzu's generic “finished” desktop notice for
 successful checks. Failure and approval notices still arrive. The
 default remains `true` for existing jobs and new jobs that leave it unset.
 
+### Private workspace for a script without a project
+
+`--kind script --workspace none` (or `workspace: "none"` in a model proposal)
+needs no `--folder`. Namzu plans a private working directory beside
+`NAMZU_HOME` and creates it only when a person confirms the job. The directory
+belongs to that job, stays stable across runs and is checked again before
+every run. It is a working directory, not a filesystem sandbox: a host script
+still has the account's file access. Its files never become a Namzu project
+configuration, even if the script creates a `namzu.config.json` there.
+An agent or `script+agent` job still needs a project folder. Existing jobs
+without `workspace` continue to use their confirmed project folder.
+
+### Script reports and scheduler-owned state
+
+A pure script may opt in with `--script-report json-v1` (or
+`script.report: "json-v1"`). On success its stdout must be one JSON line with
+`v: 1` and either `state: "quiet"` or `state: "changed"`. A changed report must
+include a short `summary`; either form may include an opaque `nextState`
+string. Namzu passes the previous committed value in `NAMZU_SCHEDULE_STATE`
+and records the new value only after it has settled the run's source result.
+A quiet report makes no source-conversation notice and suppresses the generic
+successful-run notification. A changed report delivers its summary to the
+source conversation when one is bound. Invalid or extra output fails the
+check instead of silently treating it as a successful poll. The report has
+bounded output and state; see the CLI's error for the exact violated limit.
+Jobs without this opt-in keep their existing stdout and notification behavior.
+
+### Results in the conversation that proposed a job
+
+When the interactive `schedule` tool creates a job from a durable
+conversation, the CLI pins that conversation's installation, project and
+session IDs. A run still happens independently while the TUI is closed. An
+agent run opens its own run conversation; a pure script opens none. A
+noteworthy result appears as a host notice in the original conversation when
+you open or resume it. Quiet polls add no notice. These notices are stored
+separately from the session log and never become model instructions or a fake
+assistant reply. A CLI-created job without a source binding continues to use
+its own history and desktop notifications. The TUI reads notices in
+publication order across pages, including a delayed result from an older run.
+
+If the source conversation is busy, delivery retries. The next occurrence of
+that job waits for its previous result to settle, preventing repeat polls
+from piling up. If the source was archived or removed, `schedule show` names
+the pending delivery problem; restoring the conversation lets delivery and
+the next run continue. A JSON report's `nextState` advances only after its
+result has been handled, so a failed delivery cannot silently lose a change.
+If the conversation cannot be restored, `namzu schedule edit <job> --delivery
+none` removes the binding after human confirmation. The confirmation shows
+pending findings and warns that they stay in schedule history but will not
+appear in the old conversation. Once confirmed, the scheduler records the
+waiver, commits any pending script state, and resumes later occurrences.
+Only the run IDs shown during confirmation are waived; a result that appears
+later remains pending until it reaches its source or is reviewed separately.
+
 An old namzu refuses a job file a newer one wrote for `script`/`script+agent`
-(format `v: 2`) rather than misread it as a malformed `agent` job; a plain
-`agent` job stays format `v: 1`, unchanged, and reads exactly as it always
+(format `v: 2`) rather than misread it as a malformed `agent` job. Jobs with a
+private workspace, source conversation binding, or JSON report use format
+`v: 3`. A plain `agent` job stays format `v: 1` and reads exactly as it always
 has on any namzu version.
 
 Creating a `script`/`script+agent` job is refused outright on native
@@ -122,9 +181,12 @@ there is no default permission set.
 | `--script <text>` / `--script-file <file>` | The script (or, for `script+agent`, the wake-gate). Required unless `--kind agent` |
 | `--shell bash\|sh` | Which installed shell executes the script. Required with a script; no default |
 | `--script-timeout 2m` | The script's own wall clock, separate from `--timeout` (default 2 minutes) |
+| `--script-report json-v1` | Pure scripts only: interpret one bounded JSON stdout line as a quiet or changed report, with optional scheduler-owned state |
 | `--when <spec>` | `every 30m`, `every 2h`, `0 9 * * 1-5` (cron), `@daily`, `at 2026-09-24 09:00`, `at 09:00`, `in 2h` |
 | `--permissions <preset \| file.json>` | `read-only`, `edit-in-folder`, or a JSON file (below). Required |
-| `--folder <dir>` | Where the run works. Default: this directory |
+| `--folder <dir>` | Project folder where the run works. Default: this directory unless `--workspace none` is set |
+| `--workspace none\|project` | Pure scripts may choose a private, no-project working directory with `none`; `project` on edit returns to a project folder |
+| `--delivery none` | On edit, detach a source conversation and explicitly waive pending source delivery after confirmation |
 | `--unmatched park\|deny\|allow` | A call no rule covers: wait for you, refuse, or run. `park` is refused for a pure `script` job |
 | `--execution host\|sandbox` | Where commands run. Default `host`; `sandbox` is refused for `script`/`script+agent` |
 | `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
@@ -855,11 +917,15 @@ namzu schedule prune [--older-than 30d] [--delete] # old runs and their sessions
 namzu schedule logs [--follow] [--job <name>]
 ```
 
-`remove` refuses a job with a run in progress or waiting for approval unless
-you pass `--force`. A forced removal leaves a running run to finish, and its
-end is still written to the removed job's history; a run waiting for approval
-has its turn closed and is recorded as `cancelled`, since nobody can answer it
-once the job is gone.
+`remove` refuses a job with a run in progress, waiting for approval or holding
+a result not yet delivered unless you pass `--force`. A forced removal leaves
+a running run to finish, and its end is still written to the removed job's
+history; a run waiting for approval has its turn closed and is recorded as
+`cancelled`, since nobody can answer it once the job is gone. `--force`
+discards any pending source delivery, and a still-running result is not sent
+back to its source conversation after removal. The terminal confirmation and
+result say so when this applies. Removing a job also removes its private
+script checkpoint; history and run files remain until pruned.
 
 `prune` covers removed jobs as well (without `--job`): their run files and run
 sessions older than the cutoff, and their history once no run of theirs is left.
@@ -873,7 +939,9 @@ for your approval, holds later occurrences and expires like any other. A run
 stopped by its wall clock, by Ctrl-C, or by closing the terminal is recorded
 (`timed-out`, `interrupted`) before the process exits; one whose process was
 killed outright is settled by the next `run-now` or the scheduler, as soon as
-nothing holds its session.
+nothing holds its session. If a scheduler owns the home but its command
+endpoint is temporarily unavailable, `run-now` asks you to retry after it
+responds instead of starting a second copy.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
 tz, folder, kind?, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,

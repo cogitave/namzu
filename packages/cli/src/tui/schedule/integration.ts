@@ -37,6 +37,16 @@ export interface ScheduleIntegrationDeps {
 	readonly config: () => Pick<NamzuCliConfig, 'limits'>
 	readonly model: () => { readonly provider: string; readonly model?: string } | undefined
 	readonly sessionId: () => string | undefined
+	/** The durable conversation receiving results from jobs proposed here, when it exists. */
+	readonly sourceConversation: () =>
+		| {
+				readonly kind: 'source-conversation'
+				readonly sessionId: string
+				readonly projectSlug: string
+				readonly projectId: string
+				readonly tenantId: string
+		  }
+		| undefined
 	/** `<session-id>/loops.json` of the conversation on screen. */
 	readonly loopsFile: () => string | undefined
 	readonly isIdle: () => boolean
@@ -119,6 +129,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 					model: deps.model,
 					config: deps.config,
 					sessionId: deps.sessionId,
+					sourceConversation: deps.sourceConversation,
 					say: deps.say,
 					ask: deps.ask,
 					...(deps.review ? { review: deps.review } : {}),
@@ -149,6 +160,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				ask: deps.ask,
 				...(deps.review ? { review: deps.review } : {}),
 				extraRoots: deps.extraRoots(),
+				sourceConversation: deps.sourceConversation(),
 			})
 			return true
 		},
