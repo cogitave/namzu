@@ -121,3 +121,56 @@ development objective. Existing live jobs and unrelated worktrees are outside it
   plus desktop build, 13 tests and real native flow were refreshed. Both the
   baseline and revision receipts are retained. Coherent local delivery includes
   source provenance, operator identity, screenshots and explicit platform limits.
+
+## Reopened visual acceptance — 2026-10-01
+
+The user rejected the styling again. Functional gates remain valid for their
+recorded commits; they do not establish visual acceptance.
+
+- [x] Directly adapt the reference's composed sidebar cards, titlebar, timeline
+  rows, composer body/footer/context strip and diff surface. Remove independent
+  CSS overrides. Keep only the operator wordmark and phosphor brand tokens.
+- [x] Render an isolated reference from the pinned source presentation components
+  and CSS; compare equivalent content, viewport, theme and interaction states.
+  This is a presentation reference, not an execution of the peer's full runtime.
+- [x] Refresh native runtime, responsive, keyboard, motion and real file-diff
+  verification; record evidence and commit the corrected slice.
+
+The direct-composition revision passes all 48 local gate commands. Root lint and
+typecheck, desktop build/lint and native/reference flows were refreshed after
+the last renderer refinements. The real kernel write appears in Open diff;
+selected source/local geometry and typography are independently compared.
+Receipts are in `artifacts/direct-composition-gates.json` and
+`artifacts/direct-composition-refresh.json`. This completes the local correction;
+it is not a remote publication or a claim that all peer screens match.
+
+
+## Operator question — recurring multi-provider teams
+
+The CLI already launches local children on different providers/models and can
+collect results and send corrections. `/loop` repeats in an open conversation.
+A durable scheduled run pins one provider/model and constructs
+`subagents: { active: [] }` in `schedule/fire/fire.ts`; it does not retain an
+operator-defined multi-provider team. This is a verified remaining gap, not a
+feature delivered by the desktop visual correction.
+
+Follow-up design must define a stored mission/team, provider/model/tool/budget
+policy per role, a coordinator and completion contract, and a scheduler snapshot
+that retains those roles without silently widening unattended permissions.
+Validate a recurring run using multiple real provider bindings, cancellation,
+partial failure and restart recovery before claiming this workflow is ready.
+
+
+### Recurring team research completed
+
+See `RECURRING-MISSIONS.md`: pinned source review of Pydantic Graph/durability,
+Temporal schedules/replay, Inngest step checkpointing and Hermes delegation/cron/
+God mode model races. The proposal separates a saved definition, each cron
+occurrence, a workflow run, logical node and execution attempt. It specifies
+explicit DAG admission, typed artifacts, joins, per-role routes, overlap policy,
+fenced persistence, uncertain effects and restart reconciliation. Existing
+`workflow`/`phase` labels are display-only and TaskStore.claim does not enforce
+prerequisites. This is researched future work, not a newly implemented feature.
+The operator asked to complete the current work first and discuss this plan
+before implementing the recurring-team architecture. No mission implementation
+starts as part of this visual correction.

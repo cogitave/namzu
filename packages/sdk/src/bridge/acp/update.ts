@@ -94,16 +94,15 @@ export function toAcpSessionUpdate(
 				kind: 'tool_call',
 				toolCallId: event.toolUseId,
 				title: event.toolName,
-				// `isError`, the field the event actually carries. The INPUT is
-				// not on this event — only the result is — so the presenter is
-				// asked with `undefined`, and a tool whose `presentResult` needs
-				// its input falls back to the generic view rather than being
-				// handed a guess at what it was called with.
+				// The runtime already presented the result with its real input and
+				// data. Older producers may only carry text; keep that fallback.
 				status: event.isError === true ? 'failed' : 'completed',
-				view: presenter.presentResult(event.toolName, undefined, {
-					success: event.isError !== true,
-					output: typeof event.result === 'string' ? event.result : String(event.result ?? ''),
-				}),
+				view:
+					event.presentation ??
+					presenter.presentResult(event.toolName, undefined, {
+						success: event.isError !== true,
+						output: typeof event.result === 'string' ? event.result : String(event.result ?? ''),
+					}),
 			}
 
 		case 'turn_completed':

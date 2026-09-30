@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** Desktop preview uses composed conversation cards, shared titlebar geometry, source timeline rows, a glass composer with project context, bounded completed-change previews and source sidebar motion. ACP preserves runtime result presentations rather than losing diffs to a generic fallback. `.changeset/acp-retains-result-presentation.md`, **patch** for `@namzu/sdk`.
+
 - **Update** Skill-save confirmation regression checks read the suggested destination label across terminal line wraps with long home paths.
 
 - **Update** Desktop preview uses shared interface primitives, CLI wordmark and phosphor accents, dark/light appearance, reduced-motion-aware transitions, compact project navigation, a composer model menu and safe formatted assistant replies; native checks cover keyboard menus, persisted appearance and narrow windows.

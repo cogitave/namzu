@@ -1,63 +1,60 @@
-# Desktop visual audit — 2026-10-01
+# Desktop visual audit — direct composition, 2026-10-01
 
-## Evidence and conditions
+## Reference and conditions
 
-The operator's reference image and T3 Code's checked-in
-`apps/marketing/src/assets/app-desktop.webp` show a compact project sidebar,
-quiet conversation canvas, rounded composer and a separate work panel. Source
-components and CSS were read at the revisions pinned in `DESIGN.md`; neither
-peer application was installed or run. Image proportions describe that capture,
-not measured DOM values from a running peer application.
+The user rejected the previous independently composed UI. This revision ports
+selected composed render branches as well as the primitive controls from the
+pinned source in `DESIGN.md`. License/provenance remains in the shipped notices.
+No peer product names or logos are used in renderer source.
 
-The local capture uses real Electron, preload, CLI ACP and kernel on Linux/WSL2,
-at 1180×791, 100% scale and dark appearance. Only model I/O is scripted. A real
-foreground shell, background process, approval and queue produce the visible
-content. The draft and scroll position in the conversation capture are intentional.
+The independent reference harness copies the original ComposerSurface,
+ComposerControl, WorkspacePageHeader, Button and complete source CSS into a
+private Vite root. Card/timeline/footer render literals are checked against
+original source before rendering. Runtime/store/account code is not installed.
+It opens a separate native window with the same viewport, dark theme, message
+content and composer draft as Namzu. Both captures use transcript scroll offset
+zero. Completed tool rows are outside the selected reference comparison;
+`native-diff.png` separately shows actual Namzu tool results and file changes.
+This is evidence for selected component geometry and typography, not a claim
+that the full peer application was run or that every screen is pixel-identical.
 
-## Shared layout and intentional identity
+## Component mapping
 
-| Element | Local DOM/style evidence | Decision |
+| Element | Direct source composition | Namzu binding |
 | --- | --- | --- |
-| Sidebar | 256px; project groups, conversation rows and title search | Adapt source primitives and compact hierarchy |
-| Topbar | 52px; breadcrumb and background-work action | Keep a quiet horizontal header |
-| Composer | 22px corners; 784×152 in the wide capture | Actual imported glass surface and compact model menu |
-| Message type | 14px / 24.5px line height | Readable conversation text independent of 16px root rem geometry |
-| Model trigger | 146×28; 13px type | One keyboard-aware popover instead of exposed configuration fields |
-| Canvas / sidebar | `#0b0f0c` / `#080b09` | Namzu's CLI identity on quiet dark surfaces |
-| Accent | `#5fff5f`, light `#176b29` | CLI ANSI 83 phosphor for actions, focus and wordmark; readable light-theme variant |
-| Wordmark | Exact CLI two-row lettering in sidebar and welcome | Namzu identity; no peer logos or product names in app source |
+| Sidebar | 256px; source search/scope row and 78px three-row cards | Actual projects, titles, activity and running/review state |
+| Titlebar | 52px and shared workspace gutters | Current project/conversation and working side-panel controls |
+| Timeline | Source user bubble and assistant prose classes, 14px type | Literal user text and safe Markdown; no HTML or remote media |
+| Composer | 48rem max width, 22px host radius, body/footer/context strip | Real draft, model selection, queue/send/stop, project context |
+| Draft entry | Source centred empty-conversation composition | First message docks the same composer with measured motion |
+| Changes | Source changed-files header and installed diff surface/CSS | Completed bounded ToolCallView previews; unified/split/wrap |
+| Empty state | Source EmptyHeader/Title/Description composition | Real open-folder/trust/new-conversation actions |
 
-The native receipt and `artifacts/ui-measurements.json` contain the computed
-values. The right column exposes actual Namzu background shells. The reference's
-Git diff editor is not represented by an invented or disconnected editor.
+`artifacts/reference-comparison.json` records local and independent source
+computed styles for the selected components. Equal geometry and typography
+are asserted by the harness, not inferred from the build. The phosphor action,
+focus and wordmark colours are intentional operator identity differences.
 
-## Motion and interaction
+## Native execution and interaction
 
-- Panel travel: 220ms, `cubic-bezier(0.22, 1, 0.36, 1)`; opacity: 160ms ease-out.
-  The native probe observes the open-state mutation in the browser, pauses real
-  CSS animations, samples their midpoint and explicitly finishes them. The
-  transform moves from the sampled 14.67px offset to zero. No elapsed-time
-  assertion determines success.
-- Menus retain the source scale/fade and focus handling; project groups retain
-  the source height transition. New messages/reviews use a 5px, 220ms arrival;
-  streaming text updates keep the mounted row and do not restart its animation.
-- Pending tool status uses the source's quiet passing highlight, adapted to
-  local tokens. Settled and interrupted tools do not keep shining, including after a new turn. Buttons have short colour
-  changes and a small send press response.
-- Reduced motion disables CSS animations and transitions. The native probe sees
-  zero panel animations. Closed panels become inert and hidden to assistive
-  technology immediately, including while their visual exit finishes.
-- Verified keyboard cases: model-menu Escape/focus return, IME, Shift+Enter,
-  conversation search, appearance persistence and narrow sidebar Escape.
-- At 600×540 the closed sidebar is not visible or keyboard reachable; the model
-  popover remains within the viewport. No horizontal document overflow occurs.
+The harness uses Electron on Linux/WSL2 and the actual CLI ACP process/kernel.
+Only provider I/O is scripted. Real foreground and background shell processes,
+three distinct tool approvals and a real file creation produce the screenshot
+content. Open diff must contain the created file text. Its mode and wrap actions
+are tested before the panel closes.
 
-## Captures and limits
+The flow also verifies pending-review and queue retention on reload, correct
+model routing, durable history after app restart, title search, project-scope
+menu keyboard closure/focus return, IME, Shift+Enter, appearance persistence and
+narrow-window navigation. The 600×540 viewport must have no horizontal overflow;
+the model menu must fit and the closed sidebar must be invisible. The renderer
+has no Node API. Panel animation is sampled and finished through browser
+animation controls; reduced-motion produces no panel animations.
 
-`artifacts/` includes welcome, conversation, approval, background work, model
-menu, light appearance and narrow-window captures. Source license/provenance
-notices are retained separately and copied into the build.
+## Evidence and limits
 
-This verifies the implemented Namzu slice against the chosen source geometry and
-operator identity. It does not claim pixel parity across every reference screen,
-Windows/macOS native validation, installer distribution or published availability.
+`artifacts/` contains matching source/local presentation captures and native
+welcome, conversation, approval, diff, background work, model menu, light and
+narrow captures. `native-receipt.json` records the actual runtime result.
+The preview is source-built and private. This revision does not establish
+Windows/macOS native behaviour, signing/installers or published availability.

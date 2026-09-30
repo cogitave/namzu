@@ -1,0 +1,43 @@
+{
+  "scope": "Final renderer refinements after the initial gate stages; not a remote CI result",
+  "commands": [
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "log": "/tmp/namzu-direct-ui-final-root-lint.log"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "log": "/tmp/namzu-direct-ui-final-root-type.log"
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop build",
+      "exitCode": 0,
+      "log": "/tmp/namzu-direct-ui-final-build.log"
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop lint",
+      "exitCode": 0,
+      "log": "/tmp/namzu-direct-ui-final-desktop-lint.log"
+    },
+    {
+      "command": "xvfb-run -a -s '-screen 0 1600x1000x24' pnpm --filter @namzu/desktop test:native",
+      "exitCode": 0,
+      "log": "/tmp/namzu-direct-ui-final-native.log"
+    }
+  ],
+  "nativeEnvironment": {
+    "TMPDIR": "/var/tmp/n-R2j6E1",
+    "NAMZU_REFERENCE_CHECKOUT": "/tmp/namzu-workflow-peers-20260930.ckQyBT/t3code"
+  },
+  "evidence": [
+    "native-receipt.json",
+    "reference-comparison.json",
+    "reference-observations.json"
+  ],
+  "providerIo": "scripted",
+  "nativePlatform": "Linux/WSL2",
+  "sourceReferenceScope": "Selected original presentation components/CSS; full peer application not executed",
+  "consumerSnapshotRestored": true
+}

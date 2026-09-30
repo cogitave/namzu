@@ -9,16 +9,29 @@ Copyright (c) 2026 T3 Tools Inc.
 Source: https://github.com/pingdotgg/t3code
 Revision: c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21
 Original files:
- apps/web/src/components/ui/{button,input,textarea,popover,select,tooltip,empty,collapsible,sidebar}.tsx
- apps/web/src/components/chat/ComposerSurface.tsx
+ apps/web/src/components/ui/{button,input,textarea,popover,select,tooltip,empty,collapsible,sidebar,combobox,scroll-area}.tsx
+ apps/web/src/components/chat/{ComposerSurface,ComposerControl,ComposerPrimaryActions,ChatComposer,MessagesTimeline,ChangedFilesTree}.tsx
+ apps/web/src/components/{WorkspacePageHeader,Sidebar,NoActiveThreadState}.tsx
+ apps/web/src/components/Sidebar.motion.ts
+ apps/web/src/components/sidebar/SidebarThreadHeader.tsx
+ apps/web/src/components/diffs/StyledDiffCodeView.tsx
+ apps/web/src/lib/diffRendering.ts
  packages/shared/src/themePalettes.ts
  apps/web/src/index.css (compact geometry tokens and active-tool highlight)
-Local files: src/renderer/ui/*, composer-surface.tsx and theme.css.
+Local files: src/renderer/ui/*, composer-surface.tsx, composer-control.tsx,
+sidebar-thread-header.tsx, sidebar-motion.ts, thread-card.tsx,
+workspace-page-header.tsx, changed-files-card.tsx, diff-theme.ts,
+composer.tsx, message.tsx, sidebar.tsx, style.css and theme.css.
 Changes: relative imports and formatting; extracted stateless sidebar primitives;
 removed peer-specific theme selectors/store/resize integration; selected the
 normal light/dark palette and exported its semantic tokens to local CSS;
 changed canvas/sidebar and action accents to the Namzu CLI palette; adapted the
 active-tool shine animation with local tokens and reduced-motion support.
+Composed card, timeline, titlebar and composer render branches use Namzu state
+and handlers. Project/branch metadata only appears where the Namzu host has it.
+The completed-change list is scoped to runtime receipts. The diff viewer uses
+the same installed library and source CSS adapter; peer runtime stores, network
+access, edit actions and worker virtualization were not imported.
 Full license: licenses/ui-primitives-MIT.txt
 
 2. ZCode — Apache-2.0
@@ -29,10 +42,10 @@ Original files:
  packages/ui/src/components/ai-elements/message.tsx
  packages/ui/src/ChatErrorBanner.tsx
  packages/ui/src/WorkspaceSidebar/WorkspacePurposeSection.tsx
-Local files: src/renderer/{message,chat-error-banner,workspace-section}.tsx.
-Changes: extracted Message/MessageContent with local role/class types; error
-frame uses Namzu error/actions and retains full readable text; workspace group
-uses Base UI collapse without sortable/peer stores. Original attribution follows:
+Local file: src/renderer/chat-error-banner.tsx. The earlier message/group frames
+were replaced by the main reference composition; their mandatory provenance
+and upstream notices remain recorded here.
+Changes: the error frame uses Namzu error/actions and retains full readable text. Original attribution follows:
 
 Derived from vercel/ai-elements (packages/elements/src/message.tsx).
 Copyright 2023 Vercel, Inc. Licensed under Apache-2.0.

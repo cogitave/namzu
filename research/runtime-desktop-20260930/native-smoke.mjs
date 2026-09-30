@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { compareSourceSurface } from './reference-surface.mjs'
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -57,8 +58,8 @@ try {
 	const faults = []; page.on('pageerror', (error) => faults.push(error.message))
 	await expect(page.getByRole('heading', { name: 'What would you like to work on?' })).toBeVisible()
 	await expect(page.getByRole('img', { name: 'Namzu' })).toHaveCount(2)
-	assert.equal(await page.locator('.brand .namzu-wordmark').textContent(), '█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n█ ▀█ █▀█ █ ▀ █ █▄ █▄█')
-	assert.equal(await page.locator('.brand .namzu-wordmark').evaluate((node) => getComputedStyle(node).color), 'rgb(95, 255, 95)')
+	assert.equal(await page.locator('.sidebar-chrome .namzu-wordmark').textContent(), '█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n█ ▀█ █▀█ █ ▀ █ █▄ █▄█')
+	assert.equal(await page.locator('.sidebar-chrome .namzu-wordmark').evaluate((node) => getComputedStyle(node).color), 'rgb(95, 255, 95)')
 	await settleMotion(page)
 	await settleMotion(page)
 	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/native-welcome.png') })
@@ -99,7 +100,28 @@ try {
 	await page.getByRole('button', { name: 'Stop', exact: true }).click()
 	await expect(page.locator('.job')).not.toContainText('running')
 	await page.getByRole('button', { name: 'Close background work' }).click()
-	await page.getByRole('searchbox', { name: 'Search conversations' }).fill('no matching title')
+	await page.getByRole('textbox', { name: 'Message Namzu' }).fill('Create the session file.')
+	await page.getByRole('button', { name: 'Send message' }).click()
+	await expect(page.getByRole('region', { name: 'Tool approval' })).toContainText('src/session.ts')
+	await page.getByRole('button', { name: 'Allow once' }).click()
+	await expect(page.locator('.message-text').filter({ hasText: 'Created src/session.ts in this project.' })).toBeVisible()
+	assert.ok((await readFile(join(project, 'src/session.ts'), 'utf8')).includes('export interface Session'))
+	await page.getByRole('button', { name: 'Open diff', exact: true }).click()
+	await expect(page.getByRole('complementary', { name: 'Changes', exact: true })).toBeVisible()
+	await expect(page.locator('.diff-code-view')).toContainText('export interface Session')
+	await settleMotion(page)
+	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/native-diff.png') })
+	await page.getByRole('button', { name: 'Use split diff', exact: true }).click()
+	await expect(page.getByRole('button', { name: 'Use unified diff', exact: true })).toHaveAttribute('aria-pressed', 'true')
+	await page.getByRole('button', { name: 'Wrap diff lines', exact: true }).click()
+	await expect(page.getByRole('button', { name: 'Wrap diff lines', exact: true })).toHaveAttribute('aria-pressed', 'true')
+	await page.getByRole('button', { name: 'Close changes', exact: true }).click()
+	await page.getByLabel('Filter conversations by project', { exact: true }).click()
+    await page.getByRole('combobox', { name: 'Search projects', exact: true }).fill('project')
+    await expect(page.getByRole('option', { name: 'project', exact: true })).toBeVisible()
+    await page.getByRole('combobox', { name: 'Search projects', exact: true }).press('Escape')
+    await expect(page.getByLabel('Filter conversations by project', { exact: true })).toBeFocused()
+    await page.getByRole('searchbox', { name: 'Search conversations' }).fill('no matching title')
 	await expect(page.getByText('No conversations found.')).toBeVisible()
 	await page.getByRole('searchbox', { name: 'Search conversations' }).fill('')
 	await expect(page.locator('.conversations').getByRole('button', { name: 'Run the foreground fixture.' })).toBeVisible()
@@ -119,15 +141,17 @@ try {
 	await settleMotion(page)
 	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/native-wide.png') })
 	const geometry = await page.evaluate(() => {
-  const read = (selector) => {const node = document.querySelector(selector);const box=node.getBoundingClientRect();const css=getComputedStyle(node);return {width:box.width,height:box.height,fontSize:css.fontSize,lineHeight:css.lineHeight,radius:css.borderRadius,background:css.backgroundColor}}
-  return {viewport:{width:innerWidth,height:innerHeight},rootFont:getComputedStyle(document.documentElement).fontSize,sidebar:read('.sidebar'),topbar:read('.topbar'),composer:read('[data-slot=composer-host]'),message:read('.message-text'),model:read('.model-picker-trigger'),canvas:getComputedStyle(document.body).backgroundColor}
+  const read = (selector) => {const node = document.querySelector(selector);const box=node.getBoundingClientRect();const css=getComputedStyle(node);return {width:box.width,height:box.height,fontSize:css.fontSize,lineHeight:css.lineHeight,fontFamily:css.fontFamily,radius:css.borderRadius,background:css.backgroundColor}}
+  return {viewport:{width:innerWidth,height:innerHeight},rootFont:getComputedStyle(document.documentElement).fontSize,sidebar:read('.sidebar'),topbar:read('.topbar'),composer:read('[data-slot=composer-host]'),message:read('.message-text'),model:read('.model-picker-trigger'),code:read('.chat-markdown pre code'),canvas:getComputedStyle(document.body).backgroundColor}
  })
  assert.equal(geometry.sidebar.width, 256)
  assert.equal(geometry.topbar.height, 52)
  assert.equal(geometry.rootFont, '16px')
  assert.equal(geometry.message.fontSize, '14px')
- assert.equal(geometry.canvas, 'rgb(11, 15, 12)')
+ assert.ok(geometry.code.fontFamily.includes('monospace'))
+ assert.equal(geometry.canvas, 'rgb(10, 10, 10)')
  await writeFile(join(repo, 'research/runtime-desktop-20260930/artifacts/ui-measurements.json'), JSON.stringify(geometry,null,2)+'\n')
+ const comparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT) : null
  await page.getByRole('button', {name:'Select model', exact:true}).click()
  await settleMotion(page)
 	await page.screenshot({path:join(repo,'research/runtime-desktop-20260930/artifacts/native-model-menu.png')})
@@ -160,7 +184,7 @@ try {
 	assert.equal(await page.evaluate(() => typeof window.process), 'undefined')
 	assert.deepEqual(faults, [])
 	const requests = (await readFile(receipts, 'utf8')).trim().split('\n').map(JSON.parse)
-	assert.equal(requests.filter((request) => request.purpose === 'agent').length, 4)
+	assert.equal(requests.filter((request) => request.purpose === 'agent').length, 6)
 	assert.ok(requests.some((request) => request.purpose === 'evidence-query'))
 	assert.ok(requests.filter((request) => request.purpose === 'agent').every((request) => request.model === 'claude-opus-4-7'))
 	await desktop.close()
@@ -171,5 +195,5 @@ try {
 	await expect(restored.locator('.message-text').filter({ hasText: 'Native runtime answered. DESKTOP_PIPE_OK' })).toBeVisible()
 	await expect(restored.locator('.message-text').filter({ hasText: 'The background process is running.' })).toBeVisible()
 	await expect(restored.getByRole('button', { name: 'Send message' })).toBeVisible()
-	console.log(JSON.stringify({ native: true, realCli: true, realKernel: true, modelIo: 'scripted', actualShell: ['foreground', 'background', 'stop'], queuedNextTurn: true, reloadRetainsReviewAndQueue: true, selectedModelReachedKernel: true, historySurvivesAppRestart: true, imeDoesNotSubmit: true, shiftEnterNewline: true, modelMenuKeyboard: true, search: true, themePersisted: true, responsiveMenu: true, referenceGeometry: geometry, panelMotion, reducedPanelMotion, cliWordmark: true, permissions: 'two separate approvals', rendererNode: false, overflow: false, requests, root }))
+	console.log(JSON.stringify({ native: true, realCli: true, realKernel: true, modelIo: 'scripted', actualShell: ['foreground', 'background', 'stop'], actualFileDiff: true, queuedNextTurn: true, reloadRetainsReviewAndQueue: true, selectedModelReachedKernel: true, historySurvivesAppRestart: true, imeDoesNotSubmit: true, shiftEnterNewline: true, modelMenuKeyboard: true, search: true, themePersisted: true, responsiveMenu: true, referenceGeometry: geometry, panelMotion, reducedPanelMotion, cliWordmark: true, permissions: 'three separate approvals', rendererNode: false, overflow: false, requests, root }))
 } finally { await desktop.close() }

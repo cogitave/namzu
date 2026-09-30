@@ -2,7 +2,9 @@
 
 ## Pinned sources
 
-Sources were cloned, read locally and not installed or executed:
+Sources were cloned and read locally. The full peer applications were not
+installed or executed; selected source components and original CSS were later
+rendered in an isolated native reference window:
 
 | Repository | Revision | License |
 | --- | --- | --- |
@@ -10,12 +12,13 @@ Sources were cloned, read locally and not installed or executed:
 | `zai-org/ZCode` | `29628c9acdb81b703bbd4080c207a0e7ce5e276e` | Apache-2.0 |
 
 The main-process/runtime implementation remains Namzu's existing host work.
-After the user's review, the renderer now adapts actual source components:
-T3 Code supplies the main visual language, primitive controls, sidebar rows,
-composer surface and default semantic palettes. ZCode supplies compatible
-message, error-frame and workspace-section components. Only stateless UI is
-ported; peer agent loops/stores/accounts are not installed. Brand identifiers
-and integration-specific theme selectors do not appear in production source.
+After the user's further review, the renderer directly adapts composed source
+render branches, not just low-level controls: the main reference's three-row
+conversation cards, project-scope menu, titlebar, timeline rows, centred/docked
+composer body/footer/context strip, changed-files card and diff surface.
+The secondary reference supplies only the compatible error frame. Namzu owns
+the data, handlers, runtime and credentials. Brand identifiers and integration-
+specific theme selectors do not appear in production source.
 Full source revisions, modifications and mandatory copyright/license text are
 retained separately in `packages/desktop/THIRD-PARTY-NOTICES.txt` and `licenses/`.
 These records are included in build output. No peer logo or other image asset is
@@ -70,33 +73,34 @@ Only project paths are stored in the app's own preferences. Conversation history
 remains in Namzu's existing logs. Drafts/queues are currently connection-local;
 closing the app is an explicit end of its owned runtime processes.
 
-## Visual revision after operator review
+## Direct composition revision after operator review
 
-- Keep the main reference geometry and neutral surfaces, then apply the user’s
-  Namzu identity: the exact CLI two-row ASCII wordmark, dark canvas `#0b0f0c`,
-  sidebar `#080b09` and phosphor `#5fff5f` (the CLI ANSI 83 cube colour).
-  A dark green `#176b29` provides readable actions on light surfaces.
-  Default dark appearance can switch to light or system in the sidebar footer;
-  the choice is stored locally and remains through reload.
-- Preserve compact desktop geometry: 256px sidebar, 52px topbar, 16px root for
-  reference rem geometry and a separate readable 14px conversation type size.
-  The imported composer surface uses its 22px corners and glass outline.
-- Replace exposed provider/model/apply controls with one composer model trigger
-  and the imported keyboard-aware popover/select/input primitives. Display the
-  actual chosen model; apply it before the next idle send.
-- Group conversations by project; filter their loaded titles with real search.
-  Hide the sidebar with CSS visibility at narrow widths so its controls are not
-  keyboard targets behind the overlay. The Projects section truly collapses.
-- At wide widths background work occupies its own side column; narrow widths
-  retain a dismissible overlay. No placeholder navigation or unimplemented tool
-  buttons are shown.
-- Treat peer source/CSS and its checked-in marketing capture as visual evidence.
-  No peer application was installed or executed; do not claim pixel parity with
-  all of its screens. `UI-AUDIT.md` records actual local DOM/style measurements
-  and the native interaction checks performed under comparable geometry.
-
-- Motion uses short eased panel travel (220ms), 160ms menu fades, 220ms
-  arrivals and the adapted 2.2s active-tool highlight. Reduced-motion disables
-  animation and transitions; closed panels are inert immediately. Native tests
-  observe the DOM state mutation and advance animation time explicitly, so
-  the assertion cannot race a slow host.
+- Use the source render structure and CSS utilities. Remove independent card,
+  composer, message and navigation rules that previously changed its appearance.
+  Keep the exact CLI two-row ASCII wordmark and phosphor `#5fff5f` action/focus
+  accents; retain neutral source surfaces (`#0a0a0a` canvas and black sidebar).
+  Light actions use `#176b29` for readable contrast.
+- Keep the 256px sidebar, 52px titlebar, 16px root, 14px conversation type,
+  48rem maximum chat width, 78px card, 22px composer radius, 78px minimum
+  editor and 28px model control. The context strip is the original surface's
+  lower layer rather than an independently styled footer.
+- List conversation cards directly; the source project-scope combobox replaces
+  redundant project headers. Its title filtering and folder selection operate
+  on Namzu state. New conversation and project buttons are real actions.
+- Use original centre-to-bottom draft motion and sidebar FLIP/fade helpers,
+  native panel easing, source popup transitions and send-button press states.
+  Reduced-motion disables travel and fades. Finite motion probes advance browser
+  animations explicitly rather than deciding success against elapsed time.
+- Display completed ToolCallView file receipts in the changed-files card and
+  installed diff viewer with the source CSS adapter. ACP retains the registry's
+  completed presentation instead of re-presenting a text-only result without
+  its input. No unexecuted proposed write is advertised as a completed diff.
+- At wide widths the Changes/Background work panel shares a separate column;
+  below the panel breakpoint it overlays. Below 768px the sidebar is hidden and
+  inert until explicitly opened. No fake branch, pull request or remote actions.
+- `reference-surface.mjs` renders original source components/CSS independently
+  of the local styles, with matching viewport/theme/message content/draft/scroll
+  offset. It asserts selected component geometry and typography and saves both
+  captures. This is a scoped presentation comparison, not a run of the full peer
+  application or pixel parity across all screens. `UI-AUDIT.md` records the
+  observed scope and intentional brand differences.

@@ -13,6 +13,11 @@ tags: [sdk, protocol, sessions, hosts]
 answer `session/request_permission`; the bridge does not assume a missing human
 approved a tool. `session/new`, `session/load`, `session/prompt` and
 `session/cancel` preserve session ownership. Updates arrive as `session/update`.
+Completed tool updates retain the runtime-provided result presentation, including
+bounded diff and terminal views. Older event producers without a presentation
+keep the text-based presenter fallback. Clients do not infer changes from tool
+arguments or names.
+
 Tool progress uses the existing `tool_call` update with optional `progress`
 (`message` and an optional completion fraction). A client preserves the prior
 presentation while updating progress. `turn_ended` may carry the actual `error`

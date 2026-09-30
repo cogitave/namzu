@@ -67,12 +67,48 @@ Following the final activity refinement, whole-root typecheck/lint and desktop
 build/13 tests/native flow were explicitly refreshed. No remote CI or release is
 implied by these local receipts.
 
+## Direct composition correction
+
+The later operator rejection reopened visual acceptance. The renderer now ports
+composed source cards, project scope, message rows, titlebar, composer body/
+footer/context strip, empty states and completed file changes. Previous green
+receipts remain historical; they do not prove this later visual correction.
+
+The native flow now creates a real `src/session.ts` through the kernel after a
+third independent approval. Open diff must display that completed ToolCallView,
+and unified/split and wrapping controls must update. ACP mapping has a regression
+for retaining an exact runtime result presentation and not calling its text-only
+fallback when a presentation exists.
+
+The optional isolated reference renders original source components and original
+CSS, with selected literals grounded in the source composed branches. It records
+computed geometry/typography and captures equivalent viewport, theme, message
+content, draft and transcript scroll. Its scope excludes the full peer runtime
+and other source screens. The real native workflow is tested separately from
+that isolated presentation reference. See `UI-AUDIT.md` for this distinction.
+
+`artifacts/direct-composition-gates.json` records 48 successful commands for
+this correction, including all 21 publint checks and the consumer install. The
+workspace suites passed 9,587 SDK tests, 4,665 CLI tests (5 existing skips), the
+13 desktop tests and the sibling suites. The consumer snapshot restored its
+temporary versions and changesets; the retained dependency/lockfile change is
+the intended diff-library addition.
+
+The first lint/typecheck/build stages preceded the last renderer refinements.
+Whole-root lint/typecheck and desktop build/lint were refreshed afterwards, as
+was the real native flow and isolated source comparison. These explicit final
+refreshes are recorded in `artifacts/direct-composition-refresh.json`; the
+48-command receipt is not presented as one immutable final-tree CI run. No
+publishable production code changed after the full suites. Native provider I/O
+remains scripted, and these receipts do not imply remote CI or publication.
+
 ## Reproduce
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm -r build
 xvfb-run -a -s '-screen 0 1600x1000x24' pnpm --filter @namzu/desktop test:native
+# Optional: set NAMZU_REFERENCE_CHECKOUT to the pinned clone to render the independent source surface.
 node research/runtime-desktop-20260930/validate.mjs "$PWD"
 ```
 

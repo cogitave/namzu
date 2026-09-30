@@ -3,27 +3,29 @@ import {
 	FolderPlusIcon,
 	MonitorIcon,
 	MoonIcon,
-	SearchIcon,
-	SquarePenIcon,
+	PanelLeftCloseIcon,
 	SunIcon,
 	XIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import { createSidebarListMotion } from './sidebar-motion.js'
+import { SidebarHeaderIconButton, SidebarThreadHeader } from './sidebar-thread-header.js'
+import { ThreadCard } from './thread-card.js'
 import { Button } from './ui/button.js'
 import {
-	SidebarFooter,
-	SidebarGroup,
-	SidebarHeader,
-	SidebarInput,
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
-} from './ui/sidebar.js'
+	Combobox,
+	ComboboxEmpty,
+	ComboboxItem,
+	ComboboxList,
+	ComboboxPopup,
+	ComboboxSearchInput,
+	ComboboxTrigger,
+} from './ui/combobox.js'
+import { SidebarFooter, SidebarGroup } from './ui/sidebar.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { Wordmark } from './wordmark.js'
-import { WorkspaceSection } from './workspace-section.js'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export function Sidebar({
@@ -58,10 +60,18 @@ export function Sidebar({
 	onConversation: (view: ConversationView) => void
 }) {
 	const [query, setQuery] = useState('')
-	const [projectsOpen, setProjectsOpen] = useState(true)
+	const [scope, setScope] = useState('')
+	const scopeAnchor = useRef<HTMLDivElement>(null)
+	const scopeItems = [
+		{ value: '', label: 'All projects' },
+		...projects.map((project) => ({ value: project.id, label: project.name })),
+	]
+	const searchInput = useRef<HTMLInputElement>(null)
 	const active = projects.find((item) => item.id === projectId)
-	const rows = conversations.filter((item) =>
-		item.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+	const rows = conversations.filter(
+		(item) =>
+			(!scope || item.projectId === scope) &&
+			item.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
 	)
 	return (
 		<>
@@ -74,149 +84,101 @@ export function Sidebar({
 				data-app-sidebar
 				aria-label="Projects and conversations"
 			>
-				<SidebarHeader>
-					<div className="brand">
-						<Wordmark />
-						<Button
-							variant="ghost-muted"
-							size="icon-xs"
-							className="sidebar-close"
-							aria-label="Close sidebar"
-							onClick={onClose}
-						>
-							<XIcon />
-						</Button>
-					</div>
-					<div className="flex items-center gap-1">
-						<div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover">
-							<SearchIcon className="size-4 shrink-0" />
-							<SidebarInput
-								nativeInput
-								type="search"
-								placeholder="Search"
-								aria-label="Search conversations"
-								value={query}
-								onChange={(event) => setQuery(event.currentTarget.value)}
+				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-4">
+					<Wordmark />
+					<Button
+						variant="ghost-muted"
+						size="icon-xs"
+						className="sidebar-close ml-auto"
+						aria-label="Close sidebar"
+						onClick={onClose}
+					>
+						<XIcon />
+					</Button>
+				</div>
+				<SidebarGroup>
+					<SidebarThreadHeader
+						hasProjects={projects.length > 0}
+						searchFieldRef={scopeAnchor}
+						projectScope={
+							<Combobox
+								items={scopeItems}
+								autoHighlight
+								itemToStringLabel={(item) => item.label}
+								isItemEqualToValue={(a, b) => a.value === b.value}
+								value={scopeItems.find((item) => item.value === scope) ?? scopeItems[0]}
+								onValueChange={(item) => {
+									if (!item) return
+									setScope(item.value)
+									if (item.value) onProject(item.value)
+								}}
+							>
+								<ComboboxTrigger
+									render={<SidebarHeaderIconButton label="Filter conversations by project" />}
+								>
+									<FolderIcon className="size-4" />
+								</ComboboxTrigger>
+								<ComboboxPopup
+									align="start"
+									anchor={scopeAnchor}
+									className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
+								>
+									<ComboboxSearchInput
+										aria-label="Search projects"
+										placeholder="Search projects..."
+									/>
+									<ComboboxEmpty>No matching projects.</ComboboxEmpty>
+									<ComboboxList>
+										{(item: { value: string; label: string }) => (
+											<ComboboxItem key={item.value} value={item} hideIndicator>
+												<FolderIcon className="size-4 shrink-0" />
+												<span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+											</ComboboxItem>
+										)}
+									</ComboboxList>
+								</ComboboxPopup>
+							</Combobox>
+						}
+						onNewProject={onOpenProject}
+						onNewThread={onNewConversation}
+						newThreadDisabled={opening || !active?.trusted || active.status !== 'ready'}
+						newThreadShortcutLabel="Ctrl + N"
+						newThreadInProjectShortcutLabel={null}
+						showNewThreadInProjectHint={false}
+						searchInputRef={searchInput}
+						searchQuery={query}
+						onSearchQueryChange={setQuery}
+						onSearchKeyDown={() => {}}
+						isSearching={Boolean(query)}
+						onClearSearch={() => setQuery('')}
+					/>
+				</SidebarGroup>
+				<div className="sidebar-scroll">
+					<SidebarGroup className="pt-0">
+						<nav className="conversations" aria-label="Conversations">
+							<ThreadList
+								rows={rows}
+								projects={projects}
+								threads={threads}
+								sessionId={sessionId}
+								onConversation={onConversation}
 							/>
-						</div>
+						</nav>
+						{query && rows.length === 0 && (
+							<output className="block px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
+								No conversations found.
+							</output>
+						)}
+					</SidebarGroup>
+				</div>
+				<SidebarFooter>
+					<div className="flex h-8 items-center gap-1">
 						<Tooltip>
 							<TooltipTrigger
 								render={
 									<Button
 										variant="ghost-muted"
 										size="icon-sm"
-										aria-label="New conversation"
-										disabled={!active?.trusted || active.status !== 'ready'}
-										onClick={onNewConversation}
-									/>
-								}
-							>
-								<SquarePenIcon />
-							</TooltipTrigger>
-							<TooltipPopup>New conversation</TooltipPopup>
-						</Tooltip>
-					</div>
-				</SidebarHeader>
-				<div className="sidebar-scroll">
-					<SidebarGroup>
-						<WorkspaceSection
-							title="Projects"
-							open={projectsOpen}
-							action={
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<Button
-												variant="ghost-muted"
-												size="icon-xs"
-												aria-label="Open a project"
-												disabled={opening}
-												onClick={onOpenProject}
-											/>
-										}
-									>
-										<FolderPlusIcon />
-									</TooltipTrigger>
-									<TooltipPopup>Open a project</TooltipPopup>
-								</Tooltip>
-							}
-							onOpenChange={setProjectsOpen}
-						>
-							{projects.length === 0 && (
-								<Button
-									variant="ghost-muted"
-									size="sm"
-									className="open-project"
-									disabled={opening}
-									onClick={onOpenProject}
-								>
-									<FolderPlusIcon />
-									Open a project
-								</Button>
-							)}
-							{projects.map((project) => (
-								<div key={project.id} className="project-group">
-									<SidebarMenu>
-										<SidebarMenuItem>
-											<SidebarMenuButton
-												isActive={project.id === projectId && !sessionId}
-												aria-current={project.id === projectId && !sessionId ? 'page' : undefined}
-												title={project.path}
-												className="project-row"
-												onClick={() => onProject(project.id)}
-											>
-												<FolderIcon />
-												<span className="flex-1 truncate">{project.name}</span>
-												<span
-													className={`connection-dot ${project.status}`}
-													aria-label={project.status}
-												/>
-											</SidebarMenuButton>
-										</SidebarMenuItem>
-									</SidebarMenu>
-									{
-										<nav className="conversations" aria-label={`${project.name} conversations`}>
-											<SidebarMenu>
-												{rows
-													.filter((item) => item.projectId === project.id)
-													.map((item) => (
-														<SidebarMenuItem key={item.id}>
-															<SidebarMenuButton
-																isActive={item.id === sessionId}
-																aria-current={item.id === sessionId ? 'page' : undefined}
-																className="conversation-row"
-																onClick={() => onConversation(item)}
-															>
-																<span className="flex-1 truncate">{item.title}</span>
-																{threads[item.id]?.running && (
-																	<span className="activity" aria-label="Working" />
-																)}
-															</SidebarMenuButton>
-														</SidebarMenuItem>
-													))}
-											</SidebarMenu>
-										</nav>
-									}
-								</div>
-							))}
-							{query && rows.length === 0 && (
-								<p className="sidebar-empty">No conversations found.</p>
-							)}
-						</WorkspaceSection>
-					</SidebarGroup>
-				</div>
-				<SidebarFooter>
-					<div className="sidebar-footer-row">
-						<span className="flex items-center gap-2">
-							<MonitorIcon className="size-3.5" />
-							Local workspace
-						</span>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Button
-										variant="ghost-muted"
-										size="icon-xs"
 										aria-label={`Appearance: ${appearance}. Change appearance`}
 										onClick={onAppearance}
 									/>
@@ -230,11 +192,85 @@ export function Sidebar({
 									<MonitorIcon />
 								)}
 							</TooltipTrigger>
-							<TooltipPopup>Appearance · {appearance}</TooltipPopup>
+							<TooltipPopup side="top">Appearance · {appearance}</TooltipPopup>
 						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										variant="ghost-muted"
+										size="icon-sm"
+										aria-label="Open a project"
+										disabled={opening}
+										onClick={onOpenProject}
+									/>
+								}
+							>
+								<FolderPlusIcon />
+							</TooltipTrigger>
+							<TooltipPopup side="top">Open a project</TooltipPopup>
+						</Tooltip>
+						<span className="ml-auto text-xs text-sidebar-muted-foreground/50">Namzu</span>
+						<Button
+							variant="ghost-muted"
+							size="icon-sm"
+							className="sidebar-close"
+							aria-label="Close sidebar"
+							onClick={onClose}
+						>
+							<PanelLeftCloseIcon />
+						</Button>
 					</div>
 				</SidebarFooter>
 			</aside>
 		</>
+	)
+}
+
+function ThreadList({
+	rows,
+	projects,
+	threads,
+	sessionId,
+	onConversation,
+}: {
+	rows: ConversationView[]
+	projects: ProjectView[]
+	threads: Record<string, ThreadState>
+	sessionId: string
+	onConversation: (view: ConversationView) => void
+}) {
+	const list = useRef<HTMLUListElement>(null)
+	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
+	useLayoutEffect(() => {
+		if (!list.current) return
+		const instance = createSidebarListMotion(list.current)
+		motion.current = instance
+		instance.update(false)
+		return () => {
+			instance.dispose()
+			motion.current = null
+		}
+	}, [])
+	useLayoutEffect(() => {
+		motion.current?.update(true)
+	})
+	return (
+		<ul ref={list} role="presentation" className="relative flex flex-col gap-px">
+			{rows.map((item) => {
+				const project = projects.find((project) => project.id === item.projectId)
+				if (!project) return null
+				return (
+					<ThreadCard
+						key={item.id}
+						conversation={item}
+						project={project}
+						thread={threads[item.id]}
+						active={item.id === sessionId}
+						onClick={() => onConversation(item)}
+					/>
+				)
+			})}
+		</ul>
 	)
 }

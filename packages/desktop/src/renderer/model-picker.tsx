@@ -1,6 +1,7 @@
-import { CheckIcon, ChevronDownIcon, CpuIcon } from 'lucide-react'
+import { CheckIcon, CpuIcon } from 'lucide-react'
 import { useState } from 'react'
 import type { ProviderView } from '../shared/protocol.js'
+import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from './composer-control.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from './ui/popover.js'
@@ -35,18 +36,16 @@ export function ModelPicker({
 		>
 			<PopoverTrigger
 				render={
-					<Button
-						variant="ghost-muted"
-						size="sm"
+					<ComposerControl
 						className="model-picker-trigger"
 						disabled={disabled || providers.available.length === 0}
 						aria-label="Select model"
 					/>
 				}
 			>
-				<CpuIcon />
+				<ComposerControlIcon icon={CpuIcon} />
 				<span className="truncate">{model}</span>
-				<ChevronDownIcon className="size-3" />
+				<ComposerControlChevron />
 			</PopoverTrigger>
 			<PopoverPopup side="top" align="start" width="md" className="model-picker-popup">
 				<PopoverTitle>Choose a model</PopoverTitle>

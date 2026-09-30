@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createToolPresenter } from '../../registry/tool/presentation.js'
 import { fixtureId } from '../../test-support/ids.js'
@@ -102,6 +102,37 @@ describe('what this protocol has a word for', () => {
 		)
 		expect(ok).toMatchObject({ status: 'completed' })
 		expect(failed).toMatchObject({ status: 'failed' })
+	})
+
+	it('preserves a completed custom tool diff already presented with the real input and result', () => {
+		const presentation = {
+			kind: 'diff' as const,
+			path: 'src/session.ts',
+			before: 'old\n',
+			after: 'new\n',
+		}
+		const fallback = vi.fn(presenter.presentResult)
+		const update = toAcpSessionUpdate(
+			{
+				type: 'tool_completed',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: 'custom-diff',
+				toolName: 'plugin-change',
+				result: 'Updated file',
+				isError: false,
+				presentation,
+			},
+			{ ...presenter, presentResult: fallback },
+		)
+		expect(update).toEqual({
+			kind: 'tool_call',
+			toolCallId: 'custom-diff',
+			title: 'plugin-change',
+			status: 'completed',
+			view: presentation,
+		})
+		expect(fallback).not.toHaveBeenCalled()
 	})
 
 	it('renders a non-string tool result rather than dropping it', () => {

@@ -34,13 +34,23 @@ The app opens in its dark appearance. The sidebar appearance control cycles
 through light, system and dark; the local choice survives window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
-Projects group their conversations in the sidebar. Search filters the loaded
-conversation titles. The model control is one menu inside the composer; the
+Project cards show conversation title, last activity and execution/review state.
+The blank conversation centres its composer; the first message docks it with a
+short transition. The composer keeps its project context in a lower strip.
+The sidebar lists conversation cards with their project on each card. Its project
+menu selects a folder and filters the list. Search filters loaded conversation titles. The model control is one menu inside the composer; the
 provider and exact model choice are edited there before the next message.
 
 Assistant replies render headings, lists, fenced code and tables. User messages
 stay literal. Raw HTML cannot execute, remote images do not load and message
 links are currently displayed as text. Tool output remains a separate tool view.
+Completed file actions expose their bounded before/after previews in Changes.
+Open diff opens the same previews; unified/split display and line wrapping work
+without reading additional files. Line numbers refer to the preview, which may
+contain only the changed fragment. These result views survive a window reload
+while the connection lives; the current restart history projection contains text
+messages rather than old tool previews. Syntax highlighting uses bundled WASM;
+the renderer policy allows that compilation without enabling JavaScript eval.
 Background work uses a separate column in a wide window and an overlay in a
 narrow window. The composer and navigation remain inside the available width.
 

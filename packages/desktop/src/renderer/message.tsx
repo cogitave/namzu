@@ -11,9 +11,12 @@ export function Message({
 }: HTMLAttributes<HTMLDivElement> & { from: 'user' | 'assistant' }) {
 	return (
 		<div
+			data-message-role={from}
 			className={cn(
-				'group flex w-full flex-col gap-2',
-				from === 'user' ? 'is-user ml-auto justify-end' : 'is-assistant',
+				'pb-4',
+				from === 'user'
+					? 'group is-user flex flex-col items-end gap-1'
+					: 'group group/assistant is-assistant',
 				className,
 			)}
 			{...props}
@@ -31,15 +34,14 @@ export function MessageContent({
 	return (
 		<div
 			className={cn(
-				'is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-ui-base',
-				'group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground',
-				'group-[.is-assistant]:text-foreground',
+				'relative min-w-0 group-[.is-user]:max-w-[80%] group-[.is-user]:rounded-2xl group-[.is-user]:bg-message group-[.is-user]:p-3 group-[.is-user]:text-message-foreground',
+				'group-[.is-assistant]:px-1 group-[.is-assistant]:py-0.5',
 				className,
 			)}
 			{...props}
 		>
 			{markdown && text !== undefined ? (
-				<div className="message-text markdown">
+				<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80 [overflow-wrap:anywhere] [word-break:break-word]">
 					<Markdown
 						remarkPlugins={[remarkGfm]}
 						skipHtml
@@ -62,7 +64,9 @@ export function MessageContent({
 					</Markdown>
 				</div>
 			) : text !== undefined ? (
-				<div className="message-text">{text}</div>
+				<div className="message-text whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
+					{text}
+				</div>
 			) : (
 				children
 			)}
