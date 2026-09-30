@@ -25,21 +25,21 @@ development objective. Existing live jobs and unrelated worktrees are outside it
   real query regressions for repair/retry, differing errors, unchanged failure,
   unrelated read and denied mutation. Task snapshots use request-only context;
   actual provider-role tests cover ordinary send and compaction/resume boundaries.
-- [ ] **B — Desktop design and current demand.** Pin T3 Code and ZCode sources;
+- [x] **B — Desktop design and current demand.** Pin T3 Code and ZCode sources;
   examine process ownership, IPC, persistence, composer, review, background work,
   sidebar and responsive layouts. Record applicable user requests and design
   decisions, including features already present in Namzu.
-- [ ] **C — Shared host boundary.** Desktop composes the existing Namzu runtime
+- [x] **C — Shared host boundary.** Desktop composes the existing Namzu runtime
   through an explicit supported protocol. No renderer access to Node, credentials
   or arbitrary shell commands; no independent model/tool execution loop or copied
   conversation store. Sessions, cancellation and approval must identify their
   owner and survive UI navigation without sending work to another conversation.
-- [ ] **D — Working desktop.** Native application shell, project selection,
+- [x] **D — Working desktop.** Native application shell, project selection,
   conversation list, streaming messages, stop, tool progress, approval questions,
   error recovery and background work visibility. Responsive layout and keyboard
   handling; provider selection reports actual runtime state. Real Namzu adapter
   plus deterministic fixture adapter for interface and integration tests.
-- [ ] **E — Priority host gaps.** Implement safe scoped history retrieval and
+- [x] **E — Priority host gaps.** Implement safe scoped history retrieval and
   operator diagnosis/reload where the shared boundary supports them. Deferred
   bundles and memory indexing require explicit correctness/measurement evidence;
   do not introduce a cache that silently changes integrity guarantees.
@@ -74,3 +74,21 @@ development objective. Existing live jobs and unrelated worktrees are outside it
   host extensions. The renderer receives typed UI actions, not arbitrary RPC.
   Source review found the CLI ACP gateway currently lacks `load`; restore it with
   project/tenant checks before offering conversation resume in the app.
+
+- Desktop architecture and pinned peer comparison are recorded in `DESIGN.md`.
+  Native protocol integration, scoped history/extension tests and initial UI are
+  implemented. Native end-to-end verification is in progress; do not treat the
+  first build as completed platform/release validation.
+
+- Native Electron/CLI/kernel smoke passes real foreground and background shells,
+  separate approvals, automatic next-turn queueing, output/stop, narrow layout
+  and renderer Node isolation. Window reload preserves the live review and queue.
+- Transport/ownership tests cover UTF-8 framing, process exit, malformed output,
+  incompatible host rejection, cross-session review refusal and stop/queue
+  semantics. Actual CLI tests cover scoped/archived history, display truncation,
+  session-local routing and retaining fallback/delegation configuration.
+- Priority retrieval is now exposed through scoped CLI history; connection reload
+  and reconnect reuse the runtime/log. Incremental memory indexes and full deferred
+  bundles remain evaluated follow-up designs, since the current file integrity and
+  activation contracts cannot be weakened by a shortcut cache.
+- Final whole-tree gates and the updated selected-model native receipt are pending.

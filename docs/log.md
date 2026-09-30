@@ -2,6 +2,8 @@
 
 ## 2026-09-30
 
+- **Creation** [Desktop application](cli/desktop.md) and [Agent client protocol](sdk/agent-client-protocol.md): introduce a private native operator preview over the existing CLI runtime, explicitly opt into scoped operator methods, and connect durable ACP history loading with project/tenant ownership and archived-writer checks. `.changeset/desktop-host-and-acp-load.md`, **minor** for `@namzu/sdk` and `@namzu/cli`.
+
 - **Update** [Tool execution](sdk/tool-execution.md#repeat-call-advisory): compare real failure fingerprints, allow a new check after an executed successful possible mutation, and keep denied/failed repairs and unrelated reads from resetting refusal. Advice no longer predicts future results. `.changeset/repeat-failure-results-and-repair.md`, **patch** for `@namzu/sdk`.
 - **Update** [Session task context](cli/task-context.md): task projections use request-only user runtime context on ordinary sends, actual compaction and checkpoint resume. Static system policy is unchanged. `.changeset/task-snapshot-request-role.md`, **major** for `@namzu/cli` because the default model-request role changes.
 

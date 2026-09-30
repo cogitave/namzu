@@ -34,6 +34,8 @@ export interface AcpInitializeParams extends AcpClientCapabilities {
 }
 
 export interface AcpInitializeResult {
+	/** Optional, explicitly installed Namzu host methods; core ACP peers can ignore them. */
+	readonly extensions?: readonly string[]
 	readonly protocolVersion: number
 	readonly agentInfo: { readonly name: string; readonly version: string }
 	/**
@@ -153,9 +155,18 @@ export type AcpSessionUpdate =
 			readonly title: string
 			readonly status: 'pending' | 'completed' | 'failed'
 			readonly view: ToolCallView
+			/** Live progress for this call; preserve its prior presentation while updating. */
+			readonly progress?: {
+				readonly message: string
+				readonly fraction?: number
+			}
 	  }
 	/** The turn is over. Carries the same reason the prompt result will. */
-	| { readonly kind: 'turn_ended'; readonly stopReason: AcpStopReason }
+	| {
+			readonly kind: 'turn_ended'
+			readonly stopReason: AcpStopReason
+			readonly error?: string
+	  }
 
 export interface AcpSessionUpdateNotification {
 	readonly sessionId: string

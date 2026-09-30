@@ -76,6 +76,19 @@ export function toAcpSessionUpdate(
 				view: presenter.presentCall(event.toolName, event.input),
 			}
 
+		case 'tool_progress':
+			return {
+				kind: 'tool_call',
+				toolCallId: event.toolUseId,
+				title: event.toolName,
+				status: 'pending',
+				view: { kind: 'generic', label: event.toolName },
+				progress: {
+					message: event.message,
+					...(event.fraction === undefined ? {} : { fraction: event.fraction }),
+				},
+			}
+
 		case 'tool_completed':
 			return {
 				kind: 'tool_call',
@@ -94,10 +107,13 @@ export function toAcpSessionUpdate(
 			}
 
 		case 'turn_completed':
-			return { kind: 'turn_ended', stopReason: toAcpStopReason(event.stopReason) }
+			return {
+				kind: 'turn_ended',
+				stopReason: toAcpStopReason(event.stopReason),
+			}
 
 		case 'turn_failed':
-			return { kind: 'turn_ended', stopReason: 'error' }
+			return { kind: 'turn_ended', stopReason: 'error', error: event.error }
 
 		default:
 			// Everything else: iteration boundaries, token accounting, plan and

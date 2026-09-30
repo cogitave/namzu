@@ -1,0 +1,33 @@
+{
+	"name": "@namzu/desktop",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Native Namzu operator application backed by the installed CLI runtime.",
+	"type": "module",
+	"main": "dist/main/index.js",
+	"license": "MIT",
+	"scripts": {
+		"build": "tsc --build && vite build",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/",
+		"test": "vitest run",
+		"start": "electron .",
+		"dev": "pnpm build && electron .",
+		"test:native": "node ../../research/runtime-desktop-20260930/native-smoke.mjs ../.."
+	},
+	"dependencies": {
+		"react": "19.2.6",
+		"react-dom": "19.2.6"
+	},
+	"devDependencies": {
+		"@namzu/sdk": "workspace:*",
+		"@biomejs/biome": "^1.9.4",
+		"@types/react": "^19.2.15",
+		"@types/react-dom": "19.2.3",
+		"electron": "44.5.1",
+		"vite": "8.3.1",
+		"vitest": "^4.1.11",
+		"@playwright/test": "1.63.0",
+		"typescript": "^5.5.0"
+	}
+}

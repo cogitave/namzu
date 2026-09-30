@@ -1,0 +1,81 @@
+{
+  "platform": "Linux / WSL2 / Xvfb",
+  "electron": "44.5.1",
+  "node": "24.19.0",
+  "modelIo": "MockLLMProvider only; real CLI, kernel and processes",
+  "verified": [
+    "foreground shell",
+    "background shell output and stop",
+    "two separate tool approvals",
+    "queued next turn",
+    "window reload retains review, queue and selected model",
+    "selected model reaches actual provider request",
+    "durable history survives app restart",
+    "IME does not submit",
+    "Shift+Enter creates newline",
+    "600x540 layout has no horizontal overflow",
+    "renderer has no Node globals"
+  ],
+  "requests": [
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    }
+  ]
+}

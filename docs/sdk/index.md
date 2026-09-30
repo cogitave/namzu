@@ -106,3 +106,5 @@ The kernel.
 * [The MCP toolset](mcp-toolset.md) - mcpToolset(client, options): two live toolsets from a connected MCP server, with mcp__<server>__<rest> naming, deferred resource tools, and list_changed and reconnect updates.
 
 * [Tool-result screening](tool-result-screening.md) - The registry boundary that judges a result before anything reads it, the four verdicts, what the two shipped screens decide and refuse to decide, and how a turn, a registry and the CLI each choose which ones apply.
+
+* [Agent client protocol](agent-client-protocol.md) - Stdio prompt, permission, cancellation, scoped history and explicit host extensions.

@@ -69,7 +69,11 @@ describe('what this protocol has a word for', () => {
 			} as SessionEvent,
 			presenter,
 		)
-		expect(update).toMatchObject({ kind: 'tool_call', toolCallId: 'toolu_7', status: 'pending' })
+		expect(update).toMatchObject({
+			kind: 'tool_call',
+			toolCallId: 'toolu_7',
+			status: 'pending',
+		})
 	})
 
 	it('maps a completed tool call by isError, the field the event carries', () => {
@@ -151,10 +155,55 @@ describe('what this protocol has a word for', () => {
 	it('maps a failed turn to a turn boundary of error', () => {
 		expect(
 			toAcpSessionUpdate(
-				{ type: 'turn_failed', sessionId: SID, turnId: TID, error: 'boom' } as SessionEvent,
+				{
+					type: 'turn_failed',
+					sessionId: SID,
+					turnId: TID,
+					error: 'boom',
+				} as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'turn_ended', stopReason: 'error' })
+		).toEqual({ kind: 'turn_ended', stopReason: 'error', error: 'boom' })
+	})
+})
+
+describe('progress and failure details', () => {
+	it('keeps progress on the existing call shape without widening the update vocabulary', () => {
+		const update = toAcpSessionUpdate(
+			{
+				type: 'tool_progress',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: 'p',
+				toolName: 'custom-tool',
+				message: 'Compiled 4 of 8 files',
+				fraction: 0.5,
+			} as SessionEvent,
+			presenter,
+		)
+		expect(update).toMatchObject({
+			kind: 'tool_call',
+			toolCallId: 'p',
+			status: 'pending',
+			progress: { message: 'Compiled 4 of 8 files', fraction: 0.5 },
+		})
+	})
+	it('carries the actual turn failure to a peer', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'turn_failed',
+					sessionId: SID,
+					turnId: TID,
+					error: 'Provider is unavailable',
+				} as SessionEvent,
+				presenter,
+			),
+		).toEqual({
+			kind: 'turn_ended',
+			stopReason: 'error',
+			error: 'Provider is unavailable',
+		})
 	})
 })
 

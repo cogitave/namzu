@@ -121,7 +121,7 @@ export interface AcpAgentGateway {
 	 * client's and may be any string: a namzu session id, or one the gateway
 	 * maps to a session through the index's `acp` / `session` refs.
 	 */
-	load?(sessionId: string): Promise<readonly unknown[] | undefined>
+	load?(sessionId: string, cwd?: string): Promise<readonly unknown[] | undefined>
 }
 
 export interface AcpServerOptions {
@@ -143,6 +143,11 @@ export interface AcpServerOptions {
 	 * and injecting it also keeps a test off a random id.
 	 */
 	readonly newSessionId?: () => string
+	/** Explicit host extensions. Names must begin with `namzu/`; core methods
+	 * cannot be replaced. Called only after initialization and permission negotiation. */
+	readonly extensions?: Readonly<
+		Record<string, (params: Record<string, unknown>) => unknown | Promise<unknown>>
+	>
 	readonly log?: Logger
 }
 
@@ -212,12 +217,19 @@ export class ACPServer {
 	private requestSeq = 0
 
 	constructor(private readonly options: AcpServerOptions) {
-		this.log = resolveLogger(options.log).child({ 'namzu.log.scope': 'bridge/acp' })
+		this.log = resolveLogger(options.log).child({
+			'namzu.log.scope': 'bridge/acp',
+		})
+		for (const name of Object.keys(options.extensions ?? {})) {
+			if (!/^namzu\/[a-z][a-z0-9_/-]*$/.test(name)) {
+				throw new Error(`Invalid ACP host extension name: ${name}`)
+			}
+		}
 	}
 
 	/** The method names this server answers. For the drift test. */
 	methodNames(): readonly string[] {
-		return Object.keys(this.handlers).sort()
+		return [...Object.keys(this.handlers), ...Object.keys(this.options.extensions ?? {})].sort()
 	}
 
 	async start(): Promise<void> {
@@ -305,7 +317,21 @@ export class ACPServer {
 			return
 		}
 
-		const handler = this.handlers[message.method]
+		const extension = Object.hasOwn(this.options.extensions ?? {}, message.method)
+			? this.options.extensions?.[message.method]
+			: undefined
+		const core = Object.hasOwn(this.handlers, message.method)
+			? this.handlers[message.method]
+			: undefined
+		const handler =
+			core ??
+			(extension
+				? (params: Record<string, unknown>) => {
+						this.requireInitialized()
+						this.requirePermissionCapability()
+						return extension(params)
+					}
+				: undefined)
 		if (!handler) {
 			// Answered, and the CONNECTION STAYS OPEN. A client probing for a
 			// feature must not lose its session because this agent does not have
@@ -382,6 +408,9 @@ export class ACPServer {
 			// buffers, and demanding this of it would refuse a session that is
 			// perfectly able to run.
 			optionalClientCapabilities: [ACP_FILESYSTEM_CAPABILITY],
+			...(this.options.extensions
+				? { extensions: Object.keys(this.options.extensions).sort() }
+				: {}),
 		}
 	}
 
@@ -417,7 +446,7 @@ export class ACPServer {
 		const cwd = this.requireAbsoluteCwd(params.cwd)
 		const token = this.reserveSessionId(params.sessionId)
 		try {
-			const history = await this.options.gateway.load(params.sessionId)
+			const history = await this.options.gateway.load(params.sessionId, cwd)
 			if (history === undefined) {
 				throw new AcpError(
 					ACP_ERROR_CODES.INVALID_PARAMS,
@@ -451,7 +480,10 @@ export class ACPServer {
 		return resolved
 	}
 
-	private reserveGeneratedSessionId(): { readonly sessionId: string; readonly token: symbol } {
+	private reserveGeneratedSessionId(): {
+		readonly sessionId: string
+		readonly token: symbol
+	} {
 		if (this.options.newSessionId) {
 			const sessionId = this.options.newSessionId()
 			return { sessionId, token: this.reserveSessionId(sessionId) }
@@ -631,7 +663,10 @@ export class ACPServer {
 				session.approveAll = true
 				return { kind: 'approve_all' }
 			case 'reject':
-				return { kind: 'reject', ...(answer.feedback ? { feedback: answer.feedback } : {}) }
+				return {
+					kind: 'reject',
+					...(answer.feedback ? { feedback: answer.feedback } : {}),
+				}
 			default:
 				// An answer this side cannot read is not an approval. A client that
 				// sent something unrecognised has not said yes, and treating

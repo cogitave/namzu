@@ -22,10 +22,16 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import {
+	closeSessions,
+	loadResumableConversation,
+	openSessions,
+} from '../integrations/sessions/store.js'
 import { cliLogger } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import { type AgentSession, createAgentSession, probeAgentSession } from '../tui/agent.js'
+import { createDesktopHostExtensions } from './desktop-host.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
@@ -148,7 +154,15 @@ async function lookupInIndex(
 
 type AcpLiveSession = Pick<
 	AgentSession,
-	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close' | 'presenter'
+	| 'hasProvider'
+	| 'errorHint'
+	| 'mcpFailed'
+	| 'send'
+	| 'close'
+	| 'presenter'
+	| 'jobs'
+	| 'readJob'
+	| 'stopJob'
 >
 
 export interface AcpRuntimeDependencies {
@@ -162,9 +176,12 @@ export interface AcpRuntimeDependencies {
 	readonly resolveProjectContext: typeof resolveTrustedProjectContext
 	/** Which namzu session a wire session id stands for; see {@link resolveAcpSession}. */
 	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
+	/** Durable CLI catalog owned for the lifetime of one runtime session. */
+	readonly openSessions?: typeof openSessions
 }
 
 interface AcpRuntimeRecord {
+	readonly conversations?: Awaited<ReturnType<typeof openSessions>>
 	readonly cwd: string
 	readonly session: AcpLiveSession
 	route: ((event: SessionEvent) => void) | undefined
@@ -172,6 +189,11 @@ interface AcpRuntimeRecord {
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	providerStatus(sessionId?: string): Promise<unknown>
+	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
+	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
+	readJob(sessionId: string, jobId: string): unknown
+	stopJob(sessionId: string, jobId: string): Promise<unknown>
 	/**
 	 * Delegates to whichever session's own event is being rendered RIGHT NOW
 	 * — never "whichever session's `prompt` call is live", which two
@@ -194,6 +216,7 @@ export interface CliAcpRuntime {
 }
 
 const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
+	openSessions,
 	probe: probeAgentSession,
 	createSession: createAgentSession,
 	decideTrust: decideHeadlessTrust,
@@ -214,6 +237,8 @@ export function createCliAcpRuntime(
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
 	const constructing = new Map<string, string>()
+	const selections = new Map<string, Preferences>()
+	const selecting = new Set<string>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
 	let closed = false
 	// The record whose event `toAcpSessionUpdate` is presenting RIGHT NOW —
@@ -258,6 +283,7 @@ export function createCliAcpRuntime(
 		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
 		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
 		const cwd = trust.cwd
+		if (selecting.has(sessionId)) throw new Error('Wait for the model change to finish.')
 		const existing = records.get(sessionId)
 		if (existing) {
 			if (existing.cwd !== cwd) {
@@ -274,10 +300,16 @@ export function createCliAcpRuntime(
 
 		const construction = (async (): Promise<AcpRuntimeRecord> => {
 			let candidate: AcpLiveSession | undefined
+			let conversationState: Awaited<ReturnType<typeof openSessions>> | undefined
 			const closeCandidate = async () => {
 				const owned = candidate
 				candidate = undefined
-				if (owned) await owned.close()
+				try {
+					if (owned) await owned.close()
+				} finally {
+					if (conversationState) closeSessions(conversationState)
+					conversationState = undefined
+				}
 			}
 			try {
 				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
@@ -302,7 +334,7 @@ export function createCliAcpRuntime(
 				const probe = await sharedProbe()
 				signal.throwIfAborted()
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
-				const prefs = probe.preferences ?? defaultPrefs(probe.detected)
+				const prefs = selections.get(sessionId) ?? probe.preferences ?? defaultPrefs(probe.detected)
 				if (!prefs) {
 					throw new Error(
 						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
@@ -312,10 +344,23 @@ export function createCliAcpRuntime(
 				const target = await deps.resolveSession(sessionId)
 				signal.throwIfAborted()
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				conversationState = await deps.openSessions?.(cwd)
+				signal.throwIfAborted()
 				const routeOwner: { current?: AcpRuntimeRecord } = {}
 				candidate = await deps.createSession(prefs, probe.detected, {
 					cwd,
 					sessionId: target.sessionId,
+					...(conversationState
+						? {
+								conversationSessions: conversationState,
+								scope: {
+									sessionId: target.sessionId,
+									projectId: conversationState.projectId,
+									topicId: conversationState.topicId,
+									tenantId: conversationState.tenantId,
+								},
+							}
+						: {}),
 					...(target.origin ? { origin: target.origin } : {}),
 					rules: permissions.rules,
 					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
@@ -351,7 +396,12 @@ export function createCliAcpRuntime(
 					throw new Error(failure)
 				}
 
-				const record = { cwd, session: candidate, route: undefined }
+				const record: AcpRuntimeRecord = {
+					cwd,
+					session: candidate,
+					conversations: conversationState,
+					route: undefined,
+				}
 				routeOwner.current = record
 				if (records.has(sessionId)) {
 					await closeCandidate()
@@ -359,6 +409,7 @@ export function createCliAcpRuntime(
 				}
 				records.set(sessionId, record)
 				candidate = undefined
+				conversationState = undefined
 				return record
 			} finally {
 				constructing.delete(sessionId)
@@ -374,6 +425,18 @@ export function createCliAcpRuntime(
 	}
 
 	const gateway: AcpAgentGateway = {
+		load: async (sessionId, requestedCwd) => {
+			if (!requestedCwd) throw new Error('A project is required to load a conversation.')
+			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
+			if (!trust.allowed) throw new Error(trust.message)
+			const target = await deps.resolveSession(sessionId)
+			const state = await openSessions(trust.cwd)
+			try {
+				return await loadResumableConversation(state, target.sessionId)
+			} finally {
+				closeSessions(state)
+			}
+		},
 		prompt: async ({ sessionId, prompt, cwd, onEvent, signal, ask, history }) => {
 			let record: AcpRuntimeRecord
 			try {
@@ -460,11 +523,88 @@ export function createCliAcpRuntime(
 	return {
 		gateway,
 		presenter,
+		providerStatus: async (sessionId) => {
+			const probe = await sharedProbe()
+			const choice =
+				(sessionId ? selections.get(sessionId) : undefined)?.providers[0] ??
+				(probe.preferences ?? defaultPrefs(probe.detected))?.providers[0]
+			return {
+				available: probe.detected.map(({ entry }) => ({
+					id: entry.id,
+					label: entry.label,
+					defaultModel: entry.defaultModel,
+				})),
+				selected: choice
+					? { id: choice.id, ...(choice.model ? { model: choice.model } : {}) }
+					: null,
+			}
+		},
+		selectProvider: async (sessionId, provider, model) => {
+			if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
+			if (constructing.has(sessionId) || selecting.has(sessionId))
+				throw new Error('Wait for this conversation to finish connecting.')
+			selecting.add(sessionId)
+			try {
+				const probe = await sharedProbe()
+				if (closed) throw new Error('The connection is closed.')
+				const detected = probe.detected.find(({ entry }) => entry.id === provider)
+				if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
+				const preferences =
+					selections.get(sessionId) ?? probe.preferences ?? defaultPrefs(probe.detected)
+				const previous = preferences?.providers[0]
+				if (
+					previous?.id === provider &&
+					(previous.model ?? detected.entry.defaultModel) === (model ?? detected.entry.defaultModel)
+				)
+					return
+				const existing = records.get(sessionId)
+				if (existing?.route || existing?.session.jobs?.().some((job) => job.status === 'running'))
+					throw new Error('Stop this conversation’s active work before changing its model.')
+				if (existing) {
+					records.delete(sessionId)
+					try {
+						await existing.session.close()
+					} finally {
+						if (existing.conversations) closeSessions(existing.conversations)
+					}
+				}
+				if (closed) throw new Error('The connection is closed.')
+				selections.set(sessionId, {
+					...(preferences ?? { version: 3, subagents: { active: [] } }),
+					providers: [
+						{ id: detected.entry.id, ...(model ? { model } : {}) },
+						...(preferences?.providers.slice(1).filter((item) => item.id !== detected.entry.id) ??
+							[]),
+					],
+				})
+			} finally {
+				selecting.delete(sessionId)
+			}
+		},
+		jobs: (sessionId) => records.get(sessionId)?.session.jobs?.() ?? [],
+		readJob: (sessionId, jobId) => {
+			const session = records.get(sessionId)?.session
+			if (!session?.readJob) throw new Error('This conversation has no background shell.')
+			return session.readJob(jobId)
+		},
+		stopJob: async (sessionId, jobId) => {
+			const session = records.get(sessionId)?.session
+			if (!session?.stopJob) throw new Error('This conversation has no background shell.')
+			return await session.stopJob(jobId)
+		},
 		close: async () => {
 			closed = true
 			const owned = [...records.values()]
 			records.clear()
-			const results = await Promise.allSettled(owned.map((record) => record.session.close()))
+			const results = await Promise.allSettled(
+				owned.map(async (record) => {
+					try {
+						await record.session.close()
+					} finally {
+						if (record.conversations) closeSessions(record.conversations)
+					}
+				}),
+			)
 			const failures = results
 				.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
 				.map((result) => result.reason)
@@ -473,7 +613,7 @@ export function createCliAcpRuntime(
 	}
 }
 
-export async function runAcpCommand(ctx: CommandContext): Promise<number> {
+export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const runtime = createCliAcpRuntime(ctx)
 	const server = new ACPServer({
 		transport: new ServerStdioTransport(),
@@ -481,6 +621,7 @@ export async function runAcpCommand(ctx: CommandContext): Promise<number> {
 		commands: new HostCommandRegistry(),
 		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
+		...(desktop ? { extensions: createDesktopHostExtensions(runtime, process.cwd()) } : {}),
 	})
 
 	await server.start()
@@ -513,5 +654,11 @@ export async function runAcpCommand(ctx: CommandContext): Promise<number> {
 export const acpCommand: CommandDef = {
 	name: 'acp',
 	description: "Speak the agent-client protocol over this process's stdio",
-	handler: async ({ ctx }) => runAcpCommand(ctx),
+	passThrough: true,
+	help: 'Usage: namzu acp [--desktop]\nSpeak ACP over stdio. --desktop enables scoped operator methods for the Namzu desktop application.',
+	handler: async ({ ctx, rawArgs }) => {
+		if (rawArgs.some((arg) => arg !== '--desktop'))
+			throw new Error('Unknown ACP argument. Use namzu acp --help.')
+		return runAcpCommand(ctx, rawArgs.includes('--desktop'))
+	},
 }

@@ -1,0 +1,11 @@
+{
+  "provider": "zen",
+  "model": "space-bunny-free",
+  "anonymous": true,
+  "realCli": true,
+  "exitCode": 0,
+  "stopReason": "end_turn",
+  "text": "NAMZU_LIVE_ZEN_OK",
+  "tokens": 10275,
+  "scope": "Single live text turn; not a claim that every Zen model or external service is available."
+}

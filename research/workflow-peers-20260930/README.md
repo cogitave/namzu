@@ -204,18 +204,21 @@ conditional revision writes.
 - [x] Compare runtime, retrieval, extensions and long-job ownership.
 - [x] Reproduce retry-after-repair, task role and Markdown search I/O.
 - [x] Save raw observations and reproducible script.
-- [ ] Correct progress/failure-aware retry refusal, with query-loop regressions.
-- [ ] Move task snapshots to request-only context, with actual provider captures.
+- [x] Correct progress/failure-aware retry refusal, with query-loop regressions.
+- [x] Move task snapshots to request-only context, with actual provider captures.
 - [ ] Design and implement bounded incremental memory retrieval without weakening integrity.
 - [ ] Add safe local plugin reload and per-server MCP repair UX.
-- [ ] Expose project history retrieval through existing scoped evidence storage.
+- [x] Expose project history retrieval through existing scoped evidence storage.
 - [ ] Run native platform/remote long-task fault probes.
 - [ ] Evaluate deferred bundles and recap only after the preceding correctness work.
 
 The first implementation slice should contain the retry and task-context
 corrections. They are confirmed current behavior and small enough to verify
 independently. Indexing and lifecycle UX need their own designs and failure tests.
-This research does not claim those corrections or additions have been implemented.
+The implemented corrections and scoped history interface are recorded in
+[the runtime/desktop plan](../runtime-desktop-20260930/PLAN.md). The remaining
+unchecked items are follow-up research/implementation proposals, rather than
+claims that the desktop preview already supports them.
 
 Documentation verification passed: OKF, compiled documentation fences, the
 external-name audit, the log-standard gate and local/pinned source-link checks.
