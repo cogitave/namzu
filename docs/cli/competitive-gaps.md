@@ -8,6 +8,27 @@ status: draft
 
 # Where the CLI stands against its peers
 
+## Working behavior review — 2026-09-30
+
+The [source comparison and reproducible probes](../../research/workflow-peers-20260930/README.md)
+inspect five freshly cloned peer repositories against Namzu revision
+`57c99b22c5e91fe1552f1f4bf7badc91fd5afff9`. They establish three current
+boundaries: a successful repair does not reopen a check refused by the repeat
+tracker; stored task fields still enter system messages; and a one-hit Markdown
+memory search reads all 500 bodies in the synthetic corpus (8,257,507 bytes).
+The probes use scripted provider responses and private fixtures, without live
+model calls or operator-state changes. These findings are recorded work, not
+implemented corrections or claims about model quality.
+
+Correct retry semantics and task context roles first. Then improve incremental
+memory retrieval, local plugin reload, per-server MCP diagnosis and project-scoped
+historical discovery. Deferred capability bundles and an operator recap are
+later additions with explicit cost and recovery checks. The report records
+source revisions, existing strengths, patterns to avoid copying and acceptance
+criteria for each item.
+
+## Earlier comparisons
+
 Reviewed on 2026-09-06 against Codex commit
 `ac192cd7937b0d73edc6dffe009940ae53782dd4` and Pi commit
 `9767ba275f3e9a5ee0f5c5342249b629ab1b2282`. These source comparisons identify

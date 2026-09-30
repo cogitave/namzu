@@ -1,0 +1,55 @@
+{
+  "inspected_on": "2026-09-30",
+  "namzu_revision": "57c99b22c5e91fe1552f1f4bf7badc91fd5afff9",
+  "sdk_version": "49.0.0",
+  "cli_version": "35.0.0",
+  "node": "v24.19.0",
+  "platform": "Linux",
+  "peer_dependencies_installed": false,
+  "peer_tests_executed": false,
+  "external_model_requests": 0,
+  "peers": [
+    {
+      "checkout": "pydantic-ai",
+      "remote": "https://github.com/pydantic/pydantic-ai.git",
+      "revision": "348b6952531d035a681fcf6c14c861284f46adbc",
+      "committed_at": "2026-09-29T20:58:31-05:00",
+      "working_tree_clean": true
+    },
+    {
+      "checkout": "codex",
+      "remote": "https://github.com/openai/codex.git",
+      "revision": "d42056091aded7feb1d88ac7e83972108b2aa478",
+      "committed_at": "2026-09-30T07:15:14Z",
+      "working_tree_clean": true
+    },
+    {
+      "checkout": "pi-mono",
+      "remote": "https://github.com/badlogic/pi-mono.git",
+      "revision": "ee602414c703be8da722ec56de7f2399e62581ac",
+      "committed_at": "2026-09-30T08:56:08+01:00",
+      "working_tree_clean": true
+    },
+    {
+      "checkout": "hermes-agent",
+      "remote": "https://github.com/NousResearch/hermes-agent.git",
+      "revision": "f42f579cf8bac4918ac9599bece71618afadd846",
+      "committed_at": "2026-09-30T00:59:14-04:00",
+      "working_tree_clean": true
+    },
+    {
+      "checkout": "ax",
+      "remote": "https://github.com/google/ax.git",
+      "revision": "ac2332829f22360ff97b0ba34d94dd0dd782f17e",
+      "committed_at": "2026-09-27T16:54:08-07:00",
+      "working_tree_clean": true
+    }
+  ],
+  "probe_file_sha256": {
+    "packages/cli/src/integrations/sessions/task-context.ts": "3d1461aa1bc4ae1504c36871f3f1b3729464c436fd60c785f9e0633cb5a0e1c8",
+    "packages/sdk/src/runtime/query/repeat-call.ts": "5bc2982d61afe0f25cf23d1a582248a3840837cc4d011b1d7bf578f97a852c2c",
+    "packages/sdk/src/store/memory/markdown.ts": "abe6b95f042ac52c8e38f981ad3a6a2c5c76f8ee7dbb3cdada0c8a575bdcc915",
+    "packages/sdk/dist/runtime/query/repeat-call.js": "495ecdccb28f1646e7f0a60a096715e34ae116f318a7c2b0ed539b8dc2279a98",
+    "packages/sdk/dist/store/memory/markdown.js": "8b7078b2d62aec4110a2f60e7103f876ba8ddc6352260a87a7a0195117f6a06a"
+  }
+}

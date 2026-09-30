@@ -1,0 +1,6 @@
+{"probe":"task-provider-role","requests":1,"markerRoles":[{"role":"system","source":null}]}
+{"probe":"retry-after-progress","repaired":true,"executions":["check","check","check","check","repair"],"refusal":["Error: Tool \"check\" was not executed. Refused: `check` with these exact arguments has failed 4 times in a row in this turn, with the same result each time. It will not be run again with these arguments. Change the arguments, use a different tool, or tell the user what is blocking you and stop.\n\nYou have now called `check` with identical arguments 5 times in this turn. Repeating it again will produce the same result. Change the arguments, use a different tool, or tell the user what is blocking you and stop."]}
+{"probe":"markdown-search-io","files":10,"limit":1,"returned":1,"reads":10,"bytes":165157,"resultKeys":["entries","totalCount"]}
+{"probe":"markdown-search-io","files":100,"limit":1,"returned":1,"reads":100,"bytes":1651507,"resultKeys":["entries","totalCount"]}
+{"probe":"markdown-search-io","files":500,"limit":1,"returned":1,"reads":500,"bytes":8257507,"resultKeys":["entries","totalCount"]}
+{"fixture":"/tmp/namzu-workflow-probe-couUgG","network":"No external provider or subprocess requested."}
