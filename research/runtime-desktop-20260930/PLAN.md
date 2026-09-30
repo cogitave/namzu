@@ -150,8 +150,10 @@ it is not a remote publication or a claim that all peer screens match.
 The CLI already launches local children on different providers/models and can
 collect results and send corrections. `/loop` repeats in an open conversation.
 A durable scheduled run pins one provider/model and constructs
-`subagents: { active: [] }` in `schedule/fire/fire.ts`; it does not retain an
-operator-defined multi-provider team. This is a verified remaining gap, not a
+`subagents: { active: [] }` in `schedule/fire/fire.ts`. Later inspection confirms
+that preference has no current production reader; the actual route limitation
+is session construction receiving one detected provider. It does not retain an
+operator-defined multi-provider profile. This is a verified remaining gap, not a
 feature delivered by the desktop visual correction.
 
 Follow-up design must define a stored mission/team, provider/model/tool/budget
@@ -174,3 +176,49 @@ prerequisites. This is researched future work, not a newly implemented feature.
 The operator asked to complete the current work first and discuss this plan
 before implementing the recurring-team architecture. No mission implementation
 starts as part of this visual correction.
+
+### Architectural choice delegated — 2026-10-01
+
+The operator asked to choose the engineering approach and question the demand
+itself. `ORCHESTRATION-DECISION.md` records the selected modes: saved host
+execution profiles for routine dynamic delegation, and optional durable workflow
+execution for dependencies/output/recovery that must be enforced. Existing plan
+resolution/readiness helpers are retained; their presence does not enforce every
+worker launch. The schedule's single detected route, rather than an unused
+`subagents.active` preference alone, limits headless child route discovery.
+
+The built public SDK probe (`orchestration-boundary.mjs`) records real persisted
+task/plan contract limits with no model calls or live-job changes. Existing
+dependency/delegate/plan and child route/definition tests verify the reusable
+foundation. Implementation gates cover occurrence identity, guarded admission,
+durable dispatch capabilities, unknown effects, joins, shared budgets and restart.
+This completes architectural assessment; the selected runtime additions have
+not been implemented or published by the assessment.
+
+### Pal identity and group clarification — 2026-10-01
+
+`PALS-ARCHITECTURE.md` resolves the operator's latest requirement: reusable Pals
+can work alone or in groups; lead is an assignment role. Identity/definition,
+deployment, environment lease, resource grants, sessions/runs and optional
+workflow authority are distinct. Dots' official documentation confirms that its
+lifecycle extends beyond having a sandbox; resident hosting remains opt-in.
+
+- [x] Compare actual SDK ownership, browser leases, sandbox boundaries and
+  resident contracts with the new requirement; keep product policy in the host.
+- [x] Inspect the cloned official A2A repository and the pinned 0.3.0 schema.
+  A public SDK probe records missing required message/card fields and task states
+  inconsistent with the bridge's declared version. Do not promise remote lead
+  interoperability from internal wire snapshots.
+- [x] Record the selected delivery sequence and proof gates for isolation,
+  credential grants, mixed-provider routing, A2A and workflow recovery.
+
+Future delivery gates, not completed features:
+
+- [ ] Saved standalone Pal composition and identity/definition revisions.
+- [ ] Joined environment/browser/credential-grant lifecycle and isolation proof.
+- [ ] Versioned A2A contract repair and official-peer interoperability.
+- [ ] Group/lead assignments and recurring multi-provider execution profiles.
+- [ ] Optional durable workflow admission/dispatch/recovery and UI projection.
+
+The assessment is complete; these implementation items remain explicitly open.
+No live Pal, account, service or scheduled job was created or changed.

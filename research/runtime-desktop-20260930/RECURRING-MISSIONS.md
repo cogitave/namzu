@@ -4,6 +4,14 @@ Status: researched proposal. No mission/team API or recurring graph executor is
 implemented by this change. Peer source was cloned and inspected; their services,
 agent prompts, optional skills and tests were not executed.
 
+The later requirement review and selected architecture are in
+[`ORCHESTRATION-DECISION.md`](ORCHESTRATION-DECISION.md). It distinguishes dynamic
+agentic teamwork from enforced durable workflows, corrects the initial broad gap
+description with existing plan-helper evidence, and makes a workflow graph opt-in.
+The later product identity/group/lead clarification is resolved in
+[`PALS-ARCHITECTURE.md`](PALS-ARCHITECTURE.md). Pals remain individually useful;
+grouping does not impose a runtime class, sandbox or a permission union.
+
 ## Operator requirement
 
 A saved team of different provider/model roles performs one mission repeatedly.
@@ -18,14 +26,17 @@ before implementation, while the desktop correction continues.
 | --- | --- | --- |
 | `cli/integrations/subagents/`, `sdk/scheduler/{local,delegating}.ts` | Child execution, provider/model selection, capacity, cancellation, completion and foreign delegate seam | A saved role binding and an authoritative workflow controller |
 | `sdk/types/agent/scheduler.ts` | `planId`/`planStepId` correlation and display `workflow`/`phase` annotations | Actual executable dependency edges; display labels do not impose ordering |
+| `sdk/tools/coordinator/plan-dependencies.ts`, `sdk/manager/plan/lifecycle.ts` | Dependency resolution/cycle validation, ready-step helper and step outcome reporting | Enforced admission and durable execution/restoration; a helper does not impose every launch's ordering |
 | `sdk/store/task/disk.ts`, `sdk/types/task/index.ts` | Durable tasks, `blocks`/`blockedBy`, ownership and atomic record writes | Dependency admission and workflow transitions; `claim()` checks pending/owner, not prerequisite completion |
 | `sdk/tools/coordinator/outcome.ts` | Combined task/turn success and failure predicates | Typed node output/artifact validation before releasing downstream work |
 | `sdk/schedules/evaluate.ts` | Pure due-time evaluation, claimed-occurrence handling, clock skew, catch-up and skip while a prior run is unfinished | Triggering a saved workflow revision rather than inferring a graph from a fresh prompt |
 | `cli/schedule/{store/claims.ts,daemon/daemon.ts}` | Exclusive occurrence claim, fenced daemon ownership, persisted queue, result/session reconciliation and write-folder lanes | Node-level dispatch records and recovery under the same occurrence identity |
-| `cli/schedule/fire/fire.ts` | A confirmed headless run, pinned route, permission floor and budget | Team snapshot: it currently constructs one provider and `subagents: { active: [] }` |
+| `cli/schedule/fire/fire.ts` | A confirmed headless run, pinned route, permission floor and budget | Host execution profile: session construction receives only one detected provider, so child route resolution does not receive the complete team |
 
-The foundation is substantial. A schema gives it a stable control contract, but
-its transitions, persistence and admission checks must also be implemented.
+The foundation is substantial. Existing plan helpers already describe and
+evaluate dependencies; the missing durable workflow guarantees are enforcement,
+restoration, persistence and admission. A schema gives a stable control contract,
+but its transitions must also be implemented and proved.
 Existing task/session records remain useful; neither a task label nor a cron
 entry turns them into a durable dependency executor by itself.
 
@@ -66,8 +77,9 @@ For durable dependent recurring teams, neither Namzu's display grouping nor the
 inspected God mode race script supplies the required workflow contract. The
 recommended next step is to review this plan, then add explicit dependency and
 recovery semantics over Namzu's existing execution foundation. The operator's
-latest direction is to finish the desktop correction and discuss the plan before
-implementing this architecture.
+desktop correction is complete. The operator subsequently delegated the
+architectural choice and asked whether the demand itself was misidentified; the
+selected modes and their rationale are recorded in `ORCHESTRATION-DECISION.md`.
 
 ## Proposed architecture
 
@@ -110,7 +122,8 @@ tenant, project, cron service or permanently resident supervisor class.
 
 ### 2. Explicit graph and data contract
 
-Start with a bounded static DAG. Reject cycles, missing prerequisites, duplicate
+For the optional explicit workflow mode, start with a bounded static DAG.
+Ordinary agentic teamwork keeps dynamic delegation. Reject cycles, missing prerequisites, duplicate
 node IDs, incompatible artifact references, unbounded fan-out and unreachable
 required outputs before confirmation. A reviewer-approved bounded repeat
 construct can be designed later; do not encode cycles through retry counters.

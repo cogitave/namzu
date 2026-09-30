@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-01",
+  "sourceBaseline": "1af4531a1b18c4386aa672ef2bfa7f83980af07c",
+  "scope": "Architecture assessment; no production source changed in this assessment",
+  "checks": [
+    {
+      "command": "TMPDIR=/var/tmp/n-R2j6E1 pnpm --filter @namzu/sdk test -- src/tools/coordinator/__tests__/plan-dependencies.test.ts src/tools/coordinator/__tests__/a-plan-step-reports-its-own-outcome.test.ts src/scheduler/__tests__/a-delegate-need-not-be-ours.test.ts src/manager/plan/__tests__/a-plan-that-succeeded-is-not-failed.test.ts",
+      "exitCode": 0,
+      "filesPassed": 4,
+      "testsPassed": 54,
+      "logSha256": "3995e7ebccd535d2f7508572e0b739a753577e87b2885e43263b5e8d46c69626"
+    },
+    {
+      "command": "TMPDIR=/var/tmp/n-R2j6E1 pnpm --filter @namzu/cli test -- src/integrations/subagents/__tests__/model-selection.test.ts src/integrations/subagents/__tests__/definitions.test.ts",
+      "exitCode": 0,
+      "filesPassed": 510,
+      "testsPassed": 4665,
+      "testsSkipped": 5,
+      "note": "The package test script ran the full CLI suite despite the requested file arguments.",
+      "logSha256": "9fb68370c1e3fa1f23ca6e664eccb368b3fb1517c6338ba4585b89e9956dbda6"
+    },
+    {
+      "command": "TMPDIR=/var/tmp/n-R2j6E1 node research/runtime-desktop-20260930/orchestration-boundary.mjs",
+      "exitCode": 0,
+      "modelCalls": 0,
+      "userJobsChanged": false,
+      "receipt": "artifacts/orchestration-boundary.json"
+    },
+    {
+      "command": "node research/runtime-desktop-20260930/a2a-contract-boundary.mjs",
+      "exitCode": 0,
+      "modelCalls": 0,
+      "networkCalls": 0,
+      "receipt": "artifacts/a2a-contract-boundary.json",
+      "note": "Selected official 0.3.0 required fields and state enum compared with actual built public SDK output; not full conformance validation."
+    },
+    {
+      "command": "node --check research/runtime-desktop-20260930/orchestration-boundary.mjs && node --check research/runtime-desktop-20260930/a2a-contract-boundary.mjs && git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "limits": [
+    "Existing provider tests use scripted transports; no live mixed-provider recovery tested.",
+    "No peer service or full A2A conformance suite executed.",
+    "Pal isolation, hosted lifecycle and workflow guarantees are selected future acceptance gates, not delivered features.",
+    "No new dependency installation, remote writes or live schedule changes."
+  ]
+}

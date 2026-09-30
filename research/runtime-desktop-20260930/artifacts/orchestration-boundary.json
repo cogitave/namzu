@@ -1,0 +1,25 @@
+{
+  "modelCalls": 0,
+  "userJobsChanged": false,
+  "plan": {
+    "readyBefore": "A",
+    "statusesAfterDirectUpdate": [
+      {
+        "id": "A",
+        "status": "pending"
+      },
+      {
+        "id": "B",
+        "status": "running"
+      }
+    ],
+    "freshManagerHasActivePlan": false
+  },
+  "taskStore": {
+    "upstreamStatus": "pending",
+    "downstreamStatus": "in_progress",
+    "dependencyRetained": true,
+    "owner": "research-worker"
+  },
+  "interpretation": "Existing dependency helpers and persisted tasks are usable primitives. Direct status update/claim do not supply workflow admission or automatic plan restoration."
+}

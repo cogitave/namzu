@@ -1,0 +1,34 @@
+{
+  "scope": "Selected schema fields only; not a complete conformance validator",
+  "networkCalls": 0,
+  "modelCalls": 0,
+  "source": "https://github.com/a2aproject/A2A/blob/210f03d426e2f2fa92000e14ef0de3b7ba15aee5/specification/json/a2a.json",
+  "declaredVersion": "0.3.0",
+  "message": {
+    "missingRequired": [
+      "kind",
+      "messageId"
+    ]
+  },
+  "card": {
+    "missingRequired": [
+      "url"
+    ],
+    "propertiesAbsentFromPinnedSchema": [
+      "supportedInterfaces",
+      "securityRequirements"
+    ]
+  },
+  "mappedStates": [
+    {
+      "turnState": "queued",
+      "emitted": "pending",
+      "acceptedByPinnedEnum": false
+    },
+    {
+      "turnState": "running",
+      "emitted": "running",
+      "acceptedByPinnedEnum": false
+    }
+  ]
+}

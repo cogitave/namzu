@@ -1,0 +1,59 @@
+{
+  "source": "https://github.com/a2aproject/A2A/blob/210f03d426e2f2fa92000e14ef0de3b7ba15aee5/specification/json/a2a.json",
+  "revision": "210f03d426e2f2fa92000e14ef0de3b7ba15aee5",
+  "version": "0.3.0",
+  "scope": "Selected schema fields only; not a complete conformance validator",
+  "taskStates": [
+    "submitted",
+    "working",
+    "input-required",
+    "completed",
+    "canceled",
+    "failed",
+    "rejected",
+    "auth-required",
+    "unknown"
+  ],
+  "messageRequired": [
+    "kind",
+    "messageId",
+    "parts",
+    "role"
+  ],
+  "cardRequired": [
+    "capabilities",
+    "defaultInputModes",
+    "defaultOutputModes",
+    "description",
+    "name",
+    "protocolVersion",
+    "skills",
+    "url",
+    "version"
+  ],
+  "cardPropertyNames": [
+    "additionalInterfaces",
+    "capabilities",
+    "defaultInputModes",
+    "defaultOutputModes",
+    "description",
+    "documentationUrl",
+    "iconUrl",
+    "name",
+    "preferredTransport",
+    "protocolVersion",
+    "provider",
+    "security",
+    "securitySchemes",
+    "signatures",
+    "skills",
+    "supportsAuthenticatedExtendedCard",
+    "url",
+    "version"
+  ],
+  "interfaceTransportExamples": [
+    "JSONRPC",
+    "GRPC",
+    "HTTP+JSON"
+  ]
+}
