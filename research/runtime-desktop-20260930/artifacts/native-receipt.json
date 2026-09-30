@@ -1,21 +1,101 @@
 {
-  "platform": "Linux / WSL2 / Xvfb",
-  "electron": "44.5.1",
-  "node": "24.19.0",
-  "modelIo": "MockLLMProvider only; real CLI, kernel and processes",
-  "verified": [
-    "foreground shell",
-    "background shell output and stop",
-    "two separate tool approvals",
-    "queued next turn",
-    "window reload retains review, queue and selected model",
-    "selected model reaches actual provider request",
-    "durable history survives app restart",
-    "IME does not submit",
-    "Shift+Enter creates newline",
-    "600x540 layout has no horizontal overflow",
-    "renderer has no Node globals"
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelIo": "scripted",
+  "actualShell": [
+    "foreground",
+    "background",
+    "stop"
   ],
+  "queuedNextTurn": true,
+  "reloadRetainsReviewAndQueue": true,
+  "selectedModelReachedKernel": true,
+  "historySurvivesAppRestart": true,
+  "imeDoesNotSubmit": true,
+  "shiftEnterNewline": true,
+  "modelMenuKeyboard": true,
+  "search": true,
+  "themePersisted": true,
+  "responsiveMenu": true,
+  "referenceGeometry": {
+    "viewport": {
+      "width": 1180,
+      "height": 791
+    },
+    "rootFont": "16px",
+    "sidebar": {
+      "width": 256,
+      "height": 791,
+      "fontSize": "14px",
+      "lineHeight": "21px",
+      "radius": "0px",
+      "background": "rgb(8, 11, 9)"
+    },
+    "topbar": {
+      "width": 924,
+      "height": 52,
+      "fontSize": "14px",
+      "lineHeight": "21px",
+      "radius": "0px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "composer": {
+      "width": 784,
+      "height": 152,
+      "fontSize": "14px",
+      "lineHeight": "21px",
+      "radius": "22px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "message": {
+      "width": 167.984375,
+      "height": 24.5,
+      "fontSize": "14px",
+      "lineHeight": "24.5px",
+      "radius": "0px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "model": {
+      "width": 146.328125,
+      "height": 28,
+      "fontSize": "13px",
+      "lineHeight": "19.5px",
+      "radius": "8px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "canvas": "rgb(11, 15, 12)"
+  },
+  "panelMotion": {
+    "frames": [
+      {
+        "property": "opacity",
+        "duration": 160,
+        "easing": "ease-out"
+      },
+      {
+        "property": "transform",
+        "duration": 220,
+        "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+      },
+      {
+        "property": "visibility",
+        "duration": 220,
+        "easing": "ease"
+      }
+    ],
+    "midTransform": "matrix(1, 0, 0, 1, 14.6746, 0)",
+    "endTransform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  "reducedPanelMotion": {
+    "frames": [],
+    "midTransform": "matrix(1, 0, 0, 1, 0, 0)",
+    "endTransform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  "cliWordmark": true,
+  "permissions": "two separate approvals",
+  "rendererNode": false,
+  "overflow": false,
   "requests": [
     {
       "model": "claude-opus-4-7",

@@ -28,6 +28,22 @@ argument or model input. On Windows the installed `.cmd` shim is invoked through
 a fixed `namzu acp --desktop` command; project paths are passed as process cwd.
 The app is not yet distributed through native installers or auto-update.
 
+## Appearance and message display
+
+The app opens in its dark appearance. The sidebar appearance control cycles
+through light, system and dark; the local choice survives window reload. The
+two-row wordmark and phosphor-green accents match the operator CLI. Menu,
+panel and message transitions respect the system reduced-motion preference.
+Projects group their conversations in the sidebar. Search filters the loaded
+conversation titles. The model control is one menu inside the composer; the
+provider and exact model choice are edited there before the next message.
+
+Assistant replies render headings, lists, fenced code and tables. User messages
+stay literal. Raw HTML cannot execute, remote images do not load and message
+links are currently displayed as text. Tool output remains a separate tool view.
+Background work uses a separate column in a wide window and an overlay in a
+narrow window. The composer and navigation remain inside the available width.
+
 ## Operator flow
 
 Open a folder. If it is not already trusted by Namzu, the app shows its exact
@@ -37,7 +53,7 @@ protocol session alone never grants trust. Cancel keeps the folder untrusted.
 Choose a saved conversation or start a new one. Saved history comes from Namzu's
 existing scoped logs and index; archived conversations cannot be resumed as
 writers. The app stores project paths in its own preferences, not conversation
-records or provider secrets. Historical display is a bounded plain-text
+records or provider secrets. Historical display is a bounded text
 projection of the latest 200 messages/200,000 characters and marks a partial view.
 The kernel loads the full admitted history for the model independently.
 
@@ -90,8 +106,7 @@ content policy. Model and tool text is rendered as text, never executable HTML.
 
 ## Current scope
 
-The first slice covers local projects, conversation history, text streaming,
-tool review, reasoning, message queues and background shells. Rich Markdown,
-attachments, embedded browsing, terminal emulation, remote hosts, native release
-packaging and auto-update are not offered in this preview. Source comparisons
+The first slice covers local projects, conversation history, formatted replies,
+tool review, reasoning, message queues and background shells. Attachments,
+embedded browsing, terminal emulation, remote hosts, native release packaging and auto-update are not offered in this preview. Source comparisons
 and validation receipts are in `research/runtime-desktop-20260930/`.

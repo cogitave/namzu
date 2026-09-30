@@ -4,9 +4,9 @@ import { MockLLMProvider, ProviderRegistry } from '../../../packages/sdk/dist/in
 let mainTurn = 0
 const turns = [
 	{ toolCalls: [{ id: 'native-call-1', name: 'bash', args: { command: 'printf DESKTOP_PIPE_OK' } }] },
-	{ text: 'Native runtime answered. DESKTOP_PIPE_OK' },
+	{ text: 'Native runtime answered. DESKTOP_PIPE_OK\n\nThe foreground command completed successfully.\n\n- Ran the command in the selected project.\n- Captured its output in this conversation.\n\nYou can continue here while I work on the next step.' },
 	{ toolCalls: [{ id: 'native-job-1', name: 'bash', args: { command: `${JSON.stringify(process.execPath)} -e "console.log('BACKGROUND_PIPE_OK');setInterval(()=>{},1000)"`, run_in_background: true } }] },
-	{ text: 'The background process is running.' },
+	{ text: 'The background process is running.\n\nOpen **Background work** to read the output or stop the process.\n\n```text\nBACKGROUND_PIPE_OK\n```\n\nThe process belongs to this conversation.' },
 ]
 const provider = new MockLLMProvider({ nextTurn: (request) => {
 	if (!request.tools?.some((tool) => tool.function.name === 'bash')) {

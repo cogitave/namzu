@@ -92,3 +92,45 @@ it('preserves the tool presentation across progress and shows actual provider fa
 	})
 	expect(thread.error).toBe('The provider returned 503')
 })
+
+it('keeps interrupted tool history without animating it as work in a later turn', () => {
+	const state = (running: boolean) => ({
+		kind: 'state' as const,
+		sessionId: 's',
+		running,
+		queued: [],
+	})
+	const tool = (id: string, status: 'pending' | 'completed') => ({
+		kind: 'update' as const,
+		projectId: 'p',
+		sessionId: 's',
+		update: {
+			kind: 'tool_call' as const,
+			toolCallId: id,
+			title: 'bash',
+			status,
+			view: { kind: 'generic' as const, label: 'bash' },
+		},
+	})
+	let thread = applyEvent(emptyThread(), state(true))
+	thread = applyEvent(thread, tool('interrupted', 'pending'))
+	expect(thread.activeToolIds).toEqual(['interrupted'])
+	thread = applyEvent(thread, state(false))
+	expect(thread.activeToolIds).toEqual([])
+	expect(thread.tools.interrupted?.status).toBe('pending')
+	thread = applyEvent(thread, { kind: 'prompt', sessionId: 's', prompt: 'Continue' })
+	thread = applyEvent(thread, state(true))
+	thread = applyEvent(thread, tool('new', 'pending'))
+	expect(thread.activeToolIds).toEqual(['new'])
+	thread = applyEvent(thread, tool('new', 'completed'))
+	expect(thread.activeToolIds).toEqual([])
+	thread = applyEvent(thread, tool('aborted', 'pending'))
+	thread = applyEvent(thread, {
+		kind: 'update',
+		projectId: 'p',
+		sessionId: 's',
+		update: { kind: 'turn_ended', stopReason: 'cancelled' },
+	})
+	expect(thread.activeToolIds).toEqual([])
+	expect(Object.keys(thread.tools)).toEqual(['interrupted', 'new', 'aborted'])
+})

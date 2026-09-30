@@ -1,0 +1,48 @@
+{
+  "viewport": {
+    "width": 1180,
+    "height": 791
+  },
+  "rootFont": "16px",
+  "sidebar": {
+    "width": 256,
+    "height": 791,
+    "fontSize": "14px",
+    "lineHeight": "21px",
+    "radius": "0px",
+    "background": "rgb(8, 11, 9)"
+  },
+  "topbar": {
+    "width": 924,
+    "height": 52,
+    "fontSize": "14px",
+    "lineHeight": "21px",
+    "radius": "0px",
+    "background": "rgba(0, 0, 0, 0)"
+  },
+  "composer": {
+    "width": 784,
+    "height": 152,
+    "fontSize": "14px",
+    "lineHeight": "21px",
+    "radius": "22px",
+    "background": "rgba(0, 0, 0, 0)"
+  },
+  "message": {
+    "width": 167.984375,
+    "height": 24.5,
+    "fontSize": "14px",
+    "lineHeight": "24.5px",
+    "radius": "0px",
+    "background": "rgba(0, 0, 0, 0)"
+  },
+  "model": {
+    "width": 146.328125,
+    "height": 28,
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "radius": "8px",
+    "background": "rgba(0, 0, 0, 0)"
+  },
+  "canvas": "rgb(11, 15, 12)"
+}

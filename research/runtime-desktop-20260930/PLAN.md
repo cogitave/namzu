@@ -43,7 +43,7 @@ development objective. Existing live jobs and unrelated worktrees are outside it
   operator diagnosis/reload where the shared boundary supports them. Deferred
   bundles and memory indexing require explicit correctness/measurement evidence;
   do not introduce a cache that silently changes integrity guarantees.
-- [ ] **F — Verification and delivery.** Relevant integration/process tests,
+- [x] **F — Verification and delivery.** Relevant integration/process tests,
   visual and keyboard checks, workspace/CI gates, build/launch smoke, coherent
   commits, current documentation/changesets and a precise record of platform
   coverage and remaining release work.
@@ -91,4 +91,33 @@ development objective. Existing live jobs and unrelated worktrees are outside it
   and reconnect reuse the runtime/log. Incremental memory indexes and full deferred
   bundles remain evaluated follow-up designs, since the current file integrity and
   activation contracts cannot be weakened by a shortcut cache.
-- Final whole-tree gates and the updated selected-model native receipt are pending.
+- The initial whole-tree validation completed 48 successful gates; native
+  selected-model, queue/review, durable history and anonymous Zen receipts are
+  recorded in `VERIFICATION.md`.
+- The user rejected the initial independent visual design and prefers the main
+  source reference. Rebuilt the renderer using its actual controls, palette,
+  sidebar and composer, plus compatible message/error/group components from the
+  other source. Mandatory attribution is separate from brand-neutral app code.
+- Revised native coverage checks model-menu keyboard/focus, scoped choice,
+  conversation-title search, appearance persistence and wide/narrow popovers.
+  Final revision capture, checks and coherent commit are being completed.
+
+- Operator requested the CLI wordmark and brand colours. Exact two-row lettering
+  now appears in sidebar/welcome, with phosphor action/focus accents and quiet
+  short panel/menu/message transitions. Native proof includes deterministic
+  animation samples and reduced-motion behaviour.
+- A full rerun exposed a foreign `.git` marker in shared `/tmp`; project identity
+  correctly regarded temp siblings as one checkout. No isolation checks were
+  weakened. An independent `TMPDIR` restored all 4,665 CLI tests (5 existing
+  skips); the temporary diagnostic edit was removed.
+
+- Final gate run found a skill-save screen assertion depending on whether a home
+  path places `(suggested)` across a terminal wrap. Join the actual rendered rows
+  before checking the marker; retain all content, save and cancellation checks.
+  Five real overlay cases pass under the short independent temporary root.
+
+- Revised first slice is complete: 48 actual repository gates pass, including
+  the resumed missing-dash step and all later checks. Final root lint/typecheck
+  plus desktop build, 13 tests and real native flow were refreshed. Both the
+  baseline and revision receipts are retained. Coherent local delivery includes
+  source provenance, operator identity, screenshots and explicit platform limits.

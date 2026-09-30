@@ -1,3 +1,12 @@
+import {
+	ArrowUpIcon,
+	FolderIcon,
+	PanelLeftIcon,
+	PlusIcon,
+	SquareIcon,
+	TerminalIcon,
+	XIcon,
+} from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
@@ -8,34 +17,30 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { ChatErrorBanner } from './chat-error-banner.js'
+import { Composer } from './composer.js'
+import { Message, MessageContent } from './message.js'
+import { type Appearance, Sidebar } from './sidebar.js'
 import { ToolView } from './tool-view.js'
+import { Button } from './ui/button.js'
+import { Empty } from './ui/empty.js'
+import { TooltipProvider } from './ui/tooltip.js'
+import { Wordmark } from './wordmark.js'
+
 import './style.css'
 
 const api = window.namzu
-const shortcut = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 'close' }) {
-	const paths = {
-		folder: 'M2 5h6l2 2h12v13H2z',
-		plus: 'M12 5v14M5 12h14',
-		menu: 'M4 6h16M4 12h16M4 18h16',
-		arrow: 'M12 19V5M5 12l7-7 7 7',
-		stop: 'M6 6h12v12H6z',
-		close: 'M6 6l12 12M18 6 6 18',
-	}
-	return (
-		<svg
-			aria-hidden="true"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.7"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<path d={paths[name]} />
-		</svg>
-	)
+	const Component = {
+		folder: FolderIcon,
+		plus: PlusIcon,
+		menu: PanelLeftIcon,
+		arrow: ArrowUpIcon,
+		stop: SquareIcon,
+		close: XIcon,
+	}[name]
+	return <Component aria-hidden="true" />
 }
 function App() {
 	const [projects, setProjects] = useState<ProjectView[]>([])
@@ -50,6 +55,22 @@ function App() {
 	})
 	const [choices, setChoices] = useState<Record<string, { provider: string; model: string }>>({})
 	const [sideOpen, setSideOpen] = useState(false)
+	const [appearance, setAppearance] = useState<Appearance>(() => {
+		const saved = localStorage.getItem('namzu.appearance')
+		return saved === 'light' || saved === 'system' ? saved : 'dark'
+	})
+	useEffect(() => {
+		const media = window.matchMedia('(prefers-color-scheme: dark)')
+		const apply = () =>
+			document.documentElement.classList.toggle(
+				'dark',
+				appearance === 'dark' || (appearance === 'system' && media.matches),
+			)
+		apply()
+		localStorage.setItem('namzu.appearance', appearance)
+		media.addEventListener('change', apply)
+		return () => media.removeEventListener('change', apply)
+	}, [appearance])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [jobOutput, setJobOutput] = useState('')
@@ -276,158 +297,101 @@ function App() {
 	}, [sideOpen, jobsOpen, sessionId, thread.running, act, newConversation, openProject])
 	return (
 		<div className="app">
-			{sideOpen && (
-				<button
-					type="button"
-					className="scrim"
-					aria-label="Close sidebar"
-					onClick={() => setSideOpen(false)}
-				/>
-			)}
-			<aside
-				className={`sidebar ${sideOpen ? 'open' : ''}`}
-				aria-label="Projects and conversations"
-			>
-				<div className="brand">
-					<span className="brand-mark">N</span>
-					<strong>Namzu</strong>
-					<span className="preview-tag">Preview</span>
-				</div>
-				<button
-					type="button"
-					className="open-project"
-					onClick={() => void act(openProject)}
-					disabled={loading}
-				>
-					<Icon name="folder" />
-					{loading ? 'Opening…' : 'Open a project'}
-					<kbd>{shortcut} O</kbd>
-				</button>
-				<div className="section-label">Projects</div>
-				<nav className="projects">
-					{projects.map((item) => (
-						<button
-							type="button"
-							key={item.id}
-							className={item.id === projectId ? 'selected' : ''}
-							onClick={() => {
-								setProjectId(item.id)
-								setSessionId('')
-							}}
-							title={item.path}
-						>
-							<Icon name="folder" />
-							<span>{item.name}</span>
-							<span className={`connection-dot ${item.status}`} />
-						</button>
-					))}
-				</nav>
-				<div className="section-heading">
-					<span className="section-label">Conversations</span>
-					<button
-						type="button"
-						className="icon-button"
-						aria-label="New conversation"
-						disabled={!project?.trusted || project.status !== 'ready'}
-						onClick={() => void act(newConversation)}
-					>
-						<Icon name="plus" />
-					</button>
-				</div>
-				<nav className="conversations">
-					{conversations
-						.filter((item) => item.projectId === projectId)
-						.map((item) => (
-							<button
-								type="button"
-								key={item.id}
-								className={item.id === sessionId ? 'selected' : ''}
-								onClick={() => void act(() => openConversation(item))}
-							>
-								<span>{item.title}</span>
-								{threads[item.id]?.running && <span className="activity" aria-label="Working" />}
-							</button>
-						))}
-				</nav>
-				<div className="sidebar-footer">
-					Your projects. Your conversations.
-					<span>Stored by Namzu on this device.</span>
-				</div>
-			</aside>
-			<main className="workspace">
+			<Sidebar
+				projects={projects}
+				conversations={conversations}
+				projectId={projectId}
+				sessionId={sessionId}
+				threads={threads}
+				open={sideOpen}
+				opening={loading}
+				appearance={appearance}
+				onAppearance={() =>
+					setAppearance((value) =>
+						value === 'system' ? 'dark' : value === 'dark' ? 'light' : 'system',
+					)
+				}
+				onClose={() => setSideOpen(false)}
+				onOpenProject={() => void act(openProject)}
+				onNewConversation={() => void act(newConversation)}
+				onProject={(id) => {
+					setProjectId(id)
+					setSessionId('')
+				}}
+				onConversation={(view) => void act(() => openConversation(view))}
+			/>
+			<main className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}>
 				<header className="topbar">
-					<button
+					<Button
 						type="button"
+						variant="ghost-muted"
+						size="icon-sm"
 						className="icon-button mobile-menu"
 						aria-label="Toggle sidebar"
+						aria-expanded={sideOpen}
+						aria-controls="namzu-sidebar"
 						onClick={() => setSideOpen(!sideOpen)}
 					>
 						<Icon name="menu" />
-					</button>
+					</Button>
 					<div className="breadcrumb">
 						<span>{project?.name ?? 'Workspace'}</span>
 						<span className="divider">/</span>
 						<strong>{conversation?.title ?? 'Start a conversation'}</strong>
 					</div>
-					<button
+					<Button
 						type="button"
+						variant="ghost-muted"
+						size="sm"
 						className="jobs-button"
 						onClick={() => setJobsOpen(!jobsOpen)}
 						disabled={!sessionId}
 					>
-						Background work
+						<TerminalIcon aria-hidden="true" className="size-4" />
+						<span className="jobs-button-label">Background work</span>
 						{jobs.some((job) => job.status === 'running') && (
 							<span>{jobs.filter((job) => job.status === 'running').length}</span>
 						)}
-					</button>
+					</Button>
 				</header>
 				{(error || project?.error) && (
-					<div role="alert" className="error-banner">
-						<span>{error || project?.error}</span>
-						{project?.status === 'error' ? (
-							<button
-								type="button"
-								onClick={() =>
-									void act(async () => updateProject(await api.reconnectProject(project.id)))
-								}
-							>
-								Reconnect
-							</button>
-						) : (
-							<button
-								type="button"
-								className="icon-button"
-								aria-label="Dismiss error"
-								onClick={() => setError('')}
-							>
-								<Icon name="close" />
-							</button>
-						)}
+					<div className="connection-error">
+						<ChatErrorBanner
+							message={error || project?.error || ''}
+							onRetry={
+								project?.status === 'error'
+									? () =>
+											void act(async () => updateProject(await api.reconnectProject(project.id)))
+									: undefined
+							}
+							onDismiss={project?.status !== 'error' ? () => setError('') : undefined}
+						/>
 					</div>
 				)}
 				{!project ? (
-					<section className="welcome">
-						<div className="welcome-mark">N</div>
-						<p className="eyebrow">A place to work with your agent</p>
-						<h1>What are we building?</h1>
+					<Empty size="hero" className="welcome">
+						<Wordmark hero />
+
+						<h1>What would you like to work on?</h1>
 						<p>
 							Open a project to pick up where you left off,
 							<br />
 							or start a new conversation.
 						</p>
-						<button
+						<Button
 							type="button"
 							className="primary"
+							size="default"
 							onClick={() => void act(openProject)}
 							disabled={loading}
 						>
 							<Icon name="folder" />
 							Open a project
-						</button>
-						<p className="quiet">Uses the same providers and conversations as Namzu.</p>
-					</section>
+						</Button>
+						<p className="quiet">Choose a folder to get started.</p>
+					</Empty>
 				) : !project.trusted ? (
-					<section className="welcome">
+					<Empty size="hero" className="welcome">
 						<h1>Make this your workspace</h1>
 						<p className="project-path">{project.path}</p>
 						<p>
@@ -435,27 +399,33 @@ function App() {
 							<br />
 							Review the folder before allowing access.
 						</p>
-						<button
+						<Button
 							type="button"
 							className="primary"
+							size="default"
 							disabled={project.status !== 'ready'}
 							onClick={() =>
 								void act(async () => updateProject(await api.trustProject(project.id)))
 							}
 						>
 							Review folder access
-						</button>
-					</section>
+						</Button>
+					</Empty>
 				) : !sessionId ? (
-					<section className="welcome">
+					<Empty size="hero" className="welcome">
 						<p className="eyebrow">{project.name}</p>
-						<h1>Ready when you are.</h1>
+						<h1>Start something new</h1>
 						<p>Choose a conversation, or give Namzu something new to work on.</p>
-						<button type="button" className="primary" onClick={() => void act(newConversation)}>
+						<Button
+							type="button"
+							className="primary"
+							size="default"
+							onClick={() => void act(newConversation)}
+						>
 							<Icon name="plus" />
 							New conversation
-						</button>
-					</section>
+						</Button>
+					</Empty>
 				) : (
 					<>
 						<div
@@ -479,16 +449,18 @@ function App() {
 								)}
 								{thread.messages.length === 0 && (
 									<div className="thread-empty">
-										<p className="eyebrow">New conversation</p>
-										<h2>Give it a starting point.</h2>
+										<h2>What would you like to do?</h2>
 										<p>Ask a question, describe a change, or share what is getting in your way.</p>
 									</div>
 								)}
 								{thread.messages.map((message, index) => (
-									<article className={`message ${message.role}`} key={`${index}-${message.role}`}>
-										<div className="message-label">{message.role === 'user' ? 'You' : 'Namzu'}</div>
-										<div className="message-text">{message.text}</div>
-									</article>
+									<Message
+										from={message.role}
+										className={`message ${message.role}`}
+										key={`${index}-${message.role}`}
+									>
+										<MessageContent text={message.text} markdown={message.role === 'assistant'} />
+									</Message>
 								))}
 								{thread.reasoning && (
 									<details className="reasoning">
@@ -499,13 +471,16 @@ function App() {
 								{Object.values(thread.tools).length > 0 && (
 									<div className="tool-list">
 										{Object.values(thread.tools).map((tool) => (
-											<details className={`tool ${tool.status}`} key={tool.toolCallId}>
+											<details
+												className={`tool ${tool.status} ${thread.activeToolIds.includes(tool.toolCallId) ? 'active' : ''}`}
+												key={tool.toolCallId}
+											>
 												<summary>
 													<span className="tool-dot" />
 													<span>{tool.view.kind === 'generic' ? tool.view.label : tool.title}</span>
 													<span className="tool-status">
 														{tool.status === 'pending'
-															? thread.running
+															? thread.activeToolIds.includes(tool.toolCallId)
 																? 'Working'
 																: 'Interrupted'
 															: tool.status === 'failed'
@@ -540,19 +515,20 @@ function App() {
 											</div>
 										))}
 										<div className="approval-actions">
-											<button
+											<Button
 												type="button"
 												onClick={() => void act(() => api.approve(sessionId, permission.id, false))}
 											>
 												Decline
-											</button>
-											<button
+											</Button>
+											<Button
 												type="button"
 												className="primary"
+												size="default"
 												onClick={() => void act(() => api.approve(sessionId, permission.id, true))}
 											>
 												Allow once
-											</button>
+											</Button>
 										</div>
 									</section>
 								))}
@@ -580,199 +556,96 @@ function App() {
 								)}
 							</div>
 						</div>
-						<div className="composer-wrap">
-							{thread.queued.length > 0 && (
-								<div className="queue">
-									<span>
-										{thread.queued.length} queued · {thread.queued[0]?.slice(0, 100)}
-									</span>
-									<button
+						<Composer
+							inputRef={input}
+							draft={draft}
+							onDraftChange={(value) => setDrafts((all) => ({ ...all, [sessionId]: value }))}
+							providers={providers}
+							choice={choice}
+							onChoiceChange={(value) => setChoices((all) => ({ ...all, [sessionId]: value }))}
+							running={thread.running}
+							sending={sending[sessionId] ?? false}
+							queued={thread.queued}
+							onSend={() => void act(send)}
+							onStop={() => void act(() => api.cancel(sessionId))}
+							onEditQueued={() =>
+								void act(async () => {
+									const message = await api.takeQueued(sessionId)
+									if (message) setDrafts((all) => ({ ...all, [sessionId]: message }))
+								})
+							}
+						/>
+					</>
+				)}
+				<aside
+					className="jobs-panel"
+					data-open={jobsOpen}
+					inert={!jobsOpen}
+					aria-hidden={!jobsOpen}
+					aria-label="Background work"
+				>
+					<div className="section-heading">
+						<h2>Background work</h2>
+						<Button
+							type="button"
+							variant="ghost-muted"
+							size="icon-sm"
+							className="icon-button"
+							aria-label="Close background work"
+							onClick={() => setJobsOpen(false)}
+						>
+							<Icon name="close" />
+						</Button>
+					</div>
+					{jobsError ? (
+						<p role="alert" className="jobs-error">
+							{jobsError}
+						</p>
+					) : jobsLoading ? (
+						<p className="quiet">Loading background work…</p>
+					) : jobs.length === 0 ? (
+						<p className="quiet">No background shells in this conversation.</p>
+					) : (
+						jobs.map((job) => (
+							<div className="job" key={job.id}>
+								<strong>{job.status}</strong>
+								<code>{job.command}</code>
+								<div>
+									<Button
 										type="button"
 										onClick={() =>
 											void act(async () => {
-												const message = await api.takeQueued(sessionId)
-												if (message)
-													setDrafts((all) => ({
-														...all,
-														[sessionId]: message,
-													}))
+												const output = await api.readJob(sessionId, job.id)
+												setJobOutput(
+													`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
+												)
 											})
 										}
 									>
-										Edit latest
-									</button>
-								</div>
-							)}
-							<div className="composer">
-								<textarea
-									aria-label="Message Namzu"
-									ref={input}
-									value={draft}
-									maxLength={50000}
-									placeholder="Ask Namzu to work on something…"
-									onChange={(event) =>
-										setDrafts((all) => ({
-											...all,
-											[sessionId]: event.target.value,
-										}))
-									}
-									onKeyDown={(event) => {
-										if (
-											event.key === 'Enter' &&
-											!event.shiftKey &&
-											!event.nativeEvent.isComposing
-										) {
-											event.preventDefault()
-											void act(send)
-										}
-									}}
-								/>
-								<div className="composer-toolbar">
-									<div className="model-controls">
-										<select
-											aria-label="Provider"
-											value={choice.provider}
-											disabled={thread.running}
-											onChange={(event) =>
-												setChoices((all) => ({
-													...all,
-													[sessionId]: {
-														provider: event.target.value,
-														model: '',
-													},
-												}))
-											}
-										>
-											{providers.available.map((item) => (
-												<option key={item.id} value={item.id}>
-													{item.label}
-												</option>
-											))}
-										</select>
-										<input
-											aria-label="Model"
-											value={choice.model}
-											placeholder={
-												providers.available.find((item) => item.id === choice.provider)
-													?.defaultModel ?? 'Default model'
-											}
-											disabled={thread.running}
-											onChange={(event) =>
-												setChoices((all) => ({
-													...all,
-													[sessionId]: { ...choice, model: event.target.value },
-												}))
-											}
-										/>
-										<button
+										View output
+									</Button>
+									{job.status === 'running' && (
+										<Button
 											type="button"
-											className="model-apply"
-											disabled={thread.running || !choice.provider}
-											onClick={() =>
-												void act(() => api.selectProvider(sessionId, choice.provider, choice.model))
-											}
+											onClick={() => void act(() => api.stopJob(sessionId, job.id))}
 										>
-											Use model
-										</button>
-									</div>
-									<div className="send-controls">
-										{thread.running && (
-											<button
-												type="button"
-												className="icon-button stop-button"
-												aria-label="Stop turn"
-												onClick={() => void act(() => api.cancel(sessionId))}
-											>
-												<Icon name="stop" />
-											</button>
-										)}
-										<button
-											type="button"
-											className="send-button"
-											aria-label={thread.running ? 'Queue message' : 'Send message'}
-											disabled={!draft.trim() || !choice.provider || sending[sessionId]}
-											onClick={() => void act(send)}
-										>
-											{thread.running ? 'Queue' : <Icon name="arrow" />}
-										</button>
-									</div>
+											Stop
+										</Button>
+									)}
 								</div>
 							</div>
-							<div className="composer-hint">
-								<span>
-									{thread.running
-										? 'Messages wait for the next turn'
-										: 'Enter to send · Shift + Enter for a new line'}
-								</span>
-								<span>Namzu can make mistakes. Review its work.</span>
-							</div>
-							{providers.available.length === 0 && (
-								<p className="notice">Set up a provider in Namzu, then reopen this project.</p>
-							)}
-						</div>
-					</>
-				)}
-				{jobsOpen && (
-					<aside className="jobs-panel" aria-label="Background work">
-						<div className="section-heading">
-							<h2>Background work</h2>
-							<button
-								type="button"
-								className="icon-button"
-								aria-label="Close background work"
-								onClick={() => setJobsOpen(false)}
-							>
-								<Icon name="close" />
-							</button>
-						</div>
-						{jobsError ? (
-							<p role="alert" className="jobs-error">
-								{jobsError}
-							</p>
-						) : jobsLoading ? (
-							<p className="quiet">Loading background work…</p>
-						) : jobs.length === 0 ? (
-							<p className="quiet">No background shells in this conversation.</p>
-						) : (
-							jobs.map((job) => (
-								<div className="job" key={job.id}>
-									<strong>{job.status}</strong>
-									<code>{job.command}</code>
-									<div>
-										<button
-											type="button"
-											onClick={() =>
-												void act(async () => {
-													const output = await api.readJob(sessionId, job.id)
-													setJobOutput(
-														`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
-													)
-												})
-											}
-										>
-											View output
-										</button>
-										{job.status === 'running' && (
-											<button
-												type="button"
-												onClick={() => void act(() => api.stopJob(sessionId, job.id))}
-											>
-												Stop
-											</button>
-										)}
-									</div>
-								</div>
-							))
-						)}
-						{jobOutput && <pre className="job-output">{jobOutput}</pre>}
-					</aside>
-				)}
+						))
+					)}
+					{jobOutput && <pre className="job-output">{jobOutput}</pre>}
+				</aside>
 			</main>
 		</div>
 	)
 }
 createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>
-		<App />
+		<TooltipProvider delay={250}>
+			<App />
+		</TooltipProvider>
 	</React.StrictMode>,
 )

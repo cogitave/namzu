@@ -1,5 +1,11 @@
 # Documentation update log
 
+## 2026-10-01
+
+- **Update** Skill-save confirmation regression checks read the suggested destination label across terminal line wraps with long home paths.
+
+- **Update** Desktop preview uses shared interface primitives, CLI wordmark and phosphor accents, dark/light appearance, reduced-motion-aware transitions, compact project navigation, a composer model menu and safe formatted assistant replies; native checks cover keyboard menus, persisted appearance and narrow windows.
+
 ## 2026-09-30
 
 - **Creation** [Desktop application](cli/desktop.md) and [Agent client protocol](sdk/agent-client-protocol.md): introduce a private native operator preview over the existing CLI runtime, explicitly opt into scoped operator methods, and connect durable ACP history loading with project/tenant ownership and archived-writer checks. `.changeset/desktop-host-and-acp-load.md`, **minor** for `@namzu/sdk` and `@namzu/cli`.

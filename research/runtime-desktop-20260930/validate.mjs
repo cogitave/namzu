@@ -41,8 +41,11 @@ const publishable = JSON.parse(workspace.stdout).filter((row) => row.name && row
 if (!publishable.length) throw new Error('No publishable packages found.')
 for (const row of publishable) gates.push([`publint-${relative(repo, row.path).replaceAll('/', '-')}`, ['npx', '-y', 'publint@latest', relative(repo, row.path)]])
 const receipt = []
+const from = process.env.NAMZU_VALIDATION_FROM
+const start = from ? gates.findIndex(([name]) => name === from) : 0
+if (start < 0) throw new Error(`Unknown validation stage: ${from}`)
 console.log(JSON.stringify({ logs, gates: gates.length }))
-for (const [name, command] of gates.filter(([name]) => !process.env.NAMZU_VALIDATION_ONLY || name.startsWith(process.env.NAMZU_VALIDATION_ONLY))) {
+for (const [name, command] of gates.slice(start).filter(([name]) => !process.env.NAMZU_VALIDATION_ONLY || name.startsWith(process.env.NAMZU_VALIDATION_ONLY))) {
  const argv = Array.isArray(command) ? [...command] : command.split(' ')
  if (name === 'installer-dash') argv[0] = process.env.NAMZU_DASH ?? 'dash'
  const result = spawnSync(argv[0], argv.slice(1), { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })

@@ -99,10 +99,10 @@ describe('the save-skill screen', () => {
 		expect(frame).not.toContain('\u200b')
 		expect(frame).toContain('│     indented line kept')
 		expect(frame).toContain('./.namzu/skills/skill-creator/SKILL.md')
-		expect(frame).toContain('(suggested)')
 		// The user save shadows the built-in skill of the same name.
-		// A long path wraps inside the box; read it with the rows joined.
+		// A long path or its suggested marker wraps inside the box; join its rows.
 		const flat = frame.replace(/[│\s]/g, '')
+		expect(flat).toContain('(suggested)')
 		expect(flat).toMatch(/replacesbuilt-inskill\S*packages\/cli\/skills\/skill-creator\/SKILL\.md/)
 		expect(frame).toContain('Warning  The skill contains invisible or direction-changing characters.')
 		expect(frame).toContain('Save to user')

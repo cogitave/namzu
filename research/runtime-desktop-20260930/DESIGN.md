@@ -9,9 +9,17 @@ Sources were cloned, read locally and not installed or executed:
 | `pingdotgg/t3code` | `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21` | MIT |
 | `zai-org/ZCode` | `29628c9acdb81b703bbd4080c207a0e7ce5e276e` | Apache-2.0 |
 
-The app implementation is original. No peer assets or implementation files are
-copied into Namzu. These references informed behaviors and boundaries, not a
-new agent framework or an assertion of matching every feature.
+The main-process/runtime implementation remains Namzu's existing host work.
+After the user's review, the renderer now adapts actual source components:
+T3 Code supplies the main visual language, primitive controls, sidebar rows,
+composer surface and default semantic palettes. ZCode supplies compatible
+message, error-frame and workspace-section components. Only stateless UI is
+ported; peer agent loops/stores/accounts are not installed. Brand identifiers
+and integration-specific theme selectors do not appear in production source.
+Full source revisions, modifications and mandatory copyright/license text are
+retained separately in `packages/desktop/THIRD-PARTY-NOTICES.txt` and `licenses/`.
+These records are included in build output. No peer logo or other image asset is
+used by the app.
 
 ## What to use, and why
 
@@ -53,11 +61,42 @@ Core ACP methods remain available without these extensions. Client initializatio
 advertises the installed extension names; unsupported installed CLI versions
 produce an update instruction instead of a fake working screen.
 
-The initial renderer presents plain text safely, tool views, tool approval,
-reasoning, queues and shell output. Rich Markdown, attachments, browser previews,
+The renderer presents literal user text and safe assistant Markdown, tool views, tool approval,
+reasoning, queues and shell output. Attachments, browser previews,
 terminal emulation, remote hosts and native release packaging need separate
 scoped implementations and validation. They are not silently advertised here.
 
 Only project paths are stored in the app's own preferences. Conversation history
 remains in Namzu's existing logs. Drafts/queues are currently connection-local;
 closing the app is an explicit end of its owned runtime processes.
+
+## Visual revision after operator review
+
+- Keep the main reference geometry and neutral surfaces, then apply the user’s
+  Namzu identity: the exact CLI two-row ASCII wordmark, dark canvas `#0b0f0c`,
+  sidebar `#080b09` and phosphor `#5fff5f` (the CLI ANSI 83 cube colour).
+  A dark green `#176b29` provides readable actions on light surfaces.
+  Default dark appearance can switch to light or system in the sidebar footer;
+  the choice is stored locally and remains through reload.
+- Preserve compact desktop geometry: 256px sidebar, 52px topbar, 16px root for
+  reference rem geometry and a separate readable 14px conversation type size.
+  The imported composer surface uses its 22px corners and glass outline.
+- Replace exposed provider/model/apply controls with one composer model trigger
+  and the imported keyboard-aware popover/select/input primitives. Display the
+  actual chosen model; apply it before the next idle send.
+- Group conversations by project; filter their loaded titles with real search.
+  Hide the sidebar with CSS visibility at narrow widths so its controls are not
+  keyboard targets behind the overlay. The Projects section truly collapses.
+- At wide widths background work occupies its own side column; narrow widths
+  retain a dismissible overlay. No placeholder navigation or unimplemented tool
+  buttons are shown.
+- Treat peer source/CSS and its checked-in marketing capture as visual evidence.
+  No peer application was installed or executed; do not claim pixel parity with
+  all of its screens. `UI-AUDIT.md` records actual local DOM/style measurements
+  and the native interaction checks performed under comparable geometry.
+
+- Motion uses short eased panel travel (220ms), 160ms menu fades, 220ms
+  arrivals and the adapted 2.2s active-tool highlight. Reduced-motion disables
+  animation and transitions; closed panels are inert immediately. Native tests
+  observe the DOM state mutation and advance animation time explicitly, so
+  the assertion cannot race a slow host.

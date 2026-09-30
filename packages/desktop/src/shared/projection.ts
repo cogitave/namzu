@@ -6,6 +6,7 @@ export interface ThreadState {
 	queued: string[]
 	error?: string
 	tools: Record<string, Extract<AcpSessionUpdate, { kind: 'tool_call' }>>
+	activeToolIds: string[]
 	permissions: PermissionView[]
 	reasoning: string
 	partial?: boolean
@@ -16,6 +17,7 @@ export const emptyThread = (): ThreadState => ({
 	running: false,
 	queued: [],
 	tools: {},
+	activeToolIds: [],
 	permissions: [],
 	reasoning: '',
 })
@@ -27,11 +29,13 @@ export function applyEvent(thread: ThreadState, event: DesktopEvent): ThreadStat
 			error: undefined,
 			stopReason: undefined,
 			reasoning: '',
+			activeToolIds: [],
 		}
 	if (event.kind === 'state')
 		return {
 			...thread,
 			running: event.running,
+			activeToolIds: event.running ? thread.activeToolIds : [],
 			queued: event.queued,
 			...(event.error ? { error: event.error } : {}),
 		}
@@ -62,11 +66,14 @@ export function applyEvent(thread: ThreadState, event: DesktopEvent): ThreadStat
 	if (update.kind === 'tool_call') {
 		const prior = thread.tools[update.toolCallId]
 		const tool = update.progress && prior ? { ...update, view: prior.view } : update
-		return { ...thread, tools: { ...thread.tools, [update.toolCallId]: tool } }
+		const activeToolIds = thread.activeToolIds.filter((id) => id !== update.toolCallId)
+		if (thread.running && update.status === 'pending') activeToolIds.push(update.toolCallId)
+		return { ...thread, activeToolIds, tools: { ...thread.tools, [update.toolCallId]: tool } }
 	}
 	return {
 		...thread,
 		stopReason: update.stopReason,
+		activeToolIds: [],
 		...(update.error ? { error: update.error } : {}),
 	}
 }

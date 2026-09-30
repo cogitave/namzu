@@ -1,0 +1,417 @@
+{
+  "scope": "48 repository gates for the revised native preview; the stopped dash stage was rerun with the previously installed executable, followed by every remaining stage.",
+  "results": [
+    {
+      "name": "lint",
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "workflow-tests",
+      "command": "node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "workflow-parity",
+      "command": "node .github/scripts/check-workflow-gate-parity.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "project-references",
+      "command": "node .github/scripts/check-project-references.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "typecheck",
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "build",
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "tests",
+      "command": "pnpm -r test",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "process-tests",
+      "command": "pnpm --filter @namzu/sdk test:proc",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "external-name-tests",
+      "command": "node --import tsx --test scripts/__tests__/audit-external-names.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "external-names",
+      "command": "node scripts/audit-external-names.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "log-tests",
+      "command": "node --import tsx --test scripts/__tests__/check-log-standard.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "log-standard",
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "local-entries",
+      "command": "node --import tsx --test scripts/__tests__/check-local-entry.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "model-prices",
+      "command": "node scripts/generate-model-prices.mjs --check",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "zen-generator",
+      "command": "node --import tsx --test scripts/__tests__/generate-zen-models.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "installer-sh",
+      "command": "sh -n install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "installer-dash",
+      "command": "dash -n install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "evals",
+      "command": "node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "coverage",
+      "command": "pnpm --filter @namzu/sdk test:coverage",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "coverage-floor",
+      "command": "node .github/scripts/check-sdk-module-coverage.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "test-presence",
+      "command": "node .github/scripts/check-sdk-test-presence.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publish-metadata",
+      "command": "node .github/scripts/check-publish-metadata.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "consumer-snapshot-test",
+      "command": "node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "consumer-install",
+      "command": "bash .github/scripts/verify-consumer-install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "signature-types",
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "docs-okf",
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "docs-fences",
+      "command": "node tools/check-doc-fences.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-ag-ui",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/ag-ui"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-browser",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/browser"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-cli",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/cli"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-computer-use",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/computer-use"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-evals",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/evals"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-files",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/files"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-live",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/live"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-lsp",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/lsp"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-anthropic",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/anthropic"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-bedrock",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/bedrock"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-deepseek",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/deepseek"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-google",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/google"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-http",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/http"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-lmstudio",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/lmstudio"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-ollama",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/ollama"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-openai",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openai"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-openrouter",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openrouter"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-zen",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/zen"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-sandbox",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sandbox"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-sdk",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sdk"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-telemetry",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/telemetry"
+      ],
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "resumption": {
+    "stage": "installer-dash",
+    "reason": "dash was absent from PATH",
+    "executable": "/tmp/namzu-dash-root/usr/bin/dash",
+    "stoppedResult": {
+      "name": "installer-dash",
+      "command": "dash -n install.sh",
+      "exitCode": null,
+      "signal": null
+    }
+  },
+  "finalUiChecks": {
+    "desktopUnitTests": 13,
+    "nativeFlow": "passed; real Electron, CLI and kernel, scripted model I/O",
+    "rootTypecheck": "rechecked after current-turn activity change",
+    "rootLint": "rechecked after current-turn activity change",
+    "desktopBuild": "rechecked after current-turn activity change"
+  },
+  "temporaryVersionsRestored": true
+}

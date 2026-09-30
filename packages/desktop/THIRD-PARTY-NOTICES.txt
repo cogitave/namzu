@@ -1,0 +1,46 @@
+Third-party UI source notices
+
+The desktop shell is Namzu. The following source code was adapted and is
+redistributed under its original license; these records identify provenance,
+not a dependency on either application's runtime or an endorsement.
+
+1. T3 Code — MIT
+Copyright (c) 2026 T3 Tools Inc.
+Source: https://github.com/pingdotgg/t3code
+Revision: c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21
+Original files:
+ apps/web/src/components/ui/{button,input,textarea,popover,select,tooltip,empty,collapsible,sidebar}.tsx
+ apps/web/src/components/chat/ComposerSurface.tsx
+ packages/shared/src/themePalettes.ts
+ apps/web/src/index.css (compact geometry tokens and active-tool highlight)
+Local files: src/renderer/ui/*, composer-surface.tsx and theme.css.
+Changes: relative imports and formatting; extracted stateless sidebar primitives;
+removed peer-specific theme selectors/store/resize integration; selected the
+normal light/dark palette and exported its semantic tokens to local CSS;
+changed canvas/sidebar and action accents to the Namzu CLI palette; adapted the
+active-tool shine animation with local tokens and reduced-motion support.
+Full license: licenses/ui-primitives-MIT.txt
+
+2. ZCode — Apache-2.0
+Copyright 2026 Z.AI Co., Ltd
+Source: https://github.com/zai-org/ZCode
+Revision: 29628c9acdb81b703bbd4080c207a0e7ce5e276e
+Original files:
+ packages/ui/src/components/ai-elements/message.tsx
+ packages/ui/src/ChatErrorBanner.tsx
+ packages/ui/src/WorkspaceSidebar/WorkspacePurposeSection.tsx
+Local files: src/renderer/{message,chat-error-banner,workspace-section}.tsx.
+Changes: extracted Message/MessageContent with local role/class types; error
+frame uses Namzu error/actions and retains full readable text; workspace group
+uses Base UI collapse without sortable/peer stores. Original attribution follows:
+
+Derived from vercel/ai-elements (packages/elements/src/message.tsx).
+Copyright 2023 Vercel, Inc. Licensed under Apache-2.0.
+Modified by ZCode: local integration, formatting and adaptations.
+
+Full license: licenses/ui-layout-Apache-2.0.txt
+Original upstream NOTICE: licenses/ui-layout-NOTICE.txt
+
+Icons are supplied by lucide-react (ISC); other installed runtime packages
+retain their package-level licenses. No peer logos, provider logos, fonts or
+other image assets were copied.
