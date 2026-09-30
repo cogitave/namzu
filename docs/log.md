@@ -2,6 +2,9 @@
 
 ## 2026-09-30
 
+- **Update** [Tool execution](sdk/tool-execution.md#repeat-call-advisory): compare real failure fingerprints, allow a new check after an executed successful possible mutation, and keep denied/failed repairs and unrelated reads from resetting refusal. Advice no longer predicts future results. `.changeset/repeat-failure-results-and-repair.md`, **patch** for `@namzu/sdk`.
+- **Update** [Session task context](cli/task-context.md): task projections use request-only user runtime context on ordinary sends, actual compaction and checkpoint resume. Static system policy is unchanged. `.changeset/task-snapshot-request-role.md`, **major** for `@namzu/cli` because the default model-request role changes.
+
 - **Update** [CLI peer audit](cli/competitive-gaps.md#working-behavior-review-2026-09-30): compare five fresh source snapshots and archive scripted query probes for retry after repair, task-message authority and Markdown memory read cost. Record ordered root corrections and acceptance criteria for retrieval, plugin reload, MCP repair and long-task recovery; these are research findings, not shipped fixes.
 - **Update** [Scheduled tasks](cli/scheduled-tasks.md), [Session storage](cli/session-storage.md), [Session loops](cli/session-loops.md) and [SDK schedules](sdk/schedules.md): a confirmed pure script can use a private no-project workspace, an opt-in JSON report distinguishes quiet checks from changes with scheduler-owned state, and noteworthy scheduled results return to the exact source conversation as durable host notices without becoming model turns. Source notices are paged in publication order; an operator can review and waive exact pending results when detaching a lost source. `.changeset/schedule-source-ownership.md`, **major** for `@namzu/cli` because new interactive proposals default to source delivery (use `schedule edit <job> --delivery none` to detach), **minor** for `@namzu/sdk`.
 

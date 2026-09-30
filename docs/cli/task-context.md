@@ -12,7 +12,7 @@ generated: { by: human:bahadirarda, at: 2026-09-09T00:00:00Z }
 
 Interactive sends and checkpoint resumes read the same task store used by
 `task_create`, `task_update` and `task_list` before each model request. They
-append a small snapshot of unfinished tasks to the prepared system context,
+append a small snapshot of unfinished tasks to request-only runtime context,
 without writing reminder messages into conversation history or making another
 model call. This lets a session retain its explicit plan when earlier task-tool
 results are no longer in the visible history.
@@ -45,7 +45,10 @@ The added block is at most 2,400 UTF-16 code units, further limited to the
 integer remaining-token estimate treated conservatively as a character
 allowance. This is not an exact tokenizer measurement. Below 700 estimated
 remaining tokens the projection is skipped. Empty and completed plans add
-nothing. Existing prepared system context is preserved.
+nothing. Existing request context is preserved. The snapshot reaches the provider
+as a user message with `runtime-context` / `step-context` provenance, after static
+host policy. Agent-authored task descriptions never acquire the system role.
+The host policy and durable conversation are unchanged.
 
 Each store read gets 250 ms of caller waiting time. A failed or timed-out
 prepare step follows the kernel's existing diagnostic/fail-open handling.

@@ -61,20 +61,48 @@ function tools(outcomes: readonly boolean[], executions: string[]): Toolset {
 				n += 1
 				return ok
 					? { success: true, output: 'a picture' }
-					: { success: false, output: '', error: 'no interactive desktop session' }
+					: {
+							success: false,
+							output: '',
+							error: 'no interactive desktop session',
+						}
 			},
 		}),
 	)
 }
 
-async function run(turns: readonly MockTurn[], outcomes: readonly boolean[]) {
+async function run(
+	turns: readonly MockTurn[],
+	outcomes: readonly boolean[],
+	supplied?: Toolset,
+	denyRepair = false,
+) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-refuse-'))
 	dirs.push(workingDirectory)
 	const executions: string[] = []
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-		toolsets: [tools(outcomes, executions)],
-		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 12 },
+		toolsets: [supplied ?? tools(outcomes, executions)],
+		turnConfig: {
+			model: 'mock',
+			timeoutMs: 20_000,
+			tokenBudget: 200_000,
+			maxIterations: 12,
+		},
+		...(denyRepair
+			? {
+					authorizationGate: {
+						enabled: true,
+						rules: [
+							{ type: 'deny_by_name' as const, toolNames: ['intervene'] },
+							{ type: 'allow_by_name' as const, toolNames: ['screenshot'] },
+						],
+						allowReadOnlyTools: false,
+						denyDangerousPatterns: false,
+						logDecisions: false,
+					},
+				}
+			: {}),
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -105,7 +133,7 @@ describe('a call failing the same way is refused', () => {
 		expect(results[3]).toContain('no interactive desktop session')
 		expect(results[4]).toContain('Refused: `screenshot`')
 		expect(results[4]).toContain('failed 4 times in a row')
-		expect(results[5]).toContain('failed 5 times in a row')
+		expect(results[5]).toContain('failed 4 times in a row')
 	})
 
 	it('never refuses a poll that fails and then succeeds', async () => {
@@ -127,4 +155,95 @@ describe('a call failing the same way is refused', () => {
 		tracker.record('y', { a: 1 }, { failed: false })
 		expect(tracker.refusal('y', { a: 1 })).toBeUndefined()
 	})
+})
+
+for (const intervening of ['repair', 'read', 'failed-repair', 'denied-repair'] as const) {
+	it(`allows a new check only after an executed successful mutation: ${intervening}`, async () => {
+		const executions: string[] = []
+		let repaired = false
+		const ts = testToolset(
+			defineTool({
+				name: 'screenshot',
+				description: 'Check actual state',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () => {
+					executions.push('check')
+					return repaired
+						? { success: true, output: 'repaired' }
+						: { success: false, output: '', error: 'broken' }
+				},
+			}),
+			defineTool({
+				name: 'intervene',
+				description: 'Possible repair',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: intervening === 'read',
+				destructive: false,
+				concurrencySafe: false,
+				execute: async () => {
+					executions.push('intervene')
+					if (intervening === 'repair') repaired = true
+					return intervening === 'failed-repair'
+						? { success: false, output: '', error: 'repair failed' }
+						: { success: true, output: 'receipt' }
+				},
+			}),
+		)
+		const { messages } = await run(
+			[
+				...['c1', 'c2', 'c3', 'c4'].map((id) => call({}, id)),
+				{
+					toolCalls: [{ id: 'intervene', name: 'intervene', args: {} }],
+					finishReason: 'tool_calls',
+				},
+				call({}, 'after-repair'),
+			],
+			[],
+			ts,
+			intervening === 'denied-repair',
+		)
+		expect(executions.filter((name) => name === 'check')).toHaveLength(
+			intervening === 'repair' ? 5 : 4,
+		)
+		expect(executions.filter((name) => name === 'intervene')).toHaveLength(
+			intervening === 'denied-repair' ? 0 : 1,
+		)
+		expect(toolText(messages).at(-1)).toContain(intervening === 'repair' ? 'repaired' : 'Refused:')
+	})
+}
+
+it('does not report different real failures as identical results', async () => {
+	let executed = 0
+	const ts = testToolset(
+		defineTool({
+			name: 'screenshot',
+			description: 'Different failures',
+			inputSchema: z.object({}),
+			category: 'analysis',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			execute: async () => ({
+				success: false,
+				output: '',
+				error: `different failure ${++executed}`,
+			}),
+		}),
+	)
+	const { messages } = await run(
+		['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].map((id) => call({}, id)),
+		[],
+		ts,
+	)
+	expect(executed).toBe(6)
+	expect(toolText(messages).join('\n')).not.toContain('same result')
+	expect(toolText(messages).join('\n')).not.toContain('Refused:')
 })

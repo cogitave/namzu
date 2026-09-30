@@ -21,7 +21,7 @@ development objective. Existing live jobs and unrelated worktrees are outside it
 
 ## Sequence and acceptance
 
-- [ ] **A — Runtime correctness.** Failure fingerprints and progress-aware retries;
+- [x] **A — Runtime correctness.** Failure fingerprints and progress-aware retries;
   real query regressions for repair/retry, differing errors, unchanged failure,
   unrelated read and denied mutation. Task snapshots use request-only context;
   actual provider-role tests cover ordinary send and compaction/resume boundaries.
@@ -65,3 +65,12 @@ development objective. Existing live jobs and unrelated worktrees are outside it
 - Goal created and worktree verified. Both desktop source repositories cloned.
 - Planning and implementation started on an isolated local branch in the existing
   authorized checkout. No external dependency setup ran in peer repositories.
+
+- Runtime corrections verified: 19 SDK query regressions and 22 CLI context/provider
+  tests pass; SDK/CLI typechecking, docs OKF, log and external-name gates pass.
+  The original probes now show user-role task context and successful check after
+  repair (`runtime-after.jsonl`). Full-tree gates will run after the desktop slice.
+- Native desktop will be an Electron client of `namzu acp`, with opt-in scoped
+  host extensions. The renderer receives typed UI actions, not arbitrary RPC.
+  Source review found the CLI ACP gateway currently lacks `load`; restore it with
+  project/tenant checks before offering conversation resume in the app.

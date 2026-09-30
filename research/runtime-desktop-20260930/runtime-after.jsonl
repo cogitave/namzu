@@ -1,0 +1,6 @@
+{"probe":"task-provider-role","requests":1,"markerRoles":[{"role":"user","source":{"type":"runtime-context","kind":"step-context"}}]}
+{"probe":"retry-after-progress","repaired":true,"executions":["check","check","check","check","repair","check"],"refusal":[]}
+{"probe":"markdown-search-io","files":10,"limit":1,"returned":1,"reads":10,"bytes":165157,"resultKeys":["entries","totalCount"]}
+{"probe":"markdown-search-io","files":100,"limit":1,"returned":1,"reads":100,"bytes":1651507,"resultKeys":["entries","totalCount"]}
+{"probe":"markdown-search-io","files":500,"limit":1,"returned":1,"reads":500,"bytes":8257507,"resultKeys":["entries","totalCount"]}
+{"fixture":"/tmp/namzu-workflow-probe-zqefqe","network":"No external provider or subprocess requested."}

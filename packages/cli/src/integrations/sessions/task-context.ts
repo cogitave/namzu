@@ -104,7 +104,9 @@ export function createTaskContextStep(
 				block = candidate
 			}
 			if (!rows.length) return undefined
-			return { system: [prepared.system, block].filter(Boolean).join('\n\n') }
+			return {
+				context: [prepared.context, block].filter(Boolean).join('\n\n'),
+			}
 		} finally {
 			clearTimeout(timer)
 			if (abort) signal?.removeEventListener('abort', abort)

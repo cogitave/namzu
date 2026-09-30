@@ -13,11 +13,13 @@ import { join } from 'node:path'
 import {
 	type ChatCompletionParams,
 	DiskMemoryStore,
+	DiskTaskStore,
 	MarkdownMemoryStore,
 	MockLLMProvider,
 	ProviderRegistry,
 	createAssistantMessage,
 	createUserMessage,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -68,7 +70,10 @@ beforeEach(async () => {
 			new MockLLMProvider({
 				responseText: 'Scripted response.',
 				onRequest: (params) =>
-					requests.push({ ...params, messages: structuredClone(params.messages) }),
+					requests.push({
+						...params,
+						messages: structuredClone(params.messages),
+					}),
 			}),
 	)
 })
@@ -107,7 +112,7 @@ async function makeSession(
 	})
 	sessions.push(session)
 	expect(session.hasProvider, session.errorHint ?? undefined).toBe(true)
-	return { session, state }
+	return { session, state, scope }
 }
 
 async function send(
@@ -154,7 +159,10 @@ it('injects scoped curated files, refreshes edits/deletion on the next send, and
 		expect(first.system).not.toContain(marker)
 	}
 	writeFileSync(path, `SYNTHETIC_UPDATED\n${'a'.repeat(8_100)}`)
-	const saved = appendMemoryWithStatus('SYNTHETIC_CLIPPED_NOTE', { scope: 'project', cwd })
+	const saved = appendMemoryWithStatus('SYNTHETIC_CLIPPED_NOTE', {
+		scope: 'project',
+		cwd,
+	})
 	expect(saved.includedInPrompt).toBe(false)
 	const updated = await send(session)
 	expect(updated.context).toContain('SYNTHETIC_UPDATED')
@@ -269,7 +277,10 @@ it('carries stored memory under its own heading, and copies project notes only w
 		name: 'the-staging-database-is-read',
 	})
 	expect((await send(session)).context).toContain('[the-staging-database-is-read]')
-	expect(await session.rememberNote?.(note)).toMatchObject({ saved: false, duplicate: true })
+	expect(await session.rememberNote?.(note)).toMatchObject({
+		saved: false,
+		duplicate: true,
+	})
 	expect(await session.rememberNote?.('prefers terse answers', 'user')).toMatchObject({
 		type: 'user',
 	})
@@ -349,17 +360,23 @@ it('keeps file and stored memory in request-only user context after actual compa
 	writeFileSync(join(appHome, 'USER.md'), fileMarker)
 	const scripted = new MockLLMProvider({
 		turns: [
-			{ error: { message: 'context_length_exceeded: force fixture compaction', status: 400 } },
+			{
+				error: {
+					message: 'context_length_exceeded: force fixture compaction',
+					status: 400,
+				},
+			},
 			{ text: 'Answered after compaction.' },
 		],
 		onRequest: (params) => requests.push({ ...params, messages: structuredClone(params.messages) }),
 	})
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
 	const sessionEvents: string[] = []
-	const { session, state } = await makeSession(false, cwd, {
+	const { session, state, scope } = await makeSession(false, cwd, {
 		compaction: { strategy: 'structured', contextWindowTokens: 64_000 },
 		onSessionEvent: (event) => sessionEvents.push(event.type),
 	})
+	await seedPlan(state, scope.sessionId, 'TASK_AFTER_COMPACTION')
 	await new MarkdownMemoryStore({ directory: state.paths.memoryDir() }).create({
 		title: 'Compaction memory',
 		summary: 'Stored index fixture',
@@ -387,6 +404,22 @@ it('keeps file and stored memory in request-only user context after actual compa
 
 	expect(events.some((event) => event.kind === 'error')).toBe(false)
 	expect(sessionEvents).toContain('compaction_completed')
+	for (const request of requests) {
+		expect(
+			request.messages
+				.filter((message) => message.role === 'system')
+				.map((message) => message.content)
+				.join('\n'),
+		).not.toContain('TASK_AFTER_COMPACTION')
+		expect(
+			request.messages.some(
+				(message) =>
+					message.role === 'user' &&
+					message.source?.type === 'runtime-context' &&
+					message.content.includes('TASK_AFTER_COMPACTION'),
+			),
+		).toBe(true)
+	}
 	expect(requests).toHaveLength(2)
 	expect(
 		requests[0]?.messages.some(
@@ -457,7 +490,9 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 				toolCalls: [
 					{
 						name: 'bash',
-						args: { command: "printf 'PROJECT_AFTER_TOOL_WRITE\\n' > .namzu/MEMORY.md" },
+						args: {
+							command: "printf 'PROJECT_AFTER_TOOL_WRITE\\n' > .namzu/MEMORY.md",
+						},
 					},
 				],
 			},
@@ -525,7 +560,7 @@ it('bounds file and index memory under a small, occupied context window', async 
 	writeFileSync(join(appHome, 'MEMORY.md'), `GLOBAL_START\n${'global line\n'.repeat(600)}`)
 	writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), `PROJECT_START\n${'project line\n'.repeat(600)}`)
 	const observed: { remaining: number; context: string }[] = []
-	const { session, state } = await makeSession(false, cwd, {
+	const { session, state, scope } = await makeSession(false, cwd, {
 		compaction: { contextWindowTokens: 18_000, strategy: 'structured' },
 		residentEvidenceRecall: ({ contextBudget, prepared }) => {
 			observed.push({
@@ -571,7 +606,10 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 		new MockLLMProvider({
 			responseText: 'Selected model finished.',
 			onRequest: (params) =>
-				requests.push({ ...params, messages: structuredClone(params.messages) }),
+				requests.push({
+					...params,
+					messages: structuredClone(params.messages),
+				}),
 		}),
 		{
 			resolveContextWindow: async (model: string) => (model === 'narrow' ? 18_000 : 200_000),
@@ -608,7 +646,7 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 	expect(result.system).not.toContain('PROFILE_FOR_MODEL_SWITCH')
 })
 
-it('refreshes the stored index as user context on a real paused-turn resume', async () => {
+it('refreshes stored memory and tasks as user context on a real paused-turn resume', async () => {
 	writeFileSync(join(appHome, 'USER.md'), 'CURATED_RESUME_DIRECTIVE')
 	writeFileSync(join(appHome, 'MEMORY.md'), 'HOME_MEMORY_BEFORE_RESUME')
 	const projectPath = join(cwd, '.namzu', 'MEMORY.md')
@@ -618,7 +656,7 @@ it('refreshes the stored index as user context on a real paused-turn resume', as
 		onRequest: (params) => requests.push({ ...params, messages: structuredClone(params.messages) }),
 	})
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
-	const { session, state } = await makeSession(false)
+	const { session, state, scope } = await makeSession(false)
 	const store = new MarkdownMemoryStore({ directory: state.paths.memoryDir() })
 	const { entry } = await store.create({
 		title: 'Resume marker',
@@ -633,12 +671,16 @@ it('refreshes the stored index as user context on a real paused-turn resume', as
 	}))
 		events.push(event)
 	const paused = events.find((event) => event.kind === 'paused')
-	expect(paused).toMatchObject({ kind: 'paused', reason: 'Fixture review hold' })
+	expect(paused).toMatchObject({
+		kind: 'paused',
+		reason: 'Fixture review hold',
+	})
 	if (paused?.kind !== 'paused') return
 	expect(requests).toHaveLength(1)
 	expect(JSON.stringify(requests[0]!.messages)).toContain('HOME_MEMORY_BEFORE_RESUME')
 	expect(JSON.stringify(requests[0]!.messages)).toContain('PROJECT_MEMORY_BEFORE_RESUME')
 	await store.update(entry.id, { description: 'NEW_STORED_DESCRIPTION' })
+	await seedPlan(state, scope.sessionId, 'TASK_ON_RESUME')
 	writeFileSync(join(appHome, 'MEMORY.md'), 'HOME_MEMORY_AFTER_RESUME')
 	writeFileSync(projectPath, 'PROJECT_MEMORY_AFTER_RESUME')
 	const resumedEvents: AgentEvent[] = []
@@ -670,6 +712,8 @@ it('refreshes the stored index as user context on a real paused-turn resume', as
 	expect(system).not.toContain('PROJECT_MEMORY_AFTER_RESUME')
 	expect(system).not.toContain('OLD_STORED_DESCRIPTION')
 	expect(system).not.toContain('NEW_STORED_DESCRIPTION')
+	expect(context).toContain('TASK_ON_RESUME')
+	expect(system).not.toContain('TASK_ON_RESUME')
 	expect(context).toContain('CURATED_RESUME_DIRECTIVE')
 	expect(context).toContain('HOME_MEMORY_AFTER_RESUME')
 	expect(context).toContain('PROJECT_MEMORY_AFTER_RESUME')
@@ -694,7 +738,9 @@ it('keeps one stored-index snapshot across model steps and refreshes it on the n
 	})
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
 	const { session, state } = await makeSession(false)
-	const { entry } = await new MarkdownMemoryStore({ directory: state.paths.memoryDir() }).create({
+	const { entry } = await new MarkdownMemoryStore({
+		directory: state.paths.memoryDir(),
+	}).create({
 		title: 'Index snapshot',
 		summary: 'Snapshot fixture',
 		content: 'A claim.',
@@ -735,4 +781,37 @@ it('keeps one stored-index snapshot across model steps and refreshes it on the n
 			.map((message) => message.content)
 			.join('\n'),
 	)
+})
+
+async function seedPlan(
+	state: Awaited<ReturnType<typeof openSessions>>,
+	sessionId: import('@namzu/sdk').SessionId,
+	marker: string,
+) {
+	const store = new DiskTaskStore({
+		paths: state.paths,
+		session: { sessionId },
+		tenantId: state.tenantId,
+	})
+	await store.create({
+		sessionId,
+		tenantId: state.tenantId,
+		turnId: generateTurnId(),
+		subject: marker,
+		description: 'Agent maintained planning data',
+	})
+}
+
+it('projects agent-maintained tasks only as request context on ordinary sends', async () => {
+	const { session, state, scope } = await makeSession(false)
+	await seedPlan(state, scope.sessionId, 'TASK_DO_NOT_ELEVATE')
+	let history = ''
+	const next = await send(session, 'Inspect the plan.', {
+		onConversationMessages: (messages) => {
+			history = JSON.stringify(messages)
+		},
+	})
+	expect(next.context).toContain('TASK_DO_NOT_ELEVATE')
+	expect(next.system).not.toContain('TASK_DO_NOT_ELEVATE')
+	expect(history).not.toContain('TASK_DO_NOT_ELEVATE')
 })

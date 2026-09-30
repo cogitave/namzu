@@ -1,4 +1,5 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
+import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
@@ -168,17 +169,36 @@ export async function* runToolReview(
 		)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
+		// Registry receipts are ordered by actual completion, include nested
+		// dispatches, and exclude denials/recovered results. A successful possible
+		// mutation permits another experiment; unrelated reads cannot do so.
+		for (const observation of batch.observations) {
+			const tracker = ctx.repeatCalls
+			if (!tracker) break
+			if (
+				observation.result.success &&
+				!isTrustedReadOnly(
+					ctx.tools.get(observation.toolName),
+					observation.input,
+					ctx.toolExecutor.toolSource(observation.toolName),
+				)
+			)
+				tracker.stateMayHaveChanged()
+			tracker.recordOutcome(observation.toolName, observation.input, {
+				failed: !observation.result.success,
+				result: {
+					output: observation.result.output,
+					error: observation.result.error,
+					content: observation.result.content,
+				},
+			})
+		}
 		// Recorded AFTER execution, with the real result: the notice advises
 		// on the call that already ran, and the failure count is what the
 		// refusal above reads on the NEXT identical call.
 		const notices = []
 		for (const summary of toolCallSummaries) {
-			const outcome = batch.results.find((result) => result.toolCallId === summary.id)
-			const notice = ctx.repeatCalls?.record(
-				summary.name,
-				summary.input,
-				outcome ? { failed: outcome.isError === true } : undefined,
-			)
+			const notice = ctx.repeatCalls?.record(summary.name, summary.input)
 			if (notice) notices.push(notice)
 		}
 		// Guidance the host queued while this batch was running rides out on
@@ -264,7 +284,11 @@ export async function* runToolReview(
 		}
 		if (tc.escalation?.unknownProgram !== undefined) {
 			await ctx.recorder.recordAudit({
-				what: { action: 'unknown_program', tool: tc.name, resource: tc.escalation.unknownProgram },
+				what: {
+					action: 'unknown_program',
+					tool: tc.name,
+					resource: tc.escalation.unknownProgram,
+				},
 				outcome: 'refused',
 				reason,
 			})

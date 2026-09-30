@@ -407,7 +407,17 @@ Neither ever refuses: polling for a long-running job to finish is the same
 call by design, so a repeat that keeps succeeding is only ever noticed. A
 repeat that keeps FAILING identically is different — after
 `refuseFailedAfter` consecutive identical failures (default 4) the next
-identical call is refused instead of run; a success resets that count.
+identical call is refused instead of run. The streak compares hashes of actual
+error, output and rich content; different failures restart it. A successful
+execution resets its own streak. A successful call that is not trusted read-only
+also resets prior streaks, allowing a new check after a possible repair. Denials,
+recovered receipts, failed repairs and unrelated reads do not reset them. This
+permits another experiment, not proof of progress; turn budgets still apply.
+
+The batch is reviewed before execution. A repair and an already refused check
+emitted together do not establish a dependency: the model should wait for the
+repair result and check in the next batch. Concurrent reads retain their normal
+execution semantics.
 
 Delivery rides the last `tool_result` of the settled batch, the same slot
 steering notes use, appending the advisory text to that result's content —

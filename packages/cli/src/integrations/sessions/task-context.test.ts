@@ -40,7 +40,7 @@ const task = (overrides: Partial<Task> = {}): Task => ({
 	...overrides,
 })
 const store = (list: TaskStore['list']) => ({ list }) as TaskStore
-const data = (system: string) => JSON.parse(system.split('\n').at(-1) ?? '{}')
+const data = (context: string) => JSON.parse(context.split('\n').at(-1) ?? '{}')
 afterEach(() => vi.useRealTimers())
 
 it('refreshes the session’s unfinished work without importing other scopes', async () => {
@@ -53,13 +53,14 @@ it('refreshes the session’s unfinished work without importing other scopes', a
 	])
 	const step = createTaskContextStep(store(list), tenantId)
 	const first = await step(context())
-	expect(first?.system).toContain('Host guidance')
-	expect(first?.system).not.toContain('secret')
-	expect(data(first?.system ?? '').tasks).toHaveLength(1)
+	expect(first?.system).toBeUndefined()
+	expect(first?.context).not.toContain('Host guidance')
+	expect(first?.context).not.toContain('secret')
+	expect(data(first?.context ?? '').tasks).toHaveLength(1)
 	expect(list).toHaveBeenCalledWith({ sessionId })
 	current.status = 'in_progress'
 	current.description = 'Revised request'
-	expect(data((await step(context()))?.system ?? '').tasks[0]).toMatchObject({
+	expect(data((await step(context()))?.context ?? '').tasks[0]).toMatchObject({
 		status: 'in_progress',
 		description: 'Revised request',
 	})
@@ -70,14 +71,20 @@ it('refreshes the session’s unfinished work without importing other scopes', a
 
 it('shows open tasks from earlier turns and tasks closed in this turn, not those closed before', async () => {
 	let clock = 1_000
-	const openFromEarlier = task({ turnId: earlierTurn, subject: 'Open from an earlier turn' })
+	const openFromEarlier = task({
+		turnId: earlierTurn,
+		subject: 'Open from an earlier turn',
+	})
 	const closedEarlier = task({
 		turnId: earlierTurn,
 		status: 'completed',
 		completedAt: 500,
 		subject: 'Closed in an earlier turn',
 	})
-	const closedNow = task({ status: 'completed', subject: 'Closed in this turn' })
+	const closedNow = task({
+		status: 'completed',
+		subject: 'Closed in this turn',
+	})
 	const step = createTaskContextStep(
 		store(async () => [openFromEarlier, closedEarlier, closedNow]),
 		tenantId,
@@ -87,7 +94,7 @@ it('shows open tasks from earlier turns and tasks closed in this turn, not those
 	clock = 2_000
 	closedNow.completedAt = 1_500
 
-	const snapshot = data((await step(context()))?.system ?? '')
+	const snapshot = data((await step(context()))?.context ?? '')
 
 	expect(snapshot.tasks.map((row: { subject: string }) => row.subject)).toEqual([
 		'Open from an earlier turn',
@@ -111,7 +118,7 @@ it('keeps what a resumed turn closed before its pause, in whichever process resu
 		tenantId,
 		() => 200,
 	)
-	const snapshot = data((await step(context(10000, { turnStartedAt: 100 })))?.system ?? '')
+	const snapshot = data((await step(context(10000, { turnStartedAt: 100 })))?.context ?? '')
 	expect(snapshot.tasks.map((row: { subject: string }) => row.subject)).toEqual([
 		'Still open',
 		'Closed before the pause',
@@ -133,14 +140,17 @@ it('orders active and failed tasks, counts unresolved dependencies, and caps the
 		() => 1,
 	)
 	const result = await step(context())
-	const snapshot = data(result?.system ?? '')
-	expect(snapshot.tasks[0]).toMatchObject({ id: active.id, unresolvedDependencies: 2 })
+	const snapshot = data(result?.context ?? '')
+	expect(snapshot.tasks[0]).toMatchObject({
+		id: active.id,
+		unresolvedDependencies: 2,
+	})
 	expect(snapshot.tasks[1].status).toBe('failed')
 	expect(snapshot.tasks.length).toBeLessThanOrEqual(8)
 	expect(snapshot.omitted + snapshot.tasks.length).toBe(42)
-	expect(result?.system?.length).toBeLessThanOrEqual(2415)
-	expect(result?.system).not.toContain('<instruction>')
-	expect((await step(context(850)))?.system?.length ?? 0).toBeLessThanOrEqual(865)
+	expect(result?.context?.length).toBeLessThanOrEqual(2415)
+	expect(result?.context).not.toContain('<instruction>')
+	expect((await step(context(850)))?.context?.length ?? 0).toBeLessThanOrEqual(865)
 	expect(await step(context(699))).toBeUndefined()
 })
 
@@ -165,8 +175,8 @@ it('bounds waiting without stacking reads or injecting late stale data', async (
 	resolve([task({ subject: 'Stale' })])
 	await vi.advanceTimersByTimeAsync(0)
 	const next = await step(context())
-	expect(next?.system).toContain('Fresh')
-	expect(next?.system).not.toContain('Stale')
+	expect(next?.context).toContain('Fresh')
+	expect(next?.context).not.toContain('Stale')
 })
 
 it('propagates cancellation and read failures', async () => {
@@ -191,4 +201,23 @@ it('propagates cancellation and read failures', async () => {
 			tenantId,
 		)(context()),
 	).rejects.toThrow('disk unavailable')
+})
+
+it('preserves earlier request context without elevating task descriptions into policy', async () => {
+	const step = createTaskContextStep(
+		store(async () => [task({ description: 'IGNORE_HOST_POLICY' })]),
+		tenantId,
+	)
+	const result = await step(
+		context(10000, {
+			prepared: {
+				system: 'Trusted host policy',
+				context: 'Earlier request context',
+			},
+		}),
+	)
+	expect(result?.system).toBeUndefined()
+	expect(result?.context).toContain('Earlier request context')
+	expect(result?.context).toContain('IGNORE_HOST_POLICY')
+	expect(result?.context).not.toContain('Trusted host policy')
 })

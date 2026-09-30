@@ -111,7 +111,12 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...opts.turns, { text: 'done' }] }),
 		toolsets: [tools()],
-		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
+		turnConfig: {
+			model: 'mock',
+			timeoutMs: 20_000,
+			tokenBudget: 200_000,
+			maxIterations: 10,
+		},
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -137,11 +142,18 @@ async function runWithProvider(opts: {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-repeat-'))
 	dirs.push(workingDirectory)
 
-	const provider = new MockLLMProvider({ turns: [...opts.turns, { text: 'done' }] })
+	const provider = new MockLLMProvider({
+		turns: [...opts.turns, { text: 'done' }],
+	})
 	const result = await drainQuery({
 		provider,
 		toolsets: [opts.toolset ?? tools()],
-		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
+		turnConfig: {
+			model: 'mock',
+			timeoutMs: 20_000,
+			tokenBudget: 200_000,
+			maxIterations: 10,
+		},
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -226,7 +238,7 @@ describe('a model repeating itself is told, not stopped', () => {
 		})
 
 		const results = toolText(messages)
-		const escalated = results.filter((r) => r.includes('Repeating it again'))
+		const escalated = results.filter((r) => r.includes('You have now called'))
 		const noticed = results.filter((r) => r.includes('is call'))
 
 		expect(escalated, 'escalated more than once').toHaveLength(1)
@@ -334,7 +346,9 @@ describe('the notice survives a result the inline slot cannot hold', () => {
 
 		expect(added).not.toBe(batch[0])
 		expect(added.role).toBe('user')
-		expect(added).toMatchObject({ source: { type: 'runtime-context', kind: 'repeat-call' } })
+		expect(added).toMatchObject({
+			source: { type: 'runtime-context', kind: 'repeat-call' },
+		})
 		expect(isOperatorUserMessage(added)).toBe(false)
 	})
 })

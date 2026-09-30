@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createRuntimeContextMessage } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
 import { stableStringify } from './tool-grants.js'
@@ -66,8 +67,8 @@ export class RepeatCallTracker {
 	/** Which keys have already been reported at which level, so one repeat
 	 *  does not produce the same sentence on every subsequent turn. */
 	private readonly announced = new Map<string, 'notice' | 'escalated'>()
-	/** Consecutive failures per key; a success deletes the entry. */
-	private readonly failures = new Map<string, number>()
+	/** Identical actual results since the last successful possible mutation. */
+	private readonly failures = new Map<string, { fingerprint: string; count: number }>()
 
 	constructor(private readonly thresholds: RepeatCallThresholds = DEFAULT_REPEAT_THRESHOLDS) {}
 
@@ -80,13 +81,12 @@ export class RepeatCallTracker {
 	record(
 		toolName: string,
 		input: unknown,
-		outcome?: { readonly failed: boolean },
+		outcome?: { readonly failed: boolean; readonly result?: unknown },
 	): RepeatCallNotice | undefined {
 		const key = keyFor(toolName, input)
 		const count = (this.counts.get(key) ?? 0) + 1
 		this.counts.set(key, count)
-		if (outcome?.failed === true) this.failures.set(key, (this.failures.get(key) ?? 0) + 1)
-		else if (outcome?.failed === false) this.failures.delete(key)
+		if (outcome) this.recordOutcome(toolName, input, outcome)
 
 		const already = this.announced.get(key)
 		if (count >= this.thresholds.escalateAfter && already !== 'escalated') {
@@ -95,7 +95,7 @@ export class RepeatCallTracker {
 				toolName,
 				count,
 				level: 'escalated',
-				text: `You have now called \`${toolName}\` with identical arguments ${count} times in this turn. Repeating it again will produce the same result. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`,
+				text: `You have now called \`${toolName}\` with identical arguments ${count} times in this turn. Check whether the results or the state have changed. If there is no progress, change the approach or tell the user what is blocking you.`,
 			}
 		}
 		if (count >= this.thresholds.notifyAfter && already === undefined) {
@@ -110,6 +110,33 @@ export class RepeatCallTracker {
 		return undefined
 	}
 
+	/** Only actual executions count. Denials and recovered receipts do not. */
+	recordOutcome(
+		toolName: string,
+		input: unknown,
+		outcome: { readonly failed: boolean; readonly result?: unknown },
+	): void {
+		const key = keyFor(toolName, input)
+		if (!outcome.failed) {
+			this.failures.delete(key)
+			return
+		}
+		const fingerprint = createHash('sha256')
+			.update(stableStringify(outcome.result ?? null))
+			.digest('hex')
+		const previous = this.failures.get(key)
+		this.failures.set(key, {
+			fingerprint,
+			count: previous?.fingerprint === fingerprint ? previous.count + 1 : 1,
+		})
+	}
+
+	/** A successful potentially mutating execution permits a new experiment.
+	 * This does not prove progress; the turn's existing budgets still apply. */
+	stateMayHaveChanged(): void {
+		this.failures.clear()
+	}
+
 	/** Repeats seen for one call, for a host that wants to render it. */
 	countOf(toolName: string, input: unknown): number {
 		return this.counts.get(keyFor(toolName, input)) ?? 0
@@ -118,11 +145,11 @@ export class RepeatCallTracker {
 	/**
 	 * The refusal for a call that has failed identically too many times in
 	 * a row, or `undefined` when the call may run. Asked BEFORE execution;
-	 * the refused call is still recorded afterwards, as a failure, so the
-	 * refusal holds until the model changes something.
+	 * a synthetic refusal is not an execution and does not replace its result
+	 * fingerprint. The refusal holds until a real state change or new outcome.
 	 */
 	refusal(toolName: string, input: unknown): string | undefined {
-		const failed = this.failures.get(keyFor(toolName, input)) ?? 0
+		const failed = this.failures.get(keyFor(toolName, input))?.count ?? 0
 		if (failed < this.thresholds.refuseFailedAfter) return undefined
 		return `Refused: \`${toolName}\` with these exact arguments has failed ${failed} times in a row in this turn, with the same result each time. It will not be run again with these arguments. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`
 	}
@@ -167,7 +194,10 @@ export function attachRepeatNotice(
 
 	if (target && typeof target.content === 'string') {
 		const next = [...messages]
-		next[lastToolIndex] = { ...target, content: `${target.content}\n\n${noticeText}` }
+		next[lastToolIndex] = {
+			...target,
+			content: `${target.content}\n\n${noticeText}`,
+		}
 		return next
 	}
 
