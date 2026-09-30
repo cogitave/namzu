@@ -60,6 +60,7 @@ export interface ScheduleCommandContext {
 	readonly cwd: string
 	readonly config: Pick<NamzuCliConfig, 'limits'>
 	readonly model?: { readonly provider: string; readonly model?: string }
+	readonly sourceConversation?: ScheduleJobPreview['delivery']
 	readonly say: (text: string) => void
 	readonly ask: QuestionFn
 	readonly extraRoots?: readonly string[]
@@ -130,8 +131,10 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 					? '  [script+agent]'
 					: ''
 		lines.push(
-			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
 		)
+		if (job.delivery?.kind === 'source-conversation')
+			lines.push(`    Results return to source conversation ${job.delivery.sessionId}`)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			const command = resumeCommand(job, state.activeRun.sessionId)
 			const verb = state.activeRun.handoff ? 'when that is done, continue it' : 'answer it'
@@ -166,7 +169,11 @@ async function confirmInTui(
 ): Promise<'create' | 'create-paused' | 'cancel'> {
 	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const paths = schedulePaths(ctx.home)
-	const layers = readPermissionLayers({ cwd: job.folder.canonical })
+	const layers = readPermissionLayers({
+		cwd: job.folder.canonical,
+		home: ctx.home,
+		...(job.workspace === 'none' ? { includeProject: false } : {}),
+	})
 	const policy = compileJobPolicy(job.permissions, {
 		layers,
 		namzuHome: paths.home,
@@ -209,6 +216,11 @@ async function confirmInTui(
 			? [
 					`${runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}; shell commands checked against the scheduled-run floor and deny rules)`,
 					...job.script.body.split('\n').map((line) => `  │ ${line}`),
+					...(job.script.report === 'json-v1'
+						? [
+								'Script report: JSON v1 (quiet/changed; optional scheduler state); stdout must be one JSON object line.',
+							]
+						: []),
 					'Code passed to another interpreter is not parsed by the shell checker; review it here.',
 				]
 			: []
@@ -230,10 +242,12 @@ async function confirmInTui(
 	)
 	if (ctx.review) {
 		const roots = [ctx.cwd, ...(ctx.extraRoots ?? [])]
-		const outside = !roots.some((root) => {
-			const rel = relative(root, job.folder.canonical)
-			return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-		})
+		const outside =
+			job.workspace !== 'none' &&
+			!roots.some((root) => {
+				const rel = relative(root, job.folder.canonical)
+				return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+			})
 		const hasScript = runKind !== 'agent'
 		const networkCapable =
 			policy.network ||
@@ -242,6 +256,8 @@ async function confirmInTui(
 		const preview: ScheduleJobPreview = {
 			name: job.name,
 			folder: job.folder.canonical,
+			...(job.workspace === 'none' ? { workspace: 'none' as const } : {}),
+			...(job.delivery ? { delivery: job.delivery } : {}),
 			outsideSessionRoots: outside,
 			prompt: job.prompt,
 			...(hasScript ? { runKind } : {}),
@@ -346,7 +362,7 @@ export async function runScheduleCommand(
 				}
 				const now = new Date()
 				const next = updateJob(paths, job.id, job.revision, (j) =>
-					confirmJob(j, 'tui', now, { paused: answer === 'create-paused' }),
+					confirmJob(j, 'tui', now, { paused: answer === 'create-paused', paths }),
 				)
 				appendHistory(paths, job.id, {
 					v: 1,
@@ -398,6 +414,15 @@ export async function runScheduleCommand(
 			}
 			case 'remove': {
 				const job = findJob(paths, rest[0] ?? '')
+				const blockedRemoval = () => {
+					const state = readState(paths, job.id)
+					if (!state.activeRun && !state.deliveryPending?.length) return false
+					say(
+						`${job.name} has a run or source result still settling. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
+					)
+					return true
+				}
+				if (blockedRemoval()) return
 				const answer = await ctx.ask({
 					questionId: `schedule-remove:${job.id}`,
 					question: visibleScheduleMessage(
@@ -411,6 +436,7 @@ export async function runScheduleCommand(
 					allowFreeText: false,
 				})
 				if (answer.kind !== 'answer' || !answer.selectedOptionIds.includes('yes')) return
+				if (blockedRemoval()) return
 				deleteJob(paths, job.id)
 				appendHistory(paths, job.id, {
 					v: 1,
@@ -444,6 +470,7 @@ export async function runScheduleCommand(
 						permissions: { preset: parsed.preset },
 						model: `${ctx.model.provider}${ctx.model.model ? `/${ctx.model.model}` : ''}`,
 						createdBy: { surface: 'tui' },
+						...(ctx.sourceConversation ? { delivery: ctx.sourceConversation } : {}),
 					},
 					{ paths, config: ctx.config, now },
 				)
@@ -454,7 +481,7 @@ export async function runScheduleCommand(
 				}
 				const created = createJob(
 					paths,
-					confirmJob(job, 'tui', now, { paused: answer === 'create-paused' }),
+					confirmJob(job, 'tui', now, { paused: answer === 'create-paused', paths }),
 				)
 				appendHistory(paths, created.id, {
 					v: 1,

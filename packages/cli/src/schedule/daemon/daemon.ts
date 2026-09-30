@@ -58,6 +58,7 @@ import {
 	generateScheduleRunId,
 } from '@namzu/sdk'
 import { admitNotification } from '../../integrations/notifications/desktop/throttle.js'
+import { deliverRunToSource } from '../delivery.js'
 import { childEnvironment } from '../env.js'
 import { isFinal, readRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
@@ -65,7 +66,7 @@ import { allowsWrites } from '../policy.js'
 import { resumeCommand } from '../resume-command.js'
 import { PRIVATE_FILE_MODE, ensureDir, writeJsonAtomic } from '../store/atomic.js'
 import { claimOccurrence, isClaimed, pruneClaims } from '../store/claims.js'
-import { appendHistory, compactHistory } from '../store/history.js'
+import { appendHistory, compactHistory, readHistory } from '../store/history.js'
 import {
 	confirmationHolds,
 	jobSecurityDigest,
@@ -73,6 +74,7 @@ import {
 	readJob,
 	updateJob,
 } from '../store/jobs.js'
+import { writeScriptState } from '../store/script-state.js'
 import { readState, withoutUndefined, writeState } from '../store/state.js'
 import {
 	type ActiveRun,
@@ -97,6 +99,7 @@ export const LEASE_RENEW_MS = 30_000
 export const TICK_MS = 30_000
 /** A run with no result and no session this long after it started is gone. */
 const START_GRACE_MS = 120_000
+const SCRIPT_EXIT_MARGIN_MS = 60_000
 const CLAIM_RETENTION_EXTRA_MS = 24 * 60 * 60 * 1000
 const HOUSEKEEPING_MS = 24 * 60 * 60 * 1000
 const GAP_MS = 60_000
@@ -157,6 +160,26 @@ interface Tracked {
 	readonly run?: SpawnedRun
 }
 
+function pendingResultKey(item: NonNullable<ScheduleJobState['deliveryPending']>[number]): string {
+	return JSON.stringify([
+		item.result.runId,
+		item.result.status,
+		item.result.endedAt,
+		item.delivery?.sessionId,
+	])
+}
+
+/** Wait through a script's own timeout before treating a run without a session as lost. */
+export function noSessionStartGraceMs(job: Pick<ScheduleJob, 'runKind' | 'script'>): number {
+	if (job.runKind !== 'script' && job.runKind !== 'script+agent') return START_GRACE_MS
+	const timeout = job.script?.timeoutMs
+	if (!timeout || !Number.isSafeInteger(timeout) || timeout <= 0) return START_GRACE_MS
+	return Math.max(
+		START_GRACE_MS,
+		Math.min(timeout, Number.MAX_SAFE_INTEGER - SCRIPT_EXIT_MARGIN_MS) + SCRIPT_EXIT_MARGIN_MS,
+	)
+}
+
 export class ScheduleDaemon {
 	readonly #o: DaemonOptions
 	readonly #now: () => number
@@ -186,6 +209,8 @@ export class ScheduleDaemon {
 	/** Why a queued run is waiting, for its run record once it starts. */
 	readonly #delayReasons = new Map<string, 'concurrency-cap' | 'folder-busy'>()
 	#finalizing: Promise<void>[] = []
+	/** Keep exit finalization behind a tick that still holds an older state snapshot. */
+	#stateTail: Promise<void> = Promise.resolve()
 
 	constructor(options: DaemonOptions) {
 		this.#o = options
@@ -332,6 +357,7 @@ export class ScheduleDaemon {
 			this.#watcher?.close()
 			await this.#endpoint?.close()
 			this.#endpoint = undefined
+			await this.#stateTail
 			await Promise.allSettled(this.#finalizing)
 			if (this.#stopping) this.#persistManual()
 			if (this.#lease && this.#stopping) {
@@ -546,7 +572,21 @@ export class ScheduleDaemon {
 	}
 
 	/** One pass: every job evaluated, the queue dispatched. Public for tests. */
-	async tick(): Promise<void> {
+	tick(): Promise<void> {
+		return this.#serializeState(() => this.#tick())
+	}
+
+	#serializeState<T>(operation: () => Promise<T> | T): Promise<T> {
+		const result = this.#stateTail.then(operation)
+		// A failed operation must not prevent later exits or ticks from settling.
+		this.#stateTail = result.then(
+			() => undefined,
+			() => undefined,
+		)
+		return result
+	}
+
+	async #tick(): Promise<void> {
 		this.#observeClock()
 		if (!this.#draining && this.#o.fingerprint() !== this.#startFingerprint) {
 			this.#o.log.info('installed CLI changed; draining for a restart', {
@@ -661,6 +701,7 @@ export class ScheduleDaemon {
 
 		state = await this.#reconcile(job, state, now)
 		job = readJob(paths, job.id) ?? job
+		state = await this.#deliverPending(job, state)
 
 		// A draining daemon does not evaluate. Evaluating would move
 		// `lastEvaluatedAt` past an occurrence it cannot queue, so the daemon
@@ -768,12 +809,16 @@ export class ScheduleDaemon {
 	 * daemon that adopted it recorded it first).
 	 */
 	async finalizeRun(jobId: string, runId: string, result: ScheduleRunResult): Promise<boolean> {
-		const job = readJob(this.#o.paths, jobId)
-		const run = readState(this.#o.paths, jobId).activeRun
-		if (!job || run?.runId !== runId) return false
-		this.#finalize(job, run, result, this.#now())
+		const recorded = await this.#serializeState(async () => {
+			const job = readJob(this.#o.paths, jobId)
+			const run = readState(this.#o.paths, jobId).activeRun
+			if (!job || run?.runId !== runId) return false
+			this.#finalize(job, run, result, this.#now())
+			await this.#deliverPending(job, readState(this.#o.paths, job.id))
+			return true
+		})
 		await this.settled()
-		return true
+		return recorded
 	}
 
 	/**
@@ -782,11 +827,131 @@ export class ScheduleDaemon {
 	 * finding a run no scheduler is left to settle.
 	 */
 	async reconcileJob(jobId: string): Promise<ScheduleJobState | undefined> {
-		const job = readJob(this.#o.paths, jobId)
-		if (!job) return undefined
-		const state = await this.#reconcile(job, readState(this.#o.paths, jobId), this.#now())
+		const state = await this.#serializeState(async () => {
+			const job = readJob(this.#o.paths, jobId)
+			if (!job) return undefined
+			const reconciled = await this.#reconcile(job, readState(this.#o.paths, jobId), this.#now())
+			return this.#deliverPending(job, reconciled)
+		})
 		await this.settled()
 		return state
+	}
+
+	/** Retry durable source deliveries after a busy source turn or daemon restart. */
+	async #deliverPending(job: ScheduleJob, state: ScheduleJobState): Promise<ScheduleJobState> {
+		const pending = state.deliveryPending ?? []
+		if (pending.length === 0) return state
+		const handled = new Set<string>()
+		for (const item of pending.slice(0, 20)) {
+			// An operator can explicitly detach a lost source conversation by
+			// confirming a definition with no delivery. The old run keeps its
+			// pinned binding for audit, but its pending notice is waived so a
+			// checkpoint can advance and the job can run again.
+			const waived = Boolean(
+				item.delivery &&
+					!job.delivery &&
+					confirmationHolds(job) &&
+					job.deliveryWaiverRunIds?.includes(item.result.runId),
+			)
+			const outcome = waived
+				? { kind: 'quiet' as const }
+				: item.delivery
+					? await deliverRunToSource(
+							this.#o.paths,
+							{ ...job, delivery: item.delivery },
+							item.result,
+						)
+					: { kind: 'quiet' as const }
+			if (outcome.kind === 'retry') continue
+			if (outcome.kind === 'rejected') {
+				const latest = readState(this.#o.paths, job.id)
+				const key = pendingResultKey(item)
+				if (latest.lastDeliveryIssue?.key !== key) {
+					this.#o.log.warn('scheduled result could not reach its source conversation', {
+						'namzu.schedule.job_id': job.id,
+						'namzu.schedule.run_id': item.result.runId,
+						'exception.message': outcome.reason,
+					})
+					writeState(this.#o.paths, {
+						...latest,
+						lastDeliveryIssue: { key, reason: outcome.reason },
+					})
+				}
+				// A missing or archived source did not receive the report. Keep it
+				// pending; advancing a script checkpoint here would lose the change.
+				continue
+			}
+			const nextState = item.result.scriptReport?.nextState
+			if (nextState !== undefined) {
+				const revision = item.result.scriptStateRevision
+				if (revision === undefined) {
+					this.#o.log.error('scheduled script state revision is missing', {
+						'namzu.schedule.job_id': job.id,
+						'namzu.schedule.run_id': item.result.runId,
+					})
+					continue
+				}
+				try {
+					const written = writeScriptState(
+						this.#o.paths,
+						job.id,
+						revision,
+						item.result.runId,
+						nextState,
+					)
+					if (written.kind === 'conflict') {
+						this.#o.log.error('scheduled script state changed before its result settled', {
+							'namzu.schedule.job_id': job.id,
+							'namzu.schedule.run_id': item.result.runId,
+						})
+						continue
+					}
+				} catch (error) {
+					this.#o.log.error('scheduled script state could not be saved', {
+						'namzu.schedule.job_id': job.id,
+						'namzu.schedule.run_id': item.result.runId,
+						'exception.message': error instanceof Error ? error.message : String(error),
+					})
+					continue
+				}
+			}
+			if (
+				waived &&
+				!readHistory(this.#o.paths, job.id).some(
+					(record) =>
+						record.kind === 'job' &&
+						record.action === 'delivery-waived' &&
+						record.detail === item.result.runId,
+				)
+			) {
+				appendHistory(this.#o.paths, job.id, {
+					v: 1,
+					kind: 'job',
+					at: new Date(this.#now()).toISOString(),
+					action: 'delivery-waived',
+					by: 'operator',
+					detail: item.result.runId,
+				})
+			}
+			handled.add(pendingResultKey(item))
+		}
+		if (handled.size === 0) return readState(this.#o.paths, job.id)
+		// A child can finish while a source lease is being checked. Filter the
+		// latest state, preserving any delivery appended during the await.
+		const latest = readState(this.#o.paths, job.id)
+		const remaining = (latest.deliveryPending ?? []).filter(
+			(item) => !handled.has(pendingResultKey(item)),
+		)
+		const next = withoutUndefined({
+			...latest,
+			deliveryPending: remaining.length > 0 ? remaining : undefined,
+			lastDeliveryIssue:
+				latest.lastDeliveryIssue && handled.has(latest.lastDeliveryIssue.key)
+					? undefined
+					: latest.lastDeliveryIssue,
+		})
+		writeState(this.#o.paths, next)
+		return next
 	}
 
 	/** Finalise or adopt the job's run in progress, if it has one. */
@@ -821,7 +986,10 @@ export class ScheduleDaemon {
 				})
 				return state
 			}
-			if (!ref && now - Date.parse(run.startedAt) < START_GRACE_MS) {
+			if (
+				!ref &&
+				now - Date.parse(run.startedAt) < (run.noSessionGraceMs ?? noSessionStartGraceMs(job))
+			) {
 				this.#running.set(run.runId, {
 					jobId: job.id,
 					runId: run.runId,
@@ -1014,12 +1182,26 @@ export class ScheduleDaemon {
 				}),
 			})
 		}
+		if (run.delivery || result.scriptReport?.nextState !== undefined) {
+			const snapshot: ScheduleRunResult = {
+				...result,
+				status,
+				endedAt: result.endedAt ?? at,
+			}
+			next = {
+				...next,
+				deliveryPending: [
+					...(current.deliveryPending ?? []),
+					{ result: snapshot, ...(run.delivery ? { delivery: run.delivery } : {}) },
+				],
+			}
+		}
 		// The same failure is told once; a success clears it.
 		let incident = next.lastIncident
 		let tell: NoticeKind | undefined
 		if (status === 'completed') {
 			incident = undefined
-			tell = 'finished'
+			if (result.scriptReport?.state !== 'quiet') tell = 'finished'
 		} else if (status === 'awaiting-approval') {
 			tell = 'awaiting-approval'
 		} else if (failed && status !== 'approval-expired') {
@@ -1148,6 +1330,13 @@ export class ScheduleDaemon {
 				if (queued) writeState(paths, withoutUndefined({ ...entry.state, queued: undefined }))
 				continue
 			}
+			if (readState(paths, job.id).deliveryPending?.length) {
+				// A result still belongs to its source conversation or carries a
+				// script checkpoint. Keep one unresolved result per job so a busy
+				// source cannot create an unbounded backlog of repeat polls.
+				if (entry.manual) this.#manual.push({ jobId: job.id, runId: entry.manual })
+				continue
+			}
 			const writes = allowsWrites(latest.permissions)
 			const busyLane =
 				writes &&
@@ -1191,6 +1380,8 @@ export class ScheduleDaemon {
 				startedAt: new Date(now).toISOString(),
 				daemonEpoch: this.#o.epoch,
 				status: 'running' as const,
+				noSessionGraceMs: noSessionStartGraceMs(latest),
+				delivery: latest.delivery,
 				delayedMs: delayedMs >= 1_000 ? delayedMs : undefined,
 				delayReason: delayedMs >= 1_000 ? (delayReason ?? 'concurrency-cap') : undefined,
 			})
@@ -1248,58 +1439,70 @@ export class ScheduleDaemon {
 				'namzu.schedule.run_id': runId,
 				'namzu.schedule.trigger': trigger,
 			})
-			void spawned.exited.then(() => {
-				const tracked = this.#running.get(runId)
-				if (tracked) this.#running.set(runId, { ...tracked, run: undefined })
-				const jobNow = readJob(paths, job.id) ?? latest
-				const state = readState(paths, job.id)
-				if (state.activeRun?.runId === runId) {
-					const result = readRunResult(paths, job.id, runId)
-					this.#finalize(
-						jobNow,
-						state.activeRun,
-						isFinal(result)
-							? (result as ScheduleRunResult)
-							: {
-									...this.#emptyResult(jobNow, state.activeRun),
-									...(result ?? {}),
-									status: 'interrupted',
-									exitCode: 1,
-									reason: 'the run ended without recording a result',
-								},
-						this.#now(),
-					)
-				} else {
-					this.#running.delete(runId)
-					// The job was removed (`remove --force`) while this run went on:
-					// nothing will ever settle it, so its end is written here, where
-					// `prune` finds it.
-					if (!readJob(paths, job.id)) {
-						const result = readRunResult(paths, job.id, runId)
-						appendRunRecord(
-							paths,
-							job.id,
-							run,
-							isFinal(result)
-								? (result as ScheduleRunResult)
-								: {
-										...this.#emptyResult(latest, run),
-										...(result ?? {}),
-										status: 'interrupted',
-										exitCode: 1,
-										reason: 'the run ended without recording a result',
-									},
-							new Date(this.#now()).toISOString(),
-						)
-					}
-				}
-				this.wake()
-			})
+			void spawned.exited
+				.then(() =>
+					this.#serializeState(() => {
+						const tracked = this.#running.get(runId)
+						if (tracked) this.#running.set(runId, { ...tracked, run: undefined })
+						const jobNow = readJob(paths, job.id) ?? latest
+						const state = readState(paths, job.id)
+						if (state.activeRun?.runId === runId) {
+							const result = readRunResult(paths, job.id, runId)
+							this.#finalize(
+								jobNow,
+								state.activeRun,
+								isFinal(result)
+									? (result as ScheduleRunResult)
+									: {
+											...this.#emptyResult(jobNow, state.activeRun),
+											...(result ?? {}),
+											status: 'interrupted',
+											exitCode: 1,
+											reason: 'the run ended without recording a result',
+										},
+								this.#now(),
+							)
+						} else {
+							this.#running.delete(runId)
+							// The job was removed (`remove --force`) while this run went on:
+							// nothing will ever settle it, so its end is written here, where
+							// `prune` finds it.
+							if (!readJob(paths, job.id)) {
+								const result = readRunResult(paths, job.id, runId)
+								appendRunRecord(
+									paths,
+									job.id,
+									run,
+									isFinal(result)
+										? (result as ScheduleRunResult)
+										: {
+												...this.#emptyResult(latest, run),
+												...(result ?? {}),
+												status: 'interrupted',
+												exitCode: 1,
+												reason: 'the run ended without recording a result',
+											},
+									new Date(this.#now()).toISOString(),
+								)
+							}
+						}
+						this.wake()
+					}),
+				)
+				.catch((error: unknown) => {
+					this.#o.log.error('scheduled run exit could not be recorded', {
+						'namzu.schedule.job_id': job.id,
+						'namzu.schedule.run_id': runId,
+						'exception.message': error instanceof Error ? error.message : String(error),
+					})
+					this.wake()
+				})
 		}
 	}
 
 	/** For tests: wait until notifications and archiving started by finalisation are done. */
 	async settled(): Promise<void> {
+		await this.#stateTail
 		await Promise.allSettled(this.#finalizing.splice(0))
 	}
 }

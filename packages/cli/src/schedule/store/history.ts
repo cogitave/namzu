@@ -13,6 +13,7 @@ import type { SchedulePaths } from '../paths.js'
 import {
 	SCHEDULE_FORMAT_VERSION,
 	SCHEDULE_FORMAT_VERSION_LEGACY,
+	SCHEDULE_FORMAT_VERSION_SCRIPT,
 	type ScheduleHistoryRecord,
 } from '../types.js'
 import { PRIVATE_FILE_MODE, ensureDir } from './atomic.js'
@@ -71,7 +72,9 @@ export function readHistory(paths: SchedulePaths, jobId: string): ScheduleHistor
 			const record = JSON.parse(line) as ScheduleHistoryRecord
 			if (
 				record &&
-				(record.v === SCHEDULE_FORMAT_VERSION_LEGACY || record.v === SCHEDULE_FORMAT_VERSION) &&
+				(record.v === SCHEDULE_FORMAT_VERSION_LEGACY ||
+					record.v === SCHEDULE_FORMAT_VERSION_SCRIPT ||
+					record.v === SCHEDULE_FORMAT_VERSION) &&
 				typeof record.kind === 'string'
 			)
 				out.push(record)

@@ -120,6 +120,39 @@ describe('schedule review overlay', () => {
 		expect(lines.join('\n')).toContain('permission set governs its tools')
 	})
 
+	it('shows the private workspace, host authority and source conversation without the scratch path', () => {
+		const lines = scheduleReviewSummary({
+			...request,
+			preview: {
+				...preview,
+				workspace: 'none',
+				delivery: {
+					kind: 'source-conversation',
+					sessionId: 'session-123',
+					projectSlug: 'project',
+					projectId: 'project-id',
+					tenantId: 'tenant-id',
+				},
+			},
+		})
+		const rendered = lines.join('\n')
+		expect(rendered).toContain('Private scheduler workspace (no project)')
+		expect(rendered).toContain('Source conversation session-123')
+		expect(rendered).toContain('host process as your user')
+		expect(rendered).not.toContain(preview.folder)
+	})
+
+	it('names the JSON report protocol before scrolling', () => {
+		const lines = scheduleReviewSummary({
+			...request,
+			preview: {
+				...preview,
+				script: { body: 'echo hello', shell: 'bash', timeoutMs: 60_000, report: 'json-v1' },
+			},
+		})
+		expect(lines.join('\n')).toContain('JSON v1: quiet/changed; optional scheduler state')
+	})
+
 	it('shows when generic success notices are disabled without hiding failure notices', () => {
 		const lines = scheduleReviewSummary({
 			...request,

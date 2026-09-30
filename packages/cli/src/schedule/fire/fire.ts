@@ -52,13 +52,19 @@ import type { AgentEvent } from '../../tui/agent.js'
 import { describeTurnInterruption, retryAfterMs } from '../../tui/turn-interruption.js'
 import { DEFAULT_WAKE_GATE_CONTEXT_CHARS } from '../build.js'
 import { readDaemonEnv } from '../env.js'
-import { checkJobFolder, folderReadable } from '../folder.js'
+import {
+	checkJobFolder,
+	checkScratchFolder,
+	folderReadable,
+	plannedScratchFolder,
+} from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
 import { compileJobPolicy, compileScriptCheckPolicy, withheldTools } from '../policy.js'
 import { verifyScheduledScript } from '../script-check.js'
 import { scriptShellUnavailableReason } from '../script-shell.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
+import { readScriptState } from '../store/script-state.js'
 import {
 	type ScheduleJob,
 	type ScheduleRunResult,
@@ -70,6 +76,7 @@ import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
 import { CallTally } from './calls.js'
 import { writeRunResult } from './result.js'
 import { capOutput, runScript } from './run-script.js'
+import { parseScriptReport } from './script-report.js'
 import { unattendedNote } from './unattended-note.js'
 import { parseWakeGateOutput } from './wake-gate.js'
 
@@ -271,18 +278,40 @@ export async function runFire(
 		)
 	}
 	const runKind = job.runKind ?? 'agent'
+	if (job.workspace !== undefined && job.workspace !== 'none')
+		return blocked(`the job has an unknown workspace mode: ${String(job.workspace)}`)
 	if (runKind !== 'agent' && runKind !== 'script' && runKind !== 'script+agent') {
 		return blocked(`the job has an unknown run kind: ${String(runKind)}`)
 	}
 	if (runKind !== 'agent' && !job.script) {
 		return blocked(`the ${runKind} job has no script recorded`)
 	}
+	if (job.script?.report !== undefined && (runKind !== 'script' || job.script.report !== 'json-v1'))
+		return blocked('the script report mode is not valid for this job')
 	const model = job.model
 	if (runKind !== 'script' && !model)
 		return blocked('an agent job has no model; edit the job and confirm it again')
 
 	// ── the folder, as trusted ────────────────────────────────────────────
-	const folder = checkJobFolder(job.folder.path, { namzuHome: paths.home })
+	if (job.workspace === 'none') {
+		if (runKind !== 'script')
+			return blocked('a no-project workspace is only valid for a pure script job')
+		let expected: string
+		try {
+			expected = plannedScratchFolder(paths.home, job.id)
+		} catch (error) {
+			return blocked(
+				`scratch folder cannot be located: ${error instanceof Error ? error.message : String(error)}`,
+				77,
+			)
+		}
+		if (job.folder.path !== expected || job.folder.canonical !== expected)
+			return blocked('scratch folder differs from the job id and NAMZU_HOME', 77)
+	}
+	const folder =
+		job.workspace === 'none'
+			? checkScratchFolder(paths.home, job.id)
+			: checkJobFolder(job.folder.path, { namzuHome: paths.home })
 	if (!folder.ok) return blocked(folder.reason, 77)
 	if (folder.canonical !== job.folder.canonical || job.trust?.canonical !== folder.canonical) {
 		return blocked(
@@ -292,7 +321,10 @@ export async function runFire(
 	}
 	const readable = folderReadable(folder.canonical)
 	if (!readable.ok) return blocked(readable.reason)
-	const changed = projectDigestChanges(job.projectDigest, computeProjectDigest(folder.canonical))
+	const changed =
+		job.workspace === 'none'
+			? []
+			: projectDigestChanges(job.projectDigest, computeProjectDigest(folder.canonical))
 	if (changed.length > 0) {
 		return blocked(
 			`project config changed since the job was confirmed (${changed.join(', ')}); run namzu schedule confirm ${job.name}`,
@@ -303,12 +335,14 @@ export async function runFire(
 	let projectCtx: CommandContext
 	let layers: ReturnType<typeof readPermissionLayers>
 	try {
-		projectCtx = resolveTrustedProjectContext(ctx, folder.canonical)
+		projectCtx =
+			job.workspace === 'none' ? ctx : resolveTrustedProjectContext(ctx, folder.canonical)
 		// The user config is the scheduler's home's, whatever NAMZU_HOME the
 		// environment given to the run names (or leaves unset).
 		layers = readPermissionLayers({
 			cwd: folder.canonical,
 			env: { ...(deps.env ?? process.env), NAMZU_HOME: paths.home },
+			...(job.workspace === 'none' ? { includeProject: false } : {}),
 		})
 	} catch (error) {
 		return blocked(
@@ -756,7 +790,20 @@ async function runScriptJob(
 ): Promise<number> {
 	const script = job.script
 	if (!script) return blocked(`${job.name} is a script job with no script recorded`)
-	const env = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+	const env: NodeJS.ProcessEnv = { ...(deps.env ?? process.env), NAMZU_HOME: paths.home }
+	let scriptStateRevision: number | undefined
+	if (script.report === 'json-v1') {
+		try {
+			const snapshot = readScriptState(paths, job.id)
+			env.NAMZU_SCHEDULE_STATE = snapshot.state
+			env.NAMZU_SCHEDULE_STATE_REVISION = String(snapshot.revision)
+			scriptStateRevision = snapshot.revision
+		} catch (error) {
+			return blocked(
+				`script state cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
 	const result = await runScript(script.body, script.shell, {
 		cwd,
 		env,
@@ -779,7 +826,19 @@ async function runScriptJob(
 			scriptOutput,
 		})
 	}
-	if (result.exitCode === 0) return finish('completed', 0, { scriptOutput })
+	if (result.exitCode === 0) {
+		if (script.report === 'json-v1') {
+			const parsed = parseScriptReport(result.stdout)
+			if (!parsed.ok) return finish('check-failed', 1, { reason: parsed.reason, scriptOutput })
+			return finish('completed', 0, {
+				scriptOutput,
+				scriptReport: parsed.result,
+				scriptStateRevision,
+				...(parsed.result.state === 'changed' ? { summary: parsed.result.summary } : {}),
+			})
+		}
+		return finish('completed', 0, { scriptOutput })
+	}
 	return finish('failed', result.exitCode ?? 1, {
 		reason: `the script exited ${result.exitCode ?? 'without a code'}`,
 		scriptOutput,

@@ -27,6 +27,7 @@ import {
 	readVersioned,
 	writeJsonAtomic,
 } from './atomic.js'
+import { scriptStatePath } from './script-state.js'
 
 export const JOB_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -64,13 +65,13 @@ export function stableStringify(value: unknown): string {
  * The digest of what a confirmation vouches for: the prompt, the folder and
  * its trust, the permissions, the schedule, the model, the budget, the
  * approval window, the pinned project config, and — when the job runs one —
- * the script's exact text, shell and timeout. Not a secret — a tripwire: a
- * later change to the script needs re-confirmation exactly as a change to
- * the prompt does, through this same digest, not a second mechanism.
+ * the script's exact text, shell, timeout and report mode, plus any private
+ * workspace or source-conversation delivery binding. This digest is a tripwire:
+ * a later change to any bound field needs re-confirmation.
  *
- * `runKind`/`script`/`wakeGate` are folded in only when the job actually has
- * a non-`agent` `runKind`: an ordinary `agent` job's digest is byte-for-byte
- * what it always was, so upgrading namzu never holds an already-confirmed
+ * The script group is added only for a non-agent `runKind`; workspace and
+ * delivery are added only when present. An ordinary legacy agent job's digest
+ * stays byte-for-byte what it was, so upgrading namzu never holds an already-confirmed
  * `v:1` job that this design never touched.
  */
 export function jobSecurityDigest(job: ScheduleJob): string {
@@ -82,6 +83,11 @@ export function jobSecurityDigest(job: ScheduleJob): string {
 		.update(
 			stableStringify({
 				prompt: job.prompt,
+				...(job.workspace !== undefined ? { workspace: job.workspace } : {}),
+				...(job.delivery !== undefined ? { delivery: job.delivery } : {}),
+				...(job.deliveryWaiverRunIds?.length
+					? { deliveryWaiverRunIds: job.deliveryWaiverRunIds }
+					: {}),
 				folder: job.folder.canonical,
 				trust: job.trust?.canonical ?? null,
 				permissions: job.permissions,
@@ -321,4 +327,5 @@ export function deleteJob(paths: SchedulePaths, id: string): void {
 	rmSync(markerDir(paths, id), { recursive: true, force: true })
 	rmSync(paths.stateOf(id), { force: true })
 	rmSync(paths.claimsOf(id), { recursive: true, force: true })
+	rmSync(scriptStatePath(paths, id), { force: true })
 }

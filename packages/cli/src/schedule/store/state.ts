@@ -1,7 +1,9 @@
 /**
  * `schedule/state/<job-id>.json`: what the daemon remembers about a job
- * between evaluations. The daemon is its only writer (one daemon owns a home
- * at a time, by lease), so a plain replace is enough.
+ * between evaluations. The daemon writes while it owns the home lease; a
+ * foreground run-now or park settlement takes the same lease for its state
+ * transition. Operator removal can also clear pending state explicitly, so
+ * callers outside those leased paths must reread before replacing a view.
  */
 
 import { nextFireTime } from '@namzu/sdk'

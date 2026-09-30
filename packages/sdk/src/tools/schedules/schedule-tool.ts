@@ -54,6 +54,12 @@ const inputSchema = z.object({
 			body: z.string().min(1).describe('The exact script text, run verbatim once confirmed'),
 			shell: z.enum(['bash', 'sh']).describe('Which shell reads it; no default'),
 			timeoutMs: z.number().int().positive().optional().describe('The script’s own wall clock'),
+			report: z
+				.literal('json-v1')
+				.optional()
+				.describe(
+					'Pure script only: stdout must be exactly one JSON object line, {"v":1,"state":"quiet"} or {"v":1,"state":"changed","summary":"..."}, with optional nextState. Quiet runs report no result; changed runs deliver the summary. The scheduler owns nextState. Omit for ordinary stdout.',
+				),
 		})
 		.optional()
 		.describe(
@@ -75,7 +81,13 @@ const inputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"create: existing working directory for the job; leave unset for the session's folder when valid. The file system root, the operator's home directory, NAMZU_HOME and a folder containing NAMZU_HOME are refused. If this session is in one of those, choose an existing project subfolder and set folder explicitly",
+			"create/update: existing project directory for the job; leave unset to use this session's project folder. Root, the operator's home directory, NAMZU_HOME and a folder containing NAMZU_HOME are refused. For a project-free pure script use workspace: 'none' and omit folder; do not make a visible folder merely to satisfy validation",
+		),
+	workspace: z
+		.literal('none')
+		.optional()
+		.describe(
+			'create/update: pure script only. Run in a private scheduler workspace with no project; omit folder. The script still runs as your user on this machine, so this is not a sandbox or a write boundary.',
 		),
 	tz: z
 		.string()
@@ -299,6 +311,12 @@ async function create(
 	if (runKind === 'agent' && input.script !== undefined) {
 		return refuse('an agent job has no script; omit kind (or set it to agent) to use one')
 	}
+	if (input.workspace === 'none' && runKind !== 'script')
+		return refuse("workspace: 'none' is only for a pure script job")
+	if (input.workspace === 'none' && input.folder !== undefined)
+		return refuse("workspace: 'none' cannot be combined with folder; omit folder")
+	if (input.script?.report !== undefined && runKind !== 'script')
+		return refuse('script.report is only for a pure script job')
 	if (runKind === 'script' && input.prompt !== undefined)
 		return refuse('a pure script job has no prompt; remove prompt')
 	if (runKind === 'script' && input.budget !== undefined) {
@@ -318,6 +336,7 @@ async function create(
 		...(input.script ? { script: input.script } : {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
+		...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		...(input.notifyOnFinish !== undefined ? { notifyOnFinish: input.notifyOnFinish } : {}),
 		permissions,
@@ -389,6 +408,7 @@ const CHANGEABLE = [
 	'prompt',
 	'when',
 	'folder',
+	'workspace',
 	'tz',
 	'notifyOnFinish',
 	'permissions',
@@ -422,6 +442,12 @@ async function update(
 			'update cannot set kind to agent while also giving a script; drop script to make it an agent job, or leave kind unset (or as script/script+agent) to keep one.',
 		)
 	}
+	if (input.workspace === 'none' && input.folder !== undefined)
+		return refuse("workspace: 'none' cannot be combined with folder; omit folder")
+	if (input.workspace === 'none' && input.kind !== undefined && input.kind !== 'script')
+		return refuse("workspace: 'none' is only for a pure script job")
+	if (input.script?.report !== undefined && input.kind !== undefined && input.kind !== 'script')
+		return refuse('script.report is only for a pure script job')
 	let permissions: ScheduleJobDraft['permissions'] | undefined
 	if (input.permissions) {
 		const checked = checkPermissions(host, input.permissions)
@@ -448,6 +474,7 @@ async function update(
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.when !== undefined ? { when: input.when } : {}),
 		...(input.folder !== undefined ? { folder: input.folder } : {}),
+		...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		...(input.notifyOnFinish !== undefined ? { notifyOnFinish: input.notifyOnFinish } : {}),
 		...(permissions ? { permissions } : {}),
@@ -532,7 +559,13 @@ async function lifecycle(
 	}
 	if (action === 'pause') await host.pause(job.name)
 	else if (action === 'resume') await host.resume(job.name)
-	else await host.delete(job.name)
+	else {
+		try {
+			await host.delete(job.name)
+		} catch (error) {
+			return refuse(error instanceof Error ? error.message : String(error))
+		}
+	}
 	const verb = action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'deleted'
 	return { success: true, output: `Job "${job.name}" ${verb}.`, data: { name: job.name, action } }
 }
@@ -554,7 +587,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: model prompts or fixed scripts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, update, resume and delete are confirmed by the operator; pause is not. A job needs name, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). agent and script+agent also need prompt; script and script+agent also need script. For a pure script, use permissions {rules:{},unmatched:'deny'} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script has no prompt, model, agent budget, browser grant or session; set script.timeoutMs to limit it. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave folder unset when the session folder is valid; home, root and NAMZU_HOME are invalid, so choose an existing project subfolder there. Leave tz, execution, budget and headed unset unless the user asked for them: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
+				"Manage durable jobs that run later, including while Namzu is closed when its scheduler is installed. For repetition in this open conversation while the TUI is open, use session_loop (/loop); a loop is not a background service. Use schedule only when the user asks for durable scheduled work. create, update, resume and delete ask the operator; pause does not. A job needs name, when and explicit permissions. agent and script+agent need prompt; script and script+agent need script. For a pure script, use permissions {rules:{},unmatched:'deny'} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script has no prompt, model, agent budget, browser grant or run session; set script.timeoutMs to limit it. A pure script may opt into script.report:'json-v1': one JSON stdout line says quiet or changed with a summary and optional scheduler-owned nextState. For a project-free pure script set workspace:'none' and omit folder; its private scheduler workspace is not a sandbox, and its shell still has host authority. For project work, use the actual existing project folder; home, root and NAMZU_HOME are invalid. Do not create a visible folder merely to satisfy validation. The requesting conversation can receive important results separately from the run workspace. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave tz, execution, budget and headed unset unless requested: defaults are the operator's. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

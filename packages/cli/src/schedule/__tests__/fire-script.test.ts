@@ -97,6 +97,78 @@ describe('a script job, fired', () => {
 		expect(result?.scriptOutput?.stdout.trim()).toBe(job.folder.canonical)
 	})
 
+	it('runs a no-project script in its private workspace without loading project config', async () => {
+		const job = confirmedJob(sb, {
+			name: 'no-project',
+			runKind: 'script',
+			workspace: 'none',
+			script: { body: 'pwd', shell: host.dialect },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		// A script may create files in its own scratch space. They must not
+		// silently become a project configuration on its next run.
+		writeFileSync(join(job.folder.canonical, 'namzu.config.json'), '{broken json')
+		const { code, result } = await fire(job)
+		expect(code).toBe(0)
+		expect(result?.status).toBe('completed')
+		expect(result?.scriptOutput?.stdout.trim()).toBe(job.folder.canonical)
+		expect(result?.sessionId).toBeUndefined()
+	})
+
+	it('turns an opt-in JSON report into a bounded change result with a state revision', async () => {
+		const job = confirmedJob(sb, {
+			name: 'reported-poll',
+			runKind: 'script',
+			workspace: 'none',
+			script: {
+				body: `echo '{"v":1,"state":"changed","summary":"New issue","nextState":"issue-1"}'`,
+				shell: host.dialect,
+				report: 'json-v1',
+			},
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const { code, result } = await fire(job)
+		expect(code).toBe(0)
+		expect(result).toMatchObject({
+			v: 3,
+			status: 'completed',
+			summary: 'New issue',
+			scriptStateRevision: 0,
+			scriptReport: { v: 1, state: 'changed', nextState: 'issue-1' },
+		})
+	})
+
+	it('fails a malformed JSON report without claiming it was a quiet poll', async () => {
+		const job = confirmedJob(sb, {
+			name: 'bad-report',
+			runKind: 'script',
+			script: { body: 'echo not-json', shell: host.dialect, report: 'json-v1' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const { code, result } = await fire(job)
+		expect(code).toBe(1)
+		expect(result?.status).toBe('check-failed')
+		expect(result?.reason).toMatch(/valid JSON/)
+		expect(result?.scriptReport).toBeUndefined()
+	})
+
+	it('refuses a replaced private workspace before running its script', async () => {
+		const job = confirmedJob(sb, {
+			name: 'replaced-scratch',
+			runKind: 'script',
+			workspace: 'none',
+			script: { body: 'echo should-not-run', shell: host.dialect },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const moved = `${job.folder.canonical}.moved`
+		renameSync(job.folder.canonical, moved)
+		symlinkSync(moved, job.folder.canonical)
+		const { code, result } = await fire(job)
+		expect(code).toBe(77)
+		expect(result?.status).toBe('blocked-config')
+		expect(result?.scriptOutput).toBeUndefined()
+	})
+
 	it('records a non-zero exit as failed, with the exit code', async () => {
 		const job = scriptJob('exit 7')
 		const { result } = await fire(job)

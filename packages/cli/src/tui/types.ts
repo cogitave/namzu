@@ -32,6 +32,8 @@ export interface TranscriptMessage {
 	readonly id: string
 	readonly role: MessageRole
 	readonly content: string
+	/** Host-only schedule result from the active conversation's sidecar inbox. */
+	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */
 	readonly statusRows?: readonly (readonly [string, string])[]
 	readonly pending?: boolean

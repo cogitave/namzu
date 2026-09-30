@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-30
+
+- **Update** [Scheduled tasks](cli/scheduled-tasks.md), [Session storage](cli/session-storage.md), [Session loops](cli/session-loops.md) and [SDK schedules](sdk/schedules.md): a confirmed pure script can use a private no-project workspace, an opt-in JSON report distinguishes quiet checks from changes with scheduler-owned state, and noteworthy scheduled results return to the exact source conversation as durable host notices without becoming model turns. Source notices are paged in publication order; an operator can review and waive exact pending results when detaching a lost source. `.changeset/schedule-source-ownership.md`, **major** for `@namzu/cli` because new interactive proposals default to source delivery (use `schedule edit <job> --delivery none` to detach), **minor** for `@namzu/sdk`.
+
 ## 2026-09-29
 
 - **Update** [CLI peer audit](cli/competitive-gaps.md#mcp-plugins-and-memory-2026-09-29): a real CLI compaction regression now checks that curated files and the stored-memory index reach the next provider request only as user-role step context, outside system guidance, the compaction summary and durable history.

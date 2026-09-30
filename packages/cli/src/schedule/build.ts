@@ -17,6 +17,7 @@
  * {@link confirmJob} records who confirmed it and on which surface.
  */
 
+import { dirname, join } from 'node:path'
 import {
 	SCHEDULE_CATCH_UP_WINDOW_MS,
 	type ScheduleSpec,
@@ -35,7 +36,7 @@ import {
 	type ProviderId,
 	readPreferences,
 } from '../integrations/providers/index.js'
-import { checkJobFolder } from './folder.js'
+import { checkJobFolder, ensureScratchFolder, plannedScratchFolder } from './folder.js'
 import type { SchedulePaths } from './paths.js'
 import {
 	type CompiledJobPolicy,
@@ -72,7 +73,12 @@ export interface JobRequest {
 	readonly when: string
 	/** A spec already parsed (an edit that keeps its schedule); `when` is then ignored. */
 	readonly spec?: ScheduleSpec
-	readonly folder: string
+	/** Required for project jobs. Omitted when `workspace` is `'none'`. */
+	readonly folder?: string
+	/** Pure scripts only. Absent keeps the existing project-folder behavior. */
+	readonly workspace?: 'none'
+	readonly delivery?: ScheduleJob['delivery']
+	readonly deliveryWaiverRunIds?: readonly string[]
 	readonly tz?: string
 	readonly permissions: PermissionInput
 	readonly budget?: Partial<ScheduleBudget>
@@ -95,6 +101,7 @@ export interface JobRequest {
 		readonly body: string
 		readonly shell: 'bash' | 'sh'
 		readonly timeoutMs?: number
+		readonly report?: 'json-v1'
 	}
 	/** `runKind: 'script+agent'` only. */
 	readonly wakeGate?: { readonly maxContextChars?: number }
@@ -149,6 +156,8 @@ export function buildJob(
 		readonly config: Pick<NamzuCliConfig, 'limits'>
 		readonly now: Date
 		readonly osHome?: string
+		/** The existing job id when rebuilding an edit. */
+		readonly jobId?: string
 	},
 ): ScheduleJob {
 	if (!JOB_NAME.test(request.name)) {
@@ -157,6 +166,14 @@ export function buildJob(
 		)
 	}
 	const runKind = request.runKind ?? 'agent'
+	if (request.workspace !== undefined && request.workspace !== 'none')
+		throw new JobRequestError('workspace is none or omitted for a project job')
+	if (request.workspace === 'none' && runKind !== 'script')
+		throw new JobRequestError('workspace: none only applies to a pure script job')
+	if (request.workspace === 'none' && request.folder !== undefined)
+		throw new JobRequestError('workspace: none cannot be combined with a project folder')
+	if (request.workspace === undefined && request.folder === undefined)
+		throw new JobRequestError('a project folder is required unless workspace is none')
 	if (runKind === 'script' && (request.model !== undefined || request.effort !== undefined)) {
 		throw new JobRequestError(
 			'a pure script job has no model or effort; remove --model and --effort',
@@ -166,6 +183,25 @@ export function buildJob(
 		throw new JobRequestError('a pure script job has no prompt; remove the prompt')
 	if (runKind === 'agent' && request.script !== undefined) {
 		throw new JobRequestError('an agent job has no script; pass --kind script or script+agent')
+	}
+	if (request.script?.report !== undefined && request.script.report !== 'json-v1')
+		throw new JobRequestError('script report is json-v1 or omitted')
+	if (request.script?.report !== undefined && runKind !== 'script')
+		throw new JobRequestError('script reports only apply to a pure script job')
+	if (request.deliveryWaiverRunIds?.length) {
+		if (request.delivery !== undefined)
+			throw new JobRequestError('a source binding cannot carry delivery waivers')
+		if (
+			request.deliveryWaiverRunIds.length > 1_000 ||
+			new Set(request.deliveryWaiverRunIds).size !== request.deliveryWaiverRunIds.length ||
+			request.deliveryWaiverRunIds.some(
+				(id) =>
+					!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
+						id,
+					),
+			)
+		)
+			throw new JobRequestError('delivery waiver run IDs are invalid')
 	}
 	if (runKind !== 'agent' && !request.script?.body.trim()) {
 		throw new JobRequestError(
@@ -223,11 +259,26 @@ export function buildJob(
 			`execution: sandbox is not yet supported for a ${runKind} job's script phase; use execution: host (a follow-up may add sandboxed scripts)`,
 		)
 	}
-	const folder = checkJobFolder(request.folder, {
-		namzuHome: context.paths.home,
-		...(context.osHome ? { osHome: context.osHome } : {}),
-	})
-	if (!folder.ok) throw new JobRequestError(folder.reason)
+	const id = context.jobId ?? generateScheduleJobId()
+	const folder = (() => {
+		if (request.workspace === 'none') {
+			try {
+				const path = plannedScratchFolder(context.paths.home, id)
+				return { path, canonical: path }
+			} catch (error) {
+				throw new JobRequestError(
+					`scratch folder cannot be planned: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
+		const path = request.folder as string
+		const checked = checkJobFolder(path, {
+			namzuHome: context.paths.home,
+			...(context.osHome ? { osHome: context.osHome } : {}),
+		})
+		if (!checked.ok) throw new JobRequestError(checked.reason)
+		return { path, canonical: checked.canonical }
+	})()
 	const extra = (permissions.additionalDirectories ?? []).map((dir) => {
 		const checked = checkJobFolder(dir, {
 			namzuHome: context.paths.home,
@@ -268,17 +319,25 @@ export function buildJob(
 	if (
 		request.script &&
 		request.script.timeoutMs !== undefined &&
-		(!Number.isSafeInteger(request.script.timeoutMs) || request.script.timeoutMs <= 0)
+		(!Number.isSafeInteger(request.script.timeoutMs) ||
+			request.script.timeoutMs <= 0 ||
+			request.script.timeoutMs > 2_147_483_647 - 60_000)
 	) {
 		throw new JobRequestError(
-			'the script timeout must be a whole number of milliseconds above zero',
+			'the script timeout must be a whole number of milliseconds above zero and below the timer limit',
 		)
 	}
 	const at = context.now.toISOString()
 	return {
-		v: jobFormatVersion({ runKind }),
+		v: jobFormatVersion({
+			runKind,
+			script: request.script,
+			workspace: request.workspace,
+			delivery: request.delivery,
+			deliveryWaiverRunIds: request.deliveryWaiverRunIds,
+		}),
 		kind: 'schedule-job',
-		id: generateScheduleJobId(),
+		id,
 		name: request.name,
 		revision: 0,
 		createdAt: at,
@@ -294,6 +353,7 @@ export function buildJob(
 						timeoutMs:
 							(request.script as NonNullable<JobRequest['script']>).timeoutMs ??
 							DEFAULT_SCRIPT_TIMEOUT_MS,
+						...(request.script?.report ? { report: request.script.report } : {}),
 					},
 				}
 			: {}),
@@ -304,7 +364,12 @@ export function buildJob(
 					},
 				}
 			: {}),
-		folder: { path: request.folder, canonical: folder.canonical },
+		...(request.workspace === 'none' ? { workspace: 'none' as const } : {}),
+		...(request.delivery ? { delivery: request.delivery } : {}),
+		...(request.deliveryWaiverRunIds?.length
+			? { deliveryWaiverRunIds: request.deliveryWaiverRunIds }
+			: {}),
+		folder,
 		trust: null,
 		schedule: spec,
 		permissions: {
@@ -347,10 +412,35 @@ export function confirmJob(
 	job: ScheduleJob,
 	surface: ConfirmationSurface,
 	now: Date,
-	options: { readonly paused?: boolean } = {},
+	options: { readonly paused?: boolean; readonly paths?: SchedulePaths } = {},
 ): ScheduleJob {
 	if (surface === 'cli-noninteractive')
 		return { ...job, state: 'pending-confirmation', confirmation: null }
+	if (job.workspace !== undefined && job.workspace !== 'none')
+		throw new JobRequestError('the job has an unknown workspace mode')
+	if (job.workspace === 'none') {
+		if (job.runKind !== 'script')
+			throw new JobRequestError('workspace: none only applies to a pure script job')
+		const paths = options.paths
+		if (!paths)
+			throw new JobRequestError(
+				'a no-project job needs schedule paths to confirm its scratch folder',
+			)
+		let expected: string
+		try {
+			expected = plannedScratchFolder(paths.home, job.id)
+		} catch (error) {
+			throw new JobRequestError(
+				`scratch folder cannot be planned: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+		if (job.folder.path !== expected || job.folder.canonical !== expected)
+			throw new JobRequestError('scratch folder differs from the job id and NAMZU_HOME')
+		const checked = ensureScratchFolder(paths.home, job.id)
+		if (!checked.ok) throw new JobRequestError(checked.reason)
+		if (checked.canonical !== expected)
+			throw new JobRequestError('scratch folder resolves outside its planned path')
+	}
 	const at = now.toISOString()
 	const trusted: ScheduleJob = {
 		...job,
@@ -382,7 +472,16 @@ export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJ
 		runKind: rebuilt.runKind,
 		script: rebuilt.script,
 		wakeGate: rebuilt.wakeGate,
-		folder: rebuilt.folder,
+		workspace: rebuilt.workspace,
+		delivery: rebuilt.delivery,
+		deliveryWaiverRunIds: rebuilt.deliveryWaiverRunIds,
+		folder:
+			rebuilt.workspace === 'none' && rebuilt.id !== current.id
+				? {
+						path: join(dirname(rebuilt.folder.path), current.id),
+						canonical: join(dirname(rebuilt.folder.canonical), current.id),
+					}
+				: rebuilt.folder,
 		schedule: rebuilt.schedule,
 		permissions: rebuilt.permissions,
 		budget: rebuilt.budget,
@@ -434,17 +533,29 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
 	return [
 		`Job         ${job.name}`,
-		`Folder      ${job.folder.canonical}`,
+		...(job.workspace === 'none'
+			? ['Workspace   none (private scratch directory for this job)']
+			: [`Folder      ${job.folder.canonical}`]),
 		...(job.runKind === 'script'
-			? ['Scope       this folder is the script’s working directory, not a write boundary']
+			? [
+					job.workspace === 'none'
+						? 'Scope       private scratch directory is the script’s working directory, not a write boundary'
+						: 'Scope       this folder is the script’s working directory, not a write boundary',
+				]
 			: []),
 		`When        ${describeSchedule(job.schedule, { tz })}`,
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
 		`Notify      ${job.notify.finished ? 'routine completion notices enabled (rate limited)' : 'no routine completed-run notice; failures still notify'}`,
+		...(job.delivery?.kind === 'source-conversation'
+			? ['Results     post back to the source conversation']
+			: []),
 		...(job.runKind === 'script'
 			? [
 					'Model       none (script only)',
 					`Budget      0 tokens; script timeout ${job.script ? duration(job.script.timeoutMs) : 'unknown'} per run`,
+					...(job.script?.report === 'json-v1'
+						? ['Report      json-v1 (structured status and scheduler-owned state)']
+						: []),
 				]
 			: [
 					`Model       ${job.model?.provider ?? '(missing)'}${job.model?.model ? `/${job.model.model}` : ''}${job.model?.effort ? ` (${job.model.effort})` : ''}`,

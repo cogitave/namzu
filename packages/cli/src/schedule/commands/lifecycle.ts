@@ -20,7 +20,12 @@ import type { CommandContext } from '../../commands/types.js'
 import { EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../../exit-codes.js'
 import { closeSessions, refreshIndex } from '../../integrations/sessions/store.js'
 import { CLI_VERSION } from '../../version.js'
-import { MANUAL_KEY_PREFIX, ScheduleDaemon, appendRunRecord } from '../daemon/daemon.js'
+import {
+	MANUAL_KEY_PREFIX,
+	ScheduleDaemon,
+	appendRunRecord,
+	noSessionStartGraceMs,
+} from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
 import { abandonParkedTurn, sessionFacts, sessionLeaseLive } from '../daemon/sessions.js'
 import { callsLine } from '../fire/calls.js'
@@ -110,10 +115,11 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 	try {
 		const job = findJob(paths, args.positionals[0])
 		const state = readState(paths, job.id)
-		if (state.activeRun && !has(args, 'force')) {
+		if ((state.activeRun || state.deliveryPending?.length) && !has(args, 'force')) {
 			ctx.formatter.error({
-				message:
-					state.activeRun.status === 'awaiting-approval'
+				message: state.deliveryPending?.length
+					? `${job.name} has a result waiting for source delivery or state commit; let the scheduler settle it, or pass --force to discard that delivery and remove the job`
+					: state.activeRun?.status === 'awaiting-approval'
 						? `${job.name} has a run waiting for approval; pass --force to remove the job anyway (the waiting turn is abandoned)`
 						: `${job.name} has a run in progress; pass --force to remove the job anyway (the run is left to finish)`,
 			})
@@ -124,7 +130,12 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 				ctx.formatter.error({ message: 'no terminal to confirm on; pass --yes' })
 				return EXIT_USAGE
 			}
-			if (!(await askYesNo(`Remove the scheduled job ${job.name}? Its history is kept.`))) return 1
+			const pendingResult = Boolean(state.deliveryPending?.length || state.activeRun?.delivery)
+			const question =
+				pendingResult && has(args, 'force')
+					? `Remove the scheduled job ${job.name}? Its history is kept, but its pending or running result will not be delivered to the source conversation.`
+					: `Remove the scheduled job ${job.name}? Its history is kept.`
+			if (!(await askYesNo(question))) return 1
 		}
 		// A park nobody can answer once the job is gone: its turn is closed and
 		// the run recorded now. A run still going records its own end.
@@ -137,6 +148,13 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 			}
 		}
 		deleteJob(paths, job.id)
+		if (has(args, 'force') && state.deliveryPending?.length) {
+			writeState(paths, {
+				...readState(paths, job.id),
+				deliveryPending: undefined,
+				lastDeliveryIssue: undefined,
+			})
+		}
 		if (parked) {
 			appendRunRecord(
 				paths,
@@ -163,7 +181,13 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 			action: 'removed',
 			by: 'operator',
 		})
-		ctx.formatter.print({ text: `Removed ${job.name}.` })
+		const undelivered =
+			has(args, 'force') && Boolean(state.deliveryPending?.length || state.activeRun?.delivery)
+		ctx.formatter.print({
+			text: undelivered
+				? `Removed ${job.name}; its pending or running source result will not be delivered.`
+				: `Removed ${job.name}.`,
+		})
 		return EXIT_OK
 	} catch (error) {
 		ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
@@ -231,7 +255,13 @@ export async function settleAnsweredPark(
 ): Promise<ScheduleJobState | undefined> {
 	const endpoint = readEndpoint(paths.endpoint)
 	if (endpoint && (await callEndpoint(endpoint, 'reload'))) return readState(paths, jobId)
-	return foregroundRecorder(paths).reconcileJob(jobId)
+	const recorder = foregroundRecorder(paths)
+	if (!(await recorder.claimOwnership())) return readState(paths, jobId)
+	try {
+		return await recorder.reconcileJob(jobId)
+	} finally {
+		await recorder.releaseOwnership()
+	}
 }
 
 export async function runNowCommand(
@@ -262,60 +292,88 @@ export async function runNowCommand(
 				return 1
 			}
 		}
-		// No daemon: run it here, in the foreground, with the same once-only claim.
-		if (job.state !== 'active' || !confirmationHolds(job)) {
-			ctx.formatter.error({ message: `${job.name} is not active and confirmed` })
-			return 1
-		}
+		// The endpoint may be absent while the daemon still owns this home.
+		// Hold its fenced lease through admission so it cannot dispatch between
+		// our active-run check and state write. Release before running the child:
+		// a daemon starting afterwards adopts this recorded foreground run.
 		const recorder = foregroundRecorder(paths)
-		let state = readState(paths, job.id)
-		// An earlier foreground run whose process is gone (killed, the terminal
-		// closed) is settled first, as a scheduler would settle it.
-		if (state.activeRun?.daemonEpoch === FOREGROUND_EPOCH)
-			state = (await recorder.reconcileJob(job.id)) ?? state
-		if (state.activeRun) {
+		if (!(await recorder.claimOwnership())) {
 			ctx.formatter.error({
-				message: `${job.name} already has a run ${state.activeRun.status === 'awaiting-approval' ? 'waiting for approval' : 'in progress'}`,
+				message:
+					'The scheduler owns this home but its command endpoint is unavailable; retry run-now when the scheduler responds.',
 			})
 			return 1
 		}
-		const runId = generateScheduleRunId()
-		const key = `${MANUAL_KEY_PREFIX}${runId}`
-		const startedAt = new Date().toISOString()
-		if (
-			!claimOccurrence(paths, {
-				jobId: job.id,
-				key,
+		let run: ActiveRun
+		try {
+			const current = readJob(paths, job.id)
+			if (!current || current.revision !== job.revision) {
+				ctx.formatter.error({ message: `${job.name} changed; read it again before running` })
+				return 1
+			}
+			if (current.state !== 'active' || !confirmationHolds(current)) {
+				ctx.formatter.error({ message: `${job.name} is not active and confirmed` })
+				return 1
+			}
+			let state = readState(paths, job.id)
+			// An earlier foreground run whose process is gone (killed, the terminal
+			// closed) is settled first, as a scheduler would settle it.
+			if (state.activeRun?.daemonEpoch === FOREGROUND_EPOCH)
+				state = (await recorder.reconcileJob(job.id)) ?? state
+			if (state.activeRun) {
+				ctx.formatter.error({
+					message: `${job.name} already has a run ${state.activeRun.status === 'awaiting-approval' ? 'waiting for approval' : 'in progress'}`,
+				})
+				return 1
+			}
+			if (state.deliveryPending?.length) {
+				ctx.formatter.error({
+					message: `${job.name} has a result still waiting for delivery or state commit; let the scheduler settle it before running again`,
+				})
+				return 1
+			}
+			const runId = generateScheduleRunId()
+			const key = `${MANUAL_KEY_PREFIX}${runId}`
+			const startedAt = new Date().toISOString()
+			if (
+				!claimOccurrence(paths, {
+					jobId: job.id,
+					key,
+					runId,
+					daemonEpoch: FOREGROUND_EPOCH,
+					at: startedAt,
+				})
+			)
+				return 1
+			// Recorded as the job's run in progress, as a daemon's run is: a
+			// scheduler that starts afterwards adopts it instead of starting the
+			// next occurrence beside it.
+			run = {
 				runId,
+				key,
+				trigger: 'manual',
+				startedAt,
 				daemonEpoch: FOREGROUND_EPOCH,
+				status: 'running',
+				noSessionGraceMs: noSessionStartGraceMs(current),
+				...(current.delivery ? { delivery: current.delivery } : {}),
+			}
+			writeState(paths, { ...readState(paths, job.id), activeRun: run })
+			appendHistory(paths, job.id, {
+				v: 1,
+				kind: 'run',
 				at: startedAt,
+				runId,
+				key,
+				trigger: 'manual',
+				startedAt,
+				status: 'running',
 			})
-		)
-			return 1
-		ctx.formatter.info(`The scheduler is not running; running ${job.name} here.`)
-		// Recorded as the job's run in progress, as a daemon's run is: a
-		// scheduler that starts meanwhile adopts it instead of starting the
-		// next occurrence beside it, and a park is found by `/resume`, held
-		// against later occurrences and expired like any other.
-		const run: ActiveRun = {
-			runId,
-			key,
-			trigger: 'manual',
-			startedAt,
-			daemonEpoch: FOREGROUND_EPOCH,
-			status: 'running',
+		} finally {
+			await recorder.releaseOwnership()
 		}
-		writeState(paths, { ...readState(paths, job.id), activeRun: run })
-		appendHistory(paths, job.id, {
-			v: 1,
-			kind: 'run',
-			at: startedAt,
-			runId,
-			key,
-			trigger: 'manual',
-			startedAt,
-			status: 'running',
-		})
+		ctx.formatter.info(`The scheduler is not running; running ${job.name} here.`)
+		const { runId, key, startedAt } = run
 		// How the run ended is recorded once, whichever way it ends: runFire
 		// returning, its watchdog stopping the process, or a signal.
 		let recorded: Promise<ScheduleRunResult> | undefined
@@ -335,9 +393,25 @@ export async function runNowCommand(
 							exitCode: code || 1,
 							reason,
 						}
-				if (!(await recorder.finalizeRun(job.id, runId, result)) && !readJob(paths, job.id)) {
-					// Removed with --force meanwhile: nothing else will record it.
-					appendRunRecord(paths, job.id, run, result, new Date().toISOString())
+				if (!(await recorder.claimOwnership())) {
+					// The daemon owns the state now. Its next tick adopts this run's
+					// result; writing from here would race that reconciliation.
+					// A removed job is no longer visited by the daemon at all.
+					if (!readJob(paths, job.id))
+						appendRunRecord(paths, job.id, run, result, new Date().toISOString())
+					else {
+						const currentEndpoint = readEndpoint(paths.endpoint)
+						if (currentEndpoint) await callEndpoint(currentEndpoint, 'reload')
+					}
+					return result
+				}
+				try {
+					if (!(await recorder.finalizeRun(job.id, runId, result)) && !readJob(paths, job.id)) {
+						// Removed with --force meanwhile: nothing else will record it.
+						appendRunRecord(paths, job.id, run, result, new Date().toISOString())
+					}
+				} finally {
+					await recorder.releaseOwnership()
 				}
 				return result
 			})()

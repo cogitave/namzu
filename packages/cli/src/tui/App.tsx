@@ -206,6 +206,13 @@ import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
+import { schedulePaths } from '../schedule/paths.js'
+import {
+	SourceDeliveryView,
+	sourceConversationBinding,
+	sourceDeliveryLine,
+	sourceDeliveryReadError,
+} from './schedule/source-deliveries.js'
 import {
 	type ScheduleReviewAnswer,
 	type ScheduleReviewRequest,
@@ -1730,6 +1737,10 @@ export function App({
 		model?: { readonly provider: string; readonly model?: string }
 	} | null>(null)
 	const scheduleRef = useRef<ScheduleIntegration | null>(null)
+	const sourceDeliveryViewRef = useRef<SourceDeliveryView | null>(null)
+	if (sourceDeliveryViewRef.current === null) sourceDeliveryViewRef.current = new SourceDeliveryView()
+	const sourceDeliveryPollRef = useRef<() => void>(() => {})
+	const sourceDeliveryIssueRef = useRef<string | null>(null)
 	if (scheduleRef.current === null) {
 		scheduleRef.current = createScheduleIntegration({
 			home: () => sessionsRef.current?.root ?? resolveNamzuHome(),
@@ -1738,6 +1749,12 @@ export function App({
 			config: () => ctxRef.current,
 			model: () => scheduleLiveRef.current?.model,
 			sessionId: () => (conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined),
+			sourceConversation: () =>
+				sourceConversationBinding(
+					sessionsRef.current,
+					scopeRef.current,
+					conversationMaterializedRef.current,
+				),
 			loopsFile: () => {
 				const sessions = sessionsRef.current
 				const scope = scopeRef.current
@@ -2074,6 +2091,7 @@ export function App({
 			glyphColor?: string,
 			meta?: string,
 			activity?: TranscriptMessage['activity'],
+			sourceDelivery?: true,
 		) => {
 			const id = nextId()
 			const candidate = { role, content, pending, glyph, detail, activity }
@@ -2083,34 +2101,35 @@ export function App({
 				isRepeatedNotice(prev.at(-1), candidate)
 					? prev
 					: [
-				...prev,
-				{
-					id,
-					role,
-					content,
-					pending,
-					glyph,
-					detail,
-					glyphColor,
-					meta,
-					activity,
-					// Numbered only if this body will actually be COLLAPSED — the
-					// number exists to be read off a hint, and a body that fits
-					// prints no hint. Numbering every body instead would leave gaps
-					// the operator can see nothing of, make bare `/expand` reprint a
-					// two-line body while the truncated one above it stayed hidden,
-					// and let the out-of-range message quote a count that includes
-					// blocks no hint ever named.
-					//
-					// Derived from `prev` rather than a counter, so the number is a
-					// fact about the transcript rather than a second record of it.
-					...((activity && detail?.length) || willCollapse(detail)
-						? {
-								detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
-							}
-						: {}),
-				},
-			])
+							...prev,
+							{
+								id,
+								role,
+								content,
+								pending,
+								glyph,
+								detail,
+								glyphColor,
+								meta,
+								activity,
+								...(sourceDelivery ? { sourceDelivery } : {}),
+								// Numbered only if this body will actually be COLLAPSED — the
+								// number exists to be read off a hint, and a body that fits
+								// prints no hint. Numbering every body instead would leave gaps
+								// the operator can see nothing of, make bare `/expand` reprint a
+								// two-line body while the truncated one above it stayed hidden,
+								// and let the out-of-range message quote a count that includes
+								// blocks no hint ever named.
+								//
+								// Derived from `prev` rather than a counter, so the number is a
+								// fact about the transcript rather than a second record of it.
+								...((activity && detail?.length) || willCollapse(detail)
+									? {
+											detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
+										}
+									: {}),
+							},
+						])
 			return id
 		},
 		[nextId],
@@ -3587,6 +3606,7 @@ export function App({
 			projectId: sessions.projectId,
 			tenantId: sessions.tenantId,
 		}
+		if (conversationMaterializedRef.current) sourceDeliveryPollRef.current()
 		return scopeRef.current
 	}, [nextId])
 
@@ -3612,6 +3632,7 @@ export function App({
 				// is followed rather than contradicted.
 				if (written !== scope.sessionId) scope.sessionId = written
 				conversationMaterializedRef.current = true
+				sourceDeliveryPollRef.current()
 				return scope
 			} finally {
 				if (conversationMutationRef.current === 'materialize') {
@@ -4840,6 +4861,7 @@ export function App({
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
+			sourceDeliveryPollRef.current()
 			pushMessage('system', `Resumed: ${displayConversationTitle(conv.title)}`)
 			if (discardedQueued > 0) {
 				pushMessage(
@@ -4964,6 +4986,7 @@ export function App({
 				if (sourceScope && targetSessionId) {
 					sourceScope.sessionId = targetSessionId
 					conversationMaterializedRef.current = true
+					sourceDeliveryPollRef.current()
 					// A fresh conversation owns no turns yet, so this normally reads
 					// nothing. It runs anyway because the rule is "the scope changed,
 					// re-read", and an exception here is how the resume path lost
@@ -5195,9 +5218,12 @@ export function App({
 			await persistenceTailRef.current
 			const original = scope.sessionId
 			const forked = await forkConversation(sessions, original)
-			// The transcript on screen is already the fork's history, so nothing
-			// is reloaded or reset. Only where the NEXT turn is written changes.
+			// The fork owns the displayed history, except for host-only results
+			// delivered to the original conversation's sidecar inbox.
 			scope.sessionId = forked.id
+			resetTranscript()
+			setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
+			sourceDeliveryPollRef.current()
 			resetSubagentActivity()
 			void hydrateSavedChildren()
 			session?.resetTaskStore?.()
@@ -5219,6 +5245,7 @@ export function App({
 		materializeConversation,
 		pushMessage,
 		hydrateSavedChildren,
+		resetTranscript,
 		resetSubagentActivity,
 		session,
 		wakeGoalDriver,
@@ -5335,6 +5362,8 @@ export function App({
 				goalActivation.clear()
 				wakeGoalDriver()
 				scope.sessionId = forked.id
+				conversationMaterializedRef.current = true
+				sourceDeliveryPollRef.current()
 				void hydrateSavedChildren()
 				modelHistoryRef.current = forked.messages
 				lastAssistantMessage.current = null
@@ -8498,6 +8527,69 @@ export function App({
 				source: createdBy === 'operator' ? 'operator-loop' : 'model-loop',
 			}),
 	}
+	const pollSourceDeliveries = useCallback(() => {
+		if (appLifetime.signal.aborted) return
+		const sessions = sessionsRef.current
+		const scope = scopeRef.current
+		const source = sourceConversationBinding(
+			sessions,
+			scope,
+			conversationMaterializedRef.current,
+		)
+		if (!sessions?.root || !source) return
+		const generation = conversationGenRef.current
+		void sourceDeliveryViewRef.current
+			?.poll(schedulePaths(sessions.root), source, generation)
+			.then((deliveries) => {
+				if (
+					appLifetime.signal.aborted ||
+					conversationGenRef.current !== generation ||
+					sessionsRef.current !== sessions ||
+					!conversationMaterializedRef.current ||
+					scopeRef.current?.sessionId !== source.sessionId ||
+					scopeRef.current?.projectId !== source.projectId ||
+					scopeRef.current?.tenantId !== source.tenantId
+				) return
+				sourceDeliveryIssueRef.current = null
+				for (const delivery of deliveries)
+					pushMessage(
+						'system',
+						sourceDeliveryLine(delivery),
+						false,
+						'◷',
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						true,
+					)
+				// A startup inbox may have more than one page. Yield to Ink between
+				// bounded batches, then continue without waiting for the timer.
+				if (deliveries.length > 0 && sourceDeliveryViewRef.current?.hasMore)
+					setImmediate(() => sourceDeliveryPollRef.current())
+			})
+			.catch((error) => {
+				if (
+					appLifetime.signal.aborted ||
+					conversationGenRef.current !== generation ||
+					sessionsRef.current !== sessions ||
+					!conversationMaterializedRef.current ||
+					scopeRef.current?.sessionId !== source.sessionId ||
+					scopeRef.current?.projectId !== source.projectId ||
+					scopeRef.current?.tenantId !== source.tenantId
+				) return
+				const key = JSON.stringify([generation, source])
+				if (sourceDeliveryIssueRef.current === key) return
+				sourceDeliveryIssueRef.current = key
+				pushMessage('system', sourceDeliveryReadError(error), false, '◷')
+			})
+	}, [appLifetime.signal, pushMessage])
+	sourceDeliveryPollRef.current = pollSourceDeliveries
+	useEffect(() => {
+		pollSourceDeliveries()
+		const timer = setInterval(pollSourceDeliveries, 15_000)
+		return () => clearInterval(timer)
+	}, [pollSourceDeliveries])
 	// Scheduled work since the TUI last looked: one line, after the first
 	// paint, never blocking it. Loops fire when a turn ends, and on their timer.
 	useEffect(() => {

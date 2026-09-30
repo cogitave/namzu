@@ -73,8 +73,16 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 	return [
 		`${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Update'} “${preview.name}” · ${request.action === 'confirm' ? 'review this saved job' : request.proposedByModel === false ? 'requested by you' : 'proposed by the model'} · runs later unattended`,
 		`When    ${preview.schedule}`,
-		`Folder  ${preview.folder}`,
+		preview.workspace === 'none'
+			? 'Workspace  Private scheduler workspace (no project)'
+			: `Folder  ${preview.folder}`,
+		...(preview.delivery?.kind === 'source-conversation'
+			? [`Results  Source conversation ${preview.delivery.sessionId}`]
+			: []),
 		`Run     ${kind}${script ? ` (${preview.script?.shell ?? 'shell'} on this machine)` : ` (${preview.model ?? 'model'})`}`,
+		...(preview.script?.report === 'json-v1'
+			? ['Script report  JSON v1: quiet/changed; optional scheduler state.']
+			: []),
 		...(preview.networkAccess ? ['Network  This run can reach the network.'] : []),
 		...(preview.notifyOnFinish === false
 			? ['Notices  Generic success notices off; failures still notify.']
@@ -87,7 +95,9 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 		...(script
 			? preview.runKind === 'script'
 				? [
-						'Script: host process as your user; folder is cwd, not a write boundary.',
+						preview.workspace === 'none'
+							? 'Script: host process as your user; private workspace is cwd, not a write boundary.'
+							: 'Script: host process as your user; folder is cwd, not a write boundary.',
 						'Checks: shell commands meet floor + deny rules; interpreter code needs your review.',
 						'Allow, ask and unmatched rules do not limit this script.',
 					]
@@ -109,8 +119,14 @@ function compactSummary(request: ScheduleReviewRequest): readonly string[] {
 	const script = preview.runKind === 'script' || preview.runKind === 'script+agent'
 	return [
 		`${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Update'} · ${request.action === 'confirm' ? 'saved job' : request.proposedByModel === false ? 'your job' : 'model-proposed job'} ${preview.name}`,
-		...(script ? ['Host script · folder is cwd, not a write boundary'] : [`When ${preview.schedule}`]),
+		...(preview.delivery?.kind === 'source-conversation' ? [`Results → source conversation ${preview.delivery.sessionId}`] : []),
+		...(script
+			? [preview.workspace === 'none'
+				? 'Host script · private no-project workspace; host authority'
+				: 'Host script · folder is cwd, not a write boundary']
+			: [`When ${preview.schedule}`]),
 		...(script ? ['Shell checks only; interpreter code needs review'] : []),
+		...(preview.script?.report === 'json-v1' ? ['JSON v1 report · quiet/changed'] : []),
 		`${preview.networkAccess ? 'Network access · ' : ''}${warningCount} warning${warningCount === 1 ? '' : 's'} · read details`,
 	]
 }

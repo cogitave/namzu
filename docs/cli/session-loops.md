@@ -53,7 +53,9 @@ keys typed in the composer arm one.
 Loops live in `<session-id>/loops.json` beside the session log and come back
 when you `/resume` the conversation, except those that expired. They stop when
 the TUI exits; nothing runs them while it is closed — that is what scheduled
-jobs are for.
+jobs are for. A scheduled job can send a host-owned result notice back to the
+conversation that proposed it, but that does not run the job as a turn in this
+conversation and does not add a model message to it.
 
 ## The model's version
 

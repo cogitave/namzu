@@ -14,6 +14,7 @@ import { installedCommandShellForDialect } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
+import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import type { PermissionsConfig } from '../../permissions/rules.js'
 import {
 	type JobRequest,
@@ -41,6 +42,7 @@ import { verifyScheduledScript } from '../script-check.js'
 import { scriptShellUnavailableReason } from '../script-shell.js'
 import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
+import { readState } from '../store/state.js'
 import type { ScheduleJob, ScheduleRunKind } from '../types.js'
 import { visibleScheduleMessage } from '../visible-source.js'
 import {
@@ -61,6 +63,7 @@ export const ADD_FLAGS = [
 	'prompt-file',
 	'when',
 	'folder',
+	'workspace',
 	'permissions',
 	'unmatched',
 	'execution',
@@ -89,6 +92,8 @@ export const ADD_FLAGS = [
 	'script-file',
 	'shell',
 	'script-timeout',
+	'script-report',
+	'delivery',
 ] as const
 
 const RUN_KINDS: readonly ScheduleRunKind[] = ['agent', 'script', 'script+agent']
@@ -262,7 +267,12 @@ function promptOf(args: ParsedArgs): string {
 	throw new JobRequestError('--prompt (or --prompt-file) is required')
 }
 
-function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobRequest {
+function requestFrom(
+	args: ParsedArgs,
+	name: string,
+	base?: ScheduleJob,
+	waiverRunIds: readonly string[] = [],
+): JobRequest {
 	const notifyFinished = flag(args, 'notify-finished')
 	if (notifyFinished !== undefined && notifyFinished !== 'true' && notifyFinished !== 'false') {
 		throw new JobRequestError('--notify-finished is true or false')
@@ -309,6 +319,19 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 		throw new JobRequestError(`--kind is ${RUN_KINDS.join(', ')}`)
 	}
 	const runKind: ScheduleRunKind = kindFlag ?? base?.runKind ?? 'agent'
+	const workspaceFlag = flag(args, 'workspace')
+	if (workspaceFlag !== undefined && workspaceFlag !== 'none' && workspaceFlag !== 'project')
+		throw new JobRequestError('--workspace is none or project')
+	const workspace = workspaceFlag === 'project' ? undefined : (workspaceFlag ?? base?.workspace)
+	const deliveryFlag = flag(args, 'delivery')
+	if (deliveryFlag !== undefined && deliveryFlag !== 'none')
+		throw new JobRequestError('--delivery is none (only when editing a source-bound job)')
+	if (deliveryFlag === 'none' && !base)
+		throw new JobRequestError('--delivery none needs an existing job')
+	if (workspace === 'none' && has(args, 'folder'))
+		throw new JobRequestError('--workspace none cannot be combined with --folder')
+	if (workspaceFlag === 'project' && base?.workspace === 'none' && !has(args, 'folder'))
+		throw new JobRequestError('--workspace project needs --folder when changing a no-project job')
 	if (runKind === 'script' && (model !== undefined || effort !== undefined)) {
 		throw new JobRequestError(
 			'a pure script job has no model or effort; remove --model and --effort',
@@ -343,6 +366,21 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 	}
 	const scriptTimeoutMs =
 		parseMs('--script-timeout', flag(args, 'script-timeout')) ?? base?.script?.timeoutMs
+	const scriptReportFlag = flag(args, 'script-report')
+	if (
+		scriptReportFlag !== undefined &&
+		scriptReportFlag !== 'json-v1' &&
+		scriptReportFlag !== 'none'
+	)
+		throw new JobRequestError('--script-report is json-v1 or none')
+	if (scriptReportFlag !== undefined && runKind !== 'script')
+		throw new JobRequestError('--script-report only applies to a pure script job')
+	const scriptReport =
+		runKind === 'script'
+			? scriptReportFlag === 'none'
+				? undefined
+				: (scriptReportFlag ?? base?.script?.report)
+			: undefined
 	const prompt = ((): string => {
 		if (runKind === 'script') return ''
 		if (has(args, 'prompt') || has(args, 'prompt-file')) return promptOf(args)
@@ -394,12 +432,23 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 						body: scriptBody ?? '',
 						shell: shell as 'bash' | 'sh',
 						...(scriptTimeoutMs !== undefined ? { timeoutMs: scriptTimeoutMs } : {}),
+						...(scriptReport ? { report: scriptReport } : {}),
 					},
 				}
 			: {}),
 		when: flag(args, 'when') ?? '',
 		...(!flag(args, 'when') && !flag(args, 'tz') && base ? { spec: base.schedule } : {}),
-		folder: resolve(flag(args, 'folder') ?? base?.folder.path ?? process.cwd()),
+		...(workspace === 'none'
+			? { workspace }
+			: { folder: resolve(flag(args, 'folder') ?? base?.folder.path ?? process.cwd()) }),
+		...(base?.delivery && deliveryFlag !== 'none' ? { delivery: base.delivery } : {}),
+		...(base?.deliveryWaiverRunIds?.length || waiverRunIds.length
+			? {
+					deliveryWaiverRunIds: [
+						...new Set([...(base?.deliveryWaiverRunIds ?? []), ...waiverRunIds]),
+					],
+				}
+			: {}),
 		...(tz ? { tz } : {}),
 		permissions: chosenPermissions,
 		budget,
@@ -458,7 +507,11 @@ async function confirmOnTerminal(
 	verb: string,
 	changes: readonly string[] = [],
 ): Promise<'cli-tty' | 'cli-noninteractive' | null> {
-	const layers = readPermissionLayers({ cwd: job.folder.canonical })
+	const layers = readPermissionLayers({
+		cwd: job.folder.canonical,
+		env: { ...process.env, NAMZU_HOME: paths.home },
+		...(job.workspace === 'none' ? { includeProject: false } : {}),
+	})
 	const policy = compileJobPolicy(job.permissions, {
 		layers,
 		namzuHome: paths.home,
@@ -514,7 +567,11 @@ async function confirmOnTerminal(
 	}
 	if (changes.length > 0)
 		ctx.formatter.info(visibleScheduleMessage(changesBlock(changes).join('\n')))
-	if (process.platform === 'darwin' && isPrivacyProtectedFolder(job.folder.canonical)) {
+	if (
+		job.workspace !== 'none' &&
+		process.platform === 'darwin' &&
+		isPrivacyProtectedFolder(job.folder.canonical)
+	) {
 		ctx.formatter.info(
 			'Warning: this folder is under Documents, Desktop or Downloads; macOS may block the scheduler from reading it until you grant it Files and Folders access.',
 		)
@@ -550,6 +607,8 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 	}
 	const paths = pathsFor(args)
 	try {
+		if (has(args, 'delivery'))
+			throw new JobRequestError('--delivery none only applies to schedule edit')
 		const now = new Date()
 		const built = buildJob(requestFrom(args, name), {
 			paths,
@@ -561,7 +620,10 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 			ctx.formatter.info('Not created.')
 			return 1
 		}
-		const job = createJob(paths, confirmJob(built, surface, now, { paused: has(args, 'paused') }))
+		const job = createJob(
+			paths,
+			confirmJob(built, surface, now, { paused: has(args, 'paused'), paths }),
+		)
 		appendHistory(paths, job.id, {
 			v: 1,
 			kind: 'job',
@@ -593,6 +655,32 @@ export async function addCommand(ctx: CommandContext, argv: readonly string[]): 
 	}
 }
 
+/** Make a pending result's explicit source waiver reviewable before confirmation. */
+function pendingSourceRunIds(paths: SchedulePaths, jobId: string): string[] {
+	return (readState(paths, jobId).deliveryPending ?? [])
+		.filter((item) => item.delivery)
+		.map((item) => item.result.runId)
+}
+
+function deliveryWaiverLines(paths: SchedulePaths, job: ScheduleJob): string[] {
+	if (job.delivery) return []
+	const approved = new Set(job.deliveryWaiverRunIds ?? [])
+	const pending = (readState(paths, job.id).deliveryPending ?? []).filter(
+		(item) => item.delivery && approved.has(item.result.runId),
+	)
+	if (pending.length === 0) return []
+	return [
+		`Pending result${pending.length === 1 ? '' : 's'} (${pending.length}) will stay in schedule history but will not appear in the old source conversation. Its script state will advance when the scheduler settles it.`,
+		...pending.slice(0, 3).map((item) => {
+			const result = item.result
+			const finding =
+				result.scriptReport?.summary ?? result.summary ?? result.reason ?? result.status
+			return `  ${result.runId}: ${sanitizeLine(finding, 180)}`
+		}),
+		...(pending.length > 3 ? [`  and ${pending.length - 3} more result(s)`] : []),
+	]
+}
+
 export async function editCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ADD_FLAGS)
 	if (args.unknown.length > 0 || !args.positionals[0]) {
@@ -607,18 +695,32 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 	const paths = pathsFor(args)
 	try {
 		const current = findJob(paths, args.positionals[0])
+		const detaching = flag(args, 'delivery') === 'none'
+		const stateAtReview = readState(paths, current.id)
+		if (detaching && stateAtReview.activeRun?.delivery)
+			throw new JobRequestError(
+				'wait for the source-bound run to finish before removing delivery; its result has not been reviewed yet',
+			)
+		const waiverRunIds = detaching ? pendingSourceRunIds(paths, current.id) : []
+		if (detaching && !current.delivery && waiverRunIds.length === 0)
+			throw new JobRequestError('this job has no source binding or pending source result to detach')
 		const now = new Date()
-		const rebuilt = buildJob(requestFrom(args, current.name, current), {
+		const rebuilt = buildJob(requestFrom(args, current.name, current, waiverRunIds), {
 			paths,
 			config: ctx.config,
 			now,
+			jobId: current.id,
 		})
 		const candidate = editedJob(current, rebuilt)
 		const view = (job: ScheduleJob) =>
 			confirmationView(
 				job,
 				compileJobPolicy(job.permissions, {
-					layers: readPermissionLayers({ cwd: job.folder.canonical }),
+					layers: readPermissionLayers({
+						cwd: job.folder.canonical,
+						env: { ...process.env, NAMZU_HOME: paths.home },
+						...(job.workspace === 'none' ? { includeProject: false } : {}),
+					}),
 					namzuHome: paths.home,
 				}),
 				now,
@@ -626,15 +728,26 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 		const changes = [
 			...changesSinceConfirmed(readHistory(paths, current.id)),
 			...describeChanges(view(current), view(candidate)),
+			...deliveryWaiverLines(paths, candidate),
 		]
 		const surface = await confirmOnTerminal(ctx, paths, candidate, args, 'save', changes)
 		if (surface === null) {
 			ctx.formatter.info('Not changed.')
 			return 1
 		}
+		if (detaching) {
+			const latest = readState(paths, current.id)
+			if (
+				latest.activeRun?.delivery ||
+				JSON.stringify(pendingSourceRunIds(paths, current.id)) !== JSON.stringify(waiverRunIds)
+			)
+				throw new JobRequestError(
+					'a source-bound run or result changed during review; review the edit again',
+				)
+		}
 		const wasPaused = current.state === 'paused'
 		const next = updateJob(paths, current.id, current.revision, () =>
-			confirmJob(candidate, surface, now, { paused: wasPaused }),
+			confirmJob(candidate, surface, now, { paused: wasPaused, paths }),
 		)
 		appendHistory(paths, next.id, {
 			v: 1,
@@ -679,21 +792,26 @@ export async function confirmCommand(
 	}
 	try {
 		const current = findJob(paths, args.positionals[0])
-		const surface = await confirmOnTerminal(
-			ctx,
-			paths,
-			current,
-			args,
-			'confirm',
-			changesSinceConfirmed(readHistory(paths, current.id)),
+		if (
+			!current.delivery &&
+			pendingSourceRunIds(paths, current.id).some(
+				(runId) => !current.deliveryWaiverRunIds?.includes(runId),
+			)
 		)
+			throw new JobRequestError(
+				'a pending source result has not been reviewed for waiver; run schedule edit with --delivery none again',
+			)
+		const surface = await confirmOnTerminal(ctx, paths, current, args, 'confirm', [
+			...changesSinceConfirmed(readHistory(paths, current.id)),
+			...deliveryWaiverLines(paths, current),
+		])
 		if (surface !== 'cli-tty') {
 			ctx.formatter.info('Not confirmed.')
 			return 1
 		}
 		const now = new Date()
 		const next = updateJob(paths, current.id, current.revision, (job) =>
-			confirmJob(job, 'cli-tty', now, { paused: has(args, 'paused') }),
+			confirmJob(job, 'cli-tty', now, { paused: has(args, 'paused'), paths }),
 		)
 		appendHistory(paths, next.id, {
 			v: 1,
