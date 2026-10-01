@@ -1,0 +1,399 @@
+.plugins-page {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
+	outline: none;
+}
+.plugins-page-content {
+	width: 100%;
+	max-width: 900px;
+	margin: 0 auto;
+	padding: 64px 32px 48px;
+	box-sizing: border-box;
+	animation: plugins-arrive 180ms var(--motion-ease) both;
+}
+.plugins-page-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	margin-bottom: 28px;
+}
+.plugins-page-header h1 {
+	margin: 0;
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 32px;
+	letter-spacing: -0.02em;
+}
+.plugins-page-header p {
+	margin: 6px 0 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.plugins-page-search {
+	display: flex;
+	align-items: center;
+	flex: 0 1 240px;
+	min-width: 160px;
+	height: 36px;
+	gap: 8px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--background);
+	color: var(--muted-foreground);
+	transition: border-color 150ms var(--motion-ease), box-shadow 150ms var(--motion-ease);
+}
+.plugins-page-search:focus-within {
+	border-color: var(--muted-foreground);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.plugins-page-search[data-disabled] {
+	opacity: 0.55;
+}
+.plugins-page-search > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+.plugins-page-search input {
+	width: 100%;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+}
+.plugins-page-search input::placeholder {
+	color: var(--muted-foreground);
+}
+.plugins-page-search input::-webkit-search-cancel-button {
+	appearance: none;
+}
+.plugins-page-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+.plugins-page-filters {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.plugins-page-filters > button {
+	border-radius: 8px;
+	font-size: 13px;
+	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
+}
+.plugins-page-filters > button[aria-pressed="true"] {
+	background: var(--sidebar-row-active);
+	color: var(--foreground);
+}
+.plugins-page-count {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	white-space: nowrap;
+}
+.plugins-page-notice {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 0 0 20px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.plugins-page-notice p {
+	margin: 0;
+}
+.plugins-page-notice > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+output.plugins-page-notice {
+	justify-content: flex-start;
+}
+.plugins-page-error,
+.plugins-page-card-error {
+	color: var(--error);
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.plugins-page-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.plugins-page-grid > li {
+	display: flex;
+	min-width: 0;
+}
+.plugins-page-card {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 188px;
+	padding: 22px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--surface-raised);
+	transition: border-color 150ms var(--motion-ease), background-color 150ms var(--motion-ease);
+}
+.plugins-page-card:hover {
+	border-color: color-mix(in srgb, var(--muted-foreground) 40%, var(--border));
+}
+.plugins-page-card-heading {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.plugins-page-card-icon,
+.plugins-page-empty-icon {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 36px;
+	height: 36px;
+	border-radius: 10px;
+	background: var(--sidebar-row-active);
+	color: var(--foreground);
+}
+.plugins-page-card-icon svg {
+	width: 20px;
+	height: 20px;
+}
+.plugins-page-card-title {
+	min-width: 0;
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+.plugins-page-card-meta {
+	margin: 12px 0 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.plugins-page-card-description {
+	margin: 10px 0 20px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+}
+.plugins-page-card-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: auto;
+	padding-top: 16px;
+}
+.plugins-page-card-setting {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 16px;
+}
+.plugins-page-card-footer > button {
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	padding-inline: 10px;
+}
+.plugins-page-card-error {
+	margin: 12px 0 0;
+}
+.plugins-page-empty {
+	display: flex;
+	align-items: center;
+	flex-direction: column;
+	gap: 12px;
+	padding: 64px 24px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	text-align: center;
+}
+.plugins-page-empty-icon {
+	width: 44px;
+	height: 44px;
+	margin-bottom: 4px;
+	border-radius: 12px;
+}
+.plugins-page-empty-icon svg {
+	width: 22px;
+	height: 22px;
+}
+.plugins-page-empty h2 {
+	margin: 0;
+	font-size: 16px;
+	line-height: 24px;
+	font-weight: 500;
+}
+.plugins-page-empty p {
+	max-width: 360px;
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.plugins-sidebar-content {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
+}
+.plugins-sidebar-header {
+	display: flex;
+	align-items: center;
+	min-height: 52px;
+	padding: 0 20px;
+	font-size: 18px;
+	font-weight: 600;
+	line-height: 26px;
+}
+.plugins-sidebar-navigation {
+	padding: 8px;
+}
+.plugins-sidebar-navigation button {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 36px;
+	width: 100%;
+	padding: 8px 12px;
+	border-radius: 8px;
+	border: 0;
+	background: var(--sidebar-row-active);
+	color: var(--foreground);
+	font-size: 14px;
+	line-height: 20px;
+	text-decoration: none;
+	text-align: start;
+	cursor: pointer;
+}
+.plugins-sidebar-navigation button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+.plugins-sidebar-navigation svg {
+	width: 18px;
+	height: 18px;
+	flex: none;
+}
+.plugins-sidebar-installed {
+	padding: 24px 20px 20px;
+}
+.plugins-sidebar-installed h2 {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin: 0 0 12px;
+	font-size: 12px;
+	line-height: 18px;
+	font-weight: 500;
+	color: var(--muted-foreground);
+}
+.plugins-sidebar-installed h2 span {
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+.plugins-sidebar-context {
+	margin: 0 0 12px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.plugins-sidebar-installed ul {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.plugins-sidebar-installed li {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 13px;
+	line-height: 20px;
+}
+.plugins-sidebar-installed li svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+	color: var(--sidebar-muted-foreground);
+}
+.plugins-sidebar-installed li span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plugins-sidebar-empty {
+	margin: 0 0 12px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 20px;
+}
+@keyframes plugins-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(5px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@container workspace (max-width: 640px) {
+	.plugins-page-content {
+		padding: 32px 24px;
+	}
+	.plugins-page-header {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 20px;
+	}
+	.plugins-page-search {
+		flex: none;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.plugins-page-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.plugins-page-content {
+		animation: none;
+	}
+	.plugins-page-search,
+	.plugins-page-filters > button,
+	.plugins-page-card {
+		transition: none;
+	}
+}

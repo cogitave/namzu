@@ -1,0 +1,178 @@
+{
+  "width": 1280,
+  "height": 820,
+  "overflow": false,
+  "dark": true,
+  "reduced": false,
+  "railBorderRightWidth": "0px",
+  "rail": [
+    {
+      "label": "Home",
+      "current": null,
+      "expanded": null,
+      "disabled": null,
+      "rect": {
+        "x": 6,
+        "y": 46,
+        "width": 36,
+        "height": 36,
+        "top": 46,
+        "right": 42,
+        "bottom": 82,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": false
+    },
+    {
+      "label": "Spaces",
+      "current": null,
+      "expanded": null,
+      "disabled": null,
+      "rect": {
+        "x": 6,
+        "y": 90,
+        "width": 36,
+        "height": 36,
+        "top": 90,
+        "right": 42,
+        "bottom": 126,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": false
+    },
+    {
+      "label": "Scheduled",
+      "current": null,
+      "expanded": null,
+      "disabled": "true",
+      "rect": {
+        "x": 6,
+        "y": 134,
+        "width": 36,
+        "height": 36,
+        "top": 134,
+        "right": 42,
+        "bottom": 170,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": false
+    },
+    {
+      "label": "Plugins",
+      "current": "page",
+      "expanded": null,
+      "disabled": null,
+      "rect": {
+        "x": 6,
+        "y": 178,
+        "width": 36,
+        "height": 36,
+        "top": 178,
+        "right": 42,
+        "bottom": 214,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": true
+    },
+    {
+      "label": "More",
+      "current": null,
+      "expanded": "false",
+      "disabled": null,
+      "rect": {
+        "x": 6,
+        "y": 222,
+        "width": 36,
+        "height": 36,
+        "top": 222,
+        "right": 42,
+        "bottom": 258,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": false
+    },
+    {
+      "label": "Profile",
+      "current": null,
+      "expanded": "false",
+      "disabled": null,
+      "rect": {
+        "x": 6,
+        "y": 772,
+        "width": 36,
+        "height": 36,
+        "top": 772,
+        "right": 42,
+        "bottom": 808,
+        "left": 6
+      },
+      "transition": "0.15s, 0.15s, 0.15s",
+      "filledIcon": false
+    }
+  ],
+  "focused": {
+    "label": "Plugins",
+    "text": "",
+    "inert": false
+  },
+  "newConversation": {
+    "marginTop": "4px",
+    "headerGap": 0
+  },
+  "corners": {
+    "sidebar": {
+      "rect": {
+        "x": 48,
+        "y": 32,
+        "width": 288,
+        "height": 788,
+        "top": 32,
+        "right": 336,
+        "bottom": 820,
+        "left": 48
+      },
+      "upperLeftRadius": "16px",
+      "lowerLeftRadius": "16px",
+      "overflow": "hidden",
+      "borderRightWidth": "0px",
+      "upperLeftPixelClipped": true
+    },
+    "main": {
+      "rect": {
+        "x": 336,
+        "y": 32,
+        "width": 944,
+        "height": 788,
+        "top": 32,
+        "right": 1280,
+        "bottom": 820,
+        "left": 336
+      },
+      "upperLeftRadius": "0px",
+      "lowerLeftRadius": "0px",
+      "overflow": "clip",
+      "borderRightWidth": "0px",
+      "upperLeftPixelClipped": false
+    }
+  },
+  "sidebarCollapsed": "false",
+  "commandOpen": false,
+  "backgroundOpen": "false",
+  "pluginsCalls": [
+    {
+      "projectId": "sample-app",
+      "sessionId": null,
+      "fixture": "existing-preview-host"
+    }
+  ],
+  "forbiddenMutationCalls": {
+    "send": 0,
+    "plugins": 0,
+    "stopJob": 0
+  }
+}

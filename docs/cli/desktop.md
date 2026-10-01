@@ -55,8 +55,8 @@ filesystem or live tasks. Use the native development window for actual work.
 
 ## Appearance and message display
 
-The app opens in its dark appearance. The sidebar appearance control cycles
-through light, system and dark; the local choice survives window reload. The
+The app opens in its dark appearance. The bottom Profile menu offers light,
+system and dark appearance; the local choice survives window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
 The 32px integrated title bar keeps the operating system’s caption controls and
@@ -65,12 +65,24 @@ conversation views, with no prompt replay; the adjacent panel control toggles
 the sidebar. File provides project and conversation actions; Edit, View and
 Window open native menus. Native caption colours follow the chosen appearance.
 The left icon rail remains available when the conversation sidebar is collapsed.
-Home, Projects and Conversations have separate destinations; the sidebar brand
-opens its workspace menu. The labelled New conversation row is the primary
+The rail contains Home, Spaces, Scheduled, Plugins and More, with Profile at
+the bottom. Home owns the chat and blank composer; Spaces reveals the actual
+project list. Plugins opens a separate Customize destination with the actual
+installed inventory in its sidebar and a searchable card grid in the main area.
+All, Project and Personal filter the inventory's real scopes; they do not claim
+a public marketplace. The page shares its mutation and ownership guards with
+the composer menu, including the restrictions on live changes. More offers
+Open folder and Toggle sidebar. Profile holds local appearance settings and
+does not claim a signed-in account. An update icon is absent until the host can
+report an available update. Scheduled is currently unavailable in the desktop
+preview; its disabled control never opens a conversation's background shells.
+The sidebar brand opens its workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
 The dark icon rail has a slightly deeper surface than the conversation sidebar.
-The sidebar's corners facing the rail are rounded; the conversation canvas uses
-a continuous surface with a quiet header divider. A smaller sidebar wordmark
+That surface contrast separates navigation without a vertical divider.
+The sidebar's corners facing the rail are rounded. When that sidebar closes,
+the conversation canvas inherits the same top and bottom corners and clips its
+content inside them; the Plugins destination follows the same layout. A smaller sidebar wordmark
 sits over an ordered pixel accent that fades across the full sidebar header
 width. The accent stays inside that header and does not receive pointer input.
 The selected destination uses a filled icon and a neutral rounded background.
@@ -107,8 +119,8 @@ titles. Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
 rows. Idle timestamps appear on hover or keyboard focus; running work, reviews
 and errors remain visible.
-Search sits at the right of the sidebar brand header. Clicking it, choosing
-Conversations in the rail, or pressing Ctrl/Cmd+K opens the same centred command
+Search sits at the right of the sidebar brand header. Clicking it or pressing
+Ctrl/Cmd+K opens the same centred command
 palette. It searches conversation titles and project names, and includes New
 conversation and Open folder actions. Arrow keys navigate while the search
 field retains focus; Enter activates the selected action. Escape and an outside

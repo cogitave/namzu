@@ -68,8 +68,8 @@ Document,Editor,Logos,Media,System,Weather}; the exact source map is recorded in
 research/runtime-desktop-20260930/icon-source-map.json.
 Local file: src/renderer/icons.tsx.
 Changes: unchanged visible path data is rendered by one local React wrapper.
-Selected navigation variants use the original home-4-fill, folders-fill and
-time-fill SVGs alongside rounded Lucide outline components. This hybrid
+Selected navigation variants use the original home-4-fill, folders-fill,
+time-fill and puzzle-fill SVGs alongside rounded Lucide outline components. This hybrid
 adaptation does not claim that the reference screenshot uses either family.
 Provider glyphs represent only their corresponding configured services. Generic
 cloud or server icons identify other remote or local routes. These assets do not
@@ -79,7 +79,7 @@ Full license: licenses/ui-icons-license.txt
 4. Lucide React v0.564.0 — ISC; Feather-derived portions MIT
 Source: https://github.com/lucide-icons/lucide
 Original files: installed lucide-react dist/esm/icons/{house,folders,folder-closed,
-clock,panel-left,square-pen,ellipsis,message-square,folder-open}.js and the package's default SVG attributes.
+clock,panel-left,square-pen,ellipsis,message-square,folder-open,user-round}.js and the package's default SVG attributes.
 Local file: src/renderer/icons.tsx.
 Changes: the existing package components are wrapped to default aria-hidden and
 forward caller SVG props. Original geometry, rounded stroke caps and joins are

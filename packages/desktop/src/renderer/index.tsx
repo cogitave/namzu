@@ -30,6 +30,7 @@ import {
 } from './icons.js'
 import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
+import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type Appearance, Sidebar } from './sidebar.js'
 import { ToolView } from './tool-view.js'
@@ -163,7 +164,10 @@ function App() {
 	const [commandOpen, setCommandOpen] = useState(false)
 	const commandTrigger = useRef<HTMLElement | null>(null)
 	const commandRead = useRef(0)
-	const [commandListing, setCommandListing] = useState({ loading: false, notice: '' })
+	const [commandListing, setCommandListing] = useState({
+		loading: false,
+		notice: '',
+	})
 	const openCommands = useCallback(() => {
 		commandTrigger.current =
 			document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -270,14 +274,14 @@ function App() {
 		media.addEventListener('change', apply)
 		return () => media.removeEventListener('change', apply)
 	}, [appearance])
-	const [railSection, setRailSection] = useState<'projects' | 'conversations' | null>(null)
-	const railOwner = useRef({ projectId, sessionId })
+	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
+	const previousRailSection = useRef(railSection)
 	useEffect(() => {
-		if (railOwner.current.projectId !== projectId || railOwner.current.sessionId !== sessionId) {
-			railOwner.current = { projectId, sessionId }
-			setRailSection(null)
-		}
-	}, [projectId, sessionId])
+		const previous = previousRailSection.current
+		previousRailSection.current = railSection
+		if (previous === 'plugins' && railSection === null)
+			input.current?.focus({ preventScroll: true })
+	}, [railSection])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
 	const jobsTrigger = useRef<HTMLButtonElement>(null)
@@ -340,7 +344,9 @@ function App() {
 	const savedSettings = useDraftSettings(draftOwner, Boolean(project), (failure) =>
 		setError(errorText(failure)),
 	)
-	const settings = savedSettings.value.options ?? { permissionMode: 'prompt' as const }
+	const settings = savedSettings.value.options ?? {
+		permissionMode: 'prompt' as const,
+	}
 	const defaultProvider = activeProviders.selected?.id ?? activeProviders.available[0]?.id ?? ''
 	const choice = savedSettings.value.choice ?? {
 		provider: defaultProvider,
@@ -356,11 +362,14 @@ function App() {
 	const modelSettingsKey = JSON.stringify([projectId, sessionId, choice.provider, modelId])
 	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
 	const pluginsKey = modelSettingsKey
-	const loadPlugins = async () => {
+	const loadPlugins = useCallback(async () => {
 		const targetProject = projectId
 		const targetSession = sessionId
 		const key = pluginsKey
-		setPluginStates((all) => ({ ...all, [key]: { ...all[key], loading: true } }))
+		setPluginStates((all) => ({
+			...all,
+			[key]: { ...all[key], loading: true },
+		}))
 		try {
 			const value = await api.plugins(targetProject, targetSession || undefined)
 			setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
@@ -373,11 +382,20 @@ function App() {
 						plugins: [],
 						live: false,
 						canChange: false,
-						notice: 'Plugins could not be loaded. Close this menu and try again.',
+						notice: 'Plugins could not be loaded. Try again.',
 					},
 				},
 			}))
 		}
+	}, [projectId, sessionId, pluginsKey])
+	const setPluginEnabled = async (
+		plugin: ComposerPluginInventory['plugins'][number],
+		enabled: boolean,
+	) => {
+		if (!sessionId) throw new Error('Send a message before changing conversation plugins.')
+		const key = pluginsKey
+		const value = await api.setPluginEnabled(sessionId, plugin.name, enabled)
+		setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
 	}
 	useEffect(() => {
 		if (!projectId || !providerReady || !choice.provider || !modelId) return
@@ -554,6 +572,7 @@ function App() {
 		if (!projectId) return
 		navigation.current += 1
 		setSessionId('')
+		setRailSection(null)
 		setSideOpen(false)
 		setJobsOpen(false)
 		input.current?.focus()
@@ -569,6 +588,7 @@ function App() {
 				if (generation !== navigation.current) return
 				setProjectId(item.id)
 				setSessionId('')
+				setRailSection(null)
 				setSideOpen(false)
 				input.current?.focus()
 			}
@@ -624,6 +644,7 @@ function App() {
 			setProviderProjectId(view.projectId)
 			setSessionId(view.id)
 			setProjectId(view.projectId)
+			setRailSection(null)
 			setSideOpen(false)
 			follow.current = true
 			input.current?.focus()
@@ -654,6 +675,7 @@ function App() {
 				navigation.current += 1
 				setProjectId(destination.projectId)
 				setSessionId('')
+				setRailSection(null)
 				setSideOpen(false)
 			}
 			if (generation === navigation.current) {
@@ -676,6 +698,10 @@ function App() {
 		requestAnimationFrame(() =>
 			document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }),
 		)
+	}
+	const showSpaces = () => {
+		setRailSection('spaces')
+		revealSidebar('[data-project-group] .project-row')
 	}
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
@@ -702,7 +728,10 @@ function App() {
 					if (item)
 						await savedSettings.save(target, {
 							...savedSettings.get(target),
-							options: { effort: item.effort, permissionMode: item.permissionMode ?? 'prompt' },
+							options: {
+								effort: item.effort,
+								permissionMode: item.permissionMode ?? 'prompt',
+							},
 						})
 				}
 			} finally {
@@ -747,7 +776,10 @@ function App() {
 					generation === navigation.current ? (draftsRef.current[owner] ?? prompt) : prompt
 				draftsRef.current[target] = latest
 				setDrafts((all) => ({ ...all, [target]: latest }))
-				const promotedSettings = savedSettings.save(target, { choice: route, options: settings })
+				const promotedSettings = savedSettings.save(target, {
+					choice: route,
+					options: settings,
+				})
 				sendingRef.current.add(target)
 				setSending((all) => ({ ...all, [target]: true }))
 				const draftWrites: Promise<void>[] = []
@@ -801,7 +833,8 @@ function App() {
 				if (sideOpen || jobsOpen) {
 					setSideOpen(false)
 					if (jobsOpen) closeDetails()
-				} else if (thread.running) void act(() => api.cancel(sessionId))
+				} else if (thread.running && railSection !== 'plugins')
+					void act(() => api.cancel(sessionId))
 				return
 			}
 			if (
@@ -822,7 +855,7 @@ function App() {
 				event.preventDefault()
 				if (!loading && project?.trusted && project.status === 'ready') void act(newConversation)
 			}
-			if (event.altKey && event.key === 'ArrowUp' && sessionId) {
+			if (event.altKey && event.key === 'ArrowUp' && sessionId && railSection !== 'plugins') {
 				event.preventDefault()
 				void act(() => editQueued())
 			}
@@ -844,6 +877,7 @@ function App() {
 		project?.trusted,
 		project?.status,
 		closeDetails,
+		railSection,
 	])
 	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 	const commandItems: CommandPaletteItem[] = [
@@ -890,6 +924,7 @@ function App() {
 				navigation.current += 1
 				setProjectId(item.id)
 				setSessionId('')
+				setRailSection(null)
 				setSideOpen(false)
 				setJobsOpen(false)
 				input.current?.focus()
@@ -897,7 +932,11 @@ function App() {
 		})),
 	]
 	return (
-		<div className="app" data-sidebar-collapsed={sideCollapsed}>
+		<div
+			className="app"
+			data-sidebar-collapsed={sideCollapsed}
+			data-page={railSection === 'plugins' ? 'plugins' : 'chat'}
+		>
 			<CommandPalette
 				open={commandOpen}
 				onOpenChange={setCommandOpen}
@@ -923,7 +962,7 @@ function App() {
 				onError={setError}
 			/>
 			<NavigationRail
-				section={railSection ?? (sessionId ? 'conversations' : 'home')}
+				section={railSection ?? 'home'}
 				appearance={appearance}
 				onHome={() => {
 					navigation.current += 1
@@ -932,19 +971,16 @@ function App() {
 					setJobsOpen(false)
 					setSideOpen(false)
 				}}
-				onProjects={() => {
-					setRailSection('projects')
-					revealSidebar('[data-project-group] .project-row')
+				onSpaces={showSpaces}
+				onAppearanceChange={setAppearance}
+				onOpenProject={() => void act(openProject)}
+				openProjectDisabled={loading}
+				onToggleSidebar={toggleSidebar}
+				onPlugins={() => {
+					setRailSection('plugins')
+					setJobsOpen(false)
+					setSideOpen(false)
 				}}
-				onConversations={() => {
-					setRailSection('conversations')
-					openCommands()
-				}}
-				onAppearance={() =>
-					setAppearance((value) =>
-						value === 'system' ? 'dark' : value === 'dark' ? 'light' : 'system',
-					)
-				}
 			/>
 			<Sidebar
 				projects={projects}
@@ -952,7 +988,7 @@ function App() {
 				projectId={projectId}
 				sessionId={sessionId}
 				threads={threads}
-				open={sideOpen}
+				open={railSection !== 'plugins' && sideOpen}
 				collapsed={sideCollapsed}
 				opening={loading}
 				onClose={() => setSideOpen(false)}
@@ -963,10 +999,62 @@ function App() {
 					navigation.current += 1
 					setProjectId(id)
 					setSessionId('')
+					setRailSection(null)
 				}}
 				onConversation={(view) => void act(() => openConversation(view))}
 			/>
-			<main className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}>
+			{railSection === 'plugins' && (
+				<>
+					{sideOpen && (
+						<button
+							type="button"
+							className="scrim"
+							aria-label="Close sidebar"
+							onClick={() => setSideOpen(false)}
+						/>
+					)}
+					<aside
+						id="namzu-plugins-sidebar"
+						className={`sidebar plugins-navigation-sidebar ${sideOpen ? 'open' : ''}`}
+						inert={sideCollapsed && !sideOpen}
+						aria-hidden={sideCollapsed && !sideOpen}
+						aria-label="Customize"
+					>
+						<PluginsSidebar
+							view={pluginStates[pluginsKey]?.value}
+							loading={pluginStates[pluginsKey]?.loading ?? false}
+							disabled={!project?.trusted || project.status !== 'ready'}
+							contextLabel={project?.name}
+							onChooseSpace={showSpaces}
+						/>
+						<Button
+							variant="ghost-muted"
+							size="icon-xs"
+							className="sidebar-close plugins-sidebar-close"
+							aria-label="Close sidebar"
+							onClick={() => setSideOpen(false)}
+						>
+							<XIcon />
+						</Button>
+					</aside>
+				</>
+			)}
+			<main
+				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
+				data-page={railSection === 'plugins' ? 'plugins' : 'chat'}
+			>
+				{railSection === 'plugins' && (
+					<PluginsPage
+						scope={pluginsKey}
+						view={pluginStates[pluginsKey]?.value}
+						loading={pluginStates[pluginsKey]?.loading ?? false}
+						disabled={!project?.trusted || project.status !== 'ready'}
+						contextLabel={project?.name}
+						onLoad={loadPlugins}
+						onSetEnabled={setPluginEnabled}
+						onChooseSpace={showSpaces}
+					/>
+				)}
 				<WorkspacePageHeader className="topbar">
 					<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
 						<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
@@ -1229,13 +1317,7 @@ function App() {
 							plugins={pluginStates[pluginsKey]?.value}
 							pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
 							onOpenPlugins={() => void loadPlugins()}
-							onSetPluginEnabled={async (plugin, enabled) => {
-								if (!sessionId)
-									throw new Error('Send a message before changing conversation plugins.')
-								const key = pluginsKey
-								const value = await api.setPluginEnabled(sessionId, plugin.name, enabled)
-								setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
-							}}
+							onSetPluginEnabled={setPluginEnabled}
 							running={thread.running}
 							sending={sending[draftOwner] ?? false}
 							queued={thread.queued}

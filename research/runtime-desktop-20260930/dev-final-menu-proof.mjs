@@ -21,6 +21,13 @@ const faults = [], captures = []
 page.on('pageerror', (error) => faults.push(error.message))
 const picker = () => page.getByRole('button', { name: 'Select model', exact: true })
 const modelSearch = () => page.getByRole('searchbox', { name: 'Search models', exact: true })
+async function selectAppearance(mode) {
+  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click()
+  const choice = page.getByRole('menuitemradio', { name: mode, exact: true })
+  await expect(choice).toBeVisible()
+  await choice.click()
+  await expect(choice).toHaveCount(0)
+}
 async function capture(name, { reduced = false, popup = true, custom = false } = {}) {
   await page.evaluate(async () => {
     await document.fonts.ready
@@ -139,14 +146,14 @@ try {
   await expect(page.locator('.model-picker-popup')).toHaveCount(0)
   await expect(picker()).toContainText('Sample focused')
   await expect(picker()).toBeFocused()
-  await page.getByRole('button', { name: 'Appearance: dark. Change appearance', exact: true }).click()
+  await selectAppearance('Light')
   await picker().click()
   await expect(page.getByRole('radio', { name: 'Sample provider Sample focused', exact: true })).toBeVisible()
   await capture('menu-wide-light')
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 600, height: 540 })
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.getByRole('button', { name: 'Spaces', exact: true }).click()
   await expect(page.locator('.sidebar')).toBeVisible()
   await capture('brand-narrow-light-reduced', { reduced: true, popup: false })
   await page.mouse.click(575, 300)
@@ -166,8 +173,8 @@ try {
   await page.getByRole('textbox', { name: 'Model', exact: true }).press('Enter')
   await expect(page.locator('.model-picker-popup')).toHaveCount(0)
   await expect(picker()).toContainText('sample-custom-review')
-  await page.getByRole('button', { name: 'Appearance: light. Change appearance', exact: true }).click()
-  await page.getByRole('button', { name: 'Appearance: system. Change appearance', exact: true }).click()
+  await selectAppearance('System')
+  await selectAppearance('Dark')
   await picker().click()
   await expect(page.getByRole('radio', { name: 'Sample provider Sample balanced', exact: true })).toBeVisible()
   await capture('menu-narrow-dark-reduced', { reduced: true })

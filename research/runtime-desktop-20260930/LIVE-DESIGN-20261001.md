@@ -35,8 +35,7 @@ right of the sidebar brand header and opens a centred command palette.
   panel height and selection changes honour reduced motion.
 - Show five loaded conversations initially, retaining the active conversation
   beyond that limit. Show more changes presentation, not session ownership.
-- Use one command palette from header Search, the Conversations rail action and
-  Ctrl/Cmd+K. Populate it with real conversation/project records and the
+- Use one command palette from header Search and Ctrl/Cmd+K. Populate it with real conversation/project records and the
   existing New conversation/Open folder handlers. Read connected, trusted
   project indexes on opening, and expose partial results with Retry.
 - Keep palette dismissal separate from turn cancellation. Selecting a result
@@ -108,3 +107,48 @@ is retained for the user's ongoing review.
 The historical native proof and newer renderer proof cover different states;
 neither is presented as a full rerun after subsequent user feedback. Full
 publish/consumer-install CI gates are not claimed for this local design task.
+
+## Follow-up rail and Plugins correction
+
+The user corrected the navigation contract after the original snapshot. The
+rail is Home, Spaces, Scheduled, Plugins and More, with Profile at the bottom.
+Home owns chat views; Spaces exposes the actual project list. Search stays in
+the sidebar header and Ctrl/Cmd+K. More opens existing folder/sidebar actions;
+Profile offers actual local appearance settings without an invented account.
+Scheduled has no desktop bridge and stays explicitly unavailable, distinct from
+background shells. There is no update badge without an actual host signal.
+
+Plugins is a full Customize destination: installed names in the sidebar,
+searchable cards in the main pane, and All/Project/Personal filters over actual
+inventory scopes. The composer and page share admission, busy and scope/generation
+guards. Informational notices remain informational and do not suppress search
+empty states. No marketplace or third-party installations are fabricated.
+Changing destination retains the conversation, its drafts and its attachments;
+successful chat navigation explicitly returns to the chat view. Escape on the
+Plugins page does not cancel hidden conversation work.
+
+The shell's visible panel owns its rail-facing rounded corners, including the
+chat canvas when the sidebar is collapsed and the narrow layout. Vertical
+navigation dividers are removed; the rail and sidebar use surface contrast.
+New conversation has a 4px top margin, 2px more than the preceding snapshot.
+
+Prior executable proof scripts now select appearance through Profile and use
+the current Spaces/header-search controls. Their historical receipts were not
+rewritten or represented as native reruns for this correction. The separate
+`rail-navigation-proof.mjs` covers the current renderer interactions with
+explicit browser fixtures; its receipt identifies that verification boundary.
+
+The final correction passed seven current browser captures: default sample
+plugin cards, an injected read-only inventory, retained chat drafts, collapsed
+sidebar corners, and narrow light/reduced-motion views. Both navigation borders
+measure 0px; the visible panel clips its 16px corners. The default plugin cards
+are explicitly labelled development sample data and expose no runtime controls.
+No model requests, plugin mutations or background-job stops occurred.
+
+Workspace typecheck, desktop lint, docs conformance, external-name/log audits,
+the 47 desktop tests and production build passed. The full workspace test run
+preceded the final page/focus/fixture refinements; the focused renderer proof and
+final static/build checks cover those refinements. Production output retains
+its restrictive CSP and excludes the development preview and sample data.
+This is a local design correction, with no fresh native-kernel proof, push or
+publication.

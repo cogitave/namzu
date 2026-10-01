@@ -1,75 +1,168 @@
-import type { ReactNode } from 'react'
+import { Menu } from '@base-ui/react/menu'
+import { type ReactNode, type RefObject, useRef } from 'react'
 import {
+	CheckIcon,
+	FolderPlusIcon,
 	FoldersFilledIcon,
 	FoldersIcon,
-	HistoryFilledIcon,
 	HistoryIcon,
 	HomeFilledIcon,
 	HomeIcon,
 	MonitorIcon,
 	MoonIcon,
+	MoreHorizontalIcon,
+	PanelLeftIcon,
+	PuzzleFilledIcon,
+	PuzzleIcon,
 	SunIcon,
+	UserRoundIcon,
 } from './icons.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
+import './navigation-rail.css'
 
 export function NavigationRail({
 	section,
-
 	appearance,
-
 	onHome,
-	onProjects,
-	onConversations,
-
-	onAppearance,
+	onSpaces,
+	onPlugins,
+	onOpenProject,
+	onToggleSidebar,
+	openProjectDisabled = false,
+	onAppearanceChange,
 }: {
-	section: 'home' | 'projects' | 'conversations'
+	section: 'home' | 'spaces' | 'plugins'
 	appearance: Appearance
 	onHome: () => void
-	onProjects: () => void
-	onConversations: () => void
-	onAppearance: () => void
+	onSpaces: () => void
+	onPlugins: () => void
+	onOpenProject: () => void
+	onToggleSidebar: () => void
+	openProjectDisabled?: boolean
+	onAppearanceChange: (appearance: Appearance) => void
 }) {
-	const AppearanceIcon =
-		appearance === 'dark' ? MoonIcon : appearance === 'light' ? SunIcon : MonitorIcon
+	const moreTrigger = useRef<HTMLButtonElement>(null)
+	const profileTrigger = useRef<HTMLButtonElement>(null)
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
 			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
 				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
 			</RailButton>
-			<RailButton label="Projects" active={section === 'projects'} onClick={onProjects}>
-				{section === 'projects' ? <FoldersFilledIcon /> : <FoldersIcon />}
+			<RailButton label="Spaces" active={section === 'spaces'} onClick={onSpaces}>
+				{section === 'spaces' ? <FoldersFilledIcon /> : <FoldersIcon />}
 			</RailButton>
 			<RailButton
-				label="Conversations"
-				active={section === 'conversations'}
-				onClick={onConversations}
+				label="Scheduled"
+				unavailable
+				tooltip="Scheduled — not available in the desktop app yet."
 			>
-				{section === 'conversations' ? <HistoryFilledIcon /> : <HistoryIcon />}
+				<HistoryIcon />
 			</RailButton>
+			<RailButton label="Plugins" active={section === 'plugins'} onClick={onPlugins}>
+				{section === 'plugins' ? <PuzzleFilledIcon /> : <PuzzleIcon />}
+			</RailButton>
+			<RailMenuRoot triggerRef={moreTrigger}>
+				<RailMenuTrigger label="More" triggerRef={moreTrigger}>
+					<MoreHorizontalIcon />
+				</RailMenuTrigger>
+				<RailMenuPopup label="More actions" triggerRef={moreTrigger}>
+					<Menu.Item
+						className="rail-menu-item"
+						disabled={openProjectDisabled}
+						onClick={onOpenProject}
+					>
+						<FolderPlusIcon />
+						Open folder…
+					</Menu.Item>
+					<Menu.Item className="rail-menu-item" onClick={onToggleSidebar}>
+						<PanelLeftIcon />
+						Toggle sidebar
+					</Menu.Item>
+				</RailMenuPopup>
+			</RailMenuRoot>
 			<div className="rail-spacer" />
-			<RailButton label={`Appearance: ${appearance}. Change appearance`} onClick={onAppearance}>
-				<AppearanceIcon />
-			</RailButton>
+			<RailMenuRoot triggerRef={profileTrigger}>
+				<RailMenuTrigger label="Profile" profile triggerRef={profileTrigger}>
+					<span className="rail-profile-avatar" aria-hidden="true">
+						<UserRoundIcon />
+					</span>
+				</RailMenuTrigger>
+				<RailMenuPopup label="Profile and appearance" align="end" triggerRef={profileTrigger}>
+					<div className="rail-profile-copy">Namzu on this device</div>
+					<Menu.Separator className="rail-menu-separator" />
+					<Menu.Group>
+						<Menu.GroupLabel className="rail-menu-label">Appearance</Menu.GroupLabel>
+						<Menu.RadioGroup
+							value={appearance}
+							onValueChange={(value: string) => {
+								if (value === 'light' || value === 'dark' || value === 'system')
+									onAppearanceChange(value)
+							}}
+						>
+							{(
+								[
+									{ value: 'light', label: 'Light', Icon: SunIcon },
+									{ value: 'dark', label: 'Dark', Icon: MoonIcon },
+									{ value: 'system', label: 'System', Icon: MonitorIcon },
+								] as const
+							).map(({ value, label, Icon }) => (
+								<Menu.RadioItem key={value} className="rail-menu-item" value={value} closeOnClick>
+									<Icon />
+									<span>{label}</span>
+									<Menu.RadioItemIndicator className="rail-menu-check">
+										<CheckIcon />
+									</Menu.RadioItemIndicator>
+								</Menu.RadioItem>
+							))}
+						</Menu.RadioGroup>
+					</Menu.Group>
+				</RailMenuPopup>
+			</RailMenuRoot>
 		</nav>
+	)
+}
+
+function RailMenuRoot({
+	triggerRef,
+	children,
+}: { triggerRef: RefObject<HTMLButtonElement | null>; children: ReactNode }) {
+	const restoreOnClose = useRef(false)
+	return (
+		<Menu.Root
+			onOpenChange={(open, details) => {
+				if (open) restoreOnClose.current = false
+				else if (details.reason === 'item-press' || details.reason === 'escape-key')
+					restoreOnClose.current = true
+			}}
+			onOpenChangeComplete={(open) => {
+				if (open || !restoreOnClose.current) return
+				restoreOnClose.current = false
+				const focused = document.activeElement
+				// An accepted folder action can already have moved to the visible composer.
+				if (focused instanceof HTMLTextAreaElement && focused.getClientRects().length) return
+				triggerRef.current?.focus({ preventScroll: true })
+			}}
+		>
+			{children}
+		</Menu.Root>
 	)
 }
 
 function RailButton({
 	label,
+	tooltip = label,
 	active,
-	expanded,
-	disabled,
+	unavailable,
 	onClick,
 	children,
 }: {
 	label: string
+	tooltip?: string
 	active?: boolean
-	expanded?: boolean
-	disabled?: boolean
-	onClick: () => void
+	unavailable?: boolean
+	onClick?: () => void
 	children: ReactNode
 }) {
 	return (
@@ -81,12 +174,45 @@ function RailButton({
 						size="icon"
 						className="rail-button"
 						aria-label={label}
-						aria-current={active && expanded === undefined ? 'page' : undefined}
-						aria-expanded={expanded}
-						aria-controls={expanded === undefined ? undefined : 'namzu-sidebar'}
+						aria-current={active ? 'page' : undefined}
+						aria-disabled={unavailable || undefined}
 						data-active={active || undefined}
-						disabled={disabled}
 						onClick={onClick}
+					/>
+				}
+			>
+				{children}
+			</TooltipTrigger>
+			<TooltipPopup side="right">{tooltip}</TooltipPopup>
+		</Tooltip>
+	)
+}
+
+function RailMenuTrigger({
+	label,
+	profile,
+	triggerRef,
+	children,
+}: {
+	label: string
+	profile?: boolean
+	triggerRef: RefObject<HTMLButtonElement | null>
+	children: ReactNode
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Menu.Trigger
+						render={
+							<Button
+								ref={triggerRef}
+								variant="ghost-muted"
+								size="icon"
+								className={`rail-button${profile ? ' rail-profile-button' : ''}`}
+								aria-label={label}
+							/>
+						}
 					/>
 				}
 			>
@@ -94,5 +220,27 @@ function RailButton({
 			</TooltipTrigger>
 			<TooltipPopup side="right">{label}</TooltipPopup>
 		</Tooltip>
+	)
+}
+
+function RailMenuPopup({
+	label,
+	align = 'start',
+	triggerRef,
+	children,
+}: {
+	label: string
+	align?: 'start' | 'end'
+	triggerRef: RefObject<HTMLButtonElement | null>
+	children: ReactNode
+}) {
+	return (
+		<Menu.Portal>
+			<Menu.Positioner className="rail-menu-positioner" side="right" align={align} sideOffset={8}>
+				<Menu.Popup className="rail-menu" aria-label={label} finalFocus={triggerRef}>
+					{children}
+				</Menu.Popup>
+			</Menu.Positioner>
+		</Menu.Portal>
 	)
 }
