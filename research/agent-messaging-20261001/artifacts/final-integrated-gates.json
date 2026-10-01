@@ -1,0 +1,585 @@
+{
+  "date": "2026-10-01",
+  "verification": "local; no remote CI, merge or publication claim",
+  "sourceCommit": "c1d2c04136bf7e0bd1b644f35c5cc1d13a6c2101",
+  "sourceTree": "5584576fe1cf0f631f1526bdc001372c56a53942",
+  "runtimeCommit": "6194bda9689ee999b8e789300dcaef23b82daf3b",
+  "desktopCommit": "c1d2c04136bf7e0bd1b644f35c5cc1d13a6c2101",
+  "gateCount": 48,
+  "publishablePackageCount": 21,
+  "gates": [
+    {
+      "name": "lint",
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/lint.log",
+      "logSha256": "bb7e12fb89e1842544bc76991bc149846e9a6b90d641f750dd94790a29b17447"
+    },
+    {
+      "name": "workflow-tests",
+      "command": "node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/workflow-tests.log",
+      "logSha256": "6dfe5ccf96091de3c504b7ee69521311d17c1c1a167cedfdfb652ddf766b2f68"
+    },
+    {
+      "name": "workflow-parity",
+      "command": "node .github/scripts/check-workflow-gate-parity.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/workflow-parity.log",
+      "logSha256": "59baa5c0d856076f9ae8b16322e80ddc8961e4d2231f13ae4a288c16627422b1"
+    },
+    {
+      "name": "project-references",
+      "command": "node .github/scripts/check-project-references.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/project-references.log",
+      "logSha256": "64bc65900a70bcf930098030456a584c072ce59af7cf7216861e76b94226aac8"
+    },
+    {
+      "name": "typecheck",
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/typecheck.log",
+      "logSha256": "ad498e87dc7798f8f28d910d7e184b07904a865790420f8a3900e63005a1aa6a"
+    },
+    {
+      "name": "build",
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-breadcrumb-20261001/build.log",
+      "logSha256": "2521c4b116b655251cc9765aaaaf1e6d32c5f0087ae52032b63e472f7227be0e"
+    },
+    {
+      "name": "tests",
+      "command": "pnpm -r test",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/tests.log",
+      "logSha256": "2fdc707d10a88a7343f40698c90d3002912882af59d69d638d6109b099abcdec"
+    },
+    {
+      "name": "process-tests",
+      "command": "pnpm --filter @namzu/sdk test:proc",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/process-tests.log",
+      "logSha256": "8422dc163c72aed12e5b018d1720bf06ff0165bf7895d21f429ff76272a1d734"
+    },
+    {
+      "name": "external-name-tests",
+      "command": "node --import tsx --test scripts/__tests__/audit-external-names.test.ts",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/external-name-tests.log",
+      "logSha256": "f5e5949c9785921c65a0ecfd5cec4cd67fd72c8be31bcf88121a3ddcbdb6d80d"
+    },
+    {
+      "name": "external-names",
+      "command": "node scripts/audit-external-names.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/external-names.log",
+      "logSha256": "c66e3f68c4fba8103f3c94650ecd06a0ac70be547f5c4b86ac2e452832b79ea6"
+    },
+    {
+      "name": "log-tests",
+      "command": "node --import tsx --test scripts/__tests__/check-log-standard.test.ts",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/log-tests.log",
+      "logSha256": "c255ea1b16e2a430cdaedcfe21f048c8f0c28b0a6cb82583668145d92c99b410"
+    },
+    {
+      "name": "log-standard",
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/log-standard.log",
+      "logSha256": "7741e9065dcba1fec91a063dcee8cbb844b51f123211f3b8b2367af8747279ac"
+    },
+    {
+      "name": "local-entries",
+      "command": "node --import tsx --test scripts/__tests__/check-local-entry.test.ts",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/local-entries.log",
+      "logSha256": "0f271cfb8e96fb6715074c29f6c09fc0f6f85afa405994a436e8361ca176c329"
+    },
+    {
+      "name": "model-prices",
+      "command": "node scripts/generate-model-prices.mjs --check",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/model-prices.log",
+      "logSha256": "6997764027c18e1a31d9dc94b1203ee8f2cb3cb5ec25015f1dff2b2f5df42f2c"
+    },
+    {
+      "name": "zen-generator",
+      "command": "node --import tsx --test scripts/__tests__/generate-zen-models.test.ts",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/zen-generator.log",
+      "logSha256": "2d99a6a54f082f0768b21abc1d0e5876782b98201704ab13026018cf2bbe1a06"
+    },
+    {
+      "name": "installer-sh",
+      "command": "sh -n install.sh",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/installer-sh.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "installer-dash",
+      "command": "dash -n install.sh",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/installer-dash.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "evals",
+      "command": "node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/evals.log",
+      "logSha256": "f40e4e3e74397d5b58633208af7dee99e220f7f7288bbf8a192c0b9a860d1d07"
+    },
+    {
+      "name": "coverage",
+      "command": "pnpm --filter @namzu/sdk test:coverage",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/coverage.log",
+      "logSha256": "1c249c7fdf570c3f84f429089e89bbc4e6a310968835f9acb22fc5b3579f34ec"
+    },
+    {
+      "name": "coverage-floor",
+      "command": "node .github/scripts/check-sdk-module-coverage.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/coverage-floor.log",
+      "logSha256": "07b7470e05c345e6b152bfd42d01affb19be050d0289d595054c1b5365a22b56"
+    },
+    {
+      "name": "test-presence",
+      "command": "node .github/scripts/check-sdk-test-presence.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/test-presence.log",
+      "logSha256": "41eb6d8b3d066c42b35c30dc6a28474b2a0247c68c7a3a597410462a6f6df2eb"
+    },
+    {
+      "name": "publish-metadata",
+      "command": "node .github/scripts/check-publish-metadata.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publish-metadata.log",
+      "logSha256": "26035ce9140c0bf12f4881a13a39e3ff69fd40a1d8bed7194ce3b6ec800e99e4"
+    },
+    {
+      "name": "consumer-snapshot-test",
+      "command": "node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/consumer-snapshot-test.log",
+      "logSha256": "c559b7815255b79dd605fb4016a78d4d92808312c5291e715c72df1a4745a919"
+    },
+    {
+      "name": "consumer-install",
+      "command": "bash .github/scripts/verify-consumer-install.sh",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/consumer-install.log",
+      "logSha256": "a92383d17d2210827bcf85be9903c0579a68534c2fff81c4a27db1a977dbf0a2"
+    },
+    {
+      "name": "signature-types",
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/signature-types.log",
+      "logSha256": "a487f3d9d56b3cd7174b371872bb2f6a07562f1a96a37473a11d9b6b580a45a9"
+    },
+    {
+      "name": "docs-okf",
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/docs-okf.log",
+      "logSha256": "75a55d7e4a6f97f802e60a4d840d2df63e26745a92418e64c010f9fd30514125"
+    },
+    {
+      "name": "docs-fences",
+      "command": "node tools/check-doc-fences.mjs",
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/docs-fences.log",
+      "logSha256": "2200fc0b0527431b1593e8eff4cc40211f8db0193a65ec0bed647c3c84856d5a"
+    },
+    {
+      "name": "publint-packages-ag-ui",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/ag-ui"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-ag-ui.log",
+      "logSha256": "17b927bd3718d0bd6df865641d0466f9964fb227c6047ab12d1d2706147b3e76"
+    },
+    {
+      "name": "publint-packages-browser",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/browser"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-browser.log",
+      "logSha256": "cf886693f312d9705aed18885ef026a6bedc196dd76bc7165116e7f39d63a777"
+    },
+    {
+      "name": "publint-packages-cli",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/cli"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-cli.log",
+      "logSha256": "127d2417330111e245b48972b9a10b01fd9ef4dc491f2bc8bd3cab1672a29afe"
+    },
+    {
+      "name": "publint-packages-computer-use",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/computer-use"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-computer-use.log",
+      "logSha256": "16a348755752a93140ba00dfbaac9ab19e67da03019558fc407d06029b104c52"
+    },
+    {
+      "name": "publint-packages-evals",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/evals"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-evals.log",
+      "logSha256": "44be4325a7a70745cd19ee329cee67afeae5a0f367a020a9ec08075bc354a06b"
+    },
+    {
+      "name": "publint-packages-files",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/files"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-files.log",
+      "logSha256": "6a9720406cbce5bc36f25e5798ddfc4c6c1de78ad2cf1084b44dbe165743e886"
+    },
+    {
+      "name": "publint-packages-live",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/live"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-live.log",
+      "logSha256": "a26fd95318b15ea4a23a39e9fbdc0a8dedc64fcbb548bd5a360c8c2dbd3dd275"
+    },
+    {
+      "name": "publint-packages-lsp",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/lsp"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-lsp.log",
+      "logSha256": "7beb5e1223981768ffc444d01a5ffcefee8364d1f903af7e96c7ca27fa08caad"
+    },
+    {
+      "name": "publint-packages-providers-anthropic",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/anthropic"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-anthropic.log",
+      "logSha256": "1fd57ca5c0f9e520003e39e64a0881eddcf6ef78d2c71b977fc4cdd2ee060116"
+    },
+    {
+      "name": "publint-packages-providers-bedrock",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/bedrock"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-bedrock.log",
+      "logSha256": "4f3ee078d77247ab787a2f2f49dab2f2ac0c477fa139ff1b50d082b8b5f16c3c"
+    },
+    {
+      "name": "publint-packages-providers-deepseek",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/deepseek"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-deepseek.log",
+      "logSha256": "5c06e75ea34a8b5859468e08955061633bbbbd5e66ae28ee89cf17006eba910f"
+    },
+    {
+      "name": "publint-packages-providers-google",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/google"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-google.log",
+      "logSha256": "9334fba528b3169873eb9a9714daf3802b9c13f5cbc4cc7019e8f8b251c0714e"
+    },
+    {
+      "name": "publint-packages-providers-http",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/http"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-http.log",
+      "logSha256": "236e22e970fc08e086298197c1869cf521b3ddc98991dd14c733cca738b66e0b"
+    },
+    {
+      "name": "publint-packages-providers-lmstudio",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/lmstudio"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-lmstudio.log",
+      "logSha256": "cdf98d6529b8c8a520de6e2a112b177dbfa43c66042faf4164d6fbc3676b5965"
+    },
+    {
+      "name": "publint-packages-providers-ollama",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/ollama"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-ollama.log",
+      "logSha256": "b29a6e33479eb43fda522746d3960be3c130e63d4eb3cd8aa51a8799fb68c6d7"
+    },
+    {
+      "name": "publint-packages-providers-openai",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openai"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-openai.log",
+      "logSha256": "b9f29fb6413d78432b22bb112e0153e7de8030d01b6eb601b799be99306c8b38"
+    },
+    {
+      "name": "publint-packages-providers-openrouter",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openrouter"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-openrouter.log",
+      "logSha256": "bbb645b3bdea907822784794c6a2ef1222a6a63f956f65c440649480b3321259"
+    },
+    {
+      "name": "publint-packages-providers-zen",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/zen"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-providers-zen.log",
+      "logSha256": "c08c95086e31201cf4f2b38a46ae59949f7c51b83b0efb36344a40a99b854196"
+    },
+    {
+      "name": "publint-packages-sandbox",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sandbox"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-sandbox.log",
+      "logSha256": "7b6b7e006e8eedda7bdba66e0c7054b93f2d97fc18f1a4f46163ff0bf5530487"
+    },
+    {
+      "name": "publint-packages-sdk",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sdk"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-sdk.log",
+      "logSha256": "e97bd1eb92b16de90133fa1e8f13bc2d10f5d7d6031a43b1c777257a4cf6f3d1"
+    },
+    {
+      "name": "publint-packages-telemetry",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/telemetry"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "/var/tmp/namzu-final-integrated-short-retry-20261001/publint-packages-telemetry.log",
+      "logSha256": "d50cd75439f991de977ff9f14232b91570613bbcf9e967d5fa9847a91f16a93b"
+    }
+  ],
+  "sdkCoverage": {
+    "lines": {
+      "total": 34820,
+      "covered": 31729,
+      "skipped": 0,
+      "pct": 91.12
+    },
+    "statements": {
+      "total": 39176,
+      "covered": 34879,
+      "skipped": 0,
+      "pct": 89.03
+    },
+    "functions": {
+      "total": 6980,
+      "covered": 6265,
+      "skipped": 0,
+      "pct": 89.75
+    },
+    "branches": {
+      "total": 29262,
+      "covered": 24824,
+      "skipped": 0,
+      "pct": 84.83
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "retryReason": "Linux volume exhausted during sandbox tests. Owned closed reference checkouts were archived, byte/metadata compared, and then removed; both were later restored and compared again. A first retry used an overlong TMPDIR; a shorter private Linux path passed all 16 peer directory tests, then the full workspace gate and remaining gates.",
+  "tmpDir": "/tmp/ng.Ka774H",
+  "packageVersionsChangesetsAndChangelogsRestored": true,
+  "archives": [
+    {
+      "source": "/tmp/namzu-workflow-peers-20260930.ckQyBT",
+      "archive": "/mnt/c/Users/Arda/AppData/Local/Temp/namzu-verified-reference-archive-20261001-nb77zaj9/reference-checkouts.tar.gz",
+      "sha256": "ec1ce5f7b1d83ff96e0394d8dde72b026a41ba32c298fa4b6e445e2d02ca7955",
+      "bytes": 801131904,
+      "byteAndMetadataComparison": "tar --compare exit 0",
+      "restoreCommand": [
+        "tar",
+        "-xzf",
+        "/mnt/c/Users/Arda/AppData/Local/Temp/namzu-verified-reference-archive-20261001-nb77zaj9/reference-checkouts.tar.gz",
+        "-C",
+        "/tmp"
+      ],
+      "restoredToOriginalPath": true,
+      "restoredComparison": "tar --compare exit 0"
+    },
+    {
+      "source": "/var/tmp/n-R2j6E1/mission-reference",
+      "archive": "/mnt/c/Users/Arda/AppData/Local/Temp/namzu-verified-research-archive-20261001-rqn19jg0/mission-reference.tar.gz",
+      "sha256": "8aab189bc55271093c8614bc39e5a5510732dae8a2b318e9a7b3f2eb13cd2456",
+      "bytes": 491176597,
+      "byteAndMetadataComparison": "tar --compare exit 0",
+      "restoreCommand": [
+        "tar",
+        "-xzf",
+        "/mnt/c/Users/Arda/AppData/Local/Temp/namzu-verified-research-archive-20261001-rqn19jg0/mission-reference.tar.gz",
+        "-C",
+        "/var/tmp/n-R2j6E1"
+      ],
+      "restoredToOriginalPath": true,
+      "restoredComparison": "tar --compare exit 0"
+    }
+  ],
+  "native": {
+    "modelTransport": "scripted; actual CLI/kernel/OS processes",
+    "childRoot": "/tmp/namzu-child-native-6y942c6k",
+    "readinessRoot": "/tmp/namzu-readiness-native-_iplcpy9",
+    "desktopRoot": "/tmp/namzu-native-smoke-imTs7C",
+    "continuityRoot": "/var/tmp/namzu-desktop-continuity-awKjNT",
+    "receipts": [
+      "research/agent-messaging-20261001/artifacts/native-continuation-readiness.json",
+      "research/runtime-desktop-20260930/artifacts/fidelity-native-receipt.json",
+      "research/runtime-desktop-20260930/artifacts/desktop-continuity-receipt.json",
+      "research/runtime-desktop-20260930/artifacts/fidelity-resting-comparison.json",
+      "research/runtime-desktop-20260930/artifacts/fidelity-expanded-comparison.json",
+      "research/runtime-desktop-20260930/artifacts/fidelity-approval-comparison.json"
+    ]
+  }
+}

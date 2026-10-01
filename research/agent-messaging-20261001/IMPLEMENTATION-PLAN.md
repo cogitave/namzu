@@ -21,7 +21,9 @@ Baseline: `7f5f1284`. This is an implementation tracker, not a claim of release.
 - [x] Exercise the actual Namzu TUI and update public docs and changesets.
   Native child follow-up and persistent-server readiness receipts are recorded
   in `NATIVE-IMPLEMENTATION.md`; model transport is scripted.
-- [ ] Finish all local CI gates and commit the coherent integrated result.
+- [x] Finish all 48 local CI gates and commit the coherent integrated result.
+  Source commits are `6194bda9` (runtime) and `c1d2c041` (desktop); the final
+  receipt and native limits are in `INTEGRATED-VERIFICATION.md`.
 
 ## Contract choices
 
@@ -44,7 +46,7 @@ the Pal product is not complete. These are separate deliverables:
 | Deployment, credentials and environment | Planned | Revocable grant references; fenced resource leases; cleanup |
 | Groups and optional lead | Planned | Membership and role contracts; no implicit authority union |
 | Durable workflow execution | Partial primitives | Enforced dependencies and joins; durable dispatch/recovery; one workflow run per cron occurrence |
-| Local owned-child communication | Implemented locally; final gates pending | Direct composer; fresh invocation; parent provenance |
+| Local owned-child communication | Implemented and locally verified | Direct composer; fresh invocation; parent provenance |
 | Independent local sessions | Implemented locally | Same-project/current-mode admission; no crash durability claim |
 | External A2A | Contract mismatch found | Select supported official binding; schema and SDK interoperability; authenticated task ownership and cancellation |
 
@@ -64,7 +66,7 @@ must not hide missing lifecycle, resource or protocol guarantees.
   default, clear match/exit/timeout/abort outcomes and current host ownership.
   Existing scheduled source polling and CAS delivery remain the chosen basis
   for external watchers; no duplicate WatcherAgent framework is required.
-- [ ] Complete a concrete desktop usability slice using the existing source
+- [x] Complete a concrete desktop usability slice using the existing source
   component composition and native audit harness; preserve Namzu identity,
   test actual interactions/responsiveness/motion and document platform limits.
   Track its exact implementation and native proof in the desktop research plan.
@@ -98,6 +100,11 @@ of the implementation checkboxes is not a release or a final full-CI claim.
   Tool starts/progress no longer falsely expire a parked call, and resume cannot
   overwrite its unread event. All 176 original and 13 new package tests pass.
 
-Full SDK unit suite (858 files / 9,644 tests), SDK process tests and SDK coverage
-passed on frozen source. Whole-workspace integration and the reopened desktop
-composition correction are still being completed; no remote write is claimed.
+Final frozen source passed all 48 local gates, including the whole workspace,
+278 SDK process tests, coverage/floors, consumer install, docs and publint for
+21 publishable packages. SDK has 9,644 passing tests, CLI 4,697 with 5 existing
+skips, AG-UI 189 and desktop 22. Final desktop native source/font and continuity
+checks both exited 0; actual header/sidebar glyph faces and source typography
+match. The selected implementation is locally complete. No remote write,
+publication, complete Pal deployment or native Windows/macOS installer is
+claimed. See `INTEGRATED-VERIFICATION.md` and its final gate receipt.
