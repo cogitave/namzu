@@ -107,5 +107,6 @@ product; those decisions remain in the existing Pals architecture document.
 
 The repository's 48-step runner is used, including workspace tests, process
 tests, evals, coverage, metadata, consumer install, docs and every publint target.
-The final receipt and any necessary follow-up runs are recorded separately after
-completion. Native test instances are all closed before commit.
+The completed receipt and follow-up runs are in `artifacts/local-gates.json`;
+`FINAL-AUDIT.md` maps each requirement to evidence. Native test instances are
+all closed.

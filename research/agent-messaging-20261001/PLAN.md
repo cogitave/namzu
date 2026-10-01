@@ -19,7 +19,7 @@ foundation before introducing Pals. Distinguish internal communication from A2A.
   message routing, idle wake, process ownership and delivery receipts.
 - [x] Fix reproduced defects and prove delivery/order/cancellation invariants.
   Document any public changes and add changesets if production packages change.
-- [ ] Record the Pal communication decision, remaining gaps and verification;
+- [x] Record the Pal communication decision, remaining gaps and verification;
   commit coherent work locally. No remote writes are part of this investigation.
 
 The operator explicitly authorized research, planning and implementing the
@@ -49,12 +49,16 @@ No inferred success from a queued message or a child agent's narrative.
 ## Remaining closure work
 
 - [x] Observe peer failure and held pending mail in two native terminals.
-- [ ] Finish all local CI gates on the final implementation and retain receipts.
-- [ ] Save reproduction instructions and limits, then commit explicit paths.
-- [ ] Mark the single messaging goal complete after these tasks are finished.
+- [x] Finish all local CI gates on the final implementation and retain receipts.
+- [x] Save reproduction instructions and limits, then commit explicit paths.
+Goal closure is recorded in the thread after the final verification commit.
 
 Final native failure run: two fresh terminals, one receiver request while the
 second peer message remained pending, three requests after explicit operator
 continuation. The corrected screen has no stale queued peer row. All test
 terminals exited normally. Concurrent host shutdown callers share one close
 promise; its real socket regression passes.
+
+All 48 local gates completed successfully; final proof and limits are in
+`FINAL-AUDIT.md` and `artifacts/local-gates.json`. Final closure includes a
+documentation recheck and clean-worktree check before updating the goal.

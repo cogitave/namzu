@@ -15,6 +15,11 @@ scheduler or A2A connection is needed. The SDK's experimental
 POSIX and named pipes on Windows. The Windows path is implemented but has not
 been exercised on a Windows host in this change.
 
+Both terminals must use the same user-local runtime directory selected by the
+SDK. The operating-system account owns that registry; project and mode checks
+are application policy. Environment isolation remains a separate deployment
+choice.
+
 ## Use it
 
 - `/peers` or `/peers list`: show live terminals, short references, permission
@@ -40,9 +45,10 @@ An idle, ready receiver starts a model turn for accepted peer context. During
 work, mail enters history at the runtime's next provider-valid request boundary,
 after the current tool batch or model response settles. It does not interrupt an
 in-flight request or tool. Mail arriving during an apparent final response can
-cause a further request. After a stopped or failed turn, or while a picker is
-open, pending mail waits. A new operator instruction can resume the held queue;
-peer mail cannot make that continuation decision.
+cause a further request. After a stopped or failed operator or peer turn, or
+while a picker is open, pending mail waits. A new operator instruction can
+resume the held queue; peer mail cannot make that continuation decision.
+Automatic goal rounds retain their separate goal-driver continuation policy.
 
 The transcript attributes peer text to the other terminal. Durable history uses
 `runtime-context/peer-message`; peer text is never an operator message or

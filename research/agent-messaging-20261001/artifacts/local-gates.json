@@ -1,0 +1,468 @@
+{
+  "sourceCommit": "6ece0d6870dd7ca4d8f84d0a85b2343c2b4f08d6",
+  "scope": "Local CI gates, not a GitHub validated-tree artifact or an npm publication",
+  "execution": "First 23 gates completed before the initial consumer process ended without a completion receipt. Consumer and the remaining 24 gates were rerun serially. Final CLI behavior was separately rebuilt and tested after all production changes.",
+  "gates": [
+    {
+      "name": "lint",
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "workflow-tests",
+      "command": "node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "workflow-parity",
+      "command": "node .github/scripts/check-workflow-gate-parity.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "project-references",
+      "command": "node .github/scripts/check-project-references.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "typecheck",
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "build",
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "tests",
+      "command": "pnpm -r test",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "process-tests",
+      "command": "pnpm --filter @namzu/sdk test:proc",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "external-name-tests",
+      "command": "node --import tsx --test scripts/__tests__/audit-external-names.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "external-names",
+      "command": "node scripts/audit-external-names.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "log-tests",
+      "command": "node --import tsx --test scripts/__tests__/check-log-standard.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "log-standard",
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "local-entries",
+      "command": "node --import tsx --test scripts/__tests__/check-local-entry.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "model-prices",
+      "command": "node scripts/generate-model-prices.mjs --check",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "zen-generator",
+      "command": "node --import tsx --test scripts/__tests__/generate-zen-models.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "installer-sh",
+      "command": "sh -n install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "installer-dash",
+      "command": "dash -n install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "evals",
+      "command": "node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "coverage",
+      "command": "pnpm --filter @namzu/sdk test:coverage",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "coverage-floor",
+      "command": "node .github/scripts/check-sdk-module-coverage.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "test-presence",
+      "command": "node .github/scripts/check-sdk-test-presence.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publish-metadata",
+      "command": "node .github/scripts/check-publish-metadata.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "consumer-snapshot-test",
+      "command": "node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "consumer-install",
+      "command": "bash .github/scripts/verify-consumer-install.sh",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "signature-types",
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "docs-okf",
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "docs-fences",
+      "command": "node tools/check-doc-fences.mjs",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-ag-ui",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/ag-ui"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-browser",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/browser"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-cli",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/cli"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-computer-use",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/computer-use"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-evals",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/evals"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-files",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/files"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-live",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/live"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-lsp",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/lsp"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-anthropic",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/anthropic"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-bedrock",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/bedrock"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-deepseek",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/deepseek"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-google",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/google"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-http",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/http"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-lmstudio",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/lmstudio"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-ollama",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/ollama"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-openai",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openai"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-openrouter",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/openrouter"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-providers-zen",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/providers/zen"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-sandbox",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sandbox"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-sdk",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/sdk"
+      ],
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "name": "publint-packages-telemetry",
+      "command": [
+        "npx",
+        "-y",
+        "publint@latest",
+        "packages/telemetry"
+      ],
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "additionalVerification": [
+    {
+      "name": "final-typecheck",
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "logSha256": "ad498e87dc7798f8f28d910d7e184b07904a865790420f8a3900e63005a1aa6a"
+    },
+    {
+      "name": "final-lint",
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "logSha256": "4008f6ac38310297c9d32ede7fe4a10fb3c2c091656ac22c1ddc8edbc6121128"
+    },
+    {
+      "name": "final-log-standard",
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "logSha256": "7200202444dcb12c0f94c512f6557d4fbb97d6aa72d5588971d87549f2664278"
+    },
+    {
+      "name": "final-build",
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "logSha256": "a8fa59203dd526207ae31b31740591fdd976af37e6898bb797be9b0a5a8c8d52"
+    },
+    {
+      "name": "final-cli-tests",
+      "command": "pnpm --filter @namzu/cli test",
+      "exitCode": 0,
+      "logSha256": "a2e33d1a725cf4d3364ad6fd0aee951e5b86ded0878f0898aba9d7b0b2e140b6"
+    },
+    {
+      "name": "receiver-project-boundary",
+      "command": "pnpm --filter @namzu/cli test src/integrations/peers/runtime.test.ts",
+      "exitCode": 0,
+      "logSha256": "643e4874137b8f5eb16c65273c943c2afc2e9292258a7da4da4dac3491fbb6a8"
+    },
+    {
+      "name": "closure-docs",
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "logSha256": "c1b58cf307385e48a4843a9cf9cc97350b38c228328220e65fcf216d27244ec1"
+    },
+    {
+      "name": "closure-fences",
+      "command": "node tools/check-doc-fences.mjs",
+      "exitCode": 0,
+      "logSha256": "b7e35949af74c14aedf97d3101d604b56827ff9016bab36f0fd588679d7e39eb"
+    },
+    {
+      "name": "closure-log",
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "logSha256": "7200202444dcb12c0f94c512f6557d4fbb97d6aa72d5588971d87549f2664278"
+    }
+  ],
+  "testTotals": {
+    "sdkUnit": 9587,
+    "sdkProcess": 278,
+    "cliPassed": 4675,
+    "cliSkipped": 5,
+    "cliFiles": 512
+  },
+  "limits": [
+    "Native transport tested on Linux; Windows pipes not exercised",
+    "Original CLI used live Sonnet 5.5; Namzu native TUI experiments used a scripted provider",
+    "Queued is process-local acceptance, not durable delivery or exactly-once execution"
+  ]
+}
