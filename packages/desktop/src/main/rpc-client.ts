@@ -27,6 +27,7 @@ export class RuntimeClient extends EventEmitter {
 	private sequence = 0
 	private diagnostic = ''
 	private closed = false
+	private processClosed = false
 	private shutdown?: Promise<void>
 	private readonly pending = new Map<
 		number,
@@ -58,9 +59,10 @@ export class RuntimeClient extends EventEmitter {
 			this.diagnostic = (this.diagnostic + chunk.toString('utf8')).slice(-16_000)
 		})
 		child.on('error', (error) => this.fail(error))
-		child.on('close', () =>
-			this.fail(new Error('The Namzu connection closed. Reopen the project to reconnect.')),
-		)
+		child.on('close', () => {
+			this.processClosed = true
+			this.fail(new Error('The Namzu connection closed. Reopen the project to reconnect.'))
+		})
 		const result = (await this.request(
 			'initialize',
 			{
@@ -163,7 +165,7 @@ export class RuntimeClient extends EventEmitter {
 		if (this.shutdown) return this.shutdown
 		this.fail(new Error('The Namzu connection was closed.'))
 		const child = this.child
-		if (!child?.pid || child.exitCode !== null) return Promise.resolve()
+		if (!child?.pid || this.processClosed) return Promise.resolve()
 		this.shutdown = new Promise<void>((resolve) => {
 			let kill: ReturnType<typeof setTimeout> | undefined
 			const terminate = setTimeout(() => {

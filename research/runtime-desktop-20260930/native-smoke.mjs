@@ -47,6 +47,29 @@ async function probePanelMotion(page) {
 		})
 	})
 }
+async function probeComposerMotion(page) {
+ return await page.evaluate(async () => {
+  const body=document.querySelector('[data-chat-composer-body]')
+  const main=document.querySelector('[data-chat-composer-main-surface]')
+  const startHeight=main.getBoundingClientRect().height
+  return await new Promise(resolve=>{
+   const observer=new MutationObserver(()=>{
+    if(body.dataset.resting !== 'false') return
+    observer.disconnect()
+    const motion=main.getAnimations().find(animation=>animation.id==='namzu-composer-height')
+    if(!motion) {resolve({startHeight,frames:[],endHeight:main.getBoundingClientRect().height});return}
+    motion.pause()
+    const duration=Number(motion.effect.getTiming().duration)
+    motion.currentTime=duration/2
+    const midHeight=main.getBoundingClientRect().height
+    motion.finish()
+    resolve({startHeight,frames:[{duration,easing:motion.effect.getTiming().easing}],midHeight,endHeight:main.getBoundingClientRect().height})
+   })
+   observer.observe(body,{attributes:true,attributeFilter:['data-resting']})
+   document.querySelector('.composer-input textarea').focus()
+  })
+ })
+}
 let desktop = await _electron.launch(launchOptions)
 try {
 	await desktop.evaluate(({ app, dialog }, args) => {
@@ -74,6 +97,9 @@ try {
 	await page.getByRole('textbox', { name: 'Message Namzu' }).fill('Run the foreground fixture.')
 	await page.getByRole('button', { name: 'Send message' }).click()
 	await expect(page.getByRole('region', { name: 'Tool approval' })).toBeVisible()
+	await page.getByRole('textbox', {name:'Message Namzu'}).evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true})))
+	await expect(page.getByRole('region', { name: 'Tool approval' })).toBeVisible()
+	await expect(page.getByRole('button', {name:'Stop turn',exact:true})).toBeVisible()
 	await page.getByRole('textbox', { name: 'Message Namzu' }).fill('Start the background fixture next.')
 	await page.getByRole('button', { name: 'Queue message' }).click()
 	await expect(page.locator('.queue')).toContainText('1 queued')
@@ -84,6 +110,12 @@ try {
 	await expect(page.getByRole('region', { name: 'Tool approval' })).toBeVisible()
 	await settleMotion(page)
 	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/native-approval.png') })
+	const approvalComparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT, 'fidelity-approval') : null
+	assert.equal(await page.locator('.transcript [aria-label="Tool approval"]').count(), 0)
+	await page.getByText('Review action details', { exact: true }).click()
+	await expect(page.locator('.approval-full-details')).toContainText('DESKTOP_PIPE_OK')
+	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/fidelity-approval-details.png') })
+	await page.getByText('Review action details', { exact: true }).click()
 	await page.getByRole('button', { name: 'Allow once' }).click()
 	await expect(page.getByRole('region', { name: 'Tool approval' })).toContainText('run_in_background')
 	await page.getByRole('button', { name: 'Allow once' }).click()
@@ -116,6 +148,25 @@ try {
 	await page.getByRole('button', { name: 'Wrap diff lines', exact: true }).click()
 	await expect(page.getByRole('button', { name: 'Wrap diff lines', exact: true })).toHaveAttribute('aria-pressed', 'true')
 	await page.getByRole('button', { name: 'Close changes', exact: true }).click()
+	await page.locator('.breadcrumb [data-conversation-title]').click()
+	await expect(page.locator('[data-chat-composer-body]')).toHaveAttribute('data-resting', 'true')
+	await settleMotion(page)
+	assert.equal(await page.locator('.composer-input textarea').evaluate((node) => node.getBoundingClientRect().height), 32)
+	const orderedRows = await page.locator('.conversation-body > [data-timeline-turn]').evaluateAll((rows) => rows.map((node) => node.classList.contains('tool-list') ? 'tool' : node.dataset.messageRole))
+	assert.deepEqual(orderedRows, ['user', 'tool', 'assistant', 'user', 'tool', 'assistant', 'user', 'tool', 'assistant'])
+	const restingComparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT, 'fidelity-resting') : null
+	await page.keyboard.press('Control+b')
+	await expect(page.locator('.app')).toHaveAttribute('data-sidebar-collapsed', 'true')
+	await settleMotion(page)
+	await expect(page.getByRole('button', {name:'Toggle sidebar',exact:true})).toBeVisible()
+	await page.screenshot({path:join(repo,'research/runtime-desktop-20260930/artifacts/fidelity-collapsed.png')})
+	await page.getByRole('button', {name:'Toggle sidebar',exact:true}).click()
+	await expect(page.locator('.app')).toHaveAttribute('data-sidebar-collapsed', 'false')
+	await settleMotion(page)
+	const composerMotion = await probeComposerMotion(page)
+	assert.equal(composerMotion.frames[0].duration, 220)
+	assert.ok(composerMotion.midHeight > composerMotion.startHeight && composerMotion.midHeight < composerMotion.endHeight)
+	await page.screenshot({path:join(repo,'research/runtime-desktop-20260930/artifacts/fidelity-focused.png')})
 	await page.getByLabel('Filter conversations by project', { exact: true }).click()
     await page.getByRole('combobox', { name: 'Search projects', exact: true }).fill('project')
     await expect(page.getByRole('option', { name: 'project', exact: true })).toBeVisible()
@@ -132,6 +183,10 @@ try {
 	await expect(page.getByRole('region', { name: 'Tool approval' })).toHaveCount(0)
 	await page.getByRole('button', { name: 'Close background work' }).click()
 	await expect(page.getByRole('complementary', { name: 'Background work' })).not.toBeVisible()
+	await page.locator('.breadcrumb [data-conversation-title]').click()
+	await expect(page.locator('[data-chat-composer-body]')).toHaveAttribute('data-resting','true')
+	const reducedComposerMotion = await probeComposerMotion(page)
+	assert.equal(reducedComposerMotion.frames.length,0)
 	const composer = page.getByRole('textbox', { name: 'Message Namzu' })
 	await composer.fill('Unsent composed text')
 	await composer.evaluate((node) => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })))
@@ -150,8 +205,9 @@ try {
  assert.equal(geometry.message.fontSize, '14px')
  assert.ok(geometry.code.fontFamily.includes('monospace'))
  assert.equal(geometry.canvas, 'rgb(10, 10, 10)')
+ assert.equal(geometry.code.fontSize,'13px')
  await writeFile(join(repo, 'research/runtime-desktop-20260930/artifacts/ui-measurements.json'), JSON.stringify(geometry,null,2)+'\n')
- const comparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT) : null
+ const comparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT, 'fidelity-expanded') : null
  await page.getByRole('button', {name:'Select model', exact:true}).click()
  await settleMotion(page)
 	await page.screenshot({path:join(repo,'research/runtime-desktop-20260930/artifacts/native-model-menu.png')})
@@ -167,15 +223,18 @@ try {
  await page.getByRole('button',{name:'Appearance: light. Change appearance',exact:true}).click()
  await page.getByRole('button',{name:'Appearance: system. Change appearance',exact:true}).click()
  await expect(page.locator('html')).toHaveClass('dark')
- await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(600, 540))
+ await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(600, 540))
 	await settleMotion(page)
 	await page.screenshot({ path: join(repo, 'research/runtime-desktop-20260930/artifacts/native-narrow.png') })
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false)
  await expect(page.getByRole('searchbox',{name:'Search conversations'})).not.toBeVisible()
+ await expect(page.getByRole('button',{name:'Toggle sidebar',exact:true})).toHaveAttribute('aria-expanded','false')
  await page.getByRole('button',{name:'Toggle sidebar',exact:true}).click()
  await expect(page.getByRole('searchbox',{name:'Search conversations'})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Toggle sidebar',exact:true})).toHaveAttribute('aria-expanded','true')
  await page.keyboard.press('Escape')
  await expect(page.getByRole('searchbox',{name:'Search conversations'})).not.toBeVisible()
+ await expect(page.getByRole('button',{name:'Toggle sidebar',exact:true})).toHaveAttribute('aria-expanded','false')
  await page.getByRole('button',{name:'Select model',exact:true}).click()
  const popup=await page.locator('[data-slot=popover-popup]').boundingBox()
  assert.ok(popup && popup.x>=0 && popup.y>=0 && popup.x+popup.width<=600 && popup.y+popup.height<=540)
@@ -195,5 +254,8 @@ try {
 	await expect(restored.locator('.message-text').filter({ hasText: 'Native runtime answered. DESKTOP_PIPE_OK' })).toBeVisible()
 	await expect(restored.locator('.message-text').filter({ hasText: 'The background process is running.' })).toBeVisible()
 	await expect(restored.getByRole('button', { name: 'Send message' })).toBeVisible()
-	console.log(JSON.stringify({ native: true, realCli: true, realKernel: true, modelIo: 'scripted', actualShell: ['foreground', 'background', 'stop'], actualFileDiff: true, queuedNextTurn: true, reloadRetainsReviewAndQueue: true, selectedModelReachedKernel: true, historySurvivesAppRestart: true, imeDoesNotSubmit: true, shiftEnterNewline: true, modelMenuKeyboard: true, search: true, themePersisted: true, responsiveMenu: true, referenceGeometry: geometry, panelMotion, reducedPanelMotion, cliWordmark: true, permissions: 'three separate approvals', rendererNode: false, overflow: false, requests, root }))
-} finally { await desktop.close() }
+	const result = { native: true, realCli: true, realKernel: true, modelIo: 'scripted', actualShell: ['foreground', 'background', 'stop'], actualFileDiff: true, queuedNextTurn: true, reloadRetainsReviewAndQueue: true, selectedModelReachedKernel: true, historySurvivesAppRestart: true, imeDoesNotSubmit: true, shiftEnterNewline: true, modelMenuKeyboard: true, search: true, themePersisted: true, responsiveMenu: true, referenceGeometry: geometry, panelMotion, reducedPanelMotion, cliWordmark: true, permissions: 'three separate approvals', rendererNode: false, overflow: false, requests, root, orderedRows, restingEditorPx:32, sidebarCollapse:true, narrowAriaMatchesVisibility:true, imeEscapePreservesReview:true, composerMotion, reducedComposerMotion, sourceComparisons:Boolean(approvalComparison && restingComparison && comparison), typographyReceipts:['fidelity-approval-comparison.json','fidelity-resting-comparison.json','fidelity-expanded-comparison.json'] }
+ await desktop.close(); desktop=null
+ await writeFile(join(repo,'research/runtime-desktop-20260930/artifacts/fidelity-native-receipt.json'),JSON.stringify(result,null,2)+'\n')
+ console.log(JSON.stringify(result))
+} finally { if(desktop) await desktop.close() }

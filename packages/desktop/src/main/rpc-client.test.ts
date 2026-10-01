@@ -27,6 +27,15 @@ it('rejects all pending callers when the process exits', async () => {
 	const exit = expect(runtime.request('test/exit')).rejects.toThrow('connection closed')
 	await Promise.all([pending, exit])
 })
+it('finishes shutdown after the owned process has already closed from a signal', async () => {
+	const runtime = client()
+	await runtime.start()
+	await expect(runtime.request('test/signal')).rejects.toThrow('connection closed')
+	// Await the actual close completion; an already emitted close event cannot
+	// be awaited again. Vitest's timeout catches a genuine stalled shutdown.
+	await runtime.close()
+	await runtime.close()
+})
 it('reports malformed protocol output and rejects a pending prompt', async () => {
 	const runtime = client()
 	await runtime.start()

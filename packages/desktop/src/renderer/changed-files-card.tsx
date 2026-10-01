@@ -5,9 +5,14 @@ import { useState } from 'react'
 import { Button } from './ui/button.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
-export function ChangedFilesCard({ tools, onOpen }: { tools: Tool[]; onOpen: () => void }) {
+export function ChangedFilesCard({
+	tools,
+	onOpen,
+}: { tools: Record<string, Tool>; onOpen: () => void }) {
 	const [expanded, setExpanded] = useState(false)
-	const changes = tools.filter((tool) => tool.status === 'completed' && tool.view.kind === 'diff')
+	const changes = Object.entries(tools).filter(
+		([, tool]) => tool.status === 'completed' && tool.view.kind === 'diff',
+	)
 	if (!changes.length) return null
 	return (
 		<div
@@ -47,10 +52,10 @@ export function ChangedFilesCard({ tools, onOpen }: { tools: Tool[]; onOpen: () 
 			{expanded && (
 				<div className="px-2 pb-2">
 					{changes.map(
-						(tool) =>
+						([receiptId, tool]) =>
 							tool.view.kind === 'diff' && (
 								<button
-									key={tool.toolCallId}
+									key={receiptId}
 									type="button"
 									className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 									onClick={onOpen}

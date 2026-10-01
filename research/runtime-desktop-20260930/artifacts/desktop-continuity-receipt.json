@@ -1,0 +1,111 @@
+{
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelIo": "scripted",
+  "draftReload": true,
+  "draftPerConversation": true,
+  "disconnectedReloadDraft": true,
+  "disconnectedSendRefused": true,
+  "unsentReconnectDraft": true,
+  "unsentReconnectSend": true,
+  "noDuplicateRecoveredConversation": true,
+  "shutdownAfterSignal": true,
+  "queueEditPreservesDraft": true,
+  "queueRemovalByIdentity": true,
+  "queueEditRestoresAuthoredText": true,
+  "popupEscapeDoesNotCancelTurn": true,
+  "capturedHistoryRetainsNewerEvents": true,
+  "deferredProviderDoesNotNavigate": true,
+  "deferredJobOutputDoesNotLeak": true,
+  "referenceCompared": false,
+  "darkLight": true,
+  "narrowReducedMotion": true,
+  "width": 600,
+  "height": 540,
+  "root": "/var/tmp/namzu-desktop-continuity-awKjNT",
+  "requests": [
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    }
+  ]
+}

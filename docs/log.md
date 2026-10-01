@@ -4,6 +4,8 @@
 
 - **Fix** [AG-UI interrupts](sdk/ag-ui.md) retain buffered tool starts, progress and parked questions without falsely expiring the waiting call; only matching completion or turn settlement invalidates it. `.changeset/ag-ui-live-interrupt-liveness.md`, **patch** for `@namzu/ag-ui`.
 
+- **Fix** [Desktop application](cli/desktop.md) aligns the sidebar header, compact and expanded composer, attached approval surface, typography and motion with verified source components while preserving Namzu's wordmark and phosphor palette. Tool receipts retain turn identity and conversation order; native checks cover actual font faces, composition keys, narrow navigation, drafts, queue actions, stale responses and reconnect. The package remains a private source preview.
+
 - **Update** [Background jobs](cli/background-jobs.md) and [tool execution](sdk/tool-execution.md) add an owned literal output wait with pipe-separated matching, explicit cursors and bounded outcomes; persistent servers remain alive without creating exit-wait intent. `.changeset/background-job-output-readiness.md`, **minor** for `@namzu/sdk`.
 
 - **Fix** [Tool execution](sdk/tool-execution.md#live-execution-events) streams starts and progress while approved tools run, and cancels and settles an unfinished batch when its consumer closes the stream. `.changeset/live-tool-event-stream.md`, **patch** for `@namzu/sdk`.

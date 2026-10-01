@@ -50,10 +50,10 @@
     "background": "rgba(0, 0, 0, 0)"
   },
   "code": {
-    "width": 151.203125,
-    "height": 14,
-    "fontSize": "14px",
-    "lineHeight": "22.75px",
+    "width": 140.40625,
+    "height": 13,
+    "fontSize": "13px",
+    "lineHeight": "21.125px",
     "fontFamily": "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace",
     "radius": "0px",
     "background": "rgba(0, 0, 0, 0)"

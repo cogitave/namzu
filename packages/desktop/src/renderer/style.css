@@ -7,6 +7,11 @@ body,
 	margin: 0;
 	overflow: hidden;
 }
+#root {
+	/* Portal focus guards must not pan the fixed application frame. The
+	   transcript, sidebar and panels own their own scroll containers. */
+	overflow: clip;
+}
 body {
 	font-family: var(--font-sans);
 	color: var(--foreground);
@@ -51,12 +56,50 @@ pre {
 	display: grid;
 	grid-template-columns: 256px minmax(0, 1fr);
 	height: 100%;
+	transition: grid-template-columns var(--motion-duration) var(--motion-ease);
+}
+.app[data-sidebar-collapsed="true"] {
+	grid-template-columns: 0 minmax(0, 1fr);
 }
 .sidebar {
+	position: relative;
+	width: 256px;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	background: var(--sidebar);
+	border-right: 1px solid var(--sidebar-border);
+	transition: opacity var(--motion-duration) var(--motion-ease);
+}
+.app[data-sidebar-collapsed="true"] .sidebar:not(.open) {
+	opacity: 0;
+	visibility: hidden;
+}
+.sidebar-stage-backdrop {
+	mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
+	-webkit-mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
+}
+.sidebar-stage-backdrop::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		to bottom,
+		transparent 0%,
+		transparent 28%,
+		color-mix(in srgb, var(--sidebar) 10%, transparent) 40%,
+		color-mix(in srgb, var(--sidebar) 30%, transparent) 52%,
+		color-mix(in srgb, var(--sidebar) 58%, transparent) 64%,
+		color-mix(in srgb, var(--sidebar) 82%, transparent) 75%,
+		color-mix(in srgb, var(--sidebar) 96%, transparent) 85%,
+		var(--sidebar) 93%
+	);
+}
+.sidebar-open-control {
+	display: none;
+}
+.sidebar-open-control.is-collapsed {
+	display: inline-flex;
 }
 .sidebar-scroll {
 	min-height: 0;
@@ -112,25 +155,8 @@ pre {
 	-webkit-app-region: drag;
 }
 .breadcrumb {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	flex: 1;
-	min-width: 0;
-	font-size: 12px;
-}
-.breadcrumb > span {
-	color: var(--muted-foreground);
-	white-space: nowrap;
-}
-.breadcrumb .divider {
-	opacity: 0.45;
-}
-.breadcrumb strong {
-	font-weight: 500;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow: clip;
+	overflow-clip-margin: 2px;
 }
 .mobile-menu {
 	display: none;
@@ -186,6 +212,18 @@ pre {
 }
 .composer-input textarea:focus {
 	outline: none;
+}
+[data-chat-composer-body][data-resting="true"] .composer-input textarea {
+	min-height: 32px;
+	max-height: 32px;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	white-space: pre;
+	line-height: 32px;
+}
+[data-chat-composer-body][data-approval="true"] .composer-input textarea {
+	min-height: 40px;
 }
 .model-picker-trigger {
 	max-width: 100%;
@@ -243,10 +281,10 @@ pre {
 .tool-list {
 	display: grid;
 	gap: 2px;
-	padding: 4px 0 16px;
+	padding: 0 0 8px;
 }
 .tool {
-	border-radius: 6px;
+	border-radius: var(--radius-md);
 	font-size: 14px;
 	color: var(--muted-foreground);
 }
@@ -266,27 +304,11 @@ pre {
 .tool summary::-webkit-details-marker {
 	display: none;
 }
-.tool summary::before {
-	content: "›";
-	font-size: 18px;
-	width: 12px;
-	transition: transform 150ms;
+.tool-icon {
+	color: var(--icon-muted);
 }
-.tool[open] summary::before {
-	transform: rotate(90deg);
-}
-.tool-dot {
-	width: 5px;
-	height: 5px;
-	border: 1px solid currentColor;
-	border-radius: 50%;
-	flex: none;
-}
-.tool.failed .tool-dot {
+.tool.failed .tool-icon {
 	color: var(--error-foreground);
-}
-.tool.completed .tool-dot {
-	color: var(--primary);
 }
 .tool.active summary > span:nth-of-type(2) {
 	background-image: linear-gradient(
@@ -450,7 +472,7 @@ pre {
 }
 .diff-code-view {
 	--diffs-font-family: var(--font-mono);
-	--diffs-font-size: 12px;
+	--diffs-font-size: var(--font-size-code);
 	--diffs-header-font-family: var(--font-sans);
 }
 .scrim {
@@ -489,7 +511,8 @@ pre {
 	}
 }
 @media (max-width: 767px) {
-	.app {
+	.app,
+	.app[data-sidebar-collapsed="true"] {
 		grid-template-columns: minmax(0, 1fr);
 	}
 	.sidebar {
@@ -504,10 +527,14 @@ pre {
 	.sidebar.open {
 		visibility: visible;
 		transform: none;
+		opacity: 1;
 	}
 	.sidebar-close,
-	.mobile-menu {
+	.sidebar-open-control {
 		display: inline-flex;
+	}
+	.sidebar-toggle {
+		display: none;
 	}
 	.scrim {
 		display: block;
@@ -516,13 +543,10 @@ pre {
 		z-index: 45;
 		background: rgb(0 0 0 / 45%);
 	}
-	.breadcrumb {
-		gap: 6px;
-	}
-	.breadcrumb > span:first-child {
+	.breadcrumb-project {
 		display: none;
 	}
-	.breadcrumb .divider {
+	.breadcrumb-separator {
 		display: none;
 	}
 	.jobs-button-label {
@@ -725,6 +749,7 @@ pre {
 }
 
 .chat-markdown pre code {
+	font-size: var(--font-size-code);
 	border: none;
 	background: transparent;
 	padding: 0;

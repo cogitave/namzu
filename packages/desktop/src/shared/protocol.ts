@@ -29,13 +29,17 @@ export interface JobView {
 	startedAt: number
 	exitCode?: number
 }
+export interface QueuedMessageView {
+	id: string
+	prompt: string
+}
 export interface PermissionView {
 	id: string
 	sessionId: string
 	projectId: string
 	calls: { id: string; name: string; input: unknown; isDestructive: boolean }[]
 }
-export type DesktopEvent =
+export type DesktopEvent = (
 	| { kind: 'prompt'; sessionId: string; prompt: string }
 	| {
 			kind: 'update'
@@ -50,9 +54,11 @@ export type DesktopEvent =
 			sessionId: string
 			running: boolean
 			queued: string[]
+			queuedItems?: QueuedMessageView[]
 			error?: string
 	  }
 	| { kind: 'connection'; project: ProjectView }
+) & { readonly revision?: number }
 export interface DesktopApi {
 	projects(): Promise<ProjectView[]>
 	openProject(): Promise<ProjectView | null>
@@ -71,8 +77,11 @@ export interface DesktopApi {
 	providers(projectId: string, sessionId?: string): Promise<ProviderView>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
 	send(sessionId: string, prompt: string): Promise<void>
+	draft(sessionId: string): Promise<string>
+	saveDraft(sessionId: string, draft: string): Promise<void>
 	cancel(sessionId: string): Promise<void>
-	takeQueued(sessionId: string): Promise<string | null>
+	takeQueued(sessionId: string, itemId?: string): Promise<string | null>
+	removeQueued(sessionId: string, itemId: string): Promise<void>
 	approve(sessionId: string, requestId: string, approved: boolean): Promise<void>
 	jobs(sessionId: string): Promise<JobView[]>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>

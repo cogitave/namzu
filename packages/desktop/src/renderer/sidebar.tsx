@@ -4,12 +4,14 @@ import {
 	MonitorIcon,
 	MoonIcon,
 	PanelLeftCloseIcon,
+	PanelLeftIcon,
 	SunIcon,
 	XIcon,
 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import { HeaderBackdrop } from './header-backdrop.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { SidebarHeaderIconButton, SidebarThreadHeader } from './sidebar-thread-header.js'
 import { ThreadCard } from './thread-card.js'
@@ -39,6 +41,8 @@ export function Sidebar({
 	appearance,
 	onAppearance,
 	onClose,
+	onToggle,
+	collapsed,
 	onOpenProject,
 	onNewConversation,
 	onProject,
@@ -54,6 +58,8 @@ export function Sidebar({
 	appearance: Appearance
 	onAppearance: () => void
 	onClose: () => void
+	onToggle: () => void
+	collapsed: boolean
 	onOpenProject: () => void
 	onNewConversation: () => void
 	onProject: (id: string) => void
@@ -82,10 +88,31 @@ export function Sidebar({
 				id="namzu-sidebar"
 				className={`sidebar ${open ? 'open' : ''}`}
 				data-app-sidebar
+				inert={collapsed && !open}
+				aria-hidden={collapsed && !open}
 				aria-label="Projects and conversations"
 			>
-				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-4">
-					<Wordmark />
+				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3 md:px-0">
+					<HeaderBackdrop />
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									className="sidebar-toggle relative z-10 ml-3"
+									variant="ghost-muted"
+									size="icon-sm"
+									aria-label="Collapse sidebar"
+									onClick={onToggle}
+								/>
+							}
+						>
+							<PanelLeftIcon />
+						</TooltipTrigger>
+						<TooltipPopup>Collapse sidebar · Ctrl + B</TooltipPopup>
+					</Tooltip>
+					<div className="relative z-10 flex h-7 min-w-0 items-center overflow-hidden rounded-md">
+						<Wordmark />
+					</div>
 					<Button
 						variant="ghost-muted"
 						size="icon-xs"
@@ -96,7 +123,7 @@ export function Sidebar({
 						<XIcon />
 					</Button>
 				</div>
-				<SidebarGroup>
+				<SidebarGroup className="relative z-[1]">
 					<SidebarThreadHeader
 						hasProjects={projects.length > 0}
 						searchFieldRef={scopeAnchor}

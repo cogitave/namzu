@@ -58,6 +58,11 @@
 		transparent,
 		var(--chat-composer-glass-surface)
 	);
+	--background-image-composer-seam-above: linear-gradient(
+		to top,
+		transparent,
+		var(--chat-composer-attached-surface)
+	);
 }
 :root {
 	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -72,6 +77,9 @@
 	--sidebar-control-gap: 0.5rem;
 	--sidebar-row-content-inset: 0.625rem;
 	--chat-max-width: 48rem;
+	--font-size-prompt: 14px;
+	--font-size-code: 13px;
+	--diffs-font-size: var(--font-size-code);
 	--workspace-topbar-height: 52px;
 	--workspace-gutter: 0.75rem;
 	--workspace-gutter-start: var(--workspace-gutter);
@@ -92,6 +100,7 @@
 	--contrast-sidebar-foreground: var(--sidebar-foreground);
 	font-family: var(--font-sans);
 	font-size: 16px;
+	-webkit-font-smoothing: antialiased;
 }
 :root {
 	color-scheme: light;
@@ -234,4 +243,28 @@
 	--diff-addition: #059669;
 	--diff-deletion: #ef4444;
 	--contrast-border: var(--border);
+	--stage-art-bottom: #e9f4e9;
+	--stage-art-mid: #c1e7c7;
+	--stage-art-top: #88cfa0;
+	--stage-art-highlight: #218645;
+	--stage-art-secondary: #258d50;
+	--stage-art-celeste-highlight: #438f55;
+	--stage-art-celeste-secondary: #8bc895;
+	--stage-art-violet-highlight: #3c8047;
+	--stage-art-tertiary: #5baf69;
+	--stage-art-grid-line: #228140;
+	--stage-art-line: #2a8645;
+}
+.dark {
+	--stage-art-bottom: #09220f;
+	--stage-art-mid: #0e3d1d;
+	--stage-art-top: #1c6130;
+	--stage-art-highlight: #a9ffab;
+	--stage-art-secondary: #5fff5f;
+	--stage-art-celeste-highlight: #afffc1;
+	--stage-art-celeste-secondary: #77d595;
+	--stage-art-violet-highlight: #b5ff8c;
+	--stage-art-tertiary: #83d470;
+	--stage-art-grid-line: #8bffa3;
+	--stage-art-line: #c1ffd2;
 }

@@ -1,7 +1,7 @@
 // Isolated transport fixture: no credentials, model, network or shell execution.
 import { createInterface } from 'node:readline'
+import { randomUUID } from 'node:crypto'
 const pending = new Map()
-let sequence = 0
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
 const reply = (id, result) => send({ id, result })
 const methods = ['namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
@@ -22,7 +22,7 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/conversations/list') reply(id, [])
 	else if (method === 'namzu/conversations/history') reply(id, { messages: [], partial: false })
 	else if (method === 'session/load') reply(id, { sessionId: params.sessionId })
-	else if (method === 'session/new') reply(id, { sessionId: `session-${++sequence}` })
+	else if (method === 'session/new') reply(id, { sessionId: `session-${randomUUID()}` })
 	else if (method === 'session/prompt') {
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
@@ -41,6 +41,7 @@ lines.on('line', (line) => {
 		process.stdout.write(bytes.subarray(0, split), () => process.stdout.write(bytes.subarray(split)))
 	} else if (method === 'test/malformed') process.stdout.write('invalid-json\n')
 	else if (method === 'test/exit') process.exit(0)
+	else if (method === 'test/signal') process.kill(process.pid, 'SIGTERM')
 	else if (method === 'test/wait') { /* pending until transport closes */ }
 	else reply(id, {})
 })

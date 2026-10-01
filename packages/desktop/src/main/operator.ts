@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { AcpRequestPermissionParams, AcpSessionUpdateNotification } from '@namzu/sdk'
-import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	ChatMessage,
 	ConversationView,
@@ -10,18 +10,26 @@ import type {
 	PermissionView,
 	ProjectView,
 	ProviderView,
+	QueuedMessageView,
 } from '../shared/protocol.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 
 interface Project {
 	view: ProjectView
 	client: RuntimeClient
+	providers?: ProviderView
 }
 interface Conversation {
 	view: ConversationView
+	/** Stable UI ownership is separate from a replaceable, never-started runtime session. */
+	runtimeSessionId: string
+	hasPrompted: boolean
+	reattaching?: Promise<void>
 	client: RuntimeClient
 	running: boolean
-	queue: string[]
+	queue: QueuedMessageView[]
+	draft: string
+	providers?: ProviderView
 	projection: ThreadState
 	needsLoad?: boolean
 	permissions: Map<string, string | number>
@@ -37,7 +45,12 @@ export class Operator {
 		if (event.kind !== 'connection') {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
-			if (session) session.projection = applyEvent(session.projection, event)
+			if (session) {
+				const versioned = { ...event, revision: session.projection.revision + 1 }
+				session.projection = applyEvent(session.projection, versioned)
+				this.publish(versioned)
+				return
+			}
 		}
 		this.publish(event)
 	}
@@ -122,6 +135,11 @@ export class Operator {
 		return { ...project.view }
 	}
 	async listConversations(id: string): Promise<ConversationView[]> {
+		const known = this.projects.get(id)
+		if (known?.view.status === 'error')
+			return [...this.conversations.values()]
+				.filter((session) => session.view.projectId === id)
+				.map((session) => ({ ...session.view }))
 		const project = this.project(id)
 		if (!project.view.trusted) return []
 		const rows = (await project.client.request('namzu/conversations/list')) as {
@@ -131,7 +149,7 @@ export class Operator {
 		}[]
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
 		const views = rows.map((row) => ({
-			id: row.id,
+			id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
 			title: row.title,
 			updatedAt: row.updatedAt,
 			projectId: id,
@@ -139,7 +157,7 @@ export class Operator {
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
 			if (session.view.projectId !== id || returned.has(session.view.id)) continue
-			if (!session.needsLoad || session.running || session.queue.length)
+			if (!session.needsLoad || session.running || session.queue.length || session.draft.length)
 				views.unshift({ ...session.view })
 		}
 		return views
@@ -160,9 +178,12 @@ export class Operator {
 		}
 		this.conversations.set(view.id, {
 			view,
+			runtimeSessionId: view.id,
+			hasPrompted: false,
 			client: project.client,
 			running: false,
 			queue: [],
+			draft: '',
 			projection: emptyThread(),
 			permissions: new Map(),
 		})
@@ -176,10 +197,16 @@ export class Operator {
 		partial: boolean
 		thread?: ThreadState
 	}> {
-		const project = this.project(projectId)
 		const existing = this.conversations.get(sessionId)
 		if (existing && existing.view.projectId !== projectId)
 			throw new Error('This conversation belongs to another project.')
+		if (existing && this.projects.get(projectId)?.view.status === 'error')
+			return {
+				messages: existing.projection.messages,
+				partial: existing.projection.partial ?? false,
+				thread: existing.projection,
+			}
+		const project = this.project(projectId)
 		if (!existing) {
 			const list = await this.listConversations(projectId)
 			const view = list.find((row) => row.id === sessionId)
@@ -190,19 +217,18 @@ export class Operator {
 			})
 			this.conversations.set(sessionId, {
 				view,
+				runtimeSessionId: sessionId,
+				hasPrompted: true,
 				client: project.client,
 				running: false,
 				queue: [],
+				draft: '',
 				projection: emptyThread(),
 				permissions: new Map(),
 			})
 		}
 		if (existing?.needsLoad) {
-			await project.client.request('session/load', {
-				sessionId,
-				cwd: project.view.path,
-			})
-			existing.needsLoad = false
+			await this.reattach(existing)
 		}
 		// Active/transient sessions are rendered from their live UI projection.
 		if (existing)
@@ -215,8 +241,57 @@ export class Operator {
 			sessionId,
 		})) as { messages: ChatMessage[]; partial: boolean }
 		const record = this.conversations.get(sessionId)
-		if (record) record.projection = { ...record.projection, ...history }
+		if (record)
+			record.projection = {
+				...restoreMessages(record.projection, history.messages),
+				partial: history.partial,
+			}
 		return { ...history, thread: record?.projection }
+	}
+	private runtimeSession(project: Project, runtimeId: string): Conversation | undefined {
+		return [...this.conversations.values()].find(
+			(session) =>
+				session.view.projectId === project.view.id &&
+				session.client === project.client &&
+				session.runtimeSessionId === runtimeId,
+		)
+	}
+	private async reattach(session: Conversation): Promise<void> {
+		if (!session.needsLoad) return
+		if (session.reattaching) return await session.reattaching
+		const project = this.project(session.view.projectId)
+		const client = session.client
+		const operation = (async () => {
+			if (session.hasPrompted) {
+				await client.request('session/load', {
+					sessionId: session.runtimeSessionId,
+					cwd: project.view.path,
+				})
+			} else {
+				// A never-started session has no durable CLI history to load. Keep
+				// its UI/draft owner and create only its replacement runtime slot.
+				const result = (await client.request('session/new', { cwd: project.view.path })) as {
+					sessionId: string
+				}
+				if (session.client !== client || project.view.status !== 'ready')
+					throw new Error('The connection changed while reopening this conversation.')
+				if (typeof result.sessionId !== 'string' || !result.sessionId)
+					throw new Error('Namzu returned an invalid conversation identity.')
+				const owner = this.runtimeSession(project, result.sessionId)
+				if (owner && owner !== session)
+					throw new Error('Namzu returned an identity owned by another conversation.')
+				session.runtimeSessionId = result.sessionId
+			}
+			if (session.client !== client || project.view.status !== 'ready')
+				throw new Error('The connection changed while reopening this conversation.')
+			session.needsLoad = false
+		})()
+		session.reattaching = operation
+		try {
+			await operation
+		} finally {
+			if (session.reattaching === operation) session.reattaching = undefined
+		}
 	}
 	async reconnect(id: string): Promise<ProjectView> {
 		const project = this.projects.get(id)
@@ -225,12 +300,20 @@ export class Operator {
 		return this.openProject(project.view.path)
 	}
 	async providers(id: string, sessionId?: string): Promise<ProviderView> {
-		if (sessionId && this.session(sessionId).view.projectId !== id)
+		const session = sessionId ? this.draftSession(sessionId) : undefined
+		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
-		return (await this.project(id).client.request(
+		const known = this.projects.get(id)
+		if (known?.view.status === 'error')
+			return session?.providers ?? known.providers ?? { available: [], selected: null }
+		const project = this.project(id)
+		const result = (await project.client.request(
 			'namzu/providers/status',
-			sessionId ? { sessionId } : {},
+			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as ProviderView
+		if (session) session.providers = result
+		else project.providers = result
+		return result
 	}
 	async selectProvider(sessionId: string, provider: string, model?: string): Promise<void> {
 		const session = this.session(sessionId)
@@ -243,7 +326,7 @@ export class Operator {
 		)
 			throw new Error('Invalid model choice.')
 		await session.client.request('namzu/providers/select', {
-			sessionId,
+			sessionId: session.runtimeSessionId,
 			provider,
 			...(model?.trim() ? { model: model.trim() } : {}),
 		})
@@ -254,18 +337,41 @@ export class Operator {
 			throw new Error('Enter a message under 50,000 characters.')
 		if (session.running) {
 			if (session.queue.length >= 20) throw new Error('The message queue is full.')
-			session.queue.push(prompt)
+			session.queue.push({ id: randomUUID(), prompt })
+			if (session.draft === prompt) session.draft = ''
 			this.state(session)
 			return
 		}
+		if (session.draft === prompt) session.draft = ''
 		void this.run(session, prompt)
+	}
+	private draftSession(sessionId: string): Conversation {
+		const session = this.conversations.get(sessionId)
+		if (!session) throw new Error('Open this conversation first.')
+		return session
+	}
+	draft(sessionId: string): string {
+		return this.draftSession(sessionId).draft
+	}
+	saveDraft(sessionId: string, draft: string): void {
+		const session = this.draftSession(sessionId)
+		if (typeof draft !== 'string' || draft.length > 50_000)
+			throw new Error('Keep this draft under 50,000 characters.')
+		const otherCharacters = [...this.conversations.values()].reduce(
+			(total, item) => total + (item === session ? 0 : item.draft.length),
+			0,
+		)
+		if (otherCharacters + draft.length > 1_000_000)
+			throw new Error('Draft storage is full. Send or clear another draft before writing more.')
+		session.draft = draft
 	}
 	private state(session: Conversation, error?: string): void {
 		this.emit({
 			kind: 'state',
 			sessionId: session.view.id,
 			running: session.running,
-			queued: [...session.queue],
+			queued: session.queue.map((item) => item.prompt),
+			queuedItems: session.queue.map((item) => ({ ...item })),
 			...(error ? { error } : {}),
 		})
 	}
@@ -276,9 +382,11 @@ export class Operator {
 		this.state(session)
 		let completed = false
 		try {
+			await this.reattach(session)
+			session.hasPrompted = true
 			const result = (await session.client.request(
 				'session/prompt',
-				{ sessionId: session.view.id, prompt },
+				{ sessionId: session.runtimeSessionId, prompt },
 				0,
 			)) as { stopReason: string }
 			completed = result.stopReason === 'end_turn'
@@ -297,18 +405,37 @@ export class Operator {
 		}
 		if (completed) {
 			const next = session.queue.shift()
-			if (next) void this.run(session, next)
+			if (next) void this.run(session, next.prompt)
 		}
 	}
 	async cancel(sessionId: string): Promise<void> {
 		const session = this.session(sessionId)
-		await session.client.request('session/cancel', { sessionId })
+		await session.client.request('session/cancel', { sessionId: session.runtimeSessionId })
 	}
-	takeQueued(sessionId: string): string | null {
+	takeQueued(sessionId: string, itemId?: string): string | null {
 		const session = this.session(sessionId)
-		const prompt = session.queue.pop() ?? null
+		if (session.draft.length > 0)
+			throw new Error('Send or clear your current draft before editing a queued message.')
+		const index =
+			itemId === undefined
+				? session.queue.length - 1
+				: session.queue.findIndex((item) => item.id === itemId)
+		if (index < 0) {
+			if (itemId !== undefined) throw new Error('This message has already started or was removed.')
+			return null
+		}
+		const prompt = session.queue[index]?.prompt ?? null
+		if (prompt !== null) this.saveDraft(sessionId, prompt)
+		session.queue.splice(index, 1)
 		this.state(session)
 		return prompt
+	}
+	removeQueued(sessionId: string, itemId: string): void {
+		const session = this.session(sessionId)
+		const index = session.queue.findIndex((item) => item.id === itemId)
+		if (index < 0) throw new Error('This message has already started or was removed.')
+		session.queue.splice(index, 1)
+		this.state(session)
 	}
 	approve(sessionId: string, requestId: string, approved: boolean): void {
 		const session = this.session(sessionId)
@@ -323,12 +450,12 @@ export class Operator {
 	private onFrame(project: Project, frame: Record<string, unknown>): void {
 		if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
-			const session = this.conversations.get(params?.sessionId)
+			const session = this.runtimeSession(project, params?.sessionId)
 			if (session?.view.projectId === project.view.id && session.running)
 				this.emit({
 					kind: 'update',
 					projectId: project.view.id,
-					sessionId: params.sessionId,
+					sessionId: session.view.id,
 					update: params.update,
 				})
 		} else if (
@@ -336,7 +463,7 @@ export class Operator {
 			(typeof frame.id === 'string' || typeof frame.id === 'number')
 		) {
 			const params = frame.params as AcpRequestPermissionParams
-			const session = this.conversations.get(params?.sessionId)
+			const session = this.runtimeSession(project, params?.sessionId)
 			if (
 				!session ||
 				session.view.projectId !== project.view.id ||
@@ -350,7 +477,7 @@ export class Operator {
 			session.permissions.set(id, frame.id)
 			const request: PermissionView = {
 				id,
-				sessionId: params.sessionId,
+				sessionId: session.view.id,
 				projectId: project.view.id,
 				calls: params.toolCalls,
 			}
@@ -365,13 +492,15 @@ export class Operator {
 	async jobs(sessionId: string): Promise<unknown> {
 		const session = this.session(sessionId)
 		if (session.projection.messages.length === 0 && !session.running) return []
-		return await session.client.request('namzu/jobs/list', { sessionId })
+		return await session.client.request('namzu/jobs/list', {
+			sessionId: session.runtimeSessionId,
+		})
 	}
 	async readJob(sessionId: string, jobId: string): Promise<unknown> {
 		const session = this.session(sessionId)
 		if (typeof jobId !== 'string' || jobId.length > 400) throw new Error('Invalid job.')
 		const result = (await session.client.request('namzu/jobs/read', {
-			sessionId,
+			sessionId: session.runtimeSessionId,
 			jobId,
 		})) as {
 			chunk: string
@@ -382,7 +511,7 @@ export class Operator {
 	async stopJob(sessionId: string, jobId: string): Promise<void> {
 		const session = this.session(sessionId)
 		if (typeof jobId !== 'string' || jobId.length > 400) throw new Error('Invalid job.')
-		await session.client.request('namzu/jobs/stop', { sessionId, jobId })
+		await session.client.request('namzu/jobs/stop', { sessionId: session.runtimeSessionId, jobId })
 	}
 	async close(): Promise<void> {
 		await Promise.allSettled([...this.projects.values()].map((project) => project.client.close()))

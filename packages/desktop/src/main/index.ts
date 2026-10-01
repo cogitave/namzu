@@ -84,8 +84,11 @@ function register(): void {
 		operator.selectProvider(id, provider, model),
 	)
 	handle('send', (id: string, prompt: string) => operator.send(id, prompt))
+	handle('draft', (id: string) => operator.draft(id))
+	handle('saveDraft', (id: string, draft: string) => operator.saveDraft(id, draft))
 	handle('cancel', (id: string) => operator.cancel(id))
-	handle('takeQueued', (id: string) => operator.takeQueued(id))
+	handle('takeQueued', (id: string, itemId?: string) => operator.takeQueued(id, itemId))
+	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))
 	handle('approve', (id: string, request: string, approved: boolean) =>
 		operator.approve(id, request, approved),
 	)

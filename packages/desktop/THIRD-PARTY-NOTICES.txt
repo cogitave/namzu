@@ -10,20 +10,25 @@ Source: https://github.com/pingdotgg/t3code
 Revision: c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21
 Original files:
  apps/web/src/components/ui/{button,input,textarea,popover,select,tooltip,empty,collapsible,sidebar,combobox,scroll-area}.tsx
- apps/web/src/components/chat/{ComposerSurface,ComposerControl,ComposerPrimaryActions,ChatComposer,MessagesTimeline,ChangedFilesTree}.tsx
- apps/web/src/components/{WorkspacePageHeader,Sidebar,NoActiveThreadState}.tsx
+ apps/web/src/components/chat/{ComposerSurface,ComposerControl,ComposerBanner,ComposerPrimaryActions,ComposerPendingApprovalPanel,ComposerPendingApprovalActions,ChatComposer,MessagesTimeline,ChangedFilesTree}.tsx
+ apps/web/src/components/{WorkspacePageHeader,WorkspaceBreadcrumb,Sidebar,NoActiveThreadState}.tsx
  apps/web/src/components/Sidebar.motion.ts
  apps/web/src/components/sidebar/SidebarThreadHeader.tsx
+ apps/web/src/components/sidebar/SidebarChrome.tsx
+ apps/web/src/components/SidebarStageBackdrop.tsx
  apps/web/src/components/diffs/StyledDiffCodeView.tsx
  apps/web/src/lib/diffRendering.ts
  packages/shared/src/themePalettes.ts
  apps/web/src/index.css (compact geometry tokens and active-tool highlight)
 Local files: src/renderer/ui/*, composer-surface.tsx, composer-control.tsx,
 sidebar-thread-header.tsx, sidebar-motion.ts, thread-card.tsx,
-workspace-page-header.tsx, changed-files-card.tsx, diff-theme.ts,
-composer.tsx, message.tsx, sidebar.tsx, style.css and theme.css.
+workspace-page-header.tsx, workspace-breadcrumb.tsx, changed-files-card.tsx, diff-theme.ts,
+composer.tsx, composer-banner.tsx, composer-approval.tsx, header-backdrop.tsx,
+message.tsx, sidebar.tsx, style.css and theme.css.
 Changes: relative imports and formatting; extracted stateless sidebar primitives;
-removed peer-specific theme selectors/store/resize integration; selected the
+removed peer-specific theme selectors/store/resize integration; ported stateless
+blueprint SVG/header chrome, resting editor and compact pending-approval branches;
+selected the
 normal light/dark palette and exported its semantic tokens to local CSS;
 changed canvas/sidebar and action accents to the Namzu CLI palette; adapted the
 active-tool shine animation with local tokens and reduced-motion support.

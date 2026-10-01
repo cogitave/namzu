@@ -7,10 +7,12 @@ import { Button } from './ui/button.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 /** The exact before/after from completed calls; no inferred repository or pending changes. */
-export function ChangesPanel({ tools, dark }: { tools: Tool[]; dark: boolean }) {
+export function ChangesPanel({ tools, dark }: { tools: Record<string, Tool>; dark: boolean }) {
 	const [split, setSplit] = useState(false)
 	const [wrap, setWrap] = useState(false)
-	const changes = tools.filter((tool) => tool.status === 'completed' && tool.view.kind === 'diff')
+	const changes = Object.entries(tools).filter(
+		([, tool]) => tool.status === 'completed' && tool.view.kind === 'diff',
+	)
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4">
@@ -47,10 +49,10 @@ export function ChangesPanel({ tools, dark }: { tools: Tool[]; dark: boolean }) 
 					</p>
 				)}
 				{changes.map(
-					(tool) =>
+					([receiptId, tool]) =>
 						tool.view.kind === 'diff' && (
 							<MultiFileDiff
-								key={tool.toolCallId}
+								key={receiptId}
 								className="diff-code-view"
 								oldFile={{
 									name: tool.view.path || tool.view.label || 'File',

@@ -1,0 +1,219 @@
+{
+  "scrollX": 0,
+  "scrollY": 0,
+  "innerWidth": 1180,
+  "innerHeight": 791,
+  "nodes": [
+    {
+      "tag": "HTML",
+      "className": "dark",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1180,
+        "height": 791,
+        "top": 0,
+        "right": 1180,
+        "bottom": 791,
+        "left": 0
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "lang": "en",
+        "class": "dark"
+      }
+    },
+    {
+      "tag": "BODY",
+      "className": "",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1180,
+        "height": 791,
+        "top": 0,
+        "right": 1180,
+        "bottom": 791,
+        "left": 0
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {}
+    },
+    {
+      "tag": "DIV",
+      "className": "",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1180,
+        "height": 791,
+        "top": 0,
+        "right": 1180,
+        "bottom": 791,
+        "left": 0
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "id": "root",
+        "data-base-ui-inert": ""
+      }
+    },
+    {
+      "tag": "DIV",
+      "className": "app",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1180,
+        "height": 791,
+        "top": 0,
+        "right": 1180,
+        "bottom": 791,
+        "left": 0
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "class": "app",
+        "data-sidebar-collapsed": "false"
+      }
+    },
+    {
+      "tag": "ASIDE",
+      "className": "sidebar ",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 791,
+        "top": 0,
+        "right": 256,
+        "bottom": 791,
+        "left": 0
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "id": "namzu-sidebar",
+        "class": "sidebar ",
+        "data-app-sidebar": "true",
+        "aria-hidden": "false",
+        "aria-label": "Projects and conversations"
+      }
+    },
+    {
+      "tag": "MAIN",
+      "className": "workspace ",
+      "rect": {
+        "x": 256,
+        "y": 0,
+        "width": 924,
+        "height": 791,
+        "top": 0,
+        "right": 1180,
+        "bottom": 791,
+        "left": 256
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "class": "workspace "
+      }
+    },
+    {
+      "tag": "DIV",
+      "className": "z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none",
+      "rect": {
+        "x": 368,
+        "y": 235,
+        "width": 384,
+        "height": 258,
+        "top": 235,
+        "right": 752,
+        "bottom": 493,
+        "left": 368
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "data-open": "",
+        "data-side": "top",
+        "data-align": "start",
+        "role": "presentation",
+        "data-slot": "popover-positioner",
+        "class": "z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none",
+        "style": "position: absolute; left: 368px; --positioner-width: 384px; --positioner-height: 258px; --available-width: 1170px; --available-height: 488px; --anchor-width: 78px; --anchor-height: 24px; --transform-origin: 39.015625px calc(100% + 4px); bottom: 298px;"
+      }
+    },
+    {
+      "tag": "DIV",
+      "className": "dropdown-glass relative flex h-(--popup-height,auto) origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)] shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)] max-w-[calc(100vw-2rem)] w-96 max-h-[min(24rem,var(--available-height))]",
+      "rect": {
+        "x": 368,
+        "y": 235,
+        "width": 384,
+        "height": 258,
+        "top": 235,
+        "right": 752,
+        "bottom": 493,
+        "left": 368
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "data-open": "",
+        "data-side": "top",
+        "data-align": "start",
+        "tabindex": "-1",
+        "data-base-ui-focusable": "",
+        "id": "_r_v_",
+        "role": "dialog",
+        "data-slot": "popover-popup",
+        "aria-label": "Queued messages",
+        "class": "dropdown-glass relative flex h-(--popup-height,auto) origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)] shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)] max-w-[calc(100vw-2rem)] w-96 max-h-[min(24rem,var(--available-height))]",
+        "style": "position: absolute; bottom: 0px; left: 0px; --popup-width: auto; --popup-height: auto;"
+      }
+    },
+    {
+      "tag": "DIV",
+      "className": "relative size-full max-h-(--available-height) overflow-clip px-(--viewport-inline-padding) has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity py-2 [--viewport-inline-padding:--spacing(3)] not-data-transitioning:overflow-y-auto",
+      "rect": {
+        "x": 369,
+        "y": 236,
+        "width": 382,
+        "height": 256,
+        "top": 236,
+        "right": 751,
+        "bottom": 492,
+        "left": 369
+      },
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "opacity": "1",
+      "transform": "none",
+      "attrs": {
+        "data-slot": "popover-viewport",
+        "class": "relative size-full max-h-(--available-height) overflow-clip px-(--viewport-inline-padding) has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity py-2 [--viewport-inline-padding:--spacing(3)] not-data-transitioning:overflow-y-auto"
+      }
+    }
+  ]
+}

@@ -6,11 +6,12 @@ import {
 	PlusIcon,
 	SquareIcon,
 	TerminalIcon,
+	WrenchIcon,
 	XIcon,
 } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	ConversationView,
 	DesktopEvent,
@@ -29,6 +30,12 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { TooltipProvider } from './ui/tooltip.js'
 import { Wordmark } from './wordmark.js'
+import {
+	WorkspaceBreadcrumb,
+	WorkspaceBreadcrumbItem,
+	WorkspaceBreadcrumbSeparator,
+	WorkspaceBreadcrumbText,
+} from './workspace-breadcrumb.js'
 import { WorkspacePageHeader } from './workspace-page-header.js'
 
 import './style.css'
@@ -46,6 +53,45 @@ function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 
 	}[name]
 	return <Component aria-hidden="true" />
 }
+function ToolRow({ tool, active }: { tool: ThreadState['tools'][string]; active: boolean }) {
+	const Icon =
+		tool.view.kind === 'terminal' || tool.title === 'bash'
+			? TerminalIcon
+			: tool.view.kind === 'diff'
+				? FileDiffIcon
+				: WrenchIcon
+	return (
+		<details
+			className={`tool ${tool.status} ${active ? 'active' : ''}`}
+			data-tool-call-id={tool.toolCallId}
+		>
+			<summary>
+				<span className="tool-icon flex size-6 shrink-0 items-center justify-center">
+					<Icon className="size-4" aria-hidden="true" />
+				</span>
+				<span>{tool.view.kind === 'generic' ? tool.view.label : tool.title}</span>
+				<span className="tool-status">
+					{tool.status === 'pending'
+						? active
+							? 'Working'
+							: 'Interrupted'
+						: tool.status === 'failed'
+							? 'Failed'
+							: 'Done'}
+				</span>
+			</summary>
+			<ToolView view={tool.view} />
+			{tool.progress && (
+				<output className="tool-progress">
+					{tool.progress.message}
+					{tool.progress.fraction !== undefined && (
+						<progress value={tool.progress.fraction} max={1} />
+					)}
+				</output>
+			)}
+		</details>
+	)
+}
 function App() {
 	const [projects, setProjects] = useState<ProjectView[]>([])
 	const [projectId, setProjectId] = useState('')
@@ -53,12 +99,63 @@ function App() {
 	const [sessionId, setSessionId] = useState('')
 	const [threads, setThreads] = useState<Record<string, ThreadState>>({})
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
+	const draftsRef = useRef<Record<string, string>>({})
+	const navigation = useRef(0)
+	const snapshotRead = useRef<{
+		generation: number
+		sessionId: string
+		events: DesktopEvent[]
+		characters: number
+		overflow: boolean
+	} | null>(null)
+	const activeSession = useRef('')
+	activeSession.current = sessionId
+	const editingQueue = useRef(new Set<string>())
+	const [queueEditing, setQueueEditing] = useState<Record<string, boolean>>({})
 	const [providers, setProviders] = useState<ProviderView>({
 		available: [],
 		selected: null,
 	})
 	const [choices, setChoices] = useState<Record<string, { provider: string; model: string }>>({})
 	const [sideOpen, setSideOpen] = useState(false)
+	const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+	useEffect(() => {
+		const media = window.matchMedia('(max-width: 767px)')
+		const update = () => setMobile(media.matches)
+		media.addEventListener('change', update)
+		return () => media.removeEventListener('change', update)
+	}, [])
+	const [sideCollapsed, setSideCollapsed] = useState(
+		() => localStorage.getItem('namzu.sidebar-collapsed') === 'true',
+	)
+	const toggleSidebar = useCallback(() => {
+		if (window.matchMedia('(max-width: 767px)').matches) setSideOpen((value) => !value)
+		else
+			setSideCollapsed((value) => {
+				localStorage.setItem('namzu.sidebar-collapsed', String(!value))
+				return !value
+			})
+	}, [])
+	useEffect(() => {
+		if (window.matchMedia('(max-width: 767px)').matches) return
+		const control = document.querySelector<HTMLButtonElement>(
+			sideCollapsed
+				? 'button[aria-label="Toggle sidebar"]'
+				: 'button[aria-label="Collapse sidebar"]',
+		)
+		control?.focus({ preventScroll: true })
+	}, [sideCollapsed])
+	useEffect(() => {
+		const key = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return
+			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !event.altKey) {
+				event.preventDefault()
+				toggleSidebar()
+			}
+		}
+		window.addEventListener('keydown', key)
+		return () => window.removeEventListener('keydown', key)
+	}, [toggleSidebar])
 	const [appearance, setAppearance] = useState<Appearance>(() => {
 		const saved = localStorage.getItem('namzu.appearance')
 		return saved === 'light' || saved === 'system' ? saved : 'dark'
@@ -127,6 +224,14 @@ function App() {
 				return
 			}
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
+			const read = snapshotRead.current
+			if (read?.sessionId === id && read.generation === navigation.current && !read.overflow) {
+				read.characters += JSON.stringify(event).length
+				if (read.characters > 8 * 1024 * 1024 || read.events.length >= 10_000) {
+					read.overflow = true
+					read.events.length = 0
+				} else read.events.push(event)
+			}
 			setThreads((all) => ({
 				...all,
 				[id]: applyEvent(all[id] ?? emptyThread(), event),
@@ -142,7 +247,7 @@ function App() {
 		})
 	}, [updateProject])
 	useEffect(() => {
-		if (!project || project.status !== 'ready' || !project.trusted) return
+		if (!project || project.status === 'connecting' || !project.trusted) return
 		let current = true
 		void Promise.all([api.conversations(project.id), api.providers(project.id)])
 			.then(([rows, available]) => {
@@ -208,58 +313,134 @@ function App() {
 	}, [sessionId])
 	const newConversation = useCallback(async () => {
 		if (!projectId) return
-		const view = await api.newConversation(projectId)
-		setConversations((all) => [view, ...all])
-		setSessionId(view.id)
-		setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
-		setSideOpen(false)
-		input.current?.focus()
+		const generation = ++navigation.current
+		try {
+			const view = await api.newConversation(projectId)
+			setConversations((all) => [view, ...all])
+			setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
+			if (generation !== navigation.current) return
+			setSessionId(view.id)
+			setSideOpen(false)
+			input.current?.focus()
+		} catch (failure) {
+			if (generation === navigation.current) throw failure
+		}
 	}, [projectId])
 	const openProject = useCallback(async () => {
+		const generation = ++navigation.current
 		setLoading(true)
 		try {
 			const item = await api.openProject()
 			if (item) {
 				updateProject(item)
+				if (generation !== navigation.current) return
 				setProjectId(item.id)
 				setSessionId('')
 				setSideOpen(false)
 			}
+		} catch (failure) {
+			if (generation === navigation.current) throw failure
 		} finally {
 			setLoading(false)
 		}
 	}, [updateProject])
 	const openConversation = async (view: ConversationView) => {
-		{
+		const generation = ++navigation.current
+		if (snapshotRead.current) snapshotRead.current.events.length = 0
+		const read = {
+			generation,
+			sessionId: view.id,
+			events: [] as DesktopEvent[],
+			characters: 0,
+			overflow: false,
+		}
+		snapshotRead.current = read
+		try {
 			const history = await api.openConversation(view.projectId, view.id)
-			setThreads((all) => ({
-				...all,
-				[view.id]: {
+			if (generation !== navigation.current) return
+			if (read.overflow)
+				throw new Error(
+					'This conversation changed while opening. Open it again for its latest history.',
+				)
+			const replay = [...read.events]
+			if (snapshotRead.current === read) snapshotRead.current = null
+			setThreads((all) => {
+				let restored: ThreadState = {
 					...emptyThread(),
-					...all[view.id],
 					...history.thread,
 					messages: history.messages,
 					partial: history.partial,
-				},
-			}))
+				}
+				if (!history.thread) restored = restoreMessages(restored, history.messages)
+				for (const event of replay) restored = applyEvent(restored, event)
+				return (all[view.id]?.revision ?? 0) > restored.revision
+					? all
+					: { ...all, [view.id]: restored }
+			})
+			const [status, savedDraft] = await Promise.all([
+				api.providers(view.projectId, view.id),
+				api.draft(view.id),
+			])
+			if (draftsRef.current[view.id] === undefined) {
+				draftsRef.current[view.id] = savedDraft
+				setDrafts((all) => ({ ...all, [view.id]: all[view.id] ?? savedDraft }))
+			}
+			if (status.selected)
+				setChoices((all) => ({
+					...all,
+					[view.id]: {
+						provider: status.selected?.id ?? '',
+						model: status.selected?.model ?? '',
+					},
+				}))
+			if (generation !== navigation.current) return
+			setSessionId(view.id)
+			setProjectId(view.projectId)
+			setSideOpen(false)
+			follow.current = true
+			input.current?.focus()
+		} catch (failure) {
+			if (generation === navigation.current) throw failure
+		} finally {
+			if (snapshotRead.current === read) snapshotRead.current = null
 		}
-		const status = await api.providers(view.projectId, view.id)
-		if (status.selected)
-			setChoices((all) => ({
-				...all,
-				[view.id]: {
-					provider: status.selected?.id ?? '',
-					model: status.selected?.model ?? '',
-				},
-			}))
-		setSessionId(view.id)
-		setProjectId(view.projectId)
-		setSideOpen(false)
-		follow.current = true
-		input.current?.focus()
 	}
+	const changeDraft = (target: string, value: string) => {
+		if (editingQueue.current.has(target)) return
+		draftsRef.current[target] = value
+		setDrafts((all) => ({ ...all, [target]: value }))
+		void api.saveDraft(target, value).catch((failure) => setError(errorText(failure)))
+	}
+	const editQueued = useCallback(
+		async (itemId?: string) => {
+			const target = sessionId
+			if (!target || editingQueue.current.has(target)) return
+			if ((draftsRef.current[target] ?? '').length > 0)
+				throw new Error('Send or clear your current draft before editing a queued message.')
+			editingQueue.current.add(target)
+			setQueueEditing((all) => ({ ...all, [target]: true }))
+			try {
+				const message = await api.takeQueued(target, itemId)
+				if (message !== null) {
+					draftsRef.current[target] = message
+					setDrafts((all) => ({ ...all, [target]: message }))
+				}
+			} finally {
+				editingQueue.current.delete(target)
+				setQueueEditing((all) => ({ ...all, [target]: false }))
+				if (activeSession.current === target) input.current?.focus()
+			}
+		},
+		[sessionId],
+	)
 	const send = async () => {
-		if (!draft.trim() || !sessionId || sendingRef.current.has(sessionId)) return
+		if (
+			!draft.trim() ||
+			!sessionId ||
+			sendingRef.current.has(sessionId) ||
+			project?.status !== 'ready'
+		)
+			return
 		const target = sessionId
 		const prompt = draft
 		sendingRef.current.add(target)
@@ -268,10 +449,10 @@ function App() {
 			if (!thread.running) await api.selectProvider(target, choice.provider, choice.model)
 			await api.send(target, prompt)
 			// A slow route acknowledgement cannot erase typing that followed Send.
-			setDrafts((all) => ({
-				...all,
-				[target]: all[target] === prompt ? '' : (all[target] ?? ''),
-			}))
+			if (draftsRef.current[target] === prompt) {
+				draftsRef.current[target] = ''
+				setDrafts((all) => ({ ...all, [target]: '' }))
+			}
 			follow.current = true
 		} finally {
 			sendingRef.current.delete(target)
@@ -280,6 +461,8 @@ function App() {
 	}
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229) return
+			if (event.defaultPrevented) return
 			if (event.key === 'Escape') {
 				if (sideOpen || jobsOpen) {
 					setSideOpen(false)
@@ -297,17 +480,14 @@ function App() {
 			}
 			if (event.altKey && event.key === 'ArrowUp' && sessionId) {
 				event.preventDefault()
-				void act(async () => {
-					const queued = await api.takeQueued(sessionId)
-					if (queued) setDrafts((all) => ({ ...all, [sessionId]: queued }))
-				})
+				void act(() => editQueued())
 			}
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [sideOpen, jobsOpen, sessionId, thread.running, act, newConversation, openProject])
+	}, [sideOpen, jobsOpen, sessionId, thread.running, act, newConversation, openProject, editQueued])
 	return (
-		<div className="app">
+		<div className="app" data-sidebar-collapsed={sideCollapsed}>
 			<Sidebar
 				projects={projects}
 				conversations={conversations}
@@ -315,6 +495,8 @@ function App() {
 				sessionId={sessionId}
 				threads={threads}
 				open={sideOpen}
+				collapsed={sideCollapsed}
+				onToggle={toggleSidebar}
 				opening={loading}
 				appearance={appearance}
 				onAppearance={() =>
@@ -326,6 +508,7 @@ function App() {
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
 				onProject={(id) => {
+					navigation.current += 1
 					setProjectId(id)
 					setSessionId('')
 				}}
@@ -337,24 +520,38 @@ function App() {
 						type="button"
 						variant="ghost-muted"
 						size="icon-sm"
-						className="icon-button mobile-menu"
+						className={`icon-button sidebar-open-control ${sideCollapsed ? 'is-collapsed' : ''}`}
 						aria-label="Toggle sidebar"
-						aria-expanded={sideOpen}
+						aria-expanded={mobile ? sideOpen : !sideCollapsed}
 						aria-controls="namzu-sidebar"
-						onClick={() => setSideOpen(!sideOpen)}
+						onClick={toggleSidebar}
 					>
 						<Icon name="menu" />
 					</Button>
-					<div className="breadcrumb">
-						<span>{project?.name ?? 'Workspace'}</span>
-						<span className="divider">/</span>
-						<strong>{conversation?.title ?? 'Start a conversation'}</strong>
-					</div>
+					<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
+						<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
+							<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
+								{project?.name ?? 'Workspace'}
+							</WorkspaceBreadcrumbText>
+						</WorkspaceBreadcrumbItem>
+						<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
+							<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+						</WorkspaceBreadcrumbSeparator>
+						<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+							<h2 className="min-w-0 flex-1">
+								<WorkspaceBreadcrumbText data-conversation-title>
+									{conversation?.title ?? 'Start a conversation'}
+								</WorkspaceBreadcrumbText>
+							</h2>
+						</WorkspaceBreadcrumbItem>
+					</WorkspaceBreadcrumb>
 					<Button
 						type="button"
 						variant="ghost-muted"
 						size="sm"
 						className="jobs-button"
+						aria-label="Background work"
+						aria-description={`${jobs.filter((job) => job.status === 'running').length} running shells in this conversation`}
 						onClick={() => {
 							setPanelTab('jobs')
 							setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
@@ -487,92 +684,44 @@ function App() {
 										device.
 									</p>
 								)}
-								{thread.messages.map((message, index) => (
-									<Message
-										from={message.role}
-										className={`message ${message.role}`}
-										key={`${index}-${message.role}`}
-									>
-										<MessageContent text={message.text} markdown={message.role === 'assistant'} />
-									</Message>
-								))}
+								{thread.timeline.map((entry) => {
+									if (entry.kind === 'tool') {
+										const tool = thread.tools[entry.id]
+										return tool ? (
+											<div
+												className="tool-list"
+												key={`tool-${entry.id}`}
+												data-timeline-turn={entry.turn}
+											>
+												<ToolRow tool={tool} active={thread.activeToolIds.includes(entry.id)} />
+											</div>
+										) : null
+									}
+									const message = thread.messages[entry.index]
+									return message ? (
+										<Message
+											from={message.role}
+											className={`message ${message.role}`}
+											key={`message-${entry.index}`}
+											data-timeline-turn={entry.turn}
+										>
+											<MessageContent text={message.text} markdown={message.role === 'assistant'} />
+										</Message>
+									) : null
+								})}
 								{thread.reasoning && (
 									<details className="reasoning">
 										<summary>Thinking</summary>
 										<p>{thread.reasoning}</p>
 									</details>
 								)}
-								{Object.values(thread.tools).length > 0 && (
-									<div className="tool-list">
-										{Object.values(thread.tools).map((tool) => (
-											<details
-												className={`tool ${tool.status} ${thread.activeToolIds.includes(tool.toolCallId) ? 'active' : ''}`}
-												key={tool.toolCallId}
-											>
-												<summary>
-													<span className="tool-dot" />
-													<span>{tool.view.kind === 'generic' ? tool.view.label : tool.title}</span>
-													<span className="tool-status">
-														{tool.status === 'pending'
-															? thread.activeToolIds.includes(tool.toolCallId)
-																? 'Working'
-																: 'Interrupted'
-															: tool.status === 'failed'
-																? 'Failed'
-																: 'Done'}
-													</span>
-												</summary>
-												<ToolView view={tool.view} />
-												{tool.progress && (
-													<output className="tool-progress">
-														{tool.progress.message}
-														{tool.progress.fraction !== undefined && (
-															<progress value={tool.progress.fraction} max={1} />
-														)}
-													</output>
-												)}
-											</details>
-										))}
-									</div>
-								)}
 								<ChangedFilesCard
-									tools={Object.values(thread.tools)}
+									tools={thread.tools}
 									onOpen={() => {
 										setPanelTab('changes')
 										setJobsOpen(true)
 									}}
 								/>
-								{thread.permissions.map((permission) => (
-									<section className="approval" key={permission.id} aria-label="Tool approval">
-										<p className="eyebrow">Your approval is needed</p>
-										<h3>Allow this action?</h3>
-										{permission.calls.map((call) => (
-											<div key={call.id}>
-												<strong>
-													{call.name}
-													{call.isDestructive ? ' · changes or removes data' : ''}
-												</strong>
-												<pre>{JSON.stringify(call.input, null, 2)}</pre>
-											</div>
-										))}
-										<div className="approval-actions">
-											<Button
-												type="button"
-												onClick={() => void act(() => api.approve(sessionId, permission.id, false))}
-											>
-												Decline
-											</Button>
-											<Button
-												type="button"
-												className="primary"
-												size="default"
-												onClick={() => void act(() => api.approve(sessionId, permission.id, true))}
-											>
-												Allow once
-											</Button>
-										</div>
-									</section>
-								))}
 								{thread.error && (
 									<p className="inline-error" role="alert">
 										{thread.error}
@@ -599,25 +748,28 @@ function App() {
 						</div>
 						<Composer
 							inputRef={input}
+							permissions={thread.permissions}
+							onApproval={(permission, approved) =>
+								void act(() => api.approve(permission.sessionId, permission.id, approved))
+							}
 							projectName={project.name}
 							projectPath={project.path}
 							empty={thread.messages.length === 0}
 							draft={draft}
-							onDraftChange={(value) => setDrafts((all) => ({ ...all, [sessionId]: value }))}
+							onDraftChange={(value) => changeDraft(sessionId, value)}
 							providers={providers}
+							connected={project.status === 'ready'}
 							choice={choice}
 							onChoiceChange={(value) => setChoices((all) => ({ ...all, [sessionId]: value }))}
 							running={thread.running}
 							sending={sending[sessionId] ?? false}
 							queued={thread.queued}
+							queuedItems={thread.queuedItems}
+							editingQueued={queueEditing[sessionId] ?? false}
 							onSend={() => void act(send)}
 							onStop={() => void act(() => api.cancel(sessionId))}
-							onEditQueued={() =>
-								void act(async () => {
-									const message = await api.takeQueued(sessionId)
-									if (message) setDrafts((all) => ({ ...all, [sessionId]: message }))
-								})
-							}
+							onEditQueued={(itemId) => void act(() => editQueued(itemId))}
+							onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
 						/>
 					</div>
 				)}
@@ -662,7 +814,7 @@ function App() {
 					</div>
 					{panelTab === 'changes' ? (
 						<ChangesPanel
-							tools={Object.values(thread.tools)}
+							tools={thread.tools}
 							dark={
 								appearance === 'dark' ||
 								(appearance === 'system' &&
@@ -689,10 +841,25 @@ function App() {
 												type="button"
 												onClick={() =>
 													void act(async () => {
-														const output = await api.readJob(sessionId, job.id)
-														setJobOutput(
-															`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
-														)
+														const target = sessionId
+														const generation = navigation.current
+														try {
+															const output = await api.readJob(target, job.id)
+															if (
+																activeSession.current !== target ||
+																generation !== navigation.current
+															)
+																return
+															setJobOutput(
+																`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
+															)
+														} catch (failure) {
+															if (
+																activeSession.current === target &&
+																generation === navigation.current
+															)
+																throw failure
+														}
 													})
 												}
 											>
