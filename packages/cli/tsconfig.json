@@ -12,12 +12,13 @@
 	},
 	"references": [
 		{ "path": "../sdk" },
+		{ "path": "../sandbox" },
 		{ "path": "../computer-use" },
 		{ "path": "../browser" },
-		{ "path": "../telemetry"
-		},
+		{ "path": "../telemetry" },
 		{
-			"path": "../files" },
+			"path": "../files"
+		},
 		{ "path": "../providers/anthropic" },
 		{ "path": "../providers/deepseek" },
 		{ "path": "../providers/openai" },

@@ -59,6 +59,16 @@ import type {
 	SandboxProvider,
 } from '@namzu/sdk'
 
+export {
+	LOCAL_COMPUTER_IMAGE,
+	LOCAL_COMPUTER_PROTOCOL_LABEL,
+	createLocalVirtualComputerProvider,
+} from './local-virtual-computer/index.js'
+export type {
+	LocalComputerCommandRunner,
+	LocalVirtualComputerOptions,
+} from './local-virtual-computer/index.js'
+
 import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'

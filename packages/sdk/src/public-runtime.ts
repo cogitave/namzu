@@ -408,7 +408,10 @@ export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
 export type { MemoryPromoterOptions } from './turn/index.js'
 export { createMemoryRecallStep } from './turn/memory-recall.js'
 export type { MemoryRecallOptions } from './turn/memory-recall.js'
-export { createEvidenceRecallStep, refineEvidenceRecallTerms } from './turn/evidence-recall.js'
+export {
+	createEvidenceRecallStep,
+	refineEvidenceRecallTerms,
+} from './turn/evidence-recall.js'
 export type {
 	EvidenceRecallOptions,
 	EvidenceRecallRequest,
@@ -564,7 +567,10 @@ export {
 	RegistryCollisionError,
 	ToolNameCollisionError,
 } from './registry/index.js'
-export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/index.js'
+export type {
+	ManagedRegistryConfig,
+	RegistryCollisionPolicy,
+} from './registry/index.js'
 
 // Toolsets (plan.md v3 §1-2): the unit every tool comes from, and the
 // runtime-owned resolver of them. `toolset()` builds a plain static one;
@@ -577,7 +583,10 @@ export type { ManagedRegistryConfig, RegistryCollisionPolicy } from './registry/
 export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
 export { defineCapability, dynamicCapability } from './capabilities/index.js'
 export { ToolManager } from './toolsets/manager.js'
-export type { ToolManagerConfig, ToolsetChangeReport } from './toolsets/manager.js'
+export type {
+	ToolManagerConfig,
+	ToolsetChangeReport,
+} from './toolsets/manager.js'
 export { matchesSourceIdGlob } from './toolsets/source-glob.js'
 export { toolset } from './toolsets/toolset.js'
 export { toToolSourceRef } from './toolsets/types.js'
@@ -730,7 +739,10 @@ export {
 	SandboxProviderFactory,
 	walkFilesViaExec,
 } from './sandbox/index.js'
-export type { LocalSandboxProviderOptions, SandboxFileWalkExec } from './sandbox/index.js'
+export type {
+	LocalSandboxProviderOptions,
+	SandboxFileWalkExec,
+} from './sandbox/index.js'
 
 // The classified provider-failure surface: a driver states what went wrong
 // first-hand, and the turn boundary reads it to choose between a pause and a
@@ -987,7 +999,10 @@ export {
 	resolveScriptPrograms,
 	unknownProgramInLine,
 } from './authorization/program.js'
-export type { CommandProgramPositions, ProgramPosition } from './authorization/program.js'
+export type {
+	CommandProgramPositions,
+	ProgramPosition,
+} from './authorization/program.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
@@ -1217,7 +1232,10 @@ export {
 	planWorkingSet,
 	scoreMessages,
 } from './compaction/salience/index.js'
-export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './compaction/plan.js'
+export {
+	DEFAULT_SOFT_TARGET,
+	planSalienceWorkingSet,
+} from './compaction/plan.js'
 export {
 	CONSOLIDATION_TAG,
 	consolidationEntry,
@@ -1443,7 +1461,10 @@ export {
 } from './read-model/index.js'
 
 // Asking a session what happened, including what compaction removed.
-export { SessionQuery, SessionTranscriptUnavailableError } from './session-query/index.js'
+export {
+	SessionQuery,
+	SessionTranscriptUnavailableError,
+} from './session-query/index.js'
 
 // A host-scoped pseudo-terminal primitive, or a refusal that names the
 // binding to install. It neither creates a sandbox nor owns a descendant
@@ -1516,9 +1537,15 @@ export type {
 export type { JobProcess } from './runtime/jobs/registry.js'
 export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'
 
-export { snapshotRequestContext, diffRequestContext } from './runtime/query/request-context.js'
+export {
+	snapshotRequestContext,
+	diffRequestContext,
+} from './runtime/query/request-context.js'
 
-export { DiskResidentStore, ResidentConflictError } from './manager/resident/store.js'
+export {
+	DiskResidentStore,
+	ResidentConflictError,
+} from './manager/resident/store.js'
 export { runResident, stepResident } from './manager/resident/loop.js'
 export { DiskResidentAgenda } from './manager/resident/agenda.js'
 export { inspectResidentConsumption } from './manager/resident/consumption.js'
@@ -1530,14 +1557,20 @@ export { validateResidentProposal } from './manager/resident/proposal.js'
 export { deliverResidentMessage } from './manager/resident/outbox.js'
 export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
 
-export { hashResidentSkill, projectResidentLearning } from './manager/resident/learning.js'
+export {
+	hashResidentSkill,
+	projectResidentLearning,
+} from './manager/resident/learning.js'
 export { runResidentLearningCycle } from './manager/resident/learning-cycle.js'
 
 export {
 	createSessionEvidenceSource,
 	createSessionTextEvidenceSource,
 } from './store/evidence/disk.js'
-export { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from './store/evidence/source-kind.js'
+export {
+	classifyEvidenceSource,
+	EVIDENCE_RECORD_GUIDANCE,
+} from './store/evidence/source-kind.js'
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
 
 export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
@@ -1690,3 +1723,5 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+export { DiskPalStore, PalConflictError } from './pals/store.js'
+export { PalRuntime, PalUnavailableError } from './pals/runtime.js'

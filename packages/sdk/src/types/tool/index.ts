@@ -783,8 +783,10 @@ export interface ToolHandoff {
  * `bash` reads it as bash does. `sh` reads it for a shell that may be bash or
  * a POSIX shell such as `dash`: every construct the two read differently
  * makes the line opaque, so a line that is not opaque means the same in both.
+ * `cmd` identifies native Windows CMD; its commands are conservatively opaque
+ * until a matching parser is available. It is never read as POSIX shell text.
  */
-export type ShellDialect = 'bash' | 'sh'
+export type ShellDialect = 'bash' | 'sh' | 'cmd'
 
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {
 	name: string
@@ -908,7 +910,8 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * may be bash or a POSIX shell, and every construct the two read
 	 * differently makes the line opaque, so no allow rule approves it. The
 	 * shipped `bash` tool answers `bash` when it will spawn bash on the host
-	 * and `sh` inside a sandbox, whose guest may not have bash.
+	 * and `sh` inside a sandbox, whose guest may not have bash. Native Windows
+	 * CMD reports `cmd`, whose command-specific permission reading is opaque.
 	 */
 	commandDialect?: (context: { readonly sandboxed: boolean }) => ShellDialect
 	/**

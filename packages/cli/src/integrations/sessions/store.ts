@@ -51,6 +51,7 @@ import {
 	openSessionIndex,
 	readSessionLog,
 } from '@namzu/sdk'
+import { palAtWorkspace } from '../../pals/store.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
@@ -152,7 +153,13 @@ export async function openSessions(
 	// The installation owns the tenant; the canonical checkout owns the Project.
 	const tenantId = loadIdentity(root).tenantId
 	const projectsDir = ensurePrivateStateDirectory(root, 'projects')
-	const project = await ensureProject({ home: root, cwd: cliProjectRoot(workingDirectory) })
+	// A Pal's private workspace is its project even if NAMZU_HOME was configured
+	// under some outer Git checkout. It must never inherit that checkout's logs.
+	const pal = palAtWorkspace(cwd, root)
+	const project = await ensureProject({
+		home: root,
+		cwd: pal ? workingDirectory : cliProjectRoot(workingDirectory),
+	})
 	ensurePrivateStateDirectory(projectsDir, project.slug)
 	const paths = new SessionPaths({ home: root, slug: project.slug })
 	const index = await openSessionIndex({

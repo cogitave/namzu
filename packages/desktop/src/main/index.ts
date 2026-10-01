@@ -7,6 +7,8 @@ import type {
 	DesktopEvent,
 	DesktopSendOptions,
 	DraftSettings,
+	PalChanges,
+	PalInput,
 } from '../shared/protocol.js'
 import { Operator } from './operator.js'
 import { selectRendererPage } from './renderer-page.js'
@@ -38,14 +40,23 @@ const command = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
-const operator = new Operator(command, (event: DesktopEvent) => {
-	if (window && !window.isDestroyed()) window.webContents.send('namzu:event', event)
-})
+const operator = new Operator(
+	command,
+	(event: DesktopEvent) => {
+		if (window && !window.isDestroyed()) window.webContents.send('namzu:event', event)
+	},
+	app.getPath('userData'),
+)
 function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
 	writeFileSync(
 		`${file}.tmp`,
-		JSON.stringify(operator.listProjects().map((project) => project.path)),
+		JSON.stringify(
+			operator
+				.listProjects()
+				.filter((project) => !project.palId)
+				.map((project) => project.path),
+		),
 		{ mode: 0o600 },
 	)
 	renameSync(`${file}.tmp`, file)
@@ -88,6 +99,18 @@ function register(): void {
 		})
 	})
 	handle('projects', () => operator.listProjects())
+	handle('pals', () => operator.listPals())
+	handle('palProviders', () => operator.palProviders())
+	handle('palModels', (provider: string) => operator.palModels(provider))
+	handle('createPal', (input: PalInput) => operator.createPal(input))
+	handle('updatePal', (id: string, revision: number, changes: Partial<PalChanges>) =>
+		operator.updatePal(id, revision, changes),
+	)
+	handle('openPal', (id: string) => operator.openPal(id))
+	handle('palComputer', (id: string) => operator.palComputer(id))
+	handle('startPalComputer', (id: string) => operator.startPalComputer(id))
+	handle('stopPalComputer', (id: string) => operator.stopPalComputer(id))
+	handle('palScreen', (id: string) => operator.palScreen(id))
 	handle('openProject', async () => {
 		if (!window) return null
 		const picked = await dialog.showOpenDialog(window, {
@@ -237,6 +260,11 @@ async function createWindow(): Promise<void> {
 	})
 	window.webContents.on('will-attach-webview', (event) => event.preventDefault())
 	window.once('ready-to-show', () => window?.show())
+	window.on('close', (event) => {
+		if (process.platform === 'darwin' || stopped) return
+		event.preventDefault()
+		app.quit()
+	})
 	window.on('closed', () => {
 		window = undefined
 	})
@@ -255,10 +283,19 @@ app.on('before-quit', (event) => {
 	event.preventDefault()
 	if (quitting) return
 	quitting = true
-	void operator.close().finally(() => {
-		stopped = true
-		app.quit()
-	})
+	void operator.close().then(
+		() => {
+			stopped = true
+			app.quit()
+		},
+		(error: unknown) => {
+			quitting = false
+			dialog.showErrorBox(
+				'Namzu could not stop',
+				error instanceof Error ? error.message : String(error),
+			)
+		},
+	)
 })
 // Keep module loading independent of Electron's ready event.
 void app

@@ -61,7 +61,7 @@ import {
 	writeSync,
 } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, toNamespacedPath } from 'node:path'
 
 import { namzuHomePath } from '../state/home.js'
 import type { AgentOAuthCredential } from './keychain.js'
@@ -644,7 +644,7 @@ function restrictToOwnerWindows(path: string): void {
 
 	const directory = statSync(path).isDirectory()
 	run('icacls.exe', [
-		path,
+		toNamespacedPath(path),
 		'/inheritance:r',
 		'/grant:r',
 		`*${sid}:${directory ? '(OI)(CI)F' : 'F'}`,
@@ -681,12 +681,16 @@ export function readAclSddl(path: string): string | null {
 	const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
 	const aclPath = join(tmpdir(), `namzu-acl-${randomBytes(6).toString('hex')}`)
 	try {
-		execFileSync(join(system32, 'icacls.exe'), [path, '/save', aclPath], {
-			encoding: 'utf8',
-			timeout: 10_000,
-			stdio: ['ignore', 'pipe', 'ignore'],
-			windowsHide: true,
-		})
+		execFileSync(
+			join(system32, 'icacls.exe'),
+			[toNamespacedPath(path), '/save', toNamespacedPath(aclPath)],
+			{
+				encoding: 'utf8',
+				timeout: 10_000,
+				stdio: ['ignore', 'pipe', 'ignore'],
+				windowsHide: true,
+			},
+		)
 		return readFileSync(aclPath, 'utf16le')
 	} catch {
 		return null

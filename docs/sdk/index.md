@@ -1,5 +1,7 @@
 # SDK
 
+* [Persistent Pals and computer admission](pals.md) - SDK identity, immutable profile revisions and required local-computer admission.
+
 The kernel.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.
@@ -26,6 +28,7 @@ The kernel.
 
 * [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.
 * [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
+* [Local Pal computers](local-pal-computer.md) - Persistent local container desktops with Pal-owned volumes, authenticated guest control, explicit installation and shared SDK admission.
 * [Browser tools](browser-tools.md) - The browser and browser_act tools over a BrowserHost, canonical URLs and origins for site rules, snapshot framing and structural host errors.
 * [The browser host](browser-host.md) - @namzu/browser's PlaywrightBrowserHost: engine detection, profiles and leases, the site policy after every navigation, the human-handoff classifier and snapshot refs.
 

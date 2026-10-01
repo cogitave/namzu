@@ -1651,7 +1651,7 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 	return {
 		...tool,
 		description:
-			'Executes one bash command in the foreground and returns stdout/stderr. Calls are serialized because shell commands may mutate the same workspace. Use the Agent tool for genuinely independent parallel work.',
+			'Executes one shell command in the foreground and returns stdout/stderr. Calls are serialized because shell commands may mutate the same workspace. Use the Agent tool for genuinely independent parallel work.',
 		inputSchema: fullSchema.omit({ run_in_background: true }),
 		modelInputSchema: {
 			type: 'object',
@@ -1659,7 +1659,7 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 				command: {
 					type: 'string',
 					minLength: 1,
-					description: 'The non-empty bash command to execute in the foreground.',
+					description: 'The non-empty shell command to execute in the foreground.',
 				},
 				timeout: {
 					type: 'number',
@@ -1721,6 +1721,8 @@ function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseTo
 }
 
 export interface AgentSessionOptions {
+	/** Actual owned virtual computer; this branches before all ordinary host capability setup. */
+	readonly palEnvironment?: import('../pals/agent-session.js').PalSessionEnvironment
 	readonly structuredOutput?: StructuredOutputConfig
 	/**
 	 * Fresh sends may defer less common tool schemas until search_tools loads them.
@@ -1927,6 +1929,13 @@ export async function createAgentSession(
 	detected: readonly DetectedProvider[],
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
+	if (options.palEnvironment) {
+		const { createPalAgentSession } = await import('../pals/agent-session.js')
+		return createPalAgentSession(prefs, detected, options)
+	}
+	const { palAtWorkspace } = await import('../pals/store.js')
+	if (palAtWorkspace(options.cwd ?? process.cwd()))
+		throw new Error('This Pal requires its owned virtual computer. Open it with namzu pal chat.')
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
 	 * This process's observation ledger for one conversation, seeded from that

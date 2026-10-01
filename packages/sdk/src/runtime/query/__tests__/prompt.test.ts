@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { testToolset } from '../../../test-support/toolset.js'
+import { BashTool } from '../../../tools/builtins/bash.js'
+import { setHostCommandShellForTesting } from '../../../tools/command-shell.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { Toolset } from '../../../toolsets/types.js'
 import { deferred, filtered } from '../../../toolsets/wrappers.js'
+import type { ProjectId } from '../../../types/session/ids.js'
+import { PromptCache } from '../prompt-cache.js'
 import { PromptBuilder } from '../prompt.js'
 
 function manager(toolsets: readonly Toolset[] = []): ToolManager {
@@ -149,3 +153,36 @@ describe.each(['flat', 'segmented'] as const)('%s prompt file discovery', (forma
 		},
 	)
 })
+
+afterEach(() => setHostCommandShellForTesting(undefined))
+
+it.each(['full', 'minimal'] as const)(
+	'discloses host CMD and guest sh in flat, segmented and cached %s prompts',
+	(contextLevel) => {
+		setHostCommandShellForTesting({ path: undefined, dialect: 'cmd', source: 'platform' })
+		const tools = manager([testToolset(BashTool)])
+		const config = { tools }
+		const cache = new PromptCache({
+			agentId: 'test',
+			projectId: '2f217f8c-698e-424b-ab88-c0c7bb4e1768' as ProjectId,
+		})
+		for (const sandboxed of [false, true]) {
+			const input = { ...config, sandboxed }
+			const builder = new PromptBuilder(input)
+			const prompts = [
+				builder.build(contextLevel, '/workspace'),
+				builder.buildSegmented(contextLevel, '/workspace').dynamic,
+				cache.getSystemPromptSegmented(input, contextLevel, '/workspace').dynamic,
+			]
+			for (const prompt of prompts) {
+				expect(prompt).toContain(
+					sandboxed
+						? 'Execution shell for bash: sh (sandbox guest).'
+						: 'Execution shell for bash: cmd (host).',
+				)
+				if (sandboxed) expect(prompt).not.toContain('Use native Windows CMD')
+				else expect(prompt).toContain('Single quotes do not quote arguments')
+			}
+		}
+	},
+)

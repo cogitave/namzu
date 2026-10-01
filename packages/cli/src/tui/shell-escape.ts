@@ -14,7 +14,7 @@
  * transcript can hold.
  */
 
-import { spawn } from 'node:child_process'
+import { execHostShell } from '@namzu/sdk'
 
 export const SHELL_ESCAPE_TIMEOUT_MS = 60_000
 export const SHELL_ESCAPE_MAX_OUTPUT_CHARS = 20_000
@@ -34,66 +34,56 @@ export function shellEscapeCommand(line: string): string | null {
 	return command.length > 0 ? command : null
 }
 
-export function runShellEscape(
+export async function runShellEscape(
 	command: string,
 	options: { readonly cwd: string; readonly timeoutMs?: number; readonly signal?: AbortSignal },
 ): Promise<ShellEscapeResult> {
-	const timeoutMs = options.timeoutMs ?? SHELL_ESCAPE_TIMEOUT_MS
 	const startedAt = Date.now()
-	return new Promise((resolve) => {
-		const child = spawn('/bin/sh', ['-c', command], {
+	let output = ''
+	let truncated = false
+	const append = (data: string) => {
+		if (truncated) return
+		output += data
+		if (output.length > SHELL_ESCAPE_MAX_OUTPUT_CHARS) {
+			output = output.slice(0, SHELL_ESCAPE_MAX_OUTPUT_CHARS)
+			truncated = true
+		}
+	}
+	let exitCode: number | null = 0
+	let timedOut = false
+	try {
+		await execHostShell(command, {
 			cwd: options.cwd,
 			env: process.env,
-			detached: process.platform !== 'win32',
-			stdio: ['ignore', 'pipe', 'pipe'],
+			timeout: options.timeoutMs ?? SHELL_ESCAPE_TIMEOUT_MS,
+			maxBuffer: SHELL_ESCAPE_MAX_OUTPUT_CHARS * 4,
+			// Keep the existing POSIX interpreter. Windows must use its native
+			// platform shell; /bin/sh would either fail or enter another OS.
+			shell:
+				process.platform === 'win32'
+					? { path: undefined, dialect: 'cmd', source: 'platform' }
+					: { path: '/bin/sh', dialect: 'sh', source: 'sh' },
+			signal: options.signal,
+			onOutput: ({ data }) => append(data),
 		})
-		let output = ''
-		let truncated = false
-		let timedOut = false
-		let settled = false
-		const append = (chunk: Buffer) => {
-			if (truncated) return
-			output += chunk.toString('utf8')
-			if (output.length > SHELL_ESCAPE_MAX_OUTPUT_CHARS) {
-				output = output.slice(0, SHELL_ESCAPE_MAX_OUTPUT_CHARS)
-				truncated = true
-			}
+	} catch (error) {
+		const failure = error as Error & {
+			code?: number | string
+			timedOut?: boolean
+			stdoutTruncated?: boolean
+			stderrTruncated?: boolean
 		}
-		child.stdout?.on('data', append)
-		child.stderr?.on('data', append)
-		const killTree = () => {
-			if (child.pid !== undefined && process.platform !== 'win32') {
-				try {
-					process.kill(-child.pid, 'SIGKILL')
-					return
-				} catch {
-					// Group already gone; fall through to the child alone.
-				}
-			}
-			child.kill('SIGKILL')
-		}
-		const timer = setTimeout(() => {
-			timedOut = true
-			killTree()
-		}, timeoutMs)
-		const onAbort = () => killTree()
-		options.signal?.addEventListener('abort', onAbort, { once: true })
-		const finish = (exitCode: number | null) => {
-			if (settled) return
-			settled = true
-			clearTimeout(timer)
-			options.signal?.removeEventListener('abort', onAbort)
-			resolve({ output, exitCode, timedOut, truncated, durationMs: Date.now() - startedAt })
-		}
-		child.on('error', () => finish(null))
-		child.on('close', (code) => finish(code))
-		child.on('exit', () => {
-			if (timedOut || options.signal?.aborted) {
-				child.stdout?.destroy()
-				child.stderr?.destroy()
-			}
-		})
-	})
+		exitCode = options.signal?.aborted
+			? null
+			: typeof failure.code === 'number'
+				? failure.code
+				: null
+		timedOut = failure.timedOut === true
+		truncated ||= failure.stdoutTruncated === true || failure.stderrTruncated === true
+		// A spawn failure otherwise looks like an empty command result.
+		if (!output && !timedOut && !options.signal?.aborted) append(failure.message)
+	}
+	return { output, exitCode, timedOut, truncated, durationMs: Date.now() - startedAt }
 }
 
 /**

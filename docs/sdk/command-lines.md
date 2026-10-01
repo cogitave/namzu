@@ -22,10 +22,12 @@ Before this reader there were three hand-written walkers, one per purpose, each 
 
 # What it reads
 
-The lexer reads a line in one of two dialects, the one of the shell that will run it (`ShellDialect`, `lexShellCommandLine(line, { dialect })`). The `bash` tool runs bash wherever the host has it and reports which dialect applies ([The bash tool](bash-tool.md)).
+The lexer reads a line in one of three dialects, the one of the shell that will run it (`ShellDialect`, `lexShellCommandLine(line, { dialect })`). The `bash` tool runs bash wherever the host has it and reports which dialect applies ([The bash tool](bash-tool.md)).
 
 - **`bash`** follows bash 5, in its default mode and in POSIX mode. Where the two modes read a line differently (`time -p cmd` is the command `time` in POSIX mode) the line is opaque.
 - **`sh`** is for a line that may run in bash or in a POSIX shell such as `dash`: a host without bash, or a sandbox whose guest may lack it. It is the `bash` reading with every construct the two shells read differently made opaque (`$'…'`, `$"…"`, `|&`, `&>`, `<<<`, arrays, `[[`, `((…))`, brace expansion, `time`, `select`, `function` and the rest; the full list is in [The bash tool](bash-tool.md#how-the-rules-follow-the-choice)). A caller that does not know which shell runs a line gets `sh`.
+
+- **`cmd`** identifies the native Windows platform shell. CMD syntax is not parsed with POSIX quoting: every line returns `opaque: true`, `complete: false` and no inferred commands. Command-specific allow rules and skill patterns cannot pre-approve it. Whole-tool rules still decide at the gate; the runtime retains its unknown-program escalation and requires an exact-call review before execution. Explicit operator commands and already reviewed calls do not acquire permission from a guessed POSIX reading.
 
 In the `bash` dialect it reads:
 

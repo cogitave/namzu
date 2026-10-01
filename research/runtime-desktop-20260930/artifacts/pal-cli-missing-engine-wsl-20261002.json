@@ -1,0 +1,15 @@
+{
+  "platform": "linux-wsl2",
+  "cli": "/home/arda/workspaces/@cogitave/cogitave/namzu-wt-schedule-ownership/packages/cli/dist/bin.js",
+  "privateRegistry": "/tmp/namzu-pal-admission-proof-2j_vcudx/state",
+  "palId": "94b900ab-ee36-444a-9c4c-74fec7918335",
+  "tty": true,
+  "exitCode": 69,
+  "output": "Error: The local container engine could not be started\r\n",
+  "workspaceFilesBefore": [],
+  "workspaceFilesAfter": [],
+  "workspaceUnchanged": true,
+  "expectedUnavailable": true,
+  "engineMissingNotice": true,
+  "noConversationCreated": true
+}

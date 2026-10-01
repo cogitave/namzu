@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import { BrandDither } from './brand-dither.js'
@@ -25,6 +25,7 @@ export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
 export function Sidebar({
 	projects,
+	activeProject,
 	conversations,
 	projectId,
 	sessionId,
@@ -39,7 +40,9 @@ export function Sidebar({
 	onNewConversation,
 	onProject,
 	onConversation,
+	pals,
 }: {
+	activeProject?: ProjectView
 	projects: ProjectView[]
 	conversations: ConversationView[]
 	projectId: string
@@ -55,10 +58,11 @@ export function Sidebar({
 	onNewConversation: () => void
 	onProject: (id: string) => void
 	onConversation: (view: ConversationView, collection: ConversationCollection) => void
+	pals?: ReactNode
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
-	const active = projects.find((item) => item.id === projectId)
+	const active = activeProject ?? projects.find((item) => item.id === projectId)
 	const newConversationDisabled = opening || !active?.trusted || active.status !== 'ready'
 	const groups = projects.map((project) => ({
 		project,
@@ -167,6 +171,7 @@ export function Sidebar({
 					New conversation
 				</button>
 				<div className="sidebar-scroll">
+					{pals}
 					<h2 className="sidebar-section-title">Projects</h2>
 					<nav
 						className="conversations sidebar-project-navigation"
@@ -179,7 +184,10 @@ export function Sidebar({
 								data-project-group={project.id}
 								open={collapsedProjects[project.id] === false}
 								onOpenChange={(expanded) =>
-									setCollapsedProjects((current) => ({ ...current, [project.id]: !expanded }))
+									setCollapsedProjects((current) => ({
+										...current,
+										[project.id]: !expanded,
+									}))
 								}
 							>
 								<div
@@ -207,7 +215,10 @@ export function Sidebar({
 										aria-label={`Open ${project.name}`}
 										aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
 										onClick={() => {
-											setCollapsedProjects((current) => ({ ...current, [project.id]: false }))
+											setCollapsedProjects((current) => ({
+												...current,
+												[project.id]: false,
+											}))
 											onProject(project.id)
 										}}
 									>
@@ -223,7 +234,10 @@ export function Sidebar({
 										active={conversationCollection === 'projects'}
 										expanded={Boolean(expandedLists[project.id])}
 										onExpandedChange={(expanded) =>
-											setExpandedLists((current) => ({ ...current, [project.id]: expanded }))
+											setExpandedLists((current) => ({
+												...current,
+												[project.id]: expanded,
+											}))
 										}
 										onConversation={(view) => onConversation(view, 'projects')}
 									/>

@@ -67,12 +67,19 @@ export function findCommandShell(probe: CommandShellProbe): CommandShell {
 	if (override !== undefined && override !== '') {
 		// Read as bash only when it is bash; anything else gets the reading
 		// that holds for every POSIX shell.
-		const name = override.slice(override.lastIndexOf('/') + 1)
+		const name =
+			probe.platform === 'win32'
+				? override
+						.split(/[\\/]/)
+						.at(-1)
+						?.toLowerCase()
+						.replace(/\.exe$/, '')
+				: override.slice(override.lastIndexOf('/') + 1)
 		return { path: override, dialect: name === 'bash' ? 'bash' : 'sh', source: 'override' }
 	}
 	// Windows keeps Node's platform shell. Looking `bash` up on its PATH can
 	// find WSL's launcher, which runs the command in another system.
-	if (probe.platform === 'win32') return { path: undefined, dialect: 'sh', source: 'platform' }
+	if (probe.platform === 'win32') return { path: undefined, dialect: 'cmd', source: 'platform' }
 	for (const directory of (probe.env.PATH ?? '').split(delimiter)) {
 		if (directory === '' || !directory.startsWith('/')) continue
 		const candidate = join(directory, 'bash')
@@ -94,7 +101,7 @@ export function findCommandShell(probe: CommandShellProbe): CommandShell {
 export function findCommandShellForDialect(
 	dialect: 'bash' | 'sh',
 	probe: CommandShellProbe,
-): CommandShell | undefined {
+): (CommandShell & { readonly dialect: 'bash' | 'sh' }) | undefined {
 	if (probe.platform === 'win32') return undefined
 	const override = probe.env.NAMZU_BASH_SHELL
 	if (override) {
@@ -142,7 +149,9 @@ export function hostCommandShell(): CommandShell {
 }
 
 /** Re-check the requested executable each time a job is confirmed or fired. */
-export function installedCommandShellForDialect(dialect: 'bash' | 'sh'): CommandShell | undefined {
+export function installedCommandShellForDialect(
+	dialect: 'bash' | 'sh',
+): (CommandShell & { readonly dialect: 'bash' | 'sh' }) | undefined {
 	return findCommandShellForDialect(dialect, {
 		env: process.env,
 		platform: process.platform,

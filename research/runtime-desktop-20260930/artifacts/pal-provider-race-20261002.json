@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "calls": [
+    {
+      "kind": "select",
+      "id": "sample-thread-7",
+      "provider": "anthropic",
+      "model": "sample-focused"
+    },
+    {
+      "kind": "send",
+      "id": "sample-thread-7",
+      "text": "Verify pinned provider"
+    }
+  ],
+  "errors": [],
+  "checks": [
+    "deferred landing response released after pinned conversation selection",
+    "composer retains pinned route",
+    "send selects pinned route"
+  ],
+  "limitations": [
+    "Injected browser API only, no real provider or computer execution."
+  ]
+}

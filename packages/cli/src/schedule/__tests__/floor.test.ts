@@ -705,3 +705,14 @@ describe('cost', () => {
 		expect(bash(`${assignments}; ls $A$B$C`)).toBe('too many spellings')
 	})
 })
+
+it('refuses native CMD scheduled commands whose protected effects cannot be parsed', () => {
+	expect(
+		finding({
+			toolName: 'bash',
+			toolInput: { command: "echo 'safe & echo SECOND & echo '" },
+			toolDef: undefined,
+			commandDialect: 'cmd',
+		}),
+	).toMatchObject({ reason: 'unsupported command dialect' })
+})

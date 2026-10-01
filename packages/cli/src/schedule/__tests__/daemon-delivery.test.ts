@@ -1,4 +1,4 @@
-import { NOOP_LOGGER, generateScheduleRunId, hostCommandShell } from '@namzu/sdk'
+import { NOOP_LOGGER, generateScheduleRunId } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 import {
 	archiveConversation,
@@ -59,7 +59,7 @@ it('retries a busy source after a daemon restart and delivers the result once', 
 		const job = confirmedJob(sb, {
 			delivery,
 			runKind: 'script',
-			script: { body: 'echo check', shell: hostCommandShell().dialect, report: 'json-v1' },
+			script: { body: 'echo check', shell: 'sh' as const, report: 'json-v1' },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const runId = generateScheduleRunId()
@@ -131,7 +131,7 @@ it('does not interrupt an adopted script before its confirmed timeout has elapse
 	const job = confirmedJob(sb, {
 		name: 'long-poll',
 		runKind: 'script',
-		script: { body: 'echo check', shell: hostCommandShell().dialect, timeoutMs: 10 * 60_000 },
+		script: { body: 'echo check', shell: 'sh' as const, timeoutMs: 10 * 60_000 },
 		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 	})
 	const startedAt = '2026-09-30T09:00:00.000Z'
@@ -171,7 +171,7 @@ it('waives only the exact pending source result a confirmed detach named', async
 		const job = confirmedJob(sb, {
 			delivery,
 			runKind: 'script',
-			script: { body: 'echo check', shell: hostCommandShell().dialect, report: 'json-v1' },
+			script: { body: 'echo check', shell: 'sh' as const, report: 'json-v1' },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const allowed = generateScheduleRunId()
@@ -227,7 +227,7 @@ it('commits a quiet script checkpoint without requiring a source conversation', 
 		name: 'quiet-check',
 		runKind: 'script',
 		workspace: 'none',
-		script: { body: 'echo check', shell: hostCommandShell().dialect, report: 'json-v1' },
+		script: { body: 'echo check', shell: 'sh' as const, report: 'json-v1' },
 		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 	})
 	const runId = generateScheduleRunId()

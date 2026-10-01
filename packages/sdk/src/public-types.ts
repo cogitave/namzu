@@ -14,6 +14,7 @@
 // ─── per-domain shape surfaces ────────────────────────────────────────────
 
 export type * from './types/ids/index.js'
+export type * from './pals/types.js'
 export type * from './types/message/index.js'
 export type * from './types/common/index.js'
 export type { AcpPromptOptions } from './types/acp/index.js'
@@ -82,7 +83,10 @@ export type * from './types/structured-output/index.js'
 export type * from './types/invocation/index.js'
 export type * from './types/computer-use/index.js'
 export type * from './types/browser/index.js'
-export type { BrowserActToolInput, BrowserToolInput } from './tools/builtins/browser.js'
+export type {
+	BrowserActToolInput,
+	BrowserToolInput,
+} from './tools/builtins/browser.js'
 export type {
 	BrowserOriginVerdict,
 	BrowserSitePatternVerdict,
@@ -272,7 +276,10 @@ export type {
 	ResolveExternalSessionOptions,
 } from './bridge/external-session.js'
 
-export type { CheckpointRecords, RecordedPark } from './runtime/query/checkpoint.js'
+export type {
+	CheckpointRecords,
+	RecordedPark,
+} from './runtime/query/checkpoint.js'
 
 export type { TaskContextScope } from './store/task/context.js'
 
@@ -488,7 +495,11 @@ export type {
 	RequestContextChange,
 } from './runtime/query/request-context.js'
 
-export type { ResidentDecision, ResidentState, ResidentStore } from './manager/resident/store.js'
+export type {
+	ResidentDecision,
+	ResidentState,
+	ResidentStore,
+} from './manager/resident/store.js'
 export type {
 	ResidentActivityScope,
 	ResidentAdmission,
@@ -540,7 +551,10 @@ export type {
 	ResidentSelection,
 	ResidentSelector,
 } from './manager/resident/initiative.js'
-export type { ResidentHostOptions, ResidentObserver } from './manager/resident/host.js'
+export type {
+	ResidentHostOptions,
+	ResidentObserver,
+} from './manager/resident/host.js'
 export type {
 	ResidentProposal,
 	ResidentProposalLimits,
@@ -560,7 +574,10 @@ export type {
 } from './manager/resident/outbox.js'
 export type { ResidentDeliveryWindowConfig } from './manager/resident/delivery-window.js'
 
-export type { ResidentStepContext, ResidentContextualStep } from './manager/resident/host.js'
+export type {
+	ResidentStepContext,
+	ResidentContextualStep,
+} from './manager/resident/host.js'
 export type {
 	ResidentLearningEvidence,
 	ResidentSkillCandidate,
@@ -718,7 +735,10 @@ export type {
 	ResolvePeerRuntimeDirOptions,
 } from './peers/dir.js'
 export type { PeerRecord } from './peers/record.js'
-export type { ListLivePeersOptions, PeerLivenessOptions } from './peers/registry.js'
+export type {
+	ListLivePeersOptions,
+	PeerLivenessOptions,
+} from './peers/registry.js'
 export type {
 	DeliverRequest,
 	DeliverResponse,
@@ -737,6 +757,9 @@ export type {
 	SubscribeIdleRequest,
 	SubscribeIdleResponse,
 } from './peers/protocol.js'
-export type { CreatePeerEndpointOptions, PeerEndpoint } from './peers/endpoint.js'
+export type {
+	CreatePeerEndpointOptions,
+	PeerEndpoint,
+} from './peers/endpoint.js'
 export type { PeerClientOptions, PeerClientResult } from './peers/client.js'
 export type { PeerMessageEnvelopeInput } from './peers/envelope.js'

@@ -302,6 +302,9 @@ A folder may not be `/`, your home directory itself, a folder that contains
 
 ## What a run may do
 
+Native Windows CMD commands are refused by the scheduled-run floor until a matching parser can verify their protected effects. Confirmed script jobs remain POSIX-only (`bash` or `sh`); they require an explicitly installed interpreter and never substitute CMD or PowerShell. Interactive ordinary Windows model calls instead use the SDK's exact-call review for the opaque CMD dialect.
+
+
 Presets are expanded when the job is created and stored as rules, so a later
 change to what a preset means never changes an existing job.
 

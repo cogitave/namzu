@@ -24,6 +24,7 @@ import { execCommand } from './commands/exec.js'
 import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
 import { mcpCommand } from './commands/mcp.js'
+import { createPalCommand } from './commands/pal.js'
 import { registerAll } from './commands/registry.js'
 import { residentCommand } from './commands/resident.js'
 import { scheduleCommand } from './commands/schedule.js'
@@ -350,8 +351,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			process.chdir(previous)
 		}
 	})
+	const palCommand = createPalCommand(opts.resumeCommand)
 	for (const def of [
 		acpCommand,
+		palCommand,
 		archiveCommand,
 		doctorCommand,
 		execCommand,
@@ -381,7 +384,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 							def === mcpCommand ||
 							def === archiveCommand
 						? getRecoveryContext
-						: def === acpCommand ||
+						: def === palCommand ||
+								def === acpCommand ||
 								def === execCommand ||
 								def === drainCommand ||
 								def === skillsCommand ||

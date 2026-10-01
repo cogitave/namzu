@@ -20,7 +20,7 @@ On the host the shell is resolved once per process (`hostCommandShell`, `package
 2. Otherwise the first `bash` in an absolute `PATH` directory, then `/bin/bash`, then `/usr/bin/bash`.
 3. With no bash, `/bin/sh`.
 
-The command runs as `<shell> -c <command>`: non-interactive, not a login shell, no startup files. bash in its default mode, not POSIX mode. On Windows the tool keeps Node's platform shell.
+The command runs as `<shell> -c <command>`: non-interactive, not a login shell, no startup files. bash in its default mode, not POSIX mode. On Windows the tool keeps Node's platform shell (normally CMD), and now reports the explicit `cmd` dialect. Its executable default has not changed. The CMD reading is conservatively opaque: command-specific allow rules and skill patterns decline it, and the existing unknown-program escalation requests exact-call review. A whole-tool gate allowance does not bypass this escalation. SDK query prompts disclose each active command tool's execution dialect, including minimal and cached prompts; sandboxed tools describe the guest's `sh` dialect instead of the Windows host.
 
 An application running a confirmed script can select an installed interpreter
 explicitly with `installedCommandShellForDialect('bash' | 'sh')`. The matching
@@ -87,3 +87,16 @@ The query executor asks the tool for its dialect on every call it authorizes, wi
 # Timeouts and output
 
 `NAMZU_BASH_TIMEOUT_MS` sets the default timeout (two minutes) and `NAMZU_BASH_MAX_TIMEOUT_MS` the most a call may ask for (ten minutes). `NAMZU_BASH_MAX_BUFFER_BYTES` caps captured output on the host (100 MiB). Inherited credential-shaped variables are withheld from the host command (`packages/sdk/src/tools/env-scrub.ts`); a failed command names the ones it did not get.
+
+## Native Windows metadata migration
+
+`ShellDialect` now includes `cmd`. The default native Windows
+`hostCommandShell().dialect` and unsandboxed `BashTool.commandDialect()` changed
+from `sh` to `cmd`. Consumers must handle this third value in exhaustive
+switches and pass it into authorization reads. Do not relabel CMD as `sh` to
+retain previous command-pattern allowances: POSIX single quotes and escaping
+can hide commands that CMD executes. Use an exact-call review or an explicitly
+selected POSIX interpreter. `NAMZU_BASH_SHELL` remains an explicit POSIX
+interpreter override; Windows `bash.exe` and `sh.exe` paths are recognized.
+There is no automatic PowerShell or WSL selection. Sandboxed Linux guest
+commands continue to be read as `sh` even on a Windows operator device.

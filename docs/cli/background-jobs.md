@@ -118,3 +118,14 @@ Here, session means the live CLI agent session. `/new` and `/resume` change the 
 # Under a sandbox
 
 A job runs inside the boundary. The sandbox starts the process itself — the local provider does, under the same bwrap or seatbelt confinement, mounts and environment the foreground command gets — and the registry only keeps it: output, lifetime, ownership, and a stop that reaches bwrap's inner reaper. The kernel never runs a job on the host to get around a sandbox: a sandbox that cannot start a detached process has no registry in its tool context, and `run_in_background` says which case it is in rather than blaming the host.
+
+`SandboxDetachedProcess` and the registry's `JobProcess` may also implement
+`terminate(signal?): Promise<void>` for a remote boundary. The existing
+`kill(signal): void` behavior remains available. When confirmed termination is
+present, the registry waits for its promise and the wrapper's close before
+announcing `killed` or `exited`. A failed confirmation rejects the stop call,
+retains the job as `running`, and exposes optional `recoveryRequired: true` and
+`stopError` on its `BackgroundJob` record. The diagnostic excludes raw transport
+errors. The job retains ownership and capacity, cannot be forgotten, and can be
+stopped again after recovery. Closing the host wrapper alone does not prove a
+guest process tree ended.

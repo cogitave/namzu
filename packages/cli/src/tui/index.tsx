@@ -22,7 +22,7 @@ export async function launchTui(
 	ctx: TuiContext,
 	options: { readonly resumeCommand?: readonly [string, ...string[]] } = {},
 ): Promise<void> {
-	const invocation: TuiResumeInvocation = { cwd: resolve(ctx.cwd), command: options.resumeCommand }
+	const invocation: TuiResumeInvocation = { cwd: resolve(ctx.cwd), command: options.resumeCommand, ...(ctx.palId ? { palId: ctx.palId } : {}) }
 	// Ink owns the terminal for the life of this function: it repaints the
 	// screen from its own virtual buffer, and any other write to
 	// stdout/stderr while it holds the terminal corrupts the frame

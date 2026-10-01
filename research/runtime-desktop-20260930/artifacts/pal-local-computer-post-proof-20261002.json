@@ -1,0 +1,40 @@
+{
+  "containers": [
+    {
+      "Id": "24fc2c345828defcb7aee0385a9cd849529e36ebd9ce3ebbdf4c41d02a4ea095",
+      "Names": [
+        "namzu-control-plane"
+      ],
+      "State": "exited",
+      "Status": "Exited (0) 2 weeks ago"
+    }
+  ],
+  "image": {
+    "id": "3a34d95148b3a650fe504567fd9765e075582a32bf24e073589b3efea1a626cf",
+    "entrypoint": [
+      "/usr/bin/dumb-init",
+      "--single-child",
+      "--",
+      "/bin/sh",
+      "/opt/namzu-computer/entrypoint.sh"
+    ],
+    "user": "1001:1001",
+    "protocol": "1",
+    "digest": "sha256:49a669eb9bc78a727aef9c9b35d3e1f8b15739a2e2d0ef68f8354948aa96ad69",
+    "os": "linux"
+  },
+  "connections": [
+    {
+      "Name": "podman-machine-default",
+      "Default": false,
+      "IsMachine": true
+    },
+    {
+      "Name": "podman-machine-default-root",
+      "Default": true,
+      "IsMachine": true
+    }
+  ],
+  "ownedForwardHelpers": 0,
+  "scope": "Read-only post-proof inventory; borrowed machine remains running; no unrelated container/default mutation"
+}

@@ -69,6 +69,9 @@ import {
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
+import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
+import { tuiPalDefinition, tuiPalEnvironment, tuiPalOwner, tuiPalPreferences } from '../pals/tui-session.js'
+import type { Pal } from '../pals/store.js'
 import { runtimeContextLabel } from '../context/runtime-message.js'
 
 import { writeClipboardText } from '../integrations/clipboard/text.js'
@@ -993,6 +996,9 @@ export function App({
 	const modelHistoryRef = useRef<readonly Message[]>([])
 	/** Consumed only after the exact durable conversation has loaded successfully. */
 	const initialConversationIdRef = useRef(initialCtx.initialConversationId)
+	const palDefinitionRef = useRef<Pal | null>(null)
+	const palRouteSessionRef = useRef<string | null>(null)
+	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	/** For the scheduler integration's loop timer, which reads it outside render. */
@@ -1910,6 +1916,7 @@ export function App({
 	}, [cancelPendingModelSwitch, exit, session])
 	const exitWithSummary = useCallback(() => {
 		onExitSummary?.({
+			...(palDefinitionRef.current ? { palId: palDefinitionRef.current.id } : {}),
 			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
 				? { conversationId: scopeRef.current.sessionId }
 				: {}),
@@ -3631,9 +3638,11 @@ export function App({
 	const ensureSessions = useCallback(async (): Promise<SessionScope> => {
 		if (scopeRef.current) return scopeRef.current
 		const requestedConversationId = initialConversationIdRef.current
+		const owner = tuiPalOwner(ctxRef.current.cwd, ctxRef.current.palId)
 		const sessions = await openSessions(ctxRef.current.cwd)
 		let sessionId: SessionId
 		if (requestedConversationId) {
+			palDefinitionRef.current = await tuiPalDefinition(ctxRef.current.cwd, requestedConversationId, ctxRef.current.palId)
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
@@ -3654,6 +3663,11 @@ export function App({
 			// under it at first durable use. Nothing that saw this id before
 			// that moment — a hook, a log line, the screen — is later wrong.
 			sessionId = generateSessionId()
+			if (owner) {
+				await claimPalConversation(owner.workspace, owner.id, sessionId)
+				palDefinitionRef.current = await tuiPalDefinition(owner.workspace, sessionId, owner.id)
+				conversationMaterializedRef.current = true
+			}
 		}
 		sessionsRef.current = sessions
 		scopeRef.current = {
@@ -3706,7 +3720,7 @@ export function App({
 
 	const hydrateSession = useCallback(
 		async (
-			prefs: Preferences,
+			requestedPrefs: Preferences,
 			detectedNow: readonly DetectedProvider[],
 			options: {
 				readonly signal?: AbortSignal
@@ -3723,6 +3737,11 @@ export function App({
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
+			const definition = await tuiPalDefinition(activeCtx.cwd, scope.sessionId, activeCtx.palId)
+			const palEnvironment = definition ? await tuiPalEnvironment(definition, scope.sessionId, signal) : undefined
+			const prefs = definition && palRouteSessionRef.current !== scope.sessionId
+				? tuiPalPreferences(definition, palDefaultPreferencesRef.current ?? requestedPrefs) ?? requestedPrefs
+				: requestedPrefs
 			const primary = prefs.providers[0]
 			if (primary && scheduleLiveRef.current) {
 				scheduleLiveRef.current.model = {
@@ -3745,6 +3764,12 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(palEnvironment ? {
+					palEnvironment,
+					rules: activeCtx.rules,
+					conversationSessions: sessionsRef.current!,
+					...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
+				} : {
 				// A person is here to confirm: the model may propose scheduled jobs
 				// and session loops (never in exec, a scheduled run or a sub-agent).
 				extraTools: [
@@ -3788,6 +3813,7 @@ export function App({
 				allowModelSwitch: true,
 				// The user is at this desktop, so the model may open a page for them.
 				openUrl: true,
+				}),
 			})
 			if (signal?.aborted) {
 				void s.close()
@@ -3806,10 +3832,10 @@ export function App({
 			let commands: ReturnType<typeof discoverUserCommands>
 			try {
 				options.beforePublish?.()
-				commands = discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
+				commands = definition ? [] : discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
 				// Construction and validation precede the saved change. There is no
 				// await between this atomic write and publishing the usable session.
-				if (persistSelection) writePreferences(prefs)
+				if (persistSelection && !definition) writePreferences(prefs)
 			} catch (error) {
 				try {
 					await s.close()
@@ -3818,7 +3844,10 @@ export function App({
 				}
 				throw error
 			}
+			const previousPalDefinition = palDefinitionRef.current
 			savedPrefsRef.current = prefs
+			palDefinitionRef.current = definition
+			palRouteSessionRef.current = definition ? scope.sessionId : null
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
@@ -3850,7 +3879,7 @@ export function App({
 			setUserCommands(commands)
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
-			void listMentionableFiles(activeCtx.cwd, appLifetime.signal).then((files) => {
+			void (definition ? Promise.resolve([]) : listMentionableFiles(activeCtx.cwd, appLifetime.signal)).then((files) => {
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
 			})
@@ -3864,6 +3893,9 @@ export function App({
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
 				setPhase('ready')
+				if (definition && (!previousInstructionFiles || previousPalDefinition?.revision !== definition.revision || announce)) {
+					pushMessage('system', `Pal: ${definition.name} · profile revision ${definition.revision} · own local computer`)
+				}
 				// Startup identity already lives in the footer. Confirm an explicit
 				// picker selection, but do not add a routine connection log to chat.
 				if (announce) {
@@ -4111,14 +4143,14 @@ export function App({
 				// An exact shell resume owns conversation admission before provider
 				// discovery or construction. A malformed/missing id must not consume
 				// model work and then quietly continue in a fresh conversation.
-				if (initialConversationIdRef.current) {
+				if (initialConversationIdRef.current || ctxRef.current.palId || tuiPalOwner(ctxRef.current.cwd)) {
 					try {
 						await ensureSessions()
 					} catch (error) {
 						setPhase('unhealthy')
 						pushMessage(
 							'system',
-							`Could not resume ${initialConversationIdRef.current}: ${error instanceof Error ? error.message : String(error)}`,
+							`Could not ${initialConversationIdRef.current ? `resume ${initialConversationIdRef.current}` : 'open this Pal'}: ${error instanceof Error ? error.message : String(error)}`,
 						)
 						return
 					}
@@ -4126,6 +4158,14 @@ export function App({
 				const probe = await probeAgentSession()
 				if (signal?.aborted) return
 				setDetected(probe.detected)
+				palDefaultPreferencesRef.current = probe.preferences
+				const pinnedPal = palDefinitionRef.current
+				if (pinnedPal?.model) {
+					const preferences = tuiPalPreferences(pinnedPal, probe.preferences)
+					if (!preferences) throw new Error('The Pal has no available model route.')
+					await hydrateSession(preferences, probe.detected, { signal, announce })
+					return
+				}
 				if (probe.needsRepickReason) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
@@ -4621,7 +4661,10 @@ export function App({
 		}
 		if (await resumeActiveTurn()) return
 		try {
-			const recent = await listRecent(sessions)
+			const owner = palDefinitionRef.current
+			const recent = owner
+				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({ ...row, id: asSessionId(row.id) }))
+				: await listRecent(sessions)
 			// Don't offer the active (empty/just-started) conversation.
 			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
 			if (others.length === 0) {
@@ -4640,6 +4683,10 @@ export function App({
 	}, [ensureSessions, pushMessage, resumeActiveTurn])
 
 	const doUnarchive = useCallback(async () => {
+		if (palDefinitionRef.current) {
+			pushMessage('system', 'Restoring archived Pal conversations is not available in this terminal yet.')
+			return
+		}
 		if (
 			state !== 'idle' ||
 			abortRef.current !== null ||
@@ -4865,12 +4912,18 @@ export function App({
 				setPhase('ready')
 				return
 			}
+			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
+				setPhase('ready')
+				pushMessage('system', 'Finish this Pal’s active turn and queued work before opening another conversation.')
+				return
+			}
 			// The operator has committed; `Esc` no longer cancels from here, or a
 			// press landing during the read would leave the picker closed and the
 			// switch happening anyway.
 			resumeCommittedRef.current = true
 			let msgs: Awaited<ReturnType<typeof loadConversation>>
 			try {
+				await tuiPalDefinition(ctxRef.current.cwd, conv.id, ctxRef.current.palId)
 				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
 			} catch (err) {
@@ -4913,6 +4966,18 @@ export function App({
 				: null
 			pendingGoalResumeRef.current = conv.id
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
+			if (palDefinitionRef.current) {
+				setPhase('probing')
+				palRouteSessionRef.current = null
+				try {
+					await session?.close()
+					if (!savedPrefsRef.current) throw new Error('Select a model for this Pal conversation.')
+					await hydrateSession(savedPrefsRef.current, detected)
+				} catch (error) {
+					setPhase('unhealthy')
+					pushMessage('system', `Could not start this Pal conversation: ${error instanceof Error ? error.message : String(error)}`)
+				}
+			}
 			// The scope now names the resumed conversation, so its finished
 			// children are readable. Without this the first Ctrl+T after a resume
 			// would have nothing to find.
@@ -4946,6 +5011,9 @@ export function App({
 			pushMessage,
 			cancelPendingModelSwitch,
 			hydrateSavedChildren,
+			hasUnsettledTurn,
+			hydrateSession,
+			detected,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -5013,6 +5081,10 @@ export function App({
 	const startFreshConversation = useCallback(
 		async (clearScreen: boolean) => {
 			if (conversationMutationRef.current) return
+			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
+				pushMessage('system', 'Finish this Pal’s active turn and queued work before starting another conversation.')
+				return
+			}
 			conversationMutationRef.current = 'new'
 			setConversationMutation('new')
 
@@ -5024,7 +5096,10 @@ export function App({
 					if (!sessions) throw new Error('the active conversation store is unavailable')
 					// Publish the recoverable destination before interrupting or clearing
 					// anything in the source conversation.
-					targetSessionId = await startConversation(sessions)
+					if (palDefinitionRef.current) {
+						targetSessionId = generateSessionId()
+						await claimPalConversation(ctxRef.current.cwd, palDefinitionRef.current.id, targetSessionId)
+					} else targetSessionId = await startConversation(sessions)
 				}
 
 				const discardedQueued = queuedRef.current.length
@@ -5049,6 +5124,18 @@ export function App({
 					// re-read", and an exception here is how the resume path lost
 					// its own re-read.
 					void hydrateSavedChildren()
+					if (palDefinitionRef.current) {
+						setPhase('probing')
+						palRouteSessionRef.current = null
+						try {
+							await session?.close()
+							if (!savedPrefsRef.current) throw new Error('Select a model for this Pal conversation.')
+							await hydrateSession(savedPrefsRef.current, detected)
+						} catch (error) {
+							setPhase('unhealthy')
+							pushMessage('system', `Could not start this Pal conversation: ${error instanceof Error ? error.message : String(error)}`)
+						}
+					}
 				}
 
 				if (clearScreen) {
@@ -5098,6 +5185,9 @@ export function App({
 			pushMessage,
 			cancelPendingModelSwitch,
 			hydrateSavedChildren,
+			hasUnsettledTurn,
+			hydrateSession,
+			detected,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -5237,6 +5327,10 @@ export function App({
 	 * thing the operator watched arrive.
 	 */
 	const doFork = useCallback(async () => {
+		if (palDefinitionRef.current) {
+			pushMessage('system', 'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.')
+			return
+		}
 		if (conversationMutationRef.current) return
 		if (abortRef.current) {
 			pushMessage(
@@ -5310,6 +5404,10 @@ export function App({
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
 	const openPromptEditor = useCallback(() => {
+		if (palDefinitionRef.current) {
+			pushMessage('system', 'Editing earlier prompts by forking is not available in a Pal conversation yet.')
+			return
+		}
 		if (conversationMutationRef.current || compactingRef.current) return
 		if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 			pushMessage(
@@ -7258,12 +7356,20 @@ export function App({
 			// operator acting directly, the way other coding agents spell it,
 			// and both leave a row the model reads on its next turn.
 			if (operatorText && value.startsWith('#') && value.slice(1).trim().length > 0) {
+				if (palDefinitionRef.current) {
+					pushMessage('system', 'Host project memory shortcuts are unavailable in Pal chat. Ask the Pal to keep the note in its own computer.')
+					return
+				}
 				const note = value.slice(1).trim()
 				void rememberProjectNote(note)
 				return
 			}
 			const escaped = operatorText ? shellEscapeCommand(value) : null
 			if (escaped !== null) {
+				if (palDefinitionRef.current) {
+					pushMessage('system', 'Host shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command in its own computer.')
+					return
+				}
 				pushMessage('user', value)
 				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
 				void runShellEscape(escaped, { cwd: ctx.cwd }).then((result) => {
@@ -7321,6 +7427,11 @@ export function App({
 			// to run one.
 			let outgoing = dispatch
 			let skillFlow = false
+			const palHostCommand = operatorText && palDefinitionRef.current && /^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(dispatch)
+			if (palHostCommand) {
+				pushMessage('system', 'This command is not available in Pal chat. Pal tools use its own computer; host workspace and extension commands remain in ordinary conversations.')
+				return
+			}
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
 					switch (slash.kind) {
@@ -8800,6 +8911,7 @@ export function App({
 	// paint, never blocking it. Loops fire when a turn ends, and on their timer.
 	useEffect(() => {
 		const timer = setTimeout(() => {
+			if (palDefinitionRef.current) return
 			const line = scheduleRef.current?.startupLine()
 			if (line) scheduleLiveRef.current?.say(line)
 		}, 250)
@@ -8809,7 +8921,7 @@ export function App({
 		}
 	}, [])
 	useEffect(() => {
-		if (state !== 'idle') return
+		if (state !== 'idle' || palDefinitionRef.current) return
 		try {
 			scheduleRef.current?.loops.tick()
 		} catch {
@@ -9039,7 +9151,7 @@ export function App({
 	])
 
 	useEffect(() => {
-		if (phase !== 'ready' || peersRef.current || peersStartingRef.current) return
+		if (phase !== 'ready' || palDefinitionRef.current || peersRef.current || peersStartingRef.current) return
 		peersStartingRef.current = true
 		let disposed = false
 		let opened: LivePeers | null = null

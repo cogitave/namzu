@@ -18,6 +18,18 @@
 	],
 	"streamWriteAllowlist": [
 		{
+			"file": "packages/sandbox/src/local-virtual-computer/detached-worker.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "finish drains the detached guest stream bridge's stdout pipe before reporting confirmed terminal state over IPC. This is the guest command output channel, not a structured log sink."
+		},
+		{
+			"file": "packages/sandbox/src/local-virtual-computer/detached-worker.ts",
+			"symbol": "process.stderr.write",
+			"count": 5,
+			"reason": "The guest stream bridge drains stderr and adds four bounded operator-facing notices for uncertain cancellation, truncated command output, command lifetime and transport failure. They accompany the background job's captured terminal output; provider lifecycle diagnostics use their separate host channel."
+		},
+		{
 			"file": "packages/cli/src/output/json.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,

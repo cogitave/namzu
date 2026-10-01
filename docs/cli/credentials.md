@@ -173,6 +173,11 @@ atomic credential file, Namzu also proves that its parent directory is private;
 an account that opened a file under a broad inherited ACL could otherwise keep
 that read handle after the file ACL was tightened.
 
+Windows ACL mutation and verification pass extended absolute paths to `icacls`.
+This permits private state under long project paths without changing its stored
+directory names or weakening the read-back check. A native 291-character state
+path reproduced ordinary-path failure and passed with the extended form.
+
 Directory grants include inheritance for child files and directories. Otherwise,
 a new partition below a protected parent can receive the creator's default ACL
 instead, including an explicit Administrators grant. Securing a named private

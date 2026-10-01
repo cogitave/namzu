@@ -26,7 +26,24 @@ for desktop host support at initialization and reports an incompatible CLI.
 `NAMZU_DESKTOP_CLI` is a main-process executable entry setting, never a renderer
 argument or model input. On Windows the installed `.cmd` shim is invoked through
 a fixed `namzu acp --desktop` command; project paths are passed as process cwd.
+Closing first ends CLI stdin so session and guest cleanup can finish. After a
+five-second grace period, Windows force-stops only the still-live owned CMD
+process and its descendants with `taskkill /pid /t /f`, then awaits process
+closure. It never kills by executable name. A failed OS stop rejects and can
+be retried; an already-exited wrapper PID is never targeted. Protocol output
+and retained stderr diagnostics use separate UTF-8 stream decoders.
+The desktop retains ownership when shutdown fails, blocks new work and reports
+the failure. On Windows and Linux its window stays open until shutdown succeeds;
+close it again to retry. A disconnected metadata or project client remains in
+the shutdown set until its process closure is confirmed.
 The app is not yet distributed through native installers or auto-update.
+
+On Windows PowerShell, select the built CLI entry without a Bash assignment:
+
+```powershell
+$env:NAMZU_DESKTOP_CLI = (Resolve-Path .\packages\cli\dist\bin.js).Path
+pnpm --filter @namzu/desktop start
+```
 
 ### Live interface development
 
@@ -52,6 +69,54 @@ Open `http://127.0.0.1:5173/preview` in a browser to review the same interface w
 clearly labelled sample projects and conversations. This development-only
 preview keeps changes in memory and has no access to the CLI, credentials,
 filesystem or live tasks. Use the native development window for actual work.
+
+## Persistent Pals
+
+The Home sidebar includes Pals and a creation action. Create more than one Pal
+with a name, purpose and optional model from the actual provider catalogue.
+Customize uses the saved revision to reject conflicting edits. Definitions and
+conversation ownership come from the [shared CLI and SDK](pals.md), rather than
+renderer storage. Existing conversations keep their original profile revision;
+profile edits apply to new conversations. A conversation's model choice remains
+local to that conversation.
+
+The first Pal view explains its saved purpose and offers customization. Its chat
+uses the existing transcript, composer, approvals and tool events. A separate
+context card shows the Pal, its computer, owned recent conversations and current
+completed change receipts. It becomes a context menu when the workspace is
+smaller than 1280px. Neither empty outputs nor a disconnected computer imply
+completed work. The initial avatar uses the Pal's initials.
+
+Each Pal requires its own [local guest computer](../sdk/local-pal-computer.md).
+Start computer uses the owning Pal runtime; a missing engine or image produces
+an unavailable state with the setup reason. The composer admits work only after
+that computer is ready and the Pal is not paused. Open computer displays an
+actual PNG capture with a Refresh control. This is a read-only screen view;
+the desktop does not yet provide human keyboard/mouse takeover. Guest browser
+and file tools do not fall back to the operator's device.
+
+Stop computer is refused while known turns, queued messages, approvals or
+background jobs still own work. Cleanup failures retain a recovery notice and
+allow a stop retry. Pausing blocks new admissions, model steps and subsequent
+guest operations; it does not itself terminate an already running command.
+Customization and pause controls are also guarded while owned work is active.
+An unconfirmed background-job stop remains running. Its row displays the
+recovery reason and offers Retry stop; only confirmed termination removes that
+control. Model status belongs to both the project and selected conversation,
+so a delayed landing-page response cannot replace a pinned conversation route.
+
+The native host uses a metadata-only registry connection for saved definitions
+and model catalogues. Execution, captures and computer lifecycle requests go
+through the Pal's own validated control-directory connection. A new session is
+claimed before it is exposed to the renderer. Ordinary project sessions and
+another Pal's sessions cannot be adopted. Private control directories are not
+listed as ordinary projects or persisted in the desktop's project settings.
+The named IPC methods have the same sender checks as ordinary desktop actions;
+the CLI's [ACP extension table](pals.md#acp-host-extensions) describes the wire.
+
+The browser design preview supports in-memory creation and customization, and
+explicitly reports that a real computer needs the native application. This MVP
+does not yet run a resident autonomous loop, Pal Team or external channel adapter.
 
 ## Appearance and message display
 

@@ -8,7 +8,6 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
@@ -63,8 +62,6 @@ const agent = () => ({
 	createAgentSession,
 })
 
-const host = hostCommandShell()
-
 async function fire(job: ScheduleJob, runId = crypto.randomUUID()) {
 	const key = String(Date.parse('2026-09-23T03:00:00Z'))
 	claimOccurrence(sb.paths, {
@@ -93,7 +90,7 @@ async function fire(job: ScheduleJob, runId = crypto.randomUUID()) {
 function scriptAgentJob(gateBody: string, scriptTimeoutMs = 5_000): ScheduleJob {
 	return confirmedJob(sb, {
 		runKind: 'script+agent',
-		script: { body: gateBody, shell: host.dialect, timeoutMs: scriptTimeoutMs },
+		script: { body: gateBody, shell: 'sh' as const, timeoutMs: scriptTimeoutMs },
 		permissions: { rules: { bash: 'allow' }, unmatched: 'park' },
 	})
 }
@@ -167,7 +164,7 @@ describe('the permission-model fix: the gate needs no allow rule, and the two ph
 			runKind: 'script+agent',
 			script: {
 				body: 'echo \'{"wake": true, "context": "x"}\'',
-				shell: host.dialect,
+				shell: 'sh' as const,
 				timeoutMs: 5_000,
 			},
 			// Deliberately no `bash` rule at all: the old model forced a
@@ -186,7 +183,7 @@ describe('the permission-model fix: the gate needs no allow rule, and the two ph
 			runKind: 'script+agent',
 			script: {
 				body: 'echo \'{"wake": true, "context": "x"}\'',
-				shell: host.dialect,
+				shell: 'sh' as const,
 				timeoutMs: 5_000,
 			},
 			// No bash rule for the AGENT phase either: proves the gate's own

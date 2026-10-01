@@ -37,6 +37,8 @@
     "!src/**/__tests__",
     "!src/**/__fixtures__",
     "!src/**/test-setup.*",
+    "local-computer",
+    "worker/server.js",
     "LICENSE.md",
     "README.md",
     "CHANGELOG.md"
@@ -48,7 +50,7 @@
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",
-    "lint": "biome check src/ worker/ agent/ k8s/ egress-proxy/",
+    "lint": "biome check src/ worker/ agent/ k8s/ egress-proxy/ local-computer/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",

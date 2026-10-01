@@ -88,6 +88,7 @@ import {
 	type AuthorizationPredicateCall,
 	type AuthorizationRule,
 	type ShellCommand,
+	type ShellDialect,
 	type ShellLexResult,
 	type ShellRedirection,
 	type ShellWord,
@@ -133,6 +134,7 @@ export type FloorReason =
 	| 'opaque line mentions a protected name'
 	| 'unread text mentions a protected name'
 	| 'encoded command cannot be read at all'
+	| 'unsupported command dialect'
 	| 'find -exec reaches a protected target'
 	| 'runs a file the script wrote earlier'
 	| 'too many spellings'
@@ -867,7 +869,13 @@ class Floor {
 
 	// ---- a command line -----------------------------------------------------
 
-	private lineVerdict(line: string, dialect: 'bash' | 'sh', depth = 0): FloorFinding | null {
+	private lineVerdict(line: string, dialect: ShellDialect, depth = 0): FloorFinding | null {
+		if (dialect === 'cmd')
+			return {
+				reason: 'unsupported command dialect',
+				detail:
+					'The scheduled-run floor cannot verify native CMD commands. Use an explicitly installed POSIX interpreter; unattended execution is refused.',
+			}
 		// A line for a shell that may be bash or a POSIX shell is read both
 		// ways, and denied if either reading denies it.
 		const dialects: readonly ('bash' | 'sh')[] = dialect === 'bash' ? ['bash'] : ['sh', 'bash']

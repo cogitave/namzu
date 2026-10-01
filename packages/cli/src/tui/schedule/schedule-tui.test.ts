@@ -18,7 +18,6 @@ import {
 	buildScheduleTools,
 	defineTool,
 	generateScheduleRunId,
-	hostCommandShell,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -566,7 +565,7 @@ describe('/schedule confirm for a script job', () => {
 		const original = confirmedJob(sb, {
 			name: 'reviewed-script',
 			runKind: 'script',
-			script: { body, shell: hostCommandShell().dialect },
+			script: { body, shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		updateJob(sb.paths, original.id, original.revision, (job) => ({
@@ -613,7 +612,7 @@ describe('/schedule confirm for a script job', () => {
 		const original = confirmedJob(sb, {
 			name: 'hidden-script',
 			runKind: 'script',
-			script: { body, shell: hostCommandShell().dialect },
+			script: { body, shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		updateJob(sb.paths, original.id, original.revision, (job) => ({
@@ -663,7 +662,7 @@ describe('/schedule confirm for a script job', () => {
 		'shows the exact %s body and shell before binding its confirmation',
 		async (runKind) => {
 			const name = runKind === 'script' ? 'pending-script' : 'pending-gate'
-			const shell = hostCommandShell().dialect
+			const shell = 'sh' as const
 			const body = 'echo first\necho second'
 			const original = confirmedJob(sb, {
 				name,
@@ -705,7 +704,7 @@ describe('/schedule confirm for a script job', () => {
 		const original = confirmedJob(sb, {
 			name: 'unsafe-script',
 			runKind: 'script',
-			script: { body: 'echo safe', shell: hostCommandShell().dialect },
+			script: { body: 'echo safe', shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const path = sb.paths.job(original.id)

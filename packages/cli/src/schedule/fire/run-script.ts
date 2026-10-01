@@ -14,6 +14,7 @@ import { constants, accessSync } from 'node:fs'
 import {
 	type CommandShell,
 	type ExecHostShellProgress,
+	type ShellDialect,
 	execHostShell,
 	installedCommandShellForDialect,
 } from '@namzu/sdk'
@@ -42,7 +43,7 @@ export interface ScriptRunResult {
 	readonly exitCode: number | null
 	readonly timedOut: boolean
 	/** A caller gave a different dialect than the one this script was verified in. */
-	readonly dialectMismatch?: { readonly expected: 'bash' | 'sh'; readonly actual: 'bash' | 'sh' }
+	readonly dialectMismatch?: { readonly expected: 'bash' | 'sh'; readonly actual: ShellDialect }
 	/** The requested interpreter is no longer executable on this host. */
 	readonly shellUnavailable?: 'bash' | 'sh'
 }

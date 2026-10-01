@@ -7,7 +7,6 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readPreferences } from '../../integrations/providers/preferences.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
@@ -51,7 +50,7 @@ describe('schedule add --kind script', () => {
 				'--script',
 				'echo hi',
 				'--shell',
-				hostCommandShell().dialect,
+				'sh' as const,
 				'--permissions',
 				permissions(sb, {}),
 				'--notify-finished',
@@ -172,7 +171,7 @@ describe('schedule add --kind script', () => {
 			'--script',
 			'echo no-provider',
 			'--shell',
-			hostCommandShell().dialect,
+			'sh' as const,
 			'--permissions',
 			permissions(sb, {}),
 			'--yes',
@@ -298,12 +297,7 @@ describe('schedule add --kind script', () => {
 				'--prompt',
 				'Check status',
 				...(kind === 'script+agent'
-					? [
-							'--script',
-							'echo \'{"wake":false,"context":""}\'',
-							'--shell',
-							hostCommandShell().dialect,
-						]
+					? ['--script', 'echo \'{"wake":false,"context":""}\'', '--shell', 'sh' as const]
 					: []),
 				'--permissions',
 				permissions(sb, {}),
@@ -328,7 +322,7 @@ describe('schedule add --kind script', () => {
 				'--script',
 				'echo hi',
 				'--shell',
-				hostCommandShell().dialect,
+				'sh' as const,
 				'--permissions',
 				permissions(sb, {}),
 				...extra,
@@ -362,7 +356,7 @@ describe('schedule add --kind script', () => {
 					'--script',
 					'echo hi',
 					'--shell',
-					hostCommandShell().dialect,
+					'sh' as const,
 					'--permissions',
 					permissions(sb, {}),
 					flag,
@@ -388,7 +382,7 @@ describe('schedule add --kind script', () => {
 				'--script',
 				'echo hi',
 				'--shell',
-				hostCommandShell().dialect,
+				'sh' as const,
 				'--permissions',
 				permissions(sb, {}),
 				'--browser',
@@ -632,7 +626,7 @@ describe('editing a script job', () => {
 			'--script',
 			'echo one',
 			'--shell',
-			hostCommandShell().dialect,
+			'sh' as const,
 			'--permissions',
 			permissions(sb, {}),
 			'--yes',

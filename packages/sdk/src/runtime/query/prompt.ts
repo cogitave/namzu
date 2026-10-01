@@ -29,6 +29,8 @@ export interface PromptBuilderConfig {
 
 	tools: ToolManager
 	allowedTools?: string[]
+	/** Command-tool dialects describe guest tools when a sandbox is supplied. */
+	sandboxed?: boolean
 	runtimeContext?: AgentRuntimeContext
 	/**
 	 * What else goes in the prompt, beyond what this builder knows about.
@@ -46,7 +48,7 @@ function buildEnvContext(workingDirectory: string, config: PromptBuilderConfig):
 	const lines = [
 		`<env>
 Working directory: ${workingDirectory}
-Platform: ${process.platform}`,
+${config.sandboxed ? 'Host platform' : 'Platform'}: ${process.platform}`,
 	]
 
 	if (runtimeContext?.label) {
@@ -119,6 +121,29 @@ function hasFilesystemTools(tools: ToolManager, allowedTools?: string[]): boolea
 			),
 		)
 	})
+}
+
+/** The actual execution dialect, independent of the host operating system. */
+function buildShellContext(config: PromptBuilderConfig): string | undefined {
+	const lines: string[] = []
+	for (const name of config.allowedTools ?? config.tools.listNames()) {
+		const tool = config.tools.get(name)
+		if (
+			!tool?.commandArgument ||
+			!tool.commandDialect ||
+			config.tools.availability(name) !== 'active'
+		)
+			continue
+		const dialect = tool.commandDialect({ sandboxed: config.sandboxed === true })
+		lines.push(
+			`Execution shell for ${name}: ${dialect}${config.sandboxed ? ' (sandbox guest)' : ' (host)'}.`,
+		)
+		if (dialect === 'cmd')
+			lines.push(
+				'Use native Windows CMD command syntax. Single quotes do not quote arguments; backslashes do not escape shell operators. PowerShell syntax requires explicitly invoking PowerShell. Command-specific automatic permission grants are unavailable; an exact-call review may be required.',
+			)
+	}
+	return lines.length > 0 ? lines.join('\n') : undefined
 }
 
 export class PromptBuilder {
@@ -250,6 +275,9 @@ export class PromptBuilder {
 		// `${static}\n\n---\n\n${dynamic}`. The two methods produce the same
 		// prompt for the same input, and a turn that hits the prompt cache
 		// must not be asking a different question from one that misses it.
+		const shellContext = buildShellContext(this.config)
+		if (shellContext) parts.push(shellContext)
+
 		parts.push(...this.renderContributions('static', workingDirectory))
 		parts.push(...this.renderContributions('dynamic', workingDirectory))
 
@@ -310,6 +338,9 @@ export class PromptBuilder {
 				dynamicParts.push(buildEnvContext(workingDirectory, this.config))
 			}
 		}
+
+		const shellContext = buildShellContext(this.config)
+		if (shellContext) dynamicParts.push(shellContext)
 
 		staticParts.push(...this.renderContributions('static', workingDirectory))
 		dynamicParts.push(...this.renderContributions('dynamic', workingDirectory))

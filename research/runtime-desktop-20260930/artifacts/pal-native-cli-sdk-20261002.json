@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "checks": [
+    "native built CLI creates UTF-8 Pal in private home",
+    "production desktop Operator -> native CLI ACP -> real owned Podman computer",
+    "actual PNG capture and claimed private conversation over production RPC",
+    "production native CLI/ACP guest and owned process tree close confirmed",
+    "actual SDK query write/read/glob/grep/bash/computer_use in admitted Pal guest",
+    "Linux guest commands and UTF-8 file/screenshot observations reach fixture model",
+    "same Pal retains actual guest files after query and computer restart"
+  ],
+  "limitations": [
+    "Built local consumer snapshot, not a registry npm install.",
+    "Model provider is scripted; no credentialed inference or native TUI rendering.",
+    "External Teams transport and continuous Pal listener are not exercised."
+  ],
+  "callerWorkingDirectoryKind": "WSL UNC",
+  "commandRunner": "Production default, no injected runner or process.chdir"
+}

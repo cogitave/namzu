@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { hostCommandShell } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { addCommand, editCommand } from '../commands/add.js'
 import { showCommand } from '../commands/list.js'
@@ -49,7 +48,7 @@ describe('schedule text shown to a person', () => {
 					'--script',
 					body,
 					'--shell',
-					hostCommandShell().dialect,
+					'sh' as const,
 					'--permissions',
 					permissions,
 					'--yes',
@@ -116,7 +115,7 @@ describe('schedule text shown to a person', () => {
 					'--script',
 					`sudo --bad${ESC}[2J /bin/true`,
 					'--shell',
-					hostCommandShell().dialect,
+					'sh' as const,
 					'--permissions',
 					permissions,
 					'--yes',

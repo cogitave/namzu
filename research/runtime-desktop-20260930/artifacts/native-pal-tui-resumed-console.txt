@@ -1,0 +1,30 @@
+█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+ █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0
+
+ › LOCAL_NATIVE_TUI_MESSAGE
+
+ ∴ NATIVE_TUI_LOCAL_REPLY_OK
+
+ · Pal: Native TUI fixture · profile revision 1 · own local computer
+
+ · Pal tools run in its local virtual computer. Host plugins, MCP servers, browser accounts and filesystem are not
+   inherited.
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ shift+tab to cycle · …a\Local\Temp\ntui-h-20261002-workspaces\pals\1f1ac65c-7b32-4441-bdbb-3cc8362cc92c native-fixture
+
+
+
+
+
+
+
+
+
+
+
+
+
+匀

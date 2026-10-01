@@ -1,0 +1,69 @@
+{
+  "platform": "win32",
+  "node": "v22.20.0",
+  "scope": "Private fixture Pal computers only",
+  "steps": [
+    {
+      "step": "actual-engine-image-probe"
+    },
+    {
+      "step": "guest-terminal",
+      "output": "uid=1001\nos=Linux\ncwd=/home/namzu/workspace\n"
+    },
+    {
+      "step": "guest-files"
+    },
+    {
+      "step": "initial.png",
+      "width": 1280,
+      "height": 800,
+      "bytes": 23231
+    },
+    {
+      "step": "background-across-calls"
+    },
+    {
+      "step": "browser-GUI-and-storage",
+      "title": "Namzu Pal computer proof"
+    },
+    {
+      "step": "browser.png",
+      "width": 1280,
+      "height": 800,
+      "bytes": 57672
+    },
+    {
+      "step": "confirmed-background-stop"
+    },
+    {
+      "step": "second-Pal-isolation"
+    },
+    {
+      "step": "owned-computer-release"
+    },
+    {
+      "step": "restart-file-and-browser-persistence",
+      "secondGeneration": 1790892268551
+    },
+    {
+      "step": "restart.png",
+      "width": 1280,
+      "height": 800,
+      "bytes": 44940
+    },
+    {
+      "step": "final-owned-release"
+    }
+  ],
+  "palId": "native-pal-smoke-efe078da-83fd-4ba6-b010-a7ac75a1bd1e",
+  "environmentId": "local-container:0bb66798edf1831e680371913a0e17da1b798361083a61eba5599f342da465d8",
+  "firstGeneration": 1790892259300,
+  "passed": true,
+  "completedAt": "2026-10-01T22:04:33.723Z",
+  "imageId": "3a34d95148b3a650fe504567fd9765e075582a32bf24e073589b3efea1a626cf",
+  "engine": "Podman6.0.2 registered local WSL2 machine",
+  "transport": "Production default runner; owned loopback SSH forwards with host key read from registered local WSL machine",
+  "screenshotDirectory": "C:/Users/Arda/AppData/Local/Temp/namzu-pal-native-lifecycle-kjlyzayc",
+  "isolation": "Linux container desktop; shared local machine kernel, no cgroup quotas, Chromium inner sandbox disabled",
+  "release": "Graceful Chromium profile flush, exact owned container removal, owned forwarding close; persistent volume retained"
+}

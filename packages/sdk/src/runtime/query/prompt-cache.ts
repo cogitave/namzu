@@ -20,6 +20,7 @@ export interface PromptCacheInput {
 	basePrompt?: string
 	tools: ToolManager
 	allowedTools?: string[]
+	sandboxed?: boolean
 	runtimeContext?: AgentRuntimeContext
 	contributions?: PromptContributionRegistry
 }
@@ -46,6 +47,7 @@ export class PromptCache {
 			basePrompt: input.basePrompt,
 			tools: input.tools,
 			allowedTools: input.allowedTools,
+			sandboxed: input.sandboxed,
 			runtimeContext: input.runtimeContext,
 			...(input.contributions ? { contributions: input.contributions } : {}),
 		})
@@ -83,6 +85,7 @@ export class PromptCache {
 			basePrompt: input.basePrompt,
 			tools: input.tools,
 			allowedTools: input.allowedTools,
+			sandboxed: input.sandboxed,
 			runtimeContext: input.runtimeContext,
 			...(input.contributions ? { contributions: input.contributions } : {}),
 		})

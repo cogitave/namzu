@@ -28,7 +28,11 @@ export interface ComposerModelSettings {
 }
 export interface PluginInventoryView {
 	/** Catalogue entries are distinct from installation locations. Absent means unavailable. */
-	publicPlugins?: readonly { name: string; version: string; description: string }[]
+	publicPlugins?: readonly {
+		name: string
+		version: string
+		description: string
+	}[]
 	publicNotice?: string
 	plugins: readonly {
 		name: string
@@ -51,12 +55,14 @@ export interface ProjectView {
 	trusted: boolean
 	status: 'connecting' | 'ready' | 'error'
 	error?: string
+	palId?: string
 }
 export interface ConversationView {
 	id: string
 	projectId: string
 	title: string
 	updatedAt: string
+	palId?: string
 }
 export interface ChatMessage {
 	role: 'user' | 'assistant'
@@ -71,12 +77,47 @@ export interface ModelCatalogueView {
 	models: { id: string; label: string; note?: string }[]
 	notice: string | null
 }
+export interface PalView {
+	id: string
+	name: string
+	purpose: string
+	revision: number
+	workspace: string
+	model: { provider: string; model: string } | null
+	paused: boolean
+	createdAt: string
+	updatedAt: string
+}
+export interface PalInput {
+	name: string
+	purpose?: string
+	model?: PalView['model']
+}
+export interface PalChanges extends PalInput {
+	paused?: boolean
+}
+export interface PalComputerView {
+	status: 'stopped' | 'ready' | 'unavailable'
+	requiresStop?: boolean
+	notice?: string
+	environmentId?: string
+	generation?: string
+}
+export interface PalScreenView {
+	source: string
+	width: number
+	height: number
+}
 export interface JobView {
 	id: string
 	command: string
 	status: string
 	startedAt: number
 	exitCode?: number
+	/** Termination is unconfirmed; the job remains owned and running. */
+	recoveryRequired?: boolean
+	/** Safe registry diagnostic; never the process provider's raw error. */
+	stopError?: string
 }
 export interface QueuedMessageView {
 	id: string
@@ -102,7 +143,12 @@ export interface WindowMenuAnchor {
 	y: number
 }
 export type DesktopEvent = (
-	| { kind: 'prompt'; sessionId: string; prompt: string; attachments?: AttachmentView[] }
+	| {
+			kind: 'prompt'
+			sessionId: string
+			prompt: string
+			attachments?: AttachmentView[]
+	  }
 	| {
 			kind: 'update'
 			projectId: string
@@ -126,6 +172,20 @@ export interface DesktopApi {
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
 	projects(): Promise<ProjectView[]>
+	pals(): Promise<PalView[]>
+	palProviders(): Promise<ProviderView>
+	palModels(provider: string): Promise<ModelCatalogueView>
+	createPal(input: PalInput): Promise<PalView>
+	updatePal(id: string, expectedRevision: number, changes: Partial<PalChanges>): Promise<PalView>
+	openPal(id: string): Promise<{
+		pal: PalView
+		project: ProjectView
+		conversations: ConversationView[]
+	}>
+	palComputer(id: string): Promise<PalComputerView>
+	startPalComputer(id: string): Promise<PalComputerView>
+	stopPalComputer(id: string): Promise<PalComputerView>
+	palScreen(id: string): Promise<PalScreenView>
 	openProject(): Promise<ProjectView | null>
 	reconnectProject(projectId: string): Promise<ProjectView>
 	trustProject(projectId: string): Promise<ProjectView>

@@ -1,0 +1,58 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "calls": [
+    {
+      "kind": "read",
+      "path": "notes.txt"
+    },
+    {
+      "kind": "read",
+      "path": "outputs/report.md"
+    },
+    {
+      "kind": "write",
+      "path": "outputs/report.md"
+    },
+    {
+      "kind": "walk",
+      "path": "/home/namzu/workspace"
+    },
+    {
+      "kind": "walk",
+      "path": "/home/namzu/workspace"
+    },
+    {
+      "kind": "read",
+      "path": "/home/namzu/workspace/notes.txt"
+    },
+    {
+      "kind": "read",
+      "path": "/home/namzu/workspace/outputs/report.md"
+    },
+    {
+      "kind": "exec",
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "if command -v bash >/dev/null 2>&1; then exec bash -c \"$1\"; fi; exec /bin/sh -c \"$1\"",
+        "sh",
+        "printf native"
+      ]
+    },
+    {
+      "kind": "destroy"
+    }
+  ],
+  "providerRequests": 6,
+  "checks": [
+    "actual SDK query read/write/glob/grep/bash on Windows host",
+    "guest POSIX paths survive host Windows path rules",
+    "shell routes to Sandbox.exec /bin/sh, never Windows host",
+    "guest UTF-8 observations reach model"
+  ],
+  "limitations": [
+    "Sandbox and model provider are fixtures; no guest engine/browser/actual model exercised."
+  ]
+}

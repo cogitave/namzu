@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "checks": [
+    "Prior bang /bin/sh launcher: ENOENT on native Windows",
+    "Prior SDK metadata mismatch: sh lexer/rule grants one literal echo while native CMD executes a second echo between single quotes",
+    "Production native SDK CMD metadata: opaque parsing refuses command-specific allowance and preserves exact-call escalation; guest stays sh",
+    "Production native Windows SDK query: actual model request includes CMD execution syntax (mock provider, no model network)",
+    "Production bang runner: native CMD, both output streams, nonzero status",
+    "Production bang runner: spaced executable/script paths and split UTF-8 output",
+    "Production bang runner: pre-aborted call refuses execution",
+    "Production resume formatter: PS5.1 spaced paths, apostrophe and metacharacter arguments, guarded cwd",
+    "Prior desktop forced shutdown: killing CMD wrapper leaves owned Node descendant alive",
+    "Owned Windows tree cleanup: taskkill /pid /t /f removes controlled descendant",
+    "Production desktop RuntimeClient: CMD/npm-style .cmd forwarding retains exact ACP arguments",
+    "Production desktop RuntimeClient: graceful EOF first, forced live owned tree shutdown, actual descendant gone",
+    "Production Windows RPC transport: correlated permission response, session targeting, ordered message/end frames (protocol fixture)",
+    "Production Windows RPC transport: graceful EOF and pending-request rejection (protocol fixture)"
+  ],
+  "limitations": [
+    "No native TUI rendering, pwsh executable, credentialed model, or reconnect service tested."
+  ]
+}

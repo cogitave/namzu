@@ -48,6 +48,20 @@ afterEach(() => {
 })
 
 describe('round trip', () => {
+	it.skipIf(platform() !== 'win32')(
+		'secures and verifies a credential beyond the Windows ordinary path limit',
+		() => {
+			const longHome = join(home, 'a'.repeat(80), 'b'.repeat(80), 'c'.repeat(80))
+			const path = writeStoredGeminiApiKey('fixture-long-path', longHome)
+			expect(path.length).toBeGreaterThan(260)
+			expect(readStoredGeminiApiKey(longHome)).toBe('fixture-long-path')
+			const sid = currentUserSid()
+			expect(sid).not.toBeNull()
+			const sddl = readAclSddl(path)
+			expect(sddl).not.toBeNull()
+			assertSoleOwnerSddl(sddl ?? '', sid ?? '', path)
+		},
+	)
 	it('stores Gemini separately, privately, and removes only its key', () => {
 		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
 		const path = writeStoredGeminiApiKey('gemini-key', home)

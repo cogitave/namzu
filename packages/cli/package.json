@@ -2,13 +2,7 @@
 	"name": "@namzu/cli",
 	"version": "35.0.0",
 	"description": "Interactive and headless terminal agent for Namzu, with provider discovery, durable sessions, tools and diagnostics.",
-	"keywords": [
-		"namzu",
-		"ai",
-		"agent",
-		"cli",
-		"doctor"
-	],
+	"keywords": ["namzu", "ai", "agent", "cli", "doctor"],
 	"license": "MIT",
 	"author": "Namzu Contributors",
 	"homepage": "https://namzu.ai",
@@ -59,6 +53,7 @@
 		"@namzu/openai": "workspace:*",
 		"@namzu/openrouter": "workspace:*",
 		"@namzu/sdk": "workspace:^",
+		"@namzu/sandbox": "workspace:^",
 		"@namzu/google": "workspace:^",
 		"@namzu/zen": "workspace:^",
 		"commander": "^14.0.3",

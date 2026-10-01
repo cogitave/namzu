@@ -1216,3 +1216,28 @@ pre {
 		animation: none;
 	}
 }
+
+.workspace[data-page="pals"] > :not(.pals-page) {
+	display: none;
+}
+.pal-screen-popup {
+	width: min(1100px, calc(100vw - 32px));
+	max-height: calc(100dvh - 64px);
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 18px;
+	background: var(--surface);
+	padding: 20px;
+}
+.pal-screen-popup header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.pal-screen-popup img {
+	display: block;
+	width: 100%;
+	height: auto;
+	margin: 16px 0;
+	border-radius: 10px;
+}

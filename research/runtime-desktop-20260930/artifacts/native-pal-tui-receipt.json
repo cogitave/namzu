@@ -1,0 +1,116 @@
+{
+  "kind": "actual-native-console-pal-tui",
+  "date": "2026-10-02",
+  "node": "v22.20.0",
+  "platform": "win32",
+  "consumerFixture": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-20261002-pal",
+  "applicationState": "C:\\Users\\Arda\\AppData\\Local\\Temp\\ntui-h-20261002",
+  "palId": "1f1ac65c-7b32-4441-bdbb-3cc8362cc92c",
+  "conversationId": "01a0f987-8355-72ea-a31d-3109e51999b4",
+  "startupTTY": {
+    "stdinTTY": true,
+    "stdoutTTY": true,
+    "stderrTTY": true
+  },
+  "resumeTTY": {
+    "stdinTTY": true,
+    "stdoutTTY": true,
+    "stderrTTY": true
+  },
+  "resumeCommandExecutedExactly": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-20261002-pal\\packages\\p0\\dist\\bin.js' 'pal' 'chat' '1f1ac65c-7b32-4441-bdbb-3cc8362cc92c' '--resume' '01a0f987-8355-72ea-a31d-3109e51999b4'",
+  "computerDuringResumedProviderRequest": {
+    "palId": "1f1ac65c-7b32-4441-bdbb-3cc8362cc92c",
+    "environmentId": "local-container:647eecbebf1213ae9204675a32085184f7939b5025f9726a22b292dae8d36994",
+    "generation": "1790892946983",
+    "busyDuringProvider": true,
+    "sandboxStatus": "ready",
+    "rootDir": "/home/namzu/workspace",
+    "screenshotType": "screenshot",
+    "screenshotPng": true,
+    "screenshotBytes": 21164
+  },
+  "requestMessageCount": 4,
+  "cleanup": {
+    "platform": "win32",
+    "node": "v22.20.0",
+    "palId": "1f1ac65c-7b32-4441-bdbb-3cc8362cc92c",
+    "owner": "647eecbebf1213ae9204675a32085184f7939b5025f9726a22b292dae8d36994",
+    "containersAfterExit": [],
+    "volumeOwner": "647eecbebf1213ae9204675a32085184f7939b5025f9726a22b292dae8d36994",
+    "processChecks": [
+      {
+        "run": "startup",
+        "pid": 40824,
+        "absent": true
+      },
+      {
+        "run": "resume",
+        "pid": 42200,
+        "absent": true
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "actual native Windows console stdin stdout stderr TTY",
+      "pass": true
+    },
+    {
+      "name": "production Pal startup screen displays profile and own computer",
+      "pass": true
+    },
+    {
+      "name": "Win32 keyboard input reached actual stdin and submitted messages",
+      "pass": true
+    },
+    {
+      "name": "actual Ollama driver loopback HTTP chat returns rendered fixture reply",
+      "pass": true
+    },
+    {
+      "name": "admission active during provider request with actual guest cwd",
+      "pass": true
+    },
+    {
+      "name": "actual guest screenshot is nonempty PNG",
+      "pass": true
+    },
+    {
+      "name": "Pal profile purpose reaches request",
+      "pass": true
+    },
+    {
+      "name": "exact printed PowerShell command executes with spaced executable path",
+      "pass": true
+    },
+    {
+      "name": "resume retains same owned conversation and rendered prior history",
+      "pass": true
+    },
+    {
+      "name": "resumed provider context contains prior and current user messages",
+      "pass": true
+    },
+    {
+      "name": "both interactive exit paths return zero",
+      "pass": true
+    },
+    {
+      "name": "owned CLI processes and container absent after exit",
+      "pass": true
+    },
+    {
+      "name": "owned durable Pal home volume remains",
+      "pass": true
+    }
+  ],
+  "passed": 13,
+  "limits": [
+    "Local HTTP fixture model response, not a real vendor model or paid network request.",
+    "Actual Ollama driver is text-only: tool schemas stripped with visible capability warning. No claimed model computer tool use.",
+    "Loopback rewrite and console output tapping are research instrumentation; production CLI/Ink/Pal runtime/guest unchanged.",
+    "Win32 console buffer text snapshots, not pixel screenshots.",
+    "Private Pal record and home volume intentionally retained; unrelated consoles, account, machine and containers untouched."
+  ],
+  "fixtureDevelopmentAttempt": "Initial fixture fetch guard blocked owned guest loopback readyz. Production timeout returned69 and cleaned allocation; guard corrected. Excluded from passes."
+}

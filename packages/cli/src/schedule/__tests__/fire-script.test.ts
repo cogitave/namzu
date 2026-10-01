@@ -13,7 +13,7 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { hostCommandShell, installedCommandShellForDialect } from '@namzu/sdk'
+import { installedCommandShellForDialect } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { confirmJob } from '../build.js'
@@ -32,8 +32,6 @@ afterEach(() => {
 	__resetCliLoggerForTests()
 	sb.cleanup()
 })
-
-const host = hostCommandShell()
 
 async function fire(job: ScheduleJob, runId = crypto.randomUUID()) {
 	const key = String(Date.parse('2026-09-23T03:00:00Z'))
@@ -72,7 +70,7 @@ function scriptJob(
 		runKind: 'script',
 		script: {
 			body,
-			shell: over.shell ?? host.dialect,
+			shell: over.shell ?? ('sh' as const),
 			timeoutMs: over.scriptTimeoutMs ?? 5_000,
 		},
 		permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
@@ -102,7 +100,7 @@ describe('a script job, fired', () => {
 			name: 'no-project',
 			runKind: 'script',
 			workspace: 'none',
-			script: { body: 'pwd', shell: host.dialect },
+			script: { body: 'pwd', shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		// A script may create files in its own scratch space. They must not
@@ -122,7 +120,7 @@ describe('a script job, fired', () => {
 			workspace: 'none',
 			script: {
 				body: `echo '{"v":1,"state":"changed","summary":"New issue","nextState":"issue-1"}'`,
-				shell: host.dialect,
+				shell: 'sh' as const,
 				report: 'json-v1',
 			},
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
@@ -142,7 +140,7 @@ describe('a script job, fired', () => {
 		const job = confirmedJob(sb, {
 			name: 'bad-report',
 			runKind: 'script',
-			script: { body: 'echo not-json', shell: host.dialect, report: 'json-v1' },
+			script: { body: 'echo not-json', shell: 'sh' as const, report: 'json-v1' },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const { code, result } = await fire(job)
@@ -157,7 +155,7 @@ describe('a script job, fired', () => {
 			name: 'replaced-scratch',
 			runKind: 'script',
 			workspace: 'none',
-			script: { body: 'echo should-not-run', shell: host.dialect },
+			script: { body: 'echo should-not-run', shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const moved = `${job.folder.canonical}.moved`
@@ -214,7 +212,7 @@ describe('a script job, fired', () => {
 			const original = confirmedJob(sb, {
 				name: malformed,
 				runKind: 'script',
-				script: { body: 'echo should-not-run', shell: host.dialect },
+				script: { body: 'echo should-not-run', shell: 'sh' as const },
 				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 			})
 			const changed = updateJob(sb.paths, original.id, original.revision, (job) => {
@@ -239,7 +237,7 @@ describe('a script job, fired', () => {
 				name: `missing-model-${runKind.replace('+', '-')}`,
 				runKind,
 				...(runKind === 'script+agent'
-					? { script: { body: 'echo should-not-run', shell: host.dialect } }
+					? { script: { body: 'echo should-not-run', shell: 'sh' as const } }
 					: {}),
 			})
 			const changed = updateJob(sb.paths, original.id, original.revision, (job) =>
@@ -302,7 +300,7 @@ describe('a script job, fired', () => {
 		// (`build.ts`); this proves `__fire` refuses it independently too,
 		// for a job that was already confirmed before the platform changed
 		// (a moved NAMZU_HOME, a machine re-imaged from WSL to native).
-		const job = scriptJob('echo hi', { shell: host.dialect })
+		const job = scriptJob('echo hi', { shell: 'sh' as const })
 		const real = process.platform
 		Object.defineProperty(process, 'platform', {
 			value: 'win32',

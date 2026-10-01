@@ -1,5 +1,7 @@
 # CLI
 
+* [Pals in the CLI](pals.md) - Saved identities, local guest computers, terminal chat and exact conversation ownership.
+
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.
 * [Scheduled tasks](scheduled-tasks.md) - Prompts that run later in a folder while namzu is closed: jobs, the required permission set, approvals, missed runs, notifications and history.
 * [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.

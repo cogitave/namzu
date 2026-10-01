@@ -44,6 +44,10 @@ export interface BackgroundJob {
 	readonly exitedAt?: number
 	readonly exitCode?: number
 	readonly signal?: string
+	/** Stopping the owned tree failed; the job remains owned and counted as live. */
+	readonly recoveryRequired?: boolean
+	/** Safe registry diagnostic for an unconfirmed stop; excludes transport secrets. */
+	readonly stopError?: string
 }
 
 export interface BackgroundJobOutput {
@@ -68,6 +72,8 @@ export interface JobProcess {
 	readonly child: ReturnType<typeof spawn>
 	/** How to stop it, when the registry's process-group kill would not reach everything. */
 	kill?(signal: NodeJS.Signals): void
+	/** Confirm the owned tree stopped; reject instead of claiming an unconfirmed exit. */
+	terminate?(signal?: NodeJS.Signals): Promise<void>
 }
 
 export interface StartJobParams {
@@ -165,6 +171,11 @@ interface JobEntry {
 	child: ReturnType<typeof spawn>
 	/** The spawner's own kill, when it gave one. */
 	killProcess?: (signal: NodeJS.Signals) => void
+	terminateProcess?: (signal?: NodeJS.Signals) => Promise<void>
+	terminationAttempt?: Promise<void>
+	killRequested?: boolean
+	closedResult?: { code: number | null; signal: NodeJS.Signals | null }
+	finalize?: (code: number | null, signal: NodeJS.Signals | null) => void
 	/** Retained tail. */
 	buffer: string
 	/** Bytes produced in total, including the ones the cap dropped. */
@@ -216,6 +227,35 @@ export class BackgroundJobRegistry {
 				// A listener that throws is its owner's problem, not the job's.
 			}
 		}
+	}
+
+	/** A failed remote stop never releases ownership or announces a terminal job. */
+	private confirmTermination(entry: JobEntry): Promise<void> {
+		if (entry.terminationAttempt) return entry.terminationAttempt
+		const terminate = entry.terminateProcess
+		if (!terminate) return Promise.reject(new Error('The process has no confirmed termination API'))
+		const attempt = Promise.resolve()
+			.then(() => terminate('SIGTERM'))
+			.then(() => {
+				const { recoveryRequired: _recovery, stopError: _error, ...record } = entry.record
+				entry.record = record
+				if (entry.closedResult) entry.finalize?.(entry.closedResult.code, entry.closedResult.signal)
+			})
+			.catch((error: unknown) => {
+				entry.record = {
+					...entry.record,
+					recoveryRequired: true,
+					stopError:
+						'The process provider could not confirm the owned job stopped; retry termination or recover its environment.',
+				}
+				for (const observer of entry.outputObservers) observer()
+				throw error
+			})
+			.finally(() => {
+				entry.terminationAttempt = undefined
+			})
+		entry.terminationAttempt = attempt
+		return attempt
 	}
 
 	constructor(private readonly config: BackgroundJobRegistryConfig = {}) {
@@ -286,6 +326,7 @@ export class BackgroundJobRegistry {
 		child.stdout?.setEncoding('utf8')
 		child.stderr?.setEncoding('utf8')
 
+		let finalizeEntry!: (code: number | null, signal: NodeJS.Signals | null) => void
 		const entry: JobEntry = {
 			record: {
 				id,
@@ -296,6 +337,7 @@ export class BackgroundJobRegistry {
 			},
 			child,
 			...(started.kill ? { killProcess: started.kill.bind(started) } : {}),
+			...(started.terminate ? { terminateProcess: started.terminate.bind(started) } : {}),
 			buffer: '',
 			produced: 0,
 			outputChunks: [],
@@ -303,13 +345,16 @@ export class BackgroundJobRegistry {
 			exit: new Promise<void>((resolve) => {
 				let spawned = child.pid !== undefined
 				let failedToSpawn = false
+				let finalized = false
 				const finalize = (code: number | null, signal: NodeJS.Signals | null): void => {
+					if (finalized) return
+					finalized = true
 					entry.record = {
 						...entry.record,
 						// A job killed by this registry says `killed`, not
 						// `exited` with a signal a reader has to interpret. The
 						// two are different answers to "why did my job stop".
-						status: entry.record.status === 'killed' ? 'killed' : 'exited',
+						status: entry.killRequested || entry.record.status === 'killed' ? 'killed' : 'exited',
 						exitedAt: Date.now(),
 						...(code === null ? {} : { exitCode: code }),
 						...(signal ? { signal } : {}),
@@ -318,6 +363,7 @@ export class BackgroundJobRegistry {
 					for (const observer of entry.outputObservers) observer()
 					this.announceExit(entry.record)
 				}
+				finalizeEntry = finalize
 				child.once('spawn', () => {
 					spawned = true
 				})
@@ -338,6 +384,14 @@ export class BackgroundJobRegistry {
 					// alive, and ends — with the shell's exit code — when the
 					// group is empty.
 					const exitCode = failedToSpawn ? null : code
+					if (entry.terminateProcess) {
+						entry.closedResult = { code: exitCode, signal }
+						void this.confirmTermination(entry).catch(() => {
+							// The retained running record exposes recoveryRequired. A
+							// later kill retries instead of forgetting the guest tree.
+						})
+						return
+					}
 					if (entry.record.status !== 'killed' && groupAlive(child.pid)) {
 						const poll = setInterval(() => {
 							if (groupAlive(child.pid)) return
@@ -351,6 +405,7 @@ export class BackgroundJobRegistry {
 				})
 			}),
 		}
+		entry.finalize = finalizeEntry
 
 		const append = (text: string, stream: 'stdout' | 'stderr'): void => {
 			const chunk: OutputChunk = { stream, offset: entry.produced, bytes: Buffer.from(text) }
@@ -636,6 +691,12 @@ export class BackgroundJobRegistry {
 		const entry = this.jobs.get(id)
 		if (!entry) throw new UnknownBackgroundJobError({ id })
 		if (entry.record.status !== 'running') return entry.record
+		if (entry.terminateProcess) {
+			entry.killRequested = true
+			await this.confirmTermination(entry)
+			await entry.exit
+			return entry.record
+		}
 
 		// Marked before the signal, so the `close` handler that follows can
 		// tell a kill from an ordinary exit. Set it after and the race decides

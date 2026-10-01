@@ -6,7 +6,7 @@
 import { mkdtempSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hostCommandShell, installedCommandShellForDialect } from '@namzu/sdk'
+import { installedCommandShellForDialect } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { capOutput, runScript } from '../run-script.js'
 
@@ -16,11 +16,9 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(cwd, { recursive: true, force: true }))
 
-const host = hostCommandShell()
-
 describe('runScript', () => {
 	it('captures stdout/stderr and exits 0 on success', async () => {
-		const result = await runScript('echo out; echo err 1>&2', host.dialect, {
+		const result = await runScript('echo out; echo err 1>&2', 'sh' as const, {
 			cwd,
 			env: process.env,
 			timeoutMs: 5_000,
@@ -32,7 +30,7 @@ describe('runScript', () => {
 	})
 
 	it('reports a non-zero exit code', async () => {
-		const result = await runScript('exit 3', host.dialect, {
+		const result = await runScript('exit 3', 'sh' as const, {
 			cwd,
 			env: process.env,
 			timeoutMs: 5_000,
@@ -41,7 +39,7 @@ describe('runScript', () => {
 	})
 
 	it('times out a script that runs past its own clock', async () => {
-		const result = await runScript('sleep 5', host.dialect, {
+		const result = await runScript('sleep 5', 'sh' as const, {
 			cwd,
 			env: process.env,
 			timeoutMs: 200,
@@ -50,7 +48,11 @@ describe('runScript', () => {
 	}, 10_000)
 
 	it('runs in the given working directory', async () => {
-		const result = await runScript('pwd', host.dialect, { cwd, env: process.env, timeoutMs: 5_000 })
+		const result = await runScript('pwd', 'sh' as const, {
+			cwd,
+			env: process.env,
+			timeoutMs: 5_000,
+		})
 		expect(result.stdout.trim()).toBe(cwd)
 	})
 

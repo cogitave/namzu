@@ -5,7 +5,6 @@
  * this pins that they still do once daemon.ts writes those fields.
  */
 
-import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { historyCommand, showCommand } from '../commands/list.js'
@@ -25,13 +24,11 @@ afterEach(() => {
 	sb.cleanup()
 })
 
-const host = hostCommandShell()
-
 describe('a script job’s JSON views', () => {
 	it('show --json and history --json carry runKind, script and the fired run’s scriptOutput', async () => {
 		const job = confirmedJob(sb, {
 			runKind: 'script',
-			script: { body: 'echo hi', shell: host.dialect, timeoutMs: 5_000 },
+			script: { body: 'echo hi', shell: 'sh' as const, timeoutMs: 5_000 },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 		})
 		const runId = crypto.randomUUID()
@@ -71,7 +68,7 @@ describe('a script job’s JSON views', () => {
 		await showCommand(showCtx, [job.name, '--home', sb.home, '--json'])
 		const shown = JSON.parse(String(showCtx.out.printed[0])) as { job: ScheduleJob }
 		expect(shown.job.runKind).toBe('script')
-		expect(shown.job.script).toMatchObject({ body: 'echo hi', shell: host.dialect })
+		expect(shown.job.script).toMatchObject({ body: 'echo hi', shell: 'sh' as const })
 
 		const historyCtx = recordingContext()
 		await historyCommand(historyCtx, [job.name, '--home', sb.home, '--json'])

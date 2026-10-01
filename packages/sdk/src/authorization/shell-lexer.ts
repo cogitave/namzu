@@ -223,6 +223,18 @@ export interface ShellLexOptions {
 }
 
 export function lexShellCommandLine(line: string, options: ShellLexOptions = {}): ShellLexResult {
+	// CMD does not give single quotes or backslashes POSIX semantics.
+	// A partial POSIX reading could approve commands it never saw.
+	if (options.dialect === 'cmd') {
+		return {
+			commands: [],
+			redirections: [],
+			compoundWords: [],
+			opaque: true,
+			complete: false,
+			reasons: ['native CMD command parsing is unavailable'],
+		}
+	}
 	const context = new Context(line.length)
 	context.setDialect(line, options.dialect ?? 'bash')
 	try {

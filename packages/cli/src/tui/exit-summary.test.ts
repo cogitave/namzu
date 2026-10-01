@@ -10,6 +10,29 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { formatTuiExitSummary } from './exit-summary.js'
 
 describe('the shell handoff after the TUI exits', () => {
+	it('reopens a Pal through its owner and preserves an explicit launcher', () => {
+		expect(
+			formatTuiExitSummary(
+				{ conversationId: 'ses_owned', palId: 'pal_owned' },
+				{ cwd: '/private/control', command: ['/opt/node', '/checkout/bin.js'] },
+				'linux',
+			),
+		).toBe(
+			'To resume this conversation, run: /opt/node /checkout/bin.js pal chat pal_owned --resume ses_owned\n',
+		)
+	})
+
+	it('quotes Pal arguments using the Windows PowerShell handoff', () => {
+		expect(
+			formatTuiExitSummary(
+				{ conversationId: 'ses_owned' },
+				{ cwd: 'C:\\private\\control', command: ['namzu.cmd'], palId: 'pal_owned' },
+				'win32',
+			),
+		).toBe(
+			"To resume this conversation, run in PowerShell: & 'namzu.cmd' 'pal' 'chat' 'pal_owned' '--resume' 'ses_owned'\n",
+		)
+	})
 	it('prints a copy-pasteable shell command for the durable conversation', () => {
 		expect(
 			formatTuiExitSummary({ conversationId: '5be5e0e7-6c3c-4013-971a-f75c0d2d2538' }, {}, 'linux'),

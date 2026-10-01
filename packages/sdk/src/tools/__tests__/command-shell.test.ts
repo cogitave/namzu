@@ -111,10 +111,27 @@ describe('resolution', () => {
 		expect(findCommandShell(probe([], { NAMZU_BASH_SHELL: '/opt/bash' })).dialect).toBe('bash')
 	})
 
+	it('recognizes explicit Windows POSIX interpreter paths without selecting WSL automatically', () => {
+		expect(
+			findCommandShell({
+				...probe([]),
+				platform: 'win32',
+				env: { NAMZU_BASH_SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' },
+			}).dialect,
+		).toBe('bash')
+		expect(
+			findCommandShell({
+				...probe([]),
+				platform: 'win32',
+				env: { NAMZU_BASH_SHELL: 'C:\\tools\\sh.exe' },
+			}).dialect,
+		).toBe('sh')
+	})
+
 	it('keeps the platform shell on Windows', () => {
 		expect(findCommandShell({ ...probe(['/usr/bin/bash']), platform: 'win32' })).toEqual({
 			path: undefined,
-			dialect: 'sh',
+			dialect: 'cmd',
 			source: 'platform',
 		})
 	})
@@ -254,6 +271,9 @@ describe('the bash tool', () => {
 		expect(BashTool.commandDialect?.({ sandboxed: true })).toBe('sh')
 		setHostCommandShellForTesting(NO_BASH)
 		expect(BashTool.commandDialect?.({ sandboxed: false })).toBe('sh')
+		setHostCommandShellForTesting({ path: undefined, dialect: 'cmd', source: 'platform' })
+		expect(BashTool.commandDialect?.({ sandboxed: false })).toBe('cmd')
+		expect(BashTool.commandDialect?.({ sandboxed: true })).toBe('sh')
 	})
 })
 

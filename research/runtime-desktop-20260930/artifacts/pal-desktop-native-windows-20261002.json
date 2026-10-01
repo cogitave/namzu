@@ -1,0 +1,103 @@
+{
+  "passed": true,
+  "scope": "Owned native Windows Electron window with private NAMZU_HOME and userData; real renderer/preload/Operator/CLI/provider",
+  "platform": "win32",
+  "steps": [
+    {
+      "step": "own-native-window",
+      "platform": "win32",
+      "version": "44.4.5",
+      "pid": 32276,
+      "userData": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-pal-native-desktop-a_lk20fz\\ui"
+    },
+    {
+      "step": "real-preload-and-native-cli-ready"
+    },
+    {
+      "step": "actual-provider-status-loaded"
+    },
+    {
+      "step": "renderer-create-Pal-persisted"
+    },
+    {
+      "step": "renderer-IPC-Operator-nativeCLI-actual-computer-connected"
+    },
+    {
+      "step": "real-guest-PNG-through-renderer-IPC",
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "step": "screen-refresh"
+    },
+    {
+      "step": "renderer-owned-computer-stop-confirmed"
+    },
+    {
+      "step": "second-Pal-created"
+    },
+    {
+      "step": "owned-window-close"
+    },
+    {
+      "step": "own-native-window",
+      "platform": "win32",
+      "version": "44.4.5",
+      "pid": 49048,
+      "userData": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-pal-native-desktop-a_lk20fz\\ui"
+    },
+    {
+      "step": "real-preload-and-native-cli-ready"
+    },
+    {
+      "step": "switch-to-first-persisted-Pal"
+    },
+    {
+      "step": "switch-to-second-persisted-Pal"
+    },
+    {
+      "step": "switch-back-to-first-Pal"
+    },
+    {
+      "step": "profile-customization-persisted"
+    },
+    {
+      "step": "profile-pause-reflected"
+    },
+    {
+      "step": "profile-resume-reflected"
+    },
+    {
+      "step": "owned-window-close"
+    }
+  ],
+  "faults": [],
+  "harnessCorrection": "Initial switch locator included aria-hidden avatar initials; corrected the locator and resumed using the same persisted private state. This was a harness failure, not a production change.",
+  "limitations": [
+    "Computer viewer is a real PNG screenshot viewer; interactive desktop input is available to the SDK ComputerUseHost, not claimed for this viewer.",
+    "Model-turn session spinner and tool approval ordering were not exercised by this UI proof; separate core integration receipts cover their own scope."
+  ],
+  "screenshotDirectory": "C:/Users/Arda/AppData/Local/Temp/namzu-pal-native-desktop-a_lk20fz",
+  "completedAt": "2026-10-01T22:18:04.371Z",
+  "persistedFixturePals": [
+    {
+      "id": "6b2fce79-6769-49ff-8962-c9dfdd11f540",
+      "name": "Desktop Pal Two",
+      "revision": 1,
+      "paused": false,
+      "ownerHash": "b78ed5a402339fb91c449f35cb6b3738820a73efa85d347af56b3c043e574b50"
+    },
+    {
+      "id": "99c71ad4-f27a-4df8-9475-1b3f379eab5e",
+      "name": "Desktop Pal One Edited",
+      "revision": 4,
+      "paused": false,
+      "ownerHash": "85c3235d08d52c3fdd890003748d62d648d156758ff2d69d7eec7bb4ce12d340"
+    }
+  ],
+  "postProofOwnInventory": {
+    "exitCode": 0,
+    "ownContainersAndOwnWindowPids": "",
+    "note": "Only exact fixture Pal owner hashes and exact owned Electron main PIDs queried; no other window/process stopped."
+  }
+}

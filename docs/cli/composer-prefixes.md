@@ -23,7 +23,9 @@ What the operator sees: their line, then a row `! ls -la · exit 0` with the out
 
 What the model sees: on its next turn, a system block naming every `!` command run since its last turn, with the output and the exit. A `!` line that left no trace for the model would be a command the operator then has to describe in prose.
 
-Bounds: a command that has not ended after 60 seconds is killed with its whole process group, and the row says `killed after 60s`. Output is cut at 20,000 characters for the transcript and 8,000 for the model.
+On POSIX hosts the interpreter remains `/bin/sh`; on Windows it uses the native platform command shell (normally CMD). Shell syntax follows that interpreter. The shared host runner decodes split UTF-8 output, refuses a signal already aborted before launch, and retains process-start errors in the transcript.
+
+Bounds: a command that has not ended after 60 seconds is stopped with its owned process tree, and the row says `killed after 60s`. Output is cut at 20,000 characters for the transcript and 8,000 for the model. The host runner also stops a command once either stream exceeds 80,000 bytes, keeping memory bounded; the row marks the truncated output.
 
 ## `#note` — remember
 

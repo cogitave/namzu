@@ -1,6 +1,5 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { hostCommandShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildJob, confirmJob, editedJob, previewLines } from '../build.js'
 import { addCommand, editCommand } from '../commands/add.js'
@@ -34,7 +33,7 @@ function build(over: Partial<ReturnType<typeof jobRequest>> = {}) {
 			runKind: 'script',
 			workspace: 'none',
 			folder: undefined,
-			script: { body: 'echo done', shell: hostCommandShell().dialect },
+			script: { body: 'echo done', shell: 'sh' as const },
 			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 			...over,
 		}),
@@ -133,7 +132,7 @@ describe('no-project pure script workspace', () => {
 			build({
 				script: {
 					body: 'echo done',
-					shell: hostCommandShell().dialect,
+					shell: 'sh' as const,
 					timeoutMs: 2_147_483_647,
 				},
 			}),
@@ -155,7 +154,7 @@ describe('no-project pure script workspace', () => {
 			osHome: sb.osHome,
 		})
 		const reported = build({
-			script: { body: 'echo done', shell: hostCommandShell().dialect, report: 'json-v1' },
+			script: { body: 'echo done', shell: 'sh' as const, report: 'json-v1' },
 		})
 		expect(plain.v).toBe(3)
 		expect(sourceBoundAgent.v).toBe(3)
@@ -185,7 +184,7 @@ describe('no-project pure script workspace', () => {
 		expect(() =>
 			build({
 				runKind: 'script+agent',
-				script: { body: 'echo done', shell: hostCommandShell().dialect, report: 'json-v1' },
+				script: { body: 'echo done', shell: 'sh' as const, report: 'json-v1' },
 			}),
 		).toThrow(/pure script/)
 	})
@@ -208,7 +207,7 @@ describe('no-project pure script workspace', () => {
 				'--script',
 				'echo done',
 				'--shell',
-				hostCommandShell().dialect,
+				'sh' as const,
 				'--script-report',
 				'json-v1',
 				'--permissions',

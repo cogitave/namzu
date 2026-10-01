@@ -1,3 +1,4 @@
+import { Dialog } from '@base-ui/react/dialog'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
@@ -6,6 +7,10 @@ import type {
 	ConversationView,
 	DesktopEvent,
 	JobView,
+	PalComputerView,
+	PalInput,
+	PalScreenView,
+	PalView,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
@@ -36,8 +41,11 @@ import {
 	WrenchIcon,
 	XIcon,
 } from './icons.js'
+import { JobRow } from './job-row.js'
 import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
+import { PalContextCard, PalContextMenu, type PalContextProps } from './pal-context.js'
+import { PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type Appearance, type ConversationCollection, Sidebar } from './sidebar.js'
@@ -112,6 +120,19 @@ function ToolRow({ tool, active }: { tool: ThreadState['tools'][string]; active:
 	)
 }
 function App() {
+	const [pals, setPals] = useState<PalView[]>([])
+	const [palsLoading, setPalsLoading] = useState(true)
+	const [palsError, setPalsError] = useState('')
+	const [palsSaving, setPalsSaving] = useState(false)
+	const [palsPage, setPalsPage] = useState(false)
+	const [creatingPal, setCreatingPal] = useState(false)
+	const [editingPal, setEditingPal] = useState<PalView>()
+	const [palComputers, setPalComputers] = useState<Record<string, PalComputerView>>({})
+	const [palScreen, setPalScreen] = useState<{
+		palId: string
+		screen?: PalScreenView
+		error?: string
+	}>()
 	const [projects, setProjects] = useState<ProjectView[]>([])
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
@@ -166,7 +187,10 @@ function App() {
 		available: [],
 		selected: null,
 	})
-	const [providerProjectId, setProviderProjectId] = useState('')
+	const [providerOwner, setProviderOwner] = useState('')
+	const providerKey = JSON.stringify([projectId, sessionId])
+	const providerReadOwner = useRef(providerKey)
+	providerReadOwner.current = providerKey
 	const [modelSettings, setModelSettings] = useState<{
 		key: string
 		value: ComposerModelSettings
@@ -320,6 +344,7 @@ function App() {
 	const project = projects.find((item) => item.id === projectId)
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const thread = threads[sessionId] ?? emptyThread()
+	const pal = pals.find((item) => item.id === project?.palId)
 	const visibleJobs = jobsSessionId === sessionId ? jobs : []
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
@@ -346,7 +371,7 @@ function App() {
 				},
 			}
 		: null
-	const providerReady = providerProjectId === projectId
+	const providerReady = providerOwner === providerKey
 	const activeProviders: ProviderView = providerReady
 		? providers
 		: { available: [], selected: null }
@@ -417,6 +442,7 @@ function App() {
 		if (
 			!sessionId ||
 			!project?.trusted ||
+			(pal && (pal.paused || palComputer?.status !== 'ready')) ||
 			project.status !== 'ready' ||
 			!view?.live ||
 			pluginStates[pluginsKey]?.loading ||
@@ -428,6 +454,7 @@ function App() {
 			return
 		const generation = pluginOwner.current.generation
 		setRailSection(null)
+		setPalsPage(false)
 		setSideOpen(false)
 		requestAnimationFrame(() => {
 			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
@@ -444,7 +471,9 @@ function App() {
 			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
 				return
 			const row = !focusSearch && selected ? document.getElementById(pluginRowId(selected)) : null
-			;(row ?? document.getElementById('installed-plugin-search'))?.focus({ preventScroll: true })
+			;(row ?? document.getElementById('installed-plugin-search'))?.focus({
+				preventScroll: true,
+			})
 		})
 	}
 	const backToPlugins = () => returnToPlugins(false)
@@ -520,6 +549,23 @@ function App() {
 		}
 	}, [])
 	useEffect(() => {
+		let current = true
+		void api
+			.pals()
+			.then((items) => {
+				if (current) setPals(items)
+			})
+			.catch((failure) => {
+				if (current) setPalsError(errorText(failure))
+			})
+			.finally(() => {
+				if (current) setPalsLoading(false)
+			})
+		return () => {
+			current = false
+		}
+	}, [])
+	useEffect(() => {
 		if (!api) {
 			setError('Open Namzu using the desktop application.')
 			return
@@ -571,8 +617,9 @@ function App() {
 	useEffect(() => {
 		if (!project || project.status === 'connecting' || !project.trusted) return
 		let current = true
-		void Promise.all([api.conversations(project.id), api.providers(project.id)])
-			.then(([rows, available]) => {
+		void api
+			.conversations(project.id)
+			.then((rows) => {
 				if (!current) return
 				setConversations((all) => {
 					const returned = new Set(rows.map((row) => row.id))
@@ -581,8 +628,6 @@ function App() {
 						...rows,
 					]
 				})
-				setProviders(available)
-				setProviderProjectId(project.id)
 			})
 			.catch((failure) => {
 				if (current) setError(errorText(failure))
@@ -591,6 +636,24 @@ function App() {
 			current = false
 		}
 	}, [project])
+	useEffect(() => {
+		if (!project || project.status === 'connecting' || !project.trusted) return
+		let current = true
+		const owner = JSON.stringify([project.id, sessionId])
+		void api
+			.providers(project.id, sessionId || undefined)
+			.then((available) => {
+				if (!current || providerReadOwner.current !== owner) return
+				setProviders(available)
+				setProviderOwner(owner)
+			})
+			.catch((failure) => {
+				if (current && providerReadOwner.current === owner) setError(errorText(failure))
+			})
+		return () => {
+			current = false
+		}
+	}, [project, sessionId])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
@@ -660,6 +723,7 @@ function App() {
 		navigation.current += 1
 		setSessionId('')
 		setRailSection(null)
+		setPalsPage(false)
 		setSideOpen(false)
 		setJobsOpen(false)
 		input.current?.focus()
@@ -676,6 +740,7 @@ function App() {
 				setProjectId(item.id)
 				setSessionId('')
 				setRailSection(null)
+				setPalsPage(false)
 				setSideOpen(false)
 				setJobsOpen(false)
 				input.current?.focus()
@@ -732,11 +797,12 @@ function App() {
 			}
 			if (generation !== navigation.current) return
 			setProviders(status)
-			setProviderProjectId(view.projectId)
+			setProviderOwner(JSON.stringify([view.projectId, view.id]))
 			setSessionId(view.id)
 			setConversationSelection({ sessionId: view.id, collection })
 			setProjectId(view.projectId)
 			setRailSection(null)
+			setPalsPage(false)
 			setSideOpen(false)
 			follow.current = true
 			input.current?.focus()
@@ -746,6 +812,192 @@ function App() {
 			if (snapshotRead.current === read) snapshotRead.current = null
 		}
 	}
+	const upsertPal = (value: PalView) =>
+		setPals((all) =>
+			all.some((item) => item.id === value.id)
+				? all.map((item) => (item.id === value.id ? value : item))
+				: [...all, value],
+		)
+	const showPalEditor = (value?: PalView) => {
+		navigation.current += 1
+		setEditingPal(value)
+		setCreatingPal(!value)
+		setPalsPage(true)
+		setRailSection(null)
+		setJobsOpen(false)
+		setSideOpen(false)
+		setPalsError('')
+	}
+	const openPal = async (value: PalView) => {
+		const generation = ++navigation.current
+		setLoading(true)
+		try {
+			const opened = await api.openPal(value.id)
+			upsertPal(opened.pal)
+			updateProject(opened.project)
+			setConversations((all) => [
+				...all.filter((item) => item.projectId !== opened.project.id),
+				...opened.conversations,
+			])
+			if (generation !== navigation.current) return
+			setPalsPage(false)
+			setRailSection(null)
+			setSideOpen(false)
+			setJobsOpen(false)
+			setProjectId(opened.project.id)
+			setSessionId('')
+			const latest = [...opened.conversations].sort(compareConversationRecency)[0]
+			if (latest) await openConversation(latest)
+		} finally {
+			setLoading(false)
+		}
+	}
+	const savePal = async (value: PalInput, id?: string) => {
+		setPalsSaving(true)
+		setPalsError('')
+		try {
+			const editing = editingPal
+			if (id && (!editing || editing.id !== id))
+				throw new Error('Open this Pal’s customization again.')
+			const saved = id
+				? await api.updatePal(id, editing?.revision ?? 0, value)
+				: await api.createPal(value)
+			upsertPal(saved)
+			setEditingPal(undefined)
+			setCreatingPal(false)
+			await openPal(saved)
+		} catch (failure) {
+			setPalsError(errorText(failure))
+		} finally {
+			setPalsSaving(false)
+		}
+	}
+	useEffect(() => {
+		if (!pal || palsPage || project?.status !== 'ready') return
+		let current = true
+		void api.palComputer(pal.id).then(
+			(value) => {
+				if (current) setPalComputers((all) => ({ ...all, [pal.id]: value }))
+			},
+			(failure) => {
+				if (current)
+					setPalComputers((all) => ({
+						...all,
+						[pal.id]: { status: 'unavailable', notice: errorText(failure) },
+					}))
+			},
+		)
+		return () => {
+			current = false
+		}
+	}, [pal, project?.status, palsPage])
+	const startPalComputer = async (value: PalView) => {
+		setPalComputers((all) => ({
+			...all,
+			[value.id]: { status: 'stopped', notice: 'Starting the local computer…' },
+		}))
+		try {
+			const computer = await api.startPalComputer(value.id)
+			setPalComputers((all) => ({ ...all, [value.id]: computer }))
+		} catch (failure) {
+			setPalComputers((all) => ({
+				...all,
+				[value.id]: { status: 'unavailable', notice: errorText(failure) },
+			}))
+		}
+	}
+	const openPalScreen = async (value: PalView) => {
+		setPalScreen({ palId: value.id })
+		try {
+			const screen = await api.palScreen(value.id)
+			setPalScreen((current) =>
+				current?.palId === value.id ? { palId: value.id, screen } : current,
+			)
+		} catch (failure) {
+			setPalScreen((current) =>
+				current?.palId === value.id ? { palId: value.id, error: errorText(failure) } : current,
+			)
+		}
+	}
+	const ownedConversations = pal ? conversations.filter((item) => item.palId === pal.id) : []
+	const palBusy = ownedConversations.some((item) => {
+		const owned = threads[item.id]
+		return owned && (owned.running || owned.queued.length > 0 || owned.permissions.length > 0)
+	})
+	const palComputer = pal ? palComputers[pal.id] : undefined
+	const palContextProps: PalContextProps | null = pal
+		? {
+				pal,
+				status: pal.paused
+					? 'paused'
+					: palBusy
+						? thread.permissions.length
+							? 'approval'
+							: 'working'
+						: project?.status !== 'ready' || palComputer?.status !== 'ready'
+							? 'offline'
+							: 'idle',
+				computer: {
+					name: `${pal.name}’s computer`,
+					workspace: pal.workspace,
+					status:
+						palComputer?.status === 'ready'
+							? 'ready'
+							: !palComputer || palComputer.notice === 'Starting the local computer…'
+								? 'connecting'
+								: 'error',
+					notice:
+						palComputer?.notice ??
+						(palComputer?.status === 'stopped'
+							? 'Start your Pal’s local computer to begin.'
+							: undefined),
+				},
+				activity: [...ownedConversations].sort(compareConversationRecency).map((item) => ({
+					id: item.id,
+					title: item.title,
+					status: threads[item.id]?.running ? 'working' : undefined,
+				})),
+				outputs: changes
+					? [
+							{
+								id: sessionId,
+								label: `${changes} changed ${changes === 1 ? 'file' : 'files'}`,
+							},
+						]
+					: [],
+				onCustomize: () => showPalEditor(pal),
+				customizeDisabled: palBusy || palsSaving,
+				onActivity: (id) => {
+					const view = ownedConversations.find((item) => item.id === id)
+					if (view) void act(() => openConversation(view))
+				},
+				onOutput: () => {
+					setPanelTab('changes')
+					setJobsOpen(true)
+				},
+				onPause: () =>
+					void act(async () => {
+						upsertPal(
+							await api.updatePal(pal.id, pal.revision, {
+								paused: !pal.paused,
+							}),
+						)
+					}),
+				pauseDisabled: palBusy || palsSaving,
+				onStartComputer: pal.paused ? undefined : () => void startPalComputer(pal),
+				onOpenComputer: () => void openPalScreen(pal),
+				onStopComputer:
+					palComputer?.status === 'ready' || palComputer?.requiresStop
+						? () =>
+								void act(async () => {
+									const stopped = await api.stopPalComputer(pal.id)
+									setPalComputers((all) => ({ ...all, [pal.id]: stopped }))
+								})
+						: undefined,
+				stopComputerDisabled: palBusy,
+			}
+		: null
+
 	const navigateHistory = async (direction: -1 | 1) => {
 		if (historyBusy.current) return
 		const index = navigationHistory.index + direction
@@ -768,6 +1020,7 @@ function App() {
 				setProjectId(destination.projectId)
 				setSessionId('')
 				setRailSection(null)
+				setPalsPage(false)
 				setSideOpen(false)
 			}
 			if (generation === navigation.current) {
@@ -792,6 +1045,7 @@ function App() {
 		)
 	}
 	const showSpaces = () => {
+		setPalsPage(false)
 		setRailSection('spaces')
 		revealSidebar('[data-project-group] .project-row')
 	}
@@ -838,6 +1092,7 @@ function App() {
 		if (
 			(!draft.trim() && attached.get(draftOwner).length === 0) ||
 			!project?.trusted ||
+			(pal && (pal.paused || palComputer?.status !== 'ready')) ||
 			project.status !== 'ready' ||
 			!choice.provider ||
 			!providerReady ||
@@ -880,7 +1135,10 @@ function App() {
 					draftsRef.current[owner] = ''
 					setDrafts((all) => ({ ...all, [owner]: '' }))
 					setSessionId(target)
-					setConversationSelection({ sessionId: target, collection: 'projects' })
+					setConversationSelection({
+						sessionId: target,
+						collection: 'projects',
+					})
 					setSideOpen(false)
 				}
 				// Admit both saves before yielding to newer typing in the promoted editor.
@@ -1007,29 +1265,71 @@ function App() {
 			disabled: loading,
 			onAction: () => void act(openProject),
 		},
-		...projects.map((item) => ({
-			id: `project:${item.id}`,
-			label: item.name,
-			group: 'Projects',
-			icon: <FolderIcon aria-hidden="true" />,
-			keywords: [item.path],
-			onAction: () => {
-				navigation.current += 1
-				setProjectId(item.id)
-				setSessionId('')
-				setRailSection(null)
-				setSideOpen(false)
-				setJobsOpen(false)
-				input.current?.focus()
-			},
-		})),
+		...projects
+			.filter((item) => !item.palId)
+			.map((item) => ({
+				id: `project:${item.id}`,
+				label: item.name,
+				group: 'Projects',
+				icon: <FolderIcon aria-hidden="true" />,
+				keywords: [item.path],
+				onAction: () => {
+					navigation.current += 1
+					setProjectId(item.id)
+					setSessionId('')
+					setRailSection(null)
+					setPalsPage(false)
+					setSideOpen(false)
+					setJobsOpen(false)
+					input.current?.focus()
+				},
+			})),
 	]
 	return (
 		<div
 			className="app"
 			data-sidebar-collapsed={sideCollapsed}
-			data-page={railSection === 'plugins' ? 'plugins' : 'chat'}
+			data-page={railSection === 'plugins' ? 'plugins' : palsPage ? 'pals' : 'chat'}
 		>
+			<Dialog.Root
+				open={Boolean(palScreen)}
+				onOpenChange={(open) => {
+					if (!open) setPalScreen(undefined)
+				}}
+			>
+				<Dialog.Portal>
+					<Dialog.Backdrop className="command-palette-backdrop" />
+					<Dialog.Viewport className="command-palette-viewport">
+						<Dialog.Popup className="pal-screen-popup">
+							<header>
+								<Dialog.Title>Pal computer</Dialog.Title>
+								<Dialog.Close
+									render={<Button variant="ghost-muted" size="icon-sm" />}
+									aria-label="Close computer"
+								>
+									<XIcon />
+								</Dialog.Close>
+							</header>
+							<Dialog.Description>Screen capture of your Pal’s local computer.</Dialog.Description>
+							{palScreen?.screen ? (
+								<img src={palScreen.screen.source} alt="Pal computer screen" />
+							) : (
+								<output>{palScreen?.error ?? 'Loading screen…'}</output>
+							)}
+							<Button
+								variant="outline"
+								onClick={() => {
+									const value = pals.find((item) => item.id === palScreen?.palId)
+									if (value) void openPalScreen(value)
+								}}
+							>
+								Refresh screen
+							</Button>
+						</Dialog.Popup>
+					</Dialog.Viewport>
+				</Dialog.Portal>
+			</Dialog.Root>
+
 			<CommandPalette
 				open={commandOpen}
 				onOpenChange={setCommandOpen}
@@ -1061,6 +1361,7 @@ function App() {
 					navigation.current += 1
 					setSessionId('')
 					setRailSection(null)
+					setPalsPage(false)
 					setJobsOpen(false)
 					setSideOpen(false)
 				}}
@@ -1071,13 +1372,24 @@ function App() {
 				onToggleSidebar={toggleSidebar}
 				onPlugins={() => {
 					setPluginSelection(undefined)
+					setPalsPage(false)
 					setRailSection('plugins')
 					setJobsOpen(false)
 					setSideOpen(false)
 				}}
 			/>
 			<Sidebar
-				projects={projects}
+				activeProject={project}
+				projects={projects.filter((item) => !item.palId)}
+				pals={
+					<PalSidebarSection
+						pals={pals}
+						selectedId={palsPage ? editingPal?.id : pal?.id}
+						loading={palsLoading}
+						onCreate={() => showPalEditor()}
+						onOpen={(value) => void act(() => openPal(value))}
+					/>
+				}
 				conversations={conversations}
 				projectId={projectId}
 				sessionId={sessionId}
@@ -1095,6 +1407,7 @@ function App() {
 					setProjectId(id)
 					setSessionId('')
 					setRailSection(null)
+					setPalsPage(false)
 					setJobsOpen(false)
 				}}
 				onConversation={(view, collection) => void act(() => openConversation(view, collection))}
@@ -1141,7 +1454,7 @@ function App() {
 			)}
 			<main
 				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
-				data-page={railSection === 'plugins' ? 'plugins' : 'chat'}
+				data-page={railSection === 'plugins' ? 'plugins' : palsPage ? 'pals' : 'chat'}
 			>
 				{railSection === 'plugins' && (
 					<PluginsPage
@@ -1164,11 +1477,31 @@ function App() {
 						onBack={backToPlugins}
 					/>
 				)}
+				{palsPage && (
+					<PalsPage
+						pals={pals}
+						loading={palsLoading}
+						saving={palsSaving}
+						error={palsError}
+						creating={creatingPal}
+						editing={editingPal}
+						onStartCreate={() => showPalEditor()}
+						onEdit={showPalEditor}
+						onCancelEdit={() => {
+							setCreatingPal(false)
+							setEditingPal(undefined)
+						}}
+						onSave={savePal}
+						onOpen={(value) => void act(() => openPal(value))}
+						loadProviders={api.palProviders}
+						loadModels={api.palModels}
+					/>
+				)}
 				<WorkspacePageHeader className="topbar">
 					<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
 						<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
 							<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
-								{project?.name ?? 'Workspace'}
+								{pal?.name ?? project?.name ?? 'Workspace'}
 							</WorkspaceBreadcrumbText>
 						</WorkspaceBreadcrumbItem>
 						<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
@@ -1182,6 +1515,7 @@ function App() {
 							</h2>
 						</WorkspaceBreadcrumbItem>
 					</WorkspaceBreadcrumb>
+					{palContextProps && <PalContextMenu {...palContextProps} />}
 					{sessionId && (
 						<>
 							<Button
@@ -1221,7 +1555,7 @@ function App() {
 							>
 								<FileDiffIcon className="size-4" />
 							</Button>
-							{contextProps && thread.messages.length > 0 && (
+							{!pal && contextProps && thread.messages.length > 0 && (
 								<ProjectContextMenu {...contextProps} />
 							)}
 						</>
@@ -1294,12 +1628,13 @@ function App() {
 				) : (
 					<div
 						className="chat-stage"
-						data-empty={thread.messages.length === 0}
-						data-context-card={!jobsOpen && thread.messages.length > 0}
+						data-empty={!pal && thread.messages.length === 0}
+						data-context-card={!jobsOpen && (Boolean(pal) || thread.messages.length > 0)}
 					>
-						{contextProps && thread.messages.length > 0 && !jobsOpen && (
+						{!pal && contextProps && thread.messages.length > 0 && !jobsOpen && (
 							<ProjectContextCard {...contextProps} />
 						)}
+						{palContextProps && !jobsOpen && <PalContextCard {...palContextProps} />}
 						<div
 							className="transcript"
 							ref={transcript}
@@ -1313,6 +1648,9 @@ function App() {
 							}}
 						>
 							<div className="conversation-body">
+								{pal && thread.messages.length === 0 && (
+									<PalWelcome pal={pal} disabled={palBusy} onCustomize={() => showPalEditor(pal)} />
+								)}
 								{thread.partial && (
 									<p className="notice">
 										Showing the latest part of this conversation. The full record remains on this
@@ -1397,12 +1735,13 @@ function App() {
 							sessionId={sessionId || undefined}
 							projectPath={project.path}
 							onOpenProject={() => void act(openProject)}
-							empty={thread.messages.length === 0}
+							empty={!pal && thread.messages.length === 0}
 							draft={draft}
 							onDraftChange={(value) => changeDraft(draftOwner, value)}
 							providers={activeProviders}
 							connected={
 								project.status === 'ready' &&
+								(!pal || (!pal.paused && palComputer?.status === 'ready')) &&
 								providerReady &&
 								project.trusted &&
 								!savedSettings.loading
@@ -1503,48 +1842,28 @@ function App() {
 								<p className="quiet">No background shells in this conversation.</p>
 							) : (
 								visibleJobs.map((job) => (
-									<div className="job" key={job.id}>
-										<strong>{job.status}</strong>
-										<code>{job.command}</code>
-										<div>
-											<Button
-												type="button"
-												onClick={() =>
-													void act(async () => {
-														const target = sessionId
-														const generation = navigation.current
-														try {
-															const output = await api.readJob(target, job.id)
-															if (
-																activeSession.current !== target ||
-																generation !== navigation.current
-															)
-																return
-															setJobOutput(
-																`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
-															)
-														} catch (failure) {
-															if (
-																activeSession.current === target &&
-																generation === navigation.current
-															)
-																throw failure
-														}
-													})
+									<JobRow
+										key={job.id}
+										job={job}
+										onRead={() =>
+											void act(async () => {
+												const target = sessionId
+												const generation = navigation.current
+												try {
+													const output = await api.readJob(target, job.id)
+													if (activeSession.current !== target || generation !== navigation.current)
+														return
+													setJobOutput(
+														`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
+													)
+												} catch (failure) {
+													if (activeSession.current === target && generation === navigation.current)
+														throw failure
 												}
-											>
-												View output
-											</Button>
-											{job.status === 'running' && (
-												<Button
-													type="button"
-													onClick={() => void act(() => api.stopJob(sessionId, job.id))}
-												>
-													Stop
-												</Button>
-											)}
-										</div>
-									</div>
+											})
+										}
+										onStop={() => void act(() => api.stopJob(sessionId, job.id))}
+									/>
 								))
 							)}
 							{jobOutput && <pre className="job-output">{jobOutput}</pre>}

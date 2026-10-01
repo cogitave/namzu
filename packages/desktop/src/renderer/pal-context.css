@@ -1,0 +1,235 @@
+.pal-avatar {
+	position: relative;
+	display: inline-grid;
+	place-items: center;
+	width: 56px;
+	height: 56px;
+	flex: none;
+	isolation: isolate;
+	border-radius: 20px;
+	background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+	color: var(--primary);
+	font-family: var(--font-mono);
+	font-size: 21px;
+	font-weight: 700;
+	letter-spacing: -0.05em;
+}
+.pal-avatar::before {
+	position: absolute;
+	inset: 5px;
+	z-index: -1;
+	border-radius: 16px;
+	background-image: radial-gradient(var(--primary) 0.6px, transparent 0.8px);
+	background-size: 4px 4px;
+	content: "";
+	opacity: 0.16;
+}
+.pal-avatar-compact {
+	width: 23px;
+	height: 23px;
+	border-radius: 8px;
+	font-size: 11px;
+}
+.pal-avatar-compact::before {
+	inset: 3px;
+	border-radius: 5px;
+}
+.pal-context-menu {
+	display: flex;
+	align-items: center;
+	flex: none;
+}
+.pal-context-card,
+.pal-context-popup {
+	width: 300px;
+	max-width: calc(100vw - 32px);
+	border: 1px solid var(--border);
+	border-radius: 18px;
+	background: var(--surface-raised);
+	color: var(--foreground);
+}
+.pal-context-card {
+	display: none;
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	z-index: 15;
+	max-height: min(72dvh, 640px);
+	overflow-y: auto;
+	animation: pal-context-arrive 180ms var(--motion-ease) both;
+}
+.pal-context-popup {
+	max-height: min(72dvh, var(--available-height, 640px));
+}
+.pal-context-body {
+	min-width: 0;
+	padding: 18px 16px 20px;
+}
+.pal-context-heading {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	min-width: 0;
+	margin-bottom: 28px;
+}
+.pal-context-avatar {
+	position: relative;
+	flex: none;
+}
+.pal-context-avatar .pal-context-edit {
+	position: absolute;
+	right: -3px;
+	bottom: -3px;
+	border: 2px solid var(--surface-raised);
+	border-radius: 50%;
+	background: var(--background);
+	color: var(--foreground);
+}
+.pal-context-identity {
+	min-width: 0;
+	flex: 1;
+}
+.pal-context-identity h2 {
+	overflow: hidden;
+	margin: 0 0 4px;
+	font-size: 15px;
+	line-height: 20px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-context-status {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pal-context-status svg {
+	width: 13px;
+	height: 13px;
+}
+.pal-context-section + .pal-context-section {
+	margin-top: 22px;
+}
+.pal-context-section h3 {
+	margin: 0 0 8px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+	font-weight: 400;
+}
+.pal-computer-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 2px 0;
+}
+.pal-computer-row > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+.pal-context-copy {
+	min-width: 0;
+	flex: 1;
+	font-size: 13px;
+	line-height: 20px;
+}
+.pal-context-copy strong {
+	display: block;
+	overflow-wrap: anywhere;
+	font-weight: 400;
+}
+.pal-context-copy output {
+	display: block;
+	color: var(--muted-foreground);
+}
+.pal-context-note {
+	margin: 10px 0 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.pal-computer-actions {
+	margin-top: 10px;
+}
+.pal-context-empty {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.pal-context-list {
+	margin: 0 -6px;
+	padding: 0;
+	list-style: none;
+}
+.pal-context-list .pal-context-row {
+	display: flex;
+	justify-content: flex-start;
+	gap: 10px;
+	width: 100%;
+	height: auto;
+	min-height: 32px;
+	padding: 6px;
+	text-align: left;
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 400;
+	transition: background-color 150ms var(--motion-ease);
+}
+.pal-context-row > span {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-context-row > svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+.pal-context-loading {
+	animation: pal-context-spin 900ms linear infinite;
+}
+.pal-context-footer {
+	margin-top: 20px;
+}
+@keyframes pal-context-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes pal-context-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@container workspace (min-width: 1280px) {
+	.pal-context-card {
+		display: block;
+	}
+	.pal-context-menu {
+		display: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pal-context-card,
+	.pal-context-loading {
+		animation: none;
+	}
+	.pal-context-row {
+		transition: none;
+	}
+}

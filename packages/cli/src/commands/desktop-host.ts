@@ -7,6 +7,19 @@ import {
 	openSessions,
 } from '../integrations/sessions/store.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import {
+	claimPalConversation,
+	listPalConversations,
+	palConversationBinding,
+} from '../pals/conversations.js'
+import {
+	cliPalComputerStatus,
+	cliPalScreen,
+	getCliPalRuntime,
+	startCliPalComputer,
+	stopCliPalComputer,
+} from '../pals/environment.js'
+import { createPal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliAcpRuntime } from './acp.js'
 
@@ -24,6 +37,7 @@ function session(params: Record<string, unknown>): string {
 
 export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: string) {
 	const cwd = canonicalProjectPath(directory)
+	const pal = () => palAtWorkspace(cwd)
 	const withState = async <T>(
 		run: (state: Awaited<ReturnType<typeof openSessions>>) => Promise<T>,
 	): Promise<T> => {
@@ -41,20 +55,71 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 			if (!(await state.store.getSession(asSessionId(id), state.tenantId)))
 				throw new Error('This conversation does not belong to this project.')
 		})
+		if (pal()) await palConversationBinding(cwd, id)
+		return id
+	}
+	const ownedPal = (params: Record<string, unknown>) => {
+		const id = text(params, 'palId')
+		if (!isTrusted(cwd) || pal()?.id !== id)
+			throw new Error('This Pal does not own the current workspace.')
 		return id
 	}
 	return {
-		'namzu/project/status': () => ({ cwd, trusted: isTrusted(cwd) }),
+		'namzu/project/status': () => ({
+			cwd,
+			trusted: isTrusted(cwd),
+			...(pal() ? { pal: pal() } : {}),
+		}),
+		'namzu/pals/list': () => listPals(),
+		'namzu/pals/get': (params: Record<string, unknown>) => getPal(text(params, 'id')),
+		'namzu/pals/create': (params: Record<string, unknown>) =>
+			createPal({
+				name: text(params, 'name', 80),
+				...(params.purpose === undefined ? {} : { purpose: params.purpose as string }),
+				...(params.model === undefined ? {} : { model: params.model as never }),
+			}),
+		'namzu/pals/update': async (params: Record<string, unknown>) => {
+			if (!Number.isSafeInteger(params.expectedRevision) || (params.expectedRevision as number) < 1)
+				throw new Error('Invalid Pal revision.')
+			const id = text(params, 'id')
+			if (pal()?.id === id && (await getCliPalRuntime()).busy(id))
+				throw new Error('Stop this Pal’s active work before changing it.')
+			return updatePal(id, params.expectedRevision as number, {
+				...(params.name === undefined ? {} : { name: params.name as string }),
+				...(params.purpose === undefined ? {} : { purpose: params.purpose as string }),
+				...(params.model === undefined ? {} : { model: params.model as never }),
+				...(params.paused === undefined ? {} : { paused: params.paused as boolean }),
+			})
+		},
+		'namzu/pals/computer/status': (params: Record<string, unknown>) =>
+			cliPalComputerStatus(ownedPal(params)),
+		'namzu/pals/computer/start': (params: Record<string, unknown>) =>
+			startCliPalComputer(ownedPal(params)),
+		'namzu/pals/computer/stop': (params: Record<string, unknown>) =>
+			stopCliPalComputer(ownedPal(params)),
+		'namzu/pals/computer/screen': (params: Record<string, unknown>) =>
+			cliPalScreen(ownedPal(params)),
+		'namzu/pals/conversations/claim': async (params: Record<string, unknown>) => {
+			if (!isTrusted(cwd)) throw new Error('This Pal workspace is not trusted.')
+			return claimPalConversation(cwd, text(params, 'palId'), session(params))
+		},
+		'namzu/pals/conversations/list': (params: Record<string, unknown>) =>
+			listPalConversations(cwd, text(params, 'palId')),
 		'namzu/project/trust': (params: Record<string, unknown>) => {
 			if (params.confirmed !== true || text(params, 'cwd', 32768) !== cwd)
 				throw new Error('Folder confirmation does not match this project.')
 			trustDir(cwd)
 			return { cwd, trusted: true }
 		},
-		'namzu/conversations/list': () => withState((state) => listRecent(state, 100)),
-		'namzu/conversations/history': (params: Record<string, unknown>) =>
-			withState(async (state) => {
-				const messages = await loadConversation(state, asSessionId(session(params)))
+		'namzu/conversations/list': () =>
+			withState((state) => {
+				const currentPal = pal()
+				return currentPal ? listPalConversations(cwd, currentPal.id) : listRecent(state, 100)
+			}),
+		'namzu/conversations/history': async (params: Record<string, unknown>) => {
+			const id = await ownedSession(params)
+			return withState(async (state) => {
+				const messages = await loadConversation(state, asSessionId(id))
 				const shown = messages.filter(
 					(message) =>
 						message.role === 'assistant' ||
@@ -80,31 +145,58 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 					messages: rows,
 					partial: partial || rows.length < shown.length || remaining <= 0,
 				}
-			}),
-		'namzu/providers/status': (params: Record<string, unknown>) =>
-			runtime.providerStatus(params.sessionId === undefined ? undefined : session(params)),
-		'namzu/providers/models': (params: Record<string, unknown>) =>
-			runtime.models(
-				text(params, 'provider'),
-				params.sessionId === undefined ? undefined : session(params),
-			),
-		'namzu/providers/settings': (params: Record<string, unknown>) =>
+			})
+		},
+		'namzu/providers/status': async (params: Record<string, unknown>) => {
+			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			const status = await runtime.providerStatus(id)
+			const model = id ? undefined : pal()?.model
+			if (!model) return status
+			return {
+				...(status as Record<string, unknown>),
+				selected: {
+					id: model.provider,
+					model: model.model,
+				},
+			}
+		},
+		'namzu/providers/models': (params: Record<string, unknown>) => {
+			const provider = text(params, 'provider')
+			if (params.sessionId === undefined) return runtime.models(provider)
+			session(params)
+			return ownedSession(params).then((id) => runtime.models(provider, id))
+		},
+		'namzu/providers/settings': async (params: Record<string, unknown>) =>
 			runtime.modelSettings(
 				text(params, 'provider'),
 				text(params, 'model'),
-				params.sessionId === undefined ? undefined : session(params),
+				params.sessionId === undefined ? undefined : await ownedSession(params),
 			),
-		'namzu/plugins/list': (params: Record<string, unknown>) =>
-			runtime.plugins(cwd, params.sessionId === undefined ? undefined : session(params)),
-		'namzu/plugins/set_enabled': (params: Record<string, unknown>) => {
+		'namzu/plugins/list': async (params: Record<string, unknown>) => {
+			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			if (pal())
+				return {
+					plugins: [],
+					live: false,
+					canChange: false,
+					notice: 'Host plugins are not inherited by Pals.',
+				}
+			return runtime.plugins(cwd, id)
+		},
+		'namzu/plugins/set_enabled': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
 			if (typeof params.enabled !== 'boolean') throw new Error('Invalid plugin choice.')
-			return runtime.setPluginEnabled(session(params), text(params, 'name'), params.enabled, cwd)
+			return runtime.setPluginEnabled(
+				await ownedSession(params),
+				text(params, 'name'),
+				params.enabled,
+				cwd,
+			)
 		},
 		'namzu/providers/select': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
 			await runtime.selectProvider(
-				session(params),
+				await ownedSession(params),
 				text(params, 'provider'),
 				params.model === undefined ? undefined : text(params, 'model'),
 			)

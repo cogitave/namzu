@@ -1,6 +1,7 @@
 /** One owned CLI process per project. The renderer never sees this transport. */
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { AcpInitializeResult } from '@namzu/sdk'
 
@@ -22,6 +23,10 @@ export interface RuntimeCommand {
 	env?: NodeJS.ProcessEnv
 }
 export class RuntimeClient extends EventEmitter {
+	private pals = false
+	supportsPals(): boolean {
+		return this.pals
+	}
 	private promptAttachments = false
 	private promptOptions = false
 	supportsPromptOptions(): boolean {
@@ -63,8 +68,9 @@ export class RuntimeClient extends EventEmitter {
 		this.child = child
 		const decoder = new StringDecoder('utf8')
 		child.stdout.on('data', (chunk: Buffer) => this.consume(decoder.write(chunk)))
+		const stderrDecoder = new StringDecoder('utf8')
 		child.stderr.on('data', (chunk: Buffer) => {
-			this.diagnostic = (this.diagnostic + chunk.toString('utf8')).slice(-16_000)
+			this.diagnostic = (this.diagnostic + stderrDecoder.write(chunk)).slice(-16_000)
 		})
 		child.on('error', (error) => this.fail(error))
 		child.on('close', () => {
@@ -82,6 +88,18 @@ export class RuntimeClient extends EventEmitter {
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.pals = [
+			'namzu/pals/list',
+			'namzu/pals/get',
+			'namzu/pals/create',
+			'namzu/pals/update',
+			'namzu/pals/conversations/list',
+			'namzu/pals/conversations/claim',
+			'namzu/pals/computer/status',
+			'namzu/pals/computer/start',
+			'namzu/pals/computer/stop',
+			'namzu/pals/computer/screen',
+		].every((method) => result.extensions?.includes(method))
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))
@@ -176,20 +194,49 @@ export class RuntimeClient extends EventEmitter {
 		this.fail(new Error('The Namzu connection was closed.'))
 		const child = this.child
 		if (!child?.pid || this.processClosed) return Promise.resolve()
-		this.shutdown = new Promise<void>((resolve) => {
+		const shutdown = new Promise<void>((resolve, reject) => {
 			let kill: ReturnType<typeof setTimeout> | undefined
+			const finish = () => {
+				clearTimeout(terminate)
+				clearTimeout(kill)
+				resolve()
+			}
 			const terminate = setTimeout(() => {
+				if (process.platform === 'win32') {
+					// The npm launcher is a CMD parent. Killing only that wrapper
+					// leaves ACP alive and its inherited protocol pipes open.
+					// Never target a PID after our owned child has already exited.
+					if (child.exitCode !== null || child.signalCode !== null) {
+						child.off('close', finish)
+						reject(new Error('Namzu exited while descendants retained its protocol pipes.'))
+						return
+					}
+					const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
+					execFile(
+						taskkill,
+						['/pid', String(child.pid), '/t', '/f'],
+						{ windowsHide: true },
+						(error) => {
+							if (error && !this.processClosed) {
+								child.off('close', finish)
+								reject(new Error('Could not stop the owned Namzu process tree.', { cause: error }))
+							}
+						},
+					)
+					return
+				}
 				child.kill()
 				kill = setTimeout(() => child.kill('SIGKILL'), 1_000)
 				kill.unref()
 			}, 5_000)
 			terminate.unref()
-			child.once('close', () => {
-				clearTimeout(terminate)
-				clearTimeout(kill)
-				resolve()
-			})
+			child.once('close', finish)
 			child.stdin.end()
+		})
+		this.shutdown = shutdown.catch((error) => {
+			// A failed OS tree stop must remain observable and retryable.
+			this.shutdown = undefined
+			throw error
 		})
 		return this.shutdown
 	}

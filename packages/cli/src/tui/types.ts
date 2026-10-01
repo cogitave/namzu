@@ -85,6 +85,8 @@ export interface TuiContext {
 	readonly version: string
 	/** Exact durable conversation requested by `namzu resume <id>`. */
 	readonly initialConversationId?: string
+	/** Required Pal owner for a Pal CLI launch; the durable log pins its profile revision. */
+	readonly palId?: string
 	/**
 	 * Values-free launch-time config provenance for `/debug-config`.
 	 *

@@ -6,6 +6,7 @@ import type {
 	DesktopApi,
 	DesktopEvent,
 	DraftSettings,
+	PalView,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
@@ -39,6 +40,7 @@ const projects: ProjectView[] = [
 		status: 'ready',
 	},
 ]
+const pals: PalView[] = []
 const titles = [
 	['sample-app', 'Refine navigation'],
 	['sample-app', 'Polish empty states'],
@@ -111,6 +113,64 @@ const api: DesktopApi = {
 	setWindowAppearance: async () => {},
 	popupWindowMenu: async () => nativeOnly('Native window menus'),
 	projects: async () => clone(projects),
+	pals: async () => clone(pals),
+	palProviders: async () => ({
+		available: clone(available),
+		selected: { id: 'anthropic', model: 'sample-balanced' },
+	}),
+	palModels: async (provider) => api.models('sample-app', provider),
+	createPal: async (input) => {
+		if (!input.name.trim() || input.name.trim().length > 80)
+			throw new Error('Enter a Pal name, up to 80 characters.')
+		const id = `sample-pal-${pals.length + 1}`
+		const value: PalView = {
+			id,
+			name: input.name.trim(),
+			purpose: input.purpose?.trim() ?? '',
+			model: input.model ?? null,
+			paused: false,
+			revision: 1,
+			workspace: `/sample/pals/${id}`,
+			createdAt: sampleDate,
+			updatedAt: sampleDate,
+		}
+		pals.push(value)
+		projects.push({
+			id: `project-${id}`,
+			name: value.name,
+			path: value.workspace,
+			trusted: true,
+			status: 'ready',
+			palId: id,
+		})
+		return clone(value)
+	},
+	updatePal: async (id, expectedRevision, changes) => {
+		const value = pals.find((item) => item.id === id)
+		if (!value || value.revision !== expectedRevision)
+			throw new Error('This sample Pal changed. Open customization again.')
+		Object.assign(value, changes, { revision: value.revision + 1 })
+		return clone(value)
+	},
+	openPal: async (id) => {
+		const value = pals.find((item) => item.id === id)
+		const space = projects.find((item) => item.palId === id)
+		if (!value || !space) throw new Error('Choose a sample Pal.')
+		space.name = value.name
+		return clone({
+			pal: value,
+			project: space,
+			conversations: conversations.filter((item) => item.palId === id),
+		})
+	},
+	palComputer: async () => ({
+		status: 'unavailable',
+		notice: 'Design preview only. Start a real local computer from the desktop or CLI.',
+	}),
+	startPalComputer: async () => nativeOnly('Starting a Pal virtual computer'),
+	stopPalComputer: async () => nativeOnly('Stopping a Pal virtual computer'),
+	palScreen: async () => nativeOnly('Capturing a Pal virtual computer screen'),
+
 	openProject: async () => nativeOnly('Opening a device folder'),
 	reconnectProject: async () => nativeOnly('Connecting a real project'),
 	trustProject: async () => nativeOnly('Granting device folder access'),
@@ -123,6 +183,7 @@ const api: DesktopApi = {
 		const view: ConversationView = {
 			id: `sample-thread-${nextConversation++}`,
 			projectId: id,
+			palId: project(id).palId,
 			title: 'Sample draft',
 			updatedAt: sampleDate,
 		}

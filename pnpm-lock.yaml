@@ -122,6 +122,9 @@ importers:
       '@namzu/openrouter':
         specifier: workspace:*
         version: link:../providers/openrouter
+      '@namzu/sandbox':
+        specifier: workspace:^
+        version: link:../sandbox
       '@namzu/sdk':
         specifier: workspace:^
         version: link:../sdk

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { mkdir, realpath, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { AcpRequestPermissionParams, AcpSessionUpdateNotification } from '@namzu/sdk'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
@@ -12,7 +12,13 @@ import type {
 	DesktopEvent,
 	DesktopSendOptions,
 	DraftSettings,
+	JobView,
 	ModelCatalogueView,
+	PalChanges,
+	PalComputerView,
+	PalInput,
+	PalScreenView,
+	PalView,
 	PermissionView,
 	PluginInventoryView,
 	ProjectView,
@@ -60,7 +66,15 @@ interface Conversation {
 	permissions: Map<string, string | number>
 }
 export class Operator {
+	private closing = false
+	private registryClient?: RuntimeClient
+	private registryStarting?: Promise<RuntimeClient>
+	/** Retain shutdown authority even when a disconnected client leaves its UI slot. */
+	private readonly ownedClients = new Set<RuntimeClient>()
+	private readonly palRecords = new Map<string, PalView>()
+	private readonly changingPals = new Set<string>()
 	private readonly projects = new Map<string, Project>()
+	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
 	private readonly conversations = new Map<string, Conversation>()
 	private readonly projectDrafts = new Map<
 		string,
@@ -71,7 +85,173 @@ export class Operator {
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
+		private readonly registryDirectory?: string,
 	) {}
+	private async closeClient(client: RuntimeClient): Promise<void> {
+		await client.close()
+		this.ownedClients.delete(client)
+	}
+	private async registry(): Promise<RuntimeClient> {
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (this.registryClient) return this.registryClient
+		if (this.registryStarting) return this.registryStarting
+		const operation = (async () => {
+			const cwd = this.registryDirectory ?? process.cwd()
+			await mkdir(cwd, { recursive: true, mode: 0o700 })
+			if (this.closing) throw new Error('Namzu is closing.')
+			const client = new RuntimeClient(cwd, this.command)
+			this.ownedClients.add(client)
+			client.on('closed', () => {
+				if (this.registryClient === client) this.registryClient = undefined
+			})
+			try {
+				await client.start()
+				if (this.closing) throw new Error('Namzu is closing.')
+				if (!client.supportsPals()) throw new Error('Update Namzu to a version that supports Pals.')
+				this.registryClient = client
+				return client
+			} catch (error) {
+				await this.closeClient(client)
+				throw error
+			}
+		})()
+		this.registryStarting = operation
+		try {
+			return await operation
+		} finally {
+			if (this.registryStarting === operation) this.registryStarting = undefined
+		}
+	}
+	async listPals(): Promise<PalView[]> {
+		const client = await this.registry()
+		const pals = (await client.request('namzu/pals/list')) as PalView[]
+		if (!Array.isArray(pals)) throw new Error('Namzu returned an invalid Pal list.')
+		for (const pal of pals) this.palRecords.set(pal.id, pal)
+		return pals
+	}
+	async palProviders(): Promise<ProviderView> {
+		return (await (await this.registry()).request('namzu/providers/status')) as ProviderView
+	}
+	async palModels(provider: string): Promise<ModelCatalogueView> {
+		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
+			throw new Error('Invalid provider.')
+		return (await (
+			await this.registry()
+		).request('namzu/providers/models', {
+			provider,
+		})) as ModelCatalogueView
+	}
+	async createPal(input: PalInput): Promise<PalView> {
+		const pal = (await (
+			await this.registry()
+		).request('namzu/pals/create', { ...input })) as PalView
+		this.palRecords.set(pal.id, pal)
+		return pal
+	}
+	async updatePal(
+		id: string,
+		expectedRevision: number,
+		changes: Partial<PalChanges>,
+	): Promise<PalView> {
+		if (typeof id !== 'string' || this.changingPals.has(id))
+			throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPals.add(id)
+		try {
+			const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
+			if (owned.some((item) => item.running || item.queue.length || item.permissions.size))
+				throw new Error('Stop this Pal’s active work before changing it.')
+			for (const item of owned) {
+				const jobs = (await this.jobs(item.view.id)) as JobView[]
+				if (!Array.isArray(jobs) || jobs.some((job) => job.status === 'running'))
+					throw new Error('Stop this Pal’s background work before changing it.')
+			}
+			const pal = (await (
+				await this.registry()
+			).request('namzu/pals/update', {
+				...changes,
+				id,
+				expectedRevision,
+			})) as PalView
+			this.palRecords.set(pal.id, pal)
+			return pal
+		} finally {
+			this.changingPals.delete(id)
+		}
+	}
+	async openPal(id: string): Promise<{
+		pal: PalView
+		project: ProjectView
+		conversations: ConversationView[]
+	}> {
+		const pal = (await (await this.registry()).request('namzu/pals/get', { id })) as PalView
+		this.palRecords.set(pal.id, pal)
+		const view = await this.openProject(pal.workspace)
+		const project = this.projects.get(view.id)
+		if (!project) throw new Error('This Pal could not connect its local workspace.')
+		project.view.palId = pal.id
+		project.view.name = pal.name
+		return {
+			pal,
+			project: { ...project.view },
+			conversations: await this.listConversations(view.id),
+		}
+	}
+	async palComputer(id: string): Promise<PalComputerView> {
+		const { project } = await this.openPal(id)
+		return (await this.project(project.id).client.request('namzu/pals/computer/status', {
+			palId: id,
+		})) as PalComputerView
+	}
+	async startPalComputer(id: string): Promise<PalComputerView> {
+		const { project } = await this.openPal(id)
+		return (await this.project(project.id).client.request(
+			'namzu/pals/computer/start',
+			{
+				palId: id,
+			},
+			120_000,
+		)) as PalComputerView
+	}
+	async stopPalComputer(id: string): Promise<PalComputerView> {
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPals.add(id)
+		try {
+			const { project } = await this.openPal(id)
+			const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
+			if (owned.some((item) => item.running || item.queue.length || item.permissions.size))
+				throw new Error('Stop this Pal’s active work before stopping its computer.')
+			for (const item of owned) {
+				const jobs = (await this.jobs(item.view.id)) as JobView[]
+				if (!Array.isArray(jobs) || jobs.some((job) => job.status === 'running'))
+					throw new Error('Stop this Pal’s background work before stopping its computer.')
+			}
+			return (await this.project(project.id).client.request('namzu/pals/computer/stop', {
+				palId: id,
+			})) as PalComputerView
+		} finally {
+			this.changingPals.delete(id)
+		}
+	}
+	async palScreen(id: string): Promise<PalScreenView> {
+		const { project } = await this.openPal(id)
+		const screen = (await this.project(project.id).client.request('namzu/pals/computer/screen', {
+			palId: id,
+		})) as PalScreenView
+		if (
+			!screen ||
+			typeof screen.source !== 'string' ||
+			screen.source.length > 7_000_000 ||
+			!/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(screen.source) ||
+			!Number.isSafeInteger(screen.width) ||
+			!Number.isSafeInteger(screen.height) ||
+			screen.width < 1 ||
+			screen.height < 1 ||
+			screen.width > 4096 ||
+			screen.height > 3072
+		)
+			throw new Error('The Pal computer returned an invalid screen.')
+		return screen
+	}
 	private emit(event: DesktopEvent): void {
 		if (event.kind !== 'connection') {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -92,14 +272,28 @@ export class Operator {
 		return [...this.projects.values()].map(({ view }) => ({ ...view }))
 	}
 	async openProject(path: string): Promise<ProjectView> {
+		if (this.closing) throw new Error('Namzu is closing.')
 		const cwd = await realpath(path)
 		if (!(await stat(cwd)).isDirectory()) throw new Error('Choose a folder.')
+		if (this.closing) throw new Error('Namzu is closing.')
+		const pending = this.projectStarting.get(cwd)
+		if (pending) return pending
+		const operation = this.connectProject(cwd)
+		this.projectStarting.set(cwd, operation)
+		try {
+			return await operation
+		} finally {
+			if (this.projectStarting.get(cwd) === operation) this.projectStarting.delete(cwd)
+		}
+	}
+	private async connectProject(cwd: string): Promise<ProjectView> {
 		const existing = [...this.projects.values()].find(({ view }) => view.path === cwd)
 		if (existing?.view.status !== 'error') {
 			if (existing) return existing.view
 		}
 		if (existing) {
-			await existing.client.close()
+			await this.closeClient(existing.client)
+			if (this.closing) throw new Error('Namzu is closing.')
 			this.projects.delete(existing.view.id)
 		}
 		const view: ProjectView = {
@@ -110,6 +304,7 @@ export class Operator {
 			status: 'connecting',
 		}
 		const client = new RuntimeClient(cwd, this.command)
+		this.ownedClients.add(client)
 		const project = { view, client }
 		for (const session of this.conversations.values()) {
 			if (session.view.projectId !== view.id) continue
@@ -117,8 +312,11 @@ export class Operator {
 			session.needsLoad = true
 		}
 		this.projects.set(view.id, project)
-		client.on('frame', (frame) => this.onFrame(project, frame))
+		client.on('frame', (frame) => {
+			if (!this.closing && this.projects.get(view.id) === project) this.onFrame(project, frame)
+		})
 		client.on('closed', (error: Error) => {
+			if (this.closing || this.projects.get(view.id) !== project) return
 			view.status = 'error'
 			view.error = error.message
 			for (const session of this.conversations.values()) {
@@ -132,20 +330,30 @@ export class Operator {
 		})
 		try {
 			await client.start()
+			if (this.closing) throw new Error('Namzu is closing.')
 			const status = (await client.request('namzu/project/status')) as {
 				trusted: boolean
+				pal?: PalView
 			}
+			if (this.closing) throw new Error('Namzu is closing.')
 			view.trusted = status.trusted === true
+			if (status.pal) {
+				view.palId = status.pal.id
+				view.name = status.pal.name
+				this.palRecords.set(status.pal.id, status.pal)
+			}
 			view.status = 'ready'
 		} catch (error) {
 			view.status = 'error'
 			view.error = error instanceof Error ? error.message : String(error)
-			client.close()
+			await this.closeClient(client)
+			if (this.closing) throw error
 		}
 		this.emit({ kind: 'connection', project: { ...view } })
 		return { ...view }
 	}
 	private project(id: unknown): Project {
+		if (this.closing) throw new Error('Namzu is closing.')
 		if (typeof id !== 'string') throw new Error('Invalid project.')
 		const project = this.projects.get(id)
 		if (!project || project.view.status !== 'ready')
@@ -176,7 +384,10 @@ export class Operator {
 				.map((session) => ({ ...session.view }))
 		const project = this.project(id)
 		if (!project.view.trusted) return []
-		const rows = (await project.client.request('namzu/conversations/list')) as {
+		const rows = (await project.client.request(
+			project.view.palId ? 'namzu/pals/conversations/list' : 'namzu/conversations/list',
+			project.view.palId ? { palId: project.view.palId } : {},
+		)) as {
 			id: string
 			title: string
 			updatedAt: string
@@ -187,6 +398,7 @@ export class Operator {
 			title: row.title,
 			updatedAt: row.updatedAt,
 			projectId: id,
+			...(project.view.palId ? { palId: project.view.palId } : {}),
 		}))
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
@@ -208,21 +420,28 @@ export class Operator {
 	async newConversation(projectId: string): Promise<ConversationView> {
 		const project = this.project(projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		this.assertPalAdmission(project.view.palId)
 		const result = (await project.client.request('session/new', {
 			cwd: project.view.path,
 		})) as {
 			sessionId: string
 		}
+		if (project.view.palId)
+			await project.client.request('namzu/pals/conversations/claim', {
+				palId: project.view.palId,
+				sessionId: result.sessionId,
+			})
 		const view: ConversationView = {
 			id: result.sessionId,
 			title: 'New conversation',
 			projectId,
 			updatedAt: new Date().toISOString(),
+			...(project.view.palId ? { palId: project.view.palId } : {}),
 		}
 		this.conversations.set(view.id, {
 			view,
 			runtimeSessionId: view.id,
-			hasPrompted: false,
+			hasPrompted: Boolean(project.view.palId),
 			client: project.client,
 			running: false,
 			queue: [],
@@ -318,6 +537,11 @@ export class Operator {
 				})) as {
 					sessionId: string
 				}
+				if (session.view.palId)
+					await client.request('namzu/pals/conversations/claim', {
+						palId: session.view.palId,
+						sessionId: result.sessionId,
+					})
 				if (session.client !== client || project.view.status !== 'ready')
 					throw new Error('The connection changed while reopening this conversation.')
 				if (typeof result.sessionId !== 'string' || !result.sessionId)
@@ -517,8 +741,15 @@ export class Operator {
 		for (const file of files) file.ownerId = toSessionId
 		return this.attachments(toSessionId)
 	}
+	private assertPalAdmission(palId?: string): void {
+		if (!palId) return
+		if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
+		if (this.palRecords.get(palId)?.paused)
+			throw new Error('Resume this Pal before sending a message.')
+	}
 	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void {
 		const session = this.session(sessionId)
+		this.assertPalAdmission(session.view.palId)
 		if (this.changingPlugins.has(sessionId))
 			throw new Error('Wait for this conversation’s plugin change to finish.')
 		if (
@@ -603,7 +834,10 @@ export class Operator {
 		if (!session) throw new Error('Open this conversation first.')
 		return session
 	}
-	private draftOwner(ownerId: string): { draft: string; draftSettings?: DraftSettings } {
+	private draftOwner(ownerId: string): {
+		draft: string
+		draftSettings?: DraftSettings
+	} {
 		if (!ownerId.startsWith('project:')) return this.draftSession(ownerId)
 		if (!this.projects.has(ownerId.slice('project:'.length))) throw new Error('Unknown project.')
 		let owner = this.projectDrafts.get(ownerId)
@@ -900,7 +1134,23 @@ export class Operator {
 		})
 	}
 	async close(): Promise<void> {
-		await Promise.allSettled([...this.projects.values()].map((project) => project.client.close()))
+		this.closing = true
+		const closing = await Promise.allSettled(
+			[...this.ownedClients].map((client) => this.closeClient(client)),
+		)
+		const starting = await Promise.allSettled([
+			...this.projectStarting.values(),
+			...(this.registryStarting ? [this.registryStarting] : []),
+		])
+		if (this.ownedClients.size > 0) {
+			throw new AggregateError(
+				[...closing, ...starting]
+					.filter((result) => result.status === 'rejected')
+					.map((result) => result.reason),
+				'Namzu could not confirm that all runtime processes stopped. Retry closing Namzu.',
+			)
+		}
+		this.registryClient = undefined
 		this.projects.clear()
 		this.conversations.clear()
 		this.attachmentFiles.clear()

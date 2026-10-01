@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { generateScheduleJobId, generateScheduleRunId, hostCommandShell } from '@namzu/sdk'
+import { generateScheduleJobId, generateScheduleRunId } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type Sandbox, sandbox } from '../../__tests__/fixtures.js'
 import { jobRequest } from '../../__tests__/fixtures.js'
@@ -129,7 +129,7 @@ describe('scheduler-owned script state', () => {
 				buildJob(
 					jobRequest(box, {
 						runKind: 'script',
-						script: { body: 'echo done', shell: hostCommandShell().dialect, report: 'json-v1' },
+						script: { body: 'echo done', shell: 'sh' as const, report: 'json-v1' },
 						permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
 					}),
 					{

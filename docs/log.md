@@ -1,5 +1,19 @@
 # Documentation update log
 
+## 2026-10-02
+
+- **Fix** [Private credentials and state](cli/credentials.md): pass extended Windows paths to `icacls` for both ACL mutation and read-back, preserving current-user privacy checks and existing project directory names. A native long project path reproduced the failure. `.changeset/windows-long-private-paths.md`, **patch** for `@namzu/cli`.
+
+- **Update** [Command interpretation](sdk/command-lines.md), [Bash tool](sdk/bash-tool.md), [composer prefixes](cli/composer-prefixes.md) and [scheduled tasks](cli/scheduled-tasks.md): report native Windows CMD truthfully, refuse POSIX command-pattern approvals and unattended CMD inference, and disclose the actual host or guest shell to the model. Explicit POSIX interpreters retain their behavior. `.changeset/windows-cmd-dialect.md`, **major** for `@namzu/sdk` and `@namzu/cli`.
+
+- **Fix** [Composer prefixes](cli/composer-prefixes.md) and [desktop shutdown](cli/desktop.md): execute operator shell input with the platform runner on Windows, preserve split UTF-8 output, confirm termination of owned process trees and retain failed shutdowns for retry. `.changeset/windows-operator-shell.md`, **patch** for `@namzu/cli`; the desktop is private. Record the pinned source and [native Windows audit](../research/runtime-desktop-20260930/WINDOWS-SHELL-EVENTS-20261002.md).
+
+- **Update** [Background jobs](cli/background-jobs.md): support optional confirmed asynchronous termination for remote guest processes. A failed stop retains running ownership, records recovery details and allows retry; the desktop exposes the same reason and Retry stop action. Existing synchronous process adapters keep their behavior. `.changeset/confirmed-remote-job-termination.md`, **minor** for `@namzu/sdk`.
+
+- **Creation** [SDK Pals](sdk/pals.md), [CLI Pals](cli/pals.md) and [desktop onboarding](cli/desktop.md#persistent-pals): persist immutable profiles, claim conversations before access, pin purpose/model and require an owned computer before execution. Share admission, pause and lifecycle contracts across CLI and desktop. `.changeset/pal-sdk-and-cli.md`, **minor** for `@namzu/sdk` and `@namzu/cli`.
+
+- **Creation** [Local Pal computer](sdk/local-pal-computer.md): compose a persistent Linux guest desktop per Pal through local Docker or an explicitly verified Windows Podman WSL machine, with guest shell/files/input, authenticated PNG captures, scoped ownership and explicit setup failures. Ship image sources without automatic installation or host-tool fallback. Document Windows transport, browser isolation and resource quota limits. `.changeset/pal-local-computer-provider.md`, **minor** for `@namzu/sandbox`.
+
 ## 2026-10-01
 
 - **Update** Record a [native Windows recheck](../research/schedule-installers-20261001/WINDOWS-RECHECK-20261001.md) of installer failures, Resume directory guards and real CMD/PowerShell batch forwarding. Selected production scheduler modules also round-trip jobs and unlimited token budgets on Windows Node; a complete packaged TUI, live provider run and Task Scheduler service remain outside this evidence.

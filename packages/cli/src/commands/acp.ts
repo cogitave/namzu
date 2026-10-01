@@ -34,6 +34,8 @@ import {
 	openSessions,
 } from '../integrations/sessions/store.js'
 import { cliLogger } from '../logging.js'
+import { palConversationBinding } from '../pals/conversations.js'
+import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import {
@@ -184,6 +186,8 @@ type AcpLiveSession = Pick<
 >
 
 export interface AcpRuntimeDependencies {
+	readonly palBinding?: typeof palConversationBinding
+	readonly palRuntime?: typeof getCliPalRuntime
 	readonly probe: typeof probeAgentSession
 	readonly describeModels?: typeof describeProviderModels
 	readonly describeReasoning?: typeof describeProviderReasoning
@@ -252,6 +256,8 @@ export interface CliAcpRuntime {
 }
 
 const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
+	palBinding: palConversationBinding,
+	palRuntime: getCliPalRuntime,
 	openSessions,
 	probe: probeAgentSession,
 	createSession: createAgentSession,
@@ -310,6 +316,26 @@ export function createCliAcpRuntime(
 		}
 		return probePromise
 	}
+	const preferencesFor = async (
+		sessionId: string | undefined,
+		probe: Awaited<ReturnType<typeof probeAgentSession>>,
+		cwd = process.cwd(),
+	) => {
+		const selected = sessionId ? selections.get(sessionId) : undefined
+		if (selected) return selected
+		const base = probe.preferences ?? defaultPrefs(probe.detected)
+		const binding = sessionId ? await deps.palBinding?.(cwd, sessionId) : null
+		if (!binding?.definition.model) return base
+		const profile = binding.definition.model
+		const entry = probe.detected.find(({ entry }) => entry.id === profile.provider)?.entry
+		if (!entry) throw new Error('This Pal provider is not configured. Set it up in Namzu first.')
+		const preferences: Preferences = {
+			...(base ?? { version: 3, subagents: { active: [] } }),
+			providers: [{ id: entry.id, model: profile.model }],
+		}
+		selections.set(sessionId as string, preferences)
+		return preferences
+	}
 
 	const ensureSession = async (
 		sessionId: string,
@@ -324,6 +350,8 @@ export function createCliAcpRuntime(
 		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
 		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
 		const cwd = trust.cwd
+		const palBinding = await deps.palBinding?.(cwd, sessionId)
+		if (palBinding?.pal.paused) throw new Error('This Pal is paused.')
 		if (selecting.has(sessionId)) throw new Error('Wait for the model change to finish.')
 		const existing = records.get(sessionId)
 		if (existing) {
@@ -375,7 +403,7 @@ export function createCliAcpRuntime(
 				const probe = await sharedProbe()
 				signal.throwIfAborted()
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
-				const prefs = selections.get(sessionId) ?? probe.preferences ?? defaultPrefs(probe.detected)
+				const prefs = await preferencesFor(sessionId, probe, cwd)
 				if (!prefs) {
 					throw new Error(
 						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
@@ -386,9 +414,30 @@ export function createCliAcpRuntime(
 				signal.throwIfAborted()
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
 				conversationState = await deps.openSessions?.(cwd)
+				const palRuntime = palBinding ? await deps.palRuntime?.() : undefined
+				if (palBinding && !palRuntime)
+					throw new Error('This Pal needs a ready local virtual computer.')
+				const palLease = palBinding
+					? await palRuntime?.startComputer(palBinding.pal.id, signal)
+					: undefined
 				signal.throwIfAborted()
 				const routeOwner: { current?: AcpRuntimeRecord } = {}
 				candidate = await deps.createSession(prefs, probe.detected, {
+					...(palBinding && palRuntime && palLease
+						? {
+								palEnvironment: {
+									definition: palBinding.definition,
+									lease: palLease,
+									admit: (signal?: AbortSignal) =>
+										palRuntime.admit({
+											palId: palBinding.pal.id,
+											revision: palBinding.definition.revision,
+											conversationId: sessionId,
+											...(signal ? { signal } : {}),
+										}),
+								},
+							}
+						: {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -481,6 +530,7 @@ export function createCliAcpRuntime(
 			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
 			if (!trust.allowed) throw new Error(trust.message)
 			const target = await deps.resolveSession(sessionId)
+			await deps.palBinding?.(trust.cwd, target.sessionId)
 			const state = await openSessions(trust.cwd)
 			try {
 				return await loadResumableConversation(state, target.sessionId)
@@ -613,10 +663,7 @@ export function createCliAcpRuntime(
 			const probe = await sharedProbe()
 			const detected = probe.detected.find(({ entry }) => entry.id === provider)
 			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
-			const preferences =
-				(sessionId ? selections.get(sessionId) : undefined) ??
-				probe.preferences ??
-				defaultPrefs(probe.detected)
+			const preferences = await preferencesFor(sessionId, probe)
 			const current = preferences?.providers[0]
 			const record = sessionId ? records.get(sessionId) : undefined
 			if (
@@ -653,6 +700,13 @@ export function createCliAcpRuntime(
 			if (closed) throw new Error('The connection is closed.')
 			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
 			if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
+			if (sessionId && (await deps.palBinding?.(trust.cwd, sessionId)))
+				return {
+					plugins: [],
+					live: false,
+					canChange: false,
+					notice: 'Host plugins are not inherited by Pals.',
+				}
 			const record = sessionId ? records.get(sessionId) : undefined
 			if (record && record.cwd !== trust.cwd)
 				throw new Error('This conversation belongs to another project.')
@@ -718,9 +772,7 @@ export function createCliAcpRuntime(
 		},
 		providerStatus: async (sessionId) => {
 			const probe = await sharedProbe()
-			const choice =
-				(sessionId ? selections.get(sessionId) : undefined)?.providers[0] ??
-				(probe.preferences ?? defaultPrefs(probe.detected))?.providers[0]
+			const choice = (await preferencesFor(sessionId, probe))?.providers[0]
 			return {
 				available: probe.detected.map(({ entry }) => ({
 					id: entry.id,
@@ -752,9 +804,7 @@ export function createCliAcpRuntime(
 			}
 			const listing = await request
 			if (closed) throw new Error('The connection is closed.')
-			const choice =
-				(sessionId ? selections.get(sessionId) : undefined)?.providers[0] ??
-				(probe.preferences ?? defaultPrefs(probe.detected))?.providers[0]
+			const choice = (await preferencesFor(sessionId, probe))?.providers[0]
 			const step = modelStep(
 				detected.entry.defaultModel,
 				// Driver errors can contain remote diagnostic text. Only this safe,
@@ -788,8 +838,7 @@ export function createCliAcpRuntime(
 				if (closed) throw new Error('The connection is closed.')
 				const detected = probe.detected.find(({ entry }) => entry.id === provider)
 				if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
-				const preferences =
-					selections.get(sessionId) ?? probe.preferences ?? defaultPrefs(probe.detected)
+				const preferences = await preferencesFor(sessionId, probe)
 				const previous = preferences?.providers[0]
 				if (
 					previous?.id === provider &&
@@ -854,6 +903,25 @@ export function createCliAcpRuntime(
 	}
 }
 
+/** Try both resource owners even if conversation shutdown fails. */
+export async function closeAcpResources(
+	runtime: Pick<CliAcpRuntime, 'close'>,
+	closePals: () => Promise<void> = closeCliPalRuntime,
+): Promise<void> {
+	const failures: unknown[] = []
+	try {
+		await runtime.close()
+	} catch (error) {
+		failures.push(error)
+	}
+	try {
+		await closePals()
+	} catch (error) {
+		failures.push(error)
+	}
+	if (failures.length) throw new AggregateError(failures, 'ACP cleanup failed.')
+}
+
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const runtime = createCliAcpRuntime(ctx)
 	const server = new ACPServer({
@@ -888,7 +956,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		try {
 			await server.stop()
 		} finally {
-			await runtime.close()
+			await closeAcpResources(runtime)
 		}
 	}
 	return 0

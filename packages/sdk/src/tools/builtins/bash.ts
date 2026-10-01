@@ -317,7 +317,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 export const BashTool = defineTool({
 	name: 'bash',
 	description:
-		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
+		'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
 	// A command carries quotes and backslashes of its own, and a heredoc
 	// carries newlines: copied into the JSON string raw, they end it.

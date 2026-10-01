@@ -226,6 +226,12 @@ export interface SandboxDetachedProcess {
 	readonly child: import('node:child_process').ChildProcess
 	/** Signal everything the sandbox started for this process, inside the boundary and out. */
 	kill(signal: NodeJS.Signals): void
+	/**
+	 * Stop and confirm the entire owned process tree ended. Remote wrappers
+	 * provide this when closing the host child alone cannot prove guest exit.
+	 * Reject on an unconfirmed stop; retain ownership so the caller can retry.
+	 */
+	terminate?(signal?: NodeJS.Signals): Promise<void>
 }
 
 export interface SandboxSpawnOptions {
