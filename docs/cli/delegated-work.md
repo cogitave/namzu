@@ -131,13 +131,15 @@ request boundary. Acceptance confirms queuing, not delivery or execution.
 Messages are bounded to 16,000 characters. Finished tasks cannot be restarted
 through this tool, and another parent's task cannot receive the message.
 
-Once delivery is confirmed — never for a refused or unowned attempt — the
+Once queue acceptance is confirmed — never for a refused or unowned attempt — the
 message becomes visible on both sides of the exchange. The child's transcript
-(Ctrl+T, Enter to drill in) gets a `← from parent: …` row alongside its tool
+(Ctrl+T, Enter to drill in) gets a `← queued from parent: …` row alongside its tool
 calls and answers. The main conversation gets a matching row, `<description> ·
 correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
 exactly once, however many times the surface re-renders.
+These rows record acceptance; they do not acknowledge that the child model
+read the message or completed the requested change.
 
 `narrate_work` takes one `line` and shows it to the operator directly above the
 agent rail, outside the rail's tree, in the parent's own voice. It starts,

@@ -2,7 +2,7 @@
 
 ## 2026-10-01
 
-- **Update** [Messages between live terminals](cli/peer-messaging.md): wire the SDK local peer transport into independent interactive processes with `/peers`, `list_sessions` and `send_session_message`, bounded mail, same-project and same-mode acceptance, idle wake, request-boundary delivery and conversation-generation fencing. Peer context cannot grant approval. Child-message activity now says queued; the manager contract documents its actual inbound callback. `.changeset/live-terminal-peer-messaging.md`, **minor** for `@namzu/cli`, **patch** for `@namzu/sdk`.
+- **Update** [Messages between live terminals](cli/peer-messaging.md): wire the SDK local peer transport into independent interactive processes with `/peers`, `list_sessions` and `send_session_message`, bounded mail, same-project and same-mode acceptance, idle wake, request-boundary delivery and conversation-generation fencing. Peer context cannot grant approval. [Child-message activity](cli/delegated-work.md) now says queued and records acceptance rather than model delivery; the manager contract documents its actual inbound callback. `.changeset/live-terminal-peer-messaging.md`, **minor** for `@namzu/cli`, **patch** for `@namzu/sdk`.
 
 - **Update** Desktop preview uses composed conversation cards, shared titlebar geometry, source timeline rows, a glass composer with project context, bounded completed-change previews and source sidebar motion. ACP preserves runtime result presentations rather than losing diffs to a generic fallback. `.changeset/acp-retains-result-presentation.md`, **patch** for `@namzu/sdk`.
 
