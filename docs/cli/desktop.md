@@ -128,6 +128,9 @@ is being admitted. Model popups retain their mounted control while focus moves i
 the menu. The project strip can open the native folder chooser. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout.
+The Background work, Changes and conversation context controls appear in the
+workspace header only after a conversation exists. Returning to a blank project
+also closes the conversation detail pane.
 A project context card sits beside the conversation when the workspace itself is
 at least 1280px wide. Smaller workspaces expose it through the Project context
 menu. It shows completed change receipts, verified background shells and current
@@ -138,11 +141,16 @@ available width. Unsupported artifact and child-session inventories are absent.
 The sidebar uses one folder glyph per project and plain indented conversation
 titles. Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
-rows. Active and running conversations remain visible beyond that initial
-limit. Recents repeats the loaded conversation records across known projects,
-deduplicated by session ID and sorted by their saved update timestamps. It shows
-the ten most recent records plus any active or running conversation outside that
-limit. A recent row opens the same conversation as its project row and reads the
+rows. Project headings omit connection dots; connection failures and recovery
+remain in the existing project status surfaces. Active and running conversations
+remain visible beyond that initial limit. Only the accepted navigation's
+originating list highlights the active conversation; selecting Recents does not
+also select its project copy or folder.
+Folder headings are selected only on a blank project route. Activity indicators
+remain shared by both copies. Recents repeats the loaded conversation records
+across known projects, deduplicated by session ID and sorted by their saved update
+timestamps. It shows the ten most recent records plus any active or running
+conversation outside that limit. A recent row opens the same conversation as its project row and reads the
 same session state; it does not create another session. Recency reflects loaded
 index metadata rather than an inferred visit history or live-event timestamp.
 Idle timestamps appear on hover or keyboard focus. Running turns show a small
@@ -163,6 +171,10 @@ opened. A failed or unavailable index produces an explicit partial-results
 notice and Retry. Search does not start model work or resume sessions by itself.
 Conversation history is also loaded when its project is opened; an unopened
 group's lack of rows does not imply that the project has no saved conversations.
+Other project groups default to collapsed. Opening a project or a conversation
+from its project list expands that group; opening Search or refreshing its
+catalogue preserves the operator's expansion choices. Selecting Recents does
+not expand the owning project group.
 The model control is one menu inside the composer; the
 provider and exact model choice are edited there before the next message.
 

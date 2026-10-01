@@ -292,3 +292,40 @@ Workspace typecheck, lint and tests passed, alongside the desktop production
 build, docs conformance and external-name audit. Production CSP and the exclusion
 of development sample fixtures remain intact. The live preview stays running;
 no remote push, publication or live job modification was performed.
+
+## Sidebar selection, expansion and blank conversation header
+
+The user's follow-up screenshots identified four corrections. Project headings
+no longer display green connection dots; selecting a failed project still exposes
+its existing error and Reconnect surface. Session activity and errors continue
+to use the shared thread projection in both conversation lists.
+
+The root records which list successfully opened the current session after the
+navigation generation guard. Only that Projects or Recents presentation is
+highlighted. Pending, failed and superseded opens cannot change this provenance.
+Existing session sends retain it; a newly promoted blank conversation selects
+Projects. Folder headings highlight only the blank project route.
+
+Untouched project groups now default to collapsed. The accepted project route
+expands its group, while Recents does not. Search catalogue reads update row data
+without changing expansion state. This addresses the prior default-open groups
+that appeared to expand when a palette read populated their unloaded indexes.
+Explicit user expansion continues to drive the existing folder glyphs and motion.
+
+Conversation-only header controls now mount when a session exists. Background
+work and Changes are absent on the blank project composer. All blank navigation
+paths close the details pane so the unmounted controls cannot leave it stranded.
+
+Desktop typecheck, lint, all 47 tests, build and docs conformance passed for this
+correction. The production CSP and exclusion of preview fixtures passed. The
+scope is local renderer behaviour; these checks do not establish a new remote
+publication or runtime feature.
+
+`sidebar-selection-proof.mjs` passed in one isolated localhost preview with
+three inspected screenshot/measurement pairs and `sidebar-selection-receipt.json`.
+It covers initial closed groups, Search plus a catalogue refresh, the single
+accepted selection in both lists, shared running indicators, pending/failed/stale
+reads, blank-folder pane dismissal and narrow light reduced motion. All mutation
+counters are zero; controlled history/provider reads and events are synthetic.
+Historical captures were retained. The live server remains available and this
+correction is committed locally without a remote push.

@@ -39,7 +39,7 @@ import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
-import { type Appearance, Sidebar } from './sidebar.js'
+import { type Appearance, type ConversationCollection, Sidebar } from './sidebar.js'
 import { ToolView } from './tool-view.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
@@ -115,6 +115,12 @@ function App() {
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
 	const [sessionId, setSessionId] = useState('')
+	const [conversationSelection, setConversationSelection] = useState<{
+		sessionId: string
+		collection: ConversationCollection
+	} | null>(null)
+	const conversationCollection =
+		conversationSelection?.sessionId === sessionId ? conversationSelection.collection : 'projects'
 	const [navigationHistory, setNavigationHistory] = useState<{
 		entries: { projectId: string; sessionId: string }[]
 		index: number
@@ -670,6 +676,7 @@ function App() {
 				setSessionId('')
 				setRailSection(null)
 				setSideOpen(false)
+				setJobsOpen(false)
 				input.current?.focus()
 			}
 		} catch (failure) {
@@ -678,7 +685,10 @@ function App() {
 			setLoading(false)
 		}
 	}, [updateProject])
-	const openConversation = async (view: ConversationView) => {
+	const openConversation = async (
+		view: ConversationView,
+		collection: ConversationCollection = 'projects',
+	) => {
 		const generation = ++navigation.current
 		if (snapshotRead.current) snapshotRead.current.events.length = 0
 		const read = {
@@ -723,6 +733,7 @@ function App() {
 			setProviders(status)
 			setProviderProjectId(view.projectId)
 			setSessionId(view.id)
+			setConversationSelection({ sessionId: view.id, collection })
 			setProjectId(view.projectId)
 			setRailSection(null)
 			setSideOpen(false)
@@ -868,6 +879,7 @@ function App() {
 					draftsRef.current[owner] = ''
 					setDrafts((all) => ({ ...all, [owner]: '' }))
 					setSessionId(target)
+					setConversationSelection({ sessionId: target, collection: 'projects' })
 					setSideOpen(false)
 				}
 				// Admit both saves before yielding to newer typing in the promoted editor.
@@ -1068,6 +1080,7 @@ function App() {
 				conversations={conversations}
 				projectId={projectId}
 				sessionId={sessionId}
+				conversationCollection={conversationCollection}
 				threads={threads}
 				open={railSection !== 'plugins' && sideOpen}
 				collapsed={sideCollapsed}
@@ -1081,8 +1094,9 @@ function App() {
 					setProjectId(id)
 					setSessionId('')
 					setRailSection(null)
+					setJobsOpen(false)
 				}}
-				onConversation={(view) => void act(() => openConversation(view))}
+				onConversation={(view, collection) => void act(() => openConversation(view, collection))}
 			/>
 			{railSection === 'plugins' && (
 				<>
@@ -1167,46 +1181,50 @@ function App() {
 							</h2>
 						</WorkspaceBreadcrumbItem>
 					</WorkspaceBreadcrumb>
-					<Button
-						ref={jobsTrigger}
-						type="button"
-						variant="ghost-muted"
-						size="sm"
-						className="jobs-button"
-						aria-label="Background work"
-						aria-description={
-							jobsSessionId !== sessionId || jobsLoading || jobsError
-								? 'Background work has not been confirmed'
-								: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
-						}
-						onClick={() => {
-							setPanelTab('jobs')
-							setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
-						}}
-						disabled={!sessionId}
-					>
-						<TerminalIcon aria-hidden="true" className="size-4" />
-						<span className="jobs-button-label">Background work</span>
-						{visibleJobs.some((job) => job.status === 'running') && (
-							<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
-						)}
-					</Button>
-					<Button
-						ref={changesTrigger}
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						aria-label="Show changes"
-						disabled={!sessionId}
-						aria-pressed={jobsOpen && panelTab === 'changes'}
-						onClick={() => {
-							setPanelTab('changes')
-							setJobsOpen(panelTab !== 'changes' || !jobsOpen)
-						}}
-					>
-						<FileDiffIcon className="size-4" />
-					</Button>
-					{contextProps && thread.messages.length > 0 && <ProjectContextMenu {...contextProps} />}
+					{sessionId && (
+						<>
+							<Button
+								ref={jobsTrigger}
+								type="button"
+								variant="ghost-muted"
+								size="sm"
+								className="jobs-button"
+								aria-label="Background work"
+								aria-description={
+									jobsSessionId !== sessionId || jobsLoading || jobsError
+										? 'Background work has not been confirmed'
+										: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
+								}
+								onClick={() => {
+									setPanelTab('jobs')
+									setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
+								}}
+							>
+								<TerminalIcon aria-hidden="true" className="size-4" />
+								<span className="jobs-button-label">Background work</span>
+								{visibleJobs.some((job) => job.status === 'running') && (
+									<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
+								)}
+							</Button>
+							<Button
+								ref={changesTrigger}
+								type="button"
+								variant="ghost-muted"
+								size="icon-sm"
+								aria-label="Show changes"
+								aria-pressed={jobsOpen && panelTab === 'changes'}
+								onClick={() => {
+									setPanelTab('changes')
+									setJobsOpen(panelTab !== 'changes' || !jobsOpen)
+								}}
+							>
+								<FileDiffIcon className="size-4" />
+							</Button>
+							{contextProps && thread.messages.length > 0 && (
+								<ProjectContextMenu {...contextProps} />
+							)}
+						</>
+					)}
 				</WorkspacePageHeader>
 				{(error || project?.error) && (
 					<div className="connection-error">

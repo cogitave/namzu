@@ -1,0 +1,50 @@
+{
+  "name": "wide-dark-blank-project",
+  "width": 1609,
+  "height": 973,
+  "dark": true,
+  "reduced": false,
+  "overflow": false,
+  "active": [],
+  "folderHighlights": [
+    "sample-app"
+  ],
+  "folderCurrent": [
+    "sample-app"
+  ],
+  "groups": [
+    {
+      "id": "sample-app",
+      "expanded": "true"
+    },
+    {
+      "id": "sample-docs",
+      "expanded": "false"
+    },
+    {
+      "id": "sample-workspace",
+      "expanded": "false"
+    }
+  ],
+  "projectDots": 0,
+  "backgroundOpen": "false",
+  "header": [],
+  "spinners": [],
+  "api": {
+    "reads": [
+      "sample-app"
+    ],
+    "opens": [],
+    "completed": [],
+    "events": [],
+    "forbidden": {
+      "send": 0,
+      "cancel": 0,
+      "approve": 0,
+      "stopJob": 0,
+      "pluginChanges": 0,
+      "openProject": 0,
+      "newConversation": 0
+    }
+  }
+}

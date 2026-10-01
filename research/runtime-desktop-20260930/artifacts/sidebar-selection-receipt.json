@@ -1,0 +1,1539 @@
+{
+  "passed": true,
+  "scope": "One owned localhost development-preview context with existing sample records. Pending history reads, one post-history provider failure, a connection refresh and running events are controlled synthetic fixtures. No real model/provider request, native session/folder operation, process, approval or plugin/scheduler mutation is claimed.",
+  "checks": [
+    "Project connection dots absent",
+    "Exactly one accepted conversation copy selected and no selected folder",
+    "Initial current project open, unknown projects closed",
+    "Explicit collapse retained through Search, catalogue refresh and Recents navigation",
+    "Blank project toolbar omits Background work/Show changes; actual conversation restores both",
+    "Background work closes when navigating to a blank folder",
+    "Pending/failed/stale reads preserve accepted selection until a newer successful open",
+    "Duplicate conversation copies still share turn activity"
+  ],
+  "steps": [
+    {
+      "label": "initial blank project",
+      "active": [],
+      "folderHighlights": [
+        "sample-app"
+      ],
+      "folderCurrent": [
+        "sample-app"
+      ],
+      "groups": [
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        },
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [],
+      "spinners": [],
+      "api": {
+        "reads": [
+          "sample-app"
+        ],
+        "opens": [],
+        "completed": [],
+        "events": [],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "accepted recent sample-thread-1",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "recent"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "false"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "same session visible in both collections; only Recents selected",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "recent"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "accepted project sample-thread-1",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "pending open leaves accepted selection",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          }
+        ],
+        "completed": [],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "failed route leaves accepted selection",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          }
+        ],
+        "completed": [
+          "pending-failed"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "superseded open still pending",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          }
+        ],
+        "completed": [
+          "pending-failed"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "accepted project sample-thread-3",
+      "active": [
+        {
+          "id": "sample-thread-3",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "stale completion cannot change newer accepted selection",
+      "active": [
+        {
+          "id": "sample-thread-3",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed",
+          "stale-open"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "blank folder navigation clears conversation selection",
+      "active": [],
+      "folderHighlights": [
+        "sample-docs"
+      ],
+      "folderCurrent": [
+        "sample-docs"
+      ],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "true"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app",
+          "sample-docs"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed",
+          "stale-open"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "accepted project sample-thread-1",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "true"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app",
+          "sample-docs",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed",
+          "stale-open"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "label": "narrow reduced-motion selected Project copy",
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "none"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "none"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app",
+          "sample-docs",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed",
+          "stale-open"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    }
+  ],
+  "counts": {
+    "reads": [
+      "sample-app",
+      "sample-app",
+      "sample-docs",
+      "sample-workspace",
+      "sample-app",
+      "sample-docs",
+      "sample-app"
+    ],
+    "opens": [
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-2",
+        "token": "pending-failed"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-2",
+        "token": "stale-open"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-3",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      }
+    ],
+    "completed": [
+      "pending-failed",
+      "stale-open"
+    ],
+    "events": [
+      {
+        "kind": "connection",
+        "project": {
+          "id": "sample-app",
+          "name": "Sample app",
+          "path": "/sample/app",
+          "trusted": true,
+          "status": "ready"
+        },
+        "revision": 1
+      },
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-1",
+        "running": true,
+        "queued": [],
+        "revision": 1
+      },
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-1",
+        "running": false,
+        "queued": [],
+        "revision": 2
+      }
+    ],
+    "forbidden": {
+      "send": 0,
+      "cancel": 0,
+      "approve": 0,
+      "stopJob": 0,
+      "pluginChanges": 0,
+      "openProject": 0,
+      "newConversation": 0
+    }
+  },
+  "captures": [
+    {
+      "name": "wide-dark-blank-project",
+      "width": 1609,
+      "height": 973,
+      "dark": true,
+      "reduced": false,
+      "overflow": false,
+      "active": [],
+      "folderHighlights": [
+        "sample-app"
+      ],
+      "folderCurrent": [
+        "sample-app"
+      ],
+      "groups": [
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        },
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [],
+      "spinners": [],
+      "api": {
+        "reads": [
+          "sample-app"
+        ],
+        "opens": [],
+        "completed": [],
+        "events": [],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "name": "wide-dark-recent-selected-shared-running",
+      "width": 1609,
+      "height": 973,
+      "dark": true,
+      "reduced": false,
+      "overflow": false,
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "recent"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "thread-running-turn"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "thread-running-turn"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    },
+    {
+      "name": "narrow-light-project-selected-reduced",
+      "width": 600,
+      "height": 540,
+      "dark": false,
+      "reduced": true,
+      "overflow": false,
+      "active": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project"
+        }
+      ],
+      "folderHighlights": [],
+      "folderCurrent": [],
+      "groups": [
+        {
+          "id": "sample-docs",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-workspace",
+          "expanded": "false"
+        },
+        {
+          "id": "sample-app",
+          "expanded": "true"
+        }
+      ],
+      "projectDots": 0,
+      "backgroundOpen": "false",
+      "header": [
+        "Background work",
+        "Show changes",
+        "Project context"
+      ],
+      "spinners": [
+        {
+          "id": "sample-thread-1",
+          "collection": "project",
+          "animation": "none"
+        },
+        {
+          "id": "sample-thread-1",
+          "collection": "recent",
+          "animation": "none"
+        }
+      ],
+      "api": {
+        "reads": [
+          "sample-app",
+          "sample-app",
+          "sample-docs",
+          "sample-workspace",
+          "sample-app",
+          "sample-docs",
+          "sample-app"
+        ],
+        "opens": [
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "pending-failed"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-2",
+            "token": "stale-open"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-3",
+            "token": null
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": "sample-thread-1",
+            "token": null
+          }
+        ],
+        "completed": [
+          "pending-failed",
+          "stale-open"
+        ],
+        "events": [
+          {
+            "kind": "connection",
+            "project": {
+              "id": "sample-app",
+              "name": "Sample app",
+              "path": "/sample/app",
+              "trusted": true,
+              "status": "ready"
+            },
+            "revision": 1
+          },
+          {
+            "kind": "state",
+            "sessionId": "sample-thread-1",
+            "running": true,
+            "queued": [],
+            "revision": 1
+          }
+        ],
+        "forbidden": {
+          "send": 0,
+          "cancel": 0,
+          "approve": 0,
+          "stopJob": 0,
+          "pluginChanges": 0,
+          "openProject": 0,
+          "newConversation": 0
+        }
+      }
+    }
+  ],
+  "pageErrors": []
+}

@@ -21,11 +21,13 @@ import { Wordmark } from './wordmark.js'
 import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
+export type ConversationCollection = 'projects' | 'recents'
 export function Sidebar({
 	projects,
 	conversations,
 	projectId,
 	sessionId,
+	conversationCollection,
 	threads,
 	open,
 	opening,
@@ -41,6 +43,7 @@ export function Sidebar({
 	conversations: ConversationView[]
 	projectId: string
 	sessionId: string
+	conversationCollection: ConversationCollection
 	threads: Record<string, ThreadState>
 	open: boolean
 	opening: boolean
@@ -50,7 +53,7 @@ export function Sidebar({
 	onOpenProject: () => void
 	onNewConversation: () => void
 	onProject: (id: string) => void
-	onConversation: (view: ConversationView) => void
+	onConversation: (view: ConversationView, collection: ConversationCollection) => void
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
@@ -73,13 +76,13 @@ export function Sidebar({
 		.filter((item, index) => index < 10 || item.id === sessionId || threads[item.id]?.running)
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
-		: ''
+		: projectId
 	useLayoutEffect(() => {
-		if (!activeProjectId || !sessionId) return
+		if (!activeProjectId || (sessionId && conversationCollection === 'recents')) return
 		setCollapsedProjects((current) =>
-			current[activeProjectId] ? { ...current, [activeProjectId]: false } : current,
+			current[activeProjectId] !== false ? { ...current, [activeProjectId]: false } : current,
 		)
-	}, [activeProjectId, sessionId])
+	}, [activeProjectId, sessionId, conversationCollection])
 	return (
 		<>
 			{open && (
@@ -179,17 +182,17 @@ export function Sidebar({
 								key={project.id}
 								className="sidebar-project-group"
 								data-project-group={project.id}
-								open={!collapsedProjects[project.id]}
+								open={collapsedProjects[project.id] === false}
 								onOpenChange={(expanded) =>
 									setCollapsedProjects((current) => ({ ...current, [project.id]: !expanded }))
 								}
 							>
 								<div
 									className="sidebar-project-heading"
-									data-selected={projectId === project.id || undefined}
+									data-selected={(!sessionId && projectId === project.id) || undefined}
 								>
 									<CollapsibleTrigger
-										aria-label={`${collapsedProjects[project.id] ? 'Expand' : 'Collapse'} ${project.name} conversations`}
+										aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
 										render={
 											<Button
 												variant="ghost-muted"
@@ -214,16 +217,6 @@ export function Sidebar({
 										}}
 									>
 										<span className="sidebar-project-name">{project.name}</span>
-										<span
-											className={`connection-dot ${project.status}`}
-											aria-label={
-												project.status === 'ready'
-													? 'Connected'
-													: project.status === 'error'
-														? 'Connection failed'
-														: 'Connecting'
-											}
-										/>
 									</button>
 								</div>
 								<CollapsiblePanel className="sidebar-project-panel">
@@ -232,11 +225,12 @@ export function Sidebar({
 										project={project}
 										threads={threads}
 										sessionId={sessionId}
+										active={conversationCollection === 'projects'}
 										expanded={Boolean(expandedLists[project.id])}
 										onExpandedChange={(expanded) =>
 											setExpandedLists((current) => ({ ...current, [project.id]: expanded }))
 										}
-										onConversation={onConversation}
+										onConversation={(view) => onConversation(view, 'projects')}
 									/>
 								</CollapsiblePanel>
 							</Collapsible>
@@ -261,7 +255,8 @@ export function Sidebar({
 								projects={projectById}
 								threads={threads}
 								sessionId={sessionId}
-								onConversation={onConversation}
+								active={conversationCollection === 'recents'}
+								onConversation={(view) => onConversation(view, 'recents')}
 							/>
 						</section>
 					)}
@@ -276,6 +271,7 @@ function ThreadList({
 	project,
 	threads,
 	sessionId,
+	active,
 	expanded,
 	onExpandedChange,
 	onConversation,
@@ -284,6 +280,7 @@ function ThreadList({
 	project: ProjectView
 	threads: Record<string, ThreadState>
 	sessionId: string
+	active: boolean
 	expanded: boolean
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
@@ -306,7 +303,7 @@ function ThreadList({
 					conversation={item}
 					project={project}
 					thread={threads[item.id]}
-					active={item.id === sessionId}
+					active={active && item.id === sessionId}
 					onClick={() => onConversation(item)}
 				/>
 			))}
@@ -331,12 +328,14 @@ function RecentList({
 	projects,
 	threads,
 	sessionId,
+	active,
 	onConversation,
 }: {
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
 	threads: Record<string, ThreadState>
 	sessionId: string
+	active: boolean
 	onConversation: (view: ConversationView) => void
 }) {
 	const list = useThreadListMotion()
@@ -354,7 +353,7 @@ function RecentList({
 						conversation={item}
 						project={project}
 						thread={threads[item.id]}
-						active={item.id === sessionId}
+						active={active && item.id === sessionId}
 						onClick={() => onConversation(item)}
 					/>
 				) : null

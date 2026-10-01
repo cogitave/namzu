@@ -1,0 +1,125 @@
+{
+  "name": "narrow-light-project-selected-reduced",
+  "width": 600,
+  "height": 540,
+  "dark": false,
+  "reduced": true,
+  "overflow": false,
+  "active": [
+    {
+      "id": "sample-thread-1",
+      "collection": "project"
+    }
+  ],
+  "folderHighlights": [],
+  "folderCurrent": [],
+  "groups": [
+    {
+      "id": "sample-docs",
+      "expanded": "false"
+    },
+    {
+      "id": "sample-workspace",
+      "expanded": "false"
+    },
+    {
+      "id": "sample-app",
+      "expanded": "true"
+    }
+  ],
+  "projectDots": 0,
+  "backgroundOpen": "false",
+  "header": [
+    "Background work",
+    "Show changes",
+    "Project context"
+  ],
+  "spinners": [
+    {
+      "id": "sample-thread-1",
+      "collection": "project",
+      "animation": "none"
+    },
+    {
+      "id": "sample-thread-1",
+      "collection": "recent",
+      "animation": "none"
+    }
+  ],
+  "api": {
+    "reads": [
+      "sample-app",
+      "sample-app",
+      "sample-docs",
+      "sample-workspace",
+      "sample-app",
+      "sample-docs",
+      "sample-app"
+    ],
+    "opens": [
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-2",
+        "token": "pending-failed"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-2",
+        "token": "stale-open"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-3",
+        "token": null
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "token": null
+      }
+    ],
+    "completed": [
+      "pending-failed",
+      "stale-open"
+    ],
+    "events": [
+      {
+        "kind": "connection",
+        "project": {
+          "id": "sample-app",
+          "name": "Sample app",
+          "path": "/sample/app",
+          "trusted": true,
+          "status": "ready"
+        },
+        "revision": 1
+      },
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-1",
+        "running": true,
+        "queued": [],
+        "revision": 1
+      }
+    ],
+    "forbidden": {
+      "send": 0,
+      "cancel": 0,
+      "approve": 0,
+      "stopJob": 0,
+      "pluginChanges": 0,
+      "openProject": 0,
+      "newConversation": 0
+    }
+  }
+}
