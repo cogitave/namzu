@@ -101,7 +101,10 @@ it('reconnects the same project and reattaches its conversation without replayin
 	const failed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 	owner.send(a.id, 'Break connection')
 	await failed
-	expect(await owner.reconnect(project.id)).toMatchObject({ id: project.id, status: 'ready' })
+	expect(await owner.reconnect(project.id)).toMatchObject({
+		id: project.id,
+		status: 'ready',
+	})
 	const history = await owner.openConversation(project.id, a.id)
 	expect(history.thread).toMatchObject({
 		running: false,
@@ -151,7 +154,10 @@ it('keeps drafts available during connection failure and restores them after rec
 	expect((await owner.openConversation(project.id, session.id)).messages).toEqual([
 		{ role: 'user', text: 'Break connection' },
 	])
-	expect(await owner.providers(project.id, session.id)).toEqual({ available: [], selected: null })
+	expect(await owner.providers(project.id, session.id)).toEqual({
+		available: [],
+		selected: null,
+	})
 	expect(() => owner.send(session.id, 'Do not pretend this connected')).toThrow(
 		'Reopen this project',
 	)
@@ -217,4 +223,19 @@ it('edits and removes queued identities without overwriting a draft or another c
 	expect(owner.takeQueued(a.id, queue[1]?.id)).toBe('Repeated queued text')
 	expect(owner.draft(a.id)).toBe('Repeated queued text')
 	expect((await owner.openConversation(project.id, a.id)).thread?.queued).toEqual([])
+})
+
+it('keeps project landing drafts separate from conversations without creating a session', async () => {
+	const { owner } = harness()
+	const project = await owner.openProject(process.cwd())
+	const landing = `project:${project.id}`
+	owner.saveDraft(landing, 'My first unsent project prompt')
+	expect(owner.draft(landing)).toBe('My first unsent project prompt')
+	expect(await owner.listConversations(project.id)).toEqual([])
+	const conversation = await owner.newConversation(project.id)
+	owner.saveDraft(conversation.id, 'Different conversation draft')
+	expect(owner.draft(landing)).toBe('My first unsent project prompt')
+	expect(owner.draft(conversation.id)).toBe('Different conversation draft')
+	expect(() => owner.saveDraft('project:unknown', 'Rejected')).toThrow('Unknown project')
+	expect(() => owner.saveDraft(landing, 'x'.repeat(50_001))).toThrow('50,000')
 })

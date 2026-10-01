@@ -1,0 +1,169 @@
+{
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelIo": "scripted",
+  "noExternalNetwork": true,
+  "root": "/tmp/namzu-shell-preview-2V3i4F",
+  "windowChrome": {
+    "platform": "linux",
+    "height": 32
+  },
+  "headerButtonHierarchy": true,
+  "railButtonHierarchy": true,
+  "workspaceMenuFocusReturn": true,
+  "singleNewConversationButton": true,
+  "wideProjectsSidebarCanCollapse": true,
+  "actualBackForwardRestoresDraftOwners": true,
+  "starterActionsPreserveAuthoredDraft": true,
+  "landingBeforeSession": true,
+  "projectDraftReload": true,
+  "projectDraftSurvivesCatalogFailure": true,
+  "projectProviderAdmissionScoped": true,
+  "newActionsDoNotCreate": true,
+  "imeDoesNotSubmit": true,
+  "firstSendCreatesExactlyOne": true,
+  "newerTypingPreserved": true,
+  "consumedProjectDraftCleared": true,
+  "capturedNavigationTarget": true,
+  "retryKeepsCreatedIdentity": true,
+  "realApproval": true,
+  "dragRegionAndMenus": true,
+  "rendererNodeDisabled": true,
+  "darkLight": true,
+  "narrowPersistentRail": true,
+  "narrowDrawerOutsideClose": true,
+  "narrowDrawerFocusReturn": true,
+  "narrowAriaMatchesVisibility": true,
+  "reducedMotion": true,
+  "noOverflow": true,
+  "createdSessionIds": [
+    "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+    "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+    "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3"
+  ],
+  "calls": [
+    {
+      "method": "newConversation",
+      "values": [
+        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+      ],
+      "result": {
+        "id": "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "title": "New conversation",
+        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
+        "updatedAt": "2026-10-01T09:47:57.627Z"
+      }
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "Run the foreground fixture."
+      ]
+    },
+    {
+      "method": "newConversation",
+      "values": [
+        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+      ],
+      "result": {
+        "id": "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "title": "New conversation",
+        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
+        "updatedAt": "2026-10-01T09:47:59.064Z"
+      }
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "The captured navigation prompt"
+      ]
+    },
+    {
+      "method": "newConversation",
+      "values": [
+        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+      ],
+      "result": {
+        "id": "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "title": "New conversation",
+        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
+        "updatedAt": "2026-10-01T09:47:59.847Z"
+      }
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "anthropic",
+        "claude-opus-4-7"
+      ],
+      "rejected": true
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "Retry the same created conversation"
+      ]
+    }
+  ],
+  "requests": [
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    }
+  ]
+}

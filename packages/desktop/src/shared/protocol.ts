@@ -39,6 +39,16 @@ export interface PermissionView {
 	projectId: string
 	calls: { id: string; name: string; input: unknown; isDestructive: boolean }[]
 }
+export type WindowMenu = 'edit' | 'view' | 'window'
+export type WindowAppearance = 'light' | 'dark'
+export interface WindowChrome {
+	platform: 'darwin' | 'win32' | 'linux' | 'other'
+	height: 32
+}
+export interface WindowMenuAnchor {
+	x: number
+	y: number
+}
 export type DesktopEvent = (
 	| { kind: 'prompt'; sessionId: string; prompt: string }
 	| {
@@ -60,6 +70,9 @@ export type DesktopEvent = (
 	| { kind: 'connection'; project: ProjectView }
 ) & { readonly revision?: number }
 export interface DesktopApi {
+	windowChrome(): Promise<WindowChrome>
+	setWindowAppearance(appearance: WindowAppearance): Promise<void>
+	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
 	projects(): Promise<ProjectView[]>
 	openProject(): Promise<ProjectView | null>
 	reconnectProject(projectId: string): Promise<ProjectView>

@@ -37,6 +37,7 @@ interface Conversation {
 export class Operator {
 	private readonly projects = new Map<string, Project>()
 	private readonly conversations = new Map<string, Conversation>()
+	private readonly projectDrafts = new Map<string, { draft: string }>()
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -46,7 +47,10 @@ export class Operator {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
 			if (session) {
-				const versioned = { ...event, revision: session.projection.revision + 1 }
+				const versioned = {
+					...event,
+					revision: session.projection.revision + 1,
+				}
 				session.projection = applyEvent(session.projection, versioned)
 				this.publish(versioned)
 				return
@@ -270,7 +274,9 @@ export class Operator {
 			} else {
 				// A never-started session has no durable CLI history to load. Keep
 				// its UI/draft owner and create only its replacement runtime slot.
-				const result = (await client.request('session/new', { cwd: project.view.path })) as {
+				const result = (await client.request('session/new', {
+					cwd: project.view.path,
+				})) as {
 					sessionId: string
 				}
 				if (session.client !== client || project.view.status !== 'ready')
@@ -350,14 +356,24 @@ export class Operator {
 		if (!session) throw new Error('Open this conversation first.')
 		return session
 	}
+	private draftOwner(ownerId: string): { draft: string } {
+		if (!ownerId.startsWith('project:')) return this.draftSession(ownerId)
+		if (!this.projects.has(ownerId.slice('project:'.length))) throw new Error('Unknown project.')
+		let owner = this.projectDrafts.get(ownerId)
+		if (!owner) {
+			owner = { draft: '' }
+			this.projectDrafts.set(ownerId, owner)
+		}
+		return owner
+	}
 	draft(sessionId: string): string {
-		return this.draftSession(sessionId).draft
+		return this.draftOwner(sessionId).draft
 	}
 	saveDraft(sessionId: string, draft: string): void {
-		const session = this.draftSession(sessionId)
+		const session = this.draftOwner(sessionId)
 		if (typeof draft !== 'string' || draft.length > 50_000)
 			throw new Error('Keep this draft under 50,000 characters.')
-		const otherCharacters = [...this.conversations.values()].reduce(
+		const otherCharacters = [...this.conversations.values(), ...this.projectDrafts.values()].reduce(
 			(total, item) => total + (item === session ? 0 : item.draft.length),
 			0,
 		)
@@ -410,7 +426,9 @@ export class Operator {
 	}
 	async cancel(sessionId: string): Promise<void> {
 		const session = this.session(sessionId)
-		await session.client.request('session/cancel', { sessionId: session.runtimeSessionId })
+		await session.client.request('session/cancel', {
+			sessionId: session.runtimeSessionId,
+		})
 	}
 	takeQueued(sessionId: string, itemId?: string): string | null {
 		const session = this.session(sessionId)
@@ -511,7 +529,10 @@ export class Operator {
 	async stopJob(sessionId: string, jobId: string): Promise<void> {
 		const session = this.session(sessionId)
 		if (typeof jobId !== 'string' || jobId.length > 400) throw new Error('Invalid job.')
-		await session.client.request('namzu/jobs/stop', { sessionId: session.runtimeSessionId, jobId })
+		await session.client.request('namzu/jobs/stop', {
+			sessionId: session.runtimeSessionId,
+			jobId,
+		})
 	}
 	async close(): Promise<void> {
 		await Promise.allSettled([...this.projects.values()].map((project) => project.client.close()))

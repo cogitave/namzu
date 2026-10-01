@@ -24,11 +24,14 @@ import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { Composer } from './composer.js'
 import { Message, MessageContent } from './message.js'
+import { NavigationRail } from './navigation-rail.js'
+import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type Appearance, Sidebar } from './sidebar.js'
 import { ToolView } from './tool-view.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { TooltipProvider } from './ui/tooltip.js'
+import { WindowTitlebar } from './window-titlebar.js'
 import { Wordmark } from './wordmark.js'
 import {
 	WorkspaceBreadcrumb,
@@ -97,6 +100,29 @@ function App() {
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
 	const [sessionId, setSessionId] = useState('')
+	const [navigationHistory, setNavigationHistory] = useState<{
+		entries: { projectId: string; sessionId: string }[]
+		index: number
+	}>({ entries: [], index: -1 })
+	const historyReplay = useRef<string | null>(null)
+	const historyBusy = useRef(false)
+	const [historyLoading, setHistoryLoading] = useState(false)
+	useEffect(() => {
+		if (!projectId) return
+		const key = `${projectId}/${sessionId}`
+		const replay = historyReplay.current === key
+		historyReplay.current = null
+		setNavigationHistory((previous) => {
+			const current = previous.entries[previous.index]
+			if (replay || (current?.projectId === projectId && current.sessionId === sessionId))
+				return previous
+			const entries = [
+				...previous.entries.slice(0, previous.index + 1),
+				{ projectId, sessionId },
+			].slice(-100)
+			return { entries, index: entries.length - 1 }
+		})
+	}, [projectId, sessionId])
 	const [threads, setThreads] = useState<Record<string, ThreadState>>({})
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
 	const draftsRef = useRef<Record<string, string>>({})
@@ -116,15 +142,33 @@ function App() {
 		available: [],
 		selected: null,
 	})
+	const [providerProjectId, setProviderProjectId] = useState('')
 	const [choices, setChoices] = useState<Record<string, { provider: string; model: string }>>({})
 	const [sideOpen, setSideOpen] = useState(false)
 	const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
 	useEffect(() => {
 		const media = window.matchMedia('(max-width: 767px)')
-		const update = () => setMobile(media.matches)
+		const update = () => {
+			setMobile(media.matches)
+			if (!media.matches) setSideOpen(false)
+		}
 		media.addEventListener('change', update)
 		return () => media.removeEventListener('change', update)
 	}, [])
+	const previousSideOpen = useRef(sideOpen)
+	useEffect(() => {
+		const wasOpen = previousSideOpen.current
+		previousSideOpen.current = sideOpen
+		if (!wasOpen || sideOpen || !mobile) return
+		const focused = document.activeElement
+		if (
+			focused === document.body ||
+			(focused instanceof HTMLElement && focused.closest('#namzu-sidebar'))
+		)
+			document
+				.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')
+				?.focus({ preventScroll: true })
+	}, [sideOpen, mobile])
 	const [sideCollapsed, setSideCollapsed] = useState(
 		() => localStorage.getItem('namzu.sidebar-collapsed') === 'true',
 	)
@@ -136,13 +180,12 @@ function App() {
 				return !value
 			})
 	}, [])
+	const previousCollapsed = useRef(sideCollapsed)
 	useEffect(() => {
+		if (previousCollapsed.current === sideCollapsed) return
+		previousCollapsed.current = sideCollapsed
 		if (window.matchMedia('(max-width: 767px)').matches) return
-		const control = document.querySelector<HTMLButtonElement>(
-			sideCollapsed
-				? 'button[aria-label="Toggle sidebar"]'
-				: 'button[aria-label="Collapse sidebar"]',
-		)
+		const control = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')
 		control?.focus({ preventScroll: true })
 	}, [sideCollapsed])
 	useEffect(() => {
@@ -175,6 +218,7 @@ function App() {
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
 	const [jobs, setJobs] = useState<JobView[]>([])
+	const [jobsSessionId, setJobsSessionId] = useState('')
 	const [jobOutput, setJobOutput] = useState('')
 	const [jobsError, setJobsError] = useState('')
 	const [jobsLoading, setJobsLoading] = useState(false)
@@ -188,10 +232,41 @@ function App() {
 	const project = projects.find((item) => item.id === projectId)
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const thread = threads[sessionId] ?? emptyThread()
-	const draft = drafts[sessionId] ?? ''
-	const choice = choices[sessionId] ?? {
-		provider: providers.selected?.id ?? providers.available[0]?.id ?? '',
-		model: providers.selected?.model ?? '',
+	const visibleJobs = jobsSessionId === sessionId ? jobs : []
+	const changes = Object.values(thread.tools).filter(
+		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
+	).length
+	const contextProps = project
+		? {
+				project,
+				changes,
+				runningShells:
+					jobsSessionId !== sessionId || jobsLoading || jobsError
+						? null
+						: visibleJobs.filter((job) => job.status === 'running').length,
+				jobsUnavailable: jobsSessionId === sessionId && Boolean(jobsError),
+				activeTools: thread.activeToolIds.length,
+				awaitingApproval: thread.permissions.length > 0,
+				running: thread.running,
+				onChanges: () => {
+					setPanelTab('changes')
+					setJobsOpen(true)
+				},
+				onJobs: () => {
+					setPanelTab('jobs')
+					setJobsOpen(true)
+				},
+			}
+		: null
+	const providerReady = providerProjectId === projectId
+	const activeProviders: ProviderView = providerReady
+		? providers
+		: { available: [], selected: null }
+	const draftOwner = sessionId || `project:${projectId}`
+	const draft = drafts[draftOwner] ?? ''
+	const choice = choices[draftOwner] ?? {
+		provider: activeProviders.selected?.id ?? activeProviders.available[0]?.id ?? '',
+		model: activeProviders.selected?.model ?? '',
 	}
 	const updateProject = useCallback(
 		(item: ProjectView) =>
@@ -260,6 +335,7 @@ function App() {
 					]
 				})
 				setProviders(available)
+				setProviderProjectId(project.id)
 			})
 			.catch((failure) => {
 				if (current) setError(errorText(failure))
@@ -269,12 +345,32 @@ function App() {
 		}
 	}, [project])
 	useEffect(() => {
+		if (!projectId || !api) return
+		let current = true
+		const owner = `project:${projectId}`
+		void api
+			.draft(owner)
+			.then((saved) => {
+				if (!current || draftsRef.current[owner] !== undefined) return
+				draftsRef.current[owner] = saved
+				setDrafts((all) => ({ ...all, [owner]: all[owner] ?? saved }))
+			})
+			.catch((failure) => {
+				if (current) setError(errorText(failure))
+			})
+		return () => {
+			current = false
+		}
+	}, [projectId])
+	useEffect(() => {
 		if (!sessionId || !api) {
 			setJobs([])
 			return
 		}
 		let current = true
 		let pending = false
+		setJobs([])
+		setJobsSessionId(sessionId)
 		setJobOutput('')
 		setJobsLoading(true)
 		setJobsError('')
@@ -285,6 +381,7 @@ function App() {
 				const rows = await api.jobs(sessionId)
 				if (current) {
 					setJobs(rows)
+					setJobsSessionId(sessionId)
 					setJobsError('')
 				}
 			} catch (failure) {
@@ -313,19 +410,13 @@ function App() {
 	}, [sessionId])
 	const newConversation = useCallback(async () => {
 		if (!projectId) return
-		const generation = ++navigation.current
-		try {
-			const view = await api.newConversation(projectId)
-			setConversations((all) => [view, ...all])
-			setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
-			if (generation !== navigation.current) return
-			setSessionId(view.id)
-			setSideOpen(false)
-			input.current?.focus()
-		} catch (failure) {
-			if (generation === navigation.current) throw failure
-		}
+		navigation.current += 1
+		setSessionId('')
+		setSideOpen(false)
+		setJobsOpen(false)
+		input.current?.focus()
 	}, [projectId])
+
 	const openProject = useCallback(async () => {
 		const generation = ++navigation.current
 		setLoading(true)
@@ -405,6 +496,50 @@ function App() {
 			if (snapshotRead.current === read) snapshotRead.current = null
 		}
 	}
+	const navigateHistory = async (direction: -1 | 1) => {
+		if (historyBusy.current) return
+		const index = navigationHistory.index + direction
+		const destination = navigationHistory.entries[index]
+		if (!destination) return
+		historyBusy.current = true
+		setHistoryLoading(true)
+		const key = `${destination.projectId}/${destination.sessionId}`
+		historyReplay.current = key
+		const generation = navigation.current + 1
+		try {
+			if (destination.sessionId) {
+				const view = conversations.find(
+					(item) => item.id === destination.sessionId && item.projectId === destination.projectId,
+				)
+				if (!view) throw new Error('This conversation is no longer available.')
+				await openConversation(view)
+			} else {
+				navigation.current += 1
+				setProjectId(destination.projectId)
+				setSessionId('')
+				setSideOpen(false)
+			}
+			if (generation === navigation.current) {
+				setNavigationHistory((previous) => ({ ...previous, index }))
+				setJobsOpen(false)
+			}
+		} catch (failure) {
+			if (historyReplay.current === key) historyReplay.current = null
+			throw failure
+		} finally {
+			if (generation !== navigation.current) historyReplay.current = null
+			historyBusy.current = false
+			setHistoryLoading(false)
+		}
+	}
+	const revealSidebar = (selector: string) => {
+		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
+		setSideCollapsed(false)
+		localStorage.setItem('namzu.sidebar-collapsed', 'false')
+		requestAnimationFrame(() =>
+			document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }),
+		)
+	}
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
 		draftsRef.current[target] = value
@@ -436,29 +571,61 @@ function App() {
 	const send = async () => {
 		if (
 			!draft.trim() ||
-			!sessionId ||
-			sendingRef.current.has(sessionId) ||
-			project?.status !== 'ready'
+			!project?.trusted ||
+			project.status !== 'ready' ||
+			!choice.provider ||
+			!providerReady ||
+			sendingRef.current.has(draftOwner)
 		)
 			return
-		const target = sessionId
+		const owner = draftOwner
 		const prompt = draft
-		sendingRef.current.add(target)
-		setSending((all) => ({ ...all, [target]: true }))
+		const route = { ...choice }
+		const generation = navigation.current
+		let target = sessionId
+		sendingRef.current.add(owner)
+		setSending((all) => ({ ...all, [owner]: true }))
 		try {
-			if (!thread.running) await api.selectProvider(target, choice.provider, choice.model)
+			if (!target) {
+				const view = await api.newConversation(project.id)
+				target = view.id
+				setConversations((all) => [view, ...all])
+				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
+				// The created conversation owns retries, even if route selection fails.
+				// Move typing that arrived during creation rather than replacing it.
+				const latest =
+					generation === navigation.current ? (draftsRef.current[owner] ?? prompt) : prompt
+				draftsRef.current[target] = latest
+				setDrafts((all) => ({ ...all, [target]: latest }))
+				setChoices((all) => ({ ...all, [target]: route }))
+				sendingRef.current.add(target)
+				setSending((all) => ({ ...all, [target]: true }))
+				const draftWrites: Promise<void>[] = []
+				if (generation === navigation.current) {
+					draftWrites.push(api.saveDraft(owner, ''))
+					draftsRef.current[owner] = ''
+					setDrafts((all) => ({ ...all, [owner]: '' }))
+					setSessionId(target)
+					setSideOpen(false)
+				}
+				// Admit both saves before yielding to newer typing in the promoted editor.
+				draftWrites.push(api.saveDraft(target, latest))
+				await Promise.all(draftWrites)
+			}
+			if (!thread.running) await api.selectProvider(target, route.provider, route.model)
 			await api.send(target, prompt)
-			// A slow route acknowledgement cannot erase typing that followed Send.
 			if (draftsRef.current[target] === prompt) {
 				draftsRef.current[target] = ''
 				setDrafts((all) => ({ ...all, [target]: '' }))
 			}
-			follow.current = true
+			if (activeSession.current === target) follow.current = true
 		} finally {
+			sendingRef.current.delete(owner)
 			sendingRef.current.delete(target)
-			setSending((all) => ({ ...all, [target]: false }))
+			setSending((all) => ({ ...all, [owner]: false, [target]: false }))
 		}
 	}
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.isComposing || event.keyCode === 229) return
@@ -488,6 +655,38 @@ function App() {
 	}, [sideOpen, jobsOpen, sessionId, thread.running, act, newConversation, openProject, editQueued])
 	return (
 		<div className="app" data-sidebar-collapsed={sideCollapsed}>
+			<WindowTitlebar
+				appearance={appearance}
+				onBack={() => void act(() => navigateHistory(-1))}
+				onForward={() => void act(() => navigateHistory(1))}
+				canGoBack={!historyLoading && navigationHistory.index > 0}
+				canGoForward={
+					!historyLoading && navigationHistory.index < navigationHistory.entries.length - 1
+				}
+				onToggleSidebar={toggleSidebar}
+				sidebarExpanded={mobile ? sideOpen : !sideCollapsed}
+				onOpenProject={() => void act(openProject)}
+				onNewConversation={() => void act(newConversation)}
+				newConversationDisabled={!project?.trusted || project.status !== 'ready'}
+				onError={setError}
+			/>
+			<NavigationRail
+				home={!sessionId}
+				appearance={appearance}
+				onHome={() => {
+					navigation.current += 1
+					setSessionId('')
+					setJobsOpen(false)
+					setSideOpen(false)
+				}}
+				onProjects={() => revealSidebar('.sidebar-projects .project-row')}
+				onConversations={() => revealSidebar('input[aria-label="Search conversations"]')}
+				onAppearance={() =>
+					setAppearance((value) =>
+						value === 'system' ? 'dark' : value === 'dark' ? 'light' : 'system',
+					)
+				}
+			/>
 			<Sidebar
 				projects={projects}
 				conversations={conversations}
@@ -496,14 +695,7 @@ function App() {
 				threads={threads}
 				open={sideOpen}
 				collapsed={sideCollapsed}
-				onToggle={toggleSidebar}
 				opening={loading}
-				appearance={appearance}
-				onAppearance={() =>
-					setAppearance((value) =>
-						value === 'system' ? 'dark' : value === 'dark' ? 'light' : 'system',
-					)
-				}
 				onClose={() => setSideOpen(false)}
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
@@ -516,18 +708,6 @@ function App() {
 			/>
 			<main className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}>
 				<WorkspacePageHeader className="topbar">
-					<Button
-						type="button"
-						variant="ghost-muted"
-						size="icon-sm"
-						className={`icon-button sidebar-open-control ${sideCollapsed ? 'is-collapsed' : ''}`}
-						aria-label="Toggle sidebar"
-						aria-expanded={mobile ? sideOpen : !sideCollapsed}
-						aria-controls="namzu-sidebar"
-						onClick={toggleSidebar}
-					>
-						<Icon name="menu" />
-					</Button>
 					<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
 						<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
 							<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
@@ -551,7 +731,11 @@ function App() {
 						size="sm"
 						className="jobs-button"
 						aria-label="Background work"
-						aria-description={`${jobs.filter((job) => job.status === 'running').length} running shells in this conversation`}
+						aria-description={
+							jobsSessionId !== sessionId || jobsLoading || jobsError
+								? 'Background work has not been confirmed'
+								: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
+						}
 						onClick={() => {
 							setPanelTab('jobs')
 							setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
@@ -560,8 +744,8 @@ function App() {
 					>
 						<TerminalIcon aria-hidden="true" className="size-4" />
 						<span className="jobs-button-label">Background work</span>
-						{jobs.some((job) => job.status === 'running') && (
-							<span>{jobs.filter((job) => job.status === 'running').length}</span>
+						{visibleJobs.some((job) => job.status === 'running') && (
+							<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
 						)}
 					</Button>
 					<Button
@@ -578,6 +762,9 @@ function App() {
 					>
 						<FileDiffIcon className="size-4" />
 					</Button>
+					{contextProps && thread.messages.length > 0 && !jobsOpen && (
+						<ProjectContextMenu {...contextProps} />
+					)}
 				</WorkspacePageHeader>
 				{(error || project?.error) && (
 					<div className="connection-error">
@@ -643,28 +830,15 @@ function App() {
 							Review folder access
 						</Button>
 					</Empty>
-				) : !sessionId ? (
-					<Empty className="welcome">
-						<EmptyHeader className="max-w-lg px-8">
-							<EmptyTitle>
-								<h1>Start something new</h1>
-							</EmptyTitle>
-							<EmptyDescription>
-								Choose a conversation, or give Namzu something new to work on.
-							</EmptyDescription>
-						</EmptyHeader>
-						<Button
-							type="button"
-							className="primary"
-							size="default"
-							onClick={() => void act(newConversation)}
-						>
-							<Icon name="plus" />
-							New conversation
-						</Button>
-					</Empty>
 				) : (
-					<div className="chat-stage">
+					<div
+						className="chat-stage"
+						data-empty={thread.messages.length === 0}
+						data-context-card={!jobsOpen && thread.messages.length > 0}
+					>
+						{contextProps && thread.messages.length > 0 && !jobsOpen && (
+							<ProjectContextCard {...contextProps} />
+						)}
 						<div
 							className="transcript"
 							ref={transcript}
@@ -754,15 +928,17 @@ function App() {
 							}
 							projectName={project.name}
 							projectPath={project.path}
+							onOpenProject={() => void act(openProject)}
 							empty={thread.messages.length === 0}
 							draft={draft}
-							onDraftChange={(value) => changeDraft(sessionId, value)}
-							providers={providers}
-							connected={project.status === 'ready'}
+							onDraftChange={(value) => changeDraft(draftOwner, value)}
+							providers={activeProviders}
+							connected={project.status === 'ready' && providerReady}
+							providersLoading={!providerReady}
 							choice={choice}
-							onChoiceChange={(value) => setChoices((all) => ({ ...all, [sessionId]: value }))}
+							onChoiceChange={(value) => setChoices((all) => ({ ...all, [draftOwner]: value }))}
 							running={thread.running}
-							sending={sending[sessionId] ?? false}
+							sending={sending[draftOwner] ?? false}
 							queued={thread.queued}
 							queuedItems={thread.queuedItems}
 							editingQueued={queueEditing[sessionId] ?? false}
@@ -829,10 +1005,10 @@ function App() {
 								</p>
 							) : jobsLoading ? (
 								<p className="quiet">Loading background work…</p>
-							) : jobs.length === 0 ? (
+							) : visibleJobs.length === 0 ? (
 								<p className="quiet">No background shells in this conversation.</p>
 							) : (
-								jobs.map((job) => (
+								visibleJobs.map((job) => (
 									<div className="job" key={job.id}>
 										<strong>{job.status}</strong>
 										<code>{job.command}</code>

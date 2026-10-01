@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** The private desktop preview integrates native window controls into its title bar, adds persistent icon navigation and compact project/conversation lists, and lets the blank project composer create its conversation on first Send while retaining authored drafts. Its expanded composer keeps model controls mounted, and a responsive project context card opens actual change previews and session-owned background work.
+
 - **Fix** [AG-UI interrupts](sdk/ag-ui.md) retain buffered tool starts, progress and parked questions without falsely expiring the waiting call; only matching completion or turn settlement invalidates it. `.changeset/ag-ui-live-interrupt-liveness.md`, **patch** for `@namzu/ag-ui`.
 
 - **Fix** [Desktop application](cli/desktop.md) aligns the sidebar header, compact and expanded composer, attached approval surface, typography and motion with verified source components while preserving Namzu's wordmark and phosphor palette. Tool receipts retain turn identity and conversation order; native checks cover actual font faces, composition keys, narrow navigation, drafts, queue actions, stale responses and reconnect. The package remains a private source preview.

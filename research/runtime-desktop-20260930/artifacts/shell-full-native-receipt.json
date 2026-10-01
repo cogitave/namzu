@@ -1,0 +1,319 @@
+{
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelIo": "scripted",
+  "actualShell": [
+    "foreground",
+    "background",
+    "stop"
+  ],
+  "actualFileDiff": true,
+  "queuedNextTurn": true,
+  "reloadRetainsReviewAndQueue": true,
+  "selectedModelReachedKernel": true,
+  "historySurvivesAppRestart": true,
+  "imeDoesNotSubmit": true,
+  "shiftEnterNewline": true,
+  "modelMenuKeyboard": true,
+  "search": true,
+  "themePersisted": true,
+  "responsiveMenu": true,
+  "referenceGeometry": {
+    "viewport": {
+      "width": 1180,
+      "height": 820
+    },
+    "rootFont": "16px",
+    "sidebar": {
+      "width": 288,
+      "height": 788,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "radius": "0px",
+      "background": "rgb(22, 22, 22)"
+    },
+    "topbar": {
+      "width": 836,
+      "height": 52,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "radius": "0px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "composer": {
+      "width": 768,
+      "height": 107.5,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "radius": "22px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "message": {
+      "width": 167.984375,
+      "height": 22.75,
+      "fontSize": "14px",
+      "lineHeight": "22.75px",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "radius": "0px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "model": {
+      "width": 162.65625,
+      "height": 28,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "radius": "8px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "code": {
+      "width": 140.40625,
+      "height": 13,
+      "fontSize": "13px",
+      "lineHeight": "21.125px",
+      "fontFamily": "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace",
+      "radius": "0px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "canvas": "rgb(18, 18, 18)"
+  },
+  "panelMotion": {
+    "frames": [
+      {
+        "property": "transform",
+        "duration": 220,
+        "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+      },
+      {
+        "property": "visibility",
+        "duration": 220,
+        "easing": "ease"
+      }
+    ],
+    "midTransform": "matrix(1, 0, 0, 1, 19.1386, 0)",
+    "endTransform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  "reducedPanelMotion": {
+    "frames": [],
+    "midTransform": "matrix(1, 0, 0, 1, 0, 0)",
+    "endTransform": "matrix(1, 0, 0, 1, 0, 0)"
+  },
+  "cliWordmark": true,
+  "permissions": "three separate approvals",
+  "rendererNode": false,
+  "overflow": false,
+  "requests": [
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "user"
+      ],
+      "purpose": "agent"
+    }
+  ],
+  "root": "/tmp/namzu-native-smoke-r4C4O0",
+  "orderedRows": [
+    "user",
+    "tool",
+    "assistant",
+    "user",
+    "tool",
+    "assistant",
+    "user",
+    "tool",
+    "assistant"
+  ],
+  "expandedEditorPx": 40,
+  "contextGeometry": {
+    "card": {
+      "x": 1349.8125,
+      "y": 107,
+      "width": 300,
+      "height": 176,
+      "top": 107,
+      "right": 1649.8125,
+      "bottom": 283,
+      "left": 1349.8125
+    },
+    "transcript": {
+      "x": 459.40625,
+      "y": -164,
+      "width": 768,
+      "height": 886.609375,
+      "top": -164,
+      "right": 1227.40625,
+      "bottom": 722.609375,
+      "left": 459.40625
+    },
+    "composer": {
+      "x": 459.40625,
+      "y": 747,
+      "width": 768,
+      "height": 94,
+      "top": 747,
+      "right": 1227.40625,
+      "bottom": 841,
+      "left": 459.40625
+    },
+    "workspaceWidth": 1356
+  },
+  "sidebarCollapse": true,
+  "narrowAriaMatchesVisibility": true,
+  "imeEscapePreservesReview": true,
+  "composerFocus": {
+    "startHeight": 94,
+    "endHeight": 94,
+    "pickerRetained": true,
+    "before": {
+      "x": 919.34375,
+      "y": 718,
+      "width": 162.65625,
+      "height": 28,
+      "top": 718,
+      "right": 1082,
+      "bottom": 746,
+      "left": 919.34375
+    },
+    "after": {
+      "x": 919.34375,
+      "y": 718,
+      "width": 162.65625,
+      "height": 28,
+      "top": 718,
+      "right": 1082,
+      "bottom": 746,
+      "left": 919.34375
+    }
+  },
+  "reducedComposerFocus": {
+    "startHeight": 94,
+    "endHeight": 94,
+    "pickerRetained": true,
+    "before": {
+      "x": 919.34375,
+      "y": 718,
+      "width": 162.65625,
+      "height": 28,
+      "top": 718,
+      "right": 1082,
+      "bottom": 746,
+      "left": 919.34375
+    },
+    "after": {
+      "x": 919.34375,
+      "y": 718,
+      "width": 162.65625,
+      "height": 28,
+      "top": 718,
+      "right": 1082,
+      "bottom": 746,
+      "left": 919.34375
+    }
+  },
+  "sourceComparisons": false,
+  "typographyReceipts": []
+}

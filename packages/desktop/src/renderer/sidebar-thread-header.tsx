@@ -30,6 +30,7 @@ export interface SidebarThreadHeaderProps {
 	searchFieldRef?: RefObject<HTMLDivElement | null>
 	/** Without projects there is nothing to scope, so those controls stay out. */
 	hasProjects: boolean
+	hideActions?: boolean
 	/** The project scope combobox, rendered as the first icon of the group. */
 	projectScope: ReactNode
 	onNewProject: () => void
@@ -51,6 +52,7 @@ export interface SidebarThreadHeaderProps {
 export function SidebarThreadHeader({
 	searchFieldRef,
 	hasProjects,
+	hideActions = false,
 	projectScope,
 	onNewProject,
 	onNewThread,
@@ -110,31 +112,35 @@ export function SidebarThreadHeader({
 				{hasProjects ? (
 					<>
 						{projectScope}
-						<SidebarHeaderIconButton label="Open a project" onClick={onNewProject}>
-							<FolderPlusIcon />
-						</SidebarHeaderIconButton>
+						{!hideActions && (
+							<SidebarHeaderIconButton label="Open a project" onClick={onNewProject}>
+								<FolderPlusIcon />
+							</SidebarHeaderIconButton>
+						)}
 					</>
 				) : null}
-				<SidebarHeaderIconButton
-					label="New thread"
-					tooltip={
-						showNewThreadInProjectHint ? (
-							<span className="flex flex-col gap-0.5">
-								<span>{newThreadLabel}</span>
-								<span className="text-muted-foreground">
-									New thread in current project: Shift+click
-									{newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ''}
+				{!hideActions && (
+					<SidebarHeaderIconButton
+						label="New thread"
+						tooltip={
+							showNewThreadInProjectHint ? (
+								<span className="flex flex-col gap-0.5">
+									<span>{newThreadLabel}</span>
+									<span className="text-muted-foreground">
+										New thread in current project: Shift+click
+										{newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ''}
+									</span>
 								</span>
-							</span>
-						) : (
-							newThreadLabel
-						)
-					}
-					disabled={newThreadDisabled}
-					onClick={onNewThread}
-				>
-					<SquarePenIcon />
-				</SidebarHeaderIconButton>
+							) : (
+								newThreadLabel
+							)
+						}
+						disabled={newThreadDisabled}
+						onClick={onNewThread}
+					>
+						<SquarePenIcon />
+					</SidebarHeaderIconButton>
+				)}
 			</div>
 		</div>
 	)

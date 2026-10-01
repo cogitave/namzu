@@ -34,18 +34,34 @@ The app opens in its dark appearance. The sidebar appearance control cycles
 through light, system and dark; the local choice survives window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
-The sidebar header has a fading phosphor blueprint surface. Collapse it using
-the header control or Ctrl/Cmd+B; the desktop preference survives reload.
-On narrow windows the same control opens the navigation drawer.
-Project cards show conversation title, last activity and execution/review state.
-The blank conversation centres its composer; the first message docks it with a
+The 32px integrated title bar keeps the operating system’s caption controls and
+resize frame. Back and Forward revisit the window’s admitted project and
+conversation views, with no prompt replay; the adjacent panel control toggles
+the sidebar. File provides project and conversation actions; Edit, View and
+Window open native menus. Native caption colours follow the chosen appearance.
+The left icon rail remains available when the conversation sidebar is collapsed.
+Home, Projects and Conversations have separate destinations; the sidebar brand
+opens its workspace menu. The labelled New conversation row is the primary
+creation action, rather than duplicating it across icon groups.
+Home opens the selected project’s blank composer, and the sidebar control or
+Ctrl/Cmd+B toggles its list. On narrow windows the same control opens a drawer
+below the title bar. Projects and compact conversation rows have separate
+sections; running work, pending reviews and errors remain visible on their rows.
+The blank project or conversation centres its composer; the first message docks it with a
 short transition. The composer keeps its project context in a lower strip.
-In an existing conversation, an unfocused single-line composer rests at 32px;
-focusing it or writing multiple lines expands the input. Its model control moves
-into the context strip while resting. Height motion moves the actual dock and
-reserved transcript space together rather than covering messages with a moving
-decoration.
-The sidebar lists conversation cards with their project on each card. Its project
+The message box remains expanded, with the model and Send controls together on
+its lower row. Model popups retain their mounted control while focus moves into
+the menu. The project strip can open the native folder chooser. The first-message
+transition moves the composer from the centre to the bottom and respects reduced
+motion; merely focusing the editor does not change its layout.
+A project context card sits beside the conversation when the workspace itself is
+at least 1280px wide. Smaller workspaces expose it through the Project context
+menu. It shows completed change receipts, verified background shells and current
+activity, and opens the existing Changes or Background work detail pane. Pending
+or failed shell reads remain unconfirmed rather than showing a stale count from
+another conversation. Opening a detail pane returns the transcript to the
+available width. Unsupported artifact and child-session inventories are absent.
+The sidebar lists project folders and compact conversation rows. Its project
 menu selects a folder and filters the list. Search filters loaded conversation titles. The model control is one menu inside the composer; the
 provider and exact model choice are edited there before the next message.
 
@@ -76,7 +92,13 @@ Open a folder. If it is not already trusted by Namzu, the app shows its exact
 canonical path and a native confirmation before allowing project access. A new
 protocol session alone never grants trust. Cancel keeps the folder untrusted.
 
-Choose a saved conversation or start a new one. Saved history comes from Namzu's
+Choose a saved conversation, or type directly in the selected project’s blank
+composer. New conversation and Home return to this blank composer; a runtime
+conversation is created only when its first prompt is sent. Suggestions fill the
+editor for review rather than submitting a prompt. Navigation during creation
+leaves the submitted prompt bound to its captured project and model; it cannot
+redirect that prompt or switch the newly selected conversation. A failed provider
+selection retains the created conversation and its draft for retry. Saved history comes from Namzu's
 existing scoped logs and index; archived conversations cannot be resumed as
 writers. The app stores project paths in its own preferences, not conversation
 records or provider secrets. Historical display is a bounded text
@@ -112,7 +134,14 @@ latest (Alt+Up) returns an authored queued prompt to the composer; a non-empty
 draft must be sent or cleared first, so editing cannot discard unrelated text.
 A message that has already started cannot be edited or removed from the queue.
 
-Unsent drafts belong to their conversation in the main process. Reopening a
+Unsent drafts belong to their conversation or blank project in the main process.
+A blank project draft survives renderer reload without creating a session,
+even when its conversation catalogue cannot currently be read. A newly selected
+project waits for its own provider catalogue before allowing Send; the previous
+project’s model route is never used during that load. Suggestions are hidden
+when a draft is already authored so choosing an example cannot replace it.
+Typing that arrives while the first conversation is being created moves into
+that conversation’s draft and is preserved when the earlier prompt is sent. Reopening a
 conversation after a window reload restores its acknowledged draft, even while
 the runtime connection is unavailable. Each draft accepts at most 50,000
 characters; the application retains at most 1,000,000 draft characters across

@@ -1,5 +1,14 @@
-import { ArrowUpIcon, ChevronDownIcon, FolderIcon, ListPlusIcon, SquareIcon } from 'lucide-react'
-import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+	ArrowUpIcon,
+	ChevronDownIcon,
+	FileDiffIcon,
+	FolderIcon,
+	ListPlusIcon,
+	ListTodoIcon,
+	SearchIcon,
+	SquareIcon,
+} from 'lucide-react'
+import { type RefObject, useLayoutEffect, useRef } from 'react'
 import type { PermissionView, ProviderView, QueuedMessageView } from '../shared/protocol.js'
 import { ComposerApproval } from './composer-approval.js'
 import { ComposerControl } from './composer-control.js'
@@ -16,6 +25,7 @@ export function Composer({
 	onDraftChange,
 	providers,
 	connected,
+	providersLoading = false,
 	choice,
 	onChoiceChange,
 	running,
@@ -29,6 +39,7 @@ export function Composer({
 	onRemoveQueued,
 	projectName,
 	projectPath,
+	onOpenProject,
 	empty,
 	permissions,
 	onApproval,
@@ -38,6 +49,7 @@ export function Composer({
 	onDraftChange: (draft: string) => void
 	providers: ProviderView
 	connected: boolean
+	providersLoading?: boolean
 	choice: ModelChoice
 	onChoiceChange: (choice: ModelChoice) => void
 	running: boolean
@@ -51,52 +63,12 @@ export function Composer({
 	onRemoveQueued: (itemId: string) => void
 	projectName: string
 	projectPath: string
+	onOpenProject: () => void
 	empty: boolean
 	permissions: PermissionView[]
 	onApproval: (permission: PermissionView, approved: boolean) => void
 }) {
-	const [focused, setFocused] = useState(false)
-	const resting = !empty && !focused && !draft.includes('\n') && permissions.length === 0
 	const overlay = useRef<HTMLDivElement>(null)
-	const previousHeight = useRef<{ height: number; resting: boolean; approvals: number } | null>(
-		null,
-	)
-	useEffect(() => {
-		const blurOutside = (event: PointerEvent) => {
-			if (
-				event.target instanceof Element &&
-				!overlay.current?.contains(event.target) &&
-				!event.target.closest('[data-slot="popover-popup"]')
-			)
-				setFocused(false)
-		}
-		document.addEventListener('pointerdown', blurOutside)
-		return () => document.removeEventListener('pointerdown', blurOutside)
-	}, [])
-	useLayoutEffect(() => {
-		const main = overlay.current?.querySelector<HTMLElement>('[data-chat-composer-main-surface]')
-		if (!main) return
-		const nextHeight = main.getBoundingClientRect().height
-		const previous = previousHeight.current
-		previousHeight.current = { height: nextHeight, resting, approvals: permissions.length }
-		if (
-			previous === null ||
-			previous.height === nextHeight ||
-			window.matchMedia('(prefers-reduced-motion: reduce)').matches
-		)
-			return
-		// Animate the actual layout height so the dock and transcript reserve
-		// move together. The resize observer below tracks every intermediate frame.
-		const motion = main.animate(
-			[
-				{ height: `${previous.height}px`, overflow: 'clip' },
-				{ height: `${nextHeight}px`, overflow: 'clip' },
-			],
-			{ duration: 220, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' },
-		)
-		motion.id = 'namzu-composer-height'
-		return () => motion.cancel()
-	}, [resting, permissions.length])
 	const previous = useRef<{ top: number; empty: boolean } | null>(null)
 	useLayoutEffect(() => {
 		const node = overlay.current
@@ -153,8 +125,7 @@ export function Composer({
 					{empty && (
 						<div className="absolute inset-x-0 bottom-full pb-8">
 							<h1 className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
-								What should we build in <span className="text-muted-foreground">{projectName}</span>
-								?
+								What would you like to work on?
 							</h1>
 						</div>
 					)}
@@ -246,9 +217,9 @@ export function Composer({
 							<ComposerSurface.Main>
 								<div
 									data-chat-composer-body
-									data-resting={resting}
+									data-resting={false}
 									data-approval={permissions.length > 0}
-									className={`relative px-3 sm:px-4 ${resting ? 'py-2 sm:py-2 pe-14 sm:pe-14' : 'pb-2 pt-3.5 sm:pt-4'}`}
+									className="relative px-3 pt-3 pb-1 sm:px-4"
 								>
 									<Textarea
 										unstyled
@@ -258,16 +229,8 @@ export function Composer({
 										value={draft}
 										maxLength={50000}
 										disabled={editingQueued}
-										placeholder="Ask for changes, send follow-ups, or ask a question"
+										placeholder="Ask Namzu anything"
 										onChange={(event) => onDraftChange(event.target.value)}
-										onFocus={() => setFocused(true)}
-										onBlur={(event) => {
-											if (
-												!(event.relatedTarget instanceof Node) ||
-												!overlay.current?.contains(event.relatedTarget)
-											)
-												setFocused(false)
-										}}
 										onKeyDown={(event) => {
 											if (
 												event.key === 'Enter' &&
@@ -282,18 +245,16 @@ export function Composer({
 								</div>
 								<div
 									data-chat-composer-footer
-									className={`flex min-w-0 flex-nowrap items-center justify-between overflow-visible px-3 sm:px-4 ${resting ? 'absolute bottom-px right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0' : 'gap-2 pb-3 sm:pb-4 sm:gap-0'}`}
+									className="flex min-w-0 flex-nowrap items-center justify-end gap-2 overflow-visible px-3 pb-3 sm:px-4"
 								>
-									{!resting && (
-										<div className="relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-											<ModelPicker
-												providers={providers}
-												choice={choice}
-												onChange={onChoiceChange}
-												disabled={running || sending || !connected}
-											/>
-										</div>
-									)}
+									<div className="min-w-0 max-w-[calc(100%-5rem)]">
+										<ModelPicker
+											providers={providers}
+											choice={choice}
+											onChange={onChoiceChange}
+											disabled={running || sending || !connected}
+										/>
+									</div>
 									<div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
 										{running && (
 											<Tooltip>
@@ -337,20 +298,11 @@ export function Composer({
 							</ComposerSurface.Main>
 						</ComposerSurface.Host>
 						<ComposerSurface.ContextStrip>
-							{resting && (
-								<div className="min-w-0 max-w-[60%]">
-									<ModelPicker
-										providers={providers}
-										choice={choice}
-										onChange={onChoiceChange}
-										disabled={running || sending || !connected}
-									/>
-								</div>
-							)}
 							<ComposerControl
 								size="xs"
-								render={<span />}
-								className="min-w-0 max-w-full cursor-default hover:bg-transparent"
+								onClick={onOpenProject}
+								aria-label="Choose project folder"
+								className="min-w-0 max-w-full"
 								title={projectPath}
 							>
 								<FolderIcon className="size-3.5" />
@@ -361,7 +313,28 @@ export function Composer({
 							</span>
 						</ComposerSurface.ContextStrip>
 					</ComposerSurface.Shell>
-					{providers.available.length === 0 && (
+					{empty && draft.length === 0 && providers.available.length > 0 && (
+						<div className="starter-actions" aria-label="Ideas to get started">
+							{[
+								{ label: 'Explore this project', Icon: SearchIcon },
+								{ label: 'Review a change', Icon: FileDiffIcon },
+								{ label: 'Plan a task', Icon: ListTodoIcon },
+							].map(({ label, Icon }) => (
+								<button
+									type="button"
+									key={label}
+									onClick={() => {
+										onDraftChange(`${label}. `)
+										inputRef.current?.focus()
+									}}
+								>
+									<Icon aria-hidden="true" />
+									<span>{label}</span>
+								</button>
+							))}
+						</div>
+					)}
+					{!providersLoading && providers.available.length === 0 && (
 						<p className="notice">
 							Connect a provider in the Namzu terminal app, then reconnect this project.
 						</p>

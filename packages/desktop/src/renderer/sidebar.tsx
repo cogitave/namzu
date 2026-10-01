@@ -1,17 +1,8 @@
-import {
-	FolderIcon,
-	FolderPlusIcon,
-	MonitorIcon,
-	MoonIcon,
-	PanelLeftCloseIcon,
-	PanelLeftIcon,
-	SunIcon,
-	XIcon,
-} from 'lucide-react'
+import { Menu } from '@base-ui/react/menu'
+import { ChevronDownIcon, FolderIcon, FolderPlusIcon, SquarePenIcon, XIcon } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
-import { HeaderBackdrop } from './header-backdrop.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { SidebarHeaderIconButton, SidebarThreadHeader } from './sidebar-thread-header.js'
 import { ThreadCard } from './thread-card.js'
@@ -25,8 +16,7 @@ import {
 	ComboboxSearchInput,
 	ComboboxTrigger,
 } from './ui/combobox.js'
-import { SidebarFooter, SidebarGroup } from './ui/sidebar.js'
-import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
+import { SidebarGroup } from './ui/sidebar.js'
 import { Wordmark } from './wordmark.js'
 
 export type Appearance = 'system' | 'light' | 'dark'
@@ -38,10 +28,7 @@ export function Sidebar({
 	threads,
 	open,
 	opening,
-	appearance,
-	onAppearance,
 	onClose,
-	onToggle,
 	collapsed,
 	onOpenProject,
 	onNewConversation,
@@ -55,10 +42,7 @@ export function Sidebar({
 	threads: Record<string, ThreadState>
 	open: boolean
 	opening: boolean
-	appearance: Appearance
-	onAppearance: () => void
 	onClose: () => void
-	onToggle: () => void
 	collapsed: boolean
 	onOpenProject: () => void
 	onNewConversation: () => void
@@ -74,6 +58,7 @@ export function Sidebar({
 	]
 	const searchInput = useRef<HTMLInputElement>(null)
 	const active = projects.find((item) => item.id === projectId)
+	const newConversationDisabled = opening || !active?.trusted || active.status !== 'ready'
 	const rows = conversations.filter(
 		(item) =>
 			(!scope || item.projectId === scope) &&
@@ -93,26 +78,42 @@ export function Sidebar({
 				aria-label="Projects and conversations"
 			>
 				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3 md:px-0">
-					<HeaderBackdrop />
-					<Tooltip>
-						<TooltipTrigger
+					<Menu.Root>
+						<Menu.Trigger
 							render={
 								<Button
-									className="sidebar-toggle relative z-10 ml-3"
+									className="sidebar-workspace-menu relative z-10 ml-3 min-w-0"
 									variant="ghost-muted"
-									size="icon-sm"
-									aria-label="Collapse sidebar"
-									onClick={onToggle}
+									aria-label="Workspace menu"
 								/>
 							}
 						>
-							<PanelLeftIcon />
-						</TooltipTrigger>
-						<TooltipPopup>Collapse sidebar · Ctrl + B</TooltipPopup>
-					</Tooltip>
-					<div className="relative z-10 flex h-7 min-w-0 items-center overflow-hidden rounded-md">
-						<Wordmark />
-					</div>
+							<Wordmark />
+							<ChevronDownIcon className="size-3" aria-hidden="true" />
+						</Menu.Trigger>
+						<Menu.Portal>
+							<Menu.Positioner className="z-[150] outline-none" align="start" sideOffset={4}>
+								<Menu.Popup className="workspace-menu-popup window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none">
+									<Menu.Item
+										className="window-titlebar-item"
+										onClick={onOpenProject}
+										disabled={opening}
+									>
+										<FolderPlusIcon className="size-4" aria-hidden="true" />
+										<span>Open project…</span>
+									</Menu.Item>
+									<Menu.Item
+										className="window-titlebar-item"
+										onClick={onNewConversation}
+										disabled={newConversationDisabled}
+									>
+										<SquarePenIcon className="size-4" aria-hidden="true" />
+										<span>New conversation</span>
+									</Menu.Item>
+								</Menu.Popup>
+							</Menu.Positioner>
+						</Menu.Portal>
+					</Menu.Root>
 					<Button
 						variant="ghost-muted"
 						size="icon-xs"
@@ -123,8 +124,18 @@ export function Sidebar({
 						<XIcon />
 					</Button>
 				</div>
+				<button
+					type="button"
+					className="sidebar-new-conversation"
+					onClick={onNewConversation}
+					disabled={newConversationDisabled}
+				>
+					<SquarePenIcon aria-hidden="true" />
+					New conversation
+				</button>
 				<SidebarGroup className="relative z-[1]">
 					<SidebarThreadHeader
+						hideActions
 						hasProjects={projects.length > 0}
 						searchFieldRef={scopeAnchor}
 						projectScope={
@@ -168,7 +179,7 @@ export function Sidebar({
 						}
 						onNewProject={onOpenProject}
 						onNewThread={onNewConversation}
-						newThreadDisabled={opening || !active?.trusted || active.status !== 'ready'}
+						newThreadDisabled={newConversationDisabled}
 						newThreadShortcutLabel="Ctrl + N"
 						newThreadInProjectShortcutLabel={null}
 						showNewThreadInProjectHint={false}
@@ -181,6 +192,44 @@ export function Sidebar({
 					/>
 				</SidebarGroup>
 				<div className="sidebar-scroll">
+					<div className="sidebar-projects">
+						<h2 className="sidebar-section-title">Projects</h2>
+						{projects.map((project) => (
+							<button
+								key={project.id}
+								type="button"
+								className="project-row"
+								aria-label={`Open ${project.name}`}
+								aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
+								onClick={() => onProject(project.id)}
+							>
+								<FolderIcon aria-hidden="true" />
+								<span>{project.name}</span>
+								<span
+									className={`connection-dot ${project.status}`}
+									aria-label={
+										project.status === 'ready'
+											? 'Connected'
+											: project.status === 'error'
+												? 'Connection failed'
+												: 'Connecting'
+									}
+								/>
+							</button>
+						))}
+						{projects.length === 0 && (
+							<button
+								type="button"
+								className="project-row"
+								disabled={opening}
+								onClick={onOpenProject}
+							>
+								<FolderPlusIcon aria-hidden="true" />
+								<span>Open a project</span>
+							</button>
+						)}
+					</div>
+					<h2 className="sidebar-section-title">Conversations</h2>
 					<SidebarGroup className="pt-0">
 						<nav className="conversations" aria-label="Conversations">
 							<ThreadList
@@ -198,57 +247,6 @@ export function Sidebar({
 						)}
 					</SidebarGroup>
 				</div>
-				<SidebarFooter>
-					<div className="flex h-8 items-center gap-1">
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Button
-										variant="ghost-muted"
-										size="icon-sm"
-										aria-label={`Appearance: ${appearance}. Change appearance`}
-										onClick={onAppearance}
-									/>
-								}
-							>
-								{appearance === 'dark' ? (
-									<MoonIcon />
-								) : appearance === 'light' ? (
-									<SunIcon />
-								) : (
-									<MonitorIcon />
-								)}
-							</TooltipTrigger>
-							<TooltipPopup side="top">Appearance · {appearance}</TooltipPopup>
-						</Tooltip>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Button
-										variant="ghost-muted"
-										size="icon-sm"
-										aria-label="Open a project"
-										disabled={opening}
-										onClick={onOpenProject}
-									/>
-								}
-							>
-								<FolderPlusIcon />
-							</TooltipTrigger>
-							<TooltipPopup side="top">Open a project</TooltipPopup>
-						</Tooltip>
-						<span className="ml-auto text-xs text-sidebar-muted-foreground/50">Namzu</span>
-						<Button
-							variant="ghost-muted"
-							size="icon-sm"
-							className="sidebar-close"
-							aria-label="Close sidebar"
-							onClick={onClose}
-						>
-							<PanelLeftCloseIcon />
-						</Button>
-					</div>
-				</SidebarFooter>
 			</aside>
 		</>
 	)

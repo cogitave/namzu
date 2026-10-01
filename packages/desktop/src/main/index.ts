@@ -1,9 +1,16 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme } from 'electron'
 import type { DesktopEvent } from '../shared/protocol.js'
 import { Operator } from './operator.js'
+import {
+	readWindowMenu,
+	readWindowMenuAnchor,
+	windowCaptionColors,
+	windowChrome,
+	windowChromeOptions,
+} from './window-chrome.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const page = pathToFileURL(join(here, '../renderer/index.html')).href
@@ -46,6 +53,30 @@ function register(): void {
 			return action(...(args as never[]))
 		})
 	}
+	handle('windowChrome', () => windowChrome(process.platform))
+	handle('setWindowAppearance', (appearance: unknown) => {
+		const colors = windowCaptionColors(appearance)
+		if (!window || window.isDestroyed()) return
+		nativeTheme.themeSource = appearance === 'light' ? 'light' : 'dark'
+		if (process.platform === 'win32' || process.platform === 'linux')
+			window.setTitleBarOverlay(colors)
+	})
+	handle('popupWindowMenu', (name: unknown, position: unknown) => {
+		const menuName = readWindowMenu(name)
+		if (!window || window.isDestroyed()) return
+		const currentWindow = window
+		const [width, height] = currentWindow.getContentSize()
+		const anchor = readWindowMenuAnchor(position, {
+			width,
+			height,
+			zoom: currentWindow.webContents.getZoomFactor(),
+		})
+		const menu = Menu.getApplicationMenu()?.getMenuItemById(menuName)?.submenu
+		if (!menu) throw new Error('This window menu is unavailable.')
+		return new Promise<void>((resolve) => {
+			menu.popup({ window: currentWindow, ...anchor, callback: resolve })
+		})
+	})
 	handle('projects', () => operator.listProjects())
 	handle('openProject', async () => {
 		if (!window) return null
@@ -103,8 +134,9 @@ async function createWindow(): Promise<void> {
 		height: 820,
 		minWidth: 560,
 		minHeight: 460,
-		backgroundColor: '#111513',
+		backgroundColor: '#121212',
 		show: false,
+		...windowChromeOptions(process.platform),
 		webPreferences: {
 			preload: join(here, '../preload.cjs'),
 			contextIsolation: true,
@@ -113,6 +145,9 @@ async function createWindow(): Promise<void> {
 			webSecurity: true,
 		},
 	})
+	// The inline menu shares the title bar; retain native menu accelerators without
+	// adding the operating system's second menu row on Windows and Linux.
+	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 	window.webContents.on('will-navigate', (event, url) => {
 		if (url !== page) event.preventDefault()
@@ -149,9 +184,9 @@ void app
 		Menu.setApplicationMenu(
 			Menu.buildFromTemplate([
 				...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
-				{ role: 'editMenu' },
-				{ role: 'viewMenu' },
-				{ role: 'windowMenu' },
+				{ id: 'edit', role: 'editMenu' },
+				{ id: 'view', role: 'viewMenu' },
+				{ id: 'window', role: 'windowMenu' },
 			]),
 		)
 		register()

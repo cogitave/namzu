@@ -1,0 +1,11 @@
+{
+    "PID":  18616,
+    "Title":  "Namzu",
+    "Visible":  true,
+    "Responding":  true,
+    "ForegroundRequested":  true,
+    "PrintWindow":  true,
+    "Width":  1196,
+    "Height":  828,
+    "Backend":  "actual WSL Namzu CLI"
+}

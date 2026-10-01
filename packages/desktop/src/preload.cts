@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
+	windowChrome: () => invoke('windowChrome'),
+	setWindowAppearance: (appearance) => invoke('setWindowAppearance', appearance),
+	popupWindowMenu: (menu, anchor) => invoke('popupWindowMenu', menu, anchor),
 	projects: () => invoke('projects'),
 	openProject: () => invoke('openProject'),
 	reconnectProject: (id) => ipcRenderer.invoke('namzu:reconnectProject', id),
