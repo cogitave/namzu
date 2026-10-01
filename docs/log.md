@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** [Pal environment research](../research/runtime-desktop-20260930/PAL-ENVIRONMENT-REFERENCE-20261001.md): distinguish implemented delegation and peer messaging from planned persistent Pal identities, groups and durable missions. Compare pinned source and public visual references, selecting local devices for the first environment/browser release with separate resource ownership, grants and takeover. This is a design record, not a shipped Pal feature.
+
 - **Update** [Scheduled tasks](cli/scheduled-tasks.md): default new agent phases to unlimited tokens (`0`), preserve explicit and saved finite budgets, and support zero in the [SDK schedule tool](sdk/schedules.md). Confirmation shows no token limit instead of a zero daily allowance; usage remains measured. `.changeset/schedule-unlimited-token-budget.md`, **major** for `@namzu/cli` and **minor** for `@namzu/sdk`.
 
 - **Fix** [Installing and reopening Namzu](cli/installation.md): retain failed npm diagnostics, reject unsuccessful POSIX version verification, use `.cmd` guidance on Windows, recognize the running installation's npm shim for concise Resume commands, and share PowerShell 5.1-compatible scheduled-run directory guards. Safe installer mocks and native PowerShell argument probes verify the changes. `.changeset/windows-resume-handoffs.md`, **patch** for `@namzu/cli`.
