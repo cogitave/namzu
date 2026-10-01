@@ -55,7 +55,7 @@ export type SubagentActivityStatus =
  * surface's point of view — the child received it — so the glyph each
  * renderer picks stays unambiguous without re-reading the row's text.
  */
-export type SubagentMessageDirection = 'to-child'
+export type SubagentMessageDirection = 'to-child' | 'operator-to-child'
 
 export type SubagentTranscriptRow =
 	| {
@@ -264,6 +264,7 @@ export interface ReplaySubagentInput {
 }
 
 export interface SubagentActivityTracker {
+	readonly viewId: string
 	readonly onEvent: (event: SessionEvent) => void
 	settle(handle: TaskHandle): void
 	fail(error: unknown): void
@@ -352,6 +353,23 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	 * this class gets it: a caller holding a `MutableActivity` could edit
 	 * around every bound this file enforces.
 	 */
+	/** A new invocation of a retained conversation, with a fresh event tracker. */
+	resume(viewId: string, input: BeginSubagentInput): SubagentActivityTracker {
+		const prior = this.records.get(viewId)
+		if (!prior || !prior.closed || this.options.replay)
+			throw new Error('This child conversation is not available for continuation.')
+		const opened = this.open(input, viewId)
+		opened.record.rows = [...prior.rows]
+		opened.record.sessionId = prior.sessionId
+		pushRow(opened.record, {
+			id: `${viewId}:invocation:${opened.record.order}`,
+			kind: 'system',
+			text: 'New task in this conversation; previous tasks remain finished.',
+		})
+		this.notifyNow()
+		return opened.tracker
+	}
+
 	private open(
 		input: BeginSubagentInput,
 		suppliedViewId?: string,
@@ -409,6 +427,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			return this.records.get(viewId) === record ? record : undefined
 		}
 		const tracker: SubagentActivityTracker = {
+			viewId,
 			onEvent: (event) => {
 				const owned = current()
 				if (!owned) return
@@ -420,6 +439,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				const owned = current()
 				if (!owned) return
 				owned.taskId = String(handle.taskId)
+				if (handle.childSessionId) owned.sessionId = String(handle.childSessionId)
 				owned.agentId = bounded(handle.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 				owned.status = statusOf(handle)
 				if (!isTerminal(owned.status)) {

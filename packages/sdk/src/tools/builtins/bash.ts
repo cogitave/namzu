@@ -69,7 +69,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Start the command as a background job and return its id immediately, instead of waiting. The turn is not held open; await its completion with `wait_for_job` — one call, no waiting turns. Use `job` with action "read" only for incremental output while it keeps running, or to pick up after a `wait_for_job` call times out. Use for watchers, dev servers and long builds. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
+			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
 		),
 	dangerously_disable_sandbox: z
 		.boolean()
@@ -413,7 +413,7 @@ export const BashTool = defineTool({
 				})
 				return {
 					success: true,
-					output: `Started background job ${job.id}. Await its completion with wait_for_job: {"id":"${job.id}"}. Use job with action "read" only for output while it keeps running.`,
+					output: `Started background job ${job.id}. For finite work, await completion with wait_for_job: {"id":"${job.id}"}. For a persistent server, observe its literal readiness marker with wait_for_job: {"id":"${job.id}","output_contains":"<expected marker>","output_stream":"stdout"}; this leaves it running and does not prove health. Use job with action "read" for incremental output.`,
 					data: { jobId: job.id, background: true },
 				}
 			} catch (err) {

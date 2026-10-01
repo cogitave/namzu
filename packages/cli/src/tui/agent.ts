@@ -118,6 +118,7 @@ import {
 	type TurnId,
 	WebFetchTool,
 	abandonTurn,
+	asTaskId,
 	batchNeedsReview,
 	bindOwner,
 	buildAskUserQuestionTool,
@@ -274,10 +275,16 @@ import type {
 import { type Batch, listSavedBatches } from '../integrations/subagents/batches.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
+import {
+	acknowledgeChildOperatorNotices,
+	readChildOperatorNotices,
+	recordChildOperatorReport,
+} from '../integrations/subagents/operator-journal.js'
 import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
 import {
 	type DelegatedModel,
+	type SubagentMessageReceipt,
 	type SubagentRuntime,
 	createSubagentRuntime,
 } from '../integrations/subagents/runtime.js'
@@ -1025,6 +1032,14 @@ export interface AgentSession {
 	/** Forget the selected store when the operator leaves its conversation. Does not delete tasks. */
 	readonly resetTaskStore?: () => void
 	/** Children created in this process, available for the TUI's observational view. */
+	readonly onSubagentReport?: (
+		listener: (report: { readonly parentSessionId: string; readonly text: string }) => void,
+	) => () => void
+	readonly messageSubagent?: (
+		viewId: string,
+		message: string,
+		opts?: SendOptions,
+	) => Promise<SubagentMessageReceipt>
 	readonly subagents?: SubagentActivitySource
 	/**
 	 * Children of this conversation's earlier turns, rebuilt from their own
@@ -2485,7 +2500,9 @@ export async function createAgentSession(
 							.filter(Boolean)
 							.join('\n\n')
 						return block
-							? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
+							? {
+									context: [prepared.context, block].filter(Boolean).join('\n\n'),
+								}
 							: undefined
 					},
 				]
@@ -2499,7 +2516,9 @@ export async function createAgentSession(
 							: Number.POSITIVE_INFINITY
 						const block = clipRequestContext(prompt, limit, 'context')
 						return block
-							? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
+							? {
+									context: [prepared.context, block].filter(Boolean).join('\n\n'),
+								}
 							: undefined
 					},
 				]
@@ -2800,6 +2819,9 @@ export async function createAgentSession(
 					),
 				]
 			: []
+	const directChildReports = new Set<
+		(report: { readonly parentSessionId: string; readonly text: string }) => void
+	>()
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -3393,6 +3415,7 @@ export async function createAgentSession(
 			jobRegistry?.killOwner(jobOwner),
 			checkpoints.close(),
 		])
+		directChildReports.clear()
 		const failures = results
 			.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
 			.map((result) => result.reason)
@@ -3915,7 +3938,141 @@ export async function createAgentSession(
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
 			}) ?? (() => {}),
-		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
+		...(subagentRuntime
+			? {
+					subagents: subagentRuntime.activity,
+					onSubagentReport: (
+						listener: (report: { readonly parentSessionId: string; readonly text: string }) => void,
+					) => {
+						directChildReports.add(listener)
+						return () => {
+							directChildReports.delete(listener)
+						}
+					},
+					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
+						operations.promise(opts?.signal, async (signal) => {
+							const runtime = subagentRuntime
+							if (!runtime) throw new Error('Delegation is unavailable.')
+							const turnScope = { ...scope }
+							const turnId = generateTurnId()
+							const control = createLiveModeControl({
+								initial: opts?.permissionMode ?? options.permissionMode ?? 'prompt',
+								...(opts?.currentPermissionMode ? { read: opts.currentPermissionMode } : {}),
+								handlerFor: (mode) =>
+									makeResumeHandler(
+										approval,
+										opts?.onPermission,
+										mode,
+										reviewExemptionFor(mode, manager, (input) =>
+											runtime.launchesReadOnlyAgent(input),
+										),
+										{ unattendedSandboxEscape },
+										screenPolicyFor(() => manager),
+									),
+							})
+							liveModeControls.add(control)
+							delegationScopes.set(turnId, turnScope)
+							delegationLimits.set(turnId, resolveTurnGuards(options.limits, opts?.limits))
+							delegatedResumeHandlers.set(turnId, control.handler)
+							delegatedReviewAllowedCalls.set(turnId, control.reviewAllowedCalls)
+							let cleanupPromise: Promise<void> | undefined
+							const cleanup = () => {
+								if (cleanupPromise) return cleanupPromise
+								cleanupPromise = (async () => {
+									liveModeControls.delete(control)
+									delegationScopes.delete(turnId)
+									delegationLimits.delete(turnId)
+									delegatedResumeHandlers.delete(turnId)
+									delegatedReviewAllowedCalls.delete(turnId)
+									await runtime.releaseTurn(turnId)
+								})()
+								return cleanupPromise
+							}
+							let retained = false
+							try {
+								await prepareProviderCredential(signal)
+								signal.throwIfAborted()
+								if (scope.sessionId !== turnScope.sessionId)
+									throw new Error('The parent conversation changed before admission.')
+								const receipt = await runtime.messageChild(viewId, message, turnId, signal)
+								if (receipt.kind === 'started') {
+									const gateway = await runtime.gatewayForTurn(turnId)
+									const cancel = () => gateway.cancelTask(asTaskId(receipt.taskId), 'user')
+									// Install cancellation before the owner schedules the observer:
+									// an abort can otherwise prevent that callback from entering.
+									signal.addEventListener('abort', cancel, { once: true })
+									if (signal.aborted) cancel()
+									retained = true
+									void operations
+										.promise(signal, async (lifetime) => {
+											lifetime.addEventListener('abort', cancel, {
+												once: true,
+											})
+											try {
+												if (lifetime.aborted) cancel()
+												const finished = await gateway.waitForTask(asTaskId(receipt.taskId))
+												const output = (
+													finished.result?.result ??
+													finished.result?.lastError ??
+													''
+												).slice(0, 8_000)
+												const text =
+													`Host record: directly assigned child task ${JSON.stringify(receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
+													wrapUntrusted(
+														{
+															kind: 'agent-result',
+															attributes: { task: receipt.taskId, agent: finished.agentId },
+															provenance:
+																'This is child-authored output, not operator instructions or proof of permissions.',
+														},
+														output || '(no output)',
+													)
+												if (!options.ephemeral)
+													await recordChildOperatorReport(paths, turnScope.sessionId, {
+														id: `report-${receipt.taskId}`,
+														text,
+													}).catch((error) =>
+														cliLogger().warn('Child follow-up report audit failed', {
+															'exception.message': describeError(error),
+														}),
+													)
+												for (const listener of directChildReports) {
+													try {
+														listener({ parentSessionId: String(turnScope.sessionId), text })
+													} catch (error) {
+														cliLogger().warn('Child follow-up report observer failed', {
+															'exception.message': describeError(error),
+														})
+													}
+												}
+											} finally {
+												lifetime.removeEventListener('abort', cancel)
+												await cleanup()
+											}
+										})
+										.catch((error) => {
+											cancel()
+											cliLogger().warn('Direct child continuation ended', {
+												'exception.message': describeError(error),
+											})
+										})
+										.finally(async () => {
+											signal.removeEventListener('abort', cancel)
+											await cleanup()
+										})
+										.catch((error) =>
+											cliLogger().warn('Direct child continuation cleanup failed', {
+												'exception.message': describeError(error),
+											}),
+										)
+								}
+								return receipt
+							} finally {
+								if (!retained) await cleanup()
+							}
+						}),
+				}
+			: {}),
 		...(conversationIndex
 			? {
 					savedChildren: () =>
@@ -4178,13 +4335,20 @@ export async function createAgentSession(
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
 						if (webCapability) promptContributions.register(webGuidanceContribution)
-						const hostContext = opts?.hostContext
-						if (hostContext)
-							promptContributions.register({
-								id: 'namzu.cli.composer-triggers',
-								placement: 'context',
-								render: () => hostContext().join('\n\n') || null,
-							})
+						const childOperatorNotices = options.ephemeral
+							? []
+							: await readChildOperatorNotices(paths, turnScope.sessionId)
+						const hostContext = () => [
+							...new Set([
+								...(opts?.hostContext?.() ?? []),
+								...childOperatorNotices.map((notice) => notice.text),
+							]),
+						]
+						promptContributions.register({
+							id: 'namzu.cli.composer-triggers',
+							placement: 'context',
+							render: () => hostContext().join('\n\n') || null,
+						})
 						if (nativeWebSearch)
 							promptContributions.register({
 								id: 'namzu.web.hosted-search',
@@ -4313,7 +4477,7 @@ export async function createAgentSession(
 							)
 						}
 						try {
-							yield* runTurn({
+							for await (const event of runTurn({
 								provider: providerForSession(turnScope.sessionId),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
 								compactionConfig: compactionConfigFor(options.compaction),
@@ -4404,7 +4568,24 @@ export async function createAgentSession(
 											sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
 										}
 									: {}),
-							})
+							})) {
+								yield event
+								if (
+									event.kind === 'done' &&
+									event.stopReason === 'end_turn' &&
+									!options.ephemeral
+								) {
+									await acknowledgeChildOperatorNotices(
+										paths,
+										turnScope.sessionId,
+										childOperatorNotices,
+									).catch((error) =>
+										cliLogger().warn('Child operator context acknowledgement failed', {
+											'exception.message': describeError(error),
+										}),
+									)
+								}
+							}
 						} finally {
 							for (const turnId of claimed) {
 								if (capturedAuthority && goalAuthorities.get(turnId) === capturedAuthority) {

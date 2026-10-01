@@ -142,6 +142,10 @@ session's `sessionLog` in the parameters; a question waits inside its tool in
 the process that asked it. Records live in memory unless you pass
 `interrupts.store`.
 
+Live startup, progress and question-park events do not expire a pending
+client answer. An event already in flight stays buffered until the next run
+continues the same native turn; the original interrupt deadline still applies.
+
 Tools the client declares in `RunAgentInput.tools` are refused unless
 `frontendTools` admits them. An admitted tool the host registers is called by
 the model; the run ends as complete with the call unanswered, and the

@@ -1,5 +1,5 @@
 import type { SessionTokenBudget } from '../../store/budget/index.js'
-import type { TaskId } from '../ids/index.js'
+import type { SessionId, TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { CancelCause } from '../session/cancel-cause.js'
 import type { ChildSessionLifecycleEvent, SessionEventListener } from '../session/events.js'
@@ -14,6 +14,8 @@ export interface TaskHandle {
 	readonly result?: BaseAgentResult
 	readonly createdAt: number
 	readonly completedAt?: number
+	/** Authoritative conversation id, available once the child is admitted. */
+	readonly childSessionId?: SessionId
 	/** The workspace assigned to an explicitly isolated child, when admitted. */
 	readonly workspace?: WorkspaceRef
 }
@@ -32,6 +34,13 @@ export interface TaskHandle {
 export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
+	/**
+	 * Continue a child conversation under a NEW task, with this invocation's
+	 * parent authority, budget and configuration. Local managers accept only
+	 * their own retained, settled shared-workspace children of the same parent
+	 * and unchanged agent definition. A saved log alone grants no authority.
+	 */
+	readonly resumeSessionId?: SessionId
 	/** Per-task filesystem choice, forwarded to the local manager at admission. */
 	readonly workspace?: ChildWorkspaceRequest
 	/**

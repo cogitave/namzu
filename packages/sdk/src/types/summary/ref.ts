@@ -20,7 +20,7 @@
  * `session/summary/errors.ts` — they are NOT pure shapes.
  */
 
-import type { SessionId, TenantId } from '../ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../ids/index.js'
 import type { SummaryId } from '../session/ids.js'
 import type { DeliverableRef } from './deliverable.js'
 
@@ -53,6 +53,8 @@ export interface SessionSummaryKeyDecision {
 export interface SessionSummaryRef {
 	readonly id: SummaryId
 	readonly sessionRef: SessionId
+	/** Immutable completion of one invocation; omission is the legacy conversation summary. */
+	readonly turnRef?: TurnId
 	readonly tenantId: TenantId
 	readonly outcome: SessionSummaryOutcome
 	readonly deliverables: readonly DeliverableRef[]

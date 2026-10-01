@@ -211,6 +211,13 @@ the package root, and each carries `details.topicId`.
 
 ## Documentation
 
+For session-owned background servers, `BackgroundJobRegistry.waitForOutput`
+observes a bounded literal readiness marker on stdout or stderr without waiting
+for exit. The built-in `wait_for_job` selects this mode with `output_contains`;
+omitting it preserves the exit wait. Matching output does not prove service
+health, and truncation, timeout and cancellation are explicit outcomes. See
+[background output observation](https://github.com/cogitave/namzu/blob/main/docs/sdk/tool-execution.md#observing-background-output).
+
 - [All docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

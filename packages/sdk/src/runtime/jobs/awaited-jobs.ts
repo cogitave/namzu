@@ -35,7 +35,8 @@ export interface DeliverableJobExits {
  * job registry instead of the task gateway.
  *
  * **Intent is stated, never inferred.** A job is only outstanding here once
- * `wait_for_job` named it (see {@link expect}); job existence means nothing.
+ * the exit mode of `wait_for_job` named it (see {@link expect}); an output
+ * readiness observation and job existence mean nothing here.
  * That is the same distinction `CompletionInbox.expect` draws for a
  * background task, and it is what keeps a dev server or a file watcher —
  * started precisely so it would keep running — from holding every turn of the

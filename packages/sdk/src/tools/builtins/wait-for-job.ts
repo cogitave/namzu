@@ -33,40 +33,69 @@ const DEFAULT_IDLE_TIMEOUT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_IDLE_MS', 2 *
  */
 const MAX_WAIT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_MAX_MS', 60 * 60 * 1000)
 
-const inputSchema = z.object({
-	id: z.string().describe('The job id, as returned by bash with run_in_background.'),
-	from_offset: z
-		.number()
-		.int()
-		.nonnegative()
-		.optional()
-		.describe('Resume after a previous wait: pass its next_offset to receive only new output.'),
-	timeout_ms: z
-		.number()
-		.int()
-		.positive()
-		.max(MAX_WAIT_MS)
-		.optional()
-		.describe(
-			`Give up after this long even if the job keeps producing output, in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}, maximum: ${MAX_WAIT_MS}. The job is never stopped by this running out.`,
-		),
-	idle_timeout_ms: z
-		.number()
-		.int()
-		.positive()
-		.max(MAX_WAIT_MS)
-		.optional()
-		.describe(
-			`Give up if the job produces no new output for this long, in milliseconds. Default: ${DEFAULT_IDLE_TIMEOUT_MS}. Resets on every new byte of output, so a job that is still working is not cut off; only real silence ends the wait early.`,
-		),
-})
+const inputSchema = z
+	.object({
+		id: z.string().describe('The job id, as returned by bash with run_in_background.'),
+		output_contains: z
+			.string()
+			.min(1)
+			.max(4096)
+			.refine(
+				(value) =>
+					Buffer.byteLength(value) <= 4096 && Buffer.from(value).toString('utf8') === value,
+				'Use a non-empty UTF-8 literal of at most 4096 bytes.',
+			)
+			.optional()
+			.describe(
+				'Wait for this exact literal in output rather than for exit. This observes a marker; it does not prove service health or keep the turn open until the job exits.',
+			),
+		output_stream: z
+			.enum(['stdout', 'stderr', 'either'])
+			.optional()
+			.describe(
+				'Pipe to inspect with output_contains. Default either; stdout and stderr are never joined for a match.',
+			),
+		from_offset: z
+			.number()
+			.int()
+			.nonnegative()
+			.optional()
+			.describe('Resume after a previous wait: pass its next_offset to receive only new output.'),
+		timeout_ms: z
+			.number()
+			.int()
+			.positive()
+			.max(MAX_WAIT_MS)
+			.optional()
+			.describe(
+				`Give up after this long even if the job keeps producing output, in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}, maximum: ${MAX_WAIT_MS}. The job is never stopped by this running out.`,
+			),
+		idle_timeout_ms: z
+			.number()
+			.int()
+			.positive()
+			.max(MAX_WAIT_MS)
+			.optional()
+			.describe(
+				`Give up if the job produces no new output for this long, in milliseconds. Default: ${DEFAULT_IDLE_TIMEOUT_MS}. Resets on every new byte of output, so a job that is still working is not cut off; only real silence ends the wait early.`,
+			),
+	})
+	.superRefine((input, ctx) => {
+		if (input.output_stream !== undefined && input.output_contains === undefined) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['output_stream'],
+				message: 'output_stream requires output_contains.',
+			})
+		}
+	})
 
 type WaitForJobInput = z.infer<typeof inputSchema>
 
 export const WaitForJobTool = defineTool({
 	name: 'wait_for_job',
 	description:
-		'Block until a background job started by bash with run_in_background ends, and return its bounded output in one call. Use this instead of calling job with action "read" in a loop: it costs one call and no waiting turns. A wait that runs too long or goes quiet returns its output and next_offset without stopping the job; pass that offset as from_offset on the next wait to avoid repeats.',
+		'Wait for an owned background job to exit, or set output_contains to observe an exact output marker while it stays running. Use one wait instead of polling job read. Output markers do not prove service health or completion and never express intent to wait until exit. A bounded wait returns output and next_offset without stopping the job; pass that cursor as from_offset to exclude earlier output.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
@@ -88,7 +117,7 @@ export const WaitForJobTool = defineTool({
 		return {
 			kind: 'generic',
 			presentation: 'activity',
-			label: `Wait for background job · ${input.id ?? '(missing id)'}`,
+			label: `${input.output_contains === undefined ? 'Wait for background job' : 'Wait for job output'} · ${input.id ?? '(missing id)'}`,
 		}
 	},
 
@@ -109,6 +138,80 @@ export const WaitForJobTool = defineTool({
 				success: false,
 				output: '',
 				error: err instanceof Error ? err.message : String(err),
+			}
+		}
+
+		if (input.output_stream !== undefined && input.output_contains === undefined) {
+			return { success: false, output: '', error: 'output_stream requires output_contains.' }
+		}
+		if (input.output_contains !== undefined) {
+			if (!jobs.waitForOutput) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'This host cannot observe output readiness. It must implement backgroundJobs.waitForOutput; no exit wait was started.',
+				}
+			}
+			try {
+				const outcome = await jobs.waitForOutput(input.id, {
+					literal: input.output_contains,
+					stream: input.output_stream ?? 'either',
+					timeoutMs: input.timeout_ms ?? DEFAULT_TIMEOUT_MS,
+					idleTimeoutMs: input.idle_timeout_ms ?? DEFAULT_IDLE_TIMEOUT_MS,
+					...(input.from_offset === undefined ? {} : { fromOffset: input.from_offset }),
+					signal: context.abortSignal,
+				})
+				const notices = [
+					...(outcome.droppedBytes > 0
+						? [`[${outcome.droppedBytes} bytes unavailable before the retained output]`]
+						: []),
+					...(outcome.unsearchedBytes > 0
+						? [
+								`[${outcome.unsearchedBytes} retained bytes could not be searched because the channel history cap discarded them]`,
+							]
+						: []),
+					...(outcome.omittedOutputBytes > 0
+						? [`[${outcome.omittedOutputBytes} earlier bytes omitted from this bounded result]`]
+						: []),
+				]
+				const status =
+					outcome.exitCode === undefined
+						? outcome.status
+						: `${outcome.status} with code ${outcome.exitCode}`
+				const reason =
+					outcome.kind === 'matched'
+						? `Output marker observed on ${outcome.matchedStream}. This is output evidence, not a health check or completion claim.`
+						: outcome.kind === 'exited'
+							? 'Job exited before the marker was observed.'
+							: outcome.kind === 'stopped'
+								? 'Job stop was requested before the marker was observed; shutdown may still be completing.'
+								: outcome.kind === 'aborted'
+									? 'Output observation was cancelled; this wait did not stop the job.'
+									: `Output marker was not observed before the ${outcome.cause} timeout (${outcome.elapsedMs} ms); this wait did not stop the job.`
+				return {
+					success: outcome.kind !== 'aborted',
+					output: `${reason}\n\n${notices.length > 0 ? `${notices.join('\n')}\n` : ''}${outcome.output || '(no new output)'}\n\n[job ${input.id} is ${status}; next_offset ${outcome.nextOffset}]`,
+					data: {
+						jobId: input.id,
+						outcome: outcome.kind,
+						status: outcome.status,
+						nextOffset: outcome.nextOffset,
+						droppedBytes: outcome.droppedBytes,
+						unsearchedBytes: outcome.unsearchedBytes,
+						omittedOutputBytes: outcome.omittedOutputBytes,
+						...(outcome.kind === 'matched' ? { matchedStream: outcome.matchedStream } : {}),
+						...(outcome.kind === 'timeout' ? { timedOut: outcome.cause } : {}),
+						...(outcome.kind === 'aborted' ? { abandoned: true } : {}),
+						...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
+					},
+				}
+			} catch (err) {
+				return {
+					success: false,
+					output: '',
+					error: err instanceof Error ? err.message : String(err),
+				}
 			}
 		}
 

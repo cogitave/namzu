@@ -171,6 +171,11 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 			if (!this.config.local) throw new NoDelegateError({ agentId: options.agentId })
 			return await this.config.local.createTask(options)
 		}
+		if (options.resumeSessionId)
+			throw new DelegateCapabilityError({
+				id: delegate.id,
+				capability: 'child conversation continuation',
+			})
 
 		if (this.budget) {
 			throw new Error(

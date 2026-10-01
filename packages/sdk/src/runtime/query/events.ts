@@ -51,10 +51,25 @@ const PENDING_EVENT_SOFT_CAP = 1000
  */
 export class EventTranslator {
 	private pendingEvents: SessionEvent[] = []
+	private readonly pendingListeners = new Set<() => void>()
 	private readonly recorder: TurnRecorder
 	private probes: ProbeObservation
 	private droppedDeltaCount = 0
 	private readonly log: Logger
+
+	/** Wake an active tool-batch drain without polling or retaining event copies. */
+	onPendingEvents(listener: () => void): () => void {
+		this.pendingListeners.add(listener)
+		if (this.pendingEvents.length > 0) listener()
+		return () => {
+			this.pendingListeners.delete(listener)
+		}
+	}
+
+	private enqueue(event: SessionEvent): void {
+		this.pendingEvents.push(event)
+		for (const listener of this.pendingListeners) listener()
+	}
 
 	constructor(
 		recorder: TurnRecorder,
@@ -178,7 +193,7 @@ export class EventTranslator {
 		// honest statement: nothing persists this, so a consumer must never
 		// advance a cursor to it.
 		if (isEphemeralEvent(event)) {
-			this.pendingEvents.push(event)
+			this.enqueue(event)
 			return
 		}
 
@@ -190,10 +205,10 @@ export class EventTranslator {
 			try {
 				entry = await this.recorder.appendEvent(event)
 			} catch (err) {
-				this.pendingEvents.push(event)
+				this.enqueue(event)
 				throw err
 			}
-			this.pendingEvents.push(
+			this.enqueue(
 				entry === undefined
 					? event
 					: ({ ...event, seq: entry.record.seq, generation: entry.record.gen } as SessionEvent),
@@ -208,7 +223,7 @@ export class EventTranslator {
 	async beginTurn(draft: TurnBeginDraft): Promise<void> {
 		await this.withLogLock(async () => {
 			const entry = await this.recorder.begin(draft)
-			this.pendingEvents.push(liveEventOf(entry))
+			this.enqueue(liveEventOf(entry))
 		})
 	}
 
@@ -216,7 +231,7 @@ export class EventTranslator {
 	async resumeTurn(fromCheckpointId: CheckpointId, resolvedDecisionId?: string): Promise<void> {
 		await this.withLogLock(async () => {
 			const entry = await this.recorder.resume(fromCheckpointId, resolvedDecisionId)
-			this.pendingEvents.push(liveEventOf(entry))
+			this.enqueue(liveEventOf(entry))
 		})
 	}
 

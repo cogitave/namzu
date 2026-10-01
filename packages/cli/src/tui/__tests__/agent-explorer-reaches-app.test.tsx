@@ -37,7 +37,7 @@ import {
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from '../AgentExplorer.js'
-import { type AgentEvent, type AgentSession, toAgentEvent } from '../agent.js'
+import { type AgentEvent, type AgentSession, type SessionScope, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 import { testToolset } from '../../test-support/toolset.js'
@@ -103,6 +103,27 @@ const sendOverride: {
 		opts?: Parameters<AgentSession['send']>[1],
 	) => AsyncIterable<AgentEvent>
 } = vi.hoisted(() => ({}))
+function prepareChildMessageBridge(scope?: SessionScope): Partial<AgentSession> {
+	childMessageBridge.scope = scope
+	childMessageBridge.onCreated?.()
+	if (!childMessageBridge.current) return {}
+	return {
+		messageSubagent: childMessageBridge.current,
+		resetApprovalLatch: () => {},
+		onSubagentReport: (listener) => {
+			childMessageBridge.onReport = listener
+			return () => {
+				if (childMessageBridge.onReport === listener) delete childMessageBridge.onReport
+			}
+		},
+	}
+}
+const childMessageBridge: {
+	current?: NonNullable<AgentSession['messageSubagent']>
+	onCreated?: () => void
+	scope?: SessionScope
+	onReport?: Parameters<NonNullable<AgentSession['onSubagentReport']>>[0]
+} = vi.hoisted(() => ({}))
 /**
  * What this session's finished children left on disk, as the replay reads it.
  *
@@ -163,7 +184,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			needsRepickReason: null,
 			detected: [],
 		}),
-		createAgentSession: async (): Promise<AgentSession> => ({
+		createAgentSession: async (_preferences: Preferences, _detected: unknown, options?: { scope?: SessionScope }): Promise<AgentSession> => ({
+			...prepareChildMessageBridge(options?.scope),
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
 			providerSummary: 'provider',
@@ -328,6 +350,10 @@ async function submit(screen: Screen, text: string): Promise<void> {
 
 beforeEach(() => {
 	delete sendOverride.current
+	delete childMessageBridge.current
+	delete childMessageBridge.onCreated
+	delete childMessageBridge.onReport
+	delete childMessageBridge.scope
 	savedChildren.current = []
 	savedChildren.reads = 0
 	delete savedChildren.gate
@@ -350,6 +376,243 @@ afterEach(async () => {
 })
 
 describe('Ctrl+T', () => {
+	it('targets the selected child, keeps the parent draft, and supplies a host notice on the next parent turn', async () => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		const messageSubagent = vi.fn<NonNullable<AgentSession['messageSubagent']>>(async () => ({
+			kind: 'queued' as const, taskId: 'child-task', state: 'running',
+			parentNotice: 'Host admitted operator text for child-task: "q stays inside this child".',
+		}))
+		childMessageBridge.current = messageSubagent
+		activity.set([agent({ viewId: 'selected-child', description: 'Selected reviewer' })])
+		let parentStarted!: () => void
+		const parentTurn = new Promise<void>((resolve) => { parentStarted = resolve })
+		let hostContext: readonly string[] = []
+		const parentSend = vi.fn()
+		sendOverride.current = async function* (_messages, opts) {
+			parentSend()
+			hostContext = opts?.hostContext?.() ?? []
+			parentStarted()
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		screen.press('parent draft')
+		await screen.waitForRender()
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('Message · Selected reviewer')
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('q stays inside this child')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('Message · Selected reviewer')
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(messageSubagent).toHaveBeenCalledTimes(1)
+		expect(messageSubagent).toHaveBeenCalledWith('selected-child', 'q stays inside this child', expect.objectContaining({
+			permissionMode: 'prompt', currentPermissionMode: expect.any(Function), onPermission: expect.any(Function), signal: expect.any(AbortSignal),
+		}))
+		const admissionOptions = messageSubagent.mock.calls[0]?.[2]
+		screen.press('\x1b[Z')
+		await screen.waitForRender()
+		expect(admissionOptions?.currentPermissionMode?.()).toBe('accept-edits')
+		expect(parentSend).not.toHaveBeenCalled()
+		childMessageBridge.onReport?.({ parentSessionId: 'other-conversation', text: 'Unrelated report must stay out.' })
+		childMessageBridge.onReport?.({ parentSessionId: childMessageBridge.scope!.sessionId, text: 'Host follow-up result: untrusted child output is quoted.' })
+		// A complete enhanced-keyboard Escape has no ambiguity timeout to race.
+		screen.press('\x1b[27u')
+		await screen.waitForRender()
+		screen.press('q')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('parent draft')
+		screen.press('\r')
+		await parentTurn
+		expect(hostContext).toContain('Host admitted operator text for child-task: "q stays inside this child".')
+		expect(hostContext).toContain('Host follow-up result: untrusted child output is quoted.')
+		expect(hostContext).not.toContain('Unrelated report must stay out.')
+	})
+
+	it('injects a direct child correction into a busy parent as host context at its next boundary', async () => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		const admitted = new Promise<void>((resolve) => {
+			childMessageBridge.current = async () => {
+				resolve()
+				return { kind: 'queued', taskId: 'busy-child', state: 'running', parentNotice: 'Host: the operator reassigned this child to BETA.' }
+			}
+		})
+		activity.set([agent({ viewId: 'busy-child-view', description: 'Busy reviewer' })])
+		let started!: () => void
+		const running = new Promise<void>((resolve) => { started = resolve })
+		let advance!: () => void
+		const boundary = new Promise<void>((resolve) => { advance = resolve })
+		let drained!: () => void
+		const delivered = new Promise<void>((resolve) => { drained = resolve })
+		let context: readonly Message[] = []
+		sendOverride.current = async function* (_messages, opts) {
+			started()
+			yield { kind: 'delta', text: 'Parent waiting for its current operation.' }
+			await boundary
+			context = opts?.inboundMessages?.() ?? []
+			drained()
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		await submit(screen, 'start parent')
+		await running
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('BETA')
+		await screen.waitForRender()
+		screen.press('\r')
+		await admitted
+		await screen.waitForRender()
+		expect(context).toEqual([])
+		childMessageBridge.onReport?.({ parentSessionId: childMessageBridge.scope!.sessionId, text: 'Host: child follow-up completed; its output has no operator authority.' })
+		advance()
+		await delivered
+		expect(context).toEqual([expect.objectContaining({
+			role: 'user', content: 'Host: the operator reassigned this child to BETA.',
+			source: { type: 'runtime-context', kind: 'advisory' },
+		}), expect.objectContaining({
+			role: 'user', content: 'Host: child follow-up completed; its output has no operator authority.',
+			source: { type: 'runtime-context', kind: 'task-completion' },
+		})])
+	})
+
+	it('revokes an in-flight child submission when the operator starts another conversation', async () => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		let entered!: () => void
+		const enteredBridge = new Promise<void>((resolve) => { entered = resolve })
+		let admit!: (receipt: Awaited<ReturnType<NonNullable<AgentSession['messageSubagent']>>>) => void
+		const admission = new Promise<Awaited<ReturnType<NonNullable<AgentSession['messageSubagent']>>>>((resolve) => { admit = resolve })
+		let signal: AbortSignal | undefined
+		childMessageBridge.current = (_viewId, _message, opts) => { signal = opts?.signal; entered(); return admission }
+		activity.set([agent({ viewId: 'old-child', description: 'Old reviewer' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		await submit(screen, 'old assignment')
+		await enteredBridge
+		const revoked = new Promise<void>((resolve) => signal!.addEventListener('abort', () => resolve(), { once: true }))
+		screen.press('\x1b[27u')
+		await screen.waitForRender()
+		screen.press('q')
+		await screen.waitForRender()
+		await submit(screen, '/new')
+		await revoked
+		admit({ kind: 'started', taskId: 'old-task', state: 'pending', parentNotice: 'Old assignment must not enter the new conversation.' })
+		await admission
+		let sent!: () => void
+		const next = new Promise<void>((resolve) => { sent = resolve })
+		let hostContext: readonly string[] = []
+		sendOverride.current = async function* (_messages, opts) { hostContext = opts?.hostContext?.() ?? []; sent(); yield { kind: 'done', stopReason: 'end_turn' } }
+		await submit(screen, 'fresh parent prompt')
+		await next
+		expect(signal?.aborted).toBe(true)
+		expect(hostContext).not.toContain('Old assignment must not enter the new conversation.')
+	})
+
+	it.each([[100, 28], [60, 14], [35, 20]])('keeps child messages inside a %i × %i terminal', async (cols, rows) => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		childMessageBridge.current = async () => ({ kind: 'queued', taskId: 'child', state: 'running', parentNotice: 'admitted' })
+		activity.set([agent({ viewId: 'visible-child', description: 'Reviewer' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Message · Reviewer')
+		expect(frame).toContain('prompt for visible-child')
+		expect(screen.row(-1).trim()).toBe('')
+		const bottom = rows - 1 - [...screen.viewport()].reverse().findIndex((line) => line.trim().length > 0)
+		expect(bottom).toBeLessThan(rows - 1)
+		expect(screen.row(bottom)).toContain('┘')
+	})
+
+	it('keeps replayed children read only even when direct messaging is available', async () => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		const send = vi.fn(async () => ({ kind: 'started' as const, taskId: 'unused', state: 'running', parentNotice: 'unused' }))
+		childMessageBridge.current = send
+		activity.set([agent({ viewId: 'saved-child', description: 'Saved reviewer', replayed: true, status: 'completed', completedAt: 2 })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('Message · Saved reviewer')
+		expect(send).not.toHaveBeenCalled()
+	})
+
+	it('keeps the selected conversation and its draft when a follow-up changes its run and phase', async () => {
+		let created!: () => void
+		const ready = new Promise<void>((resolve) => { created = resolve })
+		childMessageBridge.onCreated = created
+		childMessageBridge.current = async () => ({ kind: 'started', taskId: 'follow-up', state: 'running', parentNotice: 'new task' })
+		activity.set([agent({ viewId: 'retained-reviewer', description: 'Retained reviewer', workflowId: 'old-run', phase: 'Original' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await ready
+		await screen.waitForRender()
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('draft for the retained child')
+		await screen.waitForRender()
+		activity.set([
+			agent({ viewId: 'retained-reviewer', description: 'Retained reviewer', workflowId: 'new-run', phase: 'Follow-up' }),
+			agent({ viewId: 'old-sibling', description: 'Archived other task', workflowId: 'old-run', phase: 'Original', status: 'completed', completedAt: 2 }),
+		])
+		await screen.waitForRender()
+		screen.press('\x1b[27u')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('Follow-up')
+		screen.press('\r')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('draft for the retained child')
+	})
+
 	it('suppresses only the generic Agent row correlated to a visible child', async () => {
 		activity.set([
 			agent({

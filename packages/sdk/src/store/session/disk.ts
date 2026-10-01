@@ -36,7 +36,7 @@
 
 import { createHash } from 'node:crypto'
 import { mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
 	ProjectRootPathTakenError,
 	StaleProjectError,
@@ -44,7 +44,7 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
-import type { SessionId, TenantId } from '../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../types/session/ids.js'
@@ -68,6 +68,7 @@ import {
 	asSessionId,
 	asSubSessionId,
 	asTopicId,
+	asTurnId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
@@ -237,6 +238,7 @@ interface PersistedSubSession {
 interface PersistedSummary {
 	id: SummaryId
 	sessionRef: SessionId
+	turnRef?: TurnId
 	tenantId: TenantId
 	outcome: SessionSummaryOutcome
 	deliverables: readonly DeliverableRef[]
@@ -257,6 +259,10 @@ const SUMMARY_TERMINAL_FLIP_STATUSES: ReadonlySet<Session['status']> = new Set([
 	'awaiting_merge',
 ])
 
+// Share the in-process writer guard across store instances addressing the same
+// root. This is not a cross-process lease; external writers remain a host concern.
+const sessionWriters = new Map<string, Promise<void>>()
+
 /**
  * Index of projectId → its directory path. Built lazily on lookup via
  * {@link DiskSessionStore.resolveProjectDir}; populated by create / getProject.
@@ -276,6 +282,8 @@ interface SessionIndexEntry {
 }
 
 export class DiskSessionStore implements SessionStore {
+	readonly supportsInvocationSummaries: boolean = true
+	readonly supportsOwnerVersionCas: boolean = true
 	private readonly rootDir: string
 	private readonly projectIndex = new Map<ProjectId, ProjectIndexEntry>()
 	private readonly sessionIndex = new Map<SessionId, SessionIndexEntry>()
@@ -286,6 +294,24 @@ export class DiskSessionStore implements SessionStore {
 
 	constructor(config: DiskSessionStoreConfig) {
 		this.rootDir = config.rootDir
+	}
+
+	private async withSessionWrite<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {
+		const key = resolve(this.rootDir, sessionId)
+		const previous = sessionWriters.get(key) ?? Promise.resolve()
+		let release = () => {}
+		const held = new Promise<void>((resolveWrite) => {
+			release = resolveWrite
+		})
+		const tail = previous.then(() => held)
+		sessionWriters.set(key, tail)
+		await previous
+		try {
+			return await operation()
+		} finally {
+			release()
+			if (sessionWriters.get(key) === tail) sessionWriters.delete(key)
+		}
 	}
 
 	// Project CRUD ------------------------------------------------------------
@@ -655,6 +681,16 @@ export class DiskSessionStore implements SessionStore {
 		tenantId: TenantId,
 		expectedOwnerVersion?: number,
 	): Promise<void> {
+		await this.withSessionWrite(session.id, () =>
+			this.updateSessionUnlocked(session, tenantId, expectedOwnerVersion),
+		)
+	}
+
+	private async updateSessionUnlocked(
+		session: Session,
+		tenantId: TenantId,
+		expectedOwnerVersion?: number,
+	): Promise<void> {
 		const located = await this.locateSession(session.id)
 		if (!located) {
 			throw new Error(`Session ${session.id} not found`)
@@ -669,10 +705,8 @@ export class DiskSessionStore implements SessionStore {
 		if (existing) {
 			this.assertTenant(existing.tenantId, tenantId, `session(${session.id})`)
 		}
-		// Against what is on disk, not against the payload. The write itself is
-		// atomic; this read-compare-write is NOT a critical section, so two
-		// processes can still both pass — see the contract note on
-		// `SessionStore.updateSession`. In one process it is the real lock.
+		// Against the stored version, under the shared in-process writer guard.
+		// Other processes can still both pass; see SessionStore.updateSession.
 		if (
 			expectedOwnerVersion !== undefined &&
 			existing !== null &&
@@ -862,11 +896,22 @@ export class DiskSessionStore implements SessionStore {
 	 * leaves summary present + session still non-terminal — recovery replays
 	 * the flip via {@link SessionSummaryMaterializer.recover}. Idempotent when
 	 * the same summary is re-presented (recovery path); rejects a *different*
-	 * summary for the same session as {@link SessionAlreadySummarizedError}.
+	 * summary at the same conversation or invocation key as {@link SessionAlreadySummarizedError}.
 	 */
 	async recordSummary(
 		summary: SessionSummaryRef & { materializedBy: 'kernel' },
 		tenantId: TenantId,
+		expectedOwnerVersion?: number,
+	): Promise<void> {
+		await this.withSessionWrite(summary.sessionRef, () =>
+			this.recordSummaryUnlocked(summary, tenantId, expectedOwnerVersion),
+		)
+	}
+
+	private async recordSummaryUnlocked(
+		summary: SessionSummaryRef & { materializedBy: 'kernel' },
+		tenantId: TenantId,
+		expectedOwnerVersion?: number,
 	): Promise<void> {
 		if (summary.tenantId !== tenantId) {
 			throw new TenantIsolationError({
@@ -884,8 +929,15 @@ export class DiskSessionStore implements SessionStore {
 			throw new Error(`Session ${summary.sessionRef} not found on disk`)
 		}
 		this.assertTenant(sessionRaw.tenantId, tenantId, `session(${summary.sessionRef})`)
+		if (expectedOwnerVersion !== undefined && sessionRaw.ownerVersion !== expectedOwnerVersion) {
+			throw new StaleSessionError({
+				sessionId: summary.sessionRef,
+				expectedVersion: expectedOwnerVersion,
+				actualVersion: sessionRaw.ownerVersion,
+			})
+		}
 
-		const summaryPath = join(located.path, 'summary.json')
+		const summaryPath = summaryFile(located.path, summary.turnRef)
 		const existingRaw = await records.read<PersistedSummary>(summaryPath)
 		if (existingRaw) {
 			this.assertTenant(existingRaw.tenantId, tenantId, `summary(${existingRaw.id})`)
@@ -899,6 +951,8 @@ export class DiskSessionStore implements SessionStore {
 			// to the status flip so crash-between-writes is recovered.
 		} else {
 			// Step 1: persist summary.
+			if (summary.turnRef)
+				await mkdir(join(located.path, 'turn-summaries'), { recursive: true, mode: 0o700 })
 			await records.write(summaryPath, serializeSummary(summary))
 		}
 
@@ -913,10 +967,15 @@ export class DiskSessionStore implements SessionStore {
 		}
 	}
 
-	async getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null> {
+	async getSummary(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		turnId?: TurnId,
+	): Promise<SessionSummaryRef | null> {
+		if (turnId !== undefined) asTurnId(turnId)
 		const located = await this.locateSession(sessionId)
 		if (!located) return null
-		const raw = await records.read<PersistedSummary>(join(located.path, 'summary.json'))
+		const raw = await records.read<PersistedSummary>(summaryFile(located.path, turnId))
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `summary(${raw.id})`)
 		return deserializeSummary(raw)
@@ -1161,6 +1220,7 @@ function serializeSummary(s: SessionSummaryRef): PersistedSummary {
 	return {
 		id: s.id,
 		sessionRef: s.sessionRef,
+		...(s.turnRef ? { turnRef: s.turnRef } : {}),
 		tenantId: s.tenantId,
 		outcome: s.outcome,
 		deliverables: s.deliverables,
@@ -1182,6 +1242,7 @@ function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
 	return {
 		id: s.id,
 		sessionRef: s.sessionRef,
+		...(s.turnRef ? { turnRef: asTurnId(s.turnRef) } : {}),
 		tenantId: s.tenantId,
 		outcome: s.outcome,
 		deliverables: s.deliverables,
@@ -1190,4 +1251,10 @@ function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
 		at: new Date(s.at),
 		materializedBy: 'kernel',
 	}
+}
+
+function summaryFile(directory: string, turnId?: TurnId): string {
+	return turnId === undefined
+		? join(directory, 'summary.json')
+		: join(directory, 'turn-summaries', `${asTurnId(turnId)}.json`)
 }

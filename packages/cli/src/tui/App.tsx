@@ -44,6 +44,7 @@ import {
 	type MemoryType,
 	type MessageId,
 	type ReasoningEffort,
+	type RuntimeContextMessageKind,
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
@@ -52,6 +53,7 @@ import {
 	type TurnId,
 	asSessionId,
 	createAssistantMessage,
+	createRuntimeContextMessage,
 	createUserMessage,
 	generateSessionId,
 	generateTurnId,
@@ -196,6 +198,7 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
+import { ChildComposer, childComposerRows } from './ChildComposer.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import {
@@ -421,7 +424,13 @@ type AgentSurface =
 			readonly selectedPhaseId: string
 			readonly returnFocus: AgentCockpitFocus
 			readonly tailOffset: number
+			readonly composing?: boolean
 	  }
+type DirectChildNotice = {
+	readonly context: string
+	readonly label: string
+	readonly kind: RuntimeContextMessageKind
+}
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
@@ -1430,6 +1439,10 @@ export function App({
 	}, [jobSurfaceOpen, hasRunningBackgroundJob, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
+	const childDraftsRef = useRef(new Map<string, Omit<ComposerDraft, 'token'>>())
+	const childMessageLifetimeRef = useRef(new AbortController())
+	const directChildNoticesRef = useRef(new Map<number, DirectChildNotice>())
+	const directChildNoticeIdRef = useRef(0)
 	const setAgentSurface = useCallback((next: AgentSurface | null) => {
 		const wasVisible = agentSurfaceCommittedRef.current !== null
 		agentSurfaceRef.current = next
@@ -1484,7 +1497,13 @@ export function App({
 				setAgentSurface(null)
 				return
 			}
-			if (next.some((agent) => agent.viewId === surface.selectedId)) return
+			const retained = next.find((agent) => agent.viewId === surface.selectedId)
+			if (retained) {
+				if (retained.phaseId !== surface.selectedPhaseId) {
+					setAgentSurface({ ...surface, selectedPhaseId: retained.phaseId })
+				}
+				return
+			}
 			const phases = agentPhases(next)
 			const previousGroupId = previous.find((agent) => agent.viewId === surface.selectedId)?.workflowGroupId
 			const sameWorkflow = agentWorkflows(next).find((workflow) => workflow.id === previousGroupId)
@@ -1655,6 +1674,10 @@ export function App({
 	}, [session])
 	useEffect(() => {
 		const source = session?.subagents
+		childMessageLifetimeRef.current.abort(new Error('The owning session changed.'))
+		childMessageLifetimeRef.current = new AbortController()
+		childDraftsRef.current.clear()
+		directChildNoticesRef.current.clear()
 		setAgentSurface(null)
 		savedSubagentsRef.current = []
 		void hydrateSavedChildren()
@@ -1671,6 +1694,10 @@ export function App({
 		return source.subscribe(refresh)
 	}, [hydrateSavedChildren, replaceSubagents, session, setAgentSurface])
 	const resetSubagentActivity = useCallback(() => {
+		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
+		childMessageLifetimeRef.current = new AbortController()
+		childDraftsRef.current.clear()
+		directChildNoticesRef.current.clear()
 		session?.subagents?.reset()
 		setAgentSurface(null)
 		// The monitor clears its own commentary on reset; this drops the copy
@@ -2151,6 +2178,18 @@ export function App({
 		},
 		[nextId],
 	)
+	useEffect(() => session?.onSubagentReport?.((report) => {
+		if (
+			previousSessionRef.current !== session ||
+			scopeRef.current?.sessionId !== report.parentSessionId
+		) return
+		const label = 'Child follow-up ended. Its report is available to the parent.'
+		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+			context: report.text, label, kind: 'task-completion',
+		})
+		activeTurnInboxRef.current?.notify()
+		if (!activeTurnInboxRef.current) pushMessage('system', label)
+	}), [pushMessage, session])
 	const recallQueuedPrompt = useCallback(() => {
 		const pending = queuedRef.current
 		let index = pending.length - 1
@@ -5527,7 +5566,64 @@ export function App({
 				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, setJobSurface, resolveQuestion],
+		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, setJobSurface, resolveQuestion,
+		],
+	)
+	const submitChildMessage = useCallback(
+		async (viewId: string, text: string) => {
+			const ownerSession = session
+			const child = subagentsRef.current.find((candidate) => candidate.viewId === viewId)
+			if (!ownerSession?.messageSubagent || !child || child.replayed) {
+				throw new Error('This child is saved evidence and cannot receive messages here.')
+			}
+			if (
+				compactingRef.current ||
+				conversationMutationRef.current ||
+				pendingModelSwitchRef.current
+			) {
+				throw new Error('Finish the current conversation change before messaging a child.')
+			}
+			const generation = conversationGenRef.current
+			const parentSessionId = scopeRef.current?.sessionId
+			const signal = AbortSignal.any([appLifetime.signal, childMessageLifetimeRef.current.signal])
+			const owns = () =>
+				!signal.aborted &&
+				previousSessionRef.current === ownerSession &&
+				conversationGenRef.current === generation &&
+				scopeRef.current?.sessionId === parentSessionId
+			const receipt = await ownerSession.messageSubagent(viewId, text, {
+				signal,
+				permissionMode: permissionModeRef.current,
+				currentPermissionMode: () => permissionModeRef.current,
+				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
+				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
+				...(hypermodeRef.current ? { hypermode: true } : {}),
+				extraSystem: composeSkillsPrompt(activeSkills) || undefined,
+				onPermission: async (request) => {
+					if (!owns())
+						return {
+							kind: 'reject',
+							feedback: 'The owning conversation changed.',
+						}
+					const decision = await onPermission(request)
+					// A directly continued child can ask while its parent is idle. There
+					// is then no parent send finalizer to restore the ordinary input state.
+					if (owns() && !abortRef.current && !permissionResolveRef.current) setState('idle')
+					return decision
+				},
+			})
+			if (!owns()) return receipt
+			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.description || child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
+			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+				context: receipt.parentNotice,
+				label,
+				kind: 'advisory',
+			})
+			activeTurnInboxRef.current?.notify()
+			if (!activeTurnInboxRef.current) pushMessage('system', label)
+			return receipt
+		},
+		[activeSkills, appLifetime.signal, onPermission, pushMessage, session],
 	)
 	const reviewSchedule = useCallback(
 		(request: ScheduleReviewRequest, signal?: AbortSignal) =>
@@ -6497,7 +6593,8 @@ export function App({
 				},
 				waitForInbound(signal): Promise<void> {
 					if (signal.aborted) return Promise.reject(signal.reason)
-					if (!inboxOpen || inboxEntries.length > 0 || (peersRef.current?.enabled && peersRef.current.pending > 0)) return Promise.resolve()
+					if (!inboxOpen || inboxEntries.length > 0 ||
+						[...directChildNoticesRef.current.keys()].some((id) => !childNoticeSnapshot.has(id)) || (peersRef.current?.enabled && peersRef.current.pending > 0)) return Promise.resolve()
 					return new Promise((resolve, reject) => {
 						const cleanup = () => {
 							inputWaiters.delete(wake)
@@ -6588,7 +6685,9 @@ export function App({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = { ids: [] }
+			let idleNoticeSnapshot: { readonly ids: readonly string[]
+				readonly text?: string } = { ids: [] }
+			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -6607,6 +6706,7 @@ export function App({
 					// Keep these notices pending until a completed send commits them.
 					// An early throw or abort never proves the model received context.
 					idleNoticeSnapshot = snapshotIdleJobNotices()
+					childNoticeSnapshot = new Map(directChildNoticesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
@@ -6633,6 +6733,7 @@ export function App({
 								...(st.contextTexts ?? []),
 								idleNoticeSnapshot.text,
 								operatorShellSnapshot,
+								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
 							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
@@ -6643,6 +6744,20 @@ export function App({
 							const operatorMessages = inbox.drain()
 							if (ac.signal.aborted || !stillHere()) return operatorMessages
 							const mail = peersRef.current?.take(turnGeneration) ?? []
+							const childNotices = [...directChildNoticesRef.current].filter(
+								([id]) => !childNoticeSnapshot.has(id),
+							)
+							if (childNotices.length) {
+								flushStream(st)
+								if (st.assistantId) {
+									finalizeMessage(st.assistantId)
+									st.assistantId = null
+								}
+								for (const [id, notice] of childNotices) {
+									pushMessage('system', notice.label)
+									directChildNoticesRef.current.delete(id)
+								}
+							}
 							if (mail.length) {
 								// An idle wake may already be queued behind operator admission.
 								// Once this turn drains it, its queue row is no longer pending.
@@ -6655,7 +6770,11 @@ export function App({
 								}
 								for (const item of mail) pushMessage('system', peerMailLabel(item), false, '↳')
 							}
-							return [...operatorMessages, ...mail.map(peerMailMessage)]
+							return [...operatorMessages, ...mail.map(peerMailMessage),
+								...childNotices.map(([, notice]) =>
+									createRuntimeContextMessage(notice.context, notice.kind),
+								),
+							]
 						},
 						waitForInbound: (signal) => inbox.waitForInbound(signal),
 						onJobNoticeDelivered: (ids) => {
@@ -6713,6 +6832,9 @@ export function App({
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
 			} finally {
+				if (st.completed && stillHere()) {
+					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
+				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
 				}
@@ -9609,7 +9731,7 @@ export function App({
 					return
 				}
 
-				if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
+				if ((!agentView.composing && input.toLowerCase() === 'q') || (key.ctrl && input === 'c')) {
 					setAgentSurface(null)
 					return
 				}
@@ -9622,11 +9744,25 @@ export function App({
 					})
 					return
 				}
+				if (key.tab && key.shift) {
+					cyclePermissionMode()
+					return
+				}
+				const canMessage = Boolean(session?.messageSubagent && !selected.replayed)
+				if (canMessage && (key.tab || (!agentView.composing && (key.return || input === 'm')))) {
+					setAgentSurface({ ...agentView, composing: !agentView.composing })
+					return
+				}
+				if (agentView.composing) return
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
 					// Reserving the replayed banner's row here too keeps one PgDn a
 					// screenful of what is actually visible.
-					const page = agentTranscriptPageSize(terminal.rows, selected.replayed ? 1 : 0)
-					const max = maxAgentTranscriptTailOffset(selected, terminal.rows, terminal.columns)
+					const historyRows =
+						terminal.rows -
+						(canMessage ? childComposerRows(terminal.rows) : 0) +
+						(canMessage && terminal.rows < 24 ? 3 : 0)
+					const page = agentTranscriptPageSize(historyRows, selected.replayed ? 1 : 0)
+					const max = maxAgentTranscriptTailOffset(selected, historyRows, terminal.columns)
 					const offset = Math.min(agentView.tailOffset, max)
 					const next = key.home
 						? max
@@ -9897,6 +10033,13 @@ export function App({
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
+	const childComposerGeneration = conversationGenRef.current
+	const childComposerAvailable = Boolean(
+		session?.messageSubagent &&
+			selectedSubagent &&
+			!selectedSubagent.replayed &&
+			agentSurface?.kind === 'transcript',
+	)
 	const lifecycleOwnsViewport =
 		outputViewer !== null ||
 		jobSurface !== null ||
@@ -9960,7 +10103,11 @@ export function App({
 											? 'agent phases — enter agents · esc return'
 											: 'agents — enter inspect · left phases · esc return'
 							: agentSurface?.kind === 'transcript'
-										? 'observing agent — esc agents · q parent'
+										? agentSurface.composing
+													? 'message child — enter send · tab scroll · esc agents'
+													: childComposerAvailable
+														? 'observing agent — enter message · esc agents · q parent'
+														: 'observing agent — esc agents · q parent'
 										: jobSurface
 											? jobStatusHint
 										: textPrompt
@@ -10394,8 +10541,49 @@ export function App({
 					<AgentTranscript
 						agent={selectedSubagent}
 						tailOffset={agentSurface.tailOffset}
-						terminalRows={terminal.rows}
+						terminalRows={terminal.rows - (childComposerAvailable ? childComposerRows(terminal.rows) : 0)}
 						terminalColumns={terminal.columns}
+						compact={childComposerAvailable && terminal.rows < 24}
+						navigationHint={
+							childComposerAvailable
+								? 'PgUp/PgDn scroll · tab message · esc agents · q parent'
+								: undefined
+						}
+					/>
+				) : null}
+				{showComposerSurface &&
+				agentSurface?.kind === 'transcript' &&
+				selectedSubagent &&
+				childComposerAvailable ? (
+					<ChildComposer
+						key={`${conversationGenRef.current}:${selectedSubagent.viewId}`}
+						title={selectedSubagent.description || selectedSubagent.agentId}
+						focused={agentSurface.composing === true}
+						hidden={
+							permission !== null ||
+							scheduleReviewPrompt !== null ||
+							textPrompt !== null ||
+							choicePicker !== null
+						}
+						columns={Math.max(1, terminal.columns - 2)}
+						rows={childComposerRows(terminal.rows)}
+						draft={childDraftsRef.current.get(selectedSubagent.viewId)}
+						onDraftChange={(draft) => {
+							if (
+								conversationGenRef.current !== childComposerGeneration ||
+								previousSessionRef.current !== session
+							) return
+							childDraftsRef.current.set(selectedSubagent.viewId, draft)
+							if (childDraftsRef.current.size > 80)
+								childDraftsRef.current.delete(childDraftsRef.current.keys().next().value!)
+						}}
+						onSubmit={(text) => {
+							if (
+								conversationGenRef.current !== childComposerGeneration ||
+								previousSessionRef.current !== session
+							) return Promise.reject(new Error('The owning conversation changed.'))
+							return submitChildMessage(selectedSubagent.viewId, text)
+						}}
 					/>
 				) : null}
 				{outputViewer && permission === null && scheduleReviewPrompt === null ? (

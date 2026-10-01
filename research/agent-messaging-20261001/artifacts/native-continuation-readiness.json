@@ -1,0 +1,38 @@
+{
+  "verifiedAt": "2026-10-01",
+  "modelTransport": "scripted, no model account requests",
+  "nativeCli": true,
+  "nativeKernelAndShell": true,
+  "viewport": {
+    "columns": 120,
+    "rows": 38
+  },
+  "child": {
+    "childConversations": 1,
+    "sameConversationFreshTask": true,
+    "originalTaskImmutable": "SDK regression plus distinct native admission IDs",
+    "freshProviderObjects": 2,
+    "busyCorrectionsAcrossRealToolCalls": 2,
+    "parentDraftPreserved": true,
+    "hostAssignmentAndFramedResultOnParentRequest": true,
+    "admissionKinds": [
+      "queued",
+      "started",
+      "queued"
+    ],
+    "cleanExit": true,
+    "verifiedAfterFinalSdkBuild": true
+  },
+  "readiness": {
+    "exit": "clean",
+    "splitMarker": "READY_719",
+    "continuedWhileServerAlive": true,
+    "serverStoppedOnHostClose": true
+  },
+  "limits": [
+    "Linux/WSL PTY; not native Windows or macOS",
+    "Scripted provider I/O proves host/runtime behavior, not provider account compatibility",
+    "Timeouts bound external native I/O; actual tool progress released by explicit files",
+    "Assertions cover listed scenarios; no Pal deployment or A2A conformance claim"
+  ]
+}

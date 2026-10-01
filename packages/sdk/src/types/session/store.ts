@@ -16,7 +16,7 @@ import type {
 	SubSessionKind,
 } from '../../types/session/sub-session.js'
 import type { SessionSummaryRef } from '../../types/summary/ref.js'
-import type { SessionId, TenantId } from '../ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../ids/index.js'
 import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../session/ids.js'
 
 /**
@@ -145,6 +145,10 @@ export interface SessionView {
  * callers never get a fallback and must branch on missing explicitly.
  */
 export interface SessionStore {
+	/** Explicit opt-in to immutable turn-keyed summaries. Omission does not support child continuation. */
+	readonly supportsInvocationSummaries?: boolean
+	/** Opt in only when updateSession and recordSummary enforce owner-version CAS. */
+	readonly supportsOwnerVersionCas?: boolean
 	// Project CRUD ------------------------------------------------------------
 
 	createProject(params: CreateProjectParams, tenantId: TenantId): Promise<Project>
@@ -241,7 +245,8 @@ export interface SessionStore {
 	 * into.
 	 *
 	 * **In-process only, stated rather than implied.** `DiskSessionStore`
-	 * writes atomically, but its read-compare-write is not a critical section,
+	 * serializes session writes across instances using the same root within a
+	 * process. Its read-compare-write is not a cross-process critical section,
 	 * so two PROCESSES can still both pass the check. Closing that needs a
 	 * lease with an expiry — not a PID registry, because a Session is durable
 	 * and written from hosts where a PID is not a checkable fact. The same
@@ -359,21 +364,30 @@ export interface SessionStore {
 	 * writes commit as one logical unit; mid-crash recovery is replay via
 	 * `SessionSummaryMaterializer.recover()`.
 	 *
-	 * Rejects with {@link SessionAlreadySummarizedError} if a summary already
-	 * exists for the session (re-materialization forbidden; see
-	 * session-hierarchy.md §4.7 immutability invariant).
+	 * Summaries are immutable per `(sessionRef, turnRef)`. An absent `turnRef`
+	 * preserves the original single conversation-summary contract. A supplied
+	 * `turnRef` seals one invocation without replacing any previous summary.
+	 * Rejects a different summary at an already sealed key.
+	 * With expectedOwnerVersion, refuse before persisting or flipping status if
+	 * the current session owner changed. Omission preserves the legacy behavior.
 	 */
 	recordSummary(
 		summary: SessionSummaryRef & { materializedBy: 'kernel' },
 		tenantId: TenantId,
+		expectedOwnerVersion?: number,
 	): Promise<void>
 
 	/**
-	 * Loads the persisted summary for a session. Returns `null` when none has
-	 * been materialized. Cross-tenant reads reject with `TenantIsolationError`
-	 * (Convention #17).
+	 * Loads the original conversation summary, or the exact invocation summary
+	 * when `turnId` is supplied. Returns `null` when that key is unsealed; it
+	 * never substitutes the original or newest summary for a missing invocation.
+	 * Cross-tenant reads reject with `TenantIsolationError` (Convention #17).
 	 */
-	getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null>
+	getSummary(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		turnId?: TurnId,
+	): Promise<SessionSummaryRef | null>
 }
 
 /**

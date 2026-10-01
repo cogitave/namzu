@@ -22,6 +22,96 @@ remains mutating and destructive. Its static `shell_execute` permission describe
 the complete capability. Per-call review, read-only authorization and plan-mode
 execution use the operation predicate; provenance checks remain unchanged.
 
+## Observing background output
+
+`BackgroundJobRegistry.waitForOutput(id, options)` observes a literal condition
+on an existing job. `bindOwner` exposes the same method after verifying the job's
+owner; a foreign id remains unknown. It never starts another process, writes to
+stdin, approves input, stops a job, or requests that a turn remain open until exit.
+Tool hosts implementing `BackgroundJobRegistryRef` directly can add the optional
+method; a readiness request is explicitly refused when it is absent.
+
+```ts
+import type { BackgroundJobRegistryRef } from '@namzu/sdk'
+
+async function observeServer(jobs: BackgroundJobRegistryRef, id: string) {
+  if (!jobs.waitForOutput) throw new Error('Output observation is unavailable')
+  return jobs.waitForOutput(id, {
+    literal: 'Listening on',
+    stream: 'stdout',
+    timeoutMs: 30_000,
+    idleTimeoutMs: 10_000,
+  })
+}
+```
+
+`literal` is non-empty valid UTF-8, at most 4096 bytes. Regular expression syntax
+has no special meaning. `stream` defaults to `either`: stdout and stderr are
+matched independently, including markers spanning chunks or split UTF-8 input.
+Output interleaved from the other pipe cannot complete a marker. `timeoutMs` is
+required, from 1 millisecond through one hour. The optional `idleTimeoutMs` has
+the same bounds and resets on new output from either pipe, even when matching
+only one. Aborting `signal` cancels this observation and leaves the process alone.
+
+`fromOffset` is the combined output byte cursor used by `read`, not a line or
+per-pipe position. It defaults to zero and may not be ahead of produced output.
+Matching includes only retained bytes at or after that cursor and future output;
+a marker starting before the cursor does not count. A cursor bisecting a UTF-8
+code point skips its remaining bytes and reports the gap. The method checks
+retained history and attaches to live output in one synchronous operation, so
+a marker printed before the call is observed without a read/subscribe race.
+
+`BackgroundJobOutputWaitResult.kind` is `matched`, `exited`, `stopped`, `timeout`,
+or `aborted`. A retained match takes priority over a job's terminal state; `status`
+and optional `exitCode` still report that state. `matchedStream` names the pipe
+which contained the marker. `stopped` means a stop was requested and shutdown may
+still be completing. A `timeout` names `cause` (`wall` or `idle`) and `elapsedMs`.
+An observed marker is output evidence; verify service health or successful
+completion separately when needed.
+
+Every result carries mixed output, `nextOffset`, `droppedBytes`, `unsearchedBytes`
+and `omittedOutputBytes`. The result retains at most 32 KiB, independently of the
+job's output cap. `droppedBytes` reports unavailable earlier output. Channel
+history uses the job's byte cap and at most 4096 chunks; when this metadata cap
+discards history still present in the mixed output tail, `unsearchedBytes`
+reports bytes that could not be examined for the condition. A missing marker
+does not establish that it never appeared in discarded history. Active
+observers still examine each incoming chunk before losing it to retention.
+`omittedOutputBytes` reports earlier observed output excluded from result text.
+No truncation is treated as a successful match.
+
+`BackgroundJobRegistryConfig.maxOutputWaitersPerOwner` defaults to 32 and
+`maxOutputWaiters` to 256. Both are positive safe integers; reaching either bound
+throws `BackgroundJobOutputWaitLimitError` instead of queuing the observation.
+Each concurrent observer has its own condition, suffix and cursor. All terminal,
+timeout, cancellation and matched outcomes remove its subscription and timers.
+
+The built-in `wait_for_job` selects this mode with `output_contains` and optional
+`output_stream`. It applies its usual default wall and silence bounds, returns
+the actual outcome and byte cursor, and never calls `markAwaited`. Omitting
+`output_contains` preserves the default exit wait, including its explicit
+wait-until-exit intent. Selecting `output_stream` without a literal is refused.
+A session-owned server can therefore print its marker, continue running and
+allow the parent turn to finish; a host still stops its owned jobs on session
+close. This is a one-shot observation, not a persistent source subscription or
+automatic model wakeup.
+
+## Live execution events
+
+The query stream forwards `tool_executing`, progress and completed-call events
+while an approved batch is running. Durable events enter the log before being
+offered to the consumer; progress retains its existing ephemeral and bounded
+queue semantics. A long command or output wait therefore has a live tool row
+before it finishes. Observation is event driven and does not poll a timer.
+
+Live events do not admit another provider request between partial tool results.
+The batch still settles and records every required result before inference
+continues, with the original result order. Closing the query iterator during
+execution cancels the batch's signal and awaits its executor settlement before
+releasing the recorder and borrowed resources. A tool which ignores cancellation
+can outlive its abandoned execution; cooperative cancellation remains a tool
+implementation responsibility.
+
 ## Ordering a batch
 
 `ToolDefinition.executionBarrier` and `defineTool({ executionBarrier: true, ... })`

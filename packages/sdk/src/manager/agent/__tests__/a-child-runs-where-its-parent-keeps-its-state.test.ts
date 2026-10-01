@@ -12,7 +12,7 @@ import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
@@ -134,8 +134,8 @@ async function harness(builderConfig?: Partial<BaseAgentConfig>) {
 			...over,
 		}) as AgentTaskContext
 
-	const spawn = async (ctx: AgentTaskContext, agentId = 'worker') => {
-		await manager.sendMessage(
+	const spawn = async (ctx: AgentTaskContext, agentId = 'worker', resumeSessionId?: SessionId) => {
+		const task = await manager.sendMessage(
 			{
 				agentId,
 				input: { messages: [], workingDirectory: '/tmp' },
@@ -143,13 +143,15 @@ async function harness(builderConfig?: Partial<BaseAgentConfig>) {
 				tenantId: tenant,
 				projectId: project.id,
 				parentActor: actor(tenant),
+				...(resumeSessionId ? { resumeSessionId } : {}),
 			} as SendMessageOptions,
 			ctx,
 		)
-		await new Promise((r) => setTimeout(r, 20))
+		await manager.waitForCompletion(task.taskId)
+		return task
 	}
 
-	return { seen, context, spawn }
+	return { seen, context, spawn, manager }
 }
 
 describe.each([
@@ -211,5 +213,27 @@ describe('what the parent did not choose is left alone', () => {
 		await h.spawn(h.context({ childStorage: { kind: 'memory' } }), 'built-worker')
 
 		expect(h.seen[0]?.sessionLog).toBe(sessionLog)
+	})
+
+	it('preserves a mismatched builder log for its first task without granting continuation authority', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const h = await harness({ sessionLog })
+		try {
+			const first = await h.spawn(h.context({ childStorage: { kind: 'memory' } }), 'built-worker')
+			expect(first.state).toBe('completed')
+			expect(first.childSessionId).toBeDefined()
+			expect(h.seen[0]?.sessionLog).toBe(sessionLog)
+			await expect(
+				h.spawn(
+					h.context({ childStorage: { kind: 'memory' } }),
+					'built-worker',
+					first.childSessionId,
+				),
+			).rejects.toThrow('continuation authority is unavailable')
+			expect(first.state).toBe('completed')
+			expect(h.seen).toHaveLength(1)
+		} finally {
+			h.manager.dispose()
+		}
 	})
 })

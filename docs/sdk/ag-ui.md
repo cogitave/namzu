@@ -407,6 +407,15 @@ An interrupt whose turn is not held by this process — after a restart, or on
 another replica — is refused as `AGUI_INTERRUPT_STALE` and closed, so it no
 longer blocks the thread.
 
+A native tool-start, progress or question-park event can still be in flight
+when an interrupt ends its AG-UI run. That event remains buffered for the
+continuing run; it does not expire a tool that is still waiting for the
+client. A received completion of the waiting call, resolution of its own
+question checkpoint, or terminal transition of the same turn does invalidate
+the wait. Activity from a parallel call or child turn does not. The adapter
+keeps its one-event native buffer and does not drain detached turns into an
+unbounded transcript; the original interrupt deadline still applies.
+
 ### What a resume may not do
 
 The interrupt id is minted by the adapter and is the only id the client sees.

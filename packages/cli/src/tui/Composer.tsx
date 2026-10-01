@@ -13,7 +13,7 @@
 
 import type { MessageAttachment } from '@namzu/sdk'
 import { Box, Text, useInput, usePaste, useWindowSize } from 'ink'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
@@ -44,6 +44,11 @@ import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
+	/** A bounded text editor for a child conversation, without host commands or image attachments. */
+	readonly plainText?: boolean
+	readonly placeholder?: string
+	/** Keep an operator draft when the host changes which child it displays. */
+	readonly onDraftChange?: (draft: Omit<ComposerDraft, 'token'>) => void
 	readonly reasoningEffortLevels?: readonly string[]
 	readonly onSubmit: (
 		value: string,
@@ -380,26 +385,29 @@ function verticalCursor(
 	}
 }
 
-function composerDisplayValue(source: string, cursor: number): ComposerDisplay {
-	let start = Math.max(0, cursor - Math.floor(COMPOSER_DISPLAY_CODE_UNITS / 2))
-	let end = Math.min(source.length, start + COMPOSER_DISPLAY_CODE_UNITS)
-	if (end === source.length) start = Math.max(0, end - COMPOSER_DISPLAY_CODE_UNITS)
+function composerDisplayValue(source: string, cursor: number,
+	codeUnits = COMPOSER_DISPLAY_CODE_UNITS,
+	lines = COMPOSER_DISPLAY_LINES,
+): ComposerDisplay {
+	let start = Math.max(0, cursor - Math.floor(codeUnits / 2))
+	let end = Math.min(source.length, start + codeUnits)
+	if (end === source.length) start = Math.max(0, end - codeUnits)
 	if (cursor > end) {
 		end = cursor
-		start = Math.max(0, end - COMPOSER_DISPLAY_CODE_UNITS)
+		start = Math.max(0, end - codeUnits)
 	}
 
 	let afterBreaks = 0
 	for (let index = cursor; index < end; index += 1) {
 		if (source.charCodeAt(index) !== 0x0a) continue
 		afterBreaks += 1
-		if (afterBreaks === Math.min(3, COMPOSER_DISPLAY_LINES - 1)) {
+		if (afterBreaks === Math.min(3, lines - 1)) {
 			end = index
 			break
 		}
 	}
 	let beforeBreaks = 0
-	const beforeBudget = COMPOSER_DISPLAY_LINES - afterBreaks
+	const beforeBudget = lines - afterBreaks
 	for (let index = cursor - 1; index >= start; index -= 1) {
 		if (source.charCodeAt(index) !== 0x0a) continue
 		beforeBreaks += 1
@@ -486,6 +494,9 @@ function deleteNextWordAt(
 
 export function Composer({
 	disabled = false,
+	plainText = false,
+	placeholder = 'Type a message… (/help for commands)',
+	onDraftChange,
 	reasoningEffortLevels,
 	onSubmit,
 	history,
@@ -548,6 +559,12 @@ export function Composer({
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
+	useEffect(() => {
+		onDraftChange?.({
+			text: [value, ...pastes].filter(Boolean).join('\n\n'),
+			...(attachments.length ? { attachments } : {}),
+		})
+	}, [attachments, onDraftChange, pastes, value])
 
 	useEffect(() => {
 		const hasDraft =
@@ -562,7 +579,7 @@ export function Composer({
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
 	// unreachable no matter how many times the operator pressed Down.
-	const commandSuggestions = matchSlashCommands(value, userCommands, builtins)
+	const commandSuggestions = plainText ? [] : matchSlashCommands(value, userCommands, builtins)
 	const activeMention = activeFileMention(value, cursor)
 	const fileSuggestions = activeMention
 		? matchMentionableFiles(activeMention.query, mentionCandidates)
@@ -585,7 +602,9 @@ export function Composer({
 		suggestionStart,
 		suggestionStart + suggestionWindow,
 	)
-	const displayValue = composerDisplayValue(value, cursor)
+	const displayValue = plainText
+		? composerDisplayValue(value, cursor, Math.max(1, Math.floor(((terminal.columns ?? 80) - 12) / 2)), 2)
+		: composerDisplayValue(value, cursor)
 	const commandColumnWidth = Math.min(
 		24,
 		Math.max(10, ...visibleCommandSuggestions.map((command) => command.name.length + 4)),
@@ -719,7 +738,7 @@ export function Composer({
 		setEditPreviousArmed(false)
 	}, [replaceAttachments, replacePastes, setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex, triggers])
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
 		restoredTokenRef.current = draftToRestore.token
 		restoreDraft(draftToRestore)
@@ -753,7 +772,9 @@ export function Composer({
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
-			const liveCommandSuggestions = matchSlashCommands(valueRef.current, userCommands, builtins)
+			const liveCommandSuggestions = plainText
+				? []
+				: matchSlashCommands(valueRef.current, userCommands, builtins)
 			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
 			const liveFileSuggestions = liveMention
 				? matchMentionableFiles(liveMention.query, mentionCandidates)
@@ -903,6 +924,7 @@ export function Composer({
 				return
 			}
 			if (key.tab) {
+				if (plainText) return
 				if (acceptSuggestion()) return
 				submit('queue')
 				return
@@ -1126,6 +1148,12 @@ export function Composer({
 			// a key that was never wired up — and the operator's next move differs
 			// per reason: copy an image, install a tool, or stop pressing it.
 			if ((key.ctrl || key.meta) && input === 'v') {
+				if (plainText) {
+					onNotice?.(
+						'Messages to a child accept text. Paste text using the terminal paste command.',
+					)
+					return
+				}
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
 					replaceAttachments((p) => [...p, read.image])
@@ -1225,9 +1253,9 @@ export function Composer({
 	if (hidden) return null
 
 	const modelIntent =
-		!attachments.length && !pastes.length ? parseModelSelectionIntent(value) : undefined
+		!plainText && !attachments.length && !pastes.length ? parseModelSelectionIntent(value) : undefined
 	const effortIntent =
-		!attachments.length && !pastes.length
+		!plainText && !attachments.length && !pastes.length
 			? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1]
 			: undefined
 	const effortAvailable =
@@ -1285,7 +1313,11 @@ export function Composer({
 					</Text>
 				</Box>
 			) : null}
-			{pastes.length > 0 || attachments.length > 0 ? (
+			{plainText && pastes.length > 0 ? (
+				<Text color={theme.text.secondary} wrap="truncate-end">
+					{pastes.length} text paste{pastes.length === 1 ? '' : 's'} attached
+				</Text>
+			) : pastes.length > 0 || attachments.length > 0 ? (
 				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
 					{attachments.map((attachment, i) => (
 						<Text key={`attachment-${i}`} color={theme.accent.tool}>
@@ -1307,7 +1339,7 @@ export function Composer({
 				</Box>
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
-						<Text color={theme.text.muted}>Type a message… (/help for commands)</Text>
+						<Text color={theme.text.muted}>{placeholder}</Text>
 					) : editPreviousArmed ? (
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (

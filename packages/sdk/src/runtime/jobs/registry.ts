@@ -4,6 +4,10 @@ import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { hostShellSpawn } from '../../tools/command-shell.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
+import type {
+	BackgroundJobOutputWaitOptions,
+	BackgroundJobOutputWaitResult,
+} from '../../types/job/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 
 /**
@@ -90,10 +94,47 @@ export interface BackgroundJobRegistryConfig {
 	readonly maxJobsPerOwner?: number
 	/** Retained output per job. Oldest bytes go first, and are counted. */
 	readonly maxOutputBytesPerJob?: number
+	/** Concurrent output observers per owner; default 32. Refused rather than queued. */
+	readonly maxOutputWaitersPerOwner?: number
+	/** Concurrent output observers across the registry; default 256. */
+	readonly maxOutputWaiters?: number
 }
 
 const DEFAULT_MAX_JOBS_PER_OWNER = 8
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
+const MAX_CHANNEL_CHUNKS = 4096
+const MAX_WAIT_RESULT_BYTES = 32 * 1024
+const MAX_OUTPUT_WAIT_MS = 60 * 60 * 1000
+
+/** Starting another observer would exceed its owner's or registry's bound. */
+export class BackgroundJobOutputWaitLimitError extends Error {
+	constructor(readonly details: { owner: string; limit: number; scope: 'owner' | 'registry' }) {
+		super(
+			`Background output wait limit ${details.limit} reached for ${details.scope}; finish or cancel an existing wait first.`,
+		)
+		this.name = 'BackgroundJobOutputWaitLimitError'
+	}
+}
+
+interface OutputChunk {
+	readonly stream: 'stdout' | 'stderr'
+	readonly offset: number
+	readonly bytes: Buffer
+}
+
+/** Start at a complete UTF-8 code point when a byte cap or cursor bisects one. */
+function utf8Start(bytes: Buffer, start: number): number {
+	let at = start
+	while (at < bytes.length && ((bytes[at] ?? 0) & 0xc0) === 0x80) at++
+	return at
+}
+
+function outputTail(text: string, maxBytes: number): { text: string; omitted: number } {
+	const bytes = Buffer.from(text)
+	if (bytes.length <= maxBytes) return { text, omitted: 0 }
+	const start = utf8Start(bytes, bytes.length - maxBytes)
+	return { text: bytes.subarray(start).toString('utf8'), omitted: start }
+}
 
 /** A start that would exceed a declared bound. */
 export class BackgroundJobLimitError extends Error {
@@ -128,6 +169,9 @@ interface JobEntry {
 	buffer: string
 	/** Bytes produced in total, including the ones the cap dropped. */
 	produced: number
+	/** Channel identity is retained separately, under the same byte cap and a chunk cap. */
+	outputChunks: OutputChunk[]
+	outputObservers: Set<(chunk?: OutputChunk) => void>
 	exit: Promise<void>
 }
 
@@ -148,6 +192,8 @@ export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
 	private counter = 0
 	private readonly exitListeners = new Set<(job: BackgroundJob) => void>()
+	private outputWaiters = 0
+	private readonly outputWaitersByOwner = new Map<string, number>()
 
 	/**
 	 * Be told when a job ends, whoever owns it. A job outlives the call that
@@ -172,7 +218,14 @@ export class BackgroundJobRegistry {
 		}
 	}
 
-	constructor(private readonly config: BackgroundJobRegistryConfig = {}) {}
+	constructor(private readonly config: BackgroundJobRegistryConfig = {}) {
+		for (const key of ['maxOutputWaiters', 'maxOutputWaitersPerOwner'] as const) {
+			const value = config[key]
+			if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
+				throw new RangeError(`${key} must be a positive safe integer.`)
+			}
+		}
+	}
 
 	private get maxJobs(): number {
 		return this.config.maxJobsPerOwner ?? DEFAULT_MAX_JOBS_PER_OWNER
@@ -245,6 +298,8 @@ export class BackgroundJobRegistry {
 			...(started.kill ? { killProcess: started.kill.bind(started) } : {}),
 			buffer: '',
 			produced: 0,
+			outputChunks: [],
+			outputObservers: new Set(),
 			exit: new Promise<void>((resolve) => {
 				let spawned = child.pid !== undefined
 				let failedToSpawn = false
@@ -260,6 +315,7 @@ export class BackgroundJobRegistry {
 						...(signal ? { signal } : {}),
 					}
 					resolve()
+					for (const observer of entry.outputObservers) observer()
 					this.announceExit(entry.record)
 				}
 				child.once('spawn', () => {
@@ -296,24 +352,36 @@ export class BackgroundJobRegistry {
 			}),
 		}
 
-		const append = (text: string): void => {
-			entry.produced += Buffer.byteLength(text)
+		const append = (text: string, stream: 'stdout' | 'stderr'): void => {
+			const chunk: OutputChunk = { stream, offset: entry.produced, bytes: Buffer.from(text) }
+			if (chunk.bytes.length === 0) return
+			entry.produced += chunk.bytes.length
 			entry.buffer += text
-			const over = Buffer.byteLength(entry.buffer) - this.maxBytes
-			if (over > 0) {
-				// Oldest first. A cap that dropped the NEWEST bytes would hide
-				// exactly the part a poller is waiting for.
-				//
-				// Nothing accumulates a drop counter here, deliberately. What a
-				// reader needs is how much IT missed, which depends on where its
-				// own offset was — a running total of everything ever dropped
-				// answers a different question, and `read` derives the right one
-				// from `produced` and the retained length.
-				entry.buffer = Buffer.from(entry.buffer).subarray(over).toString('utf8')
+			entry.buffer = outputTail(entry.buffer, this.maxBytes).text
+			entry.outputChunks.push(chunk)
+			const retainedStart = entry.produced - Buffer.byteLength(entry.buffer)
+			while (
+				entry.outputChunks.length > MAX_CHANNEL_CHUNKS ||
+				(entry.outputChunks[0] &&
+					entry.outputChunks[0].offset + entry.outputChunks[0].bytes.length <= retainedStart)
+			) {
+				entry.outputChunks.shift()
 			}
+			const first = entry.outputChunks[0]
+			if (first && first.offset < retainedStart) {
+				const skip = utf8Start(first.bytes, retainedStart - first.offset)
+				entry.outputChunks[0] = {
+					...first,
+					offset: first.offset + skip,
+					bytes: Buffer.from(first.bytes.subarray(skip)),
+				}
+			}
+			// Deliver the actual chunk even when its beginning has already fallen
+			// outside retention: an active observer must not miss a fast producer.
+			for (const observer of entry.outputObservers) observer(chunk)
 		}
-		child.stdout?.on('data', (text: string) => append(text))
-		child.stderr?.on('data', (text: string) => append(text))
+		child.stdout?.on('data', (text: string) => append(text, 'stdout'))
+		child.stderr?.on('data', (text: string) => append(text, 'stderr'))
 
 		this.jobs.set(id, entry)
 		return entry.record
@@ -370,6 +438,170 @@ export class BackgroundJobRegistry {
 	}
 
 	/**
+	 * Observe a literal in one pipe, including retained output after the cursor.
+	 * A marker is evidence of output, not exit intent or service health. Every
+	 * observer is independent and bounded; cancellation never stops the job.
+	 */
+	waitForOutput(
+		id: string,
+		opts: BackgroundJobOutputWaitOptions,
+	): Promise<BackgroundJobOutputWaitResult> {
+		const entry = this.jobs.get(id)
+		if (!entry) throw new UnknownBackgroundJobError({ id })
+		// Capture the admitted condition and clocks once; a caller retaining its
+		// mutable options object cannot alter a bound after validation.
+		const {
+			literal: literalText,
+			stream: requestedStream,
+			fromOffset,
+			timeoutMs,
+			idleTimeoutMs,
+			signal,
+		} = opts
+		if (
+			typeof literalText !== 'string' ||
+			literalText.length === 0 ||
+			Buffer.byteLength(literalText) > 4096 ||
+			Buffer.from(literalText).toString('utf8') !== literalText
+		) {
+			throw new RangeError('Output literal must be non-empty valid UTF-8, at most 4096 bytes.')
+		}
+		const stream = requestedStream ?? 'either'
+		if (!['stdout', 'stderr', 'either'].includes(stream))
+			throw new RangeError('Unknown output stream.')
+		for (const [name, value] of [
+			['timeoutMs', timeoutMs],
+			['idleTimeoutMs', idleTimeoutMs],
+		] as const) {
+			if (
+				(name === 'timeoutMs' || value !== undefined) &&
+				(value === undefined ||
+					!Number.isSafeInteger(value) ||
+					value < 1 ||
+					value > MAX_OUTPUT_WAIT_MS)
+			) {
+				throw new RangeError(`${name} must be an integer from 1 through ${MAX_OUTPUT_WAIT_MS}.`)
+			}
+		}
+		const from = fromOffset ?? 0
+		if (!Number.isSafeInteger(from) || from < 0 || from > entry.produced) {
+			throw new RangeError('fromOffset must be an observed, nonnegative output byte cursor.')
+		}
+		const literal = Buffer.from(literalText)
+		const suffix = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+		const match = (chunk: OutputChunk): 'stdout' | 'stderr' | undefined => {
+			if (
+				(stream !== 'either' && stream !== chunk.stream) ||
+				chunk.offset + chunk.bytes.length <= from
+			)
+				return
+			const skip = utf8Start(chunk.bytes, Math.max(0, from - chunk.offset))
+			const bytes = Buffer.concat([suffix[chunk.stream], chunk.bytes.subarray(skip)])
+			const found = bytes.indexOf(literal) !== -1
+			// Only the bytes that can prefix a future match survive each chunk.
+			// Copy so a tiny suffix never retains a large producer buffer.
+			suffix[chunk.stream] = Buffer.from(
+				bytes.subarray(Math.max(0, bytes.length - literal.length + 1)),
+			)
+			return found ? chunk.stream : undefined
+		}
+		let output = ''
+		let cursor = from
+		let droppedBytes = 0
+		let omittedOutputBytes = 0
+		const read = (): void => {
+			const observed = this.read(id, { fromOffset: cursor })
+			cursor = observed.nextOffset
+			droppedBytes += observed.droppedBytes
+			const tail = outputTail(output + observed.chunk, MAX_WAIT_RESULT_BYTES)
+			output = tail.text
+			omittedOutputBytes += tail.omitted
+		}
+		read()
+		const retainedStart = entry.produced - Buffer.byteLength(entry.buffer)
+		const searchableStart = entry.outputChunks[0]?.offset ?? entry.produced
+		const unsearchedBytes = Math.max(0, searchableStart - Math.max(from, retainedStart))
+		const progress = () => ({
+			status: entry.record.status,
+			...(entry.record.exitCode === undefined ? {} : { exitCode: entry.record.exitCode }),
+			output,
+			nextOffset: cursor,
+			droppedBytes,
+			unsearchedBytes,
+			omittedOutputBytes,
+		})
+		if (signal?.aborted) return Promise.resolve({ ...progress(), kind: 'aborted' })
+		// Check synchronously before subscribing. No process event can intervene
+		// in this call stack, so even a marker printed before activation is seen.
+		for (const chunk of entry.outputChunks) {
+			const matchedStream = match(chunk)
+			if (matchedStream) return Promise.resolve({ ...progress(), kind: 'matched', matchedStream })
+		}
+		if (entry.record.status !== 'running') {
+			return Promise.resolve({
+				...progress(),
+				kind: entry.record.status === 'killed' ? 'stopped' : 'exited',
+			})
+		}
+		const owner = entry.record.owner
+		const ownerCount = this.outputWaitersByOwner.get(owner) ?? 0
+		const ownerLimit = this.config.maxOutputWaitersPerOwner ?? 32
+		const globalLimit = this.config.maxOutputWaiters ?? 256
+		if (ownerCount >= ownerLimit)
+			throw new BackgroundJobOutputWaitLimitError({ owner, limit: ownerLimit, scope: 'owner' })
+		if (this.outputWaiters >= globalLimit)
+			throw new BackgroundJobOutputWaitLimitError({ owner, limit: globalLimit, scope: 'registry' })
+		this.outputWaiters++
+		this.outputWaitersByOwner.set(owner, ownerCount + 1)
+		return new Promise((resolve) => {
+			const startedAt = Date.now()
+			let settled = false
+			let disposeAbort = () => {}
+			let idleTimer: ReturnType<typeof setTimeout> | undefined
+			const finish = (result: BackgroundJobOutputWaitResult): void => {
+				if (settled) return
+				settled = true
+				entry.outputObservers.delete(observe)
+				clearTimeout(wallTimer)
+				clearTimeout(idleTimer)
+				disposeAbort()
+				this.outputWaiters--
+				const remaining = (this.outputWaitersByOwner.get(owner) ?? 1) - 1
+				if (remaining === 0) this.outputWaitersByOwner.delete(owner)
+				else this.outputWaitersByOwner.set(owner, remaining)
+				resolve(result)
+			}
+			const timeout = (cause: 'wall' | 'idle'): void => {
+				read()
+				finish({ ...progress(), kind: 'timeout', cause, elapsedMs: Date.now() - startedAt })
+			}
+			const resetIdle = (): void => {
+				if (idleTimeoutMs === undefined) return
+				clearTimeout(idleTimer)
+				idleTimer = setTimeout(() => timeout('idle'), idleTimeoutMs)
+				idleTimer.unref?.()
+			}
+			const observe = (chunk?: OutputChunk): void => {
+				read()
+				const matchedStream = chunk ? match(chunk) : undefined
+				if (matchedStream) finish({ ...progress(), kind: 'matched', matchedStream })
+				else if (entry.record.status !== 'running') {
+					finish({ ...progress(), kind: entry.record.status === 'killed' ? 'stopped' : 'exited' })
+				} else if (chunk) resetIdle()
+			}
+			entry.outputObservers.add(observe)
+			const wallTimer = setTimeout(() => timeout('wall'), timeoutMs)
+			wallTimer.unref?.()
+			resetIdle()
+			if (signal)
+				disposeAbort = subscribeToAbort(signal, () => {
+					read()
+					finish({ ...progress(), kind: 'aborted' })
+				})
+		})
+	}
+
+	/**
 	 * Output since `fromOffset`, with what the cap dropped stated.
 	 *
 	 * Offsets count the whole stream rather than the retained buffer, so a
@@ -386,12 +618,14 @@ export class BackgroundJobRegistry {
 		// the gap is reported rather than closed over.
 		const effective = Math.max(from, bufferStart)
 		const skip = Math.max(0, effective - bufferStart)
-		const chunk = Buffer.from(entry.buffer).subarray(skip).toString('utf8')
+		const bytes = Buffer.from(entry.buffer)
+		const aligned = utf8Start(bytes, skip)
+		const chunk = bytes.subarray(aligned).toString('utf8')
 
 		return {
 			chunk,
 			nextOffset: entry.produced,
-			droppedBytes: Math.max(0, effective - from),
+			droppedBytes: Math.max(0, effective - from) + Math.max(0, aligned - skip),
 			status: entry.record.status,
 			...(entry.record.exitCode === undefined ? {} : { exitCode: entry.record.exitCode }),
 		}
@@ -407,6 +641,7 @@ export class BackgroundJobRegistry {
 		// tell a kill from an ordinary exit. Set it after and the race decides
 		// which of two different answers a reader gets.
 		entry.record = { ...entry.record, status: 'killed' }
+		for (const observer of entry.outputObservers) observer()
 		const signal = (sig: NodeJS.Signals) =>
 			entry.killProcess ? entry.killProcess(sig) : killTree(entry.child, sig)
 		signal('SIGTERM')
@@ -516,6 +751,10 @@ export function bindOwner(
 		waitForExit: (id: string, opts?: { signal?: AbortSignal }) => {
 			mine(id)
 			return registry.waitForExit(id, opts ?? {})
+		},
+		waitForOutput: (id: string, opts: BackgroundJobOutputWaitOptions) => {
+			mine(id)
+			return registry.waitForOutput(id, opts)
 		},
 		...(defaults.onAwaited
 			? {

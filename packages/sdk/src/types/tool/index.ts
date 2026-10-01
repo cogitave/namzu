@@ -7,6 +7,7 @@ import type { CodeNavigationProvider } from '../code-navigation/index.js'
 import type { ToolResultGuardrailSpec } from '../guardrail/index.js'
 import type { SessionId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
+import type { BackgroundJobOutputWaitOptions, BackgroundJobOutputWaitResult } from '../job/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
 import type { ToolPresentation } from './presentation.js'
@@ -145,11 +146,17 @@ export interface BackgroundJobRegistryRef {
 		status: string
 		exitCode?: number
 	}>
+	/** Observe a bounded literal output condition. Does not express exit-wait intent. */
+	waitForOutput?(
+		id: string,
+		opts: BackgroundJobOutputWaitOptions,
+	): Promise<BackgroundJobOutputWaitResult>
 	/**
 	 * Say that the model is waiting on this job, so the turn stays open for it
 	 * when the model stops calling tools.
 	 *
-	 * Called by `wait_for_job` and nothing else. The kernel holds a finishing
+	 * Called only by the exit mode of `wait_for_job`. Output readiness does not
+	 * mark a job here. The kernel holds a finishing
 	 * run open — bounded, and for no model tokens — only for a job marked
 	 * here; a job nobody marked never delays a turn, which is what a dev server
 	 * or a watcher needs. Optional for the reason `waitForExit` is: a host

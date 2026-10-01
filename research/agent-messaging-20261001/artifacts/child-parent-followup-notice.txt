@@ -1,0 +1,28 @@
+ › START_NATIVE_719
+
+ ● Launched Native child continuity (ctrl+t to manage)
+
+ · You queued a message for Native child continuity.
+
+ ✓ Native child continuity · 0.9s · 0 tokens · ctrl+o result · ctrl+t details
+
+ ∴ PARENT_ASSIGNMENT_AND_RESULT_SEEN_719
+
+ ✻ Worked for 1.2s · 1 agent · 0 tokens
+
+ · You started a follow-up for Native child continuity.
+
+ ● Launched Native child continuity (ctrl+t to manage)
+
+ · You queued a message for Native child continuity.
+
+ · Child follow-up ended. Its report is available to the parent.
+
+ › CHECK_CHILD_REPORT_719
+
+ ∴ PARENT_FOLLOWUP_REPORT_SEEN_719
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · <owned-native-root>/project                     gpt-5.6-luna

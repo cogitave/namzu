@@ -106,6 +106,8 @@ export interface IterationContext {
 	readonly activityStore: ActivityStore
 	readonly emitEvent: EmitEvent
 	readonly drainPending: () => Generator<SessionEvent>
+	/** Internal live-event wake; omitted only by legacy phase fixtures. */
+	readonly onPendingEvents?: (listener: () => void) => () => void
 	readonly abortController: AbortController
 	readonly log: Logger
 	readonly resumeHandler: ResumeHandler

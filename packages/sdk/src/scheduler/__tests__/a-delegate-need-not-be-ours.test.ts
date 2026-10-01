@@ -5,7 +5,7 @@ import type { Delegate, DelegateResult } from '../../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { type CancelCause, cancelCauseOf } from '../../types/session/cancel-cause.js'
-import { isEntityId } from '../../utils/id.js'
+import { generateSessionId, isEntityId } from '../../utils/id.js'
 import {
 	DelegateCapabilityError,
 	DelegateCapabilityMismatchError,
@@ -79,6 +79,22 @@ class RecordingLocal implements TaskScheduler {
 }
 
 describe('a foreign delegate answers through the scheduler the tools already speak', () => {
+	it('refuses unsupported conversation continuation before dispatch rather than dropping its identity', async () => {
+		let dispatches = 0
+		const scheduler = new DelegatingTaskScheduler({
+			delegates: [
+				delegate('remote', async () => {
+					dispatches++
+					return { status: 'completed', output: 'new conversation' }
+				}),
+			],
+		})
+		await expect(
+			scheduler.createTask({ ...request('remote'), resumeSessionId: generateSessionId() }),
+		).rejects.toBeInstanceOf(DelegateCapabilityError)
+		expect(dispatches).toBe(0)
+		expect(scheduler.listTasks()).toEqual([])
+	})
 	it('dispatches to the delegate and settles the handle', async () => {
 		const scheduler = new DelegatingTaskScheduler({
 			delegates: [delegate('remote', { status: 'completed', output: 'the answer' })],

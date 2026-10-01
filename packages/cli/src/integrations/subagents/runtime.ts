@@ -17,6 +17,11 @@
  * authority.
  */
 
+import { randomUUID } from 'node:crypto'
+import { appendFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { formatChildOperatorAdmission } from './operator-journal.js'
+
 import {
 	type ActorRef,
 	type AgentDefinition,
@@ -291,6 +296,16 @@ export interface SubagentRuntimeOptions {
 	readonly definitions?: readonly AgentFileDefinition[]
 }
 
+export interface SubagentMessageReceipt {
+	readonly kind: 'queued' | 'started'
+	readonly taskId: string
+	readonly sessionId?: string
+	readonly state: string
+	/** Host evidence of actual operator admission, never a child-authored claim. */
+	readonly parentNotice: string
+	readonly auditWarning?: string
+}
+
 export interface SubagentRuntime {
 	/** One immutable scheduler context per actual parent turn. */
 	gatewayForTurn(turnId: TurnId): Promise<TaskScheduler>
@@ -298,6 +313,13 @@ export interface SubagentRuntime {
 	completionInboxForTurn(turnId: TurnId): Promise<CompletionInbox>
 	/** Release a settled parent turn's bookkeeping and cancel children it still owns. */
 	releaseTurn(turnId: TurnId): Promise<void>
+	/** Operator route: exact live view, with fresh authority for an idle follow-up. */
+	messageChild(
+		viewId: string,
+		message: string,
+		turnId: TurnId,
+		signal: AbortSignal,
+	): Promise<SubagentMessageReceipt>
 	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
@@ -468,6 +490,21 @@ export async function createSubagentRuntime(
 		readonly ready: Promise<SessionRuntime>
 		owners: number
 	}
+	interface OwnedConversation {
+		readonly parentKey: string
+		readonly agentId: string
+		readonly dynamic: boolean
+		readonly seed: Parameters<SubagentActivityMonitor['begin']>[0]
+		readonly config: Partial<
+			Pick<BaseAgentConfig, 'env' | 'toolResultGuardrails' | 'model' | 'effort'>
+		>
+		readonly workspace: 'shared' | 'worktree'
+		gateway: TaskScheduler
+		task: TaskHandle
+		turnId: TurnId
+		busy: boolean
+	}
+	const conversations = new Map<string, OwnedConversation>()
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
 	const sessions = new Map<string, SharedSession>()
 	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
@@ -565,6 +602,17 @@ export async function createSubagentRuntime(
 		const key = sessionKey(parent)
 		let entry = sessions.get(key)
 		if (!entry) {
+			if (sessions.size >= 8) {
+				const oldest = [...sessions.entries()].find(([, value]) => value.owners === 0)
+				if (!oldest) throw new Error('All retained parent conversations are busy.')
+				sessions.delete(oldest[0])
+				await oldest[1].ready.then((value) => value.manager.dispose())
+				for (const [id, conversation] of conversations) {
+					if (conversation.parentKey !== oldest[0]) continue
+					conversations.delete(id)
+					if (conversation.dynamic) registry.unregister(conversation.agentId)
+				}
+			}
 			entry = { ready: createSessionRuntime(parent), owners: 0 }
 			sessions.set(key, entry)
 		}
@@ -575,12 +623,8 @@ export async function createSubagentRuntime(
 			if (released) return
 			released = true
 			ownedEntry.owners--
-			if (ownedEntry.owners !== 0) return
-			if (sessions.get(key) === ownedEntry) sessions.delete(key)
-			void ownedEntry.ready.then(
-				(shared) => shared.manager.dispose(),
-				() => undefined,
-			)
+			// Retain host-owned conversation admission and its exact definition.
+			// The next parent turn still revalidates scope, policy and budget.
 		}
 		try {
 			const shared = await entry.ready
@@ -930,7 +974,7 @@ export async function createSubagentRuntime(
 					),
 				)
 			}
-			const tracker = activity.begin({
+			const seed = {
 				agentId,
 				model: selection?.model ?? fileAgent?.model ?? parentModel,
 				description,
@@ -942,7 +986,8 @@ export async function createSubagentRuntime(
 				phase,
 				phaseOrder: phase_order,
 				phaseDetail: phase_detail,
-			})
+			}
+			const tracker = activity.begin(seed)
 			// The child is a separate session, but its human authority belongs to the
 			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
 			// when a handler is omitted for headless SDK callers; omission here would
@@ -970,10 +1015,13 @@ export async function createSubagentRuntime(
 				resumeHandler,
 			}
 			let taskOwnsCleanup = false
+			let retained: OwnedConversation | undefined
 			const cleanupDefinition = (): void => {
-				if (dynamic) registry.unregister(agentId)
+				if (dynamic && !retained) registry.unregister(agentId)
 			}
 			try {
+				const parentKey = sessionKey(await resolveParent(context.turnId))
+				const gateway = await gatewayForTurn(context.turnId)
 				const completionInbox = await completionInboxForTurn(context.turnId)
 				const subdirectory =
 					workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
@@ -985,10 +1033,44 @@ export async function createSubagentRuntime(
 					waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
 					background: run_in_background === true,
 					completionInbox,
-					onCreated: () => {
+					onCreated: (task) => {
 						taskOwnsCleanup = true
+						retained = {
+							parentKey,
+							agentId,
+							dynamic,
+							seed,
+							config: {
+								...(selection ? { model: selection.model, effort: selection.effort } : {}),
+								...(configOverrides.env ? { env: configOverrides.env } : {}),
+								...(configOverrides.toolResultGuardrails
+									? {
+											toolResultGuardrails: configOverrides.toolResultGuardrails,
+										}
+									: {}),
+							},
+							workspace: workspace ?? 'shared',
+							gateway,
+							task,
+							turnId: context.turnId,
+							busy: false,
+						}
+						conversations.set(tracker.viewId, retained)
+						const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
+						for (const [id, previous] of conversations) {
+							if (
+								visible.has(id) ||
+								previous.busy ||
+								!isTerminalAgentTaskState(previous.task.state)
+							)
+								continue
+							conversations.delete(id)
+							if (previous.dynamic) registry.unregister(previous.agentId)
+						}
+						tracker.settle(task)
 					},
 					onSettled: (completed) => {
+						if (retained) retained.task = completed
 						tracker.settle(completed)
 					},
 					onFailed: (error) => tracker.fail(error),
@@ -1382,11 +1464,154 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	const messageChild = async (
+		viewId: string,
+		message: string,
+		turnId: TurnId,
+		signal: AbortSignal,
+	): Promise<SubagentMessageReceipt> => {
+		if (closed) throw new Error('Sub-agent runtime is closed.')
+		if (!message.trim() || message.length > 16_000)
+			throw new Error('A child message must contain 1–16000 characters.')
+		const owned = conversations.get(viewId)
+		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
+		if (!owned || !shown || shown.replayed)
+			throw new Error('This child is saved evidence or is no longer owned by this host.')
+		if (owned.busy) throw new Error('A message to this child is already being admitted.')
+		owned.busy = true
+		const id = randomUUID()
+		let journal: string | undefined
+		let admitted = false
+		let kind: SubagentMessageReceipt['kind'] = 'queued'
+		const audit = async (status: string, taskId: string): Promise<void> => {
+			if (!journal) return
+			await appendFile(
+				journal,
+				`${JSON.stringify({
+					id,
+					status,
+					source: 'operator',
+					...(status === 'accepted' ? { kind } : {}),
+					parentTurnId: turnId,
+					taskId,
+					viewId,
+					message,
+					at: new Date().toISOString(),
+				})}\n`,
+				{ mode: 0o600 },
+			)
+		}
+		try {
+			signal.throwIfAborted()
+			const parent = await resolveParent(turnId)
+			if (owned.parentKey !== sessionKey(parent))
+				throw new Error('This child belongs to a different parent conversation.')
+			if (opts.paths) {
+				const directory = opts.paths.sessionDir({
+					sessionId: parent.sessionId,
+				})
+				await mkdir(directory, { recursive: true, mode: 0o700 })
+				journal = join(directory, 'child-operator-messages.jsonl')
+			}
+			await audit('submitted', String(owned.task.taskId))
+			signal.throwIfAborted()
+			const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
+			let task: TaskHandle
+			if (!isTerminalAgentTaskState(current.state)) {
+				await owned.gateway.continueTask(current.taskId, message)
+				task = current
+			} else {
+				if (owned.workspace !== 'shared')
+					throw new Error(
+						'An isolated child requires an explicit workspace lease before continuation.',
+					)
+				const sessionId = current.childSessionId ?? shown.sessionId
+				if (!sessionId) throw new Error('This task did not establish a child conversation.')
+				const gateway = await gatewayForTurn(turnId)
+				signal.throwIfAborted()
+				const seed = {
+					...owned.seed,
+					toolUseId: undefined,
+					workflowId: String(turnId),
+				}
+				const tracker = activity.resume(viewId, seed)
+				try {
+					task = await gateway.createTask({
+						agentId: owned.agentId,
+						resumeSessionId: sessionId as SessionId,
+						prompt: message,
+						workingDirectory: opts.cwd,
+						workspace: { mode: 'shared' },
+						configOverrides: {
+							...owned.config,
+							...resolveTurnGuards(opts, opts.resolveLimits?.(turnId)),
+							resumeHandler: opts.resolveResumeHandler?.(turnId) ?? refuseUnownedChildReview,
+						},
+						onEvent: tracker.onEvent,
+					})
+				} catch (error) {
+					tracker.fail(error)
+					throw error
+				}
+				owned.task = task
+				owned.gateway = gateway
+				owned.turnId = turnId
+				tracker.settle(task)
+				void gateway.waitForTask(task.taskId).then(
+					(result) => {
+						if (owned.task.taskId === result.taskId) owned.task = result
+						tracker.settle(result)
+					},
+					(error) => tracker.fail(error),
+				)
+				kind = 'started'
+			}
+			admitted = true
+			activity.recordMessage(String(task.taskId), message, 'operator-to-child')
+			let auditWarning: string | undefined
+			try {
+				await audit('accepted', String(task.taskId))
+			} catch {
+				auditWarning = 'Message accepted; its audit acknowledgement could not be written.'
+			}
+			return {
+				kind,
+				taskId: String(task.taskId),
+				state: task.state,
+				sessionId: task.childSessionId ?? shown.sessionId,
+				parentNotice: formatChildOperatorAdmission({
+					id,
+					viewId,
+					taskId: String(task.taskId),
+					message,
+					kind,
+				}),
+				...(auditWarning ? { auditWarning } : {}),
+			}
+		} catch (error) {
+			if (!admitted) await audit('refused', String(owned.task.taskId)).catch(() => undefined)
+			throw error
+		} finally {
+			owned.busy = false
+		}
+	}
+
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
 		closed = true
-		closePromise = Promise.all([...parents.keys()].map(releaseTurn)).then(() => activity.close())
+		closePromise = (async () => {
+			await Promise.all([...parents.keys()].map(releaseTurn))
+			await Promise.all(
+				[...sessions.values()].map(async (entry) => (await entry.ready).manager.dispose()),
+			)
+			sessions.clear()
+			for (const conversation of conversations.values()) {
+				if (conversation.dynamic) registry.unregister(conversation.agentId)
+			}
+			conversations.clear()
+			activity.close()
+		})()
 		return closePromise
 	}
 
@@ -1425,6 +1650,7 @@ export async function createSubagentRuntime(
 	return {
 		cancelAgentTool,
 		modelCatalogueTool,
+		messageChild,
 		gatewayForTurn,
 		completionInboxForTurn,
 		releaseTurn,

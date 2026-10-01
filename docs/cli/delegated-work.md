@@ -474,3 +474,44 @@ unbounded scan, not a retention policy.
 
 Agent transcript pages wrap prose at word boundaries. Long unbroken URLs or
 code still wrap at grapheme boundaries, preserving all retained characters.
+
+## Direct messages and another task in the same child conversation
+
+In the agent cockpit, open a child transcript and press **Enter** or **m** to
+write directly to that child. **Tab** switches between writing and scrolling;
+**Esc** returns to the agent list. The parent's draft is kept separately.
+Messages must be nonblank and at most 16,000 characters. A queued receipt means
+acceptance, not proof that the child has read the instruction. A running tool
+finishes before the instruction enters the next provider request.
+
+For a finished child still owned by this CLI process, sending opens a **new
+TaskId in the same child SessionId**. Previous tasks stay finished. The new
+invocation reacquires the current parent conversation, review mode, model
+credential, limits and cancellation scope. Its result has an independent,
+immutable invocation summary. The transcript keeps its identity and previous
+rows, and shows the new task separately. Permission questions still go to the
+operator; a direct message does not approve subsequent tool calls.
+
+This continuation is currently available for shared-workspace children only.
+An isolated child's resource lease must be explicitly reacquired before reuse,
+so direct continuation refuses that case. Saved transcripts after process
+restart remain read-only. A transcript on disk does not restore the host's
+execution authority, dynamic agent definition or credentials.
+
+The host reports direct operator instructions to the parent as host evidence,
+with the instruction quoted, and frames the child's later result as child
+output. While the parent is running, notices enter its existing input channel
+at a valid request boundary. While idle, they wait for its next turn; they do
+not start another parent model call. The host audit is stored in
+`<parent-session-dir>/child-operator-messages.jsonl`. A bounded reader restores
+unacknowledged observations after restart and acknowledges only the context
+snapshot used by a parent response ending with `end_turn`. A timeout, budget
+stop or other unsuccessful finish keeps the notices pending for retry, including
+a stop before any model request. Audit history grants no tool
+permissions and never restarts a child.
+
+The process retains at most eight parent runtime scopes; idle scopes are
+eligible for eviction. Direct continuation also requires a retained child view
+and the exact original registered definition. An evicted or replayed view is
+refused. Independent terminals use the separate local peer transport described
+in [Messages between live terminals](peer-messaging.md); it is not the owned-child mailbox.

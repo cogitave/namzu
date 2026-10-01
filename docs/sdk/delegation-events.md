@@ -70,6 +70,71 @@ Every field is optional and absent by default. A host that groups nothing sends
 nothing, and a consumer written before these fields existed reads exactly the
 event it read before.
 
+## Continuing a child conversation
+
+`LocalTaskScheduler.createTask({ resumeSessionId, ... })` and the corresponding
+`AgentManager.sendMessage` option admit a new task in an existing child
+conversation. The admitted `TaskHandle.childSessionId` identifies the
+conversation independently of a custom agent's result. A pending capacity
+queue has no child session id until admission.
+
+Continuation creates a fresh task id, budget reservation, abort controller,
+configuration and delegation edge under the current parent turn. It runs the
+current `beforeStart` admission check and configuration builder; current
+parent review policy and tool denies still apply. The completed task and its
+original delegation edge stay unchanged. Query-backed children load their
+folded conversation history from the same session log.
+
+The manager requires its own retained conversation capability, the same
+parent session, tenant, project, topic, registered agent definition and
+working directory. It refuses an overlapping or still-settling invocation,
+an archived or transferred child, and isolated workspaces whose resource
+leases cannot be reacquired through this API. A history file is replay data,
+not continuation authority. The capability lasts only in the manager that
+admitted the child, is cleared on disposal and is bounded at 1,000 retained
+conversations; older idle entries may be forgotten. A host retaining fewer
+children can impose a smaller bound. Hosts must keep the child's registered
+definition available and revalidate their own authority at admission.
+
+The child's `session_started` and metadata retain its original parent turn,
+tool call and creation time. Follow-up `child_session_spawned` and
+`child_session_idled` events identify the current invoking parent turn and
+the same child session. Consumers distinguish the new task from its existing
+conversation; they do not treat the old terminal task as running again.
+
+An existing builder may supply an application-managed log addressed to another
+session. Its first invocation retains that established behavior. The manager
+does not retain continuation authority for a log whose `sessionId` differs
+from the admitted child; a later `resumeSessionId` request is refused rather
+than replaying unrelated history.
+
+Successful follow-up invocations seal independent immutable summaries with
+`SessionSummaryRef.turnRef`. `SessionSummaryMaterializer.materialize` accepts
+an optional `turnId`, and `SessionStore.getSummary(sessionId, tenantId,
+turnId)` reads that exact invocation. Each new delegation edge points to its
+own summary. Calls without a turn id keep the original conversation-summary
+contract and never return a newer invocation in its place. Built-in memory
+and disk stores support this distinction; custom stores supporting
+continuation must declare `supportsInvocationSummaries: true` and preserve
+the same key and immutability contract. They must also declare
+`supportsOwnerVersionCas: true` and enforce the optional owner-version check
+on both `updateSession` and `recordSummary`; without either capability the
+manager refuses continuation. Admission and failed-admission rollback pass the
+original child ownership version, check current ownership again before invoking
+the agent, and pass that version as `materialize({ expectedOwnerVersion })` during
+summary settlement. A takeover during any of these waits cannot be overwritten
+or idled by the old invocation. `recordSummary(summary, tenantId,
+expectedOwnerVersion)` refuses a stale version before persisting or flipping
+status; callers omitting the version retain the previous behavior.
+
+The built-in disk store serializes versioned writes and summary settlement
+across instances addressing the same root within a process. This is not a
+cross-process ownership lease; a host sharing storage across processes must
+provide that boundary. On disk,
+invocation summaries live in `turn-summaries/<turn-id>.json` beside the
+unchanged legacy `summary.json`. `recover(sessionId, tenantId, turnId)` can
+replay the status transition of the specified sealed invocation.
+
 ## What the logs keep
 
 The durable record of a delegation is in the [session logs](session-log.md),

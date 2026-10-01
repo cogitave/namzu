@@ -108,16 +108,16 @@ export class LiveTurn {
 		this.pull()
 	}
 
-	/** Ask for the next native event unless a read is already outstanding. */
+	/** Ask for the next native event unless a read or unread outcome already exists. */
 	pull(): void {
-		if (!this.source || this.done || this.pendingRead) return
+		if (!this.source || this.done || this.pendingRead || this.outcome) return
 		this.pendingRead = this.source.next().then(
 			(next) => {
 				this.pendingRead = undefined
 				if (next.done) this.done = true
 				this.outcome = { next }
 				this.wake()
-				this.detachedProgress?.()
+				if (this.progressed) this.detachedProgress?.()
 			},
 			(error: unknown) => {
 				this.pendingRead = undefined
@@ -130,12 +130,36 @@ export class LiveTurn {
 	}
 
 	/**
-	 * Whether the source produced something nobody read: while detached, that
-	 * means the waiting tool stopped waiting (its own deadline, or an abort)
-	 * and the turn went on without the client's answer.
+	 * Whether the source proves an announced wait ended without the client.
+	 * Live tool starts, progress and park records can still be in flight when
+	 * a question is announced. They stay buffered for the next run and are
+	 * not evidence that the waiting tool stopped waiting.
 	 */
 	get progressed(): boolean {
-		return this.outcome !== undefined
+		const outcome = this.outcome
+		if (!outcome) return false
+		if ('error' in outcome || outcome.next.done) return true
+		const event = outcome.next.value
+		if ('turnId' in event && this.turnId !== undefined && event.turnId !== this.turnId) return false
+		switch (event.type) {
+			case 'turn_completed':
+			case 'turn_failed':
+			case 'turn_paused':
+				return true
+			case 'tool_completed':
+				return [...this.parks.values()].some(
+					(park) =>
+						park.announced &&
+						(park.questionId === event.toolUseId ||
+							park.questionId.startsWith(`${event.toolUseId}:`)),
+				)
+			case 'user_question_answered':
+				return [...this.parks.values()].some(
+					(park) => park.announced && park.request.checkpointId === event.checkpointId,
+				)
+			default:
+				return false
+		}
 	}
 
 	take(): NativeOutcome | undefined {

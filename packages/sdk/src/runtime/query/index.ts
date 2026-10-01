@@ -1595,6 +1595,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			activityStore: ctx.activityStore,
 			emitEvent: eventTranslator.emitEvent,
 			drainPending: () => eventTranslator.drainPending(),
+			onPendingEvents: (listener) => eventTranslator.onPendingEvents(listener),
 			abortController: ctx.abortController,
 			log: ctx.log,
 			// Read through the box on every call, so a swap lands on the next

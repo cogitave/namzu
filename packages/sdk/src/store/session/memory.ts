@@ -17,7 +17,7 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
-import type { SessionId, TenantId } from '../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, TopicId } from '../../types/session/ids.js'
@@ -34,6 +34,7 @@ import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import {
 	asProjectId,
 	asTenantId,
+	asTurnId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
@@ -62,6 +63,10 @@ interface SummaryRecord {
 	summary: SessionSummaryRef
 }
 
+function summaryKey(sessionId: SessionId, turnId?: TurnId): string {
+	return JSON.stringify([sessionId, turnId === undefined ? null : asTurnId(turnId)])
+}
+
 /**
  * Non-terminal statuses from which {@link InMemorySessionStore.recordSummary}
  * flips the owning session to `'idle'` as part of the atomic materialize +
@@ -75,10 +80,12 @@ const SUMMARY_TERMINAL_FLIP_STATUSES: ReadonlySet<Session['status']> = new Set([
 ])
 
 export class InMemorySessionStore implements SessionStore {
+	readonly supportsInvocationSummaries: boolean = true
+	readonly supportsOwnerVersionCas: boolean = true
 	private readonly projects = new Map<ProjectId, ProjectRecord>()
 	private readonly sessions = new Map<SessionId, SessionRecord>()
 	private readonly subSessions = new Map<SubSessionId, SubSessionRecord>()
-	private readonly summaries = new Map<SessionId, SummaryRecord>()
+	private readonly summaries = new Map<string, SummaryRecord>()
 
 	/** Hydrate existing Project snapshots without minting replacement identities. */
 	constructor(projects: readonly Project[] = []) {
@@ -364,7 +371,9 @@ export class InMemorySessionStore implements SessionStore {
 		}
 
 		this.sessions.delete(sessionId)
-		this.summaries.delete(sessionId)
+		for (const [key, record] of this.summaries) {
+			if (record.summary.sessionRef === sessionId) this.summaries.delete(key)
+		}
 	}
 
 	// SubSession CRUD ---------------------------------------------------------
@@ -460,6 +469,7 @@ export class InMemorySessionStore implements SessionStore {
 	async recordSummary(
 		summary: SessionSummaryRef & { materializedBy: 'kernel' },
 		tenantId: TenantId,
+		expectedOwnerVersion?: number,
 	): Promise<void> {
 		if (summary.tenantId !== tenantId) {
 			throw new TenantIsolationError({
@@ -472,11 +482,22 @@ export class InMemorySessionStore implements SessionStore {
 			throw new Error(`Session ${summary.sessionRef} not found`)
 		}
 		this.assertTenant(sessionRecord.tenantId, tenantId, `session(${summary.sessionRef})`)
+		if (
+			expectedOwnerVersion !== undefined &&
+			sessionRecord.session.ownerVersion !== expectedOwnerVersion
+		) {
+			throw new StaleSessionError({
+				sessionId: summary.sessionRef,
+				expectedVersion: expectedOwnerVersion,
+				actualVersion: sessionRecord.session.ownerVersion,
+			})
+		}
 
 		// Atomic within the call: summary persist + session status flip commit
 		// together. An existing summary with the same id is the recovery path —
 		// idempotently replay the status flip without duplicating the record.
-		const existing = this.summaries.get(summary.sessionRef)
+		const key = summaryKey(summary.sessionRef, summary.turnRef)
+		const existing = this.summaries.get(key)
 		if (existing && existing.summary.id !== summary.id) {
 			throw new SessionAlreadySummarizedError({
 				sessionId: summary.sessionRef,
@@ -485,7 +506,7 @@ export class InMemorySessionStore implements SessionStore {
 		}
 
 		if (!existing) {
-			this.summaries.set(summary.sessionRef, { tenantId, summary })
+			this.summaries.set(key, { tenantId, summary })
 		}
 
 		if (SUMMARY_TERMINAL_FLIP_STATUSES.has(sessionRecord.session.status)) {
@@ -500,8 +521,12 @@ export class InMemorySessionStore implements SessionStore {
 		}
 	}
 
-	async getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null> {
-		const record = this.summaries.get(sessionId)
+	async getSummary(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		turnId?: TurnId,
+	): Promise<SessionSummaryRef | null> {
+		const record = this.summaries.get(summaryKey(sessionId, turnId))
 		if (!record) return null
 		this.assertTenant(record.tenantId, tenantId, `summary(${record.summary.id})`)
 		return record.summary

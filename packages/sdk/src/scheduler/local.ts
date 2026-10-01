@@ -112,6 +112,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 		const task = await this.agentManager.sendMessage(
 			{
 				agentId: options.agentId,
+				...(options.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
 				beforeStart: options.beforeStart,
 				...(options.workspace ? { workspace: options.workspace } : {}),
 				...(options.planId ? { planId: options.planId } : {}),
@@ -469,6 +470,7 @@ function toHandle(task: import('../types/agent/task.js').AgentTask): TaskHandle 
 		result: task.result,
 		createdAt: task.createdAt,
 		completedAt: task.completedAt,
+		...(task.childSessionId ? { childSessionId: task.childSessionId } : {}),
 		...(task.workspace ? { workspace: task.workspace } : {}),
 	}
 }

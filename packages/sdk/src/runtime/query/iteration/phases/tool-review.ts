@@ -159,7 +159,7 @@ export async function* runToolReview(
 	}
 
 	/** Executes the batch, answering every call, and appends the results. */
-	const settle = async (denials?: ToolCallDenials): Promise<void> => {
+	const settleBatch = async (denials?: ToolCallDenials): Promise<void> => {
 		const startedAt = Date.now()
 		const batch = await ctx.toolExecutor.executeBatch(
 			response,
@@ -251,8 +251,62 @@ export async function* runToolReview(
 		}
 	}
 
+	/** Stream recorded starts and progress while execution itself remains pending. */
+	const settle = async function* (
+		denials?: ToolCallDenials,
+	): AsyncGenerator<SessionEvent, void, unknown> {
+		if (!ctx.onPendingEvents) {
+			await settleBatch(denials)
+			return
+		}
+		const wakeup = () => {
+			let notify!: () => void
+			const promise = new Promise<void>((resolve) => {
+				notify = resolve
+			})
+			return { promise, notify }
+		}
+		let wake = wakeup()
+		let settled: { ok: true } | { ok: false; error: unknown } | undefined
+		const unsubscribe = ctx.onPendingEvents(() => wake.notify())
+		// Start the captured batch before yielding. Live observation must not
+		// create a new mutation window before execution validates its payload.
+		const execution = settleBatch(denials).then(
+			() => {
+				settled = { ok: true }
+				wake.notify()
+			},
+			(error) => {
+				settled = { ok: false, error }
+				wake.notify()
+			},
+		)
+		try {
+			while (true) {
+				yield* ctx.drainPending()
+				if (settled) break
+				await wake.promise
+				wake = wakeup()
+			}
+			if (!settled.ok) throw settled.error
+		} finally {
+			unsubscribe()
+			if (!settled) {
+				ctx.abortController.abort(
+					new DOMException(
+						'The query consumer stopped reading during tool execution.',
+						'AbortError',
+					),
+				)
+				// Tool cancellation and its receipts settle before the query can
+				// release the recorder, sandbox or other borrowed turn resources.
+				await execution
+			}
+		}
+	}
+
 	if (toolCallSummaries.length === 0) {
-		await settle()
+		yield* settle()
 		yield* ctx.drainPending()
 		return finish('executed')
 	}
@@ -390,7 +444,7 @@ export async function* runToolReview(
 			ctx.log.debug('Authorization gate: all tool calls pre-approved', {
 				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
-			await settle()
+			yield* settle()
 			yield* ctx.drainPending()
 			return finish('executed')
 		}
@@ -405,7 +459,7 @@ export async function* runToolReview(
 				const reason = gateDenied.get(tc.id)
 				if (reason !== undefined) await recordRefusedEscalation(tc, reason)
 			}
-			await settle(gateDenied)
+			yield* settle(gateDenied)
 			yield* ctx.drainPending()
 			return finish('rejected')
 		}
@@ -458,7 +512,7 @@ export async function* runToolReview(
 		ctx.log.debug('Every tool call is covered by an approval already granted', {
 			'namzu.tool.names': toolCallSummaries.map((tc) => tc.name),
 		})
-		await settle()
+		yield* settle()
 		yield* ctx.drainPending()
 		return finish('executed')
 	}
@@ -560,7 +614,7 @@ export async function* runToolReview(
 			const feedback = reviewDecision.feedback || DECLINED_TOOL_CALL_FEEDBACK
 			const denials = new Map(denyAll(feedback))
 			await settleEscalations(denials, undefined)
-			await settle(denials)
+			yield* settle(denials)
 			yield* ctx.drainPending()
 			return finish('rejected')
 		}
@@ -630,7 +684,7 @@ export async function* runToolReview(
 
 			await settleEscalations(denials, reviewDecision.confirmedEscalations)
 			const everythingDenied = denials.size === toolCalls.length
-			await settle(denials)
+			yield* settle(denials)
 			yield* ctx.drainPending()
 			return finish(everythingDenied ? 'rejected' : 'executed')
 		}
@@ -704,7 +758,7 @@ export async function* runToolReview(
 				denials,
 				reviewDecision.action === 'approve_tools' ? reviewDecision.confirmedEscalations : undefined,
 			)
-			await settle(denials)
+			yield* settle(denials)
 			yield* ctx.drainPending()
 			return finish(denials.size === toolCalls.length ? 'rejected' : 'executed')
 		}
@@ -720,7 +774,7 @@ export async function* runToolReview(
 			})
 			const denials = new Map(gateDenied)
 			await settleEscalations(denials, undefined)
-			await settle(denials)
+			yield* settle(denials)
 			yield* ctx.drainPending()
 			return finish('executed')
 		}

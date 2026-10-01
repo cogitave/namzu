@@ -18,6 +18,7 @@ import {
 	type SessionLog,
 } from '../../store/session-log/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
+import type { AgentDefinition } from '../../types/agent/factory.js'
 import type {
 	AgentLifecycleEvent,
 	AgentLifecycleListener,
@@ -134,10 +135,15 @@ interface ChildSpawnRecord {
 	parentSessionId: SessionId
 	/** The parent turn whose tool call spawned the child. */
 	parentTurnId: TurnId
+	/** A follow-up has a new invoking turn; the conversation's origin stays immutable. */
+	originParentTurnId?: TurnId
+	/** Rollback must never delete a conversation that existed before this invocation. */
+	resumed?: boolean
 	rootSessionId: SessionId
 	/** The parent's ancestors and the parent itself, root first: the child's `SessionLocator.ancestors`. */
 	ancestry: readonly SessionId[]
 	childDepth: number
+	childOwnerVersion: number
 	/**
 	 * Where the child's log and meta document were placed, when this manager
 	 * placed them (a layout was known and the child named no storage).
@@ -163,6 +169,19 @@ interface ChildSpawnRecord {
 	 */
 	resolvedToolDenies?: readonly string[]
 }
+
+/** In-process admission capability, separate from replayable history and terminal task handles. */
+interface RetainedChildConversation {
+	readonly definition: AgentDefinition
+	readonly origin: ChildSpawnRecord
+	readonly topicId: AgentTaskContext['topicId']
+	readonly projectId: AgentTaskContext['projectId']
+	readonly cwd: string
+	readonly log: SessionLog
+	activeSubSessionId?: SubSessionId
+}
+
+const RETAINED_CHILD_CONVERSATION_CAP = 1_000
 
 /**
  * Combine a child's own environment with what its parent passed down.
@@ -282,6 +301,7 @@ export class AgentManager {
 	private registry: AgentRegistry
 	private instances: Map<TaskId, AgentTask> = new Map()
 	private spawnRecords: Map<TaskId, ChildSpawnRecord> = new Map()
+	private readonly childConversations = new Map<SessionId, RetainedChildConversation>()
 	private completionCallbacks: Map<TaskId, Array<() => void>> = new Map()
 	private listeners: AgentLifecycleListener[] = []
 	private log: Logger
@@ -695,6 +715,7 @@ export class AgentManager {
 				state: 'pending',
 				pendingMessages: queuedTask?.pendingMessages ?? [],
 				createdAt: queuedTask?.createdAt ?? Date.now(),
+				childSessionId: spawnRecord.childSessionId,
 				workspace: options.workspace?.mode === 'isolated' ? spawnRecord.workspaceRef : undefined,
 				sessionEventListener: listener,
 			} satisfies AgentTask)
@@ -761,6 +782,11 @@ export class AgentManager {
 			})
 
 			const definition = this.registry.getOrThrow(options.agentId)
+			if (
+				spawnRecord.resumed &&
+				definition !== this.childConversations.get(spawnRecord.childSessionId)?.definition
+			)
+				throw new Error('Child continuation requires its unchanged agent definition')
 			let childConfig: BaseAgentConfig
 			if (definition.configBuilder) {
 				// Call the configBuilder regardless of whether factoryOptions were
@@ -981,6 +1007,9 @@ export class AgentManager {
 				childConfig.sessionLog = childLog
 				spawnRecord.releaseLog = registerChildSessionLog(childLog)
 			}
+			if (!spawnRecord.resumed && childConfig.sessionLog) {
+				this.retainChildConversation(spawnRecord, context, childOptions, childConfig.sessionLog)
+			}
 
 			// Outside the branch, like the scope above it and for the same reason:
 			// a `configBuilder` cannot forward a field it was never told about.
@@ -998,6 +1027,10 @@ export class AgentManager {
 			childAbortController.signal.throwIfAborted()
 
 			await childBudget.flush()
+			childAbortController.signal.throwIfAborted()
+			if (spawnRecord.resumed && this.registry.getOrThrow(options.agentId) !== definition)
+				throw new Error('Child continuation agent definition changed during admission')
+			if (spawnRecord.resumed) await this.assertContinuationOwnership(spawnRecord, options.agentId)
 			childAbortController.signal.throwIfAborted()
 			this.executingTasks.add(taskId)
 			const runningTask = agentTask
@@ -1021,9 +1054,13 @@ export class AgentManager {
 					// invocation has only NOW stopped; release the persisted edge here.
 					if (!this.instances.has(taskId) || isTerminalAgentTaskState(runningTask.state)) {
 						await this.failSubSession(spawnRecord)
-					} else this.markFailed(taskId, toErrorMessage(failure))
+					} else {
+						this.releaseChildConversation(spawnRecord)
+						this.markFailed(taskId, toErrorMessage(failure))
+					}
 				})
 				.finally(() => {
+					this.releaseChildConversation(spawnRecord)
 					this.executingTasks.delete(taskId)
 					if (!this.instances.has(taskId)) this.dropSpawnRecord(taskId)
 					this.pumpAdmissions(options.parentSessionId)
@@ -1106,6 +1143,33 @@ export class AgentManager {
 
 	private async rollbackSpawnResources(spawnRecord: ChildSpawnRecord): Promise<void> {
 		spawnRecord.releaseLog?.()
+		if (spawnRecord.resumed) {
+			try {
+				await this.deps.sessionStore.deleteSubSession(
+					spawnRecord.subSessionId,
+					spawnRecord.tenantId,
+				)
+				const session = await this.deps.sessionStore.getSession(
+					spawnRecord.childSessionId,
+					spawnRecord.tenantId,
+				)
+				if (
+					session &&
+					session.status === 'active' &&
+					session.ownerVersion === spawnRecord.childOwnerVersion
+				) {
+					await this.deps.sessionStore.updateSession(
+						{ ...session, status: 'idle' },
+						spawnRecord.tenantId,
+						spawnRecord.childOwnerVersion,
+					)
+				}
+			} finally {
+				this.releaseChildConversation(spawnRecord)
+			}
+			return
+		}
+		this.childConversations.delete(spawnRecord.childSessionId)
 		// A child that never started leaves no meta document naming it: the
 		// session it describes is being deleted below.
 		if (spawnRecord.placement) {
@@ -1116,7 +1180,10 @@ export class AgentManager {
 				}),
 			)
 		}
-		await this.disposeChildWorkspace({ ...spawnRecord, workspaceRetention: undefined })
+		await this.disposeChildWorkspace({
+			...spawnRecord,
+			workspaceRetention: undefined,
+		})
 		try {
 			// The edge must be removed before its child: stores reject deletion
 			// of a session that still has a subsession reference.
@@ -1153,7 +1220,7 @@ export class AgentManager {
 			kind: 'child-session',
 			sessionId: spawnRecord.childSessionId,
 			parentSessionId: spawnRecord.parentSessionId,
-			parentTurnId: spawnRecord.parentTurnId,
+			parentTurnId: spawnRecord.originParentTurnId ?? spawnRecord.parentTurnId,
 			rootSessionId: spawnRecord.rootSessionId,
 			depth: spawnRecord.childDepth,
 			toolCallId: placement.toolCallId,
@@ -1186,6 +1253,17 @@ export class AgentManager {
 		options: SendMessageOptions,
 		taskId: TaskId,
 	): Promise<SessionLog | undefined> {
+		if (spawnRecord.resumed) {
+			const conversation = this.childConversations.get(spawnRecord.childSessionId)
+			if (!conversation) throw new Error('Child conversation continuation authority is unavailable')
+			if (childConfig.sessionLog && childConfig.sessionLog !== conversation.log)
+				throw new Error('Child continuation cannot replace its conversation log')
+			if (conversation.origin.placement) {
+				childConfig.paths = conversation.origin.placement.paths
+				spawnRecord.placement = conversation.origin.placement
+			}
+			return conversation.log
+		}
 		if (childConfig.sessionLog !== undefined) return undefined
 		const inherited = context.childStorage
 		if (inherited?.kind === 'memory' && childConfig.paths === undefined) {
@@ -1407,6 +1485,7 @@ export class AgentManager {
 			this.cancel(taskId)
 		}
 		this.instances.clear()
+		this.childConversations.clear()
 		for (const taskId of this.spawnRecords.keys())
 			if (!this.executingTasks.has(taskId)) this.dropSpawnRecord(taskId)
 		this.listeners.length = 0
@@ -1527,6 +1606,7 @@ export class AgentManager {
 		await this.validateSpawn(options, context)
 		context.parentAbortController.signal.throwIfAborted()
 		const store = this.deps.sessionStore
+		if (options.resumeSessionId) return this.provisionContinuation(options, context)
 
 		// Ancestry walk gives both the child depth and the root session id
 		// attached to every sub-session event from here down.
@@ -1671,11 +1751,152 @@ export class AgentManager {
 			rootSessionId,
 			ancestry: parentAncestry,
 			childDepth,
+			childOwnerVersion: childSession.ownerVersion,
 			workspaceRef,
 			...(options.workspace?.mode === 'isolated' && options.workspace.retention === 'retain'
 				? { workspaceRetention: 'retain' as const }
 				: {}),
 		}
+	}
+
+	private retainChildConversation(
+		origin: ChildSpawnRecord,
+		context: AgentTaskContext,
+		options: SendMessageOptions,
+		log: SessionLog,
+	): void {
+		// Existing builders may supply an application-managed log addressed to
+		// another session. Preserve that first invocation, but never turn its
+		// history into authority for this admitted child's conversation.
+		if (log.sessionId !== origin.childSessionId) return
+		// Conversation authority is bounded independently of the heavy task
+		// eviction. Losing a retained entry makes continuation unavailable; it
+		// never reconstructs execution authority from a history file.
+		if (this.childConversations.size >= RETAINED_CHILD_CONVERSATION_CAP) {
+			const oldest = [...this.childConversations].find(([, value]) => !value.activeSubSessionId)
+			if (oldest) this.childConversations.delete(oldest[0])
+			else return
+		}
+		this.childConversations.set(origin.childSessionId, {
+			definition: this.registry.getOrThrow(options.agentId),
+			origin,
+			topicId: context.topicId,
+			projectId: context.projectId,
+			cwd: resolve(options.input.workingDirectory ?? process.cwd()),
+			log,
+			activeSubSessionId: origin.subSessionId,
+		})
+	}
+
+	private releaseChildConversation(record: ChildSpawnRecord): void {
+		const conversation = this.childConversations.get(record.childSessionId)
+		if (conversation?.activeSubSessionId !== record.subSessionId) return
+		conversation.activeSubSessionId = undefined
+		// An old task's eviction must not unregister the next invocation's log.
+		record.releaseLog?.()
+		record.releaseLog = undefined
+	}
+
+	/** Called under the same parent provisioning lock as ordinary admission. */
+	private async provisionContinuation(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+	): Promise<ChildSpawnRecord> {
+		const id = options.resumeSessionId
+		const conversation = id ? this.childConversations.get(id) : undefined
+		if (!id || !conversation)
+			throw new Error('Child conversation continuation authority is unavailable')
+		const origin = conversation.origin
+		if (
+			origin.parentSessionId !== options.parentSessionId ||
+			options.parentSessionId !== context.sessionId ||
+			origin.tenantId !== context.tenantId ||
+			conversation.projectId !== context.projectId ||
+			options.projectId !== context.projectId ||
+			conversation.topicId !== context.topicId
+		)
+			throw new Error('Child continuation scope does not match its owning parent')
+		if (conversation.definition !== this.registry.getOrThrow(options.agentId))
+			throw new Error('Child continuation requires its unchanged agent definition')
+		if (conversation.activeSubSessionId)
+			throw new Error('Child conversation is still running or settling')
+		if (origin.workspaceRef || options.workspace?.mode === 'isolated' || options.workspaceBackend)
+			throw new Error(
+				'Child continuation requires a shared workspace; isolated leases cannot be resumed',
+			)
+		if (resolve(options.input.workingDirectory ?? process.cwd()) !== conversation.cwd)
+			throw new Error('Child continuation cannot change its working directory')
+		const store = this.deps.sessionStore
+		if (store.supportsInvocationSummaries !== true || store.supportsOwnerVersionCas !== true)
+			throw new Error('Session store does not support child conversation continuation')
+		const child = await store.getSession(id, context.tenantId)
+		if (
+			!child ||
+			child.status === 'archived' ||
+			child.status === 'locked' ||
+			child.ownerVersion !== origin.childOwnerVersion ||
+			child.projectId !== context.projectId ||
+			child.topicId !== context.topicId ||
+			child.currentActor?.kind !== 'agent' ||
+			child.currentActor.agentId !== options.agentId
+		)
+			throw new Error('Child conversation ownership is no longer valid')
+		const edges = await store.getChildren(options.parentSessionId, context.tenantId)
+		if (!edges.some((edge) => edge.id === origin.subSessionId && edge.childSessionId === id))
+			throw new Error('Child conversation origin is no longer attached to this parent')
+		const edge = await store.createSubSession(
+			{
+				parentSessionId: options.parentSessionId,
+				childSessionId: id,
+				kind: 'agent_spawn',
+				spawnedBy: context.parentActor,
+				failureMode: 'delegate',
+				completionMode: 'summary_ref',
+			},
+			context.tenantId,
+		)
+		try {
+			context.parentAbortController.signal.throwIfAborted()
+			await store.updateSession(
+				{ ...child, status: 'active' },
+				context.tenantId,
+				origin.childOwnerVersion,
+			)
+		} catch (error) {
+			await store.deleteSubSession(edge.id, context.tenantId)
+			throw error
+		}
+		conversation.activeSubSessionId = edge.id
+		return {
+			subSessionId: edge.id,
+			childSessionId: id,
+			tenantId: context.tenantId,
+			parentSessionId: origin.parentSessionId,
+			parentTurnId: context.parentTurnId,
+			originParentTurnId: origin.parentTurnId,
+			rootSessionId: origin.rootSessionId,
+			ancestry: origin.ancestry,
+			childDepth: origin.childDepth,
+			childOwnerVersion: origin.childOwnerVersion,
+			...(origin.placement ? { placement: origin.placement } : {}),
+			resumed: true,
+		}
+	}
+
+	private async assertContinuationOwnership(
+		record: ChildSpawnRecord,
+		agentId: string,
+	): Promise<void> {
+		const child = await this.deps.sessionStore.getSession(record.childSessionId, record.tenantId)
+		if (
+			!child ||
+			child.ownerVersion !== record.childOwnerVersion ||
+			child.status === 'archived' ||
+			child.status === 'locked' ||
+			child.currentActor?.kind !== 'agent' ||
+			child.currentActor.agentId !== agentId
+		)
+			throw new Error('Child conversation ownership changed during admission')
 	}
 
 	private async runChild(
@@ -1753,6 +1974,8 @@ export class AgentManager {
 					const agentSummary = deriveAgentSummary(result)
 					const summary = await this.deps.summaryMaterializer.materialize({
 						sessionId: spawnRecord.childSessionId,
+						...(spawnRecord.resumed ? { expectedOwnerVersion: spawnRecord.childOwnerVersion } : {}),
+						...(spawnRecord.resumed ? { turnId: result.turnId } : {}),
 						tenantId: spawnRecord.tenantId,
 						finalOutcome: outcome,
 						agentSummary,
@@ -1805,10 +2028,14 @@ export class AgentManager {
 					'namzu.task.id': agentTask.taskId,
 					'exception.message': toErrorMessage(err),
 				})
+				// A follow-up must never advertise its original conversation's
+				// stale summary as the completion of this new invocation.
+				if (spawnRecord.resumed) throw err
 			}
 		}
 
 		if (spawnRecord) await this.settleChildSession(agentTask, spawnRecord, result.status)
+		if (spawnRecord) this.releaseChildConversation(spawnRecord)
 
 		this.markCompleted(agentTask.taskId, result)
 	}

@@ -44,6 +44,14 @@ bash reads one startup file even non-interactively, the one `BASH_ENV` names, an
 
 Background jobs (`run_in_background`) run in the same shell (`packages/sdk/src/runtime/jobs/registry.ts`).
 
+For finite work, `wait_for_job` without an output condition waits for exit.
+For a persistent server, set `output_contains` to its exact readiness marker and
+optionally `output_stream` to `stdout`, `stderr` or `either`. This bounded
+observation can return while the process remains running and never holds a
+finishing turn open until exit. It does not establish service health. The
+registry API, byte cursors, independent pipe matching, cancellation and explicit
+retention gaps are described in [Observing background output](tool-execution.md#observing-background-output).
+
 ## Job-exit delivery to a host
 
 A host can pass a session-owned `BackgroundJobRegistry` as

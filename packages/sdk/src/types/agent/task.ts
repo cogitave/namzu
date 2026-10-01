@@ -219,6 +219,8 @@ export interface AgentTask {
 	pendingMessages: Message[]
 	createdAt: number
 	completedAt?: number
+	/** Populated at admission; never inferred from a custom agent's result. */
+	readonly childSessionId?: SessionId
 	/** Populated after an explicitly isolated spawn is admitted. */
 	workspace?: WorkspaceRef
 
@@ -234,6 +236,8 @@ export interface AgentTask {
  * WorkspaceRef triple atomically on every spawn.
  */
 export interface SendMessageOptions {
+	/** See {@link import('./scheduler.js').CreateTaskOptions.resumeSessionId}. */
+	readonly resumeSessionId?: SessionId
 	/** Explicit child filesystem policy; omitted preserves legacy backend behavior. */
 	readonly workspace?: ChildWorkspaceRequest
 	/**

@@ -940,6 +940,9 @@ export interface AgentTranscriptProps {
 	readonly tailOffset: number
 	readonly terminalRows: number
 	readonly terminalColumns: number
+	/** Reserve more of a short terminal for the child's message editor. */
+	readonly compact?: boolean
+	readonly navigationHint?: string
 }
 
 /** Child screen; leave two parent footer rows and one terminal cursor row free. */
@@ -948,8 +951,12 @@ export function AgentTranscript({
 	tailOffset,
 	terminalRows,
 	terminalColumns,
+	compact = false,
+	navigationHint,
 }: AgentTranscriptProps) {
-	const page = agentTranscriptPage(agent, tailOffset, terminalRows, terminalColumns)
+	const page = agentTranscriptPage(
+		agent, tailOffset, terminalRows + (compact ? 3 : 0), terminalColumns,
+	)
 	// A replayed child whose saved record never got an ending still has no
 	// clock running: ticking one would be the same claim the banner denies.
 	const now = useLiveNow(!agent.replayed && agent.completedAt === undefined)
@@ -960,18 +967,19 @@ export function AgentTranscript({
 		showCounters: terminalColumns >= 70,
 	})
 	const navigation =
-		terminalColumns >= 70
+		navigationHint ??
+		(terminalColumns >= 70
 			? `PgUp/PgDn · Home oldest · End ${tailLabel.toLowerCase()} · esc agents · q parent`
 			: terminalColumns >= 40
 				? '↑↓ scroll · esc agents · q parent'
 				: terminalColumns >= 30
 					? '↑↓ · esc list · q parent'
-					: 'esc list · q parent'
+					: 'esc list · q parent')
 
 	return (
 		<Box
 			flexDirection="column"
-			height={page.pageSize + 8 + transcriptBannerRows(agent)}
+			height={page.pageSize + (compact ? 5 : 8) + transcriptBannerRows(agent)}
 			flexShrink={0}
 			borderStyle="single"
 			borderColor={theme.accent.assistant}
@@ -981,7 +989,7 @@ export function AgentTranscript({
 			<Box justifyContent="space-between" height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.assistant} bold wrap="truncate-end">
-						Subagent
+						{compact ? oneLine(agent.description || agent.agentId) : 'Subagent'}
 					</Text>
 				</Box>
 				<Box flexShrink={0}>
@@ -991,20 +999,22 @@ export function AgentTranscript({
 					</Text>
 				</Box>
 			</Box>
-			<Box height={1} flexShrink={0}>
-				<Box flexGrow={1} flexShrink={1} minWidth={0}>
-					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{oneLine(agent.description || agent.agentId)}
-					</Text>
-				</Box>
-				{meta.length > 0 ? (
-					<Box flexShrink={0} marginLeft={1}>
-						<Text color={theme.text.muted} wrap="truncate-end">
-							{meta.join(' · ')}
+			{compact ? null : (
+				<Box height={1} flexShrink={0}>
+					<Box flexGrow={1} flexShrink={1} minWidth={0}>
+						<Text color={theme.text.primary} bold wrap="truncate-end">
+							{oneLine(agent.description || agent.agentId)}
 						</Text>
 					</Box>
-				) : null}
-			</Box>
+					{meta.length > 0 ? (
+						<Box flexShrink={0} marginLeft={1}>
+							<Text color={theme.text.muted} wrap="truncate-end">
+								{meta.join(' · ')}
+							</Text>
+						</Box>
+					) : null}
+				</Box>
+			)}
 			{agent.replayed ? (
 				<Box height={1} flexShrink={0}>
 					<Text color={theme.status.warn} wrap="truncate-end">
@@ -1012,7 +1022,7 @@ export function AgentTranscript({
 					</Text>
 				</Box>
 			) : null}
-			<Box flexDirection="column" marginTop={1} height={page.pageSize} flexShrink={0}>
+			<Box flexDirection="column" marginTop={compact ? 0 : 1} height={page.pageSize} flexShrink={0}>
 				{page.rows.length === 0 ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{agent.replayed
@@ -1042,7 +1052,7 @@ export function AgentTranscript({
 					))
 				)}
 			</Box>
-			<Box flexDirection="column" marginTop={1} height={2} flexShrink={0}>
+			<Box flexDirection="column" marginTop={compact ? 0 : 1} height={2} flexShrink={0}>
 				<Text color={theme.text.muted} wrap="truncate-end">
 					{page.last === page.total ? tailLabel : 'History'} ·{' '}
 					{page.total === 0 ? '0/0' : `${page.first}-${page.last}/${page.total}`}
@@ -1379,7 +1389,8 @@ function lineGlyph(line: AgentTranscriptLine): string {
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return '∴'
-	if (row.kind === 'system') return row.direction === 'to-child' ? '←' : '·'
+	if (row.kind === 'system') return row.direction === 'to-child' || row.direction === 'operator-to-child'
+		? '←' : '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
 
@@ -1391,6 +1402,7 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
 	if (row.kind === 'system' && row.direction === 'to-child') return `queued from parent: ${row.text}`
+	if (row.kind === 'system' && row.direction === 'operator-to-child') return `from you: ${row.text}`
 	return row.text
 }
 

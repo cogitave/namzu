@@ -1,0 +1,36 @@
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/project            message child — enter send · tab scroll · esc agents
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ Subagent                                                                                            Working · 0.3s │
+ │ Native child continuity                                                                  gpt-5.6-luna · 0 · 1 tool │
+ │                                                                                                                    │
+ │ ›  INITIAL_CHILD_TASK_719                                                                                          │
+ │ ◌  bash(node '<owned-native-root>/held-tool.mjs' 'first')                                             │
+ │    TOOL_ENTERED_first                                                                                              │
+ │ ←  from you: DIRECT_BUSY_CORRECTION_719                                                                            │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │ Live · 1-4/4                                                                                                       │
+ │ PgUp/PgDn scroll · tab message · esc agents · q parent                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ Message · Native child continuity                                                                                  │
+ │  › Message this child…                                                                                             │
+ │ enter send · tab scroll · esc agents                                                                               │
+ │ Message queued for the child’s next safe boundary.                                                                 │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

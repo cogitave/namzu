@@ -26,7 +26,7 @@ An exit that arrives while no model turn is open appears in the transcript and i
 
 # Waiting for one
 
-`wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.
+By default, `wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.
 
 The wait is bounded two ways, and either one gives up **without stopping the job**:
 
@@ -34,6 +34,25 @@ The wait is bounded two ways, and either one gives up **without stopping the job
 - an idle bound (`idle_timeout_ms`, default 2 minutes) that counts time since the job's output last grew, and resets on every new byte — a job that is still producing output is never cut off for being slow, only for going quiet.
 
 Either timeout is a successful observation, with `data.timedOut` naming `idle` or `wall`; it does not mean the job failed. The result includes the output read so far and an absolute UTF-8 byte `next_offset`. Pass that value as `from_offset` to the next `wait_for_job`, or to `job read`, to receive only later bytes. The waiter keeps at most the last 32 KiB of output in a result and names any earlier bytes it omitted. It separately names bytes the job registry has already dropped from its retained output. A cursor after omitted bytes remains usable for later output; the notice makes the gap explicit. The defaults come from `NAMZU_JOB_WAIT_TIMEOUT_MS` / `NAMZU_JOB_WAIT_IDLE_MS`, with `NAMZU_JOB_WAIT_MAX_MS` as the ceiling either call may request.
+
+# Waiting for output
+
+For a server that should stay running, use one condition wait:
+`wait_for_job({ id: "job_1", output_contains: "Server ready", output_stream: "stdout" })`.
+The exact literal is limited to 4096 UTF-8 bytes. `output_stream` defaults to
+`either`; stdout and stderr are searched separately, including across chunks.
+`from_offset` excludes earlier bytes and cannot be ahead of the produced output.
+
+The call reports `matched`, `exited`, `stopped`, `timeout` or `aborted` in
+`data.outcome`, with the job's actual status and cursor. A marker proves only
+that text was observed; check HTTP health separately if needed. Wall and idle
+bounds apply, but this observation never stops the process or expresses intent
+to wait until exit. The parent turn can finish while the server stays running.
+Unavailable history, unsearched channel history and omitted result bytes are
+reported explicitly. A missing marker cannot prove it never appeared in lost
+output. The live tool row says “Wait for job output”; `/jobs` continues to own
+inspection and stopping. Hosts without output observation refuse this mode
+instead of silently waiting for exit.
 
 # Permissions
 
@@ -84,9 +103,9 @@ Both halves of that matter, because they bind in different configurations:
 
 Two minutes because the hold is buying a turn in which to USE the exit, not watching the job: a job that stayed quiet through its `wait_for_job` bound is rarely two minutes from finishing, and letting the turn end is not losing the news — with no turn in flight the session announces the exit itself, which is the cheaper of the two places to hear it. Where a delegated task is outstanding as well, the turn waits the task's grace, because that is how long it was waiting anyway. The iteration limit bounds all of it — a job that never exits cannot hold a turn open past any of these.
 
-**Awaiting is something the model says, never something the kernel infers.** Only a job `wait_for_job` named is awaited, and only for the rest of the turn that named it. A dev server, a watcher, a `tail -f` — anything started with `run_in_background` and never waited on — holds nothing open, which is the whole point of having started it that way. There is no flag on `bash run_in_background` that changes this: the wait is the signal. The suspend also starts nothing and stops nothing; it only decides whether there is a turn left worth taking.
+**Awaiting is something the model says, never something the kernel infers.** Only an exit wait (`wait_for_job` without `output_contains`) marks a job awaited, and only for the rest of the turn that named it. A dev server, a watcher, a `tail -f` — anything started with `run_in_background` and never awaited for exit — holds nothing open, which is the whole point of having started it that way. There is no flag on `bash run_in_background` that changes this: the exit wait is the signal. The suspend also starts nothing and stops nothing; it only decides whether there is a turn left worth taking.
 
-The intent lasts for the rest of the turn, so `wait_for_job` on a process meant to keep running — a server the model only wanted a health check from — adds the job ceiling to every later settle point in that turn. Look in on such a job with `job read`; wait on the ones that are supposed to end.
+The intent lasts for the rest of the turn, so an exit wait on a process meant to keep running adds the job ceiling to every later settle point in that turn. Observe a server's marker with `output_contains` or inspect it with `job read`; use the default exit wait for work that should end.
 
 # Lifetime
 

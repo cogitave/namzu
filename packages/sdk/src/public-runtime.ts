@@ -11,6 +11,7 @@
 // ─── version + config ────────────────────────────────────────────────────
 
 export { VERSION } from './version.js'
+export { BackgroundJobOutputWaitLimitError } from './runtime/jobs/registry.js'
 
 // The opt-in model-authored-code backend. `RunCodeToolOptions.runtime` has
 // always accepted this contract; exporting the implementation and its refusal

@@ -1,0 +1,23 @@
+
+ █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+ █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0
+
+ Warning: Auto-approve tools — tools run without asking. Use /permissions to change this.
+
+ › START_READINESS_NATIVE_719
+
+ ✓ Bash(node '<owned-native-root>/server.mjs') · 0.0s
+ ⎿ Started background job job_1. For finite work, await completion with wait_for_job: {"id":"job_1"}. For a persistent
+   ser…
+  ▏ Started background job job_1. For finite work, await completion with wait_for_job: {"id":"job_1"}. For a persistent
+     server, observe its literal readiness marker with wait_for_job: {"id":"job_1","output_contains":"<expected
+    marker>","output…
+  ▏ … line shortened · ctrl+o
+ Working (0.3s · esc to interrupt)
+   └ Wait for job output · job_1 · 0.0s
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                                             │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · <owned-native-root>/project                 gpt-5.6-luna
+ 1 shell running · /jobs to manage
