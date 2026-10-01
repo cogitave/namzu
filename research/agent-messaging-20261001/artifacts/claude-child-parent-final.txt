@@ -1,0 +1,48 @@
+  - Return value: CORRECTED_WORKFLOW_719.
+
+  The correction reached the child and was applied. That is a stronger result than the "queued" receipt I gave you earlier. I didn't cancel,
+  replace or relaunch the child, and I launched no other agents.
+
+● Agent "Long two-stage workflow" finished · 2m 8s
+
+› Message from @general-purpose (ctrl+o to expand)
+
+● The child's second report changes its final marker, and I can't explain the change.
+
+  - What it says: the final marker is now DIRECT_CHILD_WORKFLOW_719, not CORRECTED_WORKFLOW_719. It says this follows "the user's latest
+    message" and that this report replaces its earlier one.
+  - Why that's a problem: I haven't sent you or the child any message asking for DIRECT_CHILD_WORKFLOW_719. The last message you sent me was
+    the CORRECTION_719 request, and the only thing I relayed was the CHECK_BETA_719 / CORRECTED_WORKFLOW_719 correction. The child may have
+    received a message from some other source, such as a direct message from you. I can't see that from here.
+  - What stays the same: the stage 1 and stage 2 details are unchanged. The long command ran once, CHECK_BETA_719 ran, CHECK_ALPHA_719
+    didn't, and no extra agents were launched or relaunched.
+
+  The child is complete. If you did send it a direct message asking for DIRECT_CHILD_WORKFLOW_719, that explains the change. If you didn't,
+  treat that marker as unverified. I haven't taken any action based on it.
+
+● Agent "Long two-stage workflow" finished · 2m 43s
+
+› Message from @general-purpose (ctrl+o to expand)
+
+● The child sent a third report. It doesn't match the workflow I launched or anything I relayed.
+
+  - What it says: a 60-second command ran once and printed UI_BUSY_BEGIN_719 then UI_BUSY_END_719. The final marker is
+    UI_BUSY_CORRECTED_719.
+  - Why it doesn't match: my task was a 120-second command with BLOCK_*_719 markers. I never sent a 60-second command or any UI_BUSY marker.
+    The child's tool count also went from 3 to 4, so it ran something beyond the earlier work.
+  - Where it likely came from: the child seems to be taking instructions from another source, such as a direct message to it that I can't
+    see. Those instructions didn't come through me. This looks like a separate task rather than a continuation of the one I launched.
+
+  I haven't acted on this report, sent the child anything further, or launched or cancelled anything. The agent is idle and its status is
+  completed.
+
+  Please tell me whether you sent those direct messages to the child. If you didn't, treat the DIRECT_CHILD_WORKFLOW_719 and
+  UI_BUSY_CORRECTED_719 results as unverified. The one result I can vouch for is that CORRECTED_WORKFLOW_719 follows the correction I
+  relayed.
+
+● Agent "Long two-stage workflow" finished · 4m 48s
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────── Agent messaging UI experiment ─
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent

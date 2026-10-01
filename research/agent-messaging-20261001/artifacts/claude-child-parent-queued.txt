@@ -1,0 +1,48 @@
+❯ This is a controlled agent-messaging UI experiment in this empty scratch project. Launch exactly ONE background Agent with
+  run_in_background:true and description 'Long two-stage workflow'. Its task: (1) run Bash synchronously with timeout 180000 and
+  run_in_background:false: python3 -c 'import time; print("BLOCK_BEGIN_719", flush=True); time.sleep(120); print("BLOCK_END_719",
+  flush=True)'. Run that command exactly once, never duplicate it or put it into shell background. (2) After that tool returns, perform the
+  validation stage by running python3 -c 'print("CHECK_ALPHA_719")' and return ORIGINAL_WORKFLOW_719. Stay available as the parent and
+  report the child's agent ID immediately. If I send a correction, use the actual SendMessage tool to that SAME child while it is running.
+  Do not cancel, replace or relaunch the child. Do not edit files, use the network, create memories, or launch any extra agents. Do not
+  wait for completion with TaskOutput.
+
+● Agent(Long two-stage workflow)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● I launched one background agent, "Long two-stage workflow". Its agent ID is a4f94a1a45cfbd28d.
+
+  It will run the 120-second blocking command once, then the CHECK_ALPHA_719 validation, and return ORIGINAL_WORKFLOW_719. I haven't seen
+  any of its results yet. I'll wait for the completion notification and won't poll it with TaskOutput. If you send a correction, I'll pass
+  it to this same agent with SendMessage.
+
+✻ Waiting for 1 background agent to finish
+
+❯ CORRECTION_719: Send this NOW using SendMessage to the same child a4f94a1a45cfbd28d while its first blocking Bash command is still
+  running: keep the existing blocking command running; after it returns replace stage 2 with python3 -c 'print("CHECK_BETA_719")' and
+  return CORRECTED_WORKFLOW_719 instead of ORIGINAL_WORKFLOW_719. Do not cancel, relaunch, or run the long command a second time. Report
+  the actual messaging receipt; queued/accepted is not proof the child has read it.
+  ⎿  Message queued for delivery to a4f94a1a45cfbd28d at its next tool round.
+
+● I sent the correction to the same child, a4f94a1a45cfbd28d, using SendMessage.
+
+  Receipt: success: true, "Message queued for delivery to a4f94a1a45cfbd28d at its next tool round." That only means the message is queued.
+  It doesn't show the child has read it. The child should pick it up when its blocking Bash call returns and it starts its next tool round.
+
+  The message told the child to:
+  - keep the running blocking command going, without cancelling it or running it a second time;
+  - run CHECK_BETA_719 in stage 2 instead of CHECK_ALPHA_719;
+  - return CORRECTED_WORKFLOW_719 instead of ORIGINAL_WORKFLOW_719.
+
+  I haven't cancelled, relaunched or replaced the child. Whether it followed the correction will show in its completion report, which I'll
+  check when the notification arrives.
+
+✻ Waiting for 1 background agent to finish
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ check whether the child has finished
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent · ↓ to manage
+
+  ● main
+  ◯ general-purpose  Long two-stage workflow                                                             1m 24s · ↓ 7.4k tokens · 1 queued

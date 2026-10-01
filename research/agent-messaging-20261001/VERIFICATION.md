@@ -1,5 +1,12 @@
 # Messaging verification and reproduction
 
+Follow-up: [live child workflow and direct operator messages](CLAUDE-CHILD-WORKFLOW.md)
+records a real synchronous 120-second child tool, a correction queued before
+that tool completes, direct child-composer input during a second blocking tool,
+and same-child idle follow-up. It also identifies the missing direct child UI
+and completed-child follow-up operations in Namzu. The earlier experiments below
+retain their original evidence limits.
+
 Baseline: `308522a5fde0508428257c0a30d4a023d4ac5a62`. All changes in the owned
 `feat/runtime-desktop-foundation` worktree. Main and the operator's saved
 conversations and scheduled jobs were not changed by these experiments.

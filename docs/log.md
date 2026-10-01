@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** [Communication investigation](../research/agent-messaging-20261001/CLAUDE-CHILD-WORKFLOW.md): record live corrections during blocking child tools, direct operator input and same-child follow-up; distinguish the existing delivery foundation from missing child-composer and completed-child continuation operations, including parent visibility of changed assignments.
+
 - **Update** [Messages between live terminals](cli/peer-messaging.md): clarify the separate failure-hold and goal-driver policies; record the completed [communication audit](../research/agent-messaging-20261001/FINAL-AUDIT.md), original/native TUI evidence and all 48 local gates.
 
 - **Update** [Messages between live terminals](cli/peer-messaging.md): wire the SDK local peer transport into independent interactive processes with `/peers`, `list_sessions` and `send_session_message`, bounded mail, same-project and same-mode acceptance, idle wake, request-boundary delivery and conversation-generation fencing. Peer context cannot grant approval. [Child-message activity](cli/delegated-work.md) now says queued and records acceptance rather than model delivery; the manager contract documents its actual inbound callback. `.changeset/live-terminal-peer-messaging.md`, **minor** for `@namzu/cli`, **patch** for `@namzu/sdk`.
