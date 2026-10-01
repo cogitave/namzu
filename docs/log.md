@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** Record a [native Windows recheck](../research/schedule-installers-20261001/WINDOWS-RECHECK-20261001.md) of installer failures, Resume directory guards and real CMD/PowerShell batch forwarding. Selected production scheduler modules also round-trip jobs and unlimited token budgets on Windows Node; a complete packaged TUI, live provider run and Task Scheduler service remain outside this evidence.
+
 - **Update** [Pal environment research](../research/runtime-desktop-20260930/PAL-ENVIRONMENT-REFERENCE-20261001.md): distinguish implemented delegation and peer messaging from planned persistent Pal identities, groups and durable missions. Compare pinned source and public visual references, selecting local devices for the first environment/browser release with separate resource ownership, grants and takeover. This is a design record, not a shipped Pal feature.
 
 - **Update** [Scheduled tasks](cli/scheduled-tasks.md): default new agent phases to unlimited tokens (`0`), preserve explicit and saved finite budgets, and support zero in the [SDK schedule tool](sdk/schedules.md). Confirmation shows no token limit instead of a zero daily allowance; usage remains measured. `.changeset/schedule-unlimited-token-budget.md`, **major** for `@namzu/cli` and **minor** for `@namzu/sdk`.
