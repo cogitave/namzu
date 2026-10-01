@@ -1,0 +1,216 @@
+{
+  "width": 600,
+  "height": 540,
+  "overflow": false,
+  "dark": true,
+  "reduced": true,
+  "popup": null,
+  "empty": {},
+  "search": {
+    "x": 17,
+    "y": 76,
+    "width": 28,
+    "height": 28,
+    "top": 76,
+    "right": 45,
+    "bottom": 104,
+    "left": 17
+  },
+  "brand": {
+    "x": -192,
+    "y": 64,
+    "width": 287,
+    "height": 52,
+    "top": 64,
+    "right": 95,
+    "bottom": 116,
+    "left": -192
+  },
+  "groups": [
+    {
+      "id": "sample-app",
+      "rect": {
+        "x": -184,
+        "y": 200,
+        "width": 271,
+        "height": 260,
+        "top": 200,
+        "right": 87,
+        "bottom": 460,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 234,
+            "width": 247,
+            "height": 32,
+            "top": 234,
+            "right": 87,
+            "bottom": 266,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 267,
+            "width": 247,
+            "height": 32,
+            "top": 267,
+            "right": 87,
+            "bottom": 299,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 300,
+            "width": 247,
+            "height": 32,
+            "top": 300,
+            "right": 87,
+            "bottom": 332,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 333,
+            "width": 247,
+            "height": 32,
+            "top": 333,
+            "right": 87,
+            "bottom": 365,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 366,
+            "width": 247,
+            "height": 32,
+            "top": 366,
+            "right": 87,
+            "bottom": 398,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 399,
+            "width": 247,
+            "height": 32,
+            "top": 399,
+            "right": 87,
+            "bottom": 431,
+            "left": -160
+          },
+          "text": "",
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "sample-docs",
+      "rect": {
+        "x": -184,
+        "y": 468,
+        "width": 271,
+        "height": 99,
+        "top": 468,
+        "right": 87,
+        "bottom": 567,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 502,
+            "width": 247,
+            "height": 32,
+            "top": 502,
+            "right": 87,
+            "bottom": 534,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 535,
+            "width": 247,
+            "height": 32,
+            "top": 535,
+            "right": 87,
+            "bottom": 567,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        }
+      ]
+    },
+    {
+      "id": "sample-workspace",
+      "rect": {
+        "x": -184,
+        "y": 575,
+        "width": 271,
+        "height": 66,
+        "top": 575,
+        "right": 87,
+        "bottom": 641,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 609,
+            "width": 247,
+            "height": 32,
+            "top": 609,
+            "right": 87,
+            "bottom": 641,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        }
+      ]
+    }
+  ],
+  "options": [],
+  "jobs": {
+    "rect": {
+      "x": 48,
+      "y": 32,
+      "width": 552,
+      "height": 508,
+      "top": 32,
+      "right": 600,
+      "bottom": 540,
+      "left": 48
+    },
+    "open": "true"
+  }
+}

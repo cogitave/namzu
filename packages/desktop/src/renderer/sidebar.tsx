@@ -2,22 +2,23 @@ import { Menu } from '@base-ui/react/menu'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
-import { ChevronDownIcon, FolderIcon, FolderPlusIcon, SquarePenIcon, XIcon } from './icons.js'
+import { BrandDither } from './brand-dither.js'
+import {
+	ChevronDownIcon,
+	FolderIcon,
+	FolderOpenIcon,
+	FolderPlusIcon,
+	SearchIcon,
+	SquarePenIcon,
+	XIcon,
+} from './icons.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
-import { SidebarHeaderIconButton, SidebarThreadHeader } from './sidebar-thread-header.js'
 import { ThreadCard } from './thread-card.js'
 import { Button } from './ui/button.js'
-import {
-	Combobox,
-	ComboboxEmpty,
-	ComboboxItem,
-	ComboboxList,
-	ComboboxPopup,
-	ComboboxSearchInput,
-	ComboboxTrigger,
-} from './ui/combobox.js'
-import { SidebarGroup } from './ui/sidebar.js'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { Wordmark } from './wordmark.js'
+import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export function Sidebar({
@@ -29,6 +30,7 @@ export function Sidebar({
 	open,
 	opening,
 	onClose,
+	onSearch,
 	collapsed,
 	onOpenProject,
 	onNewConversation,
@@ -43,27 +45,30 @@ export function Sidebar({
 	open: boolean
 	opening: boolean
 	onClose: () => void
+	onSearch: () => void
 	collapsed: boolean
 	onOpenProject: () => void
 	onNewConversation: () => void
 	onProject: (id: string) => void
 	onConversation: (view: ConversationView) => void
 }) {
-	const [query, setQuery] = useState('')
-	const [scope, setScope] = useState('')
-	const scopeAnchor = useRef<HTMLDivElement>(null)
-	const scopeItems = [
-		{ value: '', label: 'All projects' },
-		...projects.map((project) => ({ value: project.id, label: project.name })),
-	]
-	const searchInput = useRef<HTMLInputElement>(null)
+	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
+	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
 	const active = projects.find((item) => item.id === projectId)
 	const newConversationDisabled = opening || !active?.trusted || active.status !== 'ready'
-	const rows = conversations.filter(
-		(item) =>
-			(!scope || item.projectId === scope) &&
-			item.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-	)
+	const groups = projects.map((project) => ({
+		project,
+		rows: conversations.filter((item) => item.projectId === project.id),
+	}))
+	const activeProjectId = sessionId
+		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
+		: ''
+	useLayoutEffect(() => {
+		if (!activeProjectId || !sessionId) return
+		setCollapsedProjects((current) =>
+			current[activeProjectId] ? { ...current, [activeProjectId]: false } : current,
+		)
+	}, [activeProjectId, sessionId])
 	return (
 		<>
 			{open && (
@@ -78,6 +83,7 @@ export function Sidebar({
 				aria-label="Projects and conversations"
 			>
 				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3 md:px-0">
+					<BrandDither />
 					<Menu.Root>
 						<Menu.Trigger
 							render={
@@ -114,10 +120,28 @@ export function Sidebar({
 							</Menu.Positioner>
 						</Menu.Portal>
 					</Menu.Root>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									variant="ghost-muted"
+									size="icon-sm"
+									className="sidebar-search relative z-10 ml-auto"
+									aria-label="Search conversations"
+									aria-keyshortcuts="Control+k Meta+k"
+									data-sidebar-search
+									onClick={onSearch}
+								/>
+							}
+						>
+							<SearchIcon className="size-4" aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipPopup side="bottom">Search conversations</TooltipPopup>
+					</Tooltip>
 					<Button
 						variant="ghost-muted"
 						size="icon-xs"
-						className="sidebar-close ml-auto"
+						className="sidebar-close"
 						aria-label="Close sidebar"
 						onClick={onClose}
 					>
@@ -133,89 +157,78 @@ export function Sidebar({
 					<SquarePenIcon aria-hidden="true" />
 					New conversation
 				</button>
-				<SidebarGroup className="relative z-[1]">
-					<SidebarThreadHeader
-						hideActions
-						hasProjects={projects.length > 0}
-						searchFieldRef={scopeAnchor}
-						projectScope={
-							<Combobox
-								items={scopeItems}
-								autoHighlight
-								itemToStringLabel={(item) => item.label}
-								isItemEqualToValue={(a, b) => a.value === b.value}
-								value={scopeItems.find((item) => item.value === scope) ?? scopeItems[0]}
-								onValueChange={(item) => {
-									if (!item) return
-									setScope(item.value)
-									if (item.value) onProject(item.value)
-								}}
-							>
-								<ComboboxTrigger
-									render={<SidebarHeaderIconButton label="Filter conversations by project" />}
-								>
-									<FolderIcon className="size-4" />
-								</ComboboxTrigger>
-								<ComboboxPopup
-									align="start"
-									anchor={scopeAnchor}
-									className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
-								>
-									<ComboboxSearchInput
-										aria-label="Search projects"
-										placeholder="Search projects..."
-									/>
-									<ComboboxEmpty>No matching projects.</ComboboxEmpty>
-									<ComboboxList>
-										{(item: { value: string; label: string }) => (
-											<ComboboxItem key={item.value} value={item} hideIndicator>
-												<FolderIcon className="size-4 shrink-0" />
-												<span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
-											</ComboboxItem>
-										)}
-									</ComboboxList>
-								</ComboboxPopup>
-							</Combobox>
-						}
-						onNewProject={onOpenProject}
-						onNewThread={onNewConversation}
-						newThreadDisabled={newConversationDisabled}
-						newThreadShortcutLabel="Ctrl + N"
-						newThreadInProjectShortcutLabel={null}
-						showNewThreadInProjectHint={false}
-						searchInputRef={searchInput}
-						searchQuery={query}
-						onSearchQueryChange={setQuery}
-						onSearchKeyDown={() => {}}
-						isSearching={Boolean(query)}
-						onClearSearch={() => setQuery('')}
-					/>
-				</SidebarGroup>
 				<div className="sidebar-scroll">
-					<div className="sidebar-projects">
-						<h2 className="sidebar-section-title">Projects</h2>
-						{projects.map((project) => (
-							<button
+					<h2 className="sidebar-section-title">Projects</h2>
+					<nav
+						className="conversations sidebar-project-navigation"
+						aria-label="Projects and conversations"
+					>
+						{groups.map(({ project, rows }) => (
+							<Collapsible
 								key={project.id}
-								type="button"
-								className="project-row"
-								aria-label={`Open ${project.name}`}
-								aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
-								onClick={() => onProject(project.id)}
+								className="sidebar-project-group"
+								data-project-group={project.id}
+								open={!collapsedProjects[project.id]}
+								onOpenChange={(expanded) =>
+									setCollapsedProjects((current) => ({ ...current, [project.id]: !expanded }))
+								}
 							>
-								<FolderIcon aria-hidden="true" />
-								<span>{project.name}</span>
-								<span
-									className={`connection-dot ${project.status}`}
-									aria-label={
-										project.status === 'ready'
-											? 'Connected'
-											: project.status === 'error'
-												? 'Connection failed'
-												: 'Connecting'
-									}
-								/>
-							</button>
+								<div
+									className="sidebar-project-heading"
+									data-selected={projectId === project.id || undefined}
+								>
+									<CollapsibleTrigger
+										aria-label={`${collapsedProjects[project.id] ? 'Expand' : 'Collapse'} ${project.name} conversations`}
+										render={
+											<Button
+												variant="ghost-muted"
+												size="icon-xs"
+												className="sidebar-project-toggle"
+											/>
+										}
+									>
+										<span className="sidebar-project-folder" aria-hidden="true">
+											<FolderIcon className="sidebar-project-folder-closed" />
+											<FolderOpenIcon className="sidebar-project-folder-open" />
+										</span>
+									</CollapsibleTrigger>
+									<button
+										type="button"
+										className="project-row"
+										aria-label={`Open ${project.name}`}
+										aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
+										onClick={() => {
+											setCollapsedProjects((current) => ({ ...current, [project.id]: false }))
+											onProject(project.id)
+										}}
+									>
+										<span className="sidebar-project-name">{project.name}</span>
+										<span
+											className={`connection-dot ${project.status}`}
+											aria-label={
+												project.status === 'ready'
+													? 'Connected'
+													: project.status === 'error'
+														? 'Connection failed'
+														: 'Connecting'
+											}
+										/>
+									</button>
+								</div>
+								<CollapsiblePanel className="sidebar-project-panel">
+									<ThreadList
+										rows={rows}
+										project={project}
+										threads={threads}
+										sessionId={sessionId}
+										expanded={Boolean(expandedLists[project.id])}
+										onExpandedChange={(expanded) =>
+											setExpandedLists((current) => ({ ...current, [project.id]: expanded }))
+										}
+										onConversation={onConversation}
+									/>
+								</CollapsiblePanel>
+							</Collapsible>
 						))}
 						{projects.length === 0 && (
 							<button
@@ -228,24 +241,7 @@ export function Sidebar({
 								<span>Open a project</span>
 							</button>
 						)}
-					</div>
-					<h2 className="sidebar-section-title">Conversations</h2>
-					<SidebarGroup className="pt-0">
-						<nav className="conversations" aria-label="Conversations">
-							<ThreadList
-								rows={rows}
-								projects={projects}
-								threads={threads}
-								sessionId={sessionId}
-								onConversation={onConversation}
-							/>
-						</nav>
-						{query && rows.length === 0 && (
-							<output className="block px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
-								No conversations found.
-							</output>
-						)}
-					</SidebarGroup>
+					</nav>
 				</div>
 			</aside>
 		</>
@@ -254,17 +250,24 @@ export function Sidebar({
 
 function ThreadList({
 	rows,
-	projects,
+	project,
 	threads,
 	sessionId,
+	expanded,
+	onExpandedChange,
 	onConversation,
 }: {
 	rows: ConversationView[]
-	projects: ProjectView[]
+	project: ProjectView
 	threads: Record<string, ThreadState>
 	sessionId: string
+	expanded: boolean
+	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
 }) {
+	const limitedRows = rows.filter((item, index) => index < 5 || item.id === sessionId)
+	const shownRows = expanded ? rows : limitedRows
+	const hasExtra = limitedRows.length < rows.length
 	const list = useRef<HTMLUListElement>(null)
 	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
 	useLayoutEffect(() => {
@@ -281,21 +284,33 @@ function ThreadList({
 		motion.current?.update(true)
 	})
 	return (
-		<ul ref={list} role="presentation" className="relative flex flex-col gap-px">
-			{rows.map((item) => {
-				const project = projects.find((project) => project.id === item.projectId)
-				if (!project) return null
-				return (
-					<ThreadCard
-						key={item.id}
-						conversation={item}
-						project={project}
-						thread={threads[item.id]}
-						active={item.id === sessionId}
-						onClick={() => onConversation(item)}
-					/>
-				)
-			})}
+		<ul
+			ref={list}
+			aria-label={`${project.name} conversations`}
+			className="sidebar-project-list relative flex flex-col gap-px"
+		>
+			{shownRows.map((item) => (
+				<ThreadCard
+					key={item.id}
+					conversation={item}
+					project={project}
+					thread={threads[item.id]}
+					active={item.id === sessionId}
+					onClick={() => onConversation(item)}
+				/>
+			))}
+			{hasExtra && (
+				<li className="sidebar-list-disclosure">
+					<button
+						type="button"
+						aria-label={`Show ${expanded ? 'less' : 'more'} ${project.name} conversations`}
+						aria-expanded={expanded}
+						onClick={() => onExpandedChange(!expanded)}
+					>
+						Show {expanded ? 'less' : 'more'}
+					</button>
+				</li>
+			)}
 		</ul>
 	)
 }

@@ -225,7 +225,7 @@ try {
  assert.equal(geometry.rootFont, '16px')
  assert.equal(geometry.message.fontSize, '14px')
  assert.ok(geometry.code.fontFamily.includes('monospace'))
- assert.equal(geometry.canvas, 'rgb(18, 18, 18)')
+	assert.equal(geometry.canvas, 'rgb(20, 20, 20)')
  assert.equal(geometry.code.fontSize,'13px')
  await writeFile(join(artifacts, 'ui-measurements.json'), JSON.stringify(geometry,null,2)+'\n')
  const comparison = process.env.NAMZU_REFERENCE_CHECKOUT ? await compareSourceSurface(desktop, page, repo, process.env.NAMZU_REFERENCE_CHECKOUT, 'fidelity-expanded') : null

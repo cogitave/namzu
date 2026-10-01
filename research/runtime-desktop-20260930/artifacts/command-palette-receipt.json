@@ -1,0 +1,5727 @@
+{
+  "root": "/tmp/namzu-command-palette-RDO22J",
+  "currentFocusedProof": true,
+  "browserSampleApi": true,
+  "explicitNativeSessionSeeds": "Eight app-project and one docs-project sessions, saved route/drafts, no prompts; actual native CLI/kernel session storage and navigation",
+  "nativeModelRequests": 0,
+  "runningEscape": "Synthetic running-state event through native transport on an actual seeded owner; actual cancel IPC spy stayed zero. This does not claim a fresh model turn ran.",
+  "searchPartialNoticeAndRetry": true,
+  "closedListingArrivalIgnored": true,
+  "keyboardMouseAndFocusReturn": true,
+  "imeEnterKeepsModal": true,
+  "filteredCtrlNAndDisabledChord": true,
+  "shortcuts": "Ctrl+K global and Ctrl+N while open tested; no Alt shortcuts are displayed by this palette",
+  "capIncludesActiveBeyondFirstFive": true,
+  "expandedListSurvivesCollapse": true,
+  "crossProjectNativeDraftOwnership": true,
+  "backgroundPaneWideNarrowKeepsDraft": true,
+  "noOverflow": true,
+  "captures": [
+    {
+      "name": "browser-partial-wide-dark",
+      "width": 1280,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 380,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 900,
+          "bottom": 655,
+          "left": 380
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "empty": {
+        "rect": {
+          "x": 381,
+          "y": 212,
+          "width": 518,
+          "height": 404.609375,
+          "top": 212,
+          "right": 899,
+          "bottom": 616.609375,
+          "left": 381
+        },
+        "text": "No matching chats or actions."
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 227,
+            "top": 168,
+            "right": 327,
+            "bottom": 395,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "Refine navigation\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "Polish empty states\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "Review message settings\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 56,
+            "y": 403,
+            "width": 271,
+            "height": 34,
+            "top": 403,
+            "right": 327,
+            "bottom": 437,
+            "left": 56
+          },
+          "rows": []
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 56,
+            "y": 445,
+            "width": 271,
+            "height": 66,
+            "top": 445,
+            "right": 327,
+            "bottom": 511,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 479,
+                "width": 247,
+                "height": 32,
+                "top": 479,
+                "right": 327,
+                "bottom": 511,
+                "left": 80
+              },
+              "text": "Explore a new idea\n2h",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 1280,
+          "y": 32,
+          "width": 377.59375,
+          "height": 788,
+          "top": 32,
+          "right": 1657.59375,
+          "bottom": 820,
+          "left": 1280
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-wide-dark",
+      "width": 1280,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 380,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 900,
+          "bottom": 655,
+          "left": 380
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 381,
+        "y": 212,
+        "width": 518,
+        "height": 442,
+        "top": 212,
+        "right": 899,
+        "bottom": 654,
+        "left": 381
+      },
+      "empty": {
+        "rect": {
+          "x": 381,
+          "y": 654,
+          "width": 518,
+          "height": 0,
+          "top": 654,
+          "right": 899,
+          "bottom": 654,
+          "left": 381
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "Extra sample conversation 4\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "Extra sample conversation 3\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "Extra sample conversation 2\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "Extra sample conversation 1\n2h",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 99,
+            "top": 436,
+            "right": 327,
+            "bottom": 535,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "Improve the quick start\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 503,
+                "width": 247,
+                "height": 32,
+                "top": 503,
+                "right": 327,
+                "bottom": 535,
+                "left": 80
+              },
+              "text": "Keep notes readable\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 56,
+            "y": 543,
+            "width": 271,
+            "height": 66,
+            "top": 543,
+            "right": 327,
+            "bottom": 609,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 577,
+                "width": 247,
+                "height": 32,
+                "top": 577,
+                "right": 327,
+                "bottom": 609,
+                "left": 80
+              },
+              "text": "Explore a new idea\n2h",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 238.390625,
+            "width": 510,
+            "height": 31,
+            "top": 238.390625,
+            "right": 895,
+            "bottom": 269.390625,
+            "left": 385
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 270.390625,
+            "width": 510,
+            "height": 31,
+            "top": 270.390625,
+            "right": 895,
+            "bottom": 301.390625,
+            "left": 385
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 302.390625,
+            "width": 510,
+            "height": 31,
+            "top": 302.390625,
+            "right": 895,
+            "bottom": 333.390625,
+            "left": 385
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 334.390625,
+            "width": 510,
+            "height": 31,
+            "top": 334.390625,
+            "right": 895,
+            "bottom": 365.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 366.390625,
+            "width": 510,
+            "height": 31,
+            "top": 366.390625,
+            "right": 895,
+            "bottom": 397.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 398.390625,
+            "width": 510,
+            "height": 31,
+            "top": 398.390625,
+            "right": 895,
+            "bottom": 429.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 430.390625,
+            "width": 510,
+            "height": 31,
+            "top": 430.390625,
+            "right": 895,
+            "bottom": 461.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 462.390625,
+            "width": 510,
+            "height": 31,
+            "top": 462.390625,
+            "right": 895,
+            "bottom": 493.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 494.390625,
+            "width": 510,
+            "height": 31,
+            "top": 494.390625,
+            "right": 895,
+            "bottom": 525.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 526.390625,
+            "width": 510,
+            "height": 31,
+            "top": 526.390625,
+            "right": 895,
+            "bottom": 557.390625,
+            "left": 385
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 558.390625,
+            "width": 510,
+            "height": 31,
+            "top": 558.390625,
+            "right": 895,
+            "bottom": 589.390625,
+            "left": 385
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 590.390625,
+            "width": 510,
+            "height": 31,
+            "top": 590.390625,
+            "right": 895,
+            "bottom": 621.390625,
+            "left": 385
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 653.78125,
+            "width": 510,
+            "height": 31,
+            "top": 653.78125,
+            "right": 895,
+            "bottom": 684.78125,
+            "left": 385
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 685.78125,
+            "width": 510,
+            "height": 31,
+            "top": 685.78125,
+            "right": 895,
+            "bottom": 716.78125,
+            "left": 385
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 749.171875,
+            "width": 510,
+            "height": 31,
+            "top": 749.171875,
+            "right": 895,
+            "bottom": 780.171875,
+            "left": 385
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 781.171875,
+            "width": 510,
+            "height": 31,
+            "top": 781.171875,
+            "right": 895,
+            "bottom": 812.171875,
+            "left": 385
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 813.171875,
+            "width": 510,
+            "height": 31,
+            "top": 813.171875,
+            "right": 895,
+            "bottom": 844.171875,
+            "left": 385
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 1280,
+          "y": 32,
+          "width": 377.59375,
+          "height": 788,
+          "top": 32,
+          "right": 1657.59375,
+          "bottom": 820,
+          "left": 1280
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-actions-wide-dark",
+      "width": 1280,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 380,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 900,
+          "bottom": 655,
+          "left": 380
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 381,
+        "y": 212,
+        "width": 518,
+        "height": 442,
+        "top": 212,
+        "right": 899,
+        "bottom": 654,
+        "left": 381
+      },
+      "empty": {
+        "rect": {
+          "x": 381,
+          "y": 654,
+          "width": 518,
+          "height": 0,
+          "top": 654,
+          "right": 899,
+          "bottom": 654,
+          "left": 381
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "Extra sample conversation 4\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "Extra sample conversation 3\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "Extra sample conversation 2\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "Extra sample conversation 1\n2h",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 99,
+            "top": 436,
+            "right": 327,
+            "bottom": 535,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "Improve the quick start\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 503,
+                "width": 247,
+                "height": 32,
+                "top": 503,
+                "right": 327,
+                "bottom": 535,
+                "left": 80
+              },
+              "text": "Keep notes readable\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 56,
+            "y": 543,
+            "width": 271,
+            "height": 66,
+            "top": 543,
+            "right": 327,
+            "bottom": 609,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 577,
+                "width": 247,
+                "height": 32,
+                "top": 577,
+                "right": 327,
+                "bottom": 609,
+                "left": 80
+              },
+              "text": "Explore a new idea\n2h",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 32.390625,
+            "width": 510,
+            "height": 31,
+            "top": 32.390625,
+            "right": 895,
+            "bottom": 63.390625,
+            "left": 385
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 64.390625,
+            "width": 510,
+            "height": 31,
+            "top": 64.390625,
+            "right": 895,
+            "bottom": 95.390625,
+            "left": 385
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 96.390625,
+            "width": 510,
+            "height": 31,
+            "top": 96.390625,
+            "right": 895,
+            "bottom": 127.390625,
+            "left": 385
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 128.390625,
+            "width": 510,
+            "height": 31,
+            "top": 128.390625,
+            "right": 895,
+            "bottom": 159.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 160.390625,
+            "width": 510,
+            "height": 31,
+            "top": 160.390625,
+            "right": 895,
+            "bottom": 191.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 192.390625,
+            "width": 510,
+            "height": 31,
+            "top": 192.390625,
+            "right": 895,
+            "bottom": 223.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 224.390625,
+            "width": 510,
+            "height": 31,
+            "top": 224.390625,
+            "right": 895,
+            "bottom": 255.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 256.390625,
+            "width": 510,
+            "height": 31,
+            "top": 256.390625,
+            "right": 895,
+            "bottom": 287.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 288.390625,
+            "width": 510,
+            "height": 31,
+            "top": 288.390625,
+            "right": 895,
+            "bottom": 319.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 320.390625,
+            "width": 510,
+            "height": 31,
+            "top": 320.390625,
+            "right": 895,
+            "bottom": 351.390625,
+            "left": 385
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 352.390625,
+            "width": 510,
+            "height": 31,
+            "top": 352.390625,
+            "right": 895,
+            "bottom": 383.390625,
+            "left": 385
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 384.390625,
+            "width": 510,
+            "height": 31,
+            "top": 384.390625,
+            "right": 895,
+            "bottom": 415.390625,
+            "left": 385
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 447.78125,
+            "width": 510,
+            "height": 31,
+            "top": 447.78125,
+            "right": 895,
+            "bottom": 478.78125,
+            "left": 385
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 479.78125,
+            "width": 510,
+            "height": 31,
+            "top": 479.78125,
+            "right": 895,
+            "bottom": 510.78125,
+            "left": 385
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 543.171875,
+            "width": 510,
+            "height": 31,
+            "top": 543.171875,
+            "right": 895,
+            "bottom": 574.171875,
+            "left": 385
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 575.171875,
+            "width": 510,
+            "height": 31,
+            "top": 575.171875,
+            "right": 895,
+            "bottom": 606.171875,
+            "left": 385
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 607.171875,
+            "width": 510,
+            "height": 31,
+            "top": 607.171875,
+            "right": 895,
+            "bottom": 638.171875,
+            "left": 385
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 1280,
+          "y": 32,
+          "width": 377.59375,
+          "height": 788,
+          "top": 32,
+          "right": 1657.59375,
+          "bottom": 820,
+          "left": 1280
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-background-wide-dark",
+      "width": 1280,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": null,
+      "empty": {},
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "Extra sample conversation 4\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "Extra sample conversation 3\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "Extra sample conversation 2\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "Extra sample conversation 1\n2h",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 99,
+            "top": 436,
+            "right": 327,
+            "bottom": 535,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "Improve the quick start\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 503,
+                "width": 247,
+                "height": 32,
+                "top": 503,
+                "right": 327,
+                "bottom": 535,
+                "left": 80
+              },
+              "text": "Keep notes readable\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 56,
+            "y": 543,
+            "width": 271,
+            "height": 66,
+            "top": 543,
+            "right": 327,
+            "bottom": 609,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 577,
+                "width": 247,
+                "height": 32,
+                "top": 577,
+                "right": 327,
+                "bottom": 609,
+                "left": 80
+              },
+              "text": "Explore a new idea\n2h",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 902.40625,
+          "y": 32,
+          "width": 377.59375,
+          "height": 788,
+          "top": 32,
+          "right": 1280,
+          "bottom": 820,
+          "left": 902.40625
+        },
+        "open": "true"
+      }
+    },
+    {
+      "name": "browser-wide-light",
+      "width": 1280,
+      "height": 820,
+      "overflow": false,
+      "dark": false,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 380,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 900,
+          "bottom": 655,
+          "left": 380
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 381,
+        "y": 212,
+        "width": 518,
+        "height": 442,
+        "top": 212,
+        "right": 899,
+        "bottom": 654,
+        "left": 381
+      },
+      "empty": {
+        "rect": {
+          "x": 381,
+          "y": 654,
+          "width": 518,
+          "height": 0,
+          "top": 654,
+          "right": 899,
+          "bottom": 654,
+          "left": 381
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "Extra sample conversation 4\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "Extra sample conversation 3\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "Extra sample conversation 2\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "Extra sample conversation 1\n2h",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 99,
+            "top": 436,
+            "right": 327,
+            "bottom": 535,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "Improve the quick start\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 503,
+                "width": 247,
+                "height": 32,
+                "top": 503,
+                "right": 327,
+                "bottom": 535,
+                "left": 80
+              },
+              "text": "Keep notes readable\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 56,
+            "y": 543,
+            "width": 271,
+            "height": 66,
+            "top": 543,
+            "right": 327,
+            "bottom": 609,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 577,
+                "width": 247,
+                "height": 32,
+                "top": 577,
+                "right": 327,
+                "bottom": 609,
+                "left": 80
+              },
+              "text": "Explore a new idea\n2h",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 238.390625,
+            "width": 510,
+            "height": 31,
+            "top": 238.390625,
+            "right": 895,
+            "bottom": 269.390625,
+            "left": 385
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 270.390625,
+            "width": 510,
+            "height": 31,
+            "top": 270.390625,
+            "right": 895,
+            "bottom": 301.390625,
+            "left": 385
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 302.390625,
+            "width": 510,
+            "height": 31,
+            "top": 302.390625,
+            "right": 895,
+            "bottom": 333.390625,
+            "left": 385
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 334.390625,
+            "width": 510,
+            "height": 31,
+            "top": 334.390625,
+            "right": 895,
+            "bottom": 365.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 366.390625,
+            "width": 510,
+            "height": 31,
+            "top": 366.390625,
+            "right": 895,
+            "bottom": 397.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 398.390625,
+            "width": 510,
+            "height": 31,
+            "top": 398.390625,
+            "right": 895,
+            "bottom": 429.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 430.390625,
+            "width": 510,
+            "height": 31,
+            "top": 430.390625,
+            "right": 895,
+            "bottom": 461.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 462.390625,
+            "width": 510,
+            "height": 31,
+            "top": 462.390625,
+            "right": 895,
+            "bottom": 493.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 494.390625,
+            "width": 510,
+            "height": 31,
+            "top": 494.390625,
+            "right": 895,
+            "bottom": 525.390625,
+            "left": 385
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 526.390625,
+            "width": 510,
+            "height": 31,
+            "top": 526.390625,
+            "right": 895,
+            "bottom": 557.390625,
+            "left": 385
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 558.390625,
+            "width": 510,
+            "height": 31,
+            "top": 558.390625,
+            "right": 895,
+            "bottom": 589.390625,
+            "left": 385
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 590.390625,
+            "width": 510,
+            "height": 31,
+            "top": 590.390625,
+            "right": 895,
+            "bottom": 621.390625,
+            "left": 385
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 653.78125,
+            "width": 510,
+            "height": 31,
+            "top": 653.78125,
+            "right": 895,
+            "bottom": 684.78125,
+            "left": 385
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 685.78125,
+            "width": 510,
+            "height": 31,
+            "top": 685.78125,
+            "right": 895,
+            "bottom": 716.78125,
+            "left": 385
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 749.171875,
+            "width": 510,
+            "height": 31,
+            "top": 749.171875,
+            "right": 895,
+            "bottom": 780.171875,
+            "left": 385
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 781.171875,
+            "width": 510,
+            "height": 31,
+            "top": 781.171875,
+            "right": 895,
+            "bottom": 812.171875,
+            "left": 385
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 385,
+            "y": 813.171875,
+            "width": 510,
+            "height": 31,
+            "top": 813.171875,
+            "right": 895,
+            "bottom": 844.171875,
+            "left": 385
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 1280,
+          "y": 32,
+          "width": 377.59375,
+          "height": 788,
+          "top": 32,
+          "right": 1657.59375,
+          "bottom": 820,
+          "left": 1280
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-narrow-light-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": false,
+      "reduced": true,
+      "popup": {
+        "rect": {
+          "x": 40,
+          "y": 25,
+          "width": 520,
+          "height": 490,
+          "top": 25,
+          "right": 560,
+          "bottom": 515,
+          "left": 40
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0s"
+      },
+      "list": {
+        "x": 41,
+        "y": 72,
+        "width": 518,
+        "height": 442,
+        "top": 72,
+        "right": 559,
+        "bottom": 514,
+        "left": 41
+      },
+      "empty": {
+        "rect": {
+          "x": 41,
+          "y": 514,
+          "width": 518,
+          "height": 0,
+          "top": 514,
+          "right": 559,
+          "bottom": 514,
+          "left": 41
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 333,
+        "bottom": 104,
+        "left": 305
+      },
+      "brand": {
+        "x": 96,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 383,
+        "bottom": 116,
+        "left": 96
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": 104,
+            "y": 200,
+            "width": 271,
+            "height": 260,
+            "top": 200,
+            "right": 375,
+            "bottom": 460,
+            "left": 104
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 128,
+                "y": 234,
+                "width": 247,
+                "height": 32,
+                "top": 234,
+                "right": 375,
+                "bottom": 266,
+                "left": 128
+              },
+              "text": "Extra sample conversation 6\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 267,
+                "width": 247,
+                "height": 32,
+                "top": 267,
+                "right": 375,
+                "bottom": 299,
+                "left": 128
+              },
+              "text": "Extra sample conversation 5\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 300,
+                "width": 247,
+                "height": 32,
+                "top": 300,
+                "right": 375,
+                "bottom": 332,
+                "left": 128
+              },
+              "text": "Extra sample conversation 4\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 333,
+                "width": 247,
+                "height": 32,
+                "top": 333,
+                "right": 375,
+                "bottom": 365,
+                "left": 128
+              },
+              "text": "Extra sample conversation 3\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 366,
+                "width": 247,
+                "height": 32,
+                "top": 366,
+                "right": 375,
+                "bottom": 398,
+                "left": 128
+              },
+              "text": "Extra sample conversation 2\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 399,
+                "width": 247,
+                "height": 32,
+                "top": 399,
+                "right": 375,
+                "bottom": 431,
+                "left": 128
+              },
+              "text": "Extra sample conversation 1\n2h",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": 104,
+            "y": 468,
+            "width": 271,
+            "height": 99,
+            "top": 468,
+            "right": 375,
+            "bottom": 567,
+            "left": 104
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 128,
+                "y": 502,
+                "width": 247,
+                "height": 32,
+                "top": 502,
+                "right": 375,
+                "bottom": 534,
+                "left": 128
+              },
+              "text": "Improve the quick start\n2h",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 128,
+                "y": 535,
+                "width": 247,
+                "height": 32,
+                "top": 535,
+                "right": 375,
+                "bottom": 567,
+                "left": 128
+              },
+              "text": "Keep notes readable\n2h",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": 104,
+            "y": 575,
+            "width": 271,
+            "height": 66,
+            "top": 575,
+            "right": 375,
+            "bottom": 641,
+            "left": 104
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 128,
+                "y": 609,
+                "width": 247,
+                "height": 32,
+                "top": 609,
+                "right": 375,
+                "bottom": 641,
+                "left": 128
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 98.390625,
+            "width": 510,
+            "height": 31,
+            "top": 98.390625,
+            "right": 555,
+            "bottom": 129.390625,
+            "left": 45
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 130.390625,
+            "width": 510,
+            "height": 31,
+            "top": 130.390625,
+            "right": 555,
+            "bottom": 161.390625,
+            "left": 45
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 162.390625,
+            "width": 510,
+            "height": 31,
+            "top": 162.390625,
+            "right": 555,
+            "bottom": 193.390625,
+            "left": 45
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 194.390625,
+            "width": 510,
+            "height": 31,
+            "top": 194.390625,
+            "right": 555,
+            "bottom": 225.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 226.390625,
+            "width": 510,
+            "height": 31,
+            "top": 226.390625,
+            "right": 555,
+            "bottom": 257.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 258.390625,
+            "width": 510,
+            "height": 31,
+            "top": 258.390625,
+            "right": 555,
+            "bottom": 289.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 290.390625,
+            "width": 510,
+            "height": 31,
+            "top": 290.390625,
+            "right": 555,
+            "bottom": 321.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 322.390625,
+            "width": 510,
+            "height": 31,
+            "top": 322.390625,
+            "right": 555,
+            "bottom": 353.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 354.390625,
+            "width": 510,
+            "height": 31,
+            "top": 354.390625,
+            "right": 555,
+            "bottom": 385.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 386.390625,
+            "width": 510,
+            "height": 31,
+            "top": 386.390625,
+            "right": 555,
+            "bottom": 417.390625,
+            "left": 45
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 418.390625,
+            "width": 510,
+            "height": 31,
+            "top": 418.390625,
+            "right": 555,
+            "bottom": 449.390625,
+            "left": 45
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 450.390625,
+            "width": 510,
+            "height": 31,
+            "top": 450.390625,
+            "right": 555,
+            "bottom": 481.390625,
+            "left": 45
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 513.78125,
+            "width": 510,
+            "height": 31,
+            "top": 513.78125,
+            "right": 555,
+            "bottom": 544.78125,
+            "left": 45
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 545.78125,
+            "width": 510,
+            "height": 31,
+            "top": 545.78125,
+            "right": 555,
+            "bottom": 576.78125,
+            "left": 45
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 609.171875,
+            "width": 510,
+            "height": 31,
+            "top": 609.171875,
+            "right": 555,
+            "bottom": 640.171875,
+            "left": 45
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 641.171875,
+            "width": 510,
+            "height": 31,
+            "top": 641.171875,
+            "right": 555,
+            "bottom": 672.171875,
+            "left": 45
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 673.171875,
+            "width": 510,
+            "height": 31,
+            "top": 673.171875,
+            "right": 555,
+            "bottom": 704.171875,
+            "left": 45
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 600,
+          "y": 32,
+          "width": 552,
+          "height": 508,
+          "top": 32,
+          "right": 1152,
+          "bottom": 540,
+          "left": 600
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-narrow-dark-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": true,
+      "reduced": true,
+      "popup": {
+        "rect": {
+          "x": 40,
+          "y": 25,
+          "width": 520,
+          "height": 490,
+          "top": 25,
+          "right": 560,
+          "bottom": 515,
+          "left": 40
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0s"
+      },
+      "list": {
+        "x": 41,
+        "y": 72,
+        "width": 518,
+        "height": 442,
+        "top": 72,
+        "right": 559,
+        "bottom": 514,
+        "left": 41
+      },
+      "empty": {
+        "rect": {
+          "x": 41,
+          "y": 514,
+          "width": 518,
+          "height": 0,
+          "top": 514,
+          "right": 559,
+          "bottom": 514,
+          "left": 41
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 271,
+            "height": 260,
+            "top": 200,
+            "right": 87,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 247,
+                "height": 32,
+                "top": 234,
+                "right": 87,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 247,
+                "height": 32,
+                "top": 267,
+                "right": 87,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 247,
+                "height": 32,
+                "top": 300,
+                "right": 87,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 247,
+                "height": 32,
+                "top": 333,
+                "right": 87,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 247,
+                "height": 32,
+                "top": 366,
+                "right": 87,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 247,
+                "height": 32,
+                "top": 399,
+                "right": 87,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 271,
+            "height": 99,
+            "top": 468,
+            "right": 87,
+            "bottom": 567,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 247,
+                "height": 32,
+                "top": 502,
+                "right": 87,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 535,
+                "width": 247,
+                "height": 32,
+                "top": 535,
+                "right": 87,
+                "bottom": 567,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": -184,
+            "y": 575,
+            "width": 271,
+            "height": 66,
+            "top": 575,
+            "right": 87,
+            "bottom": 641,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 609,
+                "width": 247,
+                "height": 32,
+                "top": 609,
+                "right": 87,
+                "bottom": 641,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 98.390625,
+            "width": 510,
+            "height": 31,
+            "top": 98.390625,
+            "right": 555,
+            "bottom": 129.390625,
+            "left": 45
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 130.390625,
+            "width": 510,
+            "height": 31,
+            "top": 130.390625,
+            "right": 555,
+            "bottom": 161.390625,
+            "left": 45
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 162.390625,
+            "width": 510,
+            "height": 31,
+            "top": 162.390625,
+            "right": 555,
+            "bottom": 193.390625,
+            "left": 45
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 194.390625,
+            "width": 510,
+            "height": 31,
+            "top": 194.390625,
+            "right": 555,
+            "bottom": 225.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 226.390625,
+            "width": 510,
+            "height": 31,
+            "top": 226.390625,
+            "right": 555,
+            "bottom": 257.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 258.390625,
+            "width": 510,
+            "height": 31,
+            "top": 258.390625,
+            "right": 555,
+            "bottom": 289.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 290.390625,
+            "width": 510,
+            "height": 31,
+            "top": 290.390625,
+            "right": 555,
+            "bottom": 321.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 322.390625,
+            "width": 510,
+            "height": 31,
+            "top": 322.390625,
+            "right": 555,
+            "bottom": 353.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 354.390625,
+            "width": 510,
+            "height": 31,
+            "top": 354.390625,
+            "right": 555,
+            "bottom": 385.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 386.390625,
+            "width": 510,
+            "height": 31,
+            "top": 386.390625,
+            "right": 555,
+            "bottom": 417.390625,
+            "left": 45
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 418.390625,
+            "width": 510,
+            "height": 31,
+            "top": 418.390625,
+            "right": 555,
+            "bottom": 449.390625,
+            "left": 45
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 450.390625,
+            "width": 510,
+            "height": 31,
+            "top": 450.390625,
+            "right": 555,
+            "bottom": 481.390625,
+            "left": 45
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 513.78125,
+            "width": 510,
+            "height": 31,
+            "top": 513.78125,
+            "right": 555,
+            "bottom": 544.78125,
+            "left": 45
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 545.78125,
+            "width": 510,
+            "height": 31,
+            "top": 545.78125,
+            "right": 555,
+            "bottom": 576.78125,
+            "left": 45
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 609.171875,
+            "width": 510,
+            "height": 31,
+            "top": 609.171875,
+            "right": 555,
+            "bottom": 640.171875,
+            "left": 45
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 641.171875,
+            "width": 510,
+            "height": 31,
+            "top": 641.171875,
+            "right": 555,
+            "bottom": 672.171875,
+            "left": 45
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 673.171875,
+            "width": 510,
+            "height": 31,
+            "top": 673.171875,
+            "right": 555,
+            "bottom": 704.171875,
+            "left": 45
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 600,
+          "y": 32,
+          "width": 552,
+          "height": 508,
+          "top": 32,
+          "right": 1152,
+          "bottom": 540,
+          "left": 600
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-background-narrow-dark-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": true,
+      "reduced": true,
+      "popup": null,
+      "empty": {},
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 271,
+            "height": 260,
+            "top": 200,
+            "right": 87,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 247,
+                "height": 32,
+                "top": 234,
+                "right": 87,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 247,
+                "height": 32,
+                "top": 267,
+                "right": 87,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 247,
+                "height": 32,
+                "top": 300,
+                "right": 87,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 247,
+                "height": 32,
+                "top": 333,
+                "right": 87,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 247,
+                "height": 32,
+                "top": 366,
+                "right": 87,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 247,
+                "height": 32,
+                "top": 399,
+                "right": 87,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 271,
+            "height": 99,
+            "top": 468,
+            "right": 87,
+            "bottom": 567,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 247,
+                "height": 32,
+                "top": 502,
+                "right": 87,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 535,
+                "width": 247,
+                "height": 32,
+                "top": 535,
+                "right": 87,
+                "bottom": 567,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": -184,
+            "y": 575,
+            "width": 271,
+            "height": 66,
+            "top": 575,
+            "right": 87,
+            "bottom": 641,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 609,
+                "width": 247,
+                "height": 32,
+                "top": 609,
+                "right": 87,
+                "bottom": 641,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 48,
+          "y": 32,
+          "width": 552,
+          "height": 508,
+          "top": 32,
+          "right": 600,
+          "bottom": 540,
+          "left": 48
+        },
+        "open": "true"
+      }
+    },
+    {
+      "name": "browser-short-dark-reduced",
+      "width": 600,
+      "height": 380,
+      "overflow": false,
+      "dark": true,
+      "reduced": true,
+      "popup": {
+        "rect": {
+          "x": 40,
+          "y": 16,
+          "width": 520,
+          "height": 348,
+          "top": 16,
+          "right": 560,
+          "bottom": 364,
+          "left": 40
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0s"
+      },
+      "list": {
+        "x": 41,
+        "y": 63,
+        "width": 518,
+        "height": 300,
+        "top": 63,
+        "right": 559,
+        "bottom": 363,
+        "left": 41
+      },
+      "empty": {
+        "rect": {
+          "x": 41,
+          "y": 363,
+          "width": 518,
+          "height": 0,
+          "top": 363,
+          "right": 559,
+          "bottom": 363,
+          "left": 41
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 271,
+            "height": 260,
+            "top": 200,
+            "right": 87,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 247,
+                "height": 32,
+                "top": 234,
+                "right": 87,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 247,
+                "height": 32,
+                "top": 267,
+                "right": 87,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 247,
+                "height": 32,
+                "top": 300,
+                "right": 87,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 247,
+                "height": 32,
+                "top": 333,
+                "right": 87,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 247,
+                "height": 32,
+                "top": 366,
+                "right": 87,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 247,
+                "height": 32,
+                "top": 399,
+                "right": 87,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 271,
+            "height": 99,
+            "top": 468,
+            "right": 87,
+            "bottom": 567,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 247,
+                "height": 32,
+                "top": 502,
+                "right": 87,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 535,
+                "width": 247,
+                "height": 32,
+                "top": 535,
+                "right": 87,
+                "bottom": 567,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": -184,
+            "y": 575,
+            "width": 271,
+            "height": 66,
+            "top": 575,
+            "right": 87,
+            "bottom": 641,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 609,
+                "width": 247,
+                "height": 32,
+                "top": 609,
+                "right": 87,
+                "bottom": 641,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:sample-thread-6",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -249.609375,
+            "width": 510,
+            "height": 31,
+            "top": -249.609375,
+            "right": 555,
+            "bottom": -218.609375,
+            "left": 45
+          },
+          "text": "Explore a new idea\nSample workspace"
+        },
+        {
+          "id": "conversation:sample-thread-4",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -217.609375,
+            "width": 510,
+            "height": 31,
+            "top": -217.609375,
+            "right": 555,
+            "bottom": -186.609375,
+            "left": 45
+          },
+          "text": "Improve the quick start\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-5",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -185.609375,
+            "width": 510,
+            "height": 31,
+            "top": -185.609375,
+            "right": 555,
+            "bottom": -154.609375,
+            "left": 45
+          },
+          "text": "Keep notes readable\nSample docs"
+        },
+        {
+          "id": "conversation:sample-thread-12",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -153.609375,
+            "width": 510,
+            "height": 31,
+            "top": -153.609375,
+            "right": 555,
+            "bottom": -122.609375,
+            "left": 45
+          },
+          "text": "Extra sample conversation 6\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-11",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -121.609375,
+            "width": 510,
+            "height": 31,
+            "top": -121.609375,
+            "right": 555,
+            "bottom": -90.609375,
+            "left": 45
+          },
+          "text": "Extra sample conversation 5\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-10",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -89.609375,
+            "width": 510,
+            "height": 31,
+            "top": -89.609375,
+            "right": 555,
+            "bottom": -58.609375,
+            "left": 45
+          },
+          "text": "Extra sample conversation 4\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-9",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -57.609375,
+            "width": 510,
+            "height": 31,
+            "top": -57.609375,
+            "right": 555,
+            "bottom": -26.609375,
+            "left": 45
+          },
+          "text": "Extra sample conversation 3\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": -25.609375,
+            "width": 510,
+            "height": 31,
+            "top": -25.609375,
+            "right": 555,
+            "bottom": 5.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 2\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-7",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 6.390625,
+            "width": 510,
+            "height": 31,
+            "top": 6.390625,
+            "right": 555,
+            "bottom": 37.390625,
+            "left": 45
+          },
+          "text": "Extra sample conversation 1\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-1",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 38.390625,
+            "width": 510,
+            "height": 31,
+            "top": 38.390625,
+            "right": 555,
+            "bottom": 69.390625,
+            "left": 45
+          },
+          "text": "Refine navigation\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-2",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 70.390625,
+            "width": 510,
+            "height": 31,
+            "top": 70.390625,
+            "right": 555,
+            "bottom": 101.390625,
+            "left": 45
+          },
+          "text": "Polish empty states\nSample app"
+        },
+        {
+          "id": "conversation:sample-thread-3",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 102.390625,
+            "width": 510,
+            "height": 31,
+            "top": 102.390625,
+            "right": 555,
+            "bottom": 133.390625,
+            "left": 45
+          },
+          "text": "Review message settings\nSample app"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 165.78125,
+            "width": 510,
+            "height": 31,
+            "top": 165.78125,
+            "right": 555,
+            "bottom": 196.78125,
+            "left": 45
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 197.78125,
+            "width": 510,
+            "height": 31,
+            "top": 197.78125,
+            "right": 555,
+            "bottom": 228.78125,
+            "left": 45
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:sample-app",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 261.171875,
+            "width": 510,
+            "height": 31,
+            "top": 261.171875,
+            "right": 555,
+            "bottom": 292.171875,
+            "left": 45
+          },
+          "text": "Sample app"
+        },
+        {
+          "id": "project:sample-docs",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 293.171875,
+            "width": 510,
+            "height": 31,
+            "top": 293.171875,
+            "right": 555,
+            "bottom": 324.171875,
+            "left": 45
+          },
+          "text": "Sample docs"
+        },
+        {
+          "id": "project:sample-workspace",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 325.171875,
+            "width": 510,
+            "height": 31,
+            "top": 325.171875,
+            "right": 555,
+            "bottom": 356.171875,
+            "left": 45
+          },
+          "text": "Sample workspace"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 600,
+          "y": 32,
+          "width": 552,
+          "height": 348,
+          "top": 32,
+          "right": 1152,
+          "bottom": 380,
+          "left": 600
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "browser-short-empty-dark-reduced",
+      "width": 600,
+      "height": 380,
+      "overflow": false,
+      "dark": true,
+      "reduced": true,
+      "popup": {
+        "rect": {
+          "x": 40,
+          "y": 16,
+          "width": 520,
+          "height": 348,
+          "top": 16,
+          "right": 560,
+          "bottom": 364,
+          "left": 40
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0s"
+      },
+      "list": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "empty": {
+        "rect": {
+          "x": 41,
+          "y": 63,
+          "width": 518,
+          "height": 300,
+          "top": 63,
+          "right": 559,
+          "bottom": 363,
+          "left": 41
+        },
+        "text": "No matching chats or actions."
+      },
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "sample-app",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 271,
+            "height": 260,
+            "top": 200,
+            "right": 87,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 247,
+                "height": 32,
+                "top": 234,
+                "right": 87,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 247,
+                "height": 32,
+                "top": 267,
+                "right": 87,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 247,
+                "height": 32,
+                "top": 300,
+                "right": 87,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 247,
+                "height": 32,
+                "top": 333,
+                "right": 87,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 247,
+                "height": 32,
+                "top": 366,
+                "right": 87,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 247,
+                "height": 32,
+                "top": 399,
+                "right": 87,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "sample-docs",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 271,
+            "height": 99,
+            "top": 468,
+            "right": 87,
+            "bottom": 567,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 247,
+                "height": 32,
+                "top": 502,
+                "right": 87,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 535,
+                "width": 247,
+                "height": 32,
+                "top": 535,
+                "right": 87,
+                "bottom": 567,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        },
+        {
+          "id": "sample-workspace",
+          "rect": {
+            "x": -184,
+            "y": 575,
+            "width": 271,
+            "height": 66,
+            "top": 575,
+            "right": 87,
+            "bottom": 641,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 609,
+                "width": 247,
+                "height": 32,
+                "top": 609,
+                "right": 87,
+                "bottom": 641,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 600,
+          "y": 32,
+          "width": 552,
+          "height": 348,
+          "top": 32,
+          "right": 1152,
+          "bottom": 380,
+          "left": 600
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "native-wide-dark",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 330,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 850,
+          "bottom": 655,
+          "left": 330
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 331,
+        "y": 212,
+        "width": 518,
+        "height": 442,
+        "top": 212,
+        "right": 849,
+        "bottom": 654,
+        "left": 331
+      },
+      "empty": {
+        "rect": {
+          "x": 331,
+          "y": 654,
+          "width": 518,
+          "height": 0,
+          "top": 654,
+          "right": 849,
+          "bottom": 654,
+          "left": 331
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 66,
+            "top": 436,
+            "right": 327,
+            "bottom": 502,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:01a0f74e-a87d-7387-8857-8a293466f273",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 238.390625,
+            "width": 500,
+            "height": 31,
+            "top": 238.390625,
+            "right": 835,
+            "bottom": 269.390625,
+            "left": 335
+          },
+          "text": "New conversation\ndocs-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e7c0d51085",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 270.390625,
+            "width": 500,
+            "height": 31,
+            "top": 270.390625,
+            "right": 835,
+            "bottom": 301.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e6606862d8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 302.390625,
+            "width": 500,
+            "height": 31,
+            "top": 302.390625,
+            "right": 835,
+            "bottom": 333.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c6-7479-b226-224738b12434",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 334.390625,
+            "width": 500,
+            "height": 31,
+            "top": 334.390625,
+            "right": 835,
+            "bottom": 365.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c5-758d-9f7a-d67adb2e128a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 366.390625,
+            "width": 500,
+            "height": 31,
+            "top": 366.390625,
+            "right": 835,
+            "bottom": 397.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f3-77c2-b456-53fa5a180b9a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 398.390625,
+            "width": 500,
+            "height": 31,
+            "top": 398.390625,
+            "right": 835,
+            "bottom": 429.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f1-7261-816e-4c420d38f141",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 430.390625,
+            "width": 500,
+            "height": 31,
+            "top": 430.390625,
+            "right": 835,
+            "bottom": 461.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f0-765c-81a4-3238bf215706",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 462.390625,
+            "width": 500,
+            "height": 31,
+            "top": 462.390625,
+            "right": 835,
+            "bottom": 493.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3ef-7265-879b-fa0159f79b55",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 494.390625,
+            "width": 500,
+            "height": 31,
+            "top": 494.390625,
+            "right": 835,
+            "bottom": 525.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 557.78125,
+            "width": 500,
+            "height": 31,
+            "top": 557.78125,
+            "right": 835,
+            "bottom": 588.78125,
+            "left": 335
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 589.78125,
+            "width": 500,
+            "height": 31,
+            "top": 589.78125,
+            "right": 835,
+            "bottom": 620.78125,
+            "left": 335
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 653.171875,
+            "width": 500,
+            "height": 31,
+            "top": 653.171875,
+            "right": 835,
+            "bottom": 684.171875,
+            "left": 335
+          },
+          "text": "app-project"
+        },
+        {
+          "id": "project:ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 685.171875,
+            "width": 500,
+            "height": 31,
+            "top": 685.171875,
+            "right": 835,
+            "bottom": 716.171875,
+            "left": 335
+          },
+          "text": "docs-project"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 1180,
+          "y": 32,
+          "width": 560,
+          "height": 788,
+          "top": 32,
+          "right": 1740,
+          "bottom": 820,
+          "left": 1180
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "native-background-wide-dark",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "popup": null,
+      "empty": {},
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 66,
+            "top": 436,
+            "right": 327,
+            "bottom": 502,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 620,
+          "y": 32,
+          "width": 560,
+          "height": 788,
+          "top": 32,
+          "right": 1180,
+          "bottom": 820,
+          "left": 620
+        },
+        "open": "true"
+      }
+    },
+    {
+      "name": "native-wide-light",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "dark": false,
+      "reduced": false,
+      "popup": {
+        "rect": {
+          "x": 330,
+          "y": 165,
+          "width": 520,
+          "height": 490,
+          "top": 165,
+          "right": 850,
+          "bottom": 655,
+          "left": 330
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0.15s, 0.17s"
+      },
+      "list": {
+        "x": 331,
+        "y": 212,
+        "width": 518,
+        "height": 442,
+        "top": 212,
+        "right": 849,
+        "bottom": 654,
+        "left": 331
+      },
+      "empty": {
+        "rect": {
+          "x": 331,
+          "y": 654,
+          "width": 518,
+          "height": 0,
+          "top": 654,
+          "right": 849,
+          "bottom": 654,
+          "left": 331
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 305,
+        "y": 44,
+        "width": 28,
+        "height": 28,
+        "top": 44,
+        "right": 333,
+        "bottom": 72,
+        "left": 305
+      },
+      "brand": {
+        "x": 48,
+        "y": 32,
+        "width": 287,
+        "height": 52,
+        "top": 32,
+        "right": 335,
+        "bottom": 84,
+        "left": 48
+      },
+      "groups": [
+        {
+          "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "rect": {
+            "x": 56,
+            "y": 168,
+            "width": 271,
+            "height": 260,
+            "top": 168,
+            "right": 327,
+            "bottom": 428,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 202,
+                "width": 247,
+                "height": 32,
+                "top": 202,
+                "right": 327,
+                "bottom": 234,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 235,
+                "width": 247,
+                "height": 32,
+                "top": 235,
+                "right": 327,
+                "bottom": 267,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 268,
+                "width": 247,
+                "height": 32,
+                "top": 268,
+                "right": 327,
+                "bottom": 300,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 301,
+                "width": 247,
+                "height": 32,
+                "top": 301,
+                "right": 327,
+                "bottom": 333,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 334,
+                "width": 247,
+                "height": 32,
+                "top": 334,
+                "right": 327,
+                "bottom": 366,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": 80,
+                "y": 367,
+                "width": 247,
+                "height": 32,
+                "top": 367,
+                "right": 327,
+                "bottom": 399,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "rect": {
+            "x": 56,
+            "y": 436,
+            "width": 271,
+            "height": 66,
+            "top": 436,
+            "right": 327,
+            "bottom": 502,
+            "left": 56
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": 80,
+                "y": 470,
+                "width": 247,
+                "height": 32,
+                "top": 470,
+                "right": 327,
+                "bottom": 502,
+                "left": 80
+              },
+              "text": "New conversation\nnow",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:01a0f74e-a87d-7387-8857-8a293466f273",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 238.390625,
+            "width": 500,
+            "height": 31,
+            "top": 238.390625,
+            "right": 835,
+            "bottom": 269.390625,
+            "left": 335
+          },
+          "text": "New conversation\ndocs-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e7c0d51085",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 270.390625,
+            "width": 500,
+            "height": 31,
+            "top": 270.390625,
+            "right": 835,
+            "bottom": 301.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e6606862d8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 302.390625,
+            "width": 500,
+            "height": 31,
+            "top": 302.390625,
+            "right": 835,
+            "bottom": 333.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c6-7479-b226-224738b12434",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 334.390625,
+            "width": 500,
+            "height": 31,
+            "top": 334.390625,
+            "right": 835,
+            "bottom": 365.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c5-758d-9f7a-d67adb2e128a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 366.390625,
+            "width": 500,
+            "height": 31,
+            "top": 366.390625,
+            "right": 835,
+            "bottom": 397.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f3-77c2-b456-53fa5a180b9a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 398.390625,
+            "width": 500,
+            "height": 31,
+            "top": 398.390625,
+            "right": 835,
+            "bottom": 429.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f1-7261-816e-4c420d38f141",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 430.390625,
+            "width": 500,
+            "height": 31,
+            "top": 430.390625,
+            "right": 835,
+            "bottom": 461.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f0-765c-81a4-3238bf215706",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 462.390625,
+            "width": 500,
+            "height": 31,
+            "top": 462.390625,
+            "right": 835,
+            "bottom": 493.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3ef-7265-879b-fa0159f79b55",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 494.390625,
+            "width": 500,
+            "height": 31,
+            "top": 494.390625,
+            "right": 835,
+            "bottom": 525.390625,
+            "left": 335
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 557.78125,
+            "width": 500,
+            "height": 31,
+            "top": 557.78125,
+            "right": 835,
+            "bottom": 588.78125,
+            "left": 335
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 589.78125,
+            "width": 500,
+            "height": 31,
+            "top": 589.78125,
+            "right": 835,
+            "bottom": 620.78125,
+            "left": 335
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 653.171875,
+            "width": 500,
+            "height": 31,
+            "top": 653.171875,
+            "right": 835,
+            "bottom": 684.171875,
+            "left": 335
+          },
+          "text": "app-project"
+        },
+        {
+          "id": "project:ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 335,
+            "y": 685.171875,
+            "width": 500,
+            "height": 31,
+            "top": 685.171875,
+            "right": 835,
+            "bottom": 716.171875,
+            "left": 335
+          },
+          "text": "docs-project"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 1180,
+          "y": 32,
+          "width": 560,
+          "height": 788,
+          "top": 32,
+          "right": 1740,
+          "bottom": 820,
+          "left": 1180
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "native-narrow-light-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": false,
+      "reduced": true,
+      "popup": {
+        "rect": {
+          "x": 40,
+          "y": 25,
+          "width": 520,
+          "height": 490,
+          "top": 25,
+          "right": 560,
+          "bottom": 515,
+          "left": 40
+        },
+        "overflow": false,
+        "animation": "none",
+        "transition": "0s"
+      },
+      "list": {
+        "x": 41,
+        "y": 72,
+        "width": 518,
+        "height": 442,
+        "top": 72,
+        "right": 559,
+        "bottom": 514,
+        "left": 41
+      },
+      "empty": {
+        "rect": {
+          "x": 41,
+          "y": 514,
+          "width": 518,
+          "height": 0,
+          "top": 514,
+          "right": 559,
+          "bottom": 514,
+          "left": 41
+        },
+        "text": ""
+      },
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 265,
+            "height": 260,
+            "top": 200,
+            "right": 81,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 241,
+                "height": 32,
+                "top": 234,
+                "right": 81,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 241,
+                "height": 32,
+                "top": 267,
+                "right": 81,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 241,
+                "height": 32,
+                "top": 300,
+                "right": 81,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 241,
+                "height": 32,
+                "top": 333,
+                "right": 81,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 241,
+                "height": 32,
+                "top": 366,
+                "right": 81,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 241,
+                "height": 32,
+                "top": 399,
+                "right": 81,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 265,
+            "height": 66,
+            "top": 468,
+            "right": 81,
+            "bottom": 534,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 241,
+                "height": 32,
+                "top": 502,
+                "right": 81,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "id": "conversation:01a0f74e-a87d-7387-8857-8a293466f273",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 98.390625,
+            "width": 500,
+            "height": 31,
+            "top": 98.390625,
+            "right": 545,
+            "bottom": 129.390625,
+            "left": 45
+          },
+          "text": "New conversation\ndocs-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e7c0d51085",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 130.390625,
+            "width": 500,
+            "height": 31,
+            "top": 130.390625,
+            "right": 545,
+            "bottom": 161.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e6606862d8",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 162.390625,
+            "width": 500,
+            "height": 31,
+            "top": 162.390625,
+            "right": 545,
+            "bottom": 193.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c6-7479-b226-224738b12434",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 194.390625,
+            "width": 500,
+            "height": 31,
+            "top": 194.390625,
+            "right": 545,
+            "bottom": 225.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a4c5-758d-9f7a-d67adb2e128a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 226.390625,
+            "width": 500,
+            "height": 31,
+            "top": 226.390625,
+            "right": 545,
+            "bottom": 257.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f3-77c2-b456-53fa5a180b9a",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 258.390625,
+            "width": 500,
+            "height": 31,
+            "top": 258.390625,
+            "right": 545,
+            "bottom": 289.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f1-7261-816e-4c420d38f141",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 290.390625,
+            "width": 500,
+            "height": 31,
+            "top": 290.390625,
+            "right": 545,
+            "bottom": 321.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3f0-765c-81a4-3238bf215706",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 322.390625,
+            "width": 500,
+            "height": 31,
+            "top": 322.390625,
+            "right": 545,
+            "bottom": 353.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "conversation:01a0f74e-a3ef-7265-879b-fa0159f79b55",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 354.390625,
+            "width": 500,
+            "height": 31,
+            "top": 354.390625,
+            "right": 545,
+            "bottom": 385.390625,
+            "left": 45
+          },
+          "text": "New conversation\napp-project"
+        },
+        {
+          "id": "new-conversation",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 417.78125,
+            "width": 500,
+            "height": 31,
+            "top": 417.78125,
+            "right": 545,
+            "bottom": 448.78125,
+            "left": 45
+          },
+          "text": "New conversation\nCtrl\nN"
+        },
+        {
+          "id": "open-project",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 449.78125,
+            "width": 500,
+            "height": 31,
+            "top": 449.78125,
+            "right": 545,
+            "bottom": 480.78125,
+            "left": 45
+          },
+          "text": "Open folder\nCtrl\nO"
+        },
+        {
+          "id": "project:67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 513.171875,
+            "width": 500,
+            "height": 31,
+            "top": 513.171875,
+            "right": 545,
+            "bottom": 544.171875,
+            "left": 45
+          },
+          "text": "app-project"
+        },
+        {
+          "id": "project:ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "role": "option",
+          "disabled": null,
+          "rect": {
+            "x": 45,
+            "y": 545.171875,
+            "width": 500,
+            "height": 31,
+            "top": 545.171875,
+            "right": 545,
+            "bottom": 576.171875,
+            "left": 45
+          },
+          "text": "docs-project"
+        }
+      ],
+      "jobs": {
+        "rect": {
+          "x": 600,
+          "y": 32,
+          "width": 552,
+          "height": 508,
+          "top": 32,
+          "right": 1152,
+          "bottom": 540,
+          "left": 600
+        },
+        "open": "false"
+      }
+    },
+    {
+      "name": "native-background-narrow-light-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": false,
+      "reduced": true,
+      "popup": null,
+      "empty": {},
+      "search": {
+        "x": 17,
+        "y": 76,
+        "width": 28,
+        "height": 28,
+        "top": 76,
+        "right": 45,
+        "bottom": 104,
+        "left": 17
+      },
+      "brand": {
+        "x": -192,
+        "y": 64,
+        "width": 287,
+        "height": 52,
+        "top": 64,
+        "right": 95,
+        "bottom": 116,
+        "left": -192
+      },
+      "groups": [
+        {
+          "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+          "rect": {
+            "x": -184,
+            "y": 200,
+            "width": 265,
+            "height": 260,
+            "top": 200,
+            "right": 81,
+            "bottom": 460,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 234,
+                "width": 241,
+                "height": 32,
+                "top": 234,
+                "right": 81,
+                "bottom": 266,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 267,
+                "width": 241,
+                "height": 32,
+                "top": 267,
+                "right": 81,
+                "bottom": 299,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 300,
+                "width": 241,
+                "height": 32,
+                "top": 300,
+                "right": 81,
+                "bottom": 332,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 333,
+                "width": 241,
+                "height": 32,
+                "top": 333,
+                "right": 81,
+                "bottom": 365,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 366,
+                "width": 241,
+                "height": 32,
+                "top": 366,
+                "right": 81,
+                "bottom": 398,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            },
+            {
+              "rect": {
+                "x": -160,
+                "y": 399,
+                "width": 241,
+                "height": 32,
+                "top": 399,
+                "right": 81,
+                "bottom": 431,
+                "left": -160
+              },
+              "text": "",
+              "active": true
+            }
+          ]
+        },
+        {
+          "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+          "rect": {
+            "x": -184,
+            "y": 468,
+            "width": 265,
+            "height": 66,
+            "top": 468,
+            "right": 81,
+            "bottom": 534,
+            "left": -184
+          },
+          "rows": [
+            {
+              "rect": {
+                "x": -160,
+                "y": 502,
+                "width": 241,
+                "height": 32,
+                "top": 502,
+                "right": 81,
+                "bottom": 534,
+                "left": -160
+              },
+              "text": "",
+              "active": false
+            }
+          ]
+        }
+      ],
+      "options": [],
+      "jobs": {
+        "rect": {
+          "x": 48,
+          "y": 32,
+          "width": 552,
+          "height": 508,
+          "top": 32,
+          "right": 600,
+          "bottom": 540,
+          "left": 48
+        },
+        "open": "true"
+      }
+    }
+  ],
+  "finalPanelFocusPatch": {
+    "afterCombinedProof": true,
+    "scope": "Root added closeDetails opener focus after the completed combined workflow; native draft ownership and command behavior were unchanged.",
+    "motionProof": "background-work-motion-receipt.json",
+    "motionRunner": "../background-work-proof.mjs",
+    "verifiedCloseStates": [
+      {
+        "name": "wide-reversed-closed",
+        "focused": {
+          "tag": "BUTTON",
+          "label": "Background work",
+          "inert": false
+        }
+      },
+      {
+        "name": "large-context-reversed-closed",
+        "focused": {
+          "tag": "BUTTON",
+          "label": "Background work",
+          "inert": false
+        }
+      },
+      {
+        "name": "narrow-reversed-closed",
+        "focused": {
+          "tag": "BUTTON",
+          "label": "Background work",
+          "inert": false
+        }
+      },
+      {
+        "name": "narrow-reduced-closed",
+        "focused": {
+          "tag": "BUTTON",
+          "label": "Background work",
+          "inert": false
+        }
+      }
+    ],
+    "ownMinimalBrowserObservation": {
+      "activeTag": "BUTTON",
+      "activeLabel": "Background work",
+      "body": false,
+      "inJobs": false
+    },
+    "nativeWorkflowRepeated": false,
+    "additionalAssertions": "The referenced motion runner also asserts direct Changes close restores Show changes and Background work Escape restores its opener."
+  }
+}

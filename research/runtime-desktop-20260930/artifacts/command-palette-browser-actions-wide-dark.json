@@ -1,0 +1,525 @@
+{
+  "width": 1280,
+  "height": 820,
+  "overflow": false,
+  "dark": true,
+  "reduced": false,
+  "popup": {
+    "rect": {
+      "x": 380,
+      "y": 165,
+      "width": 520,
+      "height": 490,
+      "top": 165,
+      "right": 900,
+      "bottom": 655,
+      "left": 380
+    },
+    "overflow": false,
+    "animation": "none",
+    "transition": "0.15s, 0.17s"
+  },
+  "list": {
+    "x": 381,
+    "y": 212,
+    "width": 518,
+    "height": 442,
+    "top": 212,
+    "right": 899,
+    "bottom": 654,
+    "left": 381
+  },
+  "empty": {
+    "rect": {
+      "x": 381,
+      "y": 654,
+      "width": 518,
+      "height": 0,
+      "top": 654,
+      "right": 899,
+      "bottom": 654,
+      "left": 381
+    },
+    "text": ""
+  },
+  "search": {
+    "x": 305,
+    "y": 44,
+    "width": 28,
+    "height": 28,
+    "top": 44,
+    "right": 333,
+    "bottom": 72,
+    "left": 305
+  },
+  "brand": {
+    "x": 48,
+    "y": 32,
+    "width": 287,
+    "height": 52,
+    "top": 32,
+    "right": 335,
+    "bottom": 84,
+    "left": 48
+  },
+  "groups": [
+    {
+      "id": "sample-app",
+      "rect": {
+        "x": 56,
+        "y": 168,
+        "width": 271,
+        "height": 260,
+        "top": 168,
+        "right": 327,
+        "bottom": 428,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 202,
+            "width": 247,
+            "height": 32,
+            "top": 202,
+            "right": 327,
+            "bottom": 234,
+            "left": 80
+          },
+          "text": "Extra sample conversation 6\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 235,
+            "width": 247,
+            "height": 32,
+            "top": 235,
+            "right": 327,
+            "bottom": 267,
+            "left": 80
+          },
+          "text": "Extra sample conversation 5\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 268,
+            "width": 247,
+            "height": 32,
+            "top": 268,
+            "right": 327,
+            "bottom": 300,
+            "left": 80
+          },
+          "text": "Extra sample conversation 4\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 301,
+            "width": 247,
+            "height": 32,
+            "top": 301,
+            "right": 327,
+            "bottom": 333,
+            "left": 80
+          },
+          "text": "Extra sample conversation 3\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 334,
+            "width": 247,
+            "height": 32,
+            "top": 334,
+            "right": 327,
+            "bottom": 366,
+            "left": 80
+          },
+          "text": "Extra sample conversation 2\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 367,
+            "width": 247,
+            "height": 32,
+            "top": 367,
+            "right": 327,
+            "bottom": 399,
+            "left": 80
+          },
+          "text": "Extra sample conversation 1\n2h",
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "sample-docs",
+      "rect": {
+        "x": 56,
+        "y": 436,
+        "width": 271,
+        "height": 99,
+        "top": 436,
+        "right": 327,
+        "bottom": 535,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 470,
+            "width": 247,
+            "height": 32,
+            "top": 470,
+            "right": 327,
+            "bottom": 502,
+            "left": 80
+          },
+          "text": "Improve the quick start\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 503,
+            "width": 247,
+            "height": 32,
+            "top": 503,
+            "right": 327,
+            "bottom": 535,
+            "left": 80
+          },
+          "text": "Keep notes readable\n2h",
+          "active": false
+        }
+      ]
+    },
+    {
+      "id": "sample-workspace",
+      "rect": {
+        "x": 56,
+        "y": 543,
+        "width": 271,
+        "height": 66,
+        "top": 543,
+        "right": 327,
+        "bottom": 609,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 577,
+            "width": 247,
+            "height": 32,
+            "top": 577,
+            "right": 327,
+            "bottom": 609,
+            "left": 80
+          },
+          "text": "Explore a new idea\n2h",
+          "active": false
+        }
+      ]
+    }
+  ],
+  "options": [
+    {
+      "id": "conversation:sample-thread-6",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 32.390625,
+        "width": 510,
+        "height": 31,
+        "top": 32.390625,
+        "right": 895,
+        "bottom": 63.390625,
+        "left": 385
+      },
+      "text": "Explore a new idea\nSample workspace"
+    },
+    {
+      "id": "conversation:sample-thread-4",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 64.390625,
+        "width": 510,
+        "height": 31,
+        "top": 64.390625,
+        "right": 895,
+        "bottom": 95.390625,
+        "left": 385
+      },
+      "text": "Improve the quick start\nSample docs"
+    },
+    {
+      "id": "conversation:sample-thread-5",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 96.390625,
+        "width": 510,
+        "height": 31,
+        "top": 96.390625,
+        "right": 895,
+        "bottom": 127.390625,
+        "left": 385
+      },
+      "text": "Keep notes readable\nSample docs"
+    },
+    {
+      "id": "conversation:sample-thread-12",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 128.390625,
+        "width": 510,
+        "height": 31,
+        "top": 128.390625,
+        "right": 895,
+        "bottom": 159.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 6\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-11",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 160.390625,
+        "width": 510,
+        "height": 31,
+        "top": 160.390625,
+        "right": 895,
+        "bottom": 191.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 5\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-10",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 192.390625,
+        "width": 510,
+        "height": 31,
+        "top": 192.390625,
+        "right": 895,
+        "bottom": 223.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 4\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-9",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 224.390625,
+        "width": 510,
+        "height": 31,
+        "top": 224.390625,
+        "right": 895,
+        "bottom": 255.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 3\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-8",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 256.390625,
+        "width": 510,
+        "height": 31,
+        "top": 256.390625,
+        "right": 895,
+        "bottom": 287.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 2\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-7",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 288.390625,
+        "width": 510,
+        "height": 31,
+        "top": 288.390625,
+        "right": 895,
+        "bottom": 319.390625,
+        "left": 385
+      },
+      "text": "Extra sample conversation 1\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-1",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 320.390625,
+        "width": 510,
+        "height": 31,
+        "top": 320.390625,
+        "right": 895,
+        "bottom": 351.390625,
+        "left": 385
+      },
+      "text": "Refine navigation\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-2",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 352.390625,
+        "width": 510,
+        "height": 31,
+        "top": 352.390625,
+        "right": 895,
+        "bottom": 383.390625,
+        "left": 385
+      },
+      "text": "Polish empty states\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-3",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 384.390625,
+        "width": 510,
+        "height": 31,
+        "top": 384.390625,
+        "right": 895,
+        "bottom": 415.390625,
+        "left": 385
+      },
+      "text": "Review message settings\nSample app"
+    },
+    {
+      "id": "new-conversation",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 447.78125,
+        "width": 510,
+        "height": 31,
+        "top": 447.78125,
+        "right": 895,
+        "bottom": 478.78125,
+        "left": 385
+      },
+      "text": "New conversation\nCtrl\nN"
+    },
+    {
+      "id": "open-project",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 479.78125,
+        "width": 510,
+        "height": 31,
+        "top": 479.78125,
+        "right": 895,
+        "bottom": 510.78125,
+        "left": 385
+      },
+      "text": "Open folder\nCtrl\nO"
+    },
+    {
+      "id": "project:sample-app",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 543.171875,
+        "width": 510,
+        "height": 31,
+        "top": 543.171875,
+        "right": 895,
+        "bottom": 574.171875,
+        "left": 385
+      },
+      "text": "Sample app"
+    },
+    {
+      "id": "project:sample-docs",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 575.171875,
+        "width": 510,
+        "height": 31,
+        "top": 575.171875,
+        "right": 895,
+        "bottom": 606.171875,
+        "left": 385
+      },
+      "text": "Sample docs"
+    },
+    {
+      "id": "project:sample-workspace",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 385,
+        "y": 607.171875,
+        "width": 510,
+        "height": 31,
+        "top": 607.171875,
+        "right": 895,
+        "bottom": 638.171875,
+        "left": 385
+      },
+      "text": "Sample workspace"
+    }
+  ],
+  "jobs": {
+    "rect": {
+      "x": 1280,
+      "y": 32,
+      "width": 377.59375,
+      "height": 788,
+      "top": 32,
+      "right": 1657.59375,
+      "bottom": 820,
+      "left": 1280
+    },
+    "open": "false"
+  }
+}

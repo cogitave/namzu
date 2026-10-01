@@ -28,6 +28,31 @@ argument or model input. On Windows the installed `.cmd` shim is invoked through
 a fixed `namzu acp --desktop` command; project paths are passed as process cwd.
 The app is not yet distributed through native installers or auto-update.
 
+### Live interface development
+
+```sh
+NAMZU_DESKTOP_CLI="$PWD/packages/cli/dist/bin.js" pnpm --filter @namzu/desktop dev
+```
+
+The development runner serves the renderer through a loopback Vite server,
+watches the native TypeScript code and opens Electron against that server.
+Renderer changes appear automatically without rebuilding the application.
+CSS updates keep the current page; component updates may reload it. The native
+host still owns conversations, admitted work and drafts during a renderer reload.
+
+For a separately launched native window, `pnpm --filter @namzu/desktop dev:renderer`
+starts the server and native compiler without launching Electron. Set
+`NAMZU_DESKTOP_DEV_URL=http://127.0.0.1:5173/` in that window's host environment.
+Only unpackaged development hosts admit an explicit HTTP loopback root URL.
+Packaged applications load their bundled renderer; native IPC keeps its sender
+and main-frame checks in either mode. The development CSP permits the local
+reload connection; the bundled renderer retains its restrictive production CSP.
+
+Open `http://127.0.0.1:5173/preview` in a browser to review the same interface with
+clearly labelled sample projects and conversations. This development-only
+preview keeps changes in memory and has no access to the CLI, credentials,
+filesystem or live tasks. Use the native development window for actual work.
+
 ## Appearance and message display
 
 The app opens in its dark appearance. The sidebar appearance control cycles
@@ -44,6 +69,10 @@ Home, Projects and Conversations have separate destinations; the sidebar brand
 opens its workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
 The dark icon rail has a slightly deeper surface than the conversation sidebar.
+The sidebar's corners facing the rail are rounded; the conversation canvas uses
+a continuous surface with a quiet header divider. A smaller sidebar wordmark
+sits over an ordered pixel accent that fades across the full sidebar header
+width. The accent stays inside that header and does not receive pointer input.
 The selected destination uses a filled icon and a neutral rounded background.
 Hover, press and selection transitions are brief and respect reduced motion.
 Navigation uses rounded stock outline icons and filled selected variants;
@@ -52,8 +81,12 @@ routes show their service glyphs; other remote or local routes use cloud or
 server symbols with the actual provider label.
 Home opens the selected project’s blank composer, and the sidebar control or
 Ctrl/Cmd+B toggles its list. On narrow windows the same control opens a drawer
-below the title bar. Projects and compact conversation rows have separate
-sections; running work, pending reviews and errors remain visible on their rows.
+below the title bar. Compact conversation rows appear underneath their owning
+project groups. Group expansion is independent of project navigation, and opening a conversation
+reveals its owning group. Folder glyphs follow the actual open/closed state with
+a short crossfade and panel transition; reduced motion disables
+those transitions. Running work, pending reviews and errors remain visible
+in a reserved area on each conversation row.
 The blank project or conversation centres its composer; the first message docks it with a
 short transition. The composer keeps its project context in a lower strip.
 The message box remains expanded, with model selection on the left and Send or
@@ -69,8 +102,23 @@ activity, and opens the existing Changes or Background work detail pane. Pending
 or failed shell reads remain unconfirmed rather than showing a stale count from
 another conversation. Opening a detail pane returns the transcript to the
 available width. Unsupported artifact and child-session inventories are absent.
-The sidebar lists project folders and compact conversation rows. Its project
-menu selects a folder and filters the list. Search filters loaded conversation titles. The model control is one menu inside the composer; the
+The sidebar uses one folder glyph per project and plain indented conversation
+titles. Each group initially shows five conversations, keeping the active one
+visible when it lies beyond that limit. Show more reveals additional loaded
+rows. Idle timestamps appear on hover or keyboard focus; running work, reviews
+and errors remain visible.
+Search sits at the right of the sidebar brand header. Clicking it, choosing
+Conversations in the rail, or pressing Ctrl/Cmd+K opens the same centred command
+palette. It searches conversation titles and project names, and includes New
+conversation and Open folder actions. Arrow keys navigate while the search
+field retains focus; Enter activates the selected action. Escape and an outside
+click dismiss the palette and restore focus without cancelling a running turn.
+The palette reads conversation indexes from connected, trusted projects when
+opened. A failed or unavailable index produces an explicit partial-results
+notice and Retry. Search does not start model work or resume sessions by itself.
+Conversation history is also loaded when its project is opened; an unopened
+group's lack of rows does not imply that the project has no saved conversations.
+The model control is one menu inside the composer; the
 provider and exact model choice are edited there before the next message.
 
 Assistant replies render headings, lists, fenced code and tables. User messages
@@ -91,8 +139,14 @@ contain only the changed fragment. These result views survive a window reload
 while the connection lives; the current restart history projection contains text
 messages rather than old tool previews. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
-Background work uses a separate column in a wide window and an overlay in a
-narrow window. The composer and navigation remain inside the available width.
+Background work uses a separate column when the workspace has at least 880px
+available; narrower workspaces use an overlay without squeezing the
+conversation. The panel and conversation widths animate together, and the
+project-context control remains mounted during the transition. Large-workspace
+context gutters also animate rather than jumping. Closing the panel or pressing
+Escape returns focus to its Background work or Changes control; automatic
+navigation does not move focus back to an old panel. Reduced motion disables
+these transitions. The composer and navigation remain inside the available width.
 
 ## Operator flow
 
@@ -126,7 +180,13 @@ list is not proof that the account can run every listed model. Listings are read
 on demand rather than delaying project startup, shared while one request is in
 flight, and cancelled when the CLI connection closes.
 The menu has a provider column and selectable model rows with their catalogue
-labels. Quick search searches model IDs, labels and provider names across the
+labels. It opens from the start of the model control, with collision handling
+at the window edges. Provider glyphs stay in their navigation column; model rows
+use their names and selected checkmarks. Repeated provider-wide notes appear
+once; distinct model notes remain beside their models. Catalogue notices,
+errors and Retry actions have a separate bounded scroll area above the custom
+model action, so scrolling model rows does not hide the feedback.
+Quick search searches model IDs, labels and provider names across the
 configured providers; `/` opens search while the menu has focus. Arrow keys move
 through the model choices, and Escape dismisses the menu and restores focus.
 Typing in Quick search keeps the search field focused. Arrow Down/Up enters the

@@ -1,0 +1,209 @@
+{
+  "width": 1280,
+  "height": 820,
+  "overflow": false,
+  "dark": true,
+  "reduced": false,
+  "popup": {
+    "rect": {
+      "x": 380,
+      "y": 165,
+      "width": 520,
+      "height": 490,
+      "top": 165,
+      "right": 900,
+      "bottom": 655,
+      "left": 380
+    },
+    "overflow": false,
+    "animation": "none",
+    "transition": "0.15s, 0.17s"
+  },
+  "list": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "top": 0,
+    "right": 0,
+    "bottom": 0,
+    "left": 0
+  },
+  "empty": {
+    "rect": {
+      "x": 381,
+      "y": 212,
+      "width": 518,
+      "height": 404.609375,
+      "top": 212,
+      "right": 899,
+      "bottom": 616.609375,
+      "left": 381
+    },
+    "text": "No matching chats or actions."
+  },
+  "search": {
+    "x": 305,
+    "y": 44,
+    "width": 28,
+    "height": 28,
+    "top": 44,
+    "right": 333,
+    "bottom": 72,
+    "left": 305
+  },
+  "brand": {
+    "x": 48,
+    "y": 32,
+    "width": 287,
+    "height": 52,
+    "top": 32,
+    "right": 335,
+    "bottom": 84,
+    "left": 48
+  },
+  "groups": [
+    {
+      "id": "sample-app",
+      "rect": {
+        "x": 56,
+        "y": 168,
+        "width": 271,
+        "height": 227,
+        "top": 168,
+        "right": 327,
+        "bottom": 395,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 202,
+            "width": 247,
+            "height": 32,
+            "top": 202,
+            "right": 327,
+            "bottom": 234,
+            "left": 80
+          },
+          "text": "Refine navigation\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 235,
+            "width": 247,
+            "height": 32,
+            "top": 235,
+            "right": 327,
+            "bottom": 267,
+            "left": 80
+          },
+          "text": "Polish empty states\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 268,
+            "width": 247,
+            "height": 32,
+            "top": 268,
+            "right": 327,
+            "bottom": 300,
+            "left": 80
+          },
+          "text": "Review message settings\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 301,
+            "width": 247,
+            "height": 32,
+            "top": 301,
+            "right": 327,
+            "bottom": 333,
+            "left": 80
+          },
+          "text": "Extra sample conversation 6\n2h",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 334,
+            "width": 247,
+            "height": 32,
+            "top": 334,
+            "right": 327,
+            "bottom": 366,
+            "left": 80
+          },
+          "text": "Extra sample conversation 5\n2h",
+          "active": false
+        }
+      ]
+    },
+    {
+      "id": "sample-docs",
+      "rect": {
+        "x": 56,
+        "y": 403,
+        "width": 271,
+        "height": 34,
+        "top": 403,
+        "right": 327,
+        "bottom": 437,
+        "left": 56
+      },
+      "rows": []
+    },
+    {
+      "id": "sample-workspace",
+      "rect": {
+        "x": 56,
+        "y": 445,
+        "width": 271,
+        "height": 66,
+        "top": 445,
+        "right": 327,
+        "bottom": 511,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 479,
+            "width": 247,
+            "height": 32,
+            "top": 479,
+            "right": 327,
+            "bottom": 511,
+            "left": 80
+          },
+          "text": "Explore a new idea\n2h",
+          "active": false
+        }
+      ]
+    }
+  ],
+  "options": [],
+  "jobs": {
+    "rect": {
+      "x": 1280,
+      "y": 32,
+      "width": 377.59375,
+      "height": 788,
+      "top": 32,
+      "right": 1657.59375,
+      "bottom": 820,
+      "left": 1280
+    },
+    "open": "false"
+  }
+}

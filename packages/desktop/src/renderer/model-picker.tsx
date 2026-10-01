@@ -83,7 +83,7 @@ export function ModelPicker({
 			</PopoverTrigger>
 			<PopoverPopup
 				side="top"
-				align="end"
+				align="start"
 				sideOffset={8}
 				padding="none"
 				aria-label="Model picker"
@@ -190,6 +190,17 @@ function ModelBrowser({
 		const notice = catalogues[provider.id]?.value?.notice
 		return notice ? [{ provider, notice }] : []
 	})
+	const sharedNotes = new Map<string, string>()
+	for (const provider of shownProviders) {
+		const listed = catalogues[provider.id]?.value?.models ?? []
+		const note = listed[0]?.note?.trim()
+		if (note && listed.length > 1 && listed.every((model) => model.note?.trim() === note))
+			sharedNotes.set(provider.id, note)
+	}
+	const groups = shownProviders.flatMap((provider) => {
+		const rows = filtered.filter((model) => model.provider.id === provider.id)
+		return rows.length ? [{ provider, rows }] : []
+	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
 	const lineUp = (
 		<div className="model-lineup">
@@ -236,7 +247,9 @@ function ModelBrowser({
 					</div>
 				) : (
 					<>
-						<span>Models</span>
+						<span className="model-picker-title" title={active?.label}>
+							{active?.label ?? 'Models'}
+						</span>
 						<Button variant="ghost-muted" size="xs" onClick={() => setSearching(true)}>
 							<span>Quick search</span>
 							<SearchIcon aria-hidden="true" />
@@ -259,38 +272,54 @@ function ModelBrowser({
 						if (next) onChoose({ provider: next.provider.id, model: next.id, label: next.label })
 					}}
 				>
-					{filtered.map((model) => (
-						<Radio.Root
-							key={modelKey(model.provider.id, model.id)}
-							value={modelKey(model.provider.id, model.id)}
-							nativeButton
-							render={<button type="button" />}
-							className="model-picker-row"
-							aria-label={`${model.provider.label} ${model.label}`}
-							onClick={(event) => {
-								event.preventDefault()
-								onChoose({ provider: model.provider.id, model: model.id, label: model.label }, true)
-							}}
-							onKeyDown={(event) => {
-								if (event.key === 'Enter') {
-									event.preventDefault()
-									onChoose(
-										{ provider: model.provider.id, model: model.id, label: model.label },
-										true,
-									)
-								}
-							}}
+					{groups.map(({ provider, rows }) => (
+						<fieldset
+							key={provider.id}
+							className="model-picker-section"
+							aria-label={provider.label}
 						>
-							<ProviderMark provider={model.provider} />
-							<span className="model-picker-name">
-								<span title={model.id}>{model.label}</span>
-								{searching && <small>{model.provider.label}</small>}
-								{model.note && <small>{model.note}</small>}
-							</span>
-							<Radio.Indicator className="model-picker-checked">
-								<CheckIcon aria-hidden="true" />
-							</Radio.Indicator>
-						</Radio.Root>
+							{searching && (
+								<legend className="model-picker-section-title">{provider.label}</legend>
+							)}
+							{rows.map((model) => (
+								<Radio.Root
+									key={modelKey(model.provider.id, model.id)}
+									value={modelKey(model.provider.id, model.id)}
+									nativeButton
+									render={<button type="button" />}
+									className="model-picker-row"
+									aria-label={`${model.provider.label} ${model.label}`}
+									onClick={(event) => {
+										event.preventDefault()
+										onChoose(
+											{ provider: model.provider.id, model: model.id, label: model.label },
+											true,
+										)
+									}}
+									onKeyDown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault()
+											onChoose(
+												{ provider: model.provider.id, model: model.id, label: model.label },
+												true,
+											)
+										}
+									}}
+								>
+									<span className="model-picker-name">
+										<span title={`${model.label} · ${model.id}`}>{model.label}</span>
+										{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
+											<small>{model.note}</small>
+										)}
+									</span>
+									<span className="model-picker-selection" aria-hidden="true">
+										<Radio.Indicator className="model-picker-checked">
+											<CheckIcon aria-hidden="true" />
+										</Radio.Indicator>
+									</span>
+								</Radio.Root>
+							))}
+						</fieldset>
 					))}
 				</RadioGroup>
 				{loading && (
@@ -304,37 +333,53 @@ function ModelBrowser({
 						{query ? 'No matching listed models.' : 'No models listed.'}
 					</output>
 				)}
-				{errors.map((provider) => (
-					<div key={provider.id} className="model-picker-status" role="alert">
-						<span>
-							{provider.label}: {catalogues[provider.id]?.error}
-						</span>
-						<Button
-							variant="ghost-muted"
-							size="xs"
-							onClick={() => retry(provider.id)}
-							aria-label={`Retry ${provider.label} models`}
-						>
-							Retry
-						</Button>
-					</div>
-				))}
-				{notices.map(({ provider, notice }) => (
-					<p key={provider.id} className="model-picker-notice">
-						{searching && `${provider.label}: `}
-						{notice}
-						<Button
-							variant="ghost-muted"
-							size="xs"
-							onClick={() => retry(provider.id)}
-							disabled={catalogues[provider.id]?.loading}
-							aria-label={`Retry ${provider.label} models`}
-						>
-							Retry
-						</Button>
-					</p>
-				))}
 			</div>
+			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0) && (
+				<div className="model-picker-feedback" aria-label="Model catalogue information">
+					{errors.map((provider) => (
+						<div key={provider.id} className="model-picker-status" role="alert">
+							<span>
+								{provider.label}: {catalogues[provider.id]?.error}
+							</span>
+							<Button
+								variant="ghost-muted"
+								size="xs"
+								onClick={() => retry(provider.id)}
+								aria-label={`Retry ${provider.label} models`}
+							>
+								Retry
+							</Button>
+						</div>
+					))}
+					{shownProviders.map((provider) => {
+						const note = sharedNotes.get(provider.id)
+						if (!note || note === catalogues[provider.id]?.value?.notice?.trim()) return null
+						return (
+							<p key={provider.id} className="model-picker-shared-note">
+								{searching && `${provider.label}: `}
+								{note}
+							</p>
+						)
+					})}
+					{notices.map(({ provider, notice }) => (
+						<div key={provider.id} className="model-picker-notice">
+							<span>
+								{searching && `${provider.label}: `}
+								{notice}
+							</span>
+							<Button
+								variant="ghost-muted"
+								size="xs"
+								onClick={() => retry(provider.id)}
+								disabled={catalogues[provider.id]?.loading}
+								aria-label={`Retry ${provider.label} models`}
+							>
+								Retry
+							</Button>
+						</div>
+					))}
+				</div>
+			)}
 			{active && (
 				<div className="model-custom">
 					{custom ? (

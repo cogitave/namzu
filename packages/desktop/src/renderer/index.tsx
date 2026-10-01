@@ -13,6 +13,7 @@ import { AttachmentList } from './attachment-list.js'
 import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
+import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
 import type { ComposerPluginInventory } from './composer-plugins.js'
 import { Composer } from './composer.js'
 import {
@@ -22,6 +23,7 @@ import {
 	PanelLeftIcon,
 	PlusIcon,
 	SquareIcon,
+	SquarePenIcon,
 	TerminalIcon,
 	WrenchIcon,
 	XIcon,
@@ -158,6 +160,45 @@ function App() {
 		Record<string, { loading: boolean; value?: ComposerPluginInventory }>
 	>({})
 	const [sideOpen, setSideOpen] = useState(false)
+	const [commandOpen, setCommandOpen] = useState(false)
+	const commandTrigger = useRef<HTMLElement | null>(null)
+	const commandRead = useRef(0)
+	const [commandListing, setCommandListing] = useState({ loading: false, notice: '' })
+	const openCommands = useCallback(() => {
+		commandTrigger.current =
+			document.activeElement instanceof HTMLElement ? document.activeElement : null
+		setCommandOpen(true)
+	}, [])
+	const refreshCommands = useCallback(() => {
+		if (!api) return
+		const generation = ++commandRead.current
+		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
+		setCommandListing({ loading: true, notice: '' })
+		void Promise.allSettled(readable.map((item) => api.conversations(item.id))).then((results) => {
+			if (generation !== commandRead.current) return
+			setConversations((previous) => {
+				const catalogue = new Map(previous.map((view) => [view.id, view]))
+				for (const result of results) {
+					if (result.status !== 'fulfilled') continue
+					for (const view of result.value) catalogue.set(view.id, view)
+				}
+				return [...catalogue.values()]
+			})
+			const partial =
+				readable.length < projects.length || results.some((result) => result.status === 'rejected')
+			setCommandListing({
+				loading: false,
+				notice: partial ? 'Some conversations could not be loaded.' : '',
+			})
+		})
+	}, [projects])
+	useEffect(() => {
+		if (!commandOpen) return
+		refreshCommands()
+		return () => {
+			commandRead.current += 1
+		}
+	}, [commandOpen, refreshCommands])
 	const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
 	useEffect(() => {
 		const media = window.matchMedia('(max-width: 767px)')
@@ -204,6 +245,7 @@ function App() {
 	useEffect(() => {
 		const key = (event: KeyboardEvent) => {
 			if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return
+			if (commandOpen) return
 			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !event.altKey) {
 				event.preventDefault()
 				toggleSidebar()
@@ -211,7 +253,7 @@ function App() {
 		}
 		window.addEventListener('keydown', key)
 		return () => window.removeEventListener('keydown', key)
-	}, [toggleSidebar])
+	}, [toggleSidebar, commandOpen])
 	const [appearance, setAppearance] = useState<Appearance>(() => {
 		const saved = localStorage.getItem('namzu.appearance')
 		return saved === 'light' || saved === 'system' ? saved : 'dark'
@@ -238,6 +280,13 @@ function App() {
 	}, [projectId, sessionId])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
+	const jobsTrigger = useRef<HTMLButtonElement>(null)
+	const changesTrigger = useRef<HTMLButtonElement>(null)
+	const closeDetails = useCallback(() => {
+		setJobsOpen(false)
+		const trigger = panelTab === 'jobs' ? jobsTrigger.current : changesTrigger.current
+		trigger?.focus({ preventScroll: true })
+	}, [panelTab])
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [jobsSessionId, setJobsSessionId] = useState('')
 	const [jobOutput, setJobOutput] = useState('')
@@ -521,6 +570,7 @@ function App() {
 				setProjectId(item.id)
 				setSessionId('')
 				setSideOpen(false)
+				input.current?.focus()
 			}
 		} catch (failure) {
 			if (generation === navigation.current) throw failure
@@ -739,20 +789,38 @@ function App() {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.isComposing || event.keyCode === 229) return
 			if (event.defaultPrevented) return
+			if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+				event.preventDefault()
+				if (commandOpen) setCommandOpen(false)
+				else openCommands()
+				return
+			}
+			// Modal dismissal must never become a cancellation of the underlying turn.
+			if (commandOpen) return
 			if (event.key === 'Escape') {
 				if (sideOpen || jobsOpen) {
 					setSideOpen(false)
-					setJobsOpen(false)
+					if (jobsOpen) closeDetails()
 				} else if (thread.running) void act(() => api.cancel(sessionId))
 				return
 			}
-			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') {
+			if (
+				(event.metaKey || event.ctrlKey) &&
+				!event.altKey &&
+				!event.shiftKey &&
+				event.key.toLowerCase() === 'o'
+			) {
 				event.preventDefault()
-				void act(openProject)
+				if (!loading) void act(openProject)
 			}
-			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+			if (
+				(event.metaKey || event.ctrlKey) &&
+				!event.altKey &&
+				!event.shiftKey &&
+				event.key.toLowerCase() === 'n'
+			) {
 				event.preventDefault()
-				void act(newConversation)
+				if (!loading && project?.trusted && project.status === 'ready') void act(newConversation)
 			}
 			if (event.altKey && event.key === 'ArrowUp' && sessionId) {
 				event.preventDefault()
@@ -761,9 +829,84 @@ function App() {
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [sideOpen, jobsOpen, sessionId, thread.running, act, newConversation, openProject, editQueued])
+	}, [
+		sideOpen,
+		jobsOpen,
+		sessionId,
+		thread.running,
+		act,
+		newConversation,
+		openProject,
+		editQueued,
+		commandOpen,
+		openCommands,
+		loading,
+		project?.trusted,
+		project?.status,
+		closeDetails,
+	])
+	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
+	const commandItems: CommandPaletteItem[] = [
+		...conversations
+			.filter((view) => projects.some((item) => item.id === view.projectId))
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.map((view) => {
+				const owner = projects.find((item) => item.id === view.projectId)
+				return {
+					id: `conversation:${view.id}`,
+					label: view.title,
+					group: 'Chats',
+					meta: owner?.name,
+					keywords: [owner?.name ?? '', view.id],
+					disabled: !owner?.trusted || owner.status !== 'ready',
+					onAction: () => void act(() => openConversation(view)),
+				}
+			}),
+		{
+			id: 'new-conversation',
+			label: 'New conversation',
+			group: 'Quick actions',
+			icon: <SquarePenIcon aria-hidden="true" />,
+			shortcut: [shortcutModifier, 'N'],
+			disabled: loading || !project?.trusted || project.status !== 'ready',
+			onAction: () => void act(newConversation),
+		},
+		{
+			id: 'open-project',
+			label: 'Open folder',
+			group: 'Quick actions',
+			icon: <FolderIcon aria-hidden="true" />,
+			shortcut: [shortcutModifier, 'O'],
+			disabled: loading,
+			onAction: () => void act(openProject),
+		},
+		...projects.map((item) => ({
+			id: `project:${item.id}`,
+			label: item.name,
+			group: 'Projects',
+			icon: <FolderIcon aria-hidden="true" />,
+			keywords: [item.path],
+			onAction: () => {
+				navigation.current += 1
+				setProjectId(item.id)
+				setSessionId('')
+				setSideOpen(false)
+				setJobsOpen(false)
+				input.current?.focus()
+			},
+		})),
+	]
 	return (
 		<div className="app" data-sidebar-collapsed={sideCollapsed}>
+			<CommandPalette
+				open={commandOpen}
+				onOpenChange={setCommandOpen}
+				triggerRef={commandTrigger}
+				items={commandItems}
+				loading={commandListing.loading}
+				notice={commandListing.notice}
+				onRetry={refreshCommands}
+			/>
 			<WindowTitlebar
 				appearance={appearance}
 				onBack={() => void act(() => navigateHistory(-1))}
@@ -776,7 +919,7 @@ function App() {
 				sidebarExpanded={mobile ? sideOpen : !sideCollapsed}
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
-				newConversationDisabled={!project?.trusted || project.status !== 'ready'}
+				newConversationDisabled={loading || !project?.trusted || project.status !== 'ready'}
 				onError={setError}
 			/>
 			<NavigationRail
@@ -791,11 +934,11 @@ function App() {
 				}}
 				onProjects={() => {
 					setRailSection('projects')
-					revealSidebar('.sidebar-projects .project-row')
+					revealSidebar('[data-project-group] .project-row')
 				}}
 				onConversations={() => {
 					setRailSection('conversations')
-					revealSidebar('input[aria-label="Search conversations"]')
+					openCommands()
 				}}
 				onAppearance={() =>
 					setAppearance((value) =>
@@ -815,6 +958,7 @@ function App() {
 				onClose={() => setSideOpen(false)}
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
+				onSearch={openCommands}
 				onProject={(id) => {
 					navigation.current += 1
 					setProjectId(id)
@@ -842,6 +986,7 @@ function App() {
 						</WorkspaceBreadcrumbItem>
 					</WorkspaceBreadcrumb>
 					<Button
+						ref={jobsTrigger}
 						type="button"
 						variant="ghost-muted"
 						size="sm"
@@ -865,6 +1010,7 @@ function App() {
 						)}
 					</Button>
 					<Button
+						ref={changesTrigger}
 						type="button"
 						variant="ghost-muted"
 						size="icon-sm"
@@ -878,9 +1024,7 @@ function App() {
 					>
 						<FileDiffIcon className="size-4" />
 					</Button>
-					{contextProps && thread.messages.length > 0 && !jobsOpen && (
-						<ProjectContextMenu {...contextProps} />
-					)}
+					{contextProps && thread.messages.length > 0 && <ProjectContextMenu {...contextProps} />}
 				</WorkspacePageHeader>
 				{(error || project?.error) && (
 					<div className="connection-error">
@@ -1138,7 +1282,7 @@ function App() {
 							size="icon-sm"
 							className="icon-button"
 							aria-label={panelTab === 'jobs' ? 'Close background work' : 'Close changes'}
-							onClick={() => setJobsOpen(false)}
+							onClick={closeDetails}
 						>
 							<Icon name="close" />
 						</Button>

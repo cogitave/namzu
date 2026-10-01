@@ -12,7 +12,9 @@
 		"lint": "biome check src/",
 		"test": "vitest run",
 		"start": "electron .",
-		"dev": "pnpm build && electron .",
+		"dev": "node scripts/dev.mjs",
+		"dev:renderer": "node scripts/dev.mjs --renderer-only",
+		"dev:check": "node scripts/dev.mjs --check",
 		"test:native": "node ../../research/runtime-desktop-20260930/native-smoke.mjs ../.."
 	},
 	"dependencies": {

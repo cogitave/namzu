@@ -9,6 +9,7 @@ import type {
 	DraftSettings,
 } from '../shared/protocol.js'
 import { Operator } from './operator.js'
+import { selectRendererPage } from './renderer-page.js'
 import {
 	readWindowMenu,
 	readWindowMenuAnchor,
@@ -18,7 +19,11 @@ import {
 } from './window-chrome.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const page = pathToFileURL(join(here, '../renderer/index.html')).href
+const page = selectRendererPage({
+	isPackaged: app.isPackaged,
+	productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
+	developmentUrl: process.env.NAMZU_DESKTOP_DEV_URL,
+})
 let window: BrowserWindow | undefined
 const cliEntry = process.env.NAMZU_DESKTOP_CLI
 const command = cliEntry
@@ -225,6 +230,9 @@ async function createWindow(): Promise<void> {
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 	window.webContents.on('will-navigate', (event, url) => {
+		if (url !== page) event.preventDefault()
+	})
+	window.webContents.on('will-redirect', (event, url) => {
 		if (url !== page) event.preventDefault()
 	})
 	window.webContents.on('will-attach-webview', (event) => event.preventDefault())

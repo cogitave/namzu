@@ -1,0 +1,265 @@
+{
+  "width": 1280,
+  "height": 820,
+  "overflow": false,
+  "reduced": false,
+  "band": {
+    "rect": {
+      "x": 48,
+      "y": 32,
+      "width": 287,
+      "height": 52,
+      "top": 32,
+      "right": 335,
+      "bottom": 84,
+      "left": 48
+    },
+    "parent": {
+      "x": 48,
+      "y": 32,
+      "width": 287,
+      "height": 52,
+      "top": 32,
+      "right": 335,
+      "bottom": 84,
+      "left": 48
+    },
+    "visibility": "visible",
+    "pointerEvents": "none",
+    "animation": "brand-dither-arrive",
+    "ariaHidden": "true",
+    "viewBox": "0 0 287 52",
+    "pixelCount": 1348,
+    "lastPixel": 280
+  },
+  "wordmark": {
+    "rect": {
+      "x": 73,
+      "y": 47.078125,
+      "width": 119.703125,
+      "height": 21.84375,
+      "top": 47.078125,
+      "right": 192.703125,
+      "bottom": 68.921875,
+      "left": 73
+    },
+    "size": "9.5px"
+  },
+  "sidebar": {
+    "radius": "16px 0px 0px 16px",
+    "overflow": "hidden"
+  },
+  "popup": {
+    "rect": {
+      "x": 505,
+      "y": 76,
+      "width": 360,
+      "height": 348,
+      "top": 76,
+      "right": 865,
+      "bottom": 424,
+      "left": 505
+    },
+    "side": "top",
+    "align": "start",
+    "overflow": false,
+    "insideSidebar": false
+  },
+  "rail": {
+    "x": 506,
+    "y": 77,
+    "width": 44,
+    "height": 346,
+    "top": 77,
+    "right": 550,
+    "bottom": 423,
+    "left": 506
+  },
+  "trigger": {
+    "x": 505,
+    "y": 432,
+    "width": 143.5,
+    "height": 28,
+    "top": 432,
+    "right": 648.5,
+    "bottom": 460,
+    "left": 505
+  },
+  "rows": [
+    {
+      "label": "Sample provider Sample balanced",
+      "rect": {
+        "x": 558,
+        "y": 149,
+        "width": 298,
+        "height": 36,
+        "top": 149,
+        "right": 856,
+        "bottom": 185,
+        "left": 558
+      },
+      "checked": "true",
+      "glyphCount": 0
+    },
+    {
+      "label": "Sample provider Sample focused",
+      "rect": {
+        "x": 558,
+        "y": 187,
+        "width": 298,
+        "height": 36,
+        "top": 187,
+        "right": 856,
+        "bottom": 223,
+        "left": 558
+      },
+      "checked": "false",
+      "glyphCount": 0
+    },
+    {
+      "label": "Sample provider Sample quick",
+      "rect": {
+        "x": 558,
+        "y": 225,
+        "width": 298,
+        "height": 36,
+        "top": 225,
+        "right": 856,
+        "bottom": 261,
+        "left": 558
+      },
+      "checked": "false",
+      "glyphCount": 0
+    }
+  ],
+  "feedback": {
+    "x": 558,
+    "y": 273,
+    "width": 298,
+    "height": 105,
+    "top": 273,
+    "right": 856,
+    "bottom": 378,
+    "left": 558
+  },
+  "custom": {
+    "x": 558,
+    "y": 382,
+    "width": 298,
+    "height": 33,
+    "top": 382,
+    "right": 856,
+    "bottom": 415,
+    "left": 558
+  },
+  "folders": [
+    {
+      "id": "sample-app",
+      "open": true,
+      "icons": [
+        {
+          "class": "lucide lucide-folder-closed sidebar-project-folder-closed",
+          "rect": {
+            "x": 90.4800033569336,
+            "y": 224.47999572753906,
+            "width": 15.040000915527344,
+            "height": 15.040008544921875,
+            "top": 224.47999572753906,
+            "right": 105.52000427246094,
+            "bottom": 239.52000427246094,
+            "left": 90.4800033569336
+          },
+          "opacity": "0",
+          "transition": "0.15s, 0.15s"
+        },
+        {
+          "class": "lucide lucide-folder-open sidebar-project-folder-open",
+          "rect": {
+            "x": 90,
+            "y": 224,
+            "width": 16,
+            "height": 16,
+            "top": 224,
+            "right": 106,
+            "bottom": 240,
+            "left": 90
+          },
+          "opacity": "1",
+          "transition": "0.15s, 0.15s"
+        }
+      ]
+    },
+    {
+      "id": "sample-docs",
+      "open": true,
+      "icons": [
+        {
+          "class": "lucide lucide-folder-closed sidebar-project-folder-closed",
+          "rect": {
+            "x": 90.4800033569336,
+            "y": 382.4800109863281,
+            "width": 15.040000915527344,
+            "height": 15.03997802734375,
+            "top": 382.4800109863281,
+            "right": 105.52000427246094,
+            "bottom": 397.5199890136719,
+            "left": 90.4800033569336
+          },
+          "opacity": "0",
+          "transition": "0.15s, 0.15s"
+        },
+        {
+          "class": "lucide lucide-folder-open sidebar-project-folder-open",
+          "rect": {
+            "x": 90,
+            "y": 382,
+            "width": 16,
+            "height": 16,
+            "top": 382,
+            "right": 106,
+            "bottom": 398,
+            "left": 90
+          },
+          "opacity": "1",
+          "transition": "0.15s, 0.15s"
+        }
+      ]
+    },
+    {
+      "id": "sample-workspace",
+      "open": true,
+      "icons": [
+        {
+          "class": "lucide lucide-folder-closed sidebar-project-folder-closed",
+          "rect": {
+            "x": 90.4800033569336,
+            "y": 424.4800109863281,
+            "width": 15.040000915527344,
+            "height": 15.03997802734375,
+            "top": 424.4800109863281,
+            "right": 105.52000427246094,
+            "bottom": 439.5199890136719,
+            "left": 90.4800033569336
+          },
+          "opacity": "0",
+          "transition": "0.15s, 0.15s"
+        },
+        {
+          "class": "lucide lucide-folder-open sidebar-project-folder-open",
+          "rect": {
+            "x": 90,
+            "y": 424,
+            "width": 16,
+            "height": 16,
+            "top": 424,
+            "right": 106,
+            "bottom": 440,
+            "left": 90
+          },
+          "opacity": "1",
+          "transition": "0.15s, 0.15s"
+        }
+      ]
+    }
+  ]
+}

@@ -79,7 +79,7 @@ Full license: licenses/ui-icons-license.txt
 4. Lucide React v0.564.0 — ISC; Feather-derived portions MIT
 Source: https://github.com/lucide-icons/lucide
 Original files: installed lucide-react dist/esm/icons/{house,folders,folder-closed,
-clock,panel-left,square-pen,ellipsis}.js and the package's default SVG attributes.
+clock,panel-left,square-pen,ellipsis,message-square,folder-open}.js and the package's default SVG attributes.
 Local file: src/renderer/icons.tsx.
 Changes: the existing package components are wrapped to default aria-hidden and
 forward caller SVG props. Original geometry, rounded stroke caps and joins are

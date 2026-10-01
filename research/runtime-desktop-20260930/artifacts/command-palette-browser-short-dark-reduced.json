@@ -1,0 +1,525 @@
+{
+  "width": 600,
+  "height": 380,
+  "overflow": false,
+  "dark": true,
+  "reduced": true,
+  "popup": {
+    "rect": {
+      "x": 40,
+      "y": 16,
+      "width": 520,
+      "height": 348,
+      "top": 16,
+      "right": 560,
+      "bottom": 364,
+      "left": 40
+    },
+    "overflow": false,
+    "animation": "none",
+    "transition": "0s"
+  },
+  "list": {
+    "x": 41,
+    "y": 63,
+    "width": 518,
+    "height": 300,
+    "top": 63,
+    "right": 559,
+    "bottom": 363,
+    "left": 41
+  },
+  "empty": {
+    "rect": {
+      "x": 41,
+      "y": 363,
+      "width": 518,
+      "height": 0,
+      "top": 363,
+      "right": 559,
+      "bottom": 363,
+      "left": 41
+    },
+    "text": ""
+  },
+  "search": {
+    "x": 17,
+    "y": 76,
+    "width": 28,
+    "height": 28,
+    "top": 76,
+    "right": 45,
+    "bottom": 104,
+    "left": 17
+  },
+  "brand": {
+    "x": -192,
+    "y": 64,
+    "width": 287,
+    "height": 52,
+    "top": 64,
+    "right": 95,
+    "bottom": 116,
+    "left": -192
+  },
+  "groups": [
+    {
+      "id": "sample-app",
+      "rect": {
+        "x": -184,
+        "y": 200,
+        "width": 271,
+        "height": 260,
+        "top": 200,
+        "right": 87,
+        "bottom": 460,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 234,
+            "width": 247,
+            "height": 32,
+            "top": 234,
+            "right": 87,
+            "bottom": 266,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 267,
+            "width": 247,
+            "height": 32,
+            "top": 267,
+            "right": 87,
+            "bottom": 299,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 300,
+            "width": 247,
+            "height": 32,
+            "top": 300,
+            "right": 87,
+            "bottom": 332,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 333,
+            "width": 247,
+            "height": 32,
+            "top": 333,
+            "right": 87,
+            "bottom": 365,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 366,
+            "width": 247,
+            "height": 32,
+            "top": 366,
+            "right": 87,
+            "bottom": 398,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 399,
+            "width": 247,
+            "height": 32,
+            "top": 399,
+            "right": 87,
+            "bottom": 431,
+            "left": -160
+          },
+          "text": "",
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "sample-docs",
+      "rect": {
+        "x": -184,
+        "y": 468,
+        "width": 271,
+        "height": 99,
+        "top": 468,
+        "right": 87,
+        "bottom": 567,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 502,
+            "width": 247,
+            "height": 32,
+            "top": 502,
+            "right": 87,
+            "bottom": 534,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": -160,
+            "y": 535,
+            "width": 247,
+            "height": 32,
+            "top": 535,
+            "right": 87,
+            "bottom": 567,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        }
+      ]
+    },
+    {
+      "id": "sample-workspace",
+      "rect": {
+        "x": -184,
+        "y": 575,
+        "width": 271,
+        "height": 66,
+        "top": 575,
+        "right": 87,
+        "bottom": 641,
+        "left": -184
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": -160,
+            "y": 609,
+            "width": 247,
+            "height": 32,
+            "top": 609,
+            "right": 87,
+            "bottom": 641,
+            "left": -160
+          },
+          "text": "",
+          "active": false
+        }
+      ]
+    }
+  ],
+  "options": [
+    {
+      "id": "conversation:sample-thread-6",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -249.609375,
+        "width": 510,
+        "height": 31,
+        "top": -249.609375,
+        "right": 555,
+        "bottom": -218.609375,
+        "left": 45
+      },
+      "text": "Explore a new idea\nSample workspace"
+    },
+    {
+      "id": "conversation:sample-thread-4",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -217.609375,
+        "width": 510,
+        "height": 31,
+        "top": -217.609375,
+        "right": 555,
+        "bottom": -186.609375,
+        "left": 45
+      },
+      "text": "Improve the quick start\nSample docs"
+    },
+    {
+      "id": "conversation:sample-thread-5",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -185.609375,
+        "width": 510,
+        "height": 31,
+        "top": -185.609375,
+        "right": 555,
+        "bottom": -154.609375,
+        "left": 45
+      },
+      "text": "Keep notes readable\nSample docs"
+    },
+    {
+      "id": "conversation:sample-thread-12",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -153.609375,
+        "width": 510,
+        "height": 31,
+        "top": -153.609375,
+        "right": 555,
+        "bottom": -122.609375,
+        "left": 45
+      },
+      "text": "Extra sample conversation 6\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-11",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -121.609375,
+        "width": 510,
+        "height": 31,
+        "top": -121.609375,
+        "right": 555,
+        "bottom": -90.609375,
+        "left": 45
+      },
+      "text": "Extra sample conversation 5\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-10",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -89.609375,
+        "width": 510,
+        "height": 31,
+        "top": -89.609375,
+        "right": 555,
+        "bottom": -58.609375,
+        "left": 45
+      },
+      "text": "Extra sample conversation 4\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-9",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -57.609375,
+        "width": 510,
+        "height": 31,
+        "top": -57.609375,
+        "right": 555,
+        "bottom": -26.609375,
+        "left": 45
+      },
+      "text": "Extra sample conversation 3\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-8",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": -25.609375,
+        "width": 510,
+        "height": 31,
+        "top": -25.609375,
+        "right": 555,
+        "bottom": 5.390625,
+        "left": 45
+      },
+      "text": "Extra sample conversation 2\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-7",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 6.390625,
+        "width": 510,
+        "height": 31,
+        "top": 6.390625,
+        "right": 555,
+        "bottom": 37.390625,
+        "left": 45
+      },
+      "text": "Extra sample conversation 1\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-1",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 38.390625,
+        "width": 510,
+        "height": 31,
+        "top": 38.390625,
+        "right": 555,
+        "bottom": 69.390625,
+        "left": 45
+      },
+      "text": "Refine navigation\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-2",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 70.390625,
+        "width": 510,
+        "height": 31,
+        "top": 70.390625,
+        "right": 555,
+        "bottom": 101.390625,
+        "left": 45
+      },
+      "text": "Polish empty states\nSample app"
+    },
+    {
+      "id": "conversation:sample-thread-3",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 102.390625,
+        "width": 510,
+        "height": 31,
+        "top": 102.390625,
+        "right": 555,
+        "bottom": 133.390625,
+        "left": 45
+      },
+      "text": "Review message settings\nSample app"
+    },
+    {
+      "id": "new-conversation",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 165.78125,
+        "width": 510,
+        "height": 31,
+        "top": 165.78125,
+        "right": 555,
+        "bottom": 196.78125,
+        "left": 45
+      },
+      "text": "New conversation\nCtrl\nN"
+    },
+    {
+      "id": "open-project",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 197.78125,
+        "width": 510,
+        "height": 31,
+        "top": 197.78125,
+        "right": 555,
+        "bottom": 228.78125,
+        "left": 45
+      },
+      "text": "Open folder\nCtrl\nO"
+    },
+    {
+      "id": "project:sample-app",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 261.171875,
+        "width": 510,
+        "height": 31,
+        "top": 261.171875,
+        "right": 555,
+        "bottom": 292.171875,
+        "left": 45
+      },
+      "text": "Sample app"
+    },
+    {
+      "id": "project:sample-docs",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 293.171875,
+        "width": 510,
+        "height": 31,
+        "top": 293.171875,
+        "right": 555,
+        "bottom": 324.171875,
+        "left": 45
+      },
+      "text": "Sample docs"
+    },
+    {
+      "id": "project:sample-workspace",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 45,
+        "y": 325.171875,
+        "width": 510,
+        "height": 31,
+        "top": 325.171875,
+        "right": 555,
+        "bottom": 356.171875,
+        "left": 45
+      },
+      "text": "Sample workspace"
+    }
+  ],
+  "jobs": {
+    "rect": {
+      "x": 600,
+      "y": 32,
+      "width": 552,
+      "height": 348,
+      "top": 32,
+      "right": 1152,
+      "bottom": 380,
+      "left": 600
+    },
+    "open": "false"
+  }
+}

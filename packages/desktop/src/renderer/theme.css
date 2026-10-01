@@ -104,9 +104,9 @@
 }
 :root {
 	color-scheme: light;
-	--background: #fcfcfc;
-	--chrome: #fcfcfc;
-	--toolbar: #fcfcfc;
+	--background: #ffffff;
+	--chrome: #f5f5f5;
+	--toolbar: #ffffff;
 	--toolbar-foreground: #27272a;
 	--toolbar-border: #e4e4e7;
 	--toolbar-control: #ffffff;
@@ -147,13 +147,13 @@
 	--message-action-hover: #125521;
 	--code-background: #ffffff;
 	--code-foreground: #27272a;
-	--sidebar: #fafafa;
+	--sidebar: #fbfbfb;
 	--sidebar-foreground: #27272a;
 	--sidebar-muted-foreground: #71717b;
 	--sidebar-control-surface: #f4f4f5;
-	--sidebar-row-hover: #fcfcfc;
-	--sidebar-row-active: #ffffff;
-	--sidebar-row-selected: #ffffff;
+	--sidebar-row-hover: #f5f5f5;
+	--sidebar-row-active: #eeeeee;
+	--sidebar-row-selected: #f0f0f0;
 	--sidebar-border: #e4e4e7;
 	--terminal-background: #fcfcfc;
 	--terminal-foreground: #27272a;
@@ -167,7 +167,7 @@
 .dark {
 	color-scheme: dark;
 	--background: #181818;
-	--chrome: #121212;
+	--chrome: #141414;
 	--toolbar: #181818;
 	--toolbar-foreground: #f5f5f5;
 	--toolbar-border: #191919;
@@ -202,7 +202,7 @@
 	--update-surface: #152719;
 	--accent: #252525;
 	--accent-foreground: #f5f5f5;
-	--message-surface: #141414;
+	--message-surface: #262626;
 	--app-scrollbar-thumb: rgb(255 255 255 / 8%);
 	--app-scrollbar-thumb-hover: rgb(255 255 255 / 12%);
 	--message-foreground: #f5f5f5;
@@ -211,14 +211,14 @@
 	--message-action-hover: #83ff83;
 	--code-background: #111111;
 	--code-foreground: #f5f5f5;
-	--sidebar: #171717;
+	--sidebar: #181818;
 	--sidebar-foreground: #f1f3f7;
 	--sidebar-muted-foreground: #a3a3a3;
 	--sidebar-control-surface: #1c1c1c;
 	--sidebar-row-hover: rgb(241 243 247 / 8%);
 	--sidebar-row-active: rgb(241 243 247 / 11%);
 	--sidebar-row-selected: rgb(241 243 247 / 7%);
-	--sidebar-border: #141414;
+	--sidebar-border: var(--border);
 	--terminal-background: #0a0a0a;
 	--terminal-foreground: #f5f5f5;
 	--terminal-cursor: #5fff5f;

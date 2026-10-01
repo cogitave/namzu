@@ -17,7 +17,9 @@
       "HistoryIcon": "dist/esm/icons/clock.js",
       "PanelLeftIcon": "dist/esm/icons/panel-left.js",
       "SquarePenIcon": "dist/esm/icons/square-pen.js",
-      "MoreHorizontalIcon": "dist/esm/icons/ellipsis.js"
+      "MoreHorizontalIcon": "dist/esm/icons/ellipsis.js",
+      "ConversationIcon": "dist/esm/icons/message-square.js",
+      "FolderOpenIcon": "dist/esm/icons/folder-open.js"
     }
   },
   "icons": {

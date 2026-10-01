@@ -1,0 +1,418 @@
+{
+  "width": 1180,
+  "height": 820,
+  "overflow": false,
+  "dark": false,
+  "reduced": false,
+  "popup": {
+    "rect": {
+      "x": 330,
+      "y": 165,
+      "width": 520,
+      "height": 490,
+      "top": 165,
+      "right": 850,
+      "bottom": 655,
+      "left": 330
+    },
+    "overflow": false,
+    "animation": "none",
+    "transition": "0.15s, 0.17s"
+  },
+  "list": {
+    "x": 331,
+    "y": 212,
+    "width": 518,
+    "height": 442,
+    "top": 212,
+    "right": 849,
+    "bottom": 654,
+    "left": 331
+  },
+  "empty": {
+    "rect": {
+      "x": 331,
+      "y": 654,
+      "width": 518,
+      "height": 0,
+      "top": 654,
+      "right": 849,
+      "bottom": 654,
+      "left": 331
+    },
+    "text": ""
+  },
+  "search": {
+    "x": 305,
+    "y": 44,
+    "width": 28,
+    "height": 28,
+    "top": 44,
+    "right": 333,
+    "bottom": 72,
+    "left": 305
+  },
+  "brand": {
+    "x": 48,
+    "y": 32,
+    "width": 287,
+    "height": 52,
+    "top": 32,
+    "right": 335,
+    "bottom": 84,
+    "left": 48
+  },
+  "groups": [
+    {
+      "id": "67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+      "rect": {
+        "x": 56,
+        "y": 168,
+        "width": 271,
+        "height": 260,
+        "top": 168,
+        "right": 327,
+        "bottom": 428,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 202,
+            "width": 247,
+            "height": 32,
+            "top": 202,
+            "right": 327,
+            "bottom": 234,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 235,
+            "width": 247,
+            "height": 32,
+            "top": 235,
+            "right": 327,
+            "bottom": 267,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 268,
+            "width": 247,
+            "height": 32,
+            "top": 268,
+            "right": 327,
+            "bottom": 300,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 301,
+            "width": 247,
+            "height": 32,
+            "top": 301,
+            "right": 327,
+            "bottom": 333,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 334,
+            "width": 247,
+            "height": 32,
+            "top": 334,
+            "right": 327,
+            "bottom": 366,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        },
+        {
+          "rect": {
+            "x": 80,
+            "y": 367,
+            "width": 247,
+            "height": 32,
+            "top": 367,
+            "right": 327,
+            "bottom": 399,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "ca878d7e-fe26-499b-89f4-18709ae15a32",
+      "rect": {
+        "x": 56,
+        "y": 436,
+        "width": 271,
+        "height": 66,
+        "top": 436,
+        "right": 327,
+        "bottom": 502,
+        "left": 56
+      },
+      "rows": [
+        {
+          "rect": {
+            "x": 80,
+            "y": 470,
+            "width": 247,
+            "height": 32,
+            "top": 470,
+            "right": 327,
+            "bottom": 502,
+            "left": 80
+          },
+          "text": "New conversation\nnow",
+          "active": false
+        }
+      ]
+    }
+  ],
+  "options": [
+    {
+      "id": "conversation:01a0f74e-a87d-7387-8857-8a293466f273",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 238.390625,
+        "width": 500,
+        "height": 31,
+        "top": 238.390625,
+        "right": 835,
+        "bottom": 269.390625,
+        "left": 335
+      },
+      "text": "New conversation\ndocs-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e7c0d51085",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 270.390625,
+        "width": 500,
+        "height": 31,
+        "top": 270.390625,
+        "right": 835,
+        "bottom": 301.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a4c8-7081-bd21-d6e6606862d8",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 302.390625,
+        "width": 500,
+        "height": 31,
+        "top": 302.390625,
+        "right": 835,
+        "bottom": 333.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a4c6-7479-b226-224738b12434",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 334.390625,
+        "width": 500,
+        "height": 31,
+        "top": 334.390625,
+        "right": 835,
+        "bottom": 365.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a4c5-758d-9f7a-d67adb2e128a",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 366.390625,
+        "width": 500,
+        "height": 31,
+        "top": 366.390625,
+        "right": 835,
+        "bottom": 397.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a3f3-77c2-b456-53fa5a180b9a",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 398.390625,
+        "width": 500,
+        "height": 31,
+        "top": 398.390625,
+        "right": 835,
+        "bottom": 429.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a3f1-7261-816e-4c420d38f141",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 430.390625,
+        "width": 500,
+        "height": 31,
+        "top": 430.390625,
+        "right": 835,
+        "bottom": 461.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a3f0-765c-81a4-3238bf215706",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 462.390625,
+        "width": 500,
+        "height": 31,
+        "top": 462.390625,
+        "right": 835,
+        "bottom": 493.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "conversation:01a0f74e-a3ef-7265-879b-fa0159f79b55",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 494.390625,
+        "width": 500,
+        "height": 31,
+        "top": 494.390625,
+        "right": 835,
+        "bottom": 525.390625,
+        "left": 335
+      },
+      "text": "New conversation\napp-project"
+    },
+    {
+      "id": "new-conversation",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 557.78125,
+        "width": 500,
+        "height": 31,
+        "top": 557.78125,
+        "right": 835,
+        "bottom": 588.78125,
+        "left": 335
+      },
+      "text": "New conversation\nCtrl\nN"
+    },
+    {
+      "id": "open-project",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 589.78125,
+        "width": 500,
+        "height": 31,
+        "top": 589.78125,
+        "right": 835,
+        "bottom": 620.78125,
+        "left": 335
+      },
+      "text": "Open folder\nCtrl\nO"
+    },
+    {
+      "id": "project:67bdcd0c-1206-4e25-9a78-ce9a1a81c4ee",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 653.171875,
+        "width": 500,
+        "height": 31,
+        "top": 653.171875,
+        "right": 835,
+        "bottom": 684.171875,
+        "left": 335
+      },
+      "text": "app-project"
+    },
+    {
+      "id": "project:ca878d7e-fe26-499b-89f4-18709ae15a32",
+      "role": "option",
+      "disabled": null,
+      "rect": {
+        "x": 335,
+        "y": 685.171875,
+        "width": 500,
+        "height": 31,
+        "top": 685.171875,
+        "right": 835,
+        "bottom": 716.171875,
+        "left": 335
+      },
+      "text": "docs-project"
+    }
+  ],
+  "jobs": {
+    "rect": {
+      "x": 1180,
+      "y": 32,
+      "width": 560,
+      "height": 788,
+      "top": 32,
+      "right": 1740,
+      "bottom": 820,
+      "left": 1180
+    },
+    "open": "false"
+  }
+}
