@@ -99,16 +99,19 @@ say "namzu: Node $(node -v), installing ${NAMZU_PKG}@${NAMZU_VERSION}"
 
 # `--global` first. It is what most machines want and what puts `namzu` on PATH
 # without touching the caller's shell profile.
-if npm install --global --no-fund --no-audit "${NAMZU_PKG}@${NAMZU_VERSION}" >/dev/null 2>&1; then
+if NAMZU_NPM_OUTPUT="$(npm install --global --no-fund --no-audit "${NAMZU_PKG}@${NAMZU_VERSION}" 2>&1)"; then
 	INSTALL_MODE=global
 else
+	# Keep the package manager's reason when an attempt fails, including when
+	# the user-owned fallback succeeds. Successful install chatter stays quiet.
+	[ -z "$NAMZU_NPM_OUTPUT" ] || printf '%s\n' "$NAMZU_NPM_OUTPUT" >&2
 	# The common cause is an unwritable global prefix. Retry into a user-owned
 	# one rather than re-running under sudo: a curl-to-shell script that
 	# escalates privilege on failure is a script nobody should pipe into sh.
 	say "namzu: global install failed, retrying into ${NAMZU_PREFIX}"
 	mkdir -p "$NAMZU_PREFIX"
-	if npm install --global --prefix "$NAMZU_PREFIX" --no-fund --no-audit \
-		"${NAMZU_PKG}@${NAMZU_VERSION}" >/dev/null 2>&1; then
+	if NAMZU_NPM_OUTPUT="$(npm install --global --prefix "$NAMZU_PREFIX" --no-fund --no-audit \
+		"${NAMZU_PKG}@${NAMZU_VERSION}" 2>&1)"; then
 		INSTALL_MODE=prefix
 		# Same reasoning as the failure path: locate it, do not compute it.
 		# Falling back to `$NAMZU_PREFIX/bin` keeps the old behaviour when the
@@ -117,6 +120,7 @@ else
 		PATH="$(bin_dir_under "$NAMZU_PREFIX" || printf '%s' "$NAMZU_PREFIX/bin"):$PATH"
 		export PATH
 	else
+		[ -z "$NAMZU_NPM_OUTPUT" ] || printf '%s\n' "$NAMZU_NPM_OUTPUT" >&2
 		die "install failed both globally and into ${NAMZU_PREFIX}.
   Re-run the install by hand to see why:
     npm install --global ${NAMZU_PKG}@${NAMZU_VERSION}"
@@ -155,9 +159,10 @@ if ! have namzu; then
     npm ls --global --parseable ${NAMZU_PKG}"
 fi
 
-NAMZU_INSTALLED="$(namzu --version 2>/dev/null || true)"
-[ -n "$NAMZU_INSTALLED" ] || die "'namzu' is on PATH but did not answer --version.
+if ! NAMZU_INSTALLED="$(namzu --version 2>/dev/null)" || [ -z "$NAMZU_INSTALLED" ]; then
+	die "'namzu' is on PATH but did not answer --version.
   Run 'namzu doctor' to see what it says about itself."
+fi
 
 say "namzu ${NAMZU_INSTALLED} installed."
 

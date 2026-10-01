@@ -2,6 +2,10 @@
 
 ## 2026-10-01
 
+- **Fix** [Installing and reopening Namzu](cli/installation.md): retain failed npm diagnostics, reject unsuccessful POSIX version verification, use `.cmd` guidance on Windows, recognize the running installation's npm shim for concise Resume commands, and share PowerShell 5.1-compatible scheduled-run directory guards. Safe installer mocks and native PowerShell argument probes verify the changes. `.changeset/windows-resume-handoffs.md`, **patch** for `@namzu/cli`.
+
+- **Update** [Scheduled tasks](cli/scheduled-tasks.md): distinguish available tools from permission rules, files from artifact services and cumulative token budgets from model context size. Record the real Zen TUI and scheduled-run [investigation](../research/schedule-installers-20261001/REPORT.md), including diagnostic limits and the successful searches preceding budget exhaustion.
+
 - **Fix** [Desktop operator](cli/desktop.md): keep equal-date conversations in a deterministic order in Recents and command search when opening another project refreshes its index. Continue ranking by saved update timestamps; opening a conversation does not create visit recency.
 
 - **Fix** [Desktop operator](cli/desktop.md): show only the accepted conversation selection in its originating Projects or Recents list, preserve collapsed project groups during command search, and omit project connection dots while retaining error recovery and shared activity indicators. Hide conversation header controls and close the detail pane on blank project routes.

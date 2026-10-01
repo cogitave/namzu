@@ -76,19 +76,22 @@ Write-Step "Node $nodeVersion, installing $NamzuPkg@$NamzuVersion"
 
 # Use the .cmd shim explicitly. Under Restricted execution policy, PowerShell
 # resolves bare `npm` to npm.ps1 and refuses to run it even when npm.cmd works.
-# PowerShell 5.1 turns native stderr into ErrorRecords. Even `2>&1 | Out-Null`
+# PowerShell 5.1 turns native stderr into ErrorRecords. Even `2>&1`
 # can throw under Stop when npm succeeds but prints a warning. Let that one
 # native call continue, capture its exit code, and restore the script policy.
 $previousErrorActionPreference = $ErrorActionPreference
 try {
     $ErrorActionPreference = 'Continue'
-    & npm.cmd install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1 | Out-Null
+    $installOutput = @(& npm.cmd install --global --no-fund --no-audit "$NamzuPkg@$NamzuVersion" 2>&1)
     $installExit = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $previousErrorActionPreference
 }
 
 if ($installExit -ne 0) {
+    # Render captured ErrorRecords as text so the original npm reason remains
+    # visible without turning successful native stderr into a terminating error.
+    foreach ($line in $installOutput) { Write-Host "$line" }
     Fail @"
 npm install failed (exit $installExit).
   Re-run it by hand to see why:
@@ -129,11 +132,11 @@ try {
 if ($verifyExit -ne 0 -or -not $installed) {
     Fail @'
 'namzu' is on PATH but did not answer --version.
-  Run 'namzu doctor' to see what it says about itself.
+  Run 'namzu.cmd doctor' to see what it says about itself.
 '@
 }
 
 Write-Step "$installed installed."
 Write-Host ''
-Write-Host "Next: run 'namzu doctor' to check credentials and sandboxing,"
-Write-Host "or just 'namzu' to open the terminal agent."
+Write-Host "Next: run 'namzu.cmd doctor' to check credentials and sandboxing,"
+Write-Host "or just 'namzu.cmd' to open the terminal agent."

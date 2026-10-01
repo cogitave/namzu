@@ -168,6 +168,21 @@ itself running on native Windows (a moved `NAMZU_HOME`, a machine re-imaged
 from WSL to a native install) — use WSL, where a job's script runs on the
 Linux side, or an `agent` job.
 
+## Available tools and outputs
+
+A permission rule allows an available tool; it does not mount a missing one.
+For example, allowing `web_fetch` cannot enable it when the project has not
+enabled that tool. The bundled schedule skill asks the model to check the offered
+tools and agree on a supported output before proposing the job. `write` can save
+a local HTML or Markdown file. An integrated artifact page requires a separate
+host capability; it is not supplied by the scheduler or by `DeliverableRef`.
+
+The run's token budget covers cumulative model input and output, including
+retrieved content sent again in later iterations. A large model context window
+does not increase that budget. Research prompts should limit searches and leave
+room to produce their result. A batch of several tool calls counts as one model
+iteration.
+
 ## Creating a job
 
 `namzu schedule add <name>` needs a schedule and a permission set, plus a
@@ -949,7 +964,11 @@ resumeCommand?, handoff? } }] }`, `kind` absent for an `agent` job and
 `"script"`/`"script+agent"` otherwise; the text list marks the same two
 kinds, `[script, 0 tokens]` and `[script+agent]` (an `agent` job stays
 unmarked, as before this field existed). `resumeCommand` for a run waiting for
-approval and `handoff: { reason }` for one a tool parked for a person (the
+approval includes its project directory and extra roots. It is a POSIX shell
+command on macOS/Linux/WSL and a PowerShell command on native Windows, using
+`namzu.cmd` and a guarded literal directory change compatible with PowerShell
+5.1. See [Installing and reopening Namzu](installation.md).
+`handoff: { reason }` is present for one a tool parked for a person (the
 text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 "records": [...] }` with records newest first, a run's last status winning. A

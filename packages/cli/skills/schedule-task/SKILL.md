@@ -30,6 +30,21 @@ until they do.
 Ask the user whatever you cannot infer, then propose. Do not create a job
 the user did not ask for.
 
+Check the tools actually offered in this session before proposing the work.
+Permission rules authorize tools; they do not install or mount them. For example,
+allowing `web_fetch` does not make it available when only `web_search` is offered.
+Do not investigate installed package files to invent an unavailable output tool.
+If the requested page or artifact service is absent, explain that gap and agree
+on a supported output before promising the job. A local HTML file written with
+`write` is a file, not an integrated artifact page.
+
+Keep unattended research bounded and reserve budget for writing its result.
+The token budget covers cumulative model input and output across iterations,
+including search results sent again on later requests. It is not the model's
+context-window size. A long series of broad searches can exhaust it before any
+output file is written. Tool calls made together belong to one model iteration;
+do not equate the iteration budget with the number of tool calls.
+
 If the task needs no project files, do not create a visible project folder
 merely because the current directory is home, root or `NAMZU_HOME`. Use the
 job's `workspace: "none"` option with `kind: "script"`, and omit `folder`.

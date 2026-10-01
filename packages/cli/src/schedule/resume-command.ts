@@ -6,12 +6,13 @@
  * conversation only from the job's folder; anywhere else it says "not found".
  * The command therefore always carries the folder, and the job's extra roots,
  * which a session answering the park must have. Every path is quoted for a
- * POSIX shell.
+ * POSIX shell, or Windows PowerShell on native Windows.
  */
 
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { sanitizeLine } from '../integrations/notifications/desktop/sanitize.js'
+import { formatResumeShellCommand } from '../resume-shell.js'
 import { schedulePaths } from './paths.js'
 import { foldHistory, readHistory } from './store/history.js'
 import { listJobs } from './store/jobs.js'
@@ -23,15 +24,25 @@ export function shellQuote(value: string): string {
 	return /^[A-Za-z0-9._/@+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-/** `cd <folder> && namzu [--add-dir <dir>]… resume <session-id>`. */
+/** A folder-aware POSIX or Windows PowerShell command for the parked run. */
 export function resumeCommand(
 	job: Pick<ScheduleJob, 'folder' | 'permissions'>,
 	sessionId: string,
+	platform: NodeJS.Platform = process.platform,
 ): string {
-	const addDirs = (job.permissions.additionalDirectories ?? [])
-		.map((dir) => ` --add-dir ${shellQuote(dir)}`)
-		.join('')
-	return `cd ${shellQuote(job.folder.canonical)} && namzu${addDirs} resume ${shellQuote(sessionId)}`
+	// Explicit .cmd avoids PowerShell selecting the execution-policy-bound .ps1 shim.
+	const executable = platform === 'win32' ? 'namzu.cmd' : 'namzu'
+	const args = [
+		executable,
+		...(job.permissions.additionalDirectories ?? []).flatMap((dir) => ['--add-dir', dir]),
+		'resume',
+		sessionId,
+	]
+	return formatResumeShellCommand(args, {
+		platform,
+		cwd: job.folder.canonical,
+		quotePosix: shellQuote,
+	})
 }
 
 function canonical(path: string): string {

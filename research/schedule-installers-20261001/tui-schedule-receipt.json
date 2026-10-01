@@ -1,0 +1,954 @@
+{
+  "installedCliVersion": "35.0.0",
+  "provider": "zen",
+  "model": "space-bunny-free",
+  "harnessLimits": {
+    "maxIterations": 12,
+    "tokenBudget": 200000,
+    "timeoutMs": 300000
+  },
+  "isolation": "private test home and project; no scheduler service installed",
+  "initialRequest": "Daily 10:00 AI news by model family in an artifact page",
+  "fallbackRequest": "Daily 10:00 AI news in a local HTML file, distinct from an artifact page",
+  "caveats": [
+    "The first two TUI turns reached the diagnostic time cap, including approval wait.",
+    "The first schedule review was accidentally cancelled by test input; it is not a reproduced runtime defect."
+  ],
+  "tui": {
+    "sessionId": "01a0f8f1-e5d4-739a-832d-c81907ada745",
+    "firstToolRoster": [
+      "bash",
+      "edit",
+      "glob",
+      "grep",
+      "job",
+      "read",
+      "wait_for_job",
+      "write",
+      "search_memory",
+      "read_memory",
+      "save_memory",
+      "update_memory",
+      "delete_memory",
+      "computer_use",
+      "browser",
+      "browser_act",
+      "web_search",
+      "search_conversation",
+      "read_conversation",
+      "Agent",
+      "wait_for_task",
+      "agent_models",
+      "agent_task_list",
+      "send_message",
+      "cancel_agent",
+      "narrate_work",
+      "switch_model",
+      "ask_user_question",
+      "schedule",
+      "session_loop",
+      "save_skill",
+      "open_url",
+      "skill",
+      "task_create",
+      "task_update",
+      "task_list"
+    ],
+    "webSearchResultCharacters": 0,
+    "events": [
+      {
+        "seq": 12,
+        "type": "tool_input_completed",
+        "path": "/home/arda/.local/node/lib/node_modules/@namzu/cli/skills/schedule-task/SKILL.md"
+      },
+      {
+        "seq": 14,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 19444,
+          "completionTokens": 203,
+          "totalTokens": 19647,
+          "cachedTokens": 128,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 154
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 19647,
+          "treeTokens": 19647,
+          "reservedTokens": 0,
+          "remainingTokens": 180353,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 19444
+      },
+      {
+        "seq": 27,
+        "type": "tool_completed",
+        "toolName": "read",
+        "isError": false
+      },
+      {
+        "seq": 39,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 41,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 44744,
+          "completionTokens": 988,
+          "totalTokens": 45732,
+          "cachedTokens": 256,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 804
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 45732,
+          "treeTokens": 45732,
+          "reservedTokens": 0,
+          "remainingTokens": 154268,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 25300
+      },
+      {
+        "seq": 53,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 65,
+        "type": "tool_input_completed",
+        "path": "/var/tmp/namzu-schedule-space-bunny-3j5QM9/project/namzu.config.json"
+      },
+      {
+        "seq": 67,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 70250,
+          "completionTokens": 2184,
+          "totalTokens": 72434,
+          "cachedTokens": 23988,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 1951
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 72434,
+          "treeTokens": 72434,
+          "reservedTokens": 0,
+          "remainingTokens": 127566,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 25506
+      },
+      {
+        "seq": 74,
+        "type": "tool_completed",
+        "toolName": "read",
+        "isError": false
+      },
+      {
+        "seq": 86,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 88,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 95933,
+          "completionTokens": 2975,
+          "totalTokens": 98908,
+          "cachedTokens": 47992,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 2723
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 98908,
+          "treeTokens": 98908,
+          "reservedTokens": 0,
+          "remainingTokens": 101092,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 25683
+      },
+      {
+        "seq": 95,
+        "type": "tool_completed",
+        "toolName": "skill",
+        "isError": false
+      },
+      {
+        "seq": 107,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 109,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 121934,
+          "completionTokens": 3771,
+          "totalTokens": 125705,
+          "cachedTokens": 72087,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 3402
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 125705,
+          "treeTokens": 125705,
+          "reservedTokens": 0,
+          "remainingTokens": 74295,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 26001
+      },
+      {
+        "seq": 121,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 127,
+        "type": "turn_completed",
+        "stopReason": "timeout"
+      },
+      {
+        "seq": 138,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 140,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 27976,
+          "completionTokens": 659,
+          "totalTokens": 28635,
+          "cachedTokens": 24521,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 529
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 28635,
+          "treeTokens": 28635,
+          "reservedTokens": 0,
+          "remainingTokens": 171365,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 26578
+      },
+      {
+        "seq": 152,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 164,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 166,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 55580,
+          "completionTokens": 887,
+          "totalTokens": 56467,
+          "cachedTokens": 49432,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 598
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 56467,
+          "treeTokens": 56467,
+          "reservedTokens": 0,
+          "remainingTokens": 143533,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 27604
+      },
+      {
+        "seq": 178,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 190,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 192,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 83399,
+          "completionTokens": 1110,
+          "totalTokens": 84509,
+          "cachedTokens": 75349,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 684
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 84509,
+          "treeTokens": 84509,
+          "reservedTokens": 0,
+          "remainingTokens": 115491,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 27819
+      },
+      {
+        "seq": 204,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 216,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 97619,
+          "completionTokens": 2823,
+          "totalTokens": 100442,
+          "cachedTokens": 79196,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 1594
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 100442,
+          "treeTokens": 100442,
+          "reservedTokens": 0,
+          "remainingTokens": 99558,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 14220
+      },
+      {
+        "seq": 221,
+        "type": "turn_completed",
+        "stopReason": "timeout"
+      },
+      {
+        "seq": 233,
+        "type": "tool_input_completed"
+      },
+      {
+        "seq": 234,
+        "type": "tool_input_completed",
+        "action": "create",
+        "name": "ai-haberler-gunluk",
+        "kind": "agent",
+        "when": "0 10 * * *",
+        "tz": "Europe/Istanbul",
+        "permissions": {
+          "preset": "edit-in-folder",
+          "unmatched": "deny",
+          "rules": {
+            "web_search": "allow",
+            "web_fetch": "allow",
+            "bash": "deny"
+          }
+        },
+        "promptTools": [
+          "web_search",
+          "web_fetch",
+          "write"
+        ]
+      },
+      {
+        "seq": 236,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 33654,
+          "completionTokens": 5748,
+          "totalTokens": 39402,
+          "cachedTokens": 26259,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 4634
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 39402,
+          "treeTokens": 39402,
+          "reservedTokens": 0,
+          "remainingTokens": 160598,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 30992
+      },
+      {
+        "seq": 248,
+        "type": "tool_completed",
+        "toolName": "bash",
+        "isError": false
+      },
+      {
+        "seq": 253,
+        "type": "tool_completed",
+        "toolName": "schedule",
+        "isError": true,
+        "result": "Error: The operator did not confirm the job, so it was not created."
+      },
+      {
+        "seq": 266,
+        "type": "tool_input_completed",
+        "action": "list"
+      },
+      {
+        "seq": 268,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 65908,
+          "completionTokens": 6404,
+          "totalTokens": 72312,
+          "cachedTokens": 55050,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5208
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 72312,
+          "treeTokens": 72312,
+          "reservedTokens": 0,
+          "remainingTokens": 127688,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 32254
+      },
+      {
+        "seq": 275,
+        "type": "tool_completed",
+        "toolName": "schedule",
+        "isError": false,
+        "result": "No scheduled jobs."
+      },
+      {
+        "seq": 287,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 98255,
+          "completionTokens": 8924,
+          "totalTokens": 107179,
+          "cachedTokens": 85099,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 7250
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 107179,
+          "treeTokens": 107179,
+          "reservedTokens": 0,
+          "remainingTokens": 92821,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 32347
+      },
+      {
+        "seq": 292,
+        "type": "turn_completed",
+        "stopReason": "end_turn"
+      },
+      {
+        "seq": 303,
+        "type": "tool_input_completed",
+        "action": "create",
+        "name": "ai-haberler-gunluk",
+        "kind": "agent",
+        "when": "0 10 * * *",
+        "tz": "Europe/Istanbul",
+        "permissions": {
+          "preset": "edit-in-folder",
+          "rules": {
+            "bash": "deny",
+            "web_search": "allow"
+          },
+          "unmatched": "deny"
+        },
+        "promptTools": [
+          "web_search",
+          "write"
+        ]
+      },
+      {
+        "seq": 305,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 36593,
+          "completionTokens": 1658,
+          "totalTokens": 38251,
+          "cachedTokens": 30286,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 661
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 38251,
+          "treeTokens": 38251,
+          "reservedTokens": 0,
+          "remainingTokens": 161749,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 33311
+      },
+      {
+        "seq": 315,
+        "type": "tool_completed",
+        "toolName": "schedule",
+        "isError": false,
+        "result": "Job \"ai-haberler-gunluk\" was created paused. The operator can resume it with /schedule. No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`. Tell them; do not say it will run."
+      },
+      {
+        "seq": 327,
+        "type": "tool_input_completed",
+        "action": "list"
+      },
+      {
+        "seq": 329,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 70972,
+          "completionTokens": 1814,
+          "totalTokens": 72786,
+          "cachedTokens": 61036,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 758
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 72786,
+          "treeTokens": 72786,
+          "reservedTokens": 0,
+          "remainingTokens": 127214,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 34379
+      },
+      {
+        "seq": 336,
+        "type": "tool_completed",
+        "toolName": "schedule",
+        "isError": false,
+        "result": "ai-haberler-gunluk · paused · at 10:00 every day (Europe/Istanbul) · /var/tmp/namzu-schedule-space-bunny-3j5QM9/project (this folder)"
+      },
+      {
+        "seq": 348,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 105468,
+          "completionTokens": 2812,
+          "totalTokens": 108280,
+          "cachedTokens": 92854,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 1199
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 108280,
+          "treeTokens": 108280,
+          "reservedTokens": 0,
+          "remainingTokens": 91720,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 34496
+      },
+      {
+        "seq": 353,
+        "type": "turn_completed",
+        "stopReason": "end_turn"
+      }
+    ]
+  },
+  "scheduledRun": {
+    "sessionId": "01a0f905-0603-725b-ba0a-26738459e26b",
+    "firstToolRoster": [
+      "edit",
+      "glob",
+      "grep",
+      "read",
+      "write",
+      "search_memory",
+      "read_memory",
+      "web_search",
+      "search_conversation",
+      "read_conversation",
+      "skill",
+      "task_create",
+      "task_update",
+      "task_list"
+    ],
+    "webSearchResultCharacters": 249012,
+    "events": [
+      {
+        "seq": 16,
+        "type": "tool_input_completed",
+        "query": "AI news October 1 2026 artificial intelligence announcements",
+        "limit": 10
+      },
+      {
+        "seq": 17,
+        "type": "tool_input_completed",
+        "query": "OpenAI announcement news this week",
+        "limit": 10
+      },
+      {
+        "seq": 18,
+        "type": "tool_input_completed",
+        "query": "Anthropic Claude news announcement",
+        "limit": 10
+      },
+      {
+        "seq": 19,
+        "type": "tool_input_completed",
+        "query": "Google Gemini news release",
+        "limit": 10
+      },
+      {
+        "seq": 21,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 9858,
+          "completionTokens": 265,
+          "totalTokens": 10123,
+          "cachedTokens": 128,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 115
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 10123,
+          "treeTokens": 10123,
+          "reservedTokens": 0,
+          "remainingTokens": 189877,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 9858
+      },
+      {
+        "seq": 37,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 39,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 41,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 43,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 61,
+        "type": "tool_input_completed",
+        "query": "Meta Llama AI news October 2026",
+        "limit": 8
+      },
+      {
+        "seq": 62,
+        "type": "tool_input_completed",
+        "query": "xAI Grok announcement October 2026",
+        "limit": 8
+      },
+      {
+        "seq": 63,
+        "type": "tool_input_completed",
+        "query": "Mistral AI DeepSeek Qwen model release news",
+        "limit": 8
+      },
+      {
+        "seq": 64,
+        "type": "tool_input_completed",
+        "query": "AI chips regulation news October 1 2026",
+        "limit": 8
+      },
+      {
+        "seq": 66,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 42305,
+          "completionTokens": 582,
+          "totalTokens": 42887,
+          "cachedTokens": 256,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 271
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 42887,
+          "treeTokens": 42887,
+          "reservedTokens": 0,
+          "remainingTokens": 157113,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 32447
+      },
+      {
+        "seq": 82,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 84,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 86,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 88,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 106,
+        "type": "tool_input_completed",
+        "query": "Mistral AI new model release October 2026",
+        "limit": 6
+      },
+      {
+        "seq": 107,
+        "type": "tool_input_completed",
+        "query": "DeepSeek announcement September 30 2026",
+        "limit": 6
+      },
+      {
+        "seq": 108,
+        "type": "tool_input_completed",
+        "query": "Qwen Alibaba new model release September 30 2026",
+        "limit": 6
+      },
+      {
+        "seq": 109,
+        "type": "tool_input_completed",
+        "query": "AI safety regulation court ruling news October 1 2026",
+        "limit": 6
+      },
+      {
+        "seq": 111,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 85433,
+          "completionTokens": 1146,
+          "totalTokens": 86579,
+          "cachedTokens": 29927,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 669
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 86579,
+          "treeTokens": 86579,
+          "reservedTokens": 0,
+          "remainingTokens": 113421,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 43128
+      },
+      {
+        "seq": 127,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 129,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 131,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 133,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 151,
+        "type": "tool_input_completed",
+        "query": "xAI Grok news October 1 2026 SpaceXAI announcement",
+        "limit": 6
+      },
+      {
+        "seq": 152,
+        "type": "tool_input_completed",
+        "query": "DeepSeek news 1 October 2026",
+        "limit": 6
+      },
+      {
+        "seq": 153,
+        "type": "tool_input_completed",
+        "query": "Qwen Alibaba announcement 1 October 2026 model",
+        "limit": 6
+      },
+      {
+        "seq": 154,
+        "type": "tool_input_completed",
+        "query": "Anthropic news October 1 2026 Claude",
+        "limit": 6
+      },
+      {
+        "seq": 156,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 141924,
+          "completionTokens": 3001,
+          "totalTokens": 144925,
+          "cachedTokens": 70245,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 2330
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 144925,
+          "treeTokens": 144925,
+          "reservedTokens": 0,
+          "remainingTokens": 55075,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 56491
+      },
+      {
+        "seq": 172,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 174,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 176,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 178,
+        "type": "tool_completed",
+        "toolName": "web_search",
+        "isError": false
+      },
+      {
+        "seq": 193,
+        "type": "token_usage_updated",
+        "usage": {
+          "promptTokens": 209274,
+          "completionTokens": 11193,
+          "totalTokens": 220467,
+          "cachedTokens": 123910,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 10521
+        },
+        "budget": {
+          "limit": 200000,
+          "ownTokens": 220467,
+          "treeTokens": 220467,
+          "reservedTokens": 0,
+          "remainingTokens": 0,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "contextTokens": 67350
+      },
+      {
+        "seq": 198,
+        "type": "turn_completed",
+        "stopReason": "token_budget"
+      }
+    ]
+  }
+}

@@ -321,6 +321,10 @@ npx @namzu/cli
 The CLI requires Node 22.13 or newer. Both installers check the version and
 verify the binary answers. The POSIX installer retries an unwritable global
 prefix under `~/.namzu` and tells you the line to add to your shell profile.
+Failed npm attempts retain their diagnostic output. In native Windows
+PowerShell, use `namzu.cmd` to avoid selecting a `.ps1` wrapper under Restricted
+execution policy. See [Installing and reopening Namzu](docs/cli/installation.md)
+for troubleshooting and conversation resume commands.
 
 Bare `namzu` opens an interactive terminal agent. The same binary is
 scriptable: `namzu exec` for a single headless prompt, `namzu exec --json` for

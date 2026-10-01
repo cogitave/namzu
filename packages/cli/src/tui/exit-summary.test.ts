@@ -66,6 +66,27 @@ describe('the shell handoff after the TUI exits', () => {
 		)
 	})
 
+	it('retains source loader and application arguments in a Windows invocation', () => {
+		expect(
+			formatTuiExitSummary(
+				{ conversationId: 'ses_source' },
+				{
+					command: [
+						'C:\\Program Files\\nodejs\\node.exe',
+						'--import',
+						'tsx',
+						"C:\\operator's tools\\bin.ts",
+						'--output-schema',
+						'C:\\schemas\\$env:USERPROFILE.json',
+					],
+				},
+				'win32',
+			),
+		).toBe(
+			"To resume this conversation, run in PowerShell: & 'C:\\Program Files\\nodejs\\node.exe' '--import' 'tsx' 'C:\\operator''s tools\\bin.ts' '--output-schema' 'C:\\schemas\\$env:USERPROFILE.json' 'resume' 'ses_source'\n",
+		)
+	})
+
 	it.skipIf(process.platform === 'win32')(
 		'executes quoted paths and arguments without shell expansion',
 		() => {

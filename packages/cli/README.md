@@ -78,6 +78,8 @@ In Windows PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
+namzu.cmd --version
+namzu.cmd doctor
 ```
 
 In Windows Command Prompt (`cmd.exe`):
@@ -86,6 +88,12 @@ In Windows Command Prompt (`cmd.exe`):
 npm.cmd install --global @namzu/cli
 namzu.cmd --version
 ```
+
+Failed npm attempts retain their diagnostic output. Windows `.cmd` commands
+also work under Restricted PowerShell execution policy, which can refuse the
+`.ps1` wrappers chosen by bare commands. See
+[Installing and reopening Namzu](../../docs/cli/installation.md) for PATH and
+conversation resume troubleshooting.
 
 The CLI bundles provider drivers, plus `@namzu/files` and
 `@namzu/computer-use`, as ordinary dependencies rather than peers. So a fresh

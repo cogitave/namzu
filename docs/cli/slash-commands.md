@@ -88,11 +88,13 @@ On exit, the CLI prints `namzu resume <id>` when the executable on PATH resolves
 to the running CLI. Alternate installations and source launches retain their
 explicit executable and loader arguments. A `cd` prefix is included only when
 the conversation directory differs from the current working directory. Windows
-retains the explicit executable because command wrappers are not resolved by
-this check. Its resume hint explicitly targets PowerShell, with a call operator
+uses `namzu.cmd` when npm's first matching command wrapper resolves to the
+running CLI; conflicting or unrecognized wrappers retain the explicit executable.
+Its resume hint explicitly targets PowerShell, with a call operator
 for the quoted executable. When a directory change is needed, it uses a literal
 path and resumes only if that change succeeds, including in Windows PowerShell
 5.1. Users exiting from Git Bash can run the labelled command in PowerShell.
+See [Installing and reopening Namzu](installation.md) for shell-specific commands.
 
 `/config` (also available as `/settings`) shows Model, Reasoning effort and
 Permissions and Turn limits with their effective values, and opens the corresponding controls.

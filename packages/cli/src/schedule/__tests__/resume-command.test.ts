@@ -4,6 +4,7 @@
  * anywhere else only says "not found".
  */
 
+import { execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -55,11 +56,56 @@ describe('the command that answers a park', () => {
 		mkdirSync(folder, { recursive: true })
 		mkdirSync(extra, { recursive: true })
 		const job = parked(folder, extra)
-		expect(resumeCommand(job, SESSION)).toBe(
-			`cd ${shellQuote(job.folder.canonical)} && namzu --add-dir ${extra} resume ${SESSION}`,
+		expect(resumeCommand(job, SESSION, 'linux')).toBe(
+			`cd ${shellQuote(job.folder.canonical)} && namzu --add-dir ${shellQuote(extra)} resume ${SESSION}`,
 		)
-		expect(resumeCommand(job, SESSION)).toContain(`'\\''s'`)
+		expect(resumeCommand(job, SESSION, 'linux')).toContain(`'\\''s'`)
 	})
+
+	it('uses a literal PowerShell directory and the cmd shim with inert special characters', () => {
+		const job = parked()
+		const folder = "C:\\project's [work] $(Get-Item .);"
+		const windows = {
+			...job,
+			folder: { path: folder, canonical: folder },
+			permissions: {
+				...job.permissions,
+				additionalDirectories: ["C:\\shared's folder", 'C:\\extra $env:USERPROFILE `work`'],
+			},
+		}
+		expect(resumeCommand(windows, "ses_'$(Get-Item .);", 'win32')).toBe(
+			"Set-Location -LiteralPath 'C:\\project''s [work] $(Get-Item .);'; if ($?) { & 'namzu.cmd' '--add-dir' 'C:\\shared''s folder' '--add-dir' 'C:\\extra $env:USERPROFILE `work`' 'resume' 'ses_''$(Get-Item .);' }",
+		)
+	})
+
+	it('always carries the scheduled folder even when it is the current directory', () => {
+		const job = parked()
+		const here = { ...job, folder: { path: process.cwd(), canonical: process.cwd() } }
+		const command = resumeCommand(here, SESSION, 'win32')
+		expect(command).toMatch(/^Set-Location -LiteralPath /)
+		expect(command).toContain("; if ($?) { & 'namzu.cmd' 'resume'")
+		expect(command).not.toContain('&&')
+	})
+
+	it.skipIf(process.platform === 'win32')(
+		'passes the exact scheduled folder, extra roots and session to a POSIX shell',
+		() => {
+			const folder = join(sb.osHome, "project's $(printf EXPANDED) folder")
+			const extra = join(sb.osHome, 'extra [work] $(printf EXPANDED)')
+			mkdirSync(folder)
+			mkdirSync(extra)
+			const job = parked(folder, extra)
+			const sessionId = "ses_'$(printf EXPANDED)"
+			const command = resumeCommand(job, sessionId, 'linux')
+			const capture =
+				'process.stdout.write(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(1)}))'
+			const stub = `namzu() { ${shellQuote(process.execPath)} -e ${shellQuote(capture)} -- "$@"; }; `
+			expect(JSON.parse(execFileSync('sh', ['-c', stub + command], { encoding: 'utf8' }))).toEqual({
+				cwd: job.folder.canonical,
+				args: ['--add-dir', extra, 'resume', sessionId],
+			})
+		},
+	)
 
 	it('is in schedule list, list --json and show', async () => {
 		const job = parked()
@@ -74,7 +120,7 @@ describe('the command that answers a park', () => {
 	})
 
 	it('is in the notification when it fits whole, and never cut in half', () => {
-		const job = parked()
+		const job = { ...parked(), folder: { path: '/work', canonical: '/work' } }
 		const command = resumeCommand(job, SESSION)
 		const at = new Date('2026-09-23T03:00:00Z')
 		expect(noticeText('awaiting-approval', job, { at, resumeCommand: command }).body).toContain(
@@ -84,6 +130,19 @@ describe('the command that answers a park', () => {
 		const body = noticeText('awaiting-approval', job, { at, resumeCommand: long }).body
 		expect(body).not.toContain('cd /')
 		expect(body).toContain(`namzu schedule show ${job.name}`)
+	})
+
+	it('keeps a long PowerShell handoff out of the bounded notification rather than clipping it', () => {
+		const folder = `C:\\${'long folder '.repeat(25)}`
+		const job = { ...parked(), folder: { path: folder, canonical: folder } }
+		const command = resumeCommand(job, SESSION, 'win32')
+		const body = noticeText('awaiting-approval', job, {
+			at: new Date('2026-09-23T03:00:00Z'),
+			resumeCommand: command,
+		}).body
+		expect(body).not.toContain('Set-Location')
+		expect(body).toContain(`namzu schedule show ${job.name}`)
+		expect([...body].length).toBeLessThanOrEqual(NOTICE_BODY_MAX)
 	})
 
 	it('says what a tool needs from the person, and still fits whole', () => {
