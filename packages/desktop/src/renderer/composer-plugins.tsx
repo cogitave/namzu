@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { LoaderCircleIcon, MoreHorizontalIcon, PuzzleIcon } from './icons.js'
+import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
+import { PluginActions } from './plugin-actions.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 
@@ -13,8 +14,21 @@ export interface ComposerPlugin {
 	readonly startupEnabled?: boolean
 	readonly startupError?: string
 }
+export interface ComposerPublicPlugin {
+	readonly name: string
+	readonly version: string
+	readonly description: string
+}
+export type PluginCollection = 'public' | 'personal'
+export interface PluginSelection {
+	readonly collection: PluginCollection
+	readonly name: string
+	readonly scope?: ComposerPlugin['scope']
+}
 export interface ComposerPluginInventory {
 	readonly plugins: readonly ComposerPlugin[]
+	readonly publicPlugins?: readonly ComposerPublicPlugin[]
+	readonly publicNotice?: string
 	readonly live: boolean
 	readonly canChange: boolean
 	readonly notice?: string
@@ -46,6 +60,7 @@ export function usePluginInventory({
 		generation: number
 		changing?: string
 		error?: string
+		errorPlugin?: string
 	}>({ scope, generation: 0 })
 	const owner = useRef({
 		scope,
@@ -68,6 +83,7 @@ export function usePluginInventory({
 	const currentState = state.scope === scope && state.generation === owner.current.generation
 	const changing = currentState ? state.changing : undefined
 	const error = currentState ? state.error : undefined
+	const errorPlugin = currentState ? state.errorPlugin : undefined
 	const canChange = (plugin: ComposerPlugin) =>
 		!disabled &&
 		!loading &&
@@ -102,6 +118,7 @@ export function usePluginInventory({
 					scope: target,
 					generation,
 					changing: `${plugin.scope}:${plugin.name}`,
+					errorPlugin: `${plugin.scope}:${plugin.name}`,
 					error: error instanceof Error ? error.message : String(error),
 				})
 		} finally {
@@ -111,7 +128,7 @@ export function usePluginInventory({
 			}
 		}
 	}
-	return { changing, error, canChange, clearError, change }
+	return { changing, error, errorPlugin, canChange, clearError, change }
 }
 
 export function PluginInventoryCard({
@@ -160,70 +177,49 @@ function pluginStartupLabel(plugin: ComposerPlugin) {
 
 export function PluginInventoryRow({
 	plugin,
-	view,
-	inventory,
+	collection,
+	canTry,
+	onTry,
+	onOpen,
 }: {
-	plugin: ComposerPlugin
-	view: ComposerPluginInventory
-	inventory: ReturnType<typeof usePluginInventory>
+	plugin: ComposerPlugin | ComposerPublicPlugin
+	collection: PluginCollection
+	canTry: boolean
+	onTry: () => void
+	onOpen: () => void
 }) {
-	const changing = inventory.changing === `${plugin.scope}:${plugin.name}`
+	const installed = 'scope' in plugin ? plugin : undefined
 	return (
 		<div className="plugins-page-row">
-			<span className="plugins-page-row-icon" aria-hidden="true">
-				<PuzzleIcon />
-			</span>
-			<div className="plugins-page-row-copy">
-				<h3 className="plugins-page-row-title" title={plugin.name}>
-					{plugin.name}
-				</h3>
-				<p className="plugins-page-row-description">
-					{plugin.description || `${plugin.scope === 'user' ? 'Personal' : 'Project'} plugin`}
-				</p>
-				{plugin.status === 'error' && <span className="plugins-page-error">Unavailable</span>}
-			</div>
-			<Popover>
-				<PopoverTrigger
-					render={
-						<Button
-							variant="ghost-muted"
-							size="icon-sm"
-							className="plugins-page-row-action"
-							aria-label={`Plugin details for ${plugin.name}`}
-						/>
-					}
-				>
-					<MoreHorizontalIcon />
-				</PopoverTrigger>
-				<PopoverPopup
-					align="end"
-					width="md"
-					aria-label={`${plugin.name} details`}
-					className="plugins-page-details"
-				>
-					<h3>{plugin.name}</h3>
-					{plugin.description && <p>{plugin.description}</p>}
-					<dl>
-						<dt>Scope</dt>
-						<dd>{plugin.scope === 'user' ? 'Personal' : 'Project'}</dd>
-						{plugin.version && (
-							<>
-								<dt>Version</dt>
-								<dd>{plugin.version}</dd>
-							</>
-						)}
-						<dt>Status</dt>
-						<dd>{plugin.status}</dd>
-					</dl>
-					<p>{pluginStartupLabel(plugin)}</p>
-					{plugin.startupError && <p className="plugins-page-error">{plugin.startupError}</p>}
-					{view.live && (
-						<PluginInventoryAction plugin={plugin} inventory={inventory} changing={changing} />
-					)}
-				</PopoverPopup>
-			</Popover>
+			<button
+				type="button"
+				id={pluginRowId({ ...plugin, collection })}
+				className="plugins-page-row-main"
+				aria-label={`Open ${plugin.name} plugin`}
+				onClick={onOpen}
+			>
+				<span className="plugins-page-row-icon" aria-hidden="true">
+					<PuzzleIcon />
+				</span>
+				<span className="plugins-page-row-copy">
+					<span className="plugins-page-row-title" title={plugin.name}>
+						{plugin.name}
+					</span>
+					<span className="plugins-page-row-description">{plugin.description}</span>
+					{installed?.status === 'error' && <span className="plugins-page-error">Unavailable</span>}
+				</span>
+			</button>
+			<PluginActions pluginName={plugin.name} canTry={canTry} onTry={onTry} onManage={onOpen} />
 		</div>
 	)
+}
+
+export function pluginRowId(plugin: {
+	name: string
+	scope?: string
+	collection?: PluginCollection
+}) {
+	return `plugin-open-${plugin.collection ?? 'personal'}-${encodeURIComponent(plugin.scope ?? 'catalogue')}-${encodeURIComponent(plugin.name)}`
 }
 
 function PluginInventoryAction({

@@ -2,6 +2,10 @@
 
 ## 2026-10-01
 
+- **Fix** [Desktop operator](cli/desktop.md): restore Public and Personal tabs, keeping catalogue data separate from project/user installation locations. Plugin rows and installed sidebar names open a full detail page; the row menu contains Try now, Manage and Uninstall. Try now navigates only to an existing conversation with the plugin enabled; unsupported catalogue/uninstall operations are explicit. Returning retains search, collection and focus, and context changes invalidate the selected detail. Reserve room for the narrow sidebar's Close control beside Search.
+
+- **Fix** [Desktop operator](cli/desktop.md): restore the subtle divider on the sidebar's right edge, retaining the rail's borderless surface and rounded content corners.
+
 - **Fix** [Desktop operator](cli/desktop.md): display Plugins as compact, borderless rows in a centred two-column list. Align the header, rounded search and scope pills; move version and startup information into each row's details popover, retaining actual live enable/disable guards. Add an inventory refresh and sidebar search focus action; narrow views retain one column.
 
 - **Fix** [Desktop operator](cli/desktop.md): correct rail navigation to Home, Spaces, Scheduled, Plugins and More, with a local Profile menu at the bottom. Rail navigation no longer opens command search; Search and Ctrl/Cmd+K retain that action. Plugins is a separate Customize destination with the real installed inventory, search and scope filters, sharing live mutation and ownership guards with the composer. Move appearance choices into Profile, preserve the content corners when the sidebar closes and add a little space above New conversation. Scheduled remains unavailable until its separate desktop bridge exists; background shells do not stand in for scheduled tasks, and no update icon appears without a host availability signal.

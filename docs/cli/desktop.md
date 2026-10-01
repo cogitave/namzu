@@ -69,14 +69,28 @@ The rail contains Home, Spaces, Scheduled, Plugins and More, with Profile at
 the bottom. Home owns the chat and blank composer; Spaces reveals the actual
 project list. Plugins opens a separate Customize destination with the actual
 installed inventory in its sidebar and a searchable two-column list in the main
-area. Compact rows place an icon, name and description beside a details action.
-The details popover holds scope, version, status, saved startup settings and the
-existing live enable/disable control. Long descriptions wrap within two lines;
-their complete text remains in details. Search uses a rounded field and scope
-filters use pill controls. Refresh reloads the same installed inventory; the
-sidebar search button focuses that field. Narrow views use one column.
-All, Project and Personal filter the inventory's real scopes; they do not claim
-a public marketplace. The page shares its mutation and ownership guards with
+area. Public and Personal are separate tabs: Personal includes installed plugins
+from both project and user locations; Public reads separate catalogue entries,
+never installation scope. The native desktop has no public catalogue connection
+yet and reports that explicitly. The design preview supplies labelled sample
+catalogue entries. Compact rows place an icon, name and description beside an
+actions menu containing exactly Try now, Manage and Uninstall.
+Clicking a row or an installed name in Customize opens a separate plugin detail
+page, with a breadcrumb back to Plugins, the complete description and an
+Information section. Installation location, version, status, saved startup
+settings and errors come from the actual installed inventory record. Public
+details show catalogue metadata without claiming installed or startup state.
+The existing live
+enable/disable control retains the runtime's restrictions. Breadcrumb Back and
+Escape retain the list's collection, search and restore focus. Installation
+scope remains metadata in Personal rather than a catalogue category.
+Long list descriptions wrap within two lines; their complete text remains in
+details. Search uses a rounded field. Refresh reloads the same installed
+inventory; sidebar Search returns from details and focuses that field. Narrow
+views use one column. Manage opens the full detail page. Try now returns to the
+current conversation only when that plugin is actually enabled there, preserving
+the draft and sending no prompt. Uninstall remains disabled with an explanation
+until a desktop uninstall API exists. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. More offers
 Open folder and Toggle sidebar. Profile holds local appearance settings and
 does not claim a signed-in account. An update icon is absent until the host can
@@ -85,7 +99,8 @@ preview; its disabled control never opens a conversation's background shells.
 The sidebar brand opens its workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
 The dark icon rail has a slightly deeper surface than the conversation sidebar.
-That surface contrast separates navigation without a vertical divider.
+Surface contrast separates the rail from the sidebar without a divider. A
+subtle 1px line separates the sidebar's right edge from the main canvas.
 The sidebar's corners facing the rail are rounded. When that sidebar closes,
 the conversation canvas inherits the same top and bottom corners and clips its
 content inside them; the Plugins destination follows the same layout. A smaller sidebar wordmark

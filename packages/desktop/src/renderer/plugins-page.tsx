@@ -1,8 +1,13 @@
+import { Tabs } from '@base-ui/react/tabs'
 import { useEffect, useRef, useState } from 'react'
 import {
+	type ComposerPlugin,
 	type ComposerPluginInventory,
+	type ComposerPublicPlugin,
+	type PluginCollection,
 	type PluginInventoryProps,
 	PluginInventoryRow,
+	type PluginSelection,
 	usePluginInventory,
 } from './composer-plugins.js'
 import {
@@ -13,27 +18,46 @@ import {
 	SearchIcon,
 	XIcon,
 } from './icons.js'
+import { PluginDetails } from './plugin-details.js'
 import { Button } from './ui/button.js'
 import './plugins-page.css'
 
 export interface PluginsPageProps extends PluginInventoryProps {
 	onLoad: () => void
 	onChooseSpace: () => void
+	collection: PluginCollection
+	onCollectionChange: (collection: PluginCollection) => void
+	selected?: PluginSelection
+	onOpenPlugin: (
+		plugin: ComposerPlugin | ComposerPublicPlugin,
+		collection: PluginCollection,
+	) => void
+	onTryPlugin: (plugin: ComposerPlugin) => void
+	onBack: () => void
 }
 
-export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProps) {
-	const { scope, view, loading, disabled, contextLabel } = props
+export function PluginsPage({
+	onLoad,
+	onChooseSpace,
+	collection,
+	onCollectionChange,
+	selected,
+	onOpenPlugin,
+	onTryPlugin,
+	onBack,
+	...props
+}: PluginsPageProps) {
+	const { scope, view, loading, disabled } = props
 	const inventory = usePluginInventory(props)
 	const [query, setQuery] = useState('')
-	const [filter, setFilter] = useState<'all' | 'project' | 'user'>('all')
-	const filterScope = useRef(scope)
+	const searchContext = useRef({ scope, collection })
 	const loadedScope = useRef<string | undefined>(undefined)
 	useEffect(() => {
-		if (filterScope.current === scope) return
-		filterScope.current = scope
+		if (searchContext.current.scope === scope && searchContext.current.collection === collection)
+			return
+		searchContext.current = { scope, collection }
 		setQuery('')
-		setFilter('all')
-	}, [scope])
+	}, [scope, collection])
 	useEffect(() => {
 		if (disabled) {
 			loadedScope.current = undefined
@@ -45,21 +69,57 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 		}
 	}, [scope, disabled, onLoad])
 	const term = query.trim().toLocaleLowerCase()
-	const shown = (view?.plugins ?? []).filter(
+	const entries: readonly (ComposerPlugin | ComposerPublicPlugin)[] | undefined =
+		collection === 'public' ? view?.publicPlugins : view?.plugins
+	const shown = (entries ?? []).filter(
 		(plugin) =>
-			(filter === 'all' || plugin.scope === filter) &&
-			(!term ||
-				`${plugin.name} ${plugin.description} ${plugin.version}`
-					.toLocaleLowerCase()
-					.includes(term)),
+			!term ||
+			`${plugin.name} ${plugin.description} ${plugin.version}`.toLocaleLowerCase().includes(term),
 	)
+	const detail =
+		!disabled && selected
+			? selected.collection === 'public'
+				? view?.publicPlugins?.find((plugin) => plugin.name === selected.name)
+				: view?.plugins.find(
+						(plugin) => plugin.scope === selected.scope && plugin.name === selected.name,
+					)
+			: undefined
+	const detailKey = detail
+		? `${scope}:${selected?.collection}:${selected?.scope}:${detail.name}`
+		: ''
+	const previousDetail = useRef(detailKey)
+	useEffect(() => {
+		if (previousDetail.current === detailKey) return
+		previousDetail.current = detailKey
+		inventory.clearError()
+	}, [detailKey, inventory.clearError])
+	useEffect(() => {
+		if (selected && view && !loading && !detail) onBack()
+	}, [selected, view, loading, detail, onBack])
+	if (detail && view)
+		return (
+			<PluginDetails
+				key={detailKey}
+				plugin={detail}
+				collection={selected?.collection ?? collection}
+				view={view}
+				inventory={{
+					...inventory,
+					error:
+						'scope' in detail && inventory.errorPlugin === `${detail.scope}:${detail.name}`
+							? inventory.error
+							: undefined,
+				}}
+				onBack={onBack}
+			/>
+		)
 	return (
 		<section id="plugins-content" className="plugins-page" aria-label="Plugins" tabIndex={-1}>
 			<div className="plugins-page-content">
 				<header className="plugins-page-header">
 					<div>
 						<h1>Plugins</h1>
-						<p>{contextLabel ? `Installed for ${contextLabel}` : 'Your installed plugins'}</p>
+						<p>Connect plugins to work across your tools</p>
 					</div>
 					<div className="plugins-page-header-actions">
 						<div className="plugins-page-search" data-disabled={disabled || undefined}>
@@ -67,7 +127,7 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 							<input
 								id="installed-plugin-search"
 								type="search"
-								aria-label="Search installed plugins"
+								aria-label="Search plugins"
 								placeholder="Search plugins"
 								value={query}
 								disabled={disabled}
@@ -95,118 +155,143 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 						</Button>
 					</div>
 				</header>
-				{disabled ? (
-					<div className="plugins-page-empty">
-						<span className="plugins-page-empty-icon" aria-hidden="true">
-							<PuzzleIcon />
-						</span>
-						<h2>Choose a space</h2>
-						<p>Open a trusted project to see its installed plugins.</p>
-						<Button variant="outline" onClick={onChooseSpace}>
-							Choose a space
-						</Button>
-					</div>
-				) : (
-					<>
-						<div className="plugins-page-toolbar">
-							<fieldset className="plugins-page-filters" aria-label="Filter plugins by scope">
-								{(
-									[
-										{ value: 'all', label: 'All' },
-										{ value: 'project', label: 'Project' },
-										{ value: 'user', label: 'Personal' },
-									] as const
-								).map(({ value, label }) => (
-									<Button
-										key={value}
-										variant="ghost-muted"
-										size="sm"
-										aria-pressed={filter === value}
-										onClick={() => setFilter(value)}
-									>
-										{label}
-									</Button>
-								))}
-							</fieldset>
-							{view && (
-								<span className="plugins-page-count">
-									{shown.length} {shown.length === 1 ? 'plugin' : 'plugins'}
-								</span>
-							)}
-						</div>
-						{loading && (
-							<output className="plugins-page-notice">
-								<LoaderCircleIcon className="animate-spin" aria-hidden="true" />
-								Loading plugins…
-							</output>
-						)}
-						{view?.notice && (
-							<div className="plugins-page-notice">
-								<p>{view.notice}</p>
-								{view.plugins.length === 0 && (
-									<Button
-										variant="ghost-muted"
-										size="sm"
-										disabled={loading || Boolean(inventory.changing)}
-										onClick={onLoad}
-									>
-										Try again
-									</Button>
-								)}
-							</div>
-						)}
-						{view?.live && !view.canChange && (
-							<p className="plugins-page-notice">Finish the active work before changing plugins.</p>
-						)}
-						{view && !view.live && !view.notice && (
-							<p className="plugins-page-notice">
-								Open a conversation to enable or disable plugins.
-							</p>
-						)}
-						{inventory.error && (
-							<p className="plugins-page-error" role="alert">
-								{inventory.error}
-							</p>
-						)}
-						{view && shown.length > 0 ? (
-							<section className="plugins-page-section" aria-label="Installed plugin collection">
-								<h2>Installed</h2>
-								<ul className="plugins-page-grid" aria-label="Installed plugins">
-									{shown.map((plugin) => (
-										<li key={`${scope}:${plugin.scope}:${plugin.name}`}>
-											<PluginInventoryRow plugin={plugin} view={view} inventory={inventory} />
-										</li>
-									))}
-								</ul>
-							</section>
-						) : !loading && (query || filter !== 'all' || !view?.notice) ? (
+				<Tabs.Root
+					value={collection}
+					onValueChange={(value) => {
+						if (value !== 'public' && value !== 'personal') return
+						onCollectionChange(value)
+					}}
+				>
+					<Tabs.List className="plugins-page-tabs" aria-label="Plugin collections">
+						<Tabs.Tab className="plugins-page-tab" value="public">
+							Public
+						</Tabs.Tab>
+						<Tabs.Tab className="plugins-page-tab" value="personal">
+							Personal
+						</Tabs.Tab>
+					</Tabs.List>
+					<Tabs.Panel value={collection} className="plugins-page-tab-panel">
+						{disabled ? (
 							<div className="plugins-page-empty">
 								<span className="plugins-page-empty-icon" aria-hidden="true">
 									<PuzzleIcon />
 								</span>
-								<h2>
-									{query || filter !== 'all' ? 'No matching plugins' : 'No plugins installed'}
-								</h2>
-								<p>
-									{query || filter !== 'all'
-										? 'Try another search or choose a different scope.'
-										: 'Plugins installed for this project or your profile will appear here.'}
-								</p>
-								{(query || filter !== 'all') && (
-									<Button
-										variant="ghost-muted"
-										onClick={() => {
-											setQuery('')
-											setFilter('all')
-										}}
-									>
-										Clear filters
-									</Button>
-								)}
+								<h2>Choose a space</h2>
+								<p>Open a trusted project to see its installed plugins.</p>
+								<Button variant="outline" onClick={onChooseSpace}>
+									Choose a space
+								</Button>
 							</div>
-						) : null}
-					</>
-				)}
+						) : (
+							<>
+								{loading && (
+									<output className="plugins-page-notice">
+										<LoaderCircleIcon className="animate-spin" aria-hidden="true" />
+										Loading plugins…
+									</output>
+								)}
+								{(collection === 'public' ? view?.publicNotice : view?.notice) && (
+									<div className="plugins-page-notice">
+										<p>{collection === 'public' ? view?.publicNotice : view?.notice}</p>
+										{collection === 'personal' && view?.plugins.length === 0 && (
+											<Button
+												variant="ghost-muted"
+												size="sm"
+												disabled={loading || Boolean(inventory.changing)}
+												onClick={onLoad}
+											>
+												Try again
+											</Button>
+										)}
+									</div>
+								)}
+								{collection === 'personal' && view?.live && !view.canChange && (
+									<p className="plugins-page-notice">
+										Finish the active work before changing plugins.
+									</p>
+								)}
+								{collection === 'personal' && view && !view.live && !view.notice && (
+									<p className="plugins-page-notice">
+										Open a conversation to enable or disable plugins.
+									</p>
+								)}
+								{collection === 'personal' && inventory.error && (
+									<p className="plugins-page-error" role="alert">
+										{inventory.error}
+									</p>
+								)}
+								{view && shown.length > 0 ? (
+									<section
+										className="plugins-page-section"
+										aria-label={`${collection === 'public' ? 'Public' : 'Personal'} plugin collection`}
+									>
+										<header className="plugins-page-section-heading">
+											<h2>{collection === 'public' ? 'Public plugins' : 'Installed'}</h2>
+											<span className="plugins-page-count">
+												{shown.length} {shown.length === 1 ? 'plugin' : 'plugins'}
+											</span>
+										</header>
+										<ul
+											className="plugins-page-grid"
+											aria-label={collection === 'public' ? 'Public plugins' : 'Installed plugins'}
+										>
+											{shown.map((plugin) => (
+												<li
+													key={`${scope}:${collection}:${'scope' in plugin ? plugin.scope : ''}:${plugin.name}`}
+												>
+													<PluginInventoryRow
+														plugin={plugin}
+														collection={collection}
+														canTry={
+															collection === 'personal' &&
+															view.live &&
+															'scope' in plugin &&
+															plugin.status === 'enabled' &&
+															!loading
+														}
+														onTry={() => {
+															if ('scope' in plugin) onTryPlugin(plugin)
+														}}
+														onOpen={() => onOpenPlugin(plugin, collection)}
+													/>
+												</li>
+											))}
+										</ul>
+									</section>
+								) : !loading && (collection === 'public' || query || !view?.notice) ? (
+									<div className="plugins-page-empty">
+										<span className="plugins-page-empty-icon" aria-hidden="true">
+											<PuzzleIcon />
+										</span>
+										<h2>
+											{collection === 'public' && !entries
+												? 'Public catalogue unavailable'
+												: query
+													? 'No matching plugins'
+													: collection === 'public'
+														? 'No public plugins'
+														: 'No plugins installed'}
+										</h2>
+										<p>
+											{collection === 'public' && !entries
+												? 'A public plugin catalogue is not connected yet. Your installed plugins are in Personal.'
+												: query
+													? 'Try another search.'
+													: collection === 'public'
+														? 'Public plugins will appear here when available.'
+														: 'Your installed plugins will appear here.'}
+										</p>
+										{query && entries && (
+											<Button variant="ghost-muted" onClick={() => setQuery('')}>
+												Clear search
+											</Button>
+										)}
+									</div>
+								) : null}
+							</>
+						)}
+					</Tabs.Panel>
+				</Tabs.Root>
 			</div>
 		</section>
 	)
@@ -218,12 +303,20 @@ export function PluginsSidebar({
 	disabled,
 	contextLabel,
 	onChooseSpace,
+	onOpenPlugin,
+	onBack,
+	onSearch,
+	selected,
 }: {
 	view?: ComposerPluginInventory
 	loading: boolean
 	disabled: boolean
 	contextLabel?: string
 	onChooseSpace: () => void
+	onOpenPlugin: (plugin: ComposerPlugin) => void
+	onBack: () => void
+	selected?: PluginSelection
+	onSearch: () => void
 }) {
 	const plugins = disabled ? [] : (view?.plugins ?? [])
 	return (
@@ -235,17 +328,13 @@ export function PluginsSidebar({
 					size="icon-xs"
 					aria-label="Search plugins"
 					disabled={disabled}
-					onClick={() => document.getElementById('installed-plugin-search')?.focus()}
+					onClick={onSearch}
 				>
 					<SearchIcon />
 				</Button>
 			</header>
 			<nav className="plugins-sidebar-navigation" aria-label="Customize navigation">
-				<button
-					type="button"
-					aria-current="page"
-					onClick={() => document.getElementById('plugins-content')?.focus()}
-				>
+				<button type="button" aria-current={!selected ? 'page' : undefined} onClick={onBack}>
 					<PuzzleFilledIcon aria-hidden="true" />
 					<span>Plugins</span>
 				</button>
@@ -259,8 +348,20 @@ export function PluginsSidebar({
 					<ul>
 						{plugins.map((plugin) => (
 							<li key={`${plugin.scope}:${plugin.name}`}>
-								<PuzzleIcon aria-hidden="true" />
-								<span title={plugin.name}>{plugin.name}</span>
+								<button
+									type="button"
+									aria-current={
+										selected?.collection === 'personal' &&
+										selected.name === plugin.name &&
+										selected.scope === plugin.scope
+											? 'page'
+											: undefined
+									}
+									onClick={() => onOpenPlugin(plugin)}
+								>
+									<PuzzleIcon aria-hidden="true" />
+									<span title={plugin.name}>{plugin.name}</span>
+								</button>
 							</li>
 						))}
 					</ul>

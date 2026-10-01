@@ -182,6 +182,25 @@ const api: DesktopApi = {
 	plugins: async (projectId) => {
 		project(projectId)
 		return {
+			publicPlugins: [
+				{
+					name: 'Sample research tools',
+					version: '1.0.0',
+					description: 'Find and review useful sources.',
+				},
+				{
+					name: 'Sample writing tools',
+					version: '1.0.0',
+					description: 'Draft and refine your documents.',
+				},
+				{
+					name: 'Sample planning tools',
+					version: '1.0.0',
+					description: 'Organize tasks and next steps.',
+				},
+			],
+			publicNotice:
+				'This design preview uses sample catalogue entries. Installing plugins is not connected.',
 			plugins: [
 				{
 					name: 'Sample project tools',

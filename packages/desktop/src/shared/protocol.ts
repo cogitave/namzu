@@ -27,6 +27,9 @@ export interface ComposerModelSettings {
 	notice?: string
 }
 export interface PluginInventoryView {
+	/** Catalogue entries are distinct from installation locations. Absent means unavailable. */
+	publicPlugins?: readonly { name: string; version: string; description: string }[]
+	publicNotice?: string
 	plugins: readonly {
 		name: string
 		version: string

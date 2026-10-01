@@ -15,7 +15,7 @@ const page = await context.newPage()
 const captures = [], faults = []
 const section = () => page.getByRole('region', { name: 'Plugins', exact: true })
 const rows = () => section().getByRole('list', { name: 'Installed plugins', exact: true }).getByRole('listitem')
-const search = () => section().getByRole('searchbox', { name: 'Search installed plugins', exact: true })
+const search = () => section().getByRole('searchbox', { name: 'Search plugins', exact: true })
 const rail = name => page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('button', { name, exact: true })
 page.setDefaultTimeout(20000)
 page.on('pageerror', error => faults.push(error.message))
@@ -39,20 +39,21 @@ async function capture(name, { compact = true, wide = true } = {}) {
     }
     const root = document.querySelector('.plugins-page')
     const grid = root.querySelector('[aria-label="Installed plugins"]')
-    const content = root.querySelector('.plugins-page-content')
+    const content = root.querySelector('.plugins-page-content') ?? root.querySelector('.plugin-details-body')
     const contentStyle = getComputedStyle(content)
     return {
       width: innerWidth, height: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth,
       dark: document.documentElement.classList.contains('dark'), reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
       content: { ...measure(content), paddingTop: contentStyle.paddingTop, paddingLeft: contentStyle.paddingLeft },
       search: measure(root.querySelector('.plugins-page-search')),
-      filters: [...root.querySelectorAll('.plugins-page-filters button')].map(node => ({ label: node.textContent, pressed: node.getAttribute('aria-pressed'), ...measure(node) })),
+      collections: [...root.querySelectorAll('[role="tab"]')].map(node => ({ name: node.textContent, selected: node.getAttribute('aria-selected') })),
+      scopeTabs: [...root.querySelectorAll('button')].filter(node => ['All', 'Project'].includes(node.textContent.trim())).map(node => node.textContent.trim()),
       grid: measure(grid),
       rows: grid ? [...grid.children].map(li => {
         const row = li.querySelector('.plugins-page-row') ?? li.firstElementChild ?? li
         return { text: li.innerText, row: measure(row), icon: measure(row.querySelector('.plugins-page-row-icon')), title: measure(row.querySelector('.plugins-page-row-title')), description: measure(row.querySelector('.plugins-page-row-description')), detailsButton: measure(row.querySelector('button')) }
       }) : [],
-      details: measure(document.querySelector('.plugins-page-details')),
+      details: measure(document.querySelector('#plugin-details-content')),
       focused: { tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label'), inert: Boolean(document.activeElement?.closest('[inert]')) },
       api: window.__pluginsQa,
     }
@@ -63,7 +64,8 @@ async function capture(name, { compact = true, wide = true } = {}) {
     assert.equal(value.search.rect.height, 32)
     assert.ok(Number.parseFloat(value.search.radius) >= 16, 'search is a pill')
     if (wide) assert.equal(value.content.paddingTop, '28px')
-    for (const filter of value.filters) assert.ok(Number.parseFloat(filter.radius) >= filter.rect.height / 2, 'scope filters are pills')
+    assert.deepEqual(value.scopeTabs, [], 'installed list has no scope category tabs')
+    assert.deepEqual(value.collections.map(tab => tab.name), ['Public', 'Personal'])
     assert.ok(value.rows.length > 0)
     for (const row of value.rows) {
       assert.equal(row.row.background, 'rgba(0, 0, 0, 0)', 'rows have no filled card surface')
@@ -111,6 +113,7 @@ try {
     api.send = async () => { window.__pluginsQa.sends++; throw new Error('This proof must not send model requests.') }
   })
   await rail('Plugins').click()
+  await section().getByRole('tab', { name: 'Personal', exact: true }).click()
   await expect(section().getByRole('heading', { name: 'Plugins', exact: true })).toBeVisible()
   await expect(rows()).toHaveCount(3)
   await expect(section()).toContainText('The plugins below use sample data.')
@@ -121,32 +124,29 @@ try {
   await expect(page.locator('.command-palette-popup')).toHaveCount(0)
   await capture('wide-dark-default-rows')
   const defaultReads = await page.evaluate(() => window.__pluginsQa.reads.length)
-  await section().getByRole('button', { name: 'Project', exact: true }).click()
-  await expect(rows()).toHaveCount(2)
-  await section().getByRole('button', { name: 'Personal', exact: true }).click()
-  await expect(rows()).toHaveCount(1)
-  await section().getByRole('button', { name: 'All', exact: true }).click()
+  await expect(section().getByRole('button', { name: /^(All|Project)$/, exact: true })).toHaveCount(0)
   await search().fill('Sample notes')
   await expect(rows()).toHaveCount(1)
   await search().fill('no-such-plugin')
   await expect(section().getByRole('heading', { name: 'No matching plugins', exact: true })).toBeVisible()
-  await section().getByRole('button', { name: 'Clear filters', exact: true }).click()
-  assert.equal(await page.evaluate(() => window.__pluginsQa.reads.length), defaultReads, 'local filters do not refetch inventory')
+  await section().getByRole('button', { name: 'Clear search', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.__pluginsQa.reads.length), defaultReads, 'local search does not refetch inventory')
   const refreshed = await refresh()
   assert.equal(refreshed.after, refreshed.before + 1, 'refresh dispatches a real inventory read')
   await expect(rows()).toHaveCount(3)
 
-  const opener = rows().first().getByRole('button', { name: /details/i })
+  const opener = rows().first().getByRole('button', { name: /^Actions for / })
   await opener.click()
-  const details = page.locator('.plugins-page-details')
+  await page.getByRole('menuitem', { name: 'Manage', exact: true }).click()
+  const details = page.locator('#plugin-details-content')
   await expect(details).toBeVisible()
   await expect(details).toContainText('Sample project tools')
   await expect(details).toContainText('Project')
   await expect(details.getByRole('button', { name: /^(Enable|Disable|Install)/ })).toHaveCount(0)
-  await capture('wide-dark-plugin-details')
+  await capture('wide-dark-plugin-details', { compact: false })
   await page.keyboard.press('Escape')
   await expect(details).toHaveCount(0)
-  await expect(opener).toBeFocused()
+  await expect(rows().first().getByRole('button', { name: /^Open .* plugin$/ })).toBeFocused()
 
   await page.evaluate(() => { window.__pluginsQa.longFixture = true })
   await refresh()
@@ -161,7 +161,7 @@ try {
   assert.equal(counts.changes, 0)
   assert.equal(counts.sends, 0)
   assert.deepEqual(faults, [])
-  const receipt = { passed: true, scope: 'Browser-only localhost design preview in one owned context. Default rows are explicit sample plugins; long names/descriptions are an isolated synthetic fixture. No native runtime, genuine installed plugin, device credentials, scheduler change or model request is claimed.', checks: ['Compact transparent borderless rows with reference typography/icon/search dimensions', 'Wide two-column layout and narrow bounded long text', 'Installed section and honest sample notice', 'Scope filters/search without unnecessary host reads', 'Explicit refresh reads the existing inventory API', 'Actual plugin details and Escape focus restoration', 'No invented marketplace/installer controls or plugin/model mutation'], refreshed, counts, captures, pageErrors: faults }
+  const receipt = { passed: true, scope: 'Browser-only localhost design preview in one owned context. Default rows are explicit sample plugins; long names/descriptions are an isolated synthetic fixture. No native runtime, genuine installed plugin, device credentials, scheduler change or model request is claimed.', checks: ['Compact transparent borderless rows with reference typography/icon/search dimensions', 'Wide two-column layout and narrow bounded long text', 'Personal installed section and honest sample notice', 'Public/Personal collections and search without unnecessary host reads', 'Explicit refresh reads the existing inventory API', 'Actual full plugin details and Escape focus restoration', 'No invented marketplace/installer controls or plugin/model mutation'], refreshed, counts, captures, pageErrors: faults }
   await writeFile(join(artifacts, 'plugins-reference-receipt.json'), JSON.stringify(receipt, null, 2) + '\n')
   console.log(JSON.stringify({ passed: true, captures: captures.length, receipt: join(artifacts, 'plugins-reference-receipt.json') }))
 } finally { await context.close(); await browser.close() }

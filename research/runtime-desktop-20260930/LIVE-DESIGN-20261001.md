@@ -128,8 +128,10 @@ successful chat navigation explicitly returns to the chat view. Escape on the
 Plugins page does not cancel hidden conversation work.
 
 The shell's visible panel owns its rail-facing rounded corners, including the
-chat canvas when the sidebar is collapsed and the narrow layout. Vertical
-navigation dividers are removed; the rail and sidebar use surface contrast.
+chat canvas when the sidebar is collapsed and the narrow layout. The rail's
+divider is removed; the rail and sidebar use surface contrast. The sidebar's
+right edge retains a subtle 1px divider, restored after the user clarified
+which boundary should remain visible.
 New conversation has a 4px top margin, 2px more than the preceding snapshot.
 
 Prior executable proof scripts now select appearance through Profile and use
@@ -140,8 +142,9 @@ explicit browser fixtures; its receipt identifies that verification boundary.
 
 The final correction passed seven current browser captures: default sample
 plugin cards, an injected read-only inventory, retained chat drafts, collapsed
-sidebar corners, and narrow light/reduced-motion views. Both navigation borders
-measure 0px; the visible panel clips its 16px corners. The default plugin cards
+sidebar corners, and narrow light/reduced-motion views. At that snapshot both
+navigation borders measured 0px; the visible panel clipped its 16px corners.
+The subsequent right-edge correction is recorded separately below. The default plugin cards
 are explicitly labelled development sample data and expose no runtime controls.
 No model requests, plugin mutations or background-job stops occurred.
 
@@ -188,3 +191,71 @@ model request occurred, and no native runtime result is implied. Workspace
 typecheck, desktop lint, 47 existing desktop tests, docs conformance,
 external-name audit and final production build passed. The live review server
 is retained; no push or publication was performed.
+
+## Sidebar right-edge correction
+
+The user clarified that only the rail-side divider should be removed. The
+shared sidebar now restores its 1px `--sidebar-border` right edge, covering
+both conversations and Customize. The rail stays borderless. The renderer
+proof script's expected sidebar border width is updated without rewriting historical
+captures; this correction does not change the corner or ownership rules.
+
+## Plugin collection and full detail page
+
+The user requires Public and Personal tabs. The prior implementation confused
+these with project/user installation scope. Personal now searches all installed
+records; Public reads an independent optional catalogue list. The native bridge
+does not supply that catalogue and shows an explicit unavailable state. The
+browser design preview supplies clearly labelled sample catalogue entries.
+The backend still discovers project and user locations according to trusted
+configuration. That technical scope is metadata in Personal's Information,
+not inferred public visibility.
+
+The supplied detail reference uses a separate page: a breadcrumb at the top
+left, roughly 720px of centred content, an icon above a title/action row, and
+an Information section. Plugin row names/icons and installed sidebar names
+now open that page. It shows the full real description, installation, version,
+status, saved startup setting/error and existing live enable/disable action.
+Public details show only catalogue metadata and its notice. No unavailable apps,
+sample prompts, integration imagery or share/install controls are invented.
+The row's three-dot menu contains exactly Try now, Manage and Uninstall with
+stock outline glyphs. Manage opens the detail page. Try now requires an actually
+enabled plugin in the current live conversation and returns to its composer
+without sending or changing the draft. Uninstall is disabled with a truthful
+explanation because the desktop bridge lacks that operation. Heading focus,
+Escape, breadcrumb Back and sidebar Search navigate
+without URL changes; Back preserves the search and restores a visible row or
+search control. Owner key/generation checks prevent old selections and delayed
+focus from returning after context changes. Operation errors retain the plugin
+identity rather than appearing in another plugin's detail page.
+
+The narrow Customize header reserves room for Close beside Search. An earlier
+pointer test found a 24 by 22px overlap; the final proof establishes distinct
+hit targets and verifies a normal pointer click on Search closes the overlay
+and exposes the focused search field.
+
+### Final plugin proof
+
+`plugins-detail-proof.mjs` passed in one isolated localhost browser context,
+with six screenshot/measurement pairs and `plugins-detail-receipt.json`.
+The captures cover wide dark Public actions and Personal inventory/details,
+an explicitly synthetic pending action, and narrow light long descriptions
+and return navigation with reduced motion. Public uses explicit catalogue data;
+omitting it shows the unavailable state. Personal includes both installation
+locations. The exact three-item menu, disabled capabilities, Manage heading
+focus, enabled live Try returning to the retained composer without a send,
+cross-collection query reset, same-collection query retention, A→B→A ownership,
+busy guards and mobile pointer navigation all passed. There were eight inventory
+reads, zero sends and zero native changes; the sole mutation dispatch resolved
+an owned-page fake promise and is not native-runtime evidence.
+
+A focused isolated-browser failure check also passed after restoring the empty
+state guard: a rejected inventory read reports its load error and Retry control
+without claiming that no plugins are installed. No native operation occurred.
+
+The retained older proof scripts use the current selectors and collection
+semantics; their historical captures were not rewritten. Workspace typecheck,
+lint and tests (including 47 desktop tests), docs conformance for 129 pages, external-name audit
+and the final desktop production build passed. The packaged renderer retains
+its production CSP and excludes the development preview and sample catalogue.
+The live renderer server is retained; no push or publication occurred.

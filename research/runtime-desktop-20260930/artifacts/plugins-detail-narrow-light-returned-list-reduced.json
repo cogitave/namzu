@@ -1,0 +1,229 @@
+{
+  "width": 600,
+  "height": 540,
+  "dark": false,
+  "reduced": true,
+  "overflow": false,
+  "rail": {
+    "rect": {
+      "x": 0,
+      "y": 32,
+      "width": 48,
+      "height": 508,
+      "top": 32,
+      "right": 48,
+      "bottom": 540,
+      "left": 0
+    },
+    "scrollWidth": 48,
+    "clientWidth": 48,
+    "scrollHeight": 508,
+    "clientHeight": 508,
+    "borderRightWidth": "0px",
+    "upperLeftRadius": "0px",
+    "lowerLeftRadius": "0px",
+    "background": "rgb(245, 245, 245)",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "textOverflow": "clip",
+    "overflow": "visible",
+    "overflowWrap": "normal",
+    "whiteSpace": "normal",
+    "animation": "none",
+    "transition": "0s"
+  },
+  "sidebar": {
+    "rect": {
+      "x": -192,
+      "y": 64,
+      "width": 288,
+      "height": 476,
+      "top": 64,
+      "right": 96,
+      "bottom": 540,
+      "left": -192
+    },
+    "scrollWidth": 287,
+    "clientWidth": 287,
+    "scrollHeight": 476,
+    "clientHeight": 476,
+    "borderRightWidth": "1px",
+    "upperLeftRadius": "16px",
+    "lowerLeftRadius": "16px",
+    "background": "rgb(251, 251, 251)",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "textOverflow": "clip",
+    "overflow": "hidden",
+    "overflowWrap": "normal",
+    "whiteSpace": "normal",
+    "animation": "none",
+    "transition": "0s"
+  },
+  "workspace": {
+    "rect": {
+      "x": 48,
+      "y": 32,
+      "width": 552,
+      "height": 508,
+      "top": 32,
+      "right": 600,
+      "bottom": 540,
+      "left": 48
+    },
+    "scrollWidth": 552,
+    "clientWidth": 552,
+    "scrollHeight": 508,
+    "clientHeight": 508,
+    "borderRightWidth": "0px",
+    "upperLeftRadius": "16px",
+    "lowerLeftRadius": "16px",
+    "background": "rgb(255, 255, 255)",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "textOverflow": "clip",
+    "overflow": "clip",
+    "overflowWrap": "normal",
+    "whiteSpace": "normal",
+    "animation": "none",
+    "transition": "0s"
+  },
+  "list": {
+    "rect": {
+      "x": 48,
+      "y": 32,
+      "width": 552,
+      "height": 508,
+      "top": 32,
+      "right": 600,
+      "bottom": 540,
+      "left": 48
+    },
+    "scrollWidth": 552,
+    "clientWidth": 552,
+    "scrollHeight": 508,
+    "clientHeight": 508,
+    "borderRightWidth": "0px",
+    "upperLeftRadius": "0px",
+    "lowerLeftRadius": "0px",
+    "background": "rgba(0, 0, 0, 0)",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "textOverflow": "clip",
+    "overflow": "auto",
+    "overflowWrap": "normal",
+    "whiteSpace": "normal",
+    "animation": "none",
+    "transition": "0s"
+  },
+  "query": "QA long",
+  "collections": [
+    {
+      "name": "Public",
+      "selected": "false"
+    },
+    {
+      "name": "Personal",
+      "selected": "true"
+    }
+  ],
+  "actionMenu": null,
+  "detail": null,
+  "body": null,
+  "heading": null,
+  "description": null,
+  "breadcrumb": null,
+  "breadcrumbName": null,
+  "information": null,
+  "rows": [
+    {
+      "text": "QA long plugin title UnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenNameUnbrokenName\nExplicit synthetic description used to check wrapping on a narrow page. Explicit synthetic description used to check wrapping on a narrow page. Explicit synthetic description used to check wrapping on a narrow page.\nUnavailable",
+      "rect": {
+        "x": 72,
+        "y": 348,
+        "width": 504,
+        "height": 106,
+        "top": 348,
+        "right": 576,
+        "bottom": 454,
+        "left": 72
+      },
+      "scrollWidth": 504,
+      "clientWidth": 504,
+      "scrollHeight": 106,
+      "clientHeight": 106,
+      "borderRightWidth": "0px",
+      "upperLeftRadius": "0px",
+      "lowerLeftRadius": "0px",
+      "background": "rgba(0, 0, 0, 0)",
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "textOverflow": "clip",
+      "overflow": "visible",
+      "overflowWrap": "normal",
+      "whiteSpace": "normal",
+      "animation": "none",
+      "transition": "0s"
+    }
+  ],
+  "action": null,
+  "focused": {
+    "tag": "BUTTON",
+    "id": "base-ui-_r_f_",
+    "label": "Plugins",
+    "inert": false
+  },
+  "api": {
+    "reads": [
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "mode": "default"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "mode": "owner"
+      },
+      {
+        "projectId": "sample-docs",
+        "sessionId": null,
+        "mode": "owner"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "mode": "owner"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "mode": "guarded"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "mode": "live"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "mode": "live"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1",
+        "mode": "long"
+      }
+    ],
+    "sends": 0,
+    "syntheticChanges": [
+      {
+        "sessionId": "sample-thread-1",
+        "name": "QA live plugin",
+        "enabled": false
+      }
+    ],
+    "nativeChanges": 0
+  }
+}

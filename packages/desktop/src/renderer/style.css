@@ -73,6 +73,7 @@ pre {
 	flex-direction: column;
 	min-height: 0;
 	background: var(--sidebar);
+	border-right: 1px solid var(--sidebar-border);
 	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 	overflow: hidden;
 	transition: opacity var(--motion-duration) var(--motion-ease);

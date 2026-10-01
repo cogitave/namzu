@@ -14,7 +14,14 @@ import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
-import type { ComposerPluginInventory } from './composer-plugins.js'
+import {
+	type ComposerPlugin,
+	type ComposerPluginInventory,
+	type ComposerPublicPlugin,
+	type PluginCollection,
+	type PluginSelection,
+	pluginRowId,
+} from './composer-plugins.js'
 import { Composer } from './composer.js'
 import {
 	ArrowUpIcon,
@@ -362,6 +369,79 @@ function App() {
 	const modelSettingsKey = JSON.stringify([projectId, sessionId, choice.provider, modelId])
 	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
 	const pluginsKey = modelSettingsKey
+	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
+	if (pluginOwner.current.key !== pluginsKey) {
+		pluginOwner.current.key = pluginsKey
+		pluginOwner.current.generation++
+	}
+	const [pluginCollection, setPluginCollection] = useState<PluginCollection>('public')
+	const [pluginSelection, setPluginSelection] = useState<
+		PluginSelection & {
+			key: string
+			generation: number
+		}
+	>()
+	const selectedPlugin =
+		pluginSelection?.key === pluginsKey &&
+		pluginSelection.generation === pluginOwner.current.generation
+			? pluginSelection
+			: undefined
+	useEffect(() => {
+		if (railSection !== 'plugins') setPluginSelection(undefined)
+	}, [railSection])
+	const openPluginDetails = (
+		plugin: ComposerPlugin | ComposerPublicPlugin,
+		collection: PluginCollection,
+	) => {
+		if (!project?.trusted || project.status !== 'ready' || pluginOwner.current.key !== pluginsKey)
+			return
+		setPluginSelection({
+			key: pluginsKey,
+			generation: pluginOwner.current.generation,
+			collection,
+			name: plugin.name,
+			scope: 'scope' in plugin ? plugin.scope : undefined,
+		})
+		setPluginCollection(collection)
+		setSideOpen(false)
+	}
+	const tryPlugin = (plugin: ComposerPlugin) => {
+		const view = pluginStates[pluginsKey]?.value
+		if (
+			!sessionId ||
+			!project?.trusted ||
+			project.status !== 'ready' ||
+			!view?.live ||
+			pluginStates[pluginsKey]?.loading ||
+			!view.plugins.some(
+				(entry) =>
+					entry.name === plugin.name && entry.scope === plugin.scope && entry.status === 'enabled',
+			)
+		)
+			return
+		const generation = pluginOwner.current.generation
+		setRailSection(null)
+		setSideOpen(false)
+		requestAnimationFrame(() => {
+			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
+				return
+			document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
+		})
+	}
+	const returnToPlugins = (focusSearch: boolean) => {
+		const selected = selectedPlugin
+		const generation = pluginOwner.current.generation
+		setPluginSelection(undefined)
+		setSideOpen(false)
+		requestAnimationFrame(() => {
+			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
+				return
+			const row = !focusSearch && selected ? document.getElementById(pluginRowId(selected)) : null
+			;(row ?? document.getElementById('installed-plugin-search'))?.focus({ preventScroll: true })
+		})
+	}
+	const backToPlugins = () => returnToPlugins(false)
+	const searchPlugins = () => returnToPlugins(true)
 	const loadPlugins = useCallback(async () => {
 		const targetProject = projectId
 		const targetSession = sessionId
@@ -977,6 +1057,7 @@ function App() {
 				openProjectDisabled={loading}
 				onToggleSidebar={toggleSidebar}
 				onPlugins={() => {
+					setPluginSelection(undefined)
 					setRailSection('plugins')
 					setJobsOpen(false)
 					setSideOpen(false)
@@ -1026,6 +1107,10 @@ function App() {
 							disabled={!project?.trusted || project.status !== 'ready'}
 							contextLabel={project?.name}
 							onChooseSpace={showSpaces}
+							selected={selectedPlugin}
+							onOpenPlugin={(plugin) => openPluginDetails(plugin, 'personal')}
+							onBack={backToPlugins}
+							onSearch={searchPlugins}
 						/>
 						<Button
 							variant="ghost-muted"
@@ -1053,6 +1138,15 @@ function App() {
 						onLoad={loadPlugins}
 						onSetEnabled={setPluginEnabled}
 						onChooseSpace={showSpaces}
+						collection={pluginCollection}
+						onCollectionChange={(collection) => {
+							setPluginSelection(undefined)
+							setPluginCollection(collection)
+						}}
+						selected={selectedPlugin}
+						onOpenPlugin={openPluginDetails}
+						onTryPlugin={tryPlugin}
+						onBack={backToPlugins}
 					/>
 				)}
 				<WorkspacePageHeader className="topbar">
