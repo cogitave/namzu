@@ -18,6 +18,11 @@ const provider = new MockLLMProvider({ nextTurn: (request) => {
 }, onRequest: (request) => {
 	appendFileSync(process.env.NAMZU_TEST_RECEIPTS, `${JSON.stringify({ model: request.model, roles: request.messages.map((message) => message.role), purpose: request.tools?.some((tool) => tool.function.name === 'bash') ? 'agent' : 'evidence-query' })}\n`)
 } })
+// The actual listing path projects a scripted driver catalogue; no external I/O.
+provider.listModels = async () => [
+ { id:'claude-opus-4-7',name:'Fixture Opus',contextWindow:200000,maxOutputTokens:8192 },
+ { id:'claude-sonnet-4-5',name:'Fixture Sonnet',contextWindow:200000,maxOutputTokens:8192 },
+]
 ProviderRegistry.createProvider = () => provider
 ProviderRegistry.createProviderAsync = async () => provider
 globalThis.fetch = async () => { throw new Error('External network is forbidden in the native regression.') }

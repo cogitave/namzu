@@ -1,3 +1,10 @@
+import type {
+	ComponentProps,
+	KeyboardEvent as ReactKeyboardEvent,
+	MouseEvent as ReactMouseEvent,
+	ReactNode,
+	RefObject,
+} from 'react'
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 /**
  * The sidebar header: one row holding search, project scope and new thread.
@@ -11,14 +18,7 @@
  * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
  * the picker's popup can anchor to that width rather than to its 28px trigger.
  */
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from 'lucide-react'
-import type {
-	ComponentProps,
-	KeyboardEvent as ReactKeyboardEvent,
-	MouseEvent as ReactMouseEvent,
-	ReactNode,
-	RefObject,
-} from 'react'
+import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from './icons.js'
 
 import { cn } from './lib/utils.js'
 import { Button } from './ui/button.js'

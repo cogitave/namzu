@@ -1,7 +1,7 @@
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
-import { ChevronDownIcon, type LucideIcon } from 'lucide-react'
+import { ChevronDownIcon, type IconComponent } from './icons.js'
 
 import { cn } from './lib/utils.js'
 
@@ -50,7 +50,7 @@ export function ComposerControlIcon({
 	opticalSize = 'default',
 	size = 'sm',
 }: {
-	icon: LucideIcon
+	icon: IconComponent
 	className?: string | undefined
 	opticalSize?: 'default' | 'large'
 	size?: ComposerControlSize

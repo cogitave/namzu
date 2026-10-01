@@ -1,7 +1,7 @@
-/* Adapted compact approval presentation; provenance: THIRD-PARTY-NOTICES.txt. */
-import { ShieldAlertIcon } from 'lucide-react'
 import type { PermissionView } from '../shared/protocol.js'
 import { ComposerBanner } from './composer-banner.js'
+/* Adapted compact approval presentation; provenance: THIRD-PARTY-NOTICES.txt. */
+import { ShieldAlertIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 export function ComposerApproval({

@@ -1,8 +1,8 @@
 /* Adapted source attachment primitives; provenance: THIRD-PARTY-NOTICES.txt. */
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
-import { ChevronDownIcon, XIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
+import { ChevronDownIcon, XIcon } from './icons.js'
 
 import { cn } from './lib/utils.js'
 import { Button } from './ui/button.js'

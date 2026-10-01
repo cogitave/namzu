@@ -1,6 +1,6 @@
-import { FileDiffIcon, FolderIcon, PanelRightIcon, TerminalIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
+import { FileDiffIcon, FolderIcon, PanelRightIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './project-context.css'

@@ -43,14 +43,21 @@ The left icon rail remains available when the conversation sidebar is collapsed.
 Home, Projects and Conversations have separate destinations; the sidebar brand
 opens its workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
+The dark icon rail has a slightly deeper surface than the conversation sidebar.
+The selected destination uses a filled icon and a neutral rounded background.
+Hover, press and selection transitions are brief and respect reduced motion.
+Navigation, composer and result controls share one icon family. Known provider
+routes show their service glyphs; other remote or local routes use cloud or
+server symbols with the actual provider label.
 Home opens the selected project’s blank composer, and the sidebar control or
 Ctrl/Cmd+B toggles its list. On narrow windows the same control opens a drawer
 below the title bar. Projects and compact conversation rows have separate
 sections; running work, pending reviews and errors remain visible on their rows.
 The blank project or conversation centres its composer; the first message docks it with a
 short transition. The composer keeps its project context in a lower strip.
-The message box remains expanded, with the model and Send controls together on
-its lower row. Model popups retain their mounted control while focus moves into
+The message box remains expanded, with model selection on the left and Send or
+Stop on the right of its lower row. Send shows a busy indicator while the prompt
+is being admitted. Model popups retain their mounted control while focus moves into
 the menu. The project strip can open the native folder chooser. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout.
@@ -107,7 +114,26 @@ The kernel loads the full admitted history for the model independently.
 
 Provider and model choices use existing CLI credential discovery. Set up missing
 credentials in Namzu. The desktop receives provider IDs, labels and default
-model names, never keys or token objects. Sending an idle turn applies the shown
+model names, never keys or token objects. Opening the model menu asks the selected
+configured provider for its real catalogue through `namzu/providers/models`.
+This uses the terminal picker's existing bounded listing and access filter;
+anonymous routes do not offer models that require an account credential.
+The result contains only model IDs, labels, optional notes and a notice. A failed
+or unsupported listing keeps permitted default and current choices with an
+explicit notice, and the exact-model field remains available. A published model
+list is not proof that the account can run every listed model. Listings are read
+on demand rather than delaying project startup, shared while one request is in
+flight, and cancelled when the CLI connection closes.
+The menu has a provider column and selectable model rows with their catalogue
+labels. Quick search searches model IDs, labels and provider names across the
+configured providers; `/` opens search while the menu has focus. Arrow keys move
+through the model choices, and Escape dismisses the menu and restores focus.
+The provider tab browses its models without changing the current choice. Use a
+model ID remains available for custom endpoints and models absent from a list.
+Opening or searching the catalogue does not submit a model prompt or create a
+conversation. Navigating to another project or conversation closes the menu.
+
+Sending an idle turn applies the shown
 choice before submitting the prompt. Failed selection is visible and prevents
 sending on an unintended route. A model change cannot silently kill active work.
 Choices last for this connection and survive window reload, rather than editing
@@ -176,6 +202,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages and `partial` |
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
+| `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 rows; default and current choices remain labelled |
 | `namzu/providers/select` | `sessionId`, `provider`, optional `model` | acknowledges a session-local choice; active work blocks changes |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |

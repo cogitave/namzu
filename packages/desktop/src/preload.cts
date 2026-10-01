@@ -13,6 +13,7 @@ const api: DesktopApi = {
 	newConversation: (id) => invoke('newConversation', id),
 	openConversation: (project, id) => invoke('openConversation', project, id),
 	providers: (id, sessionId) => invoke('providers', id, sessionId),
+	models: (id, provider, sessionId) => invoke('models', id, provider, sessionId),
 	selectProvider: (id, provider, model) => invoke('selectProvider', id, provider, model),
 	send: (id, prompt) => invoke('send', id, prompt),
 	draft: (id) => invoke('draft', id),

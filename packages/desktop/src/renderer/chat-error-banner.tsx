@@ -1,5 +1,5 @@
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { InfoIcon, XIcon } from 'lucide-react'
+import { InfoIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 export function ChatErrorBanner({

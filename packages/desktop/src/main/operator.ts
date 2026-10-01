@@ -7,6 +7,7 @@ import type {
 	ChatMessage,
 	ConversationView,
 	DesktopEvent,
+	ModelCatalogueView,
 	PermissionView,
 	ProjectView,
 	ProviderView,
@@ -320,6 +321,18 @@ export class Operator {
 		if (session) session.providers = result
 		else project.providers = result
 		return result
+	}
+	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
+		const project = this.project(id)
+		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
+			throw new Error('Invalid provider.')
+		const session = sessionId === undefined ? undefined : this.session(sessionId)
+		if (session && session.view.projectId !== id)
+			throw new Error('This conversation belongs to another project.')
+		return (await project.client.request('namzu/providers/models', {
+			provider,
+			...(session ? { sessionId: session.runtimeSessionId } : {}),
+		})) as ModelCatalogueView
 	}
 	async selectProvider(sessionId: string, provider: string, model?: string): Promise<void> {
 		const session = this.session(sessionId)

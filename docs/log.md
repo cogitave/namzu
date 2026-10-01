@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Update** [Desktop operator](cli/desktop.md): the model menu reads a configured provider’s real catalogue on demand through `namzu/providers/models`, reusing the terminal picker’s access filter and explicit fallback notices. A provider column, model rows and Quick search replace the manual-only selection form; custom model IDs remain available. Credential envelopes and raw driver diagnostics stay out of the desktop wire. Native-button radio rows support Space selection. Controls share one licensed icon family with real service glyphs, neutral selected surfaces, filled navigation variants and brief motion, with distinct rail and sidebar colours. The composer separates model selection and primary actions, refines spacing and docking motion, and shows pending Send admission. `.changeset/desktop-model-catalogue.md`, **minor** for `@namzu/cli`.
+
 - **Update** The private desktop preview integrates native window controls into its title bar, adds persistent icon navigation and compact project/conversation lists, and lets the blank project composer create its conversation on first Send while retaining authored drafts. Its expanded composer keeps model controls mounted, and a responsive project context card opens actual change previews and session-owned background work.
 
 - **Fix** [AG-UI interrupts](sdk/ag-ui.md) retain buffered tool starts, progress and parked questions without falsely expiring the waiting call; only matching completion or turn settlement invalidates it. `.changeset/ag-ui-live-interrupt-liveness.md`, **patch** for `@namzu/ag-ui`.

@@ -1,11 +1,21 @@
-import { FoldersIcon, HistoryIcon, HomeIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import {
+	FoldersFilledIcon,
+	FoldersIcon,
+	HistoryFilledIcon,
+	HistoryIcon,
+	HomeFilledIcon,
+	HomeIcon,
+	MonitorIcon,
+	MoonIcon,
+	SunIcon,
+} from './icons.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 
 export function NavigationRail({
-	home,
+	section,
 
 	appearance,
 
@@ -15,7 +25,7 @@ export function NavigationRail({
 
 	onAppearance,
 }: {
-	home: boolean
+	section: 'home' | 'projects' | 'conversations'
 	appearance: Appearance
 	onHome: () => void
 	onProjects: () => void
@@ -26,14 +36,18 @@ export function NavigationRail({
 		appearance === 'dark' ? MoonIcon : appearance === 'light' ? SunIcon : MonitorIcon
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
-			<RailButton label="Home" active={home} onClick={onHome}>
-				<HomeIcon />
+			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
+				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
 			</RailButton>
-			<RailButton label="Projects" onClick={onProjects}>
-				<FoldersIcon />
+			<RailButton label="Projects" active={section === 'projects'} onClick={onProjects}>
+				{section === 'projects' ? <FoldersFilledIcon /> : <FoldersIcon />}
 			</RailButton>
-			<RailButton label="Conversations" onClick={onConversations}>
-				<HistoryIcon />
+			<RailButton
+				label="Conversations"
+				active={section === 'conversations'}
+				onClick={onConversations}
+			>
+				{section === 'conversations' ? <HistoryFilledIcon /> : <HistoryIcon />}
 			</RailButton>
 			<div className="rail-spacer" />
 			<RailButton label={`Appearance: ${appearance}. Change appearance`} onClick={onAppearance}>

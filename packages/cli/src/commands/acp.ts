@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { canSelectModel } from '../integrations/providers/access.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -30,7 +31,13 @@ import {
 import { cliLogger } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
-import { type AgentSession, createAgentSession, probeAgentSession } from '../tui/agent.js'
+import {
+	type AgentSession,
+	createAgentSession,
+	describeProviderModels,
+	probeAgentSession,
+} from '../tui/agent.js'
+import { modelStep } from '../tui/model-choices.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -167,6 +174,7 @@ type AcpLiveSession = Pick<
 
 export interface AcpRuntimeDependencies {
 	readonly probe: typeof probeAgentSession
+	readonly describeModels?: typeof describeProviderModels
 	readonly createSession: (
 		preferences: Preferences,
 		detected: readonly DetectedProvider[],
@@ -190,6 +198,13 @@ interface AcpRuntimeRecord {
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
 	providerStatus(sessionId?: string): Promise<unknown>
+	models(
+		provider: string,
+		sessionId?: string,
+	): Promise<{
+		models: { id: string; label: string; note?: string }[]
+		notice: string | null
+	}>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
@@ -239,6 +254,8 @@ export function createCliAcpRuntime(
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
 	const selecting = new Set<string>()
+	const catalogueController = new AbortController()
+	const catalogueRequests = new Map<string, ReturnType<typeof describeProviderModels>>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
 	let closed = false
 	// The record whose event `toAcpSessionUpdate` is presenting RIGHT NOW —
@@ -539,6 +556,52 @@ export function createCliAcpRuntime(
 					: null,
 			}
 		},
+		models: async (provider, sessionId) => {
+			if (closed) throw new Error('The connection is closed.')
+			if (sessionId !== undefined && !isEntityId(sessionId, 'session'))
+				throw new Error('Invalid conversation id.')
+			const probe = await sharedProbe()
+			if (closed) throw new Error('The connection is closed.')
+			const detected = probe.detected.find(({ entry }) => entry.id === provider)
+			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
+			let request = catalogueRequests.get(provider)
+			if (!request) {
+				request = (deps.describeModels ?? describeProviderModels)(
+					detected.entry.id,
+					detected,
+					catalogueController.signal,
+				)
+				catalogueRequests.set(provider, request)
+				void request.finally(() => catalogueRequests.delete(provider)).catch(() => {})
+			}
+			const listing = await request
+			if (closed) throw new Error('The connection is closed.')
+			const choice =
+				(sessionId ? selections.get(sessionId) : undefined)?.providers[0] ??
+				(probe.preferences ?? defaultPrefs(probe.detected))?.providers[0]
+			const step = modelStep(
+				detected.entry.defaultModel,
+				// Driver errors can contain remote diagnostic text. Only this safe,
+				// fixed notice enters the desktop wire; credential envelopes never do.
+				listing.kind === 'failed'
+					? { kind: 'failed', reason: 'The provider catalogue could not be loaded' }
+					: listing,
+				choice?.id === provider ? choice.model : undefined,
+				{ allowModel: (model) => canSelectModel(detected.entry, detected.apiKey, model) },
+			)
+			const models = step.choices.slice(0, 4096).map(({ id, label, note }) => ({
+				id,
+				label: label.slice(0, 400),
+				...(note ? { note: note.slice(0, 500) } : {}),
+			}))
+			return {
+				models,
+				notice:
+					step.choices.length > models.length
+						? 'Showing the first 4,096 models. Enter an exact model ID to use another.'
+						: step.notice,
+			}
+		},
 		selectProvider: async (sessionId, provider, model) => {
 			if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
 			if (constructing.has(sessionId) || selecting.has(sessionId))
@@ -594,6 +657,7 @@ export function createCliAcpRuntime(
 		},
 		close: async () => {
 			closed = true
+			catalogueController.abort(new Error('The connection is closed.'))
 			const owned = [...records.values()]
 			records.clear()
 			const results = await Promise.allSettled(

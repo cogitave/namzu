@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 const pending = new Map()
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
 const reply = (id, result) => send({ id, result })
-const methods = ['namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
+const methods = ['namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -21,6 +21,7 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/project/status') reply(id, { cwd: process.cwd(), trusted: true })
 	else if (method === 'namzu/conversations/list') reply(id, [])
 	else if (method === 'namzu/conversations/history') reply(id, { messages: [], partial: false })
+	else if (method === 'namzu/providers/models') reply(id, { models: [{ id: `${params.provider}-${params.sessionId ?? 'project'}`, label: 'Configured fixture model' }], notice: null })
 	else if (method === 'session/load') reply(id, { sessionId: params.sessionId })
 	else if (method === 'session/new') reply(id, { sessionId: `session-${randomUUID()}` })
 	else if (method === 'session/prompt') {

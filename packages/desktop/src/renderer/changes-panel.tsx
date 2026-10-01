@@ -1,8 +1,8 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { MultiFileDiff } from '@pierre/diffs/react'
-import { Columns2Icon, Rows3Icon, TextWrapIcon } from 'lucide-react'
 import { useState } from 'react'
 import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
+import { Columns2Icon, Rows3Icon, TextWrapIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>

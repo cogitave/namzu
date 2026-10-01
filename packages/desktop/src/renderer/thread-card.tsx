@@ -1,7 +1,7 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { ShieldQuestionIcon } from 'lucide-react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
+import { ShieldQuestionIcon } from './icons.js'
 import { cn } from './lib/utils.js'
 
 export function ThreadCard({

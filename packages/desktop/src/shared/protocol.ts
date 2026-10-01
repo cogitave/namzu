@@ -22,6 +22,10 @@ export interface ProviderView {
 	available: { id: string; label: string; defaultModel: string }[]
 	selected: { id: string; model?: string } | null
 }
+export interface ModelCatalogueView {
+	models: { id: string; label: string; note?: string }[]
+	notice: string | null
+}
 export interface JobView {
 	id: string
 	command: string
@@ -88,6 +92,7 @@ export interface DesktopApi {
 		thread?: import('./projection.js').ThreadState
 	}>
 	providers(projectId: string, sessionId?: string): Promise<ProviderView>
+	models(projectId: string, provider: string, sessionId?: string): Promise<ModelCatalogueView>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
 	send(sessionId: string, prompt: string): Promise<void>
 	draft(sessionId: string): Promise<string>

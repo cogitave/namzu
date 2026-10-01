@@ -83,6 +83,11 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 			}),
 		'namzu/providers/status': (params: Record<string, unknown>) =>
 			runtime.providerStatus(params.sessionId === undefined ? undefined : session(params)),
+		'namzu/providers/models': (params: Record<string, unknown>) =>
+			runtime.models(
+				text(params, 'provider'),
+				params.sessionId === undefined ? undefined : session(params),
+			),
 		'namzu/providers/select': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
 			await runtime.selectProvider(

@@ -1,7 +1,7 @@
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import type { AcpSessionUpdate } from '@namzu/sdk'
-import { ChevronDownIcon, ChevronRightIcon, FileDiffIcon } from 'lucide-react'
 import { useState } from 'react'
+import { ChevronDownIcon, ChevronRightIcon, FileDiffIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>

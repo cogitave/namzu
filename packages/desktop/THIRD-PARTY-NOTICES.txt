@@ -59,6 +59,20 @@ Modified by ZCode: local integration, formatting and adaptations.
 Full license: licenses/ui-layout-Apache-2.0.txt
 Original upstream NOTICE: licenses/ui-layout-NOTICE.txt
 
-Icons are supplied by lucide-react (ISC); other installed runtime packages
-retain their package-level licenses. No peer logos, provider logos, fonts or
-other image assets were copied.
+3. Remix Icon v4.9.0 — Remix Icon License v1.0
+Copyright (c) 2017–2026 Remix Design.
+Source: https://github.com/Remix-Design/RemixIcon
+Revision: 019480ec14b97959a1ad35c3de302a224714b068
+Original files: selected SVGs in icons/{Arrows,Buildings,Business,Design,Device,
+Document,Editor,Logos,Media,System,Weather}; the exact source map is recorded in
+research/runtime-desktop-20260930/icon-source-map.json.
+Local file: src/renderer/icons.tsx.
+Changes: unchanged visible path data is rendered by one local React wrapper;
+normal and filled navigation variants share the original family and viewBox.
+Provider glyphs represent only their corresponding configured services. Generic
+cloud or server icons identify other remote or local routes. These assets do not
+represent Namzu's own identity.
+Full license: licenses/ui-icons-license.txt
+
+Other installed runtime packages retain their package-level licenses. No peer
+application logos, fonts or raster image assets were copied.

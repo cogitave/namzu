@@ -111,6 +111,9 @@ function register(): void {
 		operator.openConversation(project, id),
 	)
 	handle('providers', (id: string, sessionId?: string) => operator.providers(id, sessionId))
+	handle('models', (id: string, provider: string, sessionId?: string) =>
+		operator.models(id, provider, sessionId),
+	)
 	handle('selectProvider', (id: string, provider: string, model?: string) =>
 		operator.selectProvider(id, provider, model),
 	)

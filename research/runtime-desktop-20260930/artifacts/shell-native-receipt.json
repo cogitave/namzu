@@ -4,7 +4,7 @@
   "realKernel": true,
   "modelIo": "scripted",
   "noExternalNetwork": true,
-  "root": "/tmp/namzu-shell-preview-2V3i4F",
+  "root": "/tmp/namzu-shell-preview-x3Lowa",
   "windowChrome": {
     "platform": "linux",
     "height": 32
@@ -38,27 +38,175 @@
   "reducedMotion": true,
   "noOverflow": true,
   "createdSessionIds": [
-    "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
-    "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
-    "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3"
+    "01a0f6f9-94d1-7673-b6e7-931d38aff921",
+    "01a0f6f9-9b81-7795-be05-c501319ab273",
+    "01a0f6f9-9e2e-7493-b7f3-c7e547e71158"
   ],
   "calls": [
     {
-      "method": "newConversation",
+      "method": "models",
       "values": [
-        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "anthropic",
+        null
       ],
       "result": {
-        "id": "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "codex",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "google",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "gemini-2.5-flash",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "zen",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "newConversation",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92"
+      ],
+      "result": {
+        "id": "01a0f6f9-94d1-7673-b6e7-931d38aff921",
         "title": "New conversation",
-        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
-        "updatedAt": "2026-10-01T09:47:57.627Z"
+        "projectId": "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "updatedAt": "2026-10-01T10:19:06.833Z"
       }
     },
     {
       "method": "selectProvider",
       "values": [
-        "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "01a0f6f9-94d1-7673-b6e7-931d38aff921",
         "anthropic",
         "claude-opus-4-7"
       ]
@@ -66,26 +214,26 @@
     {
       "method": "send",
       "values": [
-        "01a0f6dd-0f3a-74da-bb0d-61a5556a16ec",
+        "01a0f6f9-94d1-7673-b6e7-931d38aff921",
         "Run the foreground fixture."
       ]
     },
     {
       "method": "newConversation",
       "values": [
-        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92"
       ],
       "result": {
-        "id": "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "id": "01a0f6f9-9b81-7795-be05-c501319ab273",
         "title": "New conversation",
-        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
-        "updatedAt": "2026-10-01T09:47:59.064Z"
+        "projectId": "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "updatedAt": "2026-10-01T10:19:08.545Z"
       }
     },
     {
       "method": "selectProvider",
       "values": [
-        "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "01a0f6f9-9b81-7795-be05-c501319ab273",
         "anthropic",
         "claude-opus-4-7"
       ]
@@ -93,26 +241,26 @@
     {
       "method": "send",
       "values": [
-        "01a0f6dd-14d8-7582-8f7b-ee4e76b43370",
+        "01a0f6f9-9b81-7795-be05-c501319ab273",
         "The captured navigation prompt"
       ]
     },
     {
       "method": "newConversation",
       "values": [
-        "6a6f0c13-56ff-4611-bf75-a6038186517d"
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92"
       ],
       "result": {
-        "id": "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "id": "01a0f6f9-9e2e-7493-b7f3-c7e547e71158",
         "title": "New conversation",
-        "projectId": "6a6f0c13-56ff-4611-bf75-a6038186517d",
-        "updatedAt": "2026-10-01T09:47:59.847Z"
+        "projectId": "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "updatedAt": "2026-10-01T10:19:09.230Z"
       }
     },
     {
       "method": "selectProvider",
       "values": [
-        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "01a0f6f9-9e2e-7493-b7f3-c7e547e71158",
         "anthropic",
         "claude-opus-4-7"
       ],
@@ -121,7 +269,7 @@
     {
       "method": "selectProvider",
       "values": [
-        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "01a0f6f9-9e2e-7493-b7f3-c7e547e71158",
         "anthropic",
         "claude-opus-4-7"
       ]
@@ -129,9 +277,157 @@
     {
       "method": "send",
       "values": [
-        "01a0f6dd-17e6-77b8-8e1c-0a3c3c27e3a3",
+        "01a0f6f9-9e2e-7493-b7f3-c7e547e71158",
         "Retry the same created conversation"
       ]
+    },
+    {
+      "method": "models",
+      "values": [
+        "419c6a8c-fa27-42f6-b526-b7c3b0d7ba92",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "6b193986-ff09-4729-8be1-1b13f0c5019b",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "6b193986-ff09-4729-8be1-1b13f0c5019b",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "6b193986-ff09-4729-8be1-1b13f0c5019b",
+        "codex",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "6b193986-ff09-4729-8be1-1b13f0c5019b",
+        "google",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "gemini-2.5-flash",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "6b193986-ff09-4729-8be1-1b13f0c5019b",
+        "zen",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
     }
   ],
   "requests": [

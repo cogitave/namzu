@@ -204,6 +204,11 @@ pre {
 	height: 36px;
 	border-radius: 10px;
 	color: var(--muted-foreground);
+	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease), transform
+		150ms var(--motion-ease);
+}
+.rail-button:active {
+	transform: scale(0.94);
 }
 .rail-button svg {
 	width: 18px;
@@ -212,15 +217,6 @@ pre {
 .rail-button[data-active] {
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
-}
-.rail-button[data-active]::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	width: 2px;
-	height: 14px;
-	border-radius: 2px;
-	background: var(--primary);
 }
 .rail-spacer {
 	flex: 1;
@@ -512,6 +508,14 @@ pre {
 }
 .composer-input textarea:focus {
 	outline: none;
+}
+.composer-send-spinner {
+	animation: composer-send-spin 1s linear infinite;
+}
+@keyframes composer-send-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 .model-picker-trigger {
 	max-width: 100%;
@@ -1132,4 +1136,26 @@ pre {
 .chat-markdown .table-scroll[data-expanded="true"] td {
 	max-width: 24rem;
 	overflow-wrap: anywhere;
+}
+
+.rail-button svg[data-filled] {
+	animation: rail-icon-select 160ms var(--motion-ease);
+}
+@keyframes rail-icon-select {
+	from {
+		opacity: 0.6;
+		transform: scale(0.9);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.rail-button:active {
+		transform: none;
+	}
+	.rail-button svg[data-filled] {
+		animation: none;
+	}
 }

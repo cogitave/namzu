@@ -176,7 +176,7 @@
       "appRegion": "none",
       "transitionDuration": "0.22s",
       "color": "rgb(245, 245, 245)",
-      "background": "rgb(22, 22, 22)",
+      "background": "rgb(23, 23, 23)",
       "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
       "ariaHidden": "false"
     },
@@ -204,7 +204,7 @@
     },
     {
       "selector": ".chat-stage",
-      "text": "What would you like to work on?Run the foreground fixture.claude-opus-4-7projectLocal",
+      "text": "What would you like to work on?Run the foreground fixture.Fixture OpusprojectLocal",
       "rect": {
         "x": 337,
         "y": 91,
@@ -226,15 +226,15 @@
     },
     {
       "selector": "[data-chat-composer-stack]",
-      "text": "What would you like to work on?Run the foreground fixture.claude-opus-4-7projectLocal",
+      "text": "What would you like to work on?Run the foreground fixture.Fixture OpusprojectLocal",
       "rect": {
         "x": 435,
-        "y": 379,
+        "y": 373,
         "width": 640,
-        "height": 146,
-        "top": 379,
+        "height": 158,
+        "top": 373,
         "right": 1075,
-        "bottom": 525,
+        "bottom": 531,
         "left": 435
       },
       "display": "block",
@@ -248,15 +248,15 @@
     },
     {
       "selector": "[data-chat-composer-main-surface]",
-      "text": "Run the foreground fixture.claude-opus-4-7",
+      "text": "Run the foreground fixture.Fixture Opus",
       "rect": {
         "x": 435,
-        "y": 379,
+        "y": 373,
         "width": 640,
-        "height": 94,
-        "top": 379,
+        "height": 106,
+        "top": 373,
         "right": 1075,
-        "bottom": 473,
+        "bottom": 479,
         "left": 435
       },
       "display": "block",
@@ -273,12 +273,12 @@
       "text": "Run the foreground fixture.",
       "rect": {
         "x": 448,
-        "y": 388,
+        "y": 386,
         "width": 606,
         "height": 40,
-        "top": 388,
+        "top": 386,
         "right": 1054,
-        "bottom": 428,
+        "bottom": 426,
         "left": 448
       },
       "display": "block",

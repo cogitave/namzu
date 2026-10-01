@@ -1,0 +1,349 @@
+{
+  "width": 600,
+  "height": 540,
+  "overflow": false,
+  "reducedMotion": true,
+  "active": "Anthropic (Claude)",
+  "nodes": [
+    {
+      "selector": ".model-picker-popup",
+      "label": "Model picker",
+      "text": "ModelsQuick searchLoading models…Use a model ID…",
+      "rect": {
+        "x": 74,
+        "y": 3,
+        "width": 341,
+        "height": 282,
+        "top": 3,
+        "right": 415,
+        "bottom": 285,
+        "left": 74
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(255, 255, 255)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tabs",
+      "label": null,
+      "text": "ModelsQuick searchLoading models…Use a model ID…",
+      "rect": {
+        "x": 75,
+        "y": 4,
+        "width": 339,
+        "height": 280,
+        "top": 4,
+        "right": 414,
+        "bottom": 284,
+        "left": 75
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Anthropic (Claude)",
+      "text": "",
+      "rect": {
+        "x": 80.5,
+        "y": 10,
+        "width": 36,
+        "height": 32,
+        "top": 10,
+        "right": 116.5,
+        "bottom": 42,
+        "left": 80.5
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(244, 244, 245)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "OpenAI (Codex subscription)",
+      "text": "",
+      "rect": {
+        "x": 80.5,
+        "y": 48,
+        "width": 36,
+        "height": 32,
+        "top": 48,
+        "right": 116.5,
+        "bottom": 80,
+        "left": 80.5
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Google (Gemini)",
+      "text": "",
+      "rect": {
+        "x": 80.5,
+        "y": 86,
+        "width": 36,
+        "height": 32,
+        "top": 86,
+        "right": 116.5,
+        "bottom": 118,
+        "left": 80.5
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Zen",
+      "text": "",
+      "rect": {
+        "x": 80.5,
+        "y": 124,
+        "width": 36,
+        "height": 32,
+        "top": 124,
+        "right": 116.5,
+        "bottom": 156,
+        "left": 80.5
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-picker-trigger",
+      "label": "Select model",
+      "text": "Fixture Opus",
+      "rect": {
+        "x": 74,
+        "y": 293,
+        "width": 127.140625,
+        "height": 28,
+        "top": 293,
+        "right": 201.140625,
+        "bottom": 321,
+        "left": 74
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(244, 244, 245)",
+      "checked": null
+    },
+    {
+      "selector": ".model-picker-loading",
+      "label": null,
+      "text": "",
+      "rect": {
+        "x": 139,
+        "y": 64,
+        "width": 14,
+        "height": 14,
+        "top": 64,
+        "right": 153,
+        "bottom": 78,
+        "left": 139
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Home",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 46,
+        "width": 36,
+        "height": 36,
+        "top": 46,
+        "right": 42,
+        "bottom": 82,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(255, 255, 255)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Projects",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 90,
+        "width": 36,
+        "height": 36,
+        "top": 90,
+        "right": 42,
+        "bottom": 126,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Conversations",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 134,
+        "width": 36,
+        "height": 36,
+        "top": 134,
+        "right": 42,
+        "bottom": 170,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Appearance: light. Change appearance",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 492,
+        "width": 36,
+        "height": 36,
+        "top": 492,
+        "right": 42,
+        "bottom": 528,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-main-surface]",
+      "label": null,
+      "text": "A readable light-theme landing draftFixture Opus",
+      "rect": {
+        "x": 61,
+        "y": 234,
+        "width": 520,
+        "height": 104,
+        "top": 234,
+        "right": 581,
+        "bottom": 338,
+        "left": 61
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-body]",
+      "label": null,
+      "text": "A readable light-theme landing draft",
+      "rect": {
+        "x": 62,
+        "y": 235,
+        "width": 518,
+        "height": 54,
+        "top": 235,
+        "right": 580,
+        "bottom": 289,
+        "left": 62
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer]",
+      "label": null,
+      "text": "Fixture Opus",
+      "rect": {
+        "x": 62,
+        "y": 289,
+        "width": 518,
+        "height": 48,
+        "top": 289,
+        "right": 580,
+        "bottom": 337,
+        "left": 62
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".composer-input textarea",
+      "label": "Message Namzu",
+      "text": "A readable light-theme landing draft",
+      "rect": {
+        "x": 70,
+        "y": 245,
+        "width": 494,
+        "height": 40,
+        "top": 245,
+        "right": 564,
+        "bottom": 285,
+        "left": 70
+      },
+      "cursor": "text",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer] button[aria-label=\"Send message\"]",
+      "label": "Send message",
+      "text": "",
+      "rect": {
+        "x": 532,
+        "y": 289,
+        "width": 36,
+        "height": 36,
+        "top": 289,
+        "right": 568,
+        "bottom": 325,
+        "left": 532
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(23, 107, 41)",
+      "checked": null
+    }
+  ]
+}

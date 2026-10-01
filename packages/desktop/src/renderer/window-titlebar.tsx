@@ -1,7 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
-import { ArrowLeftIcon, ArrowRightIcon, PanelLeftIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { WindowChrome, WindowMenu } from '../shared/protocol.js'
+import { ArrowLeftIcon, ArrowRightIcon, PanelLeftIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 export function WindowTitlebar({

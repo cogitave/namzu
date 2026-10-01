@@ -1,0 +1,329 @@
+{
+  "width": 1180,
+  "height": 820,
+  "overflow": false,
+  "reducedMotion": false,
+  "active": "Search models",
+  "nodes": [
+    {
+      "selector": ".model-picker-popup",
+      "label": "Model picker",
+      "text": "No matching listed models.Use a model ID…",
+      "rect": {
+        "x": 263.421875,
+        "y": 140,
+        "width": 341,
+        "height": 284,
+        "top": 140,
+        "right": 604.421875,
+        "bottom": 424,
+        "left": 263.421875
+      },
+      "cursor": "auto",
+      "transitionDuration": "0.15s",
+      "animationName": "none",
+      "background": "rgb(36, 36, 36)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tabs",
+      "label": null,
+      "text": "No matching listed models.Use a model ID…",
+      "rect": {
+        "x": 264.421875,
+        "y": 141,
+        "width": 339,
+        "height": 282,
+        "top": 141,
+        "right": 603.421875,
+        "bottom": 423,
+        "left": 264.421875
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Anthropic (Claude)",
+      "text": "",
+      "rect": {
+        "x": 269.921875,
+        "y": 147,
+        "width": 36,
+        "height": 32,
+        "top": 147,
+        "right": 305.921875,
+        "bottom": 179,
+        "left": 269.921875
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgb(37, 37, 37)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "OpenAI (Codex subscription)",
+      "text": "",
+      "rect": {
+        "x": 269.921875,
+        "y": 185,
+        "width": 36,
+        "height": 32,
+        "top": 185,
+        "right": 305.921875,
+        "bottom": 217,
+        "left": 269.921875
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Google (Gemini)",
+      "text": "",
+      "rect": {
+        "x": 269.921875,
+        "y": 223,
+        "width": 36,
+        "height": 32,
+        "top": 223,
+        "right": 305.921875,
+        "bottom": 255,
+        "left": 269.921875
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-provider-tab",
+      "label": "Zen",
+      "text": "",
+      "rect": {
+        "x": 269.921875,
+        "y": 261,
+        "width": 36,
+        "height": 32,
+        "top": 261,
+        "right": 305.921875,
+        "bottom": 293,
+        "left": 269.921875
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".model-picker-trigger",
+      "label": "Select model",
+      "text": "claude-sonnet-4-5",
+      "rect": {
+        "x": 452,
+        "y": 432,
+        "width": 152.421875,
+        "height": 28,
+        "top": 432,
+        "right": 604.421875,
+        "bottom": 460,
+        "left": 452
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgb(37, 37, 37)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Home",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 46,
+        "width": 36,
+        "height": 36,
+        "top": 46,
+        "right": 42,
+        "bottom": 82,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(241, 243, 247, 0.11)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Projects",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 90,
+        "width": 36,
+        "height": 36,
+        "top": 90,
+        "right": 42,
+        "bottom": 126,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Conversations",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 134,
+        "width": 36,
+        "height": 36,
+        "top": 134,
+        "right": 42,
+        "bottom": 170,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Appearance: dark. Change appearance",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 772,
+        "width": 36,
+        "height": 36,
+        "top": 772,
+        "right": 42,
+        "bottom": 808,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-main-surface]",
+      "label": null,
+      "text": "Run the foreground fixture.claude-sonnet-4-5",
+      "rect": {
+        "x": 435,
+        "y": 373,
+        "width": 640,
+        "height": 106,
+        "top": 373,
+        "right": 1075,
+        "bottom": 479,
+        "left": 435
+      },
+      "cursor": "auto",
+      "transitionDuration": "0.2s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-body]",
+      "label": null,
+      "text": "Run the foreground fixture.",
+      "rect": {
+        "x": 436,
+        "y": 374,
+        "width": 638,
+        "height": 56,
+        "top": 374,
+        "right": 1074,
+        "bottom": 430,
+        "left": 436
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer]",
+      "label": null,
+      "text": "claude-sonnet-4-5",
+      "rect": {
+        "x": 436,
+        "y": 430,
+        "width": 638,
+        "height": 48,
+        "top": 430,
+        "right": 1074,
+        "bottom": 478,
+        "left": 436
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".composer-input textarea",
+      "label": "Message Namzu",
+      "text": "Run the foreground fixture.",
+      "rect": {
+        "x": 448,
+        "y": 386,
+        "width": 606,
+        "height": 40,
+        "top": 386,
+        "right": 1054,
+        "bottom": 426,
+        "left": 448
+      },
+      "cursor": "text",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer] button[aria-label=\"Send message\"]",
+      "label": "Send message",
+      "text": "",
+      "rect": {
+        "x": 1026,
+        "y": 430,
+        "width": 32,
+        "height": 32,
+        "top": 430,
+        "right": 1058,
+        "bottom": 462,
+        "left": 1026
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s",
+      "animationName": "none",
+      "background": "rgb(95, 255, 95)",
+      "checked": null
+    }
+  ]
+}

@@ -1,0 +1,229 @@
+{
+  "width": 1180,
+  "height": 820,
+  "overflow": false,
+  "reducedMotion": false,
+  "active": null,
+  "nodes": [
+    {
+      "selector": ".model-picker-trigger",
+      "label": "Select model",
+      "text": "Fixture Opus",
+      "rect": {
+        "x": 452,
+        "y": 432,
+        "width": 116,
+        "height": 28,
+        "top": 432,
+        "right": 568,
+        "bottom": 460,
+        "left": 452
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Home",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 46,
+        "width": 36,
+        "height": 36,
+        "top": 46,
+        "right": 42,
+        "bottom": 82,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(241, 243, 247, 0.11)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Projects",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 90,
+        "width": 36,
+        "height": 36,
+        "top": 90,
+        "right": 42,
+        "bottom": 126,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Conversations",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 134,
+        "width": 36,
+        "height": 36,
+        "top": 134,
+        "right": 42,
+        "bottom": 170,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".rail-button",
+      "label": "Appearance: dark. Change appearance",
+      "text": "",
+      "rect": {
+        "x": 6,
+        "y": 772,
+        "width": 36,
+        "height": 36,
+        "top": 772,
+        "right": 42,
+        "bottom": 808,
+        "left": 6
+      },
+      "cursor": "pointer",
+      "transitionDuration": "0.15s, 0.15s, 0.15s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-main-surface]",
+      "label": null,
+      "text": "Run the foreground fixture.Fixture Opus",
+      "rect": {
+        "x": 435,
+        "y": 373,
+        "width": 640,
+        "height": 106,
+        "top": 373,
+        "right": 1075,
+        "bottom": 479,
+        "left": 435
+      },
+      "cursor": "auto",
+      "transitionDuration": "0.2s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-body]",
+      "label": null,
+      "text": "Run the foreground fixture.",
+      "rect": {
+        "x": 436,
+        "y": 374,
+        "width": 638,
+        "height": 56,
+        "top": 374,
+        "right": 1074,
+        "bottom": 430,
+        "left": 436
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer]",
+      "label": null,
+      "text": "Fixture Opus",
+      "rect": {
+        "x": 436,
+        "y": 430,
+        "width": 638,
+        "height": 48,
+        "top": 430,
+        "right": 1074,
+        "bottom": 478,
+        "left": 436
+      },
+      "cursor": "auto",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".composer-input textarea",
+      "label": "Message Namzu",
+      "text": "Run the foreground fixture.",
+      "rect": {
+        "x": 448,
+        "y": 386,
+        "width": 606,
+        "height": 40,
+        "top": 386,
+        "right": 1054,
+        "bottom": 426,
+        "left": 448
+      },
+      "cursor": "text",
+      "transitionDuration": "0s",
+      "animationName": "none",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": ".composer-send-spinner",
+      "label": null,
+      "text": "",
+      "rect": {
+        "x": 1032.75927734375,
+        "y": 436.7593078613281,
+        "width": 18.4814453125,
+        "height": 18.48138427734375,
+        "top": 436.7593078613281,
+        "right": 1051.24072265625,
+        "bottom": 455.2406921386719,
+        "left": 1032.75927734375
+      },
+      "cursor": "default",
+      "transitionDuration": "0s",
+      "animationName": "composer-send-spin",
+      "background": "rgba(0, 0, 0, 0)",
+      "checked": null
+    },
+    {
+      "selector": "[data-chat-composer-footer] button[aria-label=\"Sending\"]",
+      "label": "Sending",
+      "text": "",
+      "rect": {
+        "x": 1026,
+        "y": 430,
+        "width": 32,
+        "height": 32,
+        "top": 430,
+        "right": 1058,
+        "bottom": 462,
+        "left": 1026
+      },
+      "cursor": "default",
+      "transitionDuration": "0.15s",
+      "animationName": "none",
+      "background": "rgb(95, 255, 95)",
+      "checked": null
+    }
+  ]
+}

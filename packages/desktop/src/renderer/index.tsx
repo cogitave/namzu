@@ -1,14 +1,3 @@
-import {
-	ArrowUpIcon,
-	FileDiffIcon,
-	FolderIcon,
-	PanelLeftIcon,
-	PlusIcon,
-	SquareIcon,
-	TerminalIcon,
-	WrenchIcon,
-	XIcon,
-} from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
@@ -23,6 +12,17 @@ import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { Composer } from './composer.js'
+import {
+	ArrowUpIcon,
+	FileDiffIcon,
+	FolderIcon,
+	PanelLeftIcon,
+	PlusIcon,
+	SquareIcon,
+	TerminalIcon,
+	WrenchIcon,
+	XIcon,
+} from './icons.js'
 import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
@@ -215,6 +215,14 @@ function App() {
 		media.addEventListener('change', apply)
 		return () => media.removeEventListener('change', apply)
 	}, [appearance])
+	const [railSection, setRailSection] = useState<'projects' | 'conversations' | null>(null)
+	const railOwner = useRef({ projectId, sessionId })
+	useEffect(() => {
+		if (railOwner.current.projectId !== projectId || railOwner.current.sessionId !== sessionId) {
+			railOwner.current = { projectId, sessionId }
+			setRailSection(null)
+		}
+	}, [projectId, sessionId])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
 	const [jobs, setJobs] = useState<JobView[]>([])
@@ -671,16 +679,23 @@ function App() {
 				onError={setError}
 			/>
 			<NavigationRail
-				home={!sessionId}
+				section={railSection ?? (sessionId ? 'conversations' : 'home')}
 				appearance={appearance}
 				onHome={() => {
 					navigation.current += 1
 					setSessionId('')
+					setRailSection(null)
 					setJobsOpen(false)
 					setSideOpen(false)
 				}}
-				onProjects={() => revealSidebar('.sidebar-projects .project-row')}
-				onConversations={() => revealSidebar('input[aria-label="Search conversations"]')}
+				onProjects={() => {
+					setRailSection('projects')
+					revealSidebar('.sidebar-projects .project-row')
+				}}
+				onConversations={() => {
+					setRailSection('conversations')
+					revealSidebar('input[aria-label="Search conversations"]')
+				}}
 				onAppearance={() =>
 					setAppearance((value) =>
 						value === 'system' ? 'dark' : value === 'dark' ? 'light' : 'system',
@@ -927,6 +942,8 @@ function App() {
 								void act(() => api.approve(permission.sessionId, permission.id, approved))
 							}
 							projectName={project.name}
+							projectId={project.id}
+							sessionId={sessionId || undefined}
 							projectPath={project.path}
 							onOpenProject={() => void act(openProject)}
 							empty={thread.messages.length === 0}

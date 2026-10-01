@@ -4,8 +4,8 @@ import { mergeProps } from '@base-ui/react/merge-props'
 import { Select as SelectPrimitive } from '@base-ui/react/select'
 import { useRender } from '@base-ui/react/use-render'
 import { type VariantProps, cva } from 'class-variance-authority'
-import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import type * as React from 'react'
+import { ChevronDownIcon, ChevronUpIcon } from '../icons.js'
 
 import { cn } from '../lib/utils.js'
 

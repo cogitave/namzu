@@ -204,7 +204,7 @@
     },
     {
       "selector": ".chat-stage",
-      "text": "What would you like to work on?A readable light-theme landing draftclaude-opus-4-7projectLocal",
+      "text": "What would you like to work on?A readable light-theme landing draftFixture OpusprojectLocal",
       "rect": {
         "x": 49,
         "y": 91,
@@ -226,15 +226,15 @@
     },
     {
       "selector": "[data-chat-composer-stack]",
-      "text": "What would you like to work on?A readable light-theme landing draftclaude-opus-4-7projectLocal",
+      "text": "What would you like to work on?A readable light-theme landing draftFixture OpusprojectLocal",
       "rect": {
         "x": 61,
-        "y": 237,
+        "y": 234,
         "width": 520,
-        "height": 150,
-        "top": 237,
+        "height": 156,
+        "top": 234,
         "right": 581,
-        "bottom": 387,
+        "bottom": 390,
         "left": 61
       },
       "display": "block",
@@ -248,15 +248,15 @@
     },
     {
       "selector": "[data-chat-composer-main-surface]",
-      "text": "A readable light-theme landing draftclaude-opus-4-7",
+      "text": "A readable light-theme landing draftFixture Opus",
       "rect": {
         "x": 61,
-        "y": 237,
+        "y": 234,
         "width": 520,
-        "height": 98,
-        "top": 237,
+        "height": 104,
+        "top": 234,
         "right": 581,
-        "bottom": 335,
+        "bottom": 338,
         "left": 61
       },
       "display": "block",
@@ -273,12 +273,12 @@
       "text": "A readable light-theme landing draft",
       "rect": {
         "x": 70,
-        "y": 246,
+        "y": 245,
         "width": 494,
         "height": 40,
-        "top": 246,
+        "top": 245,
         "right": 564,
-        "bottom": 286,
+        "bottom": 285,
         "left": 70
       },
       "display": "block",

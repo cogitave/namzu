@@ -1,3 +1,8 @@
+import { type RefObject, useLayoutEffect, useRef } from 'react'
+import type { PermissionView, ProviderView, QueuedMessageView } from '../shared/protocol.js'
+import { ComposerApproval } from './composer-approval.js'
+import { ComposerControl } from './composer-control.js'
+import { ComposerSurface } from './composer-surface.js'
 import {
 	ArrowUpIcon,
 	ChevronDownIcon,
@@ -5,14 +10,10 @@ import {
 	FolderIcon,
 	ListPlusIcon,
 	ListTodoIcon,
+	LoaderCircleIcon,
 	SearchIcon,
 	SquareIcon,
-} from 'lucide-react'
-import { type RefObject, useLayoutEffect, useRef } from 'react'
-import type { PermissionView, ProviderView, QueuedMessageView } from '../shared/protocol.js'
-import { ComposerApproval } from './composer-approval.js'
-import { ComposerControl } from './composer-control.js'
-import { ComposerSurface } from './composer-surface.js'
+} from './icons.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -38,6 +39,8 @@ export function Composer({
 	onEditQueued,
 	onRemoveQueued,
 	projectName,
+	projectId,
+	sessionId,
 	projectPath,
 	onOpenProject,
 	empty,
@@ -62,6 +65,8 @@ export function Composer({
 	onEditQueued: (itemId?: string) => void
 	onRemoveQueued: (itemId: string) => void
 	projectName: string
+	projectId: string
+	sessionId?: string
 	projectPath: string
 	onOpenProject: () => void
 	empty: boolean
@@ -94,7 +99,7 @@ export function Composer({
 					{ transform: `translateY(${previous.current.top - nextTop}px)` },
 					{ transform: 'translateY(0px)' },
 				],
-				{ duration: 220, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' },
+				{ duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
 			)
 			transition.id = 'namzu-composer-transition'
 		}
@@ -219,7 +224,7 @@ export function Composer({
 									data-chat-composer-body
 									data-resting={false}
 									data-approval={permissions.length > 0}
-									className="relative px-3 pt-3 pb-1 sm:px-4"
+									className="relative px-3 pb-2 pt-3.5 sm:px-4 sm:pt-4"
 								>
 									<Textarea
 										unstyled
@@ -245,10 +250,12 @@ export function Composer({
 								</div>
 								<div
 									data-chat-composer-footer
-									className="flex min-w-0 flex-nowrap items-center justify-end gap-2 overflow-visible px-3 pb-3 sm:px-4"
+									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4"
 								>
-									<div className="min-w-0 max-w-[calc(100%-5rem)]">
+									<div className="min-w-0 flex-1">
 										<ModelPicker
+											projectId={projectId}
+											sessionId={sessionId}
 											providers={providers}
 											choice={choice}
 											onChange={onChoiceChange}
@@ -280,16 +287,30 @@ export function Composer({
 														<button
 															type="button"
 															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover"
-															aria-label={running ? 'Queue message' : 'Send message'}
+															aria-label={
+																sending ? 'Sending' : running ? 'Queue message' : 'Send message'
+															}
+															aria-busy={sending}
 															disabled={!draft.trim() || !choice.provider || sending || !connected}
 															onClick={onSend}
 														/>
 													}
 												>
-													<ArrowUpIcon className="size-3.5" strokeWidth={1.8} />
+													{sending ? (
+														<LoaderCircleIcon
+															className="composer-send-spinner size-3.5"
+															aria-hidden="true"
+														/>
+													) : (
+														<ArrowUpIcon className="size-3.5" strokeWidth={1.8} />
+													)}
 												</TooltipTrigger>
 												<TooltipPopup>
-													{running ? 'Queue for the next turn' : 'Send message · Enter'}
+													{sending
+														? 'Sending'
+														: running
+															? 'Queue for the next turn'
+															: 'Send message · Enter'}
 												</TooltipPopup>
 											</Tooltip>
 										)}

@@ -34,6 +34,25 @@ function harness() {
 	}
 	return { owner, permission, wait }
 }
+it('loads models through the owned project and rejects a foreign conversation or invalid provider', async () => {
+	const { owner } = harness()
+	const project = await owner.openProject(process.cwd())
+	const otherProject = await owner.openProject(fileURLToPath(new URL('.', import.meta.url)))
+	const session = await owner.newConversation(project.id)
+	expect(await owner.models(project.id, 'fixture', session.id)).toEqual({
+		models: [{ id: `fixture-${session.id}`, label: 'Configured fixture model' }],
+		notice: null,
+	})
+	expect(await owner.models(project.id, 'fixture')).toEqual({
+		models: [{ id: 'fixture-project', label: 'Configured fixture model' }],
+		notice: null,
+	})
+	await expect(owner.models(otherProject.id, 'fixture', session.id)).rejects.toThrow(
+		'belongs to another project',
+	)
+	await expect(owner.models(project.id, '')).rejects.toThrow('Invalid provider')
+	await expect(owner.models(project.id, 'x'.repeat(401))).rejects.toThrow('Invalid provider')
+})
 it('keeps review ownership, queued text and the live projection across UI reattachment', async () => {
 	const { owner, permission, wait } = harness()
 	const project = await owner.openProject(process.cwd())

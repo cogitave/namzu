@@ -103,6 +103,73 @@ async function releaseOtherProjectProviders() {
     delete globalThis.__shellProviderHold
   })
 }
+async function holdProjectModels(projectId) {
+  await desktop.evaluate(({ ipcMain }, projectId) => {
+    const original = ipcMain._invokeHandlers.get('namzu:models')
+    const control = { original, release: null, done: null, value: null, ready: null, admitted: null }
+    control.ready = new Promise((resolve) => { control.admitted = resolve })
+    globalThis.__shellModelHold = control
+    ipcMain.removeHandler('namzu:models')
+    ipcMain.handle('namzu:models', async (event, ...values) => {
+      if (values[0] !== projectId || control.value !== null) return original(event, ...values)
+      control.value = await original(event, ...values)
+      control.admitted()
+      await new Promise((resolve) => { control.release = resolve })
+      try { return control.value } finally { control.done?.() }
+    })
+  }, projectId)
+}
+async function releaseProjectModels() {
+  await desktop.evaluate(async ({ ipcMain }) => {
+    const control = globalThis.__shellModelHold
+    if (!control?.value || !control.release) throw new Error('No real model catalogue is held.')
+    await new Promise((resolve) => { control.done = resolve; control.release() })
+    ipcMain.removeHandler('namzu:models')
+    ipcMain.handle('namzu:models', control.original)
+    delete globalThis.__shellModelHold
+  })
+}
+async function railState(page, selected) {
+  await settleMotion(page)
+  const state = await page.locator('.navigation-rail .rail-button').evaluateAll((buttons) => buttons.slice(0, 3).map((button) => {
+    const style = getComputedStyle(button)
+    const before = getComputedStyle(button, '::before')
+    return { label: button.getAttribute('aria-label'), active: button.hasAttribute('data-active'), current: button.getAttribute('aria-current'), filled: button.querySelector('svg')?.getAttribute('data-filled'), before: { content: before.content, width: before.width, background: before.backgroundColor, shadow: before.boxShadow }, cursor: style.cursor, background: style.backgroundColor, transitionDuration: style.transitionDuration }
+  }))
+  assert.deepEqual(state.filter((button) => button.active).map((button) => button.label), [selected])
+  for (const button of state) {
+    // Generic Button uses a transparent full-size pseudo layer. The removed rail marker
+    // was a narrow colored pseudo element; it must not reappear in any selection state.
+    if (!['none', 'normal'].includes(button.before.content)) {
+      assert.equal(button.before.background, 'rgba(0, 0, 0, 0)', `Unexpected colored rail decoration on ${button.label}`)
+      assert.equal(button.before.shadow, 'none')
+      assert.ok(parseFloat(button.before.width) >= 30, `Unexpected narrow rail marker on ${button.label}`)
+    }
+    assert.equal(button.cursor, 'pointer')
+    assert.equal(button.filled, button.label === selected ? 'true' : null)
+    assert.equal(button.current, button.label === selected ? 'page' : null)
+    if (button.active) {
+      const channels = button.background.match(/[\d.]+/g).slice(0, 3).map(Number)
+      assert.ok(Math.max(...channels) - Math.min(...channels) <= 8, `Rail selection should use a neutral surface: ${button.background}`)
+    }
+  }
+  return state
+}
+async function modelGeometry(page, name) {
+  await settleMotion(page); await settleFrames(page)
+  const receipt = await page.evaluate(() => {
+    const selectors = ['.model-picker-popup', '.model-provider-tabs', '.model-provider-tab', '.model-picker-row', '.model-picker-trigger', '.model-picker-loading', '.rail-button', '[data-chat-composer-main-surface]', '[data-chat-composer-body]', '[data-chat-composer-footer]', '.composer-input textarea', '.composer-send-spinner', '[data-chat-composer-footer] button[aria-label="Send message"]', '[data-chat-composer-footer] button[aria-label="Sending"]']
+    return { width: innerWidth, height: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches, active: document.activeElement?.getAttribute('aria-label'), nodes: selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((node) => {
+      const style = getComputedStyle(node)
+      return { selector, label: node.getAttribute('aria-label'), text: node.textContent?.trim(), rect: node.getBoundingClientRect().toJSON(), cursor: style.cursor, transitionDuration: style.transitionDuration, animationName: style.animationName, background: style.backgroundColor, checked: node.getAttribute('aria-checked') }
+    })) }
+  })
+  await writeFile(join(artifacts, `model-picker-${name}-geometry.json`), JSON.stringify(receipt, null, 2) + '\n')
+  await page.screenshot({ path: join(artifacts, `model-picker-${name}.png`) })
+  assert.equal(receipt.overflow, false)
+  inViewport(receipt, '.model-picker-popup')
+  return receipt
+}
 async function geometry(page, name) {
   await settleMotion(page); await settleFrames(page)
   const receipt = await page.evaluate(() => {
@@ -114,6 +181,17 @@ async function geometry(page, name) {
   return receipt
 }
 function rect(receipt, selector) { return receipt.nodes.find((node) => node.selector === selector).rect }
+function toolbarGeometry(receipt) {
+  const footer = rect(receipt, '[data-chat-composer-footer]')
+  const picker = rect(receipt, '.model-picker-trigger')
+  const send = receipt.nodes.find((node) => ['[data-chat-composer-footer] button[aria-label="Send message"]', '[data-chat-composer-footer] button[aria-label="Sending"]'].includes(node.selector)).rect
+  assert.ok(picker.left < footer.left + footer.width / 2, 'Model picker should occupy the left of the toolbar')
+  assert.ok(send.right > footer.left + footer.width / 2, 'Send action should occupy the right of the toolbar')
+  assert.ok(picker.right <= send.left, 'Model picker must not overlap Send')
+  assert.ok(rect(receipt, '.composer-input textarea').height >= 40, 'Expanded composer keeps the editor at least 40px high')
+  inViewport(receipt, '[data-chat-composer-main-surface]')
+  inViewport(receipt, '[data-chat-composer-footer]')
+}
 function inViewport(receipt, selector) {
   for (const node of receipt.nodes.filter((item) => item.selector === selector)) {
     assert.ok(node.rect.left >= -0.1 && node.rect.right <= receipt.width + 0.1, `${selector} is outside the horizontal viewport`)
@@ -127,7 +205,7 @@ try {
     dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
     globalThis.__shellCalls = []
     globalThis.__shellRejectSelection = false
-    for (const method of ['newConversation', 'selectProvider', 'send']) {
+    for (const method of ['newConversation', 'selectProvider', 'send', 'models']) {
       const original = ipcMain._invokeHandlers.get(`namzu:${method}`)
       if (!original) throw new Error(`Missing real IPC handler: ${method}`)
       ipcMain.removeHandler(`namzu:${method}`)
@@ -174,6 +252,15 @@ try {
   await expect(page.getByRole('menuitem', { name: /Open project/ })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(workspaceMenu).toBeFocused()
+  const railReceipts = []
+  const rail = page.getByRole('navigation', { name: 'Main navigation', exact: true })
+  await rail.getByRole('button', { name: 'Home', exact: true }).click()
+  railReceipts.push(await railState(page, 'Home'))
+  await rail.getByRole('button', { name: 'Conversations', exact: true }).click()
+  railReceipts.push(await railState(page, 'Conversations'))
+  await rail.getByRole('button', { name: 'Projects', exact: true }).click()
+  railReceipts.push(await railState(page, 'Projects'))
+  assert.ok(railReceipts.flat().every((button) => button.transitionDuration.split(',').some((duration) => parseFloat(duration) > 0)), 'Normal motion should retain rail transitions')
   await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('button', { name: 'Projects', exact: true }).click()
   await expect(page.locator('.sidebar')).toBeVisible()
   const wideToggle = page.getByRole('button', { name: 'Toggle sidebar', exact: true })
@@ -215,9 +302,61 @@ try {
   await input.press('Shift+Enter')
   await expect(input).toHaveValue('Composition draft\n')
   await input.fill('Run the foreground fixture.')
-  await page.getByRole('button', { name: 'Select model', exact: true }).click()
-  await page.getByRole('textbox', { name: 'Model', exact: true }).fill('claude-opus-4-7')
+  const modelTrigger = page.getByRole('button', { name: 'Select model', exact: true })
+  const opus = page.getByRole('radio', { name: 'Anthropic (Claude) Fixture Opus', exact: true })
+  const sonnet = page.getByRole('radio', { name: 'Anthropic (Claude) Fixture Sonnet', exact: true })
+  await modelTrigger.click()
+  await expect(page.getByRole('tab', { name: 'Anthropic (Claude)', exact: true })).toBeVisible()
+  await expect(opus).toBeVisible()
+  await expect(sonnet).toBeVisible()
+  const catalogue = (await admissions('models')).at(-1)
+  console.log(JSON.stringify({ step: 'actual model catalogue', call: catalogue, labels: await page.getByRole('radio').evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label'))) }))
+  assert.deepEqual(catalogue.values, [ownerProject.id, 'anthropic', undefined])
+  assert.deepEqual(catalogue.result.models, [{ id: 'claude-opus-5', label: 'claude-opus-5', note: '(namzu default)' }, { id: 'claude-opus-4-7', label: 'Fixture Opus' }, { id: 'claude-sonnet-4-5', label: 'Fixture Sonnet' }])
+  const availableProviders = await page.evaluate((id) => window.namzu.providers(id), ownerProject.id)
+  assert.deepEqual(await page.locator('.model-provider-list').getByRole('tab').evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('aria-label'))), availableProviders.available.map((provider) => provider.label))
+  const providerGlyphs = await page.locator('.model-provider-list .model-provider-tab').evaluateAll((tabs) => tabs.map((tab) => {
+    const mark = tab.querySelector('.model-provider-mark')
+    const svg = mark?.querySelector('svg')
+    return { label: tab.getAttribute('aria-label'), text: mark?.textContent?.trim(), count: mark?.querySelectorAll('svg').length, viewBox: svg?.getAttribute('viewBox'), pathLength: svg?.querySelector('path')?.getAttribute('d')?.length }
+  }))
+  assert.ok(providerGlyphs.every((mark) => mark.text === '' && mark.count === 1 && mark.viewBox === '0 0 24 24' && mark.pathLength > 10))
+  const catalogDark = await modelGeometry(page, 'catalog-dark')
+  toolbarGeometry(catalogDark)
+  for (const node of catalogDark.nodes.filter((node) => ['.model-provider-tab', '.model-picker-row', '.model-picker-trigger'].includes(node.selector))) assert.equal(node.cursor, 'pointer')
+  await page.getByRole('button', { name: 'Quick search', exact: true }).click()
+  const modelSearch = page.getByRole('searchbox', { name: 'Search models', exact: true })
+  await expect(modelSearch).toBeFocused()
+  await modelSearch.fill('no-such-fixture-model')
+  await expect(page.getByText('No matching listed models.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('radio')).toHaveCount(0)
+  await modelGeometry(page, 'search-empty-dark')
+  await modelSearch.fill('fixture')
+  await expect(opus).toBeVisible()
+  await expect(sonnet).toBeVisible()
+  assert.ok((await page.getByRole('radio').evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label')))).every((label) => label.toLowerCase().includes('fixture')))
+  await page.getByRole('button', { name: 'Close model search', exact: true }).click()
+  await settleMotion(page); await settleFrames(page)
+  await opus.focus()
+  await expect(opus).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(opus).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(modelTrigger).toBeFocused()
+  await expect(modelTrigger).toHaveText('Fixture Opus')
+  await modelTrigger.click()
+  await page.getByRole('button', { name: 'Use a model ID…', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Model', exact: true }).fill('fixture-custom-model-2026')
   await page.getByRole('button', { name: 'Use model', exact: true }).click()
+  await expect(page.locator('.model-picker-popup')).not.toBeVisible()
+  await expect(modelTrigger).toHaveText('fixture-custom-model-2026')
+  await expect(modelTrigger).toBeFocused()
+  await modelTrigger.click()
+  await page.getByRole('button', { name: 'Use a model ID…', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveValue('fixture-custom-model-2026')
+  await opus.click()
+  await page.keyboard.press('Escape')
+  await expect(modelTrigger).toHaveText('Fixture Opus')
   const wide = await geometry(page, 'landing-dark')
   assert.equal(wide.overflow, false)
   assert.equal(rect(wide, '.window-titlebar').height, 32)
@@ -233,9 +372,30 @@ try {
   assert.ok(['linux', 'darwin', 'win32', 'other'].includes(chrome.platform))
   console.log(JSON.stringify({ step: 'idle landing, project draft reload, menus, IME and wide geometry passed', root }))
 
+  await page.evaluate(() => {
+    window.__modelDockAnimations = []
+    const original = Element.prototype.animate
+    Element.prototype.animate = function (frames, options) {
+      const animation = original.call(this, frames, options)
+      if (this.matches('[data-chat-composer-stack]')) window.__modelDockAnimations.push({ frames, options })
+      return animation
+    }
+  })
   await holdCreation()
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   const first = await createdView()
+  const sending = page.getByRole('button', { name: 'Sending', exact: true })
+  await expect(sending).toBeVisible()
+  await expect(sending).toBeDisabled()
+  await expect(sending).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('.composer-send-spinner')).toBeVisible()
+  await expect(modelTrigger).toBeDisabled()
+  const sendingDark = await modelGeometry(page, 'sending-dark')
+  toolbarGeometry(sendingDark)
+  assert.notEqual(sendingDark.nodes.find((node) => node.selector === '.composer-send-spinner').animationName, 'none')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  assert.equal(await page.locator('.composer-send-spinner').evaluate((node) => getComputedStyle(node).animationName), 'none')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   await input.fill('Typing that followed the first Send')
   await input.press('Enter')
   assert.equal((await admissions('newConversation')).length, 1)
@@ -327,13 +487,22 @@ try {
   inViewport(narrow, '.composer-input textarea')
   inViewport(narrow, '.starter-actions button')
   assert.ok(narrow.nodes.filter((node) => ['.app', '.sidebar'].includes(node.selector)).every((node) => node.transitionDuration === '0s'))
+  railReceipts.push(await railState(page, 'Home'))
+  assert.ok(railReceipts.at(-1).every((button) => button.transitionDuration === '0s'))
 
   // A newly selected project must not borrow the old project's provider route.
+  // Hold the real first-project catalogue while a second project independently opens its picker.
+  await holdProjectModels(ownerProject.id)
+  await modelTrigger.click()
+  await desktop.evaluate(async () => { await globalThis.__shellModelHold.ready })
+  await expect(page.getByText('Loading models…', { exact: true })).toBeVisible()
+  const heldCatalog = await modelGeometry(page, 'catalog-pending-reduced')
+  assert.ok(heldCatalog.nodes.filter((node) => node.selector === '.model-picker-loading').every((node) => node.animationName === 'none'))
   await desktop.evaluate(({ dialog }, secondProject) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [secondProject] })
   }, secondProject)
   await holdOtherProjectProviders(ownerProject.id)
-  await input.press('Control+o')
+  await page.keyboard.press('Control+o')
   await page.getByRole('button', { name: 'Review folder access', exact: true }).click()
   await expect(input).toBeVisible()
   const secondProviderProject = await desktop.evaluate(async () => {
@@ -360,6 +529,40 @@ try {
   assert.equal((await admissions('newConversation')).length, 3)
   assert.equal((await admissions('send')).length, 3)
   assert.deepEqual(await page.evaluate((id) => window.namzu.conversations(id), secondOwnerProject.id), [])
+  await modelTrigger.click()
+  await expect(opus).toBeVisible()
+  await expect(sonnet).toBeVisible()
+  const otherCatalogue = (await admissions('models')).at(-1)
+  assert.deepEqual(otherCatalogue.values, [secondOwnerProject.id, 'anthropic', undefined])
+  assert.deepEqual(otherCatalogue.result.models.map(({ id, label }) => ({ id, label })), catalogue.result.models.map(({ id, label }) => ({ id, label })))
+  await page.getByRole('button', { name: 'Use a model ID…', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Model', exact: true }).fill('second-project-custom-model')
+  await page.getByRole('button', { name: 'Use model', exact: true }).click()
+  await expect(modelTrigger).toHaveText('second-project-custom-model')
+  await modelTrigger.click()
+  await page.getByRole('button', { name: 'Quick search', exact: true }).click()
+  await modelSearch.fill('Sonnet')
+  await expect(sonnet).toBeVisible()
+  await expect(opus).toHaveCount(0)
+  await releaseProjectModels()
+  await settleFrames(page)
+  await expect(page.locator('[data-project-label]')).toHaveText('second-project')
+  await expect(modelSearch).toHaveValue('Sonnet')
+  await expect(modelSearch).toBeFocused()
+  await expect(modelTrigger).toHaveText('second-project-custom-model')
+  await expect(sonnet).toBeVisible()
+  await expect(opus).toHaveCount(0)
+  const catalogNarrow = await modelGeometry(page, 'catalog-scoped-narrow-reduced')
+  toolbarGeometry(catalogNarrow)
+  assert.equal(catalogNarrow.reducedMotion, true)
+  for (const node of catalogNarrow.nodes.filter((node) => ['.model-provider-tab', '.model-picker-row', '.model-picker-trigger'].includes(node.selector))) {
+    assert.equal(node.cursor, 'pointer')
+    assert.equal(node.transitionDuration, '0s')
+  }
+  await page.keyboard.press('Escape')
+  await expect(modelTrigger).toBeFocused()
+  assert.equal((await admissions('newConversation')).length, 3)
+  assert.equal((await admissions('send')).length, 3)
   await page.getByRole('button', { name: 'Go back', exact: true }).click()
   await expect(page.locator('[data-project-label]')).toHaveText('project')
   await expect(input).toHaveValue('A readable light-theme landing draft')
@@ -378,9 +581,14 @@ try {
   const agentRequests = requests.filter((request) => request.purpose === 'agent')
   assert.equal(agentRequests.length, 3)
   assert.ok(agentRequests.every((request) => request.model === 'claude-opus-4-7'))
+  const docking = await page.evaluate(() => window.__modelDockAnimations)
+  assert.ok(docking.length > 0)
+  assert.ok(docking.every((animation) => animation.options.duration === 220 && animation.options.easing === 'cubic-bezier(0.32, 0.72, 0, 1)'))
   const result = { native: true, realCli: true, realKernel: true, modelIo: 'scripted', noExternalNetwork: true, root, windowChrome: chrome, headerButtonHierarchy: true, railButtonHierarchy: true, workspaceMenuFocusReturn: true, singleNewConversationButton: true, wideProjectsSidebarCanCollapse: true, actualBackForwardRestoresDraftOwners: true, starterActionsPreserveAuthoredDraft: true, landingBeforeSession: true, projectDraftReload: true, projectDraftSurvivesCatalogFailure: true, projectProviderAdmissionScoped: true, newActionsDoNotCreate: true, imeDoesNotSubmit: true, firstSendCreatesExactlyOne: true, newerTypingPreserved: true, consumedProjectDraftCleared: true, capturedNavigationTarget: true, retryKeepsCreatedIdentity: true, realApproval: true, dragRegionAndMenus: true, rendererNodeDisabled: true, darkLight: true, narrowPersistentRail: true, narrowDrawerOutsideClose: true, narrowDrawerFocusReturn: true, narrowAriaMatchesVisibility: true, reducedMotion: true, noOverflow: true, createdSessionIds: [first.id, second.id, third.id], calls: await calls(), requests }
+  const modelResult = { native: true, realCli: true, realKernel: true, modelIo: 'scripted', noExternalNetwork: true, root, realProviderCatalogue: true, realDriverLabels: true, onlyAvailableProvidersShown: true, providerSvgGlyphsWithoutLetterFallback: true, providerGlyphs, quickSearchEmptyAndRecovery: true, keyboardRadioSelection: true, escapeReturnsTriggerFocus: true, customModelIdRetained: true, lateCatalogueIsProjectScoped: true, neutralRailNoColoredMarker: true, filledActiveRailIconOnly: true, pointerCursor: true, normalMotionAndReducedMotion: true, expandedToolbarModelLeftAndSendRight: true, admissionShowsDisabledBusySending: true, sendingSpinnerRespectsReducedMotion: true, actualDockingTiming: true, docking, narrowPopupInViewport: true, noAdditionalSessionOrAgentRequests: true, catalogueCalls: (await admissions('models')), rail: railReceipts, agentRequestCount: agentRequests.length, createdSessionIds: [first.id, second.id, third.id] }
   await desktop.close(); closed = true
   await writeFile(join(artifacts, 'shell-native-receipt.json'), JSON.stringify(result, null, 2) + '\n')
+  await writeFile(join(artifacts, 'model-picker-native-receipt.json'), JSON.stringify(modelResult, null, 2) + '\n')
   console.log(JSON.stringify(result))
 } catch (error) {
   if (probePage && !probePage.isClosed()) {
