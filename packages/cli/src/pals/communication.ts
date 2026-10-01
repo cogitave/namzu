@@ -1,0 +1,275 @@
+/** CLI composition over SDK identity, current consent and durable session writers. */
+import { randomUUID } from 'node:crypto'
+import {
+	lstatSync,
+	mkdirSync,
+	realpathSync,
+	renameSync,
+	unlinkSync,
+	watch,
+	writeFileSync,
+} from 'node:fs'
+import { join } from 'node:path'
+import {
+	DiskPalCommunicationStore,
+	DiskPalMessagePolicy,
+	DiskSessionLog,
+	type DurableInboundSource,
+	type PalCommunicationSnapshot,
+	type PalDefinition,
+	PalMessageBroker,
+	type PalMessageHostPort,
+	type PalRouteBinding,
+	type SessionId,
+	type TenantId,
+	createPalInboxSource,
+	createPalMessagingTools,
+} from '@namzu/sdk'
+import { restrictToOwner } from '../integrations/providers/credential-store.js'
+import { closeSessions, openSessions } from '../integrations/sessions/store.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import { claimPalConversation } from './conversations.js'
+import { getCliPalStore } from './store.js'
+
+export function cliPalCommunicationPolicy() {
+	return new DiskPalMessagePolicy({
+		root: join(resolveNamzuHome(), 'pal-message-policy'),
+		secureDirectory: restrictToOwner,
+	})
+}
+
+export function cliPalCommunicationStore() {
+	return new DiskPalCommunicationStore({
+		root: join(resolveNamzuHome(), 'pal-message-inbox'),
+		secureDirectory: restrictToOwner,
+	})
+}
+
+function wakeDirectory(palId: string): string {
+	if (!getCliPalStore().get(palId)) throw new Error('Unknown Pal notification recipient.')
+	const root = join(resolveNamzuHome(), 'pal-message-wake')
+	const directory = join(root, palId)
+	for (const path of [root, directory]) {
+		mkdirSync(path, { recursive: true, mode: 0o700 })
+		if (
+			!lstatSync(path).isDirectory() ||
+			lstatSync(path).isSymbolicLink() ||
+			realpathSync(path) !== path
+		)
+			throw new Error('Pal notification directories must be real and have no aliases.')
+		restrictToOwner(path)
+	}
+	return directory
+}
+
+/** Notification files are hints only; the SDK inbox remains authoritative. */
+export function createCliPalMessageHost(
+	runConversation?: PalMessageHostPort['runConversation'],
+): PalMessageHostPort {
+	const pals = getCliPalStore()
+	return {
+		async ensureConversation(binding, signal) {
+			signal.throwIfAborted()
+			const definition = pals.getRevision(binding.key.recipient.palId, binding.profileRevision)
+			const state = await openSessions(definition.workspace)
+			try {
+				if (state.tenantId !== binding.key.recipient.tenantId)
+					throw new Error('Foreign Pal conversation tenant.')
+			} finally {
+				closeSessions(state)
+			}
+			await claimPalConversation(
+				definition.workspace,
+				definition.id,
+				binding.sessionId,
+				binding.profileRevision,
+			)
+			signal.throwIfAborted()
+		},
+		async openConversation(binding, signal) {
+			signal.throwIfAborted()
+			const definition = pals.getRevision(binding.key.recipient.palId, binding.profileRevision)
+			const state = await openSessions(definition.workspace)
+			try {
+				if (state.tenantId !== binding.key.recipient.tenantId)
+					throw new Error('Foreign Pal conversation tenant.')
+				return {
+					projectId: state.projectId,
+					log: DiskSessionLog.at(state.paths, { sessionId: binding.sessionId }),
+				}
+			} finally {
+				closeSessions(state)
+			}
+		},
+		notify(recipient) {
+			const directory = wakeDirectory(recipient.palId)
+			const temporary = join(directory, `${randomUUID()}.tmp`)
+			let failure: unknown
+			try {
+				writeFileSync(temporary, randomUUID(), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+				renameSync(temporary, join(directory, 'signal'))
+			} catch (error) {
+				failure = error
+			}
+			try {
+				unlinkSync(temporary)
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+					failure = failure
+						? new AggregateError([failure, error], 'Pal notification and cleanup failed.')
+						: error
+			}
+			if (failure) throw failure
+		},
+		async runConversation(binding, source, signal) {
+			if (!runConversation) throw new Error('This host has no explicit Pal message dispatcher.')
+			await runConversation(binding, source, signal)
+		},
+	}
+}
+
+export function createCliPalMessagingContext(
+	profile: PalDefinition,
+	contextScope: { readonly sessionId: SessionId; readonly tenantId: TenantId },
+	assertActive: () => void,
+) {
+	const definition = Object.freeze({
+		...profile,
+		model: profile.model ? Object.freeze({ ...profile.model }) : null,
+		...(profile.appearance ? { appearance: Object.freeze({ ...profile.appearance }) } : {}),
+	})
+	const scope = Object.freeze({ ...contextScope })
+	const pals = getCliPalStore()
+	const store = cliPalCommunicationStore()
+	const policy = cliPalCommunicationPolicy()
+	const host = createCliPalMessageHost()
+	const authorize = policy.authorize.bind(policy)
+	const source = {
+		address: { tenantId: scope.tenantId, palId: definition.id },
+		conversationId: scope.sessionId,
+		profileRevision: definition.revision,
+	}
+	const broker = new PalMessageBroker({ pals, store, host, authorize })
+	const tools = createPalMessagingTools({
+		source,
+		sender: broker.sender(source),
+		assertCurrentAdmission: () => assertActive(),
+		async listAuthorizedPals() {
+			const rules = await policy.outgoing(source.address)
+			return rules.flatMap((rule) => {
+				const pal = pals.get(rule.recipient.palId)
+				return pal ? [{ palId: pal.id, name: pal.name }] : []
+			})
+		},
+	})
+	const inbox = (binding: PalRouteBinding) =>
+		createPalInboxSource({ pals, store, host, authorize, binding })
+	const ownBinding = (binding: PalRouteBinding | undefined): PalRouteBinding => {
+		if (
+			!binding ||
+			binding.sessionId !== scope.sessionId ||
+			binding.profileRevision !== definition.revision ||
+			binding.key.recipient.palId !== definition.id ||
+			binding.key.recipient.tenantId !== scope.tenantId
+		)
+			throw new Error('Foreign Pal conversation inbox route.')
+		return binding
+	}
+	const belongsHere = (state: PalCommunicationSnapshot, routeId: string) =>
+		state.routes.find((route) => route.id === routeId)?.sessionId === scope.sessionId
+	const pendingHere = (state: PalCommunicationSnapshot) =>
+		state.messages.some(
+			(message) => message.phase === 'pending' && belongsHere(state, message.routeId),
+		)
+	const assertNoBlockedDelivery = (state: PalCommunicationSnapshot | null) => {
+		const unresolved = state?.messages.find((message) => message.phase === 'claimed')
+		if (state && unresolved && (belongsHere(state, unresolved.routeId) || pendingHere(state)))
+			throw new Error(
+				'Unfinished Pal delivery requires reconciliation before continuing this conversation.',
+			)
+	}
+	const durableInbound: DurableInboundSource = {
+		async claim(context) {
+			if (context.sessionId !== scope.sessionId)
+				throw new Error('Foreign query cannot drain this Pal conversation.')
+			context.signal.throwIfAborted()
+			assertActive()
+			const state = await store.read(source.address)
+			const claimed = state?.messages.find((message) => message.phase === 'claimed')
+			const next =
+				claimed ??
+				state?.messages.find(
+					(message) =>
+						message.phase === 'pending' &&
+						state.routes.find((route) => route.id === message.routeId)?.sessionId ===
+							scope.sessionId,
+				)
+			if (!next) return []
+			let binding = state?.routes.find((route) => route.id === next.routeId)
+			if (binding?.sessionId !== scope.sessionId) {
+				assertNoBlockedDelivery(state)
+				return []
+			}
+			binding = ownBinding(binding)
+			if (binding.phase === 'reserved') {
+				await host.ensureConversation(binding, context.signal)
+				assertActive()
+				binding = await store.activate(binding, {
+					binding,
+					definition,
+					access: await host.openConversation(binding, context.signal),
+				})
+			}
+			const claims = await inbox(binding).claim(context)
+			assertActive()
+			if (!claims.length) assertNoBlockedDelivery(await store.read(source.address))
+			return claims
+		},
+		async recorded(receipts) {
+			for (const receipt of receipts) {
+				const state = await store.read(source.address)
+				const message = state?.messages.find((item) => item.id === receipt.ref.id)
+				const binding = ownBinding(state?.routes.find((item) => item.id === message?.routeId))
+				await inbox(binding).recorded([receipt])
+			}
+		},
+		async wait(signal) {
+			signal.throwIfAborted()
+			const directory = wakeDirectory(definition.id)
+			// Register first, then inspect authoritative state to cover lost hints.
+			await new Promise<void>((resolve, reject) => {
+				let settled = false
+				const cleanup = () => {
+					watcher.close()
+					signal.removeEventListener('abort', onAbort)
+				}
+				const finish = (error?: unknown) => {
+					if (settled) return
+					settled = true
+					cleanup()
+					if (error !== undefined) reject(error)
+					else resolve()
+				}
+				const check = () => {
+					if (settled) return
+					store.read(source.address).then((state) => {
+						if (settled) return
+						try {
+							assertNoBlockedDelivery(state)
+							if (state && pendingHere(state)) finish()
+						} catch (error) {
+							finish(error)
+						}
+					}, finish)
+				}
+				const watcher = watch(directory, { persistent: false }, check)
+				const onAbort = () => finish(signal.reason ?? new Error('Pal inbox wait aborted.'))
+				watcher.on('error', finish)
+				signal.addEventListener('abort', onAbort, { once: true })
+				if (signal.aborted) onAbort()
+				else check()
+			})
+		},
+	}
+	return { tools, durableInbound }
+}

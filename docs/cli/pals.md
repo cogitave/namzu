@@ -34,6 +34,12 @@ change the current pause state, optionally using `--revision`. Metadata commands
 accept `--json`. An omitted expected revision uses the version read when the
 command begins; a competing update is still refused rather than overwritten.
 
+`create` and `update` accept `--appearance <character>/<color>`, for example
+`--appearance spark/violet`. Characters are `pixel`, `sprout` and `spark`; colors
+are `green`, `blue`, `amber`, `violet` and `rose`. Both choices are saved together
+in the shared SDK profile. The desktop uses `pixel/green` when appearance is
+absent; reading an older Pal does not add that default to its stored revision.
+
 `pal chat` opens the regular terminal interface with Pal-specific composition.
 Its exit hint preserves the executable that launched it and reopens the same
 Pal conversation. Missing local-computer setup produces an explicit refusal.
@@ -109,8 +115,8 @@ exact current directory belongs to a Pal.
 | --- | --- | --- |
 | `namzu/pals/list` | none | Saved Pal definitions |
 | `namzu/pals/get` | `{ id }` | Definition or null |
-| `namzu/pals/create` | `{ name, purpose?, model? }` | New definition |
-| `namzu/pals/update` | `{ id, expectedRevision, name?, purpose?, model?, paused? }` | Next immutable definition |
+| `namzu/pals/create` | `{ name, purpose?, model?, appearance? }` | New definition |
+| `namzu/pals/update` | `{ id, expectedRevision, name?, purpose?, model?, appearance?, paused? }` | Next immutable definition |
 | `namzu/pals/conversations/claim` | `{ palId, sessionId }` | `{ sessionId, palId, revision }` |
 | `namzu/pals/conversations/list` | `{ palId }` | Owned recent conversation rows, including empty ones |
 | `namzu/pals/computer/status` | `{ palId }` | Computer availability |
@@ -138,3 +144,61 @@ Pal conversation. Cleanup errors are preserved together. A Pal conversation
 whose job cleanup failed remains closable for an explicit retry.
 
 For the local engine/image requirements, including the supported Windows Podman route, see [Local Pal computer](../sdk/local-pal-computer.md). Engine selection does not change the Pal identity or guest-only tool boundary.
+
+## Directed messaging consent
+
+The terminal and desktop Pal sessions mount the same SDK `list_pals` and
+`send_pal_message` tools. Discovery shows only explicitly granted recipients,
+with ID and name; it does not expose their purpose, history or credentials.
+Sending also passes the current broker policy and the ordinary tool permission
+gate. No Pal has an implicit communication grant.
+
+```sh
+namzu pal grant <sender-id> <recipient-id>
+namzu pal grant <sender-id> <recipient-id> --wake
+namzu pal revoke <sender-id> <recipient-id>
+namzu pal inbox <recipient-id> --json
+namzu pal dispatch <recipient-id> --json
+```
+
+`grant` authorizes explicit sender disclosure and recipient receipt in one
+direction. Reverse replies need a separate reverse grant. `--wake` separately
+permits an explicit dispatcher to start a peer turn. `grant` and `revoke` accept
+`--revision <n>`; zero means a new rule. Omitting it reads the current revision
+and still refuses a concurrent stale update. These commands affect only the
+current Namzu home's local tenant and persisted Pal IDs.
+
+`inbox` reports accepted message ID, source Pal ID, delivery status and owned
+conversation ID. Acceptance does not mean the model has read the message.
+`dispatch` runs one eligible owned route with the recipient's pinned profile and
+actual local computer. Its tools use **strict** review mode: only explicit
+preapproved tool rules can authorize changes or replies without a reviewer.
+Directed message consent does not approve guest writes, shell commands or the
+send tool. Normal interactive Pal turns retain their existing review mode.
+
+For example, an operator can separately preapprove `send_pal_message` through
+the existing `permissions` config. The recipient and reverse route still require
+their own directed grants; preapproving a tool alone cannot bypass those rules.
+
+The same SDK durable input source receives arrivals during a running Pal
+conversation at complete provider/tool boundaries. Cross-process notification
+files are only wake hints; the inbox is authoritative. Stopped or idle receivers
+retain their queue until explicitly dispatched. No perpetual listener, service
+or automatic scheduled dispatcher is installed by these commands.
+Unrelated notification changes do not settle a waiting conversation. Incoming
+work blocked by an unfinished delivery reports a reconciliation error; it does
+not start another provider call or silently restart the earlier task.
+
+Execution rechecks current consent before inference and each tool effect.
+The provider entry itself checks consent, covering revocation after iteration
+events and auxiliary inference such as retries or compaction. Admission cleanup
+always settles the send operation; failed release remains owned for close retry.
+Revocation blocks new work; it does not undo already performed effects or erase
+previously disclosed transcript context. An unknown prior append remains
+`claimed` for verified recovery, rather than being retried as a new task.
+
+State resides under `pal-message-policy`, `pal-message-inbox` and
+`pal-message-wake` in the private Namzu home. The guest never mounts those
+control directories. Existing conversations keep their claimed profile revision,
+including routes accepted before a later profile edit. Notifications and
+discovery do not publish another Pal's transcript.

@@ -2,6 +2,7 @@
 import {
 	BackgroundJobRegistry,
 	DiskSessionLog,
+	type LLMProvider,
 	type PalAdmission,
 	type PalDefinition,
 	type PalEnvironmentLease,
@@ -36,6 +37,7 @@ import {
 	toAgentEvent,
 } from '../tui/agent.js'
 import { projectTurnConversation } from '../tui/conversation-history.js'
+import { createCliPalMessagingContext } from './communication.js'
 
 export interface PalSessionEnvironment {
 	readonly definition: PalDefinition
@@ -64,6 +66,27 @@ function guardHost<T extends object>(
 					throw new Error('This Pal computer does not support that operation.')
 				return method.apply(actual, args)
 			}
+		},
+	})
+}
+
+/** Every inference entry, including compaction/retry calls, rereads live consent. */
+function guardProvider(
+	provider: LLMProvider,
+	assertActive: () => void,
+	assertExecutionAllowed: () => void | Promise<void>,
+): LLMProvider {
+	const guarded = guardHost(provider, assertActive)
+	return new Proxy(guarded, {
+		get(target, key) {
+			if (key === 'chatStream')
+				return async function* (params: Parameters<LLMProvider['chatStream']>[0]) {
+					assertActive()
+					await assertExecutionAllowed()
+					assertActive()
+					yield* target.chatStream(params)
+				}
+			return Reflect.get(target, key, target)
 		},
 	})
 }
@@ -99,6 +122,16 @@ export async function createPalAgentSession(
 		if (closed || !admission) throw new Error('This Pal does not own an active computer admission.')
 		admission.assertActive()
 	}
+	const releaseAdmission = async (workFailure?: unknown) => {
+		try {
+			await admission?.release()
+			admission = undefined
+		} catch (error) {
+			if (workFailure !== undefined)
+				throw new AggregateError([workFailure, error], 'Pal work and admission cleanup failed.')
+			throw error
+		}
+	}
 	const guest = guardHost(
 		binding.lease.sandbox,
 		assertActive,
@@ -122,11 +155,13 @@ export async function createPalAgentSession(
 		},
 	}
 	const allTools = getBuiltinTools()
+	const messaging = createCliPalMessagingContext(binding.definition, scope, assertActive)
 	const computerTool = createComputerUseTool(computer, {
 		unavailableReason: computerUseUnavailableReason(provider),
 	})
 	const tools = [
 		...allTools,
+		...messaging.tools,
 		computerTool,
 		...(binding.lease.browserHost
 			? createBrowserTools(
@@ -138,7 +173,17 @@ export async function createPalAgentSession(
 				)
 			: []),
 	]
-	const sets = [toolset('pal-computer', tools)]
+	let assertExecutionAllowed: (() => void | Promise<void>) | undefined
+	const guardedTools = tools.map((tool) => ({
+		...tool,
+		async execute(input: unknown, context: Parameters<typeof tool.execute>[1]) {
+			assertActive()
+			await assertExecutionAllowed?.()
+			assertActive()
+			return tool.execute(input, context)
+		},
+	}))
+	const sets = [toolset('pal-computer', guardedTools)]
 	const manager = new ToolManager({ toolsets: sets, messages: () => [] })
 	const presenter = createToolPresenter(manager)
 	const jobs = new BackgroundJobRegistry()
@@ -198,6 +243,7 @@ export async function createPalAgentSession(
 		send: async function* (messages, opts) {
 			if (closed) throw new Error('This Pal conversation is closed.')
 			if (activeAbort) throw new Error('This Pal conversation already has active work.')
+			if (admission) throw new Error('This Pal admission needs cleanup before further work.')
 			if (options.scope?.sessionId !== scope.sessionId)
 				throw new Error('Reopen this Pal conversation after switching its session.')
 			const controller = new AbortController()
@@ -205,9 +251,11 @@ export async function createPalAgentSession(
 			opts?.signal?.addEventListener('abort', onAbort, { once: true })
 			if (opts?.signal?.aborted) onAbort()
 			activeAbort = controller
+			assertExecutionAllowed = opts?.assertExecutionAllowed
 			sendSettled = new Promise<void>((done) => {
 				settleSend = done
 			})
+			let sendFailure: unknown
 			try {
 				admission = await binding.admit(controller.signal)
 				assertActive()
@@ -242,9 +290,10 @@ export async function createPalAgentSession(
 						},
 					}
 				} else current = await refresh(current, controller.signal)
-				provider = guardHost(
+				provider = guardProvider(
 					constructProvider(primary.id, current, model, { sessionId: scope.sessionId }),
 					assertActive,
+					() => assertExecutionAllowed?.(),
 				)
 				const events = query({
 					provider,
@@ -266,7 +315,9 @@ export async function createPalAgentSession(
 					]
 						.filter(Boolean)
 						.join('\n\n'),
-					beforeStep: () => {
+					beforeStep: async () => {
+						assertActive()
+						await assertExecutionAllowed?.()
 						assertActive()
 						return undefined
 					},
@@ -291,6 +342,7 @@ export async function createPalAgentSession(
 					},
 					backgroundJobs: jobs,
 					backgroundJobOwner: scope.sessionId,
+					durableInbound: opts?.durableInbound ?? messaging.durableInbound,
 					...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 					...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 					...(opts?.abandonInterrupted ? { abandonInterrupted: true } : {}),
@@ -310,13 +362,19 @@ export async function createPalAgentSession(
 				} finally {
 					await events.return(undefined as never)
 				}
+			} catch (error) {
+				sendFailure = error
+				throw error
 			} finally {
-				await admission?.release()
-				admission = undefined
-				opts?.signal?.removeEventListener('abort', onAbort)
-				activeAbort = undefined
-				settleSend?.()
-				settleSend = undefined
+				try {
+					await releaseAdmission(sendFailure)
+				} finally {
+					opts?.signal?.removeEventListener('abort', onAbort)
+					activeAbort = undefined
+					assertExecutionAllowed = undefined
+					settleSend?.()
+					settleSend = undefined
+				}
 			}
 		},
 		close: async () => {
@@ -326,6 +384,7 @@ export async function createPalAgentSession(
 			activeAbort?.abort(new Error('Pal conversation closed.'))
 			const cleanup = (async () => {
 				await sendSettled
+				await releaseAdmission()
 				await jobs.killOwner(scope.sessionId)
 				await manager.dispose()
 				cleaned = true

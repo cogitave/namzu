@@ -1725,3 +1725,23 @@ export {
 } from './peers/index.js'
 export { DiskPalStore, PalConflictError } from './pals/store.js'
 export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
+
+export { isInboundDeliveryRef } from './types/message/inbound-delivery.js'
+
+export {
+	DiskPalCommunicationStore,
+	PalCommunicationConflictError,
+} from './pals/communication/store.js'
+export { PalMessageBroker } from './pals/communication/broker.js'
+export { createPalInboxSource } from './pals/communication/inbound.js'
+export { dispatchPalMessagesOnce } from './pals/communication/dispatch.js'
+export {
+	DiskPalMessagePolicy,
+	PalMessagePermissionConflictError,
+} from './pals/communication/policy.js'
+export {
+	createPalActivitySource,
+	PalActivityAccessDeniedError,
+	PalActivityIntegrityError,
+	PalActivityReadLimitError,
+} from './pals/activity/source.js'

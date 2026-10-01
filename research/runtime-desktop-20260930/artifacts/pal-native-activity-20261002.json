@@ -1,0 +1,54 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "callerWorkingDirectoryKind": "WSL UNC",
+  "maxRecordsPerPage": 7,
+  "maxRequestedBytesPerPage": 131072,
+  "journals": [
+    {
+      "pages": 21,
+      "facts": 60,
+      "scannedRecords": 144,
+      "stableIds": true,
+      "restartCursorUnchanged": true
+    },
+    {
+      "pages": 16,
+      "facts": 50,
+      "scannedRecords": 111,
+      "stableIds": true,
+      "restartCursorUnchanged": true
+    }
+  ],
+  "checks": [
+    "both real original native journals are read in bounded pages with stable, unique fact IDs",
+    "concatenated page facts equal a separately verified original-journal pass",
+    "new native processes resume trusted privately stored cursors and preserve unchanged tail cursors",
+    "closed metadata excludes original private prompts, peer bodies, tool arguments/results, commands and PNG payloads",
+    "current denied host observation consent returns no page and performs no journal access",
+    "consent revoked at the actual final size-read boundary suppresses the entire pending page",
+    "a cursor belonging to the other Pal is refused before its journal is opened",
+    "all observed original journal and pinned profile bytes remain unchanged; no writer, model or computer is started"
+  ],
+  "sourceSha256": {
+    "index.js": "30b9109b06b89ae5bdee64c49e8d7da8073c97b1e2209fc6e48f0ea587edb48e",
+    "public-runtime.js": "86974c57e1e14843247437ed7839a5469b11e42700b1b806a205eb3aab570441",
+    "pals/store.js": "a128785ee459f799b5f96510822ff327c922f6c3e7541bc730441ebce9cfaf70",
+    "pals/activity/source.js": "ae6c0f9598c4f6686b595f38bb4514e42009e1022ba7febd769cfd0e6d2ed437",
+    "pals/activity/projection.js": "046213aea328d8714db38b47847f4105978a2cc76420db6ea0260ada8e82d9bb",
+    "pals/activity/types.js": "01ae2a5b120382f9a648ced7ee8507493a134f216d100fc61600c6c9738235d2",
+    "store/session-log/disk.js": "58ec55a99c8637fe0a09dc6b49916c7a02069dd9f4060c5862a945fe742c1ee1",
+    "store/session-log/chain.js": "9b47b97316a5365e8a01a28e827f7f78607deda4b3866732c5c27b327bec4cf4",
+    "session/log-hash.js": "8d94976fd8dd84d51afd2839b2ef59fd5de03c2bbef39307212b04f5b71d70dd",
+    "types/session/records.js": "7b52aeebf19ff0eeb4752657fc396dd0a183bbc7d08dae002ddd9b355615dffa"
+  },
+  "harnessSha256": "cd4502a1c2cf07509c4e485f0b49a52740861ba00f0201f1d683a0881bf299f8",
+  "limitations": [
+    "Built local native SDK consumer; not an npm registry installation.",
+    "Observation is read-only over completed original journals; no concurrent writer is exercised.",
+    "The required host observation consent port is an explicit fixture callback; this is not a CLI/desktop activity subscription proof.",
+    "Only verified prior cursor outputs privately saved by the host are resumed; raw renderer/model cursors are not accepted.",
+    "This proof does not establish authenticity of the previously consumed prefix by rescanning it."
+  ]
+}

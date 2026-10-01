@@ -1,10 +1,24 @@
 # Decision: durable Pal messages and authorized conversation routes
 
-Date: 2026-10-02. Status: implementation proposal awaiting review. The interfaces
-and files proposed below are not shipped exports. This decision follows the
+Date: 2026-10-02. Status: accepted for local Pal messages; native implementation,
+source review, workspace checks and process regressions passed in the local
+feature checkpoint. No push or publication is authorized.
+Activity subscriptions, external channels and approval actions remain separate
+proposals. The original API sketches below are design history; the actual
+additive declarations are described in [SDK Pals](../../docs/sdk/pals.md) and
+[query delivery](../../docs/sdk/query.md). This decision follows the
 [pinned communication source audit](PAL-COMMUNICATION-CHANNELS-20261002.md) and
 the current SDK/CLI/desktop Pal implementation in the schedule-ownership
 worktree. No upstream SDK dependency is proposed.
+
+The first observation slice is implemented separately: [live lifecycle and
+bounded activity pages](../../docs/sdk/pal-activity.md) contain approved metadata
+from the exact original owned journal, with current observation consent. Cursors
+are unchanged outputs retained by the trusted host, not client credentials; the
+reader rechecks root and anchor bytes and verifies new successors without
+rescanning consumed prefixes. No observation fact approves an action, publishes
+a private message or wakes a Pal. Durable subscriptions and authenticated
+channel ingress still need their separate authority and persistence layer.
 
 ## Decision
 
@@ -129,6 +143,13 @@ remote transport displayed a reply. Pending intents are ordered by committed
 recipient inbox ordinal, not caller timestamps. Deduplication evidence must
 survive archival; pending work is never silently evicted. Pending limits are
 explicit host resource policy, with an admission error, rather than a token cap.
+
+The implementation adds a global immutable reservation scoped to captured
+source conversation and operation ID before the recipient revision transaction.
+This prevents the same operation from targeting two recipients. The two commits
+are deliberately recoverable, not cross-record atomic: a reservation-only
+failure permits an identical retry with its original selected profile; changed
+content or target conflicts. Receipt means the recipient commit completed.
 
 | State | Meaning | Allowed next step |
 | --- | --- | --- |
@@ -348,6 +369,13 @@ conversation claim are settled. Root owns public SDK/CLI documentation,
 needed for these slices.
 
 ## Required proof before "Pals can talk" is reported
+
+The [native Windows round-trip receipt](artifacts/pal-native-messaging-20261002.json)
+verifies production CLI/SDK routing and exact session receipts using two real
+local guests, guest tools/PNG, original-conversation replies, restart persistence
+and revoked dispatch. Its model/discovery is explicitly scripted. The host
+contract and finite dispatcher are usable; a continuous listener, native TUI
+busy-message injection and an external account are not established by this run.
 
 1. Two disk-store instances race first reservation and duplicate acceptance:
    exactly one immutable binding/ordinal; matching retry gets the same receipt;

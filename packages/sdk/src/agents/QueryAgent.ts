@@ -33,6 +33,7 @@ const configRoutes = {
 	checkpointStore: 'query',
 	sandbox: 'turn',
 	inboundMessages: 'query',
+	durableInbound: 'query',
 	projectInstructionContext: 'query',
 	allowedTools: 'special',
 	toolResultGuardrails: 'query',

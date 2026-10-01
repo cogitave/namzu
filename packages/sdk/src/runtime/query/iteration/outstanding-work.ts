@@ -160,7 +160,7 @@ export async function* holdForOutstandingWork(
 	ctx: IterationContext,
 	iterationNum: number,
 	hasToolCalls: boolean,
-	deliverInbound: () => number,
+	deliverInbound: () => number | Promise<number>,
 ): AsyncGenerator<SessionEvent, boolean> {
 	const inbox = ctx.completionInbox?.hasPendingWork ? ctx.completionInbox : undefined
 	const jobs = ctx.awaitedJobs?.hasPendingWork ? ctx.awaitedJobs : undefined
@@ -197,6 +197,7 @@ export async function* holdForOutstandingWork(
 			...(inbox ? [inbox.waitForArrival(graceMs, waiting.signal)] : []),
 			...(jobs ? [jobs.waitForArrival(graceMs, waiting.signal)] : []),
 			...(ctx.waitForInbound ? [ctx.waitForInbound(waiting.signal)] : []),
+			...(ctx.durableInbound?.wait ? [ctx.durableInbound.wait(waiting.signal)] : []),
 		])
 	} catch (error) {
 		if (!runSignal.aborted) throw error
@@ -213,7 +214,7 @@ export async function* holdForOutstandingWork(
 		)
 	}
 	const exited = deliverAwaitedJobExits(ctx)
-	const inbound = deliverInbound()
+	const inbound = await deliverInbound()
 	if (arrived.length === 0 && !exited && inbound === 0) return false
 	await ctx.emitEvent({
 		type: 'iteration_completed',

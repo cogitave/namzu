@@ -1,8 +1,11 @@
 # SDK
 
 * [Persistent Pals and computer admission](pals.md) - SDK identity, immutable profile revisions and required local-computer admission.
+* [Pal lifecycle and activity observations](pal-activity.md) - Live computer facts and authorized bounded pages from an owned original session journal.
 
 The kernel.
+
+* [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.
 * [Manual compaction](manual-compaction.md) - Retain removed originals before publishing a host-requested history replacement.

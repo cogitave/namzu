@@ -1,0 +1,151 @@
+.pal-character {
+	display: inline-flex;
+	flex: none;
+	width: 64px;
+	height: 72px;
+	color: var(--foreground);
+}
+.pal-character > svg {
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+.pal-character-compact {
+	width: 25px;
+	height: 28px;
+}
+.pal-character-avatar {
+	width: 64px;
+	height: 72px;
+}
+.pal-character-choice {
+	width: 64px;
+	height: 72px;
+}
+.pal-character-hero {
+	width: 228px;
+	height: 257px;
+}
+.pal-character-scene {
+	position: relative;
+	display: inline-flex;
+	width: 260px;
+	height: 280px;
+	flex: none;
+}
+.pal-character-scene > canvas {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	transition: opacity var(--motion-duration) var(--motion-ease);
+}
+.pal-character-fallback {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+.pal-character-fallback .pal-character {
+	width: 100%;
+	height: 100%;
+}
+.pal-character-scene[data-ready] > canvas {
+	opacity: 1;
+}
+.pal-character-scene[data-ready] > .pal-character-fallback {
+	visibility: hidden;
+}
+.pal-character-body {
+	transform-origin: 80px 130px;
+	animation: pal-character-idle 4.8s ease-in-out infinite;
+}
+.pal-character-eyes {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: pal-character-blink 6.6s linear infinite;
+}
+.pal-character-face {
+	animation: pal-character-look 11s ease-in-out infinite;
+}
+.pal-character-shadow {
+	transform-origin: 80px 161px;
+	animation: pal-character-ground 4.8s ease-in-out infinite;
+}
+.pal-character-leaf {
+	transform-origin: 80px 43px;
+	animation: pal-character-leaf 4.8s ease-in-out infinite;
+}
+.pal-character-compact *,
+.pal-character-choice * {
+	animation: none;
+}
+.pal-character[data-paused] * {
+	animation-play-state: paused;
+}
+@keyframes pal-character-idle {
+	0%,
+	100% {
+		transform: translateY(0) rotate(-1deg);
+	}
+	50% {
+		transform: translateY(-7px) rotate(1deg);
+	}
+}
+@keyframes pal-character-ground {
+	0%,
+	100% {
+		transform: scaleX(1);
+		opacity: 0.12;
+	}
+	50% {
+		transform: scaleX(0.85);
+		opacity: 0.08;
+	}
+}
+@keyframes pal-character-blink {
+	0%,
+	40%,
+	43%,
+	100% {
+		transform: scaleY(1);
+	}
+	41.5% {
+		transform: scaleY(0.08);
+	}
+}
+@keyframes pal-character-look {
+	0%,
+	32%,
+	60%,
+	100% {
+		transform: translateX(0);
+	}
+	38%,
+	52% {
+		transform: translateX(3px);
+	}
+	75%,
+	87% {
+		transform: translateX(-2px);
+	}
+}
+@keyframes pal-character-leaf {
+	0%,
+	100% {
+		transform: rotate(-3deg);
+	}
+	50% {
+		transform: rotate(5deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pal-character * {
+		animation: none;
+	}
+	.pal-character-scene > canvas {
+		transition: none;
+	}
+}

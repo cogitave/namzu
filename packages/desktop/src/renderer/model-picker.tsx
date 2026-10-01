@@ -45,6 +45,7 @@ export function ModelPicker({
 	onChange,
 	projectId,
 	sessionId,
+	loadCatalogue,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -52,6 +53,7 @@ export function ModelPicker({
 	onChange: (choice: ModelChoice) => void
 	projectId: string
 	sessionId?: string
+	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 }) {
 	const [open, setOpen] = useState(false)
 	const provider = providers.available.find((item) => item.id === choice.provider)
@@ -95,6 +97,7 @@ export function ModelPicker({
 					choice={choice}
 					projectId={projectId}
 					sessionId={sessionId}
+					loadCatalogue={loadCatalogue}
 					onChoose={(next, close) => {
 						if (disabled) return
 						onChange(next)
@@ -112,11 +115,13 @@ function ModelBrowser({
 	projectId,
 	sessionId,
 	onChoose,
+	loadCatalogue,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
 	projectId: string
 	sessionId?: string
+	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	onChoose: (choice: ModelChoice, close?: boolean) => void
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
@@ -142,8 +147,11 @@ function ModelBrowser({
 			if (requested.current.has(provider.id)) return
 			requested.current.add(provider.id)
 			setCatalogues((all) => ({ ...all, [provider.id]: { loading: true } }))
-			void window.namzu
-				.models(projectId, provider.id, sessionId)
+			void (
+				loadCatalogue
+					? loadCatalogue(provider.id)
+					: window.namzu.models(projectId, provider.id, sessionId)
+			)
 				.then((value) => {
 					if (mounted.current)
 						setCatalogues((all) => ({ ...all, [provider.id]: { loading: false, value } }))
@@ -159,7 +167,7 @@ function ModelBrowser({
 						}))
 				})
 		},
-		[projectId, sessionId],
+		[projectId, sessionId, loadCatalogue],
 	)
 	useEffect(() => {
 		const targets = searching ? providers.available : active ? [active] : []

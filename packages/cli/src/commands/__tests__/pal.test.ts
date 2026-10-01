@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { EXIT_USAGE } from '../../exit-codes.js'
 import { createFormatter } from '../../output/index.js'
-import { getPal, listPals } from '../../pals/store.js'
+import { getPal, getPalRevision, listPals } from '../../pals/store.js'
 import { createPalCommand } from '../pal.js'
 
 let root: string
@@ -64,3 +64,23 @@ it('refuses unknown model providers and ambiguous purpose flags before creating 
 	).toBe(EXIT_USAGE)
 	expect(listPals()).toEqual([])
 })
+
+it('persists a terminal appearance selection and retains it in its original revision', async () => {
+	const c = command()
+	expect(await c.run('create', 'Research', '--appearance', 'spark/violet')).toBe(0)
+	const pal = listPals()[0]
+	if (!pal) throw new Error('Expected saved Pal')
+	expect(pal.appearance).toEqual({ character: 'spark', color: 'violet' })
+	expect(await c.run('update', pal.id, '--revision', '1', '--appearance', 'sprout/rose')).toBe(0)
+	expect(getPal(pal.id)?.appearance).toEqual({ character: 'sprout', color: 'rose' })
+	expect(getPalRevision(pal.id, 1).appearance).toEqual({ character: 'spark', color: 'violet' })
+})
+
+it.each(['pixel', 'unknown/green', 'pixel/red', 'pixel/green/extra'])(
+	'refuses invalid appearance %s before creating a Pal',
+	async (appearance) => {
+		const c = command()
+		expect(await c.run('create', 'Invalid', '--appearance', appearance)).toBe(EXIT_USAGE)
+		expect(listPals()).toEqual([])
+	},
+)

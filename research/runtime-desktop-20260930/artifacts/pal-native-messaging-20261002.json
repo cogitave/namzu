@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "checks": [
+    "native CLI creates two private Pals and persists two directed wake grants",
+    "actual Pal query ToolExecutor sends one pending durable message without starting recipient inference",
+    "finite production CLI dispatch records exact SDK receipt before scripted recipient sees input",
+    "recipient query uses actual guest files/Linux shell/PNG and cannot see sender private history",
+    "replyTo routes explicit reply to the original sender conversation",
+    "original conversation receives durable reply and retains its own guest file after computer restart",
+    "two distinct real local computers retain isolated guest files and produce actual PNGs",
+    "revoked directed permission blocks accepted input dispatch without another model request"
+  ],
+  "limitations": [
+    "Built local consumer snapshot, not registry install.",
+    "Only model/discovery is scripted; no credentialed inference.",
+    "No external channels, continuous listener or native TUI message injection tested."
+  ],
+  "fixtureSourceSha256": "6fd83b33e87d65c0a6bb8cec1e5cff06a212cc435f9c1adf64993cfa0a7f342d"
+}

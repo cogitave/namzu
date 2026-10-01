@@ -79,12 +79,15 @@ export async function claimPalConversation(
 	cwd: string,
 	palId: string,
 	sessionId: string,
+	pinnedRevision?: number,
 ): Promise<{ sessionId: string; palId: string; revision: number }> {
 	const pal = getPal(palId)
 	if (!pal || pal.workspace !== cwd || palAtWorkspace(cwd)?.id !== palId)
 		throw new Error('This Pal does not own the current workspace.')
 	if (pal.paused) throw new Error('This Pal is paused.')
 	if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
+	const definition = getPalRevision(palId, pinnedRevision ?? pal.revision)
+	if (definition.workspace !== cwd) throw new Error('Pal workspace identity changed.')
 	const state = await openSessions(cwd)
 	try {
 		const existing = await readConversationFacts(state, asSessionId(sessionId))
@@ -92,16 +95,18 @@ export async function claimPalConversation(
 			const binding = await palConversationBinding(cwd, sessionId)
 			if (!binding || binding.pal.id !== palId)
 				throw new Error('This conversation is not claimed by this Pal.')
+			if (pinnedRevision !== undefined && binding.definition.revision !== pinnedRevision)
+				throw new Error('This conversation belongs to another Pal profile revision.')
 			return { sessionId, palId, revision: binding.definition.revision }
 		}
 		await startConversation(state, {
 			id: asSessionId(sessionId),
 			origin: {
 				protocol: 'desktop',
-				externalSessionId: tag(pal.id, pal.revision, sessionId),
+				externalSessionId: tag(pal.id, definition.revision, sessionId),
 			},
 		})
-		return { sessionId, palId, revision: pal.revision }
+		return { sessionId, palId, revision: definition.revision }
 	} finally {
 		closeSessions(state)
 	}

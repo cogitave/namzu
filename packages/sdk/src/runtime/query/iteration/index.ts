@@ -49,6 +49,7 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import { createCallbackInference } from '../callback-inference.js'
+import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
@@ -184,6 +185,7 @@ export class IterationOrchestrator {
 	private stopDeferredForOutstandingWork = false
 	/** One current input, independent of the compactable history array. */
 	private latestUserMessage: UserMessage | undefined
+	private initialDurableDelivered = false
 
 	constructor(ctx: IterationContext) {
 		this.ctx = {
@@ -293,10 +295,23 @@ export class IterationOrchestrator {
 		this.ctx = { ...this.ctx, rootSpan: span }
 	}
 
+	/** Fresh input is recorded before guards; restored tool batches must finish first. */
+	async deliverInitialDurable(): Promise<void> {
+		if (this.initialDurableDelivered) return
+		await deliverDurableInbound(
+			this.ctx.recorder,
+			this.ctx.durableInbound,
+			this.ctx.abortController.signal,
+		)
+		this.initialDurableDelivered = true
+	}
+
 	async *runLoop(): AsyncGenerator<SessionEvent> {
 		const { turnConfig, recorder } = this.ctx
 		const { model } = turnConfig
 		const tracer = getTracer()
+		// Initial durable input arrives before checkpoints, plan gates or inference.
+		await this.deliverInitialDurable()
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
 		this.answerReviewAttempts = this.ctx.checkpointMgr.restoredAnswerReviewAttempts ?? 0
@@ -1175,7 +1190,7 @@ export class IterationOrchestrator {
 									const changed = yield* holdForOutstandingWork(this.ctx, iterationNum, false, () =>
 										this.deliverInbound(),
 									)
-									const inbound = this.deliverInbound()
+									const inbound = await this.deliverInbound()
 									if (changed || inbound > 0) continue
 								}
 								if (this.ctx.abortController.signal.aborted) {
@@ -1371,7 +1386,7 @@ export class IterationOrchestrator {
 						// After the outstanding-work hold above, so a delivery
 						// does not race a worker still finishing, and before the
 						// settle below, which is the last moment it can matter.
-						if (!forceFinalize && this.deliverInbound() > 0) {
+						if (!forceFinalize && (await this.deliverInbound()) > 0) {
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								turnId: recorder.turnId,
@@ -1516,7 +1531,7 @@ export class IterationOrchestrator {
 							break
 						}
 						if (!forceFinalize) {
-							const inbound = this.deliverInbound()
+							const inbound = await this.deliverInbound()
 							// Tool-result steering may already have been delivered by
 							// runToolReview. Its candidate still answers the older input.
 							if (inbound > 0 || this.latestUserMessage !== operatorInputAtDispatch) continue
@@ -1658,7 +1673,7 @@ export class IterationOrchestrator {
 					// and never deliver it. Placed here rather than at the top of
 					// the next iteration so a message queued during THIS turn is
 					// in the history the next request is built from.
-					this.deliverInbound()
+					await this.deliverInbound()
 
 					await runAdvisoryPhase(this.ctx, iterationNum, response, this.getAdvisoryTurnContext())
 
@@ -1883,7 +1898,7 @@ export class IterationOrchestrator {
 		}
 	}
 
-	private deliverInbound(): number {
+	private async deliverInbound(): Promise<number> {
 		const queued = this.ctx.inboundMessages?.() ?? []
 		for (const message of queued) {
 			this.ctx.recorder.pushMessage(message)
@@ -1900,7 +1915,12 @@ export class IterationOrchestrator {
 			this.rememberUserMessage(createRuntimeContextMessage(stranded, 'steering'))
 		}
 
-		return queued.length + (stranded ? 1 : 0)
+		const durable = await deliverDurableInbound(
+			this.ctx.recorder,
+			this.ctx.durableInbound,
+			this.ctx.abortController.signal,
+		)
+		return queued.length + (stranded ? 1 : 0) + durable
 	}
 
 	private recordStep(input: {

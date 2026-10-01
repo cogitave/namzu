@@ -1,4 +1,5 @@
 import type { GoalId, MessageId } from '../ids/index.js'
+import { type InboundDeliveryRef, isInboundDeliveryRef } from './inbound-delivery.js'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -367,6 +368,8 @@ export type RuntimeContextMessageKind = (typeof RUNTIME_CONTEXT_MESSAGE_KINDS)[n
 export interface RuntimeContextMessageSource {
 	readonly type: 'runtime-context'
 	readonly kind: RuntimeContextMessageKind
+	/** Optional durable host delivery identity; it never grants operator authority. */
+	readonly deliveryRef?: InboundDeliveryRef
 }
 
 export type UserMessageSource =
@@ -422,11 +425,13 @@ export function isRuntimeContextMessageSource(
 	const candidate = value as {
 		readonly type?: unknown
 		readonly kind?: unknown
+		readonly deliveryRef?: unknown
 	}
 	return (
 		candidate.type === 'runtime-context' &&
 		typeof candidate.kind === 'string' &&
-		(RUNTIME_CONTEXT_MESSAGE_KINDS as readonly string[]).includes(candidate.kind)
+		(RUNTIME_CONTEXT_MESSAGE_KINDS as readonly string[]).includes(candidate.kind) &&
+		(candidate.deliveryRef === undefined || isInboundDeliveryRef(candidate.deliveryRef))
 	)
 }
 

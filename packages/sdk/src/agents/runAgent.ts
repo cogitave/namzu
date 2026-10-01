@@ -152,6 +152,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	 * memory.
 	 */
 	sessionLog?: QueryParams['sessionLog']
+	/** Durable host input, flushed and acknowledged before inference. Requires sessionLog. */
+	durableInbound?: QueryParams['durableInbound']
 	/** Optional checkpoint store; omitted uses the resolved disk layout. */
 	checkpointStore?: QueryParams['checkpointStore']
 
@@ -280,6 +282,7 @@ const RUN_AGENT_OPTION_ROUTES = {
 	workingDirectory: 'special',
 	paths: 'special',
 	sessionLog: 'query',
+	durableInbound: 'query',
 	checkpointStore: 'query',
 	maxIterations: 'special',
 	tokenBudget: 'special',

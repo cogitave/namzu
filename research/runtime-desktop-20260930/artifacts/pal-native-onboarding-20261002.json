@@ -1,0 +1,55 @@
+{
+  "platform": "win32",
+  "scope": "Owned native Windows Electron window, fresh private NAMZU_HOME/userData, live Vite renderer and production preload/Operator/native CLI",
+  "steps": [
+    {
+      "step": "owned-native-window",
+      "platform": "win32",
+      "electron": "44.4.5"
+    },
+    {
+      "step": "chat-onboarding-before-inference-with-initialized-WebGL"
+    },
+    {
+      "step": "actual-native-provider-catalogue-selection"
+    },
+    {
+      "step": "native-renderer-IPC-Operator-ACP-persists-name-model-appearance",
+      "appearance": {
+        "character": "sprout",
+        "color": "blue"
+      },
+      "model": {
+        "provider": "anthropic",
+        "model": "claude-opus-5"
+      }
+    },
+    {
+      "step": "second-native-Pal-unheaded-list-and-New-Pal-entry"
+    },
+    {
+      "step": "first-owned-window-and-ACP-closed"
+    },
+    {
+      "step": "owned-native-window",
+      "platform": "win32",
+      "electron": "44.4.5"
+    },
+    {
+      "step": "native-process-restart-retains-two-profiles-model-and-customization"
+    },
+    {
+      "step": "owned-native-window-and-ACP-closed"
+    }
+  ],
+  "faults": [],
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "limitations": [
+    "Built consumer snapshot, not registry installation.",
+    "Onboarding and metadata only; real guest execution is covered by separate native proofs."
+  ],
+  "passed": true,
+  "completedAt": "2026-10-01T23:05:07.163Z",
+  "fixtureSourceSha256": "40d9d01542751430d16dcdd249719b6d169c70b913133a483879c150de1de49c"
+}

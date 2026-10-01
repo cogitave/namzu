@@ -1,4 +1,4 @@
-import type { AcpSessionUpdate, ReasoningEffort, ReviewMode } from '@namzu/sdk'
+import type { AcpSessionUpdate, PalAppearance, ReasoningEffort, ReviewMode } from '@namzu/sdk'
 
 export interface AttachmentView {
 	id: string
@@ -84,6 +84,7 @@ export interface PalView {
 	revision: number
 	workspace: string
 	model: { provider: string; model: string } | null
+	appearance?: PalAppearance
 	paused: boolean
 	createdAt: string
 	updatedAt: string
@@ -92,6 +93,7 @@ export interface PalInput {
 	name: string
 	purpose?: string
 	model?: PalView['model']
+	appearance?: PalAppearance
 }
 export interface PalChanges extends PalInput {
 	paused?: boolean

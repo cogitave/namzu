@@ -37,6 +37,14 @@ provider credential. `PalCreate` accepts name, optional purpose and optional
 model; `PalUpdate` accepts name, purpose, model and paused. Multiline purposes
 are retained.
 
+`PalDefinition`, `PalCreate` and `PalUpdate` also accept optional
+`appearance: PalAppearance`. Its complete shape is `{ character, color }`: characters are
+`pixel`, `sprout` or `spark`; colors are `green`, `blue`, `amber`, `violet` or
+`rose`. Unknown values and extra fields are refused. Appearance is saved in the
+same immutable profile revision as the other metadata. Omitted appearance stays
+absent in existing records and unrelated edits; hosts choose their own display
+default without rewriting the SDK record.
+
 Each successful edit publishes an exclusive next revision. Existing revision
 files remain unchanged. Two editors using the same expected revision cannot
 both publish it: the loser receives `PalConflictError` and must reload.
@@ -92,6 +100,70 @@ computers. A failed release remains tracked and unavailable; stopping or closing
 can be retried. A retired sandbox requires an explicit confirmed stop before
 replacement. No failed cleanup is reported as a stopped computer.
 
-This API supplies identity and admission. It does not start a resident daemon,
-create schedules, run Teams or expose host plugins automatically. Those hosts
-must bind their own conversation logs and operations to the admitted Pal.
+## Durable communication
+
+`PalAddress` contains a Namzu `tenantId` and stable `palId`. A `PalRouteBinding`
+pins exactly one owned conversation and immutable profile revision. A different
+Pal's transcript, browser, files and credentials are not shared by addressing it.
+
+`DiskPalCommunicationStore({ root, secureDirectory?, maxPending? })` stores route
+reservations and incoming intents in immutable recipient revisions. The optional
+pending limit defaults to 256; admission refuses a full queue rather than
+evicting accepted work. It is a queue resource bound, not a model token budget.
+Roots are host-selected; Windows hosts should supply their current-user privacy
+hook. Process restart recovery is supported on local filesystems with exclusive
+hard-link publication. Power-loss durability is not claimed.
+
+`PalMessageBroker({ pals, store, authorize, host })` requires a current policy and
+a trusted `PalMessageHostPort`. `sender({ address, conversationId,
+profileRevision })` captures the sender independently of model input. The host
+must return actual owned session logs through `openConversation`; manufactured
+membership evidence cannot activate a route. `send({ operationId, recipient,
+body, replyTo?, dialogKey? })` returns durable **acceptance**, not delivery or
+completion. The caller supplies a stable executor/outbox operation identity;
+retrying an uncertain operation must reuse it with identical content and target.
+
+Acceptance first reserves the immutable operation under its captured sender
+conversation and operation ID, then atomically publishes the recipient route
+and message. These are two recoverable commits, not a cross-record transaction.
+If only the first stage commits, an identical retry completes it using the
+original recipient/profile; changed content or another recipient is refused.
+The acceptance receipt is returned only after the second commit completes.
+
+An incoming delivery progresses from `pending` to one exact `claimed` writer,
+then to `recorded` after normal message append, awaited flush and verified
+acknowledgement. One recipient has at most one unresolved claim. Compaction
+does not remove original delivery evidence. Unknown stop/append outcomes retain
+their claim; clocks do not prove non-delivery and cannot authorize reinjection.
+
+`createPalInboxSource` binds this storage to the optional
+[query durable input port](query.md). Peer text remains untrusted runtime context,
+with an exact delivery reference. It never becomes an operator request, tool
+approval or permission grant. `dispatchPalMessagesOnce` is a finite explicit
+host operation; the host owns ordinary query execution and computer admission.
+Current receive and wake policy is checked separately. A dispatch host must also
+recheck execution consent before each paid request and tool effect.
+An unverifiable prior claim blocks delivery; the finite dispatcher reports
+`idle` with reason `unresolved`. Recorded-input acknowledgement proves durable
+transcript delivery, not that subsequent inference or task effects succeeded.
+
+`DiskPalMessagePolicy({ root, secureDirectory? })` is an optional local operator
+policy. Missing rules deny. `update({ source, recipient, expectedRevision,
+enabled, allowWake })` grants or revokes one direction with compare-and-update;
+zero creates a new rule. Reverse communication requires a separate rule. Wake
+consent is explicit. `get` and `outgoing` return immutable current revisions;
+`authorize` reads current consent on every call. A stored grant reference is
+audit evidence, never continuing authority. Hosts can inject another policy
+instead of this implementation.
+
+`createPalMessagingTools` requires a captured sender/context, a current admission
+callback and an explicitly authorized discovery callback. It exposes
+`send_pal_message` and `list_pals`. The send operation identity comes from the
+actual executor's session, batch and call IDs; a direct call without those IDs
+refuses. The discovery view returns only declared Pal ID/name/description fields;
+visibility does not itself grant sending authority. Replies must name an observed
+incoming message and return to its authorized original conversation.
+
+Communication does not start a resident daemon, create schedules, configure an
+external transport or expose host plugins automatically. Pal Team coordination
+and external channel membership are separate host concerns.

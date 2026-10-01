@@ -128,6 +128,7 @@ const api: DesktopApi = {
 			name: input.name.trim(),
 			purpose: input.purpose?.trim() ?? '',
 			model: input.model ?? null,
+			appearance: input.appearance,
 			paused: false,
 			revision: 1,
 			workspace: `/sample/pals/${id}`,

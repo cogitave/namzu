@@ -1,0 +1,129 @@
+{
+  "passed": true,
+  "gates": [
+    "pnpm typecheck",
+    "pnpm lint",
+    "pnpm test",
+    "pnpm build",
+    "pnpm --filter @namzu/sdk test:proc",
+    "pnpm docs:check",
+    "node tools/check-doc-fences.mjs",
+    "project references",
+    "external-name audit",
+    "log standard",
+    "signature types exported",
+    "SDK test presence",
+    "publish metadata",
+    "git diff --check"
+  ],
+  "tests": {
+    "packages/files": {
+      "passed": 48,
+      "skipped": 11
+    },
+    "packages/sdk": {
+      "passed": 9804,
+      "skipped": 0
+    },
+    "packages/desktop": {
+      "passed": 67,
+      "skipped": 0
+    },
+    "packages/computer-use": {
+      "passed": 165,
+      "skipped": 0
+    },
+    "packages/browser": {
+      "passed": 133,
+      "skipped": 42
+    },
+    "packages/live": {
+      "passed": 25,
+      "skipped": 0
+    },
+    "packages/ag-ui": {
+      "passed": 189,
+      "skipped": 0
+    },
+    "packages/providers/anthropic": {
+      "passed": 251,
+      "skipped": 44
+    },
+    "packages/lsp": {
+      "passed": 27,
+      "skipped": 0
+    },
+    "packages/providers/deepseek": {
+      "passed": 44,
+      "skipped": 0
+    },
+    "packages/providers/bedrock": {
+      "passed": 127,
+      "skipped": 0
+    },
+    "packages/providers/google": {
+      "passed": 29,
+      "skipped": 0
+    },
+    "packages/providers/http": {
+      "passed": 83,
+      "skipped": 10
+    },
+    "packages/providers/lmstudio": {
+      "passed": 29,
+      "skipped": 0
+    },
+    "packages/providers/ollama": {
+      "passed": 36,
+      "skipped": 0
+    },
+    "packages/providers/openrouter": {
+      "passed": 80,
+      "skipped": 0
+    },
+    "packages/providers/zen": {
+      "passed": 234,
+      "skipped": 0
+    },
+    "packages/providers/openai": {
+      "passed": 129,
+      "skipped": 0
+    },
+    "packages/telemetry": {
+      "passed": 33,
+      "skipped": 0
+    },
+    "packages/sandbox": {
+      "passed": 1757,
+      "skipped": 3
+    },
+    "packages/cli": {
+      "passed": 4857,
+      "skipped": 6
+    }
+  },
+  "processTests": {
+    "files": 46,
+    "passed": 278
+  },
+  "documentation": {
+    "OKFpages": 135,
+    "compiledFences": 112,
+    "declaredSketches": 15,
+    "packageReadmes": 21
+  },
+  "publicSignatures": 984,
+  "nativeReceipts": [
+    "pal-native-appearance-20261002.json",
+    "pal-native-onboarding-20261002.json",
+    "pal-native-messaging-20261002.json",
+    "pal-native-busy-messaging-20261002.json",
+    "pal-native-activity-20261002.json"
+  ],
+  "limitations": [
+    "Existing non-failing SDK/CLI lint warnings remain.",
+    "Focused Pal coverage passed; a fresh full-SDK coverage floor was not run in this checkpoint.",
+    "This is local validation, not all release/CI gates or an npm registry install.",
+    "No push, merge or publication."
+  ]
+}

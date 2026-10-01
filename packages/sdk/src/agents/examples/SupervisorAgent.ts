@@ -407,6 +407,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
 					...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
+					...(config.durableInbound ? { durableInbound: config.durableInbound } : {}),
 					...(config.projectInstructionContext
 						? { projectInstructionContext: config.projectInstructionContext }
 						: {}),

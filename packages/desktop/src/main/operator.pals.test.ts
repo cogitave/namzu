@@ -494,3 +494,28 @@ it('rejects an invalid screenshot before forwarding image content to the rendere
 		transport.screen = original
 	}
 })
+
+it('forwards appearance selections through the Pal create/update wire and returns the saved selection', async () => {
+	const { owner, pal } = fixture()
+	const initial = { character: 'spark', color: 'violet' } as const
+	const edited = { character: 'sprout', color: 'rose' } as const
+	transport.requestHook = async (_cwd, method, params) => {
+		if (method === 'namzu/pals/create') return { ...pal, appearance: params.appearance }
+		if (method === 'namzu/pals/update')
+			return { ...pal, revision: 2, appearance: params.appearance }
+		return undefined
+	}
+	expect((await owner.createPal({ name: pal.name, appearance: initial })).appearance).toEqual(
+		initial,
+	)
+	expect((await owner.updatePal(pal.id, 1, { appearance: edited })).appearance).toEqual(edited)
+	expect(transport.calls.find((call) => call.method === 'namzu/pals/create')?.params).toEqual({
+		name: pal.name,
+		appearance: initial,
+	})
+	expect(transport.calls.find((call) => call.method === 'namzu/pals/update')?.params).toEqual({
+		id: pal.id,
+		expectedRevision: 1,
+		appearance: edited,
+	})
+})

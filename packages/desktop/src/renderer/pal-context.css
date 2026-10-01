@@ -1,38 +1,14 @@
 .pal-avatar {
-	position: relative;
-	display: inline-grid;
-	place-items: center;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	width: 56px;
-	height: 56px;
+	height: 64px;
 	flex: none;
-	isolation: isolate;
-	border-radius: 20px;
-	background: color-mix(in srgb, var(--primary) 12%, var(--surface));
-	color: var(--primary);
-	font-family: var(--font-mono);
-	font-size: 21px;
-	font-weight: 700;
-	letter-spacing: -0.05em;
-}
-.pal-avatar::before {
-	position: absolute;
-	inset: 5px;
-	z-index: -1;
-	border-radius: 16px;
-	background-image: radial-gradient(var(--primary) 0.6px, transparent 0.8px);
-	background-size: 4px 4px;
-	content: "";
-	opacity: 0.16;
 }
 .pal-avatar-compact {
-	width: 23px;
-	height: 23px;
-	border-radius: 8px;
-	font-size: 11px;
-}
-.pal-avatar-compact::before {
-	inset: 3px;
-	border-radius: 5px;
+	width: 25px;
+	height: 28px;
 }
 .pal-context-menu {
 	display: flex;

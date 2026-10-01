@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "checks": [
+    "a second native process accepts an explicit message while the original guest-bound Pal query is busy",
+    "acceptance retains the original conversation and is pending while the provider barrier is held",
+    "SDK drains only after the complete assistant tool call/result pair",
+    "exact real log receipt is recorded before the next provider entry",
+    "actual guest read and peer context both reach the second scripted provider request"
+  ],
+  "limitations": [
+    "Native CLI AgentSession/query, not rendered TUI keyboard input.",
+    "Model provider is scripted; sender is a fixture-owned authorized host broker.",
+    "No external channel or automatic listener."
+  ],
+  "fixtureSourceSha256": "5d997d8509e0468ab1cfeee37b01f76714da74e7a7de95346ed98b47ef07f05c"
+}

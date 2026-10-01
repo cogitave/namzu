@@ -7,6 +7,12 @@ export interface PalModel {
 	readonly model: string
 }
 
+/** Saved presentation preference. Hosts choose their own default when absent. */
+export interface PalAppearance {
+	readonly character: 'pixel' | 'sprout' | 'spark'
+	readonly color: 'green' | 'blue' | 'amber' | 'violet' | 'rose'
+}
+
 /** Saved identity and immutable executable-profile revision; contains no secrets. */
 export interface PalDefinition {
 	readonly v: 1
@@ -17,6 +23,7 @@ export interface PalDefinition {
 	/** Host-owned control/output directory. This is not the Pal's execution computer. */
 	readonly workspace: string
 	readonly model: PalModel | null
+	readonly appearance?: PalAppearance
 	readonly paused: boolean
 	readonly revision: number
 	readonly createdAt: string
@@ -26,11 +33,13 @@ export interface PalCreate {
 	readonly name: string
 	readonly purpose?: string
 	readonly model?: PalModel | null
+	readonly appearance?: PalAppearance
 }
 export interface PalUpdate {
 	readonly name?: string
 	readonly purpose?: string
 	readonly model?: PalModel | null
+	readonly appearance?: PalAppearance
 	readonly paused?: boolean
 }
 export interface PalStore {

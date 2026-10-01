@@ -1,8 +1,18 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DiskPalStore, PalConflictError } from './store.js'
+import type { PalAppearance } from './types.js'
 
 const temporary: string[] = []
 function fresh() {
@@ -52,6 +62,71 @@ describe('persistent Pal identity and revision ownership', () => {
 		expect(store.getRevision(pal.id, 1).name).toBe('First')
 		expect(store.get(pal.id)?.paused).toBe(true)
 	})
+	it('persists character and color across restart without mutating earlier profile revisions', () => {
+		const { root, store } = fresh()
+		const input = { character: 'pixel', color: 'green' } as const
+		const pal = store.create({ name: 'Research', appearance: input })
+		const original = readFileSync(join(root, 'registry', pal.id, 'revisions', '1.json'), 'utf8')
+		const updated = store.update(pal.id, 1, {
+			appearance: { character: 'sprout', color: 'violet' },
+		})
+		const restarted = new DiskPalStore({
+			root: join(root, 'registry'),
+			workspaceRoot: join(root, 'workspaces'),
+		})
+		expect(updated.revision).toBe(2)
+		expect(restarted.get(pal.id)?.appearance).toEqual({ character: 'sprout', color: 'violet' })
+		expect(restarted.getRevision(pal.id, 1).appearance).toEqual(input)
+		expect(readFileSync(join(root, 'registry', pal.id, 'revisions', '1.json'), 'utf8')).toBe(
+			original,
+		)
+		expect(() =>
+			restarted.update(pal.id, 1, { appearance: { character: 'spark', color: 'amber' } }),
+		).toThrow(PalConflictError)
+	})
+	it('leaves appearance absent on old records and unrelated edits instead of assigning a host default', () => {
+		const { store } = fresh()
+		const pal = store.create({ name: 'Existing' })
+		expect(pal).not.toHaveProperty('appearance')
+		expect(store.getRevision(pal.id, 1)).not.toHaveProperty('appearance')
+		expect(store.update(pal.id, 1, { name: 'Renamed' })).not.toHaveProperty('appearance')
+	})
+	it.each([
+		['pixel', 'green'],
+		['sprout', 'blue'],
+		['spark', 'amber'],
+		['pixel', 'violet'],
+		['sprout', 'rose'],
+	] as const)('accepts supported appearance %s/%s', (character, color) => {
+		const { store } = fresh()
+		const pal = store.create({ name: 'Chosen', appearance: { character, color } })
+		expect(store.get(pal.id)?.appearance).toEqual({ character, color })
+	})
+	it.each([
+		null,
+		[],
+		'pixel/green',
+		{},
+		{ character: 'pixel' },
+		{ character: 'unknown', color: 'green' },
+		{ character: 'pixel', color: 'red' },
+		{ character: 'pixel', color: 'green', url: 'https://example.invalid' },
+	])(
+		'rejects invalid appearance on creation, update and stored reads without publishing a revision: %j',
+		(appearance) => {
+			const { root, store } = fresh()
+			const invalid = appearance as unknown as PalAppearance
+			expect(() => store.create({ name: 'Bad', appearance: invalid })).toThrow('appearance')
+			expect(store.list()).toEqual([])
+			const pal = store.create({ name: 'Good' })
+			expect(() => store.update(pal.id, 1, { appearance: invalid })).toThrow('appearance')
+			expect(store.get(pal.id)?.revision).toBe(1)
+			expect(readdirSync(join(root, 'registry', pal.id, 'revisions'))).toEqual(['1.json'])
+			const path = join(root, 'registry', pal.id, 'revisions', '1.json')
+			writeFileSync(path, JSON.stringify({ ...pal, appearance }))
+			expect(() => store.get(pal.id)).toThrow('appearance')
+		},
+	)
 	it('rejects overlapping roots, path traversal, invalid text and invalid revisions', () => {
 		const { root, store } = fresh()
 		expect(() => new DiskPalStore({ root, workspaceRoot: join(root, 'child') })).toThrow('overlap')

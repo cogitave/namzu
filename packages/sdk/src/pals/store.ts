@@ -17,6 +17,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
 	DiskPalStoreOptions,
+	PalAppearance,
 	PalCreate,
 	PalDefinition,
 	PalModel,
@@ -91,6 +92,19 @@ function safeModel(value: unknown): PalModel | null {
 		model: safeText(object.model, 'model', 400),
 	}
 }
+function safeAppearance(value: unknown): PalAppearance {
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		throw new Error('Invalid Pal appearance.')
+	const object = value as Record<string, unknown>
+	const { character, color } = object
+	if (
+		Object.keys(object).some((key) => key !== 'character' && key !== 'color') ||
+		!['pixel', 'sprout', 'spark'].includes(character as string) ||
+		!['green', 'blue', 'amber', 'violet', 'rose'].includes(color as string)
+	)
+		throw new Error('Invalid Pal appearance.')
+	return { character, color } as PalAppearance
+}
 function readRevision(
 	home: string,
 	workspaceRoot: string,
@@ -135,6 +149,7 @@ function readRevision(
 		purpose: safeText(raw.purpose, 'purpose', 4000, true),
 		workspace: expected,
 		model: safeModel(raw.model),
+		...(raw.appearance === undefined ? {} : { appearance: safeAppearance(raw.appearance) }),
 		paused: raw.paused,
 		createdAt: raw.createdAt,
 		updatedAt: raw.updatedAt,
@@ -198,6 +213,7 @@ export class DiskPalStore implements PalStore {
 		const name = safeText(input.name, 'name', 80)
 		const purpose = safeText(input.purpose ?? '', 'purpose', 4000, true)
 		const model = safeModel(input.model ?? null)
+		const appearance = input.appearance === undefined ? undefined : safeAppearance(input.appearance)
 		const id = randomUUID()
 		const at = new Date().toISOString()
 		const p = paths(this.root, this.workspaceRoot, id)
@@ -220,6 +236,7 @@ export class DiskPalStore implements PalStore {
 			purpose,
 			workspace: p.workspace,
 			model,
+			...(appearance === undefined ? {} : { appearance }),
 			paused: false,
 			revision: 1,
 			createdAt: at,
@@ -242,6 +259,9 @@ export class DiskPalStore implements PalStore {
 				? {}
 				: { purpose: safeText(changes.purpose, 'purpose', 4000, true) }),
 			...(changes.model === undefined ? {} : { model: safeModel(changes.model) }),
+			...(changes.appearance === undefined
+				? {}
+				: { appearance: safeAppearance(changes.appearance) }),
 			...(changes.paused === undefined ? {} : { paused: changes.paused }),
 			revision: expectedRevision + 1,
 			updatedAt: new Date().toISOString(),

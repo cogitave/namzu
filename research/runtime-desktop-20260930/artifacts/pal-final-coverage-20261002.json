@@ -1,0 +1,34 @@
+{
+  "scope": "SDK pals subtree after communication, appearance and activity changes",
+  "command": "pnpm --filter @namzu/sdk test -- src/pals --coverage --coverage.include=src/pals/**/*.ts",
+  "lines": {
+    "total": 928,
+    "covered": 867,
+    "skipped": 0,
+    "pct": 93.42
+  },
+  "branches": {
+    "total": 807,
+    "covered": 679,
+    "skipped": 0,
+    "pct": 84.13
+  },
+  "statements": {
+    "total": 1038,
+    "covered": 936,
+    "skipped": 0,
+    "pct": 90.17
+  },
+  "functions": {
+    "total": 176,
+    "covered": 174,
+    "skipped": 0,
+    "pct": 98.86
+  },
+  "moduleFloor": {
+    "lines": 89,
+    "branches": 78
+  },
+  "passed": true,
+  "limitation": "Focused Pal subtree coverage; not a fresh full-SDK coverage-floor result."
+}

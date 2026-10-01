@@ -128,3 +128,10 @@ SOFTWARE.
 
 Other installed runtime packages retain their package-level licenses. No peer
 application logos, fonts or raster image assets were copied.
+
+5. Three.js — MIT
+Copyright © 2010-2026 three.js authors
+Package: three@0.186.1, https://threejs.org/
+The Namzu Pal scene uses the renderer and RoundedBoxGeometry addon. Character
+geometry, SVG fallback and animation are original Namzu implementation.
+Full license: licenses/pal-character-three-MIT.txt

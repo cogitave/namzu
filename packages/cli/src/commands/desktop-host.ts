@@ -77,6 +77,7 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 				name: text(params, 'name', 80),
 				...(params.purpose === undefined ? {} : { purpose: params.purpose as string }),
 				...(params.model === undefined ? {} : { model: params.model as never }),
+				...(params.appearance === undefined ? {} : { appearance: params.appearance as never }),
 			}),
 		'namzu/pals/update': async (params: Record<string, unknown>) => {
 			if (!Number.isSafeInteger(params.expectedRevision) || (params.expectedRevision as number) < 1)
@@ -88,6 +89,7 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 				...(params.name === undefined ? {} : { name: params.name as string }),
 				...(params.purpose === undefined ? {} : { purpose: params.purpose as string }),
 				...(params.model === undefined ? {} : { model: params.model as never }),
+				...(params.appearance === undefined ? {} : { appearance: params.appearance as never }),
 				...(params.paused === undefined ? {} : { paused: params.paused as boolean }),
 			})
 		},

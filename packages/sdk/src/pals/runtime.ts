@@ -1,3 +1,4 @@
+import { PalLifecycleEmitter, type PalLifecycleListener } from './lifecycle.js'
 import type {
 	PalAdmission,
 	PalAdmissionRequest,
@@ -13,12 +14,21 @@ export class PalUnavailableError extends Error {
 export class PalRuntime {
 	private readonly computers = new Map<string, PalEnvironmentLease>()
 	private readonly starting = new Map<string, Promise<PalEnvironmentLease>>()
-	private readonly controllers = new Map<string, symbol>()
+	private readonly controllers = new Map<
+		string,
+		{ readonly conversationId: string; generation?: number }
+	>()
+	private readonly lifecycle = new PalLifecycleEmitter()
 	private readonly stopping = new Set<string>()
 	private readonly failures = new Map<string, string>()
 	private closing: Promise<void> | undefined
 	private closed = false
 	constructor(private readonly options: PalRuntimeOptions) {}
+
+	/** Live observations only. Unsubscribe does not stop the Pal or its computer. */
+	onLifecycle(listener: PalLifecycleListener): () => void {
+		return this.lifecycle.on(listener)
+	}
 
 	computer(palId: string): PalEnvironmentLease | null {
 		const lease = this.computers.get(palId)
@@ -57,13 +67,16 @@ export class PalRuntime {
 		}
 		const provider = this.options.environments
 		if (!provider) throw new PalUnavailableError('This Pal needs a ready local virtual computer.')
-		const start = (async () => {
-			const lease = await provider.acquire({
-				pal,
-				conversationId: `computer:${pal.id}`,
-				...(signal ? { signal } : {}),
-			})
+		// Publish shared ownership before invoking observers or the provider.
+		const start = Promise.resolve().then(async () => {
+			this.lifecycle.emit({ type: 'computer.starting', palId })
+			let lease: PalEnvironmentLease | undefined
 			try {
+				lease = await provider.acquire({
+					pal,
+					conversationId: `computer:${pal.id}`,
+					...(signal ? { signal } : {}),
+				})
 				signal?.throwIfAborted()
 				const latest = this.options.store.get(pal.id)
 				if (this.closed || !latest || latest.paused || latest.workspace !== pal.workspace)
@@ -84,24 +97,27 @@ export class PalRuntime {
 						'The virtual computer lease does not match this Pal or is not ready.',
 					)
 				this.computers.set(palId, lease)
+				this.lifecycle.emit({ type: 'computer.ready', palId, generation: lease.generation })
 				return lease
 			} catch (error) {
 				try {
-					await lease.release()
+					await lease?.release()
 				} catch (releaseError) {
-					this.computers.set(palId, lease)
+					if (lease) this.computers.set(palId, lease)
 					this.failures.set(
 						palId,
 						'A rejected Pal computer could not be released. Retry stopping it.',
 					)
+					this.lifecycle.emit({ type: 'computer.start-failed', palId, reason: 'cleanup-required' })
 					throw new AggregateError(
 						[error, releaseError],
 						'Pal computer admission and cleanup failed.',
 					)
 				}
+				this.lifecycle.emit({ type: 'computer.start-failed', palId, reason: 'unavailable' })
 				throw error
 			}
-		})()
+		})
 		this.starting.set(palId, start)
 		try {
 			return await start
@@ -118,13 +134,20 @@ export class PalRuntime {
 			throw new PalUnavailableError('Wait for this Pal computer to finish starting.')
 		const lease = this.computers.get(palId)
 		if (!lease) return
+		const identity =
+			lease.palId === palId && Number.isSafeInteger(lease.generation) && lease.generation > 0
+				? { generation: lease.generation }
+				: {}
 		this.stopping.add(palId)
+		this.lifecycle.emit({ type: 'computer.stopping', palId, ...identity })
 		try {
 			await lease.release()
 			if (this.computers.get(palId) === lease) this.computers.delete(palId)
 			this.failures.delete(palId)
+			this.lifecycle.emit({ type: 'computer.stopped', palId, ...identity })
 		} catch (error) {
 			this.failures.set(palId, 'The Pal computer could not be stopped. Retry stopping it.')
+			this.lifecycle.emit({ type: 'computer.stop-failed', palId, ...identity })
 			throw error
 		} finally {
 			this.stopping.delete(palId)
@@ -143,8 +166,11 @@ export class PalRuntime {
 				: this.options.store.getRevision(current.id, request.revision)
 		if (this.controllers.has(current.id))
 			throw new PalUnavailableError('This Pal computer is busy in another conversation.')
-		const owner = Symbol(request.conversationId)
-		this.controllers.set(current.id, owner)
+		const controller = {
+			conversationId: request.conversationId,
+			generation: undefined as number | undefined,
+		}
+		this.controllers.set(current.id, controller)
 		try {
 			const lease = await this.startComputer(current.id, request.signal)
 			let released = false
@@ -153,7 +179,7 @@ export class PalRuntime {
 				if (
 					released ||
 					this.closed ||
-					this.controllers.get(current.id) !== owner ||
+					this.controllers.get(current.id) !== controller ||
 					this.computers.get(current.id) !== lease
 				)
 					throw new PalUnavailableError('This Pal admission no longer owns its computer.')
@@ -166,6 +192,13 @@ export class PalRuntime {
 					throw new PalUnavailableError('Pal workspace identity changed.')
 			}
 			assertActive()
+			controller.generation = lease.generation
+			this.lifecycle.emit({
+				type: 'admission.acquired',
+				palId: current.id,
+				generation: lease.generation,
+				conversationId: controller.conversationId,
+			})
 			return {
 				definition,
 				lease,
@@ -173,11 +206,20 @@ export class PalRuntime {
 				release: async () => {
 					if (released) return
 					released = true
-					if (this.controllers.get(current.id) === owner) this.controllers.delete(current.id)
+					if (this.controllers.get(current.id) === controller) {
+						this.controllers.delete(current.id)
+						this.lifecycle.emit({
+							type: 'admission.released',
+							palId: current.id,
+							generation: lease.generation,
+							conversationId: controller.conversationId,
+							reason: 'released',
+						})
+					}
 				},
 			}
 		} catch (error) {
-			if (this.controllers.get(current.id) === owner) this.controllers.delete(current.id)
+			if (this.controllers.get(current.id) === controller) this.controllers.delete(current.id)
 			throw error
 		}
 	}
@@ -186,6 +228,16 @@ export class PalRuntime {
 		this.closed = true
 		const closing = (async () => {
 			await Promise.allSettled(this.starting.values())
+			for (const [palId, controller] of this.controllers) {
+				if (controller.generation !== undefined)
+					this.lifecycle.emit({
+						type: 'admission.released',
+						palId,
+						generation: controller.generation,
+						conversationId: controller.conversationId,
+						reason: 'closed',
+					})
+			}
 			this.controllers.clear()
 			const results = await Promise.allSettled(
 				[...this.computers.keys()].map((id) => this.stopComputer(id)),

@@ -8,6 +8,7 @@ import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { SessionId, TenantId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
+import type { DurableInboundSource } from '../message/inbound-delivery.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
@@ -111,6 +112,8 @@ export interface BaseAgentConfig {
 	 * until the turn ended.
 	 */
 	inboundMessages?: () => import('../message/index.js').Message[]
+	/** Requires an explicit sessionLog; acknowledgement precedes inference. */
+	durableInbound?: DurableInboundSource
 
 	/** Live project policy, flushed independently of human continuation text. */
 	projectInstructionContext?: ProjectInstructionContext

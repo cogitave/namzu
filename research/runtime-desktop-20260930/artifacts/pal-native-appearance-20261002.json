@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "callerWorkingDirectoryKind": "WSL UNC",
+  "checks": [
+    "native CLI creates spark/violet, updates sprout/blue and reads the saved choice in a fresh process",
+    "native SDK restart reads the current appearance and unchanged immutable original revision",
+    "invalid appearance flags create no Pal; a stale native CLI edit publishes no revision",
+    "production desktop Operator and native CLI ACP create/update/list forward the saved appearance unchanged",
+    "invalid ACP appearance is rejected by the shared SDK store without a revision",
+    "new Operator/native ACP process reloads choices; older records keep appearance absent without an SDK default",
+    "both owned Operator/native ACP connections confirm shutdown",
+    "read-only native process inventory finds no fixture ACP process after shutdown"
+  ],
+  "limitations": [
+    "Built local consumer snapshot, not an npm registry install.",
+    "Metadata/production Operator/ACP proof only; Electron renderer animation is a separate UI verification.",
+    "No model inference, guest startup, engine installation or external messages were performed."
+  ]
+}

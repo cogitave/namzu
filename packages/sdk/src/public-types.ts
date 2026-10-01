@@ -16,6 +16,7 @@
 export type * from './types/ids/index.js'
 export type * from './pals/types.js'
 export type * from './types/message/index.js'
+export type * from './types/message/inbound-delivery.js'
 export type * from './types/common/index.js'
 export type { AcpPromptOptions } from './types/acp/index.js'
 export type { CoalesceOptions } from './streaming/coalesce.js'
@@ -763,3 +764,12 @@ export type {
 } from './peers/endpoint.js'
 export type { PeerClientOptions, PeerClientResult } from './peers/client.js'
 export type { PeerMessageEnvelopeInput } from './peers/envelope.js'
+
+export type * from './pals/communication/types.js'
+export type { PalMessagingToolsOptions, PalMessagingRecipient } from './pals/communication/tools.js'
+export type {
+	PalMessagePermission,
+	PalMessagePermissionUpdate,
+} from './pals/communication/policy.js'
+export type { PalLifecycleEvent, PalLifecycleListener } from './pals/lifecycle.js'
+export type * from './pals/activity/types.js'

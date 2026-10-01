@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { isInboundDeliveryRef } from './inbound-delivery.js'
 import {
 	RUNTIME_CONTEXT_MESSAGE_KINDS,
 	createRuntimeContextMessage,
@@ -29,5 +30,31 @@ describe('runtime-authored user-message provenance', () => {
 		{ type: 'goal-round', kind: 'advisory' },
 	])('rejects malformed or unadmitted source %#', (source) => {
 		expect(isRuntimeContextMessageSource(source)).toBe(false)
+	})
+
+	it('recognizes a bounded delivery reference without changing source authority', () => {
+		const deliveryRef = {
+			namespace: 'namzu-pal-message/1',
+			id: 'a'.repeat(64),
+			digest: 'b'.repeat(64),
+		}
+		expect(isInboundDeliveryRef(deliveryRef)).toBe(true)
+		expect(
+			isRuntimeContextMessageSource({ type: 'runtime-context', kind: 'peer-message', deliveryRef }),
+		).toBe(true)
+	})
+
+	it.each([
+		null,
+		[],
+		{},
+		{ namespace: '', id: 'id', digest: 'digest' },
+		{ namespace: 'test', id: 'x'.repeat(513), digest: 'digest' },
+		{ namespace: 'test', id: 'id', digest: 'bad\nvalue' },
+	])('rejects malformed delivery references %#', (deliveryRef) => {
+		expect(isInboundDeliveryRef(deliveryRef)).toBe(false)
+		expect(
+			isRuntimeContextMessageSource({ type: 'runtime-context', kind: 'peer-message', deliveryRef }),
+		).toBe(false)
 	})
 })

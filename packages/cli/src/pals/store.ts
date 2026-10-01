@@ -7,7 +7,7 @@ import { resolveNamzuHome } from '../integrations/state/home.js'
 import { trustDir } from '../integrations/trust/store.js'
 
 export type Pal = PalDefinition
-export type { PalCreate, PalModel, PalUpdate } from '@namzu/sdk'
+export type { PalAppearance, PalCreate, PalModel, PalUpdate } from '@namzu/sdk'
 export { PalConflictError } from '@namzu/sdk'
 
 export function cliPalStore(home?: string): DiskPalStore {

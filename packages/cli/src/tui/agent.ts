@@ -667,6 +667,10 @@ export type QuestionAnswer =
 export type QuestionFn = (question: UserQuestion, signal?: AbortSignal) => Promise<QuestionAnswer>
 
 export interface SendOptions {
+	/** Host-owned durable peer input; the SDK records and acknowledges it at safe boundaries. */
+	readonly durableInbound?: import('@namzu/sdk').DurableInboundSource
+	/** Current host consent for an explicitly dispatched Pal turn; ordinary sessions do not mount it. */
+	readonly assertExecutionAllowed?: () => void | Promise<void>
 	/** Overrides for this new turn and its built-in children; does not change a parked turn. */
 	readonly limits?: TurnLimitsConfig
 	readonly signal?: AbortSignal
@@ -5381,6 +5385,7 @@ async function* runTurn({
 			messages: [...messages],
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
+			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
 			...(completionInbox ? { completionInbox } : {}),
 			workingDirectory,
 			...(additionalDirectories?.length ? { additionalDirectories } : {}),

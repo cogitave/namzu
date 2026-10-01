@@ -10,6 +10,7 @@ import {
 	openSessions,
 	startConversation,
 } from '../../integrations/sessions/store.js'
+import { getPalRevision, listPals } from '../../pals/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 import { createDesktopHostExtensions } from '../desktop-host.js'
@@ -129,6 +130,43 @@ it('marks history partial when a single message exceeds the display ceiling', as
 		expect(result.messages[1]?.text).toBe('Stored answer')
 	} finally {
 		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('persists appearance through the actual desktop ACP extensions and keeps earlier revisions unchanged', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		const pal = host['namzu/pals/create']({
+			name: 'Chosen',
+			appearance: { character: 'spark', color: 'blue' },
+		})
+		expect(pal.appearance).toEqual({ character: 'spark', color: 'blue' })
+		const updated = await host['namzu/pals/update']({
+			id: pal.id,
+			expectedRevision: 1,
+			appearance: { character: 'sprout', color: 'amber' },
+		})
+		expect(updated.appearance).toEqual({ character: 'sprout', color: 'amber' })
+		expect(host['namzu/pals/get']({ id: pal.id })?.appearance).toEqual(updated.appearance)
+		expect(getPalRevision(pal.id, 1).appearance).toEqual(pal.appearance)
+		await expect(
+			host['namzu/pals/update']({
+				id: pal.id,
+				expectedRevision: 2,
+				appearance: { character: 'spark', color: 'invalid' },
+			}),
+		).rejects.toThrow('appearance')
+		expect(host['namzu/pals/get']({ id: pal.id })?.revision).toBe(2)
+		expect(() =>
+			host['namzu/pals/create']({
+				name: 'Bad',
+				appearance: { character: 'spark', color: 'blue', script: 'bad' },
+			}),
+		).toThrow('appearance')
+		expect(listPals()).toHaveLength(1)
+	} finally {
 		await owner.close()
 	}
 })

@@ -3,22 +3,36 @@ import { readFileSync } from 'node:fs'
 import { EXIT_USAGE } from '../exit-codes.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/index.js'
 import { createFormatter } from '../output/index.js'
-import { type PalUpdate, createPal, getPal, listPals, updatePal } from '../pals/store.js'
+import {
+	type PalAppearance,
+	type PalUpdate,
+	createPal,
+	getPal,
+	listPals,
+	updatePal,
+} from '../pals/store.js'
 import type { CommandDef } from './types.js'
 
 export const PAL_HELP = [
 	'Usage: namzu pal <command> [options]',
 	'',
 	'  list [--json]',
-	'  create <name> [--purpose <text> | --purpose-file <file>] [--model <provider>/<model>]',
+	'  create <name> [--purpose <text> | --purpose-file <file>] [--model <provider>/<model>] [--appearance <character>/<color>]',
 	'  show <id> [--json]',
-	'  update <id> [--revision <n>] [--name <name>] [--purpose <text> | --purpose-file <file>] [--model <provider>/<model>|default]',
+	'  update <id> [--revision <n>] [--name <name>] [--purpose <text> | --purpose-file <file>] [--model <provider>/<model>|default] [--appearance <character>/<color>]',
 	'  pause <id> [--revision <n>] | resume <id> [--revision <n>]',
 	'  chat <id> [--resume <conversation-id>]',
+	'  grant <sender-id> <recipient-id> [--wake] [--revision <n>]',
+	'  revoke <sender-id> <recipient-id> [--revision <n>]',
+	'  inbox <id> [--json]',
+	'  dispatch <id> [--json]',
 	'',
 	'A Pal keeps its identity and immutable profile revisions across conversations.',
 	'Chat requires a ready local virtual computer; no host-folder execution fallback.',
 	'Profile edits affect new conversations. Existing conversations retain their original profile.',
+	'Appearance characters: pixel, sprout, spark. Colors: green, blue, amber, violet, rose.',
+	'Messaging is denied until a directed grant exists. --wake also permits explicit dispatch.',
+	'Dispatch runs one owned inbox route with preapproved tools; no background listener is installed.',
 ].join('\n')
 function argumentsFor(args: readonly string[]) {
 	const positional: string[] = []
@@ -35,7 +49,11 @@ function argumentsFor(args: readonly string[]) {
 			positional.push(arg)
 			continue
 		}
-		if (!['--name', '--purpose', '--purpose-file', '--model', '--revision'].includes(arg))
+		if (
+			!['--name', '--purpose', '--purpose-file', '--model', '--revision', '--appearance'].includes(
+				arg,
+			)
+		)
 			throw new Error(`Unknown Pal option ${arg}.`)
 		const value = args[++index]
 		if (value === undefined || value.startsWith('--') || values.has(arg))
@@ -54,6 +72,20 @@ function model(value: string) {
 	if (!Object.hasOwn(PROVIDER_REGISTRY, provider)) throw new Error('Unknown Pal model provider.')
 	return { provider, model: value.slice(slash + 1) }
 }
+function appearance(value: string): PalAppearance {
+	const [character, color, extra] = value.split('/')
+	if (
+		extra !== undefined ||
+		(character !== 'pixel' && character !== 'sprout' && character !== 'spark') ||
+		(color !== 'green' &&
+			color !== 'blue' &&
+			color !== 'amber' &&
+			color !== 'violet' &&
+			color !== 'rose')
+	)
+		throw new Error('Use --appearance pixel|sprout|spark/green|blue|amber|violet|rose.')
+	return { character, color }
+}
 export function createPalCommand(resumeCommand?: readonly [string, ...string[]]): CommandDef {
 	return {
 		name: 'pal',
@@ -63,6 +95,8 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 		handler: async ({ ctx, rawArgs }) => {
 			try {
 				const [verb, ...rest] = rawArgs
+				if (verb === 'grant' || verb === 'revoke' || verb === 'inbox' || verb === 'dispatch')
+					return (await import('../pals/message-command.js')).runPalMessageCommand(ctx, verb, rest)
 				if (verb === 'chat') {
 					const [id, ...args] = rest
 					if (!id) throw new Error('A Pal id is required.')
@@ -88,10 +122,13 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 				const purposeFile = values.get('--purpose-file')
 				const nameChoice = values.get('--name')
 				const modelChoice = values.get('--model')
+				const appearanceChoice = values.get('--appearance')
 				const purpose =
 					values.get('--purpose') ??
 					(purposeFile === undefined ? undefined : readFileSync(purposeFile, 'utf8'))
 				const selectedModel = modelChoice === undefined ? undefined : model(modelChoice)
+				const selectedAppearance =
+					appearanceChoice === undefined ? undefined : appearance(appearanceChoice)
 				if (verb === 'create') {
 					if (values.has('--revision') || values.has('--name'))
 						throw new Error('pal create takes its name as an argument.')
@@ -100,6 +137,7 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 							name: value,
 							...(purpose === undefined ? {} : { purpose }),
 							...(selectedModel === undefined ? {} : { model: selectedModel }),
+							...(selectedAppearance === undefined ? {} : { appearance: selectedAppearance }),
 						}),
 					)
 					return 0
@@ -122,6 +160,7 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 									...(nameChoice === undefined ? {} : { name: nameChoice }),
 									...(purpose === undefined ? {} : { purpose }),
 									...(selectedModel === undefined ? {} : { model: selectedModel }),
+									...(selectedAppearance === undefined ? {} : { appearance: selectedAppearance }),
 								}
 				if (!Object.keys(changes).length) throw new Error('Choose a field to update.')
 				output.print(updatePal(value, revision, changes))

@@ -8,6 +8,7 @@ import {
 	PanelRightIcon,
 	SettingsIcon,
 } from './icons.js'
+import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './pal-context.css'
@@ -35,18 +36,20 @@ export interface PalContextProps {
 	stopComputerDisabled?: boolean
 }
 
-/** Initials identify a saved Pal; this is not an indication of connection state. */
-export function PalAvatar({ name, compact = false }: { name: string; compact?: boolean }) {
-	const initials = name
-		.trim()
-		.split(/\s+/u)
-		.slice(0, 2)
-		.map((word) => Array.from(word)[0] ?? '')
-		.join('')
-		.toLocaleUpperCase()
+/** Character identity does not indicate computer connection state. */
+export function PalAvatar({
+	name,
+	compact = false,
+	appearance,
+	paused,
+}: { name: string; compact?: boolean; appearance?: PalCharacterAppearance; paused?: boolean }) {
 	return (
-		<span className={`pal-avatar${compact ? ' pal-avatar-compact' : ''}`} aria-hidden="true">
-			<span>{initials || 'P'}</span>
+		<span
+			className={`pal-avatar${compact ? ' pal-avatar-compact' : ''}`}
+			title={name}
+			aria-hidden="true"
+		>
+			<PalCharacter appearance={appearance} size={compact ? 'compact' : 'avatar'} paused={paused} />
 		</span>
 	)
 }
@@ -80,7 +83,7 @@ function PalContextBody({
 		<div className="pal-context-body">
 			<header className="pal-context-heading">
 				<div className="pal-context-avatar">
-					<PalAvatar name={pal.name} />
+					<PalAvatar name={pal.name} appearance={pal.appearance} paused={pal.paused} />
 					<Button
 						variant="secondary"
 						size="icon-xs"

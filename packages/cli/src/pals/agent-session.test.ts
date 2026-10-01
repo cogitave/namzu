@@ -263,3 +263,66 @@ it('rechecks pause at the provider boundary after an iteration event yielded', a
 		closeSessions(f.state)
 	}
 })
+
+it('rechecks dispatch consent after the iteration event and before provider entry', async () => {
+	let revoked = false
+	const provider = new MockLLMProvider({ responseText: 'Must not run after revocation' })
+	const f = await fixture(provider, (event) => {
+		if (event.type === 'iteration_started') revoked = true
+	})
+	try {
+		const events = []
+		for await (const event of f.agent.send([createUserMessage('Begin authorized work')], {
+			assertExecutionAllowed: () => {
+				if (revoked) throw new Error('Directed consent was revoked.')
+			},
+		}))
+			events.push(event)
+		expect(JSON.stringify(events)).toContain('revoked')
+		expect(provider.requests).toEqual([])
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('settles failed admission cleanup, refuses another send, and retains authority for close retry', async () => {
+	const f = await fixture(new MockLLMProvider({ responseText: 'The query completed.' }))
+	const admit = f.runtime.admit.bind(f.runtime)
+	const release = vi.fn()
+	vi.spyOn(f.runtime, 'admit').mockImplementation(async (request) => {
+		const admission = await admit(request)
+		release
+			.mockRejectedValueOnce(new Error('Admission release was not confirmed.'))
+			.mockRejectedValueOnce(new Error('Admission release still was not confirmed.'))
+			.mockImplementation(() => admission.release())
+		return { ...admission, release }
+	})
+	try {
+		await expect(
+			(async () => {
+				for await (const _event of f.agent.send([createUserMessage('Finish this work')])) {
+				}
+			})(),
+		).rejects.toThrow('not confirmed')
+		expect(f.runtime.busy(f.pal.id)).toBe(true)
+		await expect(
+			f.agent
+				.send([createUserMessage('Unsafe overlapping work')])
+				[Symbol.asyncIterator]()
+				.next(),
+		).rejects.toThrow('cleanup')
+		// Await the real cleanup promise; no real-time race may classify a hang.
+		await expect(f.agent.close()).rejects.toThrow('still was not confirmed')
+		expect(f.runtime.busy(f.pal.id)).toBe(true)
+		await expect(f.agent.close()).resolves.toBeUndefined()
+		expect(release).toHaveBeenCalledTimes(3)
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})

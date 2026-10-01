@@ -44,6 +44,19 @@ it('retains empty claimed conversations after reopening and pins the original re
 		expect.objectContaining({ id, hasPrompted: false, named: false, count: 0 }),
 	])
 })
+it('creates a new route at an explicit prior revision and refuses another revision on that root', async () => {
+	const pal = createPal({ name: 'Pinned', purpose: 'Original route purpose.' })
+	updatePal(pal.id, 1, { purpose: 'Current route purpose.' })
+	const id = generateSessionId()
+	expect(await claimPalConversation(pal.workspace, pal.id, id, 1)).toMatchObject({ revision: 1 })
+	expect((await palConversationBinding(pal.workspace, id))?.definition.purpose).toBe(
+		'Original route purpose.',
+	)
+	await expect(claimPalConversation(pal.workspace, pal.id, id, 2)).rejects.toThrow(
+		'another Pal profile revision',
+	)
+	expect((await palConversationBinding(pal.workspace, id))?.definition.revision).toBe(1)
+})
 it('refuses ordinary logs, a foreign Pal and new claims while paused', async () => {
 	const one = createPal({ name: 'One' })
 	const two = createPal({ name: 'Two' })

@@ -45,7 +45,7 @@ import { JobRow } from './job-row.js'
 import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
 import { PalContextCard, PalContextMenu, type PalContextProps } from './pal-context.js'
-import { PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
+import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type Appearance, type ConversationCollection, Sidebar } from './sidebar.js'
@@ -127,6 +127,7 @@ function App() {
 	const [palsPage, setPalsPage] = useState(false)
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
+	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
 	const [palComputers, setPalComputers] = useState<Record<string, PalComputerView>>({})
 	const [palScreen, setPalScreen] = useState<{
 		palId: string
@@ -818,14 +819,21 @@ function App() {
 				? all.map((item) => (item.id === value.id ? value : item))
 				: [...all, value],
 		)
-	const showPalEditor = (value?: PalView) => {
+	const showPalOnboarding = () => {
 		navigation.current += 1
-		setEditingPal(value)
-		setCreatingPal(!value)
+		if (!palsPage) setDraftPalModel(null)
+		setEditingPal(undefined)
+		setCreatingPal(false)
 		setPalsPage(true)
 		setRailSection(null)
 		setJobsOpen(false)
 		setSideOpen(false)
+		setPalsError('')
+	}
+	const showPalEditor = (value?: PalView) => {
+		setEditingPal(value)
+		setCreatingPal(!value)
+		if (value) setDraftPalModel(value.model)
 		setPalsError('')
 	}
 	const openPal = async (value: PalView) => {
@@ -865,7 +873,8 @@ function App() {
 			upsertPal(saved)
 			setEditingPal(undefined)
 			setCreatingPal(false)
-			await openPal(saved)
+			// Editing stays in the current conversation; its model choice is local.
+			if (!id) await openPal(saved).catch((failure) => setError(errorText(failure)))
 		} catch (failure) {
 			setPalsError(errorText(failure))
 		} finally {
@@ -1179,7 +1188,7 @@ function App() {
 				return
 			}
 			// Modal dismissal must never become a cancellation of the underlying turn.
-			if (commandOpen) return
+			if (commandOpen || creatingPal || editingPal) return
 			if (event.key === 'Escape') {
 				if (sideOpen || jobsOpen) {
 					setSideOpen(false)
@@ -1223,6 +1232,8 @@ function App() {
 		openProject,
 		editQueued,
 		commandOpen,
+		creatingPal,
+		editingPal,
 		openCommands,
 		loading,
 		project?.trusted,
@@ -1291,6 +1302,23 @@ function App() {
 			data-sidebar-collapsed={sideCollapsed}
 			data-page={railSection === 'plugins' ? 'plugins' : palsPage ? 'pals' : 'chat'}
 		>
+			{(creatingPal || editingPal) && (
+				<PalCustomizeDialog
+					key={editingPal ? `${editingPal.id}:${editingPal.revision}` : 'new'}
+					editing={editingPal}
+					saving={palsSaving}
+					error={palsError}
+					model={draftPalModel}
+					onModelChange={setDraftPalModel}
+					onClose={() => {
+						setCreatingPal(false)
+						setEditingPal(undefined)
+					}}
+					onSave={savePal}
+					loadProviders={api.palProviders}
+					loadModels={api.palModels}
+				/>
+			)}
 			<Dialog.Root
 				open={Boolean(palScreen)}
 				onOpenChange={(open) => {
@@ -1384,15 +1412,16 @@ function App() {
 				pals={
 					<PalSidebarSection
 						pals={pals}
-						selectedId={palsPage ? editingPal?.id : pal?.id}
+						selectedId={palsPage ? undefined : pal?.id}
+						creating={palsPage}
 						loading={palsLoading}
-						onCreate={() => showPalEditor()}
+						onCreate={showPalOnboarding}
 						onOpen={(value) => void act(() => openPal(value))}
 					/>
 				}
 				conversations={conversations}
-				projectId={projectId}
-				sessionId={sessionId}
+				projectId={palsPage ? '' : projectId}
+				sessionId={palsPage ? '' : sessionId}
 				conversationCollection={conversationCollection}
 				threads={threads}
 				open={railSection !== 'plugins' && sideOpen}
@@ -1479,20 +1508,9 @@ function App() {
 				)}
 				{palsPage && (
 					<PalsPage
-						pals={pals}
-						loading={palsLoading}
-						saving={palsSaving}
-						error={palsError}
-						creating={creatingPal}
-						editing={editingPal}
-						onStartCreate={() => showPalEditor()}
-						onEdit={showPalEditor}
-						onCancelEdit={() => {
-							setCreatingPal(false)
-							setEditingPal(undefined)
-						}}
-						onSave={savePal}
-						onOpen={(value) => void act(() => openPal(value))}
+						model={draftPalModel}
+						onModelChange={setDraftPalModel}
+						onCustomize={() => showPalEditor()}
 						loadProviders={api.palProviders}
 						loadModels={api.palModels}
 					/>

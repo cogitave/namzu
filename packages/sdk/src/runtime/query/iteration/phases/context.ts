@@ -17,6 +17,7 @@ import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../../types/ids/index.js'
+import type { DurableInboundSource } from '../../../../types/message/inbound-delivery.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../../../types/router/index.js'
 import type { ReviewAnswer } from '../../../../types/session/answer-review.js'
@@ -228,6 +229,7 @@ export interface IterationContext {
 	readonly resumedInput?: readonly import('../../../../types/message/index.js').Message[]
 	/** Observes pending input without draining it; abort releases the waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	readonly durableInbound?: DurableInboundSource
 
 	/** Live project policy; separate from human inbound continuation. */
 	readonly projectInstructionContext?: ProjectInstructionContext

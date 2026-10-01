@@ -11,7 +11,7 @@ import type {
 	TopicId,
 	TurnId,
 } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import { type Message, isRuntimeContextMessageSource } from '../message/index.js'
 import type { ActorRef } from './actor.js'
 import { CostInfoSchema, TokenUsageSchema, TurnBudgetBindingSchema } from './checkpoint.js'
 import {
@@ -70,7 +70,15 @@ const MESSAGE_ROLES = new Set(['system', 'user', 'assistant', 'tool'])
  * schema checks the discriminant and leaves the content to the message types.
  */
 const messageBody = z.custom<Message>(
-	(value) => isPlainObject(value) && MESSAGE_ROLES.has(value.role as string),
+	(value) => {
+		if (!isPlainObject(value) || !MESSAGE_ROLES.has(value.role as string)) return false
+		const source = value.source
+		return (
+			!isPlainObject(source) ||
+			source.type !== 'runtime-context' ||
+			isRuntimeContextMessageSource(source)
+		)
+	},
 	{ message: 'expected a message with a system, user, assistant or tool role' },
 )
 

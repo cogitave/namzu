@@ -59,6 +59,7 @@ import {
 import type { CheckpointId, MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { MemoryStore } from '../../types/memory/index.js'
+import type { DurableInboundSource } from '../../types/message/inbound-delivery.js'
 import {
 	type AssistantMessage,
 	type Message,
@@ -733,6 +734,9 @@ export interface QueryParams {
 	 */
 	waitForInbound?: (signal: AbortSignal) => Promise<void>
 
+	/** Durable host input: normal append, flush and exact acknowledgement before inference. Requires sessionLog. */
+	durableInbound?: DurableInboundSource
+
 	/**
 	 * Live project policy for this turn. Unlike `inboundMessages`, snapshot
 	 * replacement is durable state and never implies another model turn.
@@ -956,6 +960,9 @@ function withOwnedResumeOutcomes(
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, Turn> {
+	if (params.durableInbound && !params.sessionLog) {
+		throw new Error('durableInbound requires an explicit sessionLog and its active writer.')
+	}
 	const prepared = await prepareTurn(params)
 	const {
 		turnConfig,
@@ -1624,6 +1631,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 			compactionConfig,
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),
 			...(params.resumeFromCheckpoint ? { resumedInput: queuedForThisRun } : {}),
 			...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
 			...(params.projectInstructionContext
@@ -2151,6 +2159,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// boundaries are not all cooperative and must not regain withdrawn
 				// authority merely because the turn record still had to be created.
 				ctx.abortController.signal.throwIfAborted()
+				// A restored assistant/tool pair cannot be split by a user-role arrival.
+				// Its pending results are applied below, before the loop drains input.
+				if (!pendingResume) await iterationOrchestrator.deliverInitialDurable()
 
 				// Handed over here, and the position is load-bearing in three
 				// directions. It has to follow `wirePlanManager`, or a host that

@@ -72,20 +72,42 @@ filesystem or live tasks. Use the native development window for actual work.
 
 ## Persistent Pals
 
-The Home sidebar includes Pals and a creation action. Create more than one Pal
-with a name, purpose and optional model from the actual provider catalogue.
-Customize uses the saved revision to reject conflicting edits. Definitions and
+The Home sidebar puts **Create your first Pal** directly below New conversation.
+After creation it lists each Pal followed by **New Pal**, without a group
+heading for the first three. Four or more Pals appear in a collapsible **Pals**
+group. Create more than one Pal with a name, optional purpose and model from the
+actual provider catalogue. Customize uses the saved revision to reject
+conflicting edits. Definitions and
 conversation ownership come from the [shared CLI and SDK](pals.md), rather than
 renderer storage. Existing conversations keep their original profile revision;
 profile edits apply to new conversations. A conversation's model choice remains
 local to that conversation.
 
-The first Pal view explains its saved purpose and offers customization. Its chat
+Setup begins inside the conversation with a character, greeting, model picker
+and invitation to choose a name. These welcome messages are local interface
+content; they do not start a model turn or the Pal's computer. Customize opens a
+two-column dialog: color and character choices on the left, editable name and a
+large animated preview on the right. Save publishes name, model and appearance
+together. A failed save retains the choices for retry. Appearance offers three
+original characters (Pixel, Sprout and Spark) in five colors. It is part of the
+shared SDK profile, so CLI metadata edits and desktop edits survive restart.
+Older profiles without appearance display Pixel in green without changing the
+stored revision. An unavailable model catalogue leaves setup and customization
+usable; the Pal may use the host's configured model when its own model is null.
+
+The saved Pal view explains its saved purpose and offers customization. Its chat
 uses the existing transcript, composer, approvals and tool events. A separate
 context card shows the Pal, its computer, owned recent conversations and current
 completed change receipts. It becomes a context menu when the workspace is
 smaller than 1280px. Neither empty outputs nor a disconnected computer imply
-completed work. The initial avatar uses the Pal's initials.
+completed work. Customizing an existing profile preserves the selected
+conversation. Its default model applies to future conversations.
+
+The preview uses locally generated Three.js geometry, loaded only when needed,
+with idle motion, blinking and pointer tracking. Hidden or offscreen scenes
+stop rendering. Unmount and failed initialization release the renderer, WebGL
+context, geometry, materials, textures, listeners and observers. Reduced motion
+or unavailable WebGL uses a static character with the same selected appearance.
 
 Each Pal requires its own [local guest computer](../sdk/local-pal-computer.md).
 Start computer uses the owning Pal runtime; a missing engine or image produces

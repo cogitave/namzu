@@ -235,3 +235,5 @@ export {
 } from './runtime/query/file-evidence-seed.js'
 
 export { buildResidentToolEvidenceTools } from './tools/resident-tool-evidence.js'
+
+export { createPalMessagingTools } from './pals/communication/tools.js'

@@ -1,0 +1,145 @@
+{
+  "browserPreview": true,
+  "memoryFixture": true,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "webgl": "Chromium software WebGL",
+  "checks": [
+    "placement",
+    "initial greeting before inference",
+    "catalogue search selection",
+    "2-column customization",
+    "save retry preserves edits",
+    "name/model/appearance fixture roundtrip",
+    "edit preserves current session",
+    "3-to-4 group threshold",
+    "collapse/expand",
+    "focus/Escape",
+    "WebGL external loss while mounted fallback/release",
+    "WebGL normal unmount and post-renderer failure release",
+    "provider unavailable onboarding",
+    "dark/light narrow reduced motion",
+    "no overflow"
+  ],
+  "faults": [],
+  "captures": [
+    {
+      "name": "intro-dark",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": false,
+      "ready": 1,
+      "selected": [
+        "Create your first Pal"
+      ]
+    },
+    {
+      "name": "customize-dark",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": false,
+      "ready": 2,
+      "modal": {
+        "x": 300,
+        "y": 214,
+        "width": 820,
+        "height": 492,
+        "top": 214,
+        "right": 1120,
+        "bottom": 706,
+        "left": 300
+      },
+      "selected": [
+        "Create your first Pal"
+      ]
+    },
+    {
+      "name": "saved-dark",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": false,
+      "ready": 1,
+      "selected": [
+        "Nami"
+      ]
+    },
+    {
+      "name": "three-pals-dark",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": false,
+      "ready": 1,
+      "selected": [
+        "Nova"
+      ]
+    },
+    {
+      "name": "four-pals-dark",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": false,
+      "ready": 1,
+      "selected": [
+        "Moss"
+      ]
+    },
+    {
+      "name": "narrow-dark-reduced",
+      "width": 620,
+      "height": 670,
+      "overflow": false,
+      "reduced": true,
+      "ready": 0,
+      "modal": {
+        "x": 24,
+        "y": 24,
+        "width": 572,
+        "height": 622,
+        "top": 24,
+        "right": 596,
+        "bottom": 646,
+        "left": 24
+      },
+      "selected": [
+        "New Pal"
+      ]
+    },
+    {
+      "name": "narrow-light-reduced",
+      "width": 620,
+      "height": 670,
+      "overflow": false,
+      "reduced": true,
+      "ready": 0,
+      "modal": {
+        "x": 24,
+        "y": 24,
+        "width": 572,
+        "height": 622,
+        "top": 24,
+        "right": 596,
+        "bottom": 646,
+        "left": 24
+      },
+      "selected": [
+        "New Pal"
+      ]
+    },
+    {
+      "name": "intro-light-reduced",
+      "width": 1420,
+      "height": 920,
+      "overflow": false,
+      "reduced": true,
+      "ready": 0,
+      "selected": [
+        "New Pal"
+      ]
+    }
+  ]
+}
