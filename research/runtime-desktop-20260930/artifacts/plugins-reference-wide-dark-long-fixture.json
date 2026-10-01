@@ -1,0 +1,517 @@
+{
+  "width": 1609,
+  "height": 973,
+  "overflow": false,
+  "dark": true,
+  "reduced": false,
+  "content": {
+    "rect": {
+      "x": 492.5,
+      "y": 32,
+      "width": 960,
+      "height": 386,
+      "top": 32,
+      "right": 1452.5,
+      "bottom": 418,
+      "left": 492.5
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "borders": [
+      "0px",
+      "0px",
+      "0px",
+      "0px"
+    ],
+    "radius": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0s",
+    "scrollWidth": 960,
+    "clientWidth": 960,
+    "paddingTop": "28px",
+    "paddingLeft": "24px"
+  },
+  "search": {
+    "rect": {
+      "x": 1144.5,
+      "y": 60,
+      "width": 240,
+      "height": 32,
+      "top": 60,
+      "right": 1384.5,
+      "bottom": 92,
+      "left": 1144.5
+    },
+    "background": "rgb(24, 24, 24)",
+    "borders": [
+      "1px",
+      "1px",
+      "1px",
+      "1px"
+    ],
+    "radius": "999px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0.15s, 0.15s",
+    "scrollWidth": 238,
+    "clientWidth": 238
+  },
+  "filters": [
+    {
+      "label": "All",
+      "pressed": "true",
+      "rect": {
+        "x": 516.5,
+        "y": 138,
+        "width": 48.6875,
+        "height": 36,
+        "top": 138,
+        "right": 565.1875,
+        "bottom": 174,
+        "left": 516.5
+      },
+      "background": "rgba(241, 243, 247, 0.11)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "18.5714px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0.15s, 0.15s",
+      "scrollWidth": 47,
+      "clientWidth": 47
+    },
+    {
+      "label": "Project",
+      "pressed": "false",
+      "rect": {
+        "x": 569.1875,
+        "y": 138,
+        "width": 73.78125,
+        "height": 36,
+        "top": 138,
+        "right": 642.96875,
+        "bottom": 174,
+        "left": 569.1875
+      },
+      "background": "rgba(0, 0, 0, 0)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "18.5714px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0.15s, 0.15s",
+      "scrollWidth": 72,
+      "clientWidth": 72
+    },
+    {
+      "label": "Personal",
+      "pressed": "false",
+      "rect": {
+        "x": 646.96875,
+        "y": 138,
+        "width": 82.859375,
+        "height": 36,
+        "top": 138,
+        "right": 729.828125,
+        "bottom": 174,
+        "left": 646.96875
+      },
+      "background": "rgba(0, 0, 0, 0)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "18.5714px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0.15s, 0.15s",
+      "scrollWidth": 81,
+      "clientWidth": 81
+    }
+  ],
+  "grid": {
+    "rect": {
+      "x": 516.5,
+      "y": 284,
+      "width": 912,
+      "height": 86,
+      "top": 284,
+      "right": 1428.5,
+      "bottom": 370,
+      "left": 516.5
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "borders": [
+      "0px",
+      "0px",
+      "0px",
+      "0px"
+    ],
+    "radius": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0s",
+    "scrollWidth": 912,
+    "clientWidth": 912
+  },
+  "rows": [
+    {
+      "text": "QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name\n\nControlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row.",
+      "row": {
+        "rect": {
+          "x": 516.5,
+          "y": 284,
+          "width": 432,
+          "height": 86,
+          "top": 284,
+          "right": 948.5,
+          "bottom": 370,
+          "left": 516.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 432,
+        "clientWidth": 432
+      },
+      "icon": {
+        "rect": {
+          "x": 516.5,
+          "y": 309,
+          "width": 36,
+          "height": 36,
+          "top": 309,
+          "right": 552.5,
+          "bottom": 345,
+          "left": 516.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "9px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 34,
+        "clientWidth": 34
+      },
+      "title": {
+        "rect": {
+          "x": 564.5,
+          "y": 296,
+          "width": 344,
+          "height": 20,
+          "top": 296,
+          "right": 908.5,
+          "bottom": 316,
+          "left": 564.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "ellipsis",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 2110,
+        "clientWidth": 344
+      },
+      "description": {
+        "rect": {
+          "x": 564.5,
+          "y": 318,
+          "width": 344,
+          "height": 40,
+          "top": 318,
+          "right": 908.5,
+          "bottom": 358,
+          "left": 564.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "clip",
+        "lineClamp": "2",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 344,
+        "clientWidth": 344
+      },
+      "detailsButton": {
+        "rect": {
+          "x": 920.5,
+          "y": 313,
+          "width": 28,
+          "height": 28,
+          "top": 313,
+          "right": 948.5,
+          "bottom": 341,
+          "left": 920.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "50%",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0.15s",
+        "scrollWidth": 26,
+        "clientWidth": 26
+      }
+    },
+    {
+      "text": "QA personal plugin\n\nA second explicit fixture keeps the wide two-column comparison meaningful.",
+      "row": {
+        "rect": {
+          "x": 996.5,
+          "y": 284,
+          "width": 432,
+          "height": 86,
+          "top": 284,
+          "right": 1428.5,
+          "bottom": 370,
+          "left": 996.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 432,
+        "clientWidth": 432
+      },
+      "icon": {
+        "rect": {
+          "x": 996.5,
+          "y": 309,
+          "width": 36,
+          "height": 36,
+          "top": 309,
+          "right": 1032.5,
+          "bottom": 345,
+          "left": 996.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "9px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 34,
+        "clientWidth": 34
+      },
+      "title": {
+        "rect": {
+          "x": 1044.5,
+          "y": 296,
+          "width": 344,
+          "height": 20,
+          "top": 296,
+          "right": 1388.5,
+          "bottom": 316,
+          "left": 1044.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "ellipsis",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 344,
+        "clientWidth": 344
+      },
+      "description": {
+        "rect": {
+          "x": 1044.5,
+          "y": 318,
+          "width": 344,
+          "height": 40,
+          "top": 318,
+          "right": 1388.5,
+          "bottom": 358,
+          "left": 1044.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "clip",
+        "lineClamp": "2",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 344,
+        "clientWidth": 344
+      },
+      "detailsButton": {
+        "rect": {
+          "x": 1400.5,
+          "y": 313,
+          "width": 28,
+          "height": 28,
+          "top": 313,
+          "right": 1428.5,
+          "bottom": 341,
+          "left": 1400.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "50%",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0.15s",
+        "scrollWidth": 26,
+        "clientWidth": 26
+      }
+    }
+  ],
+  "details": null,
+  "focused": {
+    "tag": "BUTTON",
+    "label": "Refresh installed plugins",
+    "inert": false
+  },
+  "api": {
+    "reads": [
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "explicit-long-data-fixture"
+      }
+    ],
+    "changes": 0,
+    "sends": 0,
+    "longFixture": true
+  }
+}

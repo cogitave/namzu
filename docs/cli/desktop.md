@@ -68,7 +68,13 @@ The left icon rail remains available when the conversation sidebar is collapsed.
 The rail contains Home, Spaces, Scheduled, Plugins and More, with Profile at
 the bottom. Home owns the chat and blank composer; Spaces reveals the actual
 project list. Plugins opens a separate Customize destination with the actual
-installed inventory in its sidebar and a searchable card grid in the main area.
+installed inventory in its sidebar and a searchable two-column list in the main
+area. Compact rows place an icon, name and description beside a details action.
+The details popover holds scope, version, status, saved startup settings and the
+existing live enable/disable control. Long descriptions wrap within two lines;
+their complete text remains in details. Search uses a rounded field and scope
+filters use pill controls. Refresh reloads the same installed inventory; the
+sidebar search button focuses that field. Narrow views use one column.
 All, Project and Personal filter the inventory's real scopes; they do not claim
 a public marketplace. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. More offers

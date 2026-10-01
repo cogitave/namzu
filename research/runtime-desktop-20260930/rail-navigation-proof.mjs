@@ -125,7 +125,7 @@ try {
   await expect(pluginPage().getByRole('heading', { name: 'Plugins', exact: true })).toBeVisible()
   await expect(pluginPage()).toContainText('No plugin runtime is connected in this design preview.')
   await expect(page.locator('[data-slot="popover-popup"]')).toHaveCount(0)
-  await expect(pluginPage()).toContainText('The cards below use sample data.')
+  await expect(pluginPage()).toContainText('The plugins below use sample data.')
   await expect(pluginPage().getByRole('list', { name: 'Installed plugins', exact: true }).getByRole('listitem')).toHaveCount(3)
   await expect(pluginPage().getByRole('button', { name: /^(Enable|Disable) / })).toHaveCount(0)
   const defaults = await page.evaluate(() => window.__railQa.defaultSampleInventory)

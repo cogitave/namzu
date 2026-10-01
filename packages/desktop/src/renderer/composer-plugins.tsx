@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
+import { LoaderCircleIcon, MoreHorizontalIcon, PuzzleIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 
@@ -47,7 +47,12 @@ export function usePluginInventory({
 		changing?: string
 		error?: string
 	}>({ scope, generation: 0 })
-	const owner = useRef({ scope, generation: 0, admitted: false, mounted: true })
+	const owner = useRef({
+		scope,
+		generation: 0,
+		admitted: false,
+		mounted: true,
+	})
 	if (owner.current.scope !== scope) {
 		owner.current.scope = scope
 		owner.current.generation++
@@ -84,7 +89,11 @@ export function usePluginInventory({
 			owner.current.scope === target &&
 			owner.current.generation === generation
 		owner.current.admitted = true
-		setState({ scope: target, generation, changing: `${plugin.scope}:${plugin.name}` })
+		setState({
+			scope: target,
+			generation,
+			changing: `${plugin.scope}:${plugin.name}`,
+		})
 		try {
 			await onSetEnabled(plugin, plugin.status !== 'enabled')
 		} catch (error) {
@@ -109,63 +118,110 @@ export function PluginInventoryCard({
 	plugin,
 	view,
 	inventory,
-	page = false,
 }: {
 	plugin: ComposerPlugin
 	view: ComposerPluginInventory
 	inventory: ReturnType<typeof usePluginInventory>
-	page?: boolean
 }) {
 	const changing = inventory.changing === `${plugin.scope}:${plugin.name}`
 	return (
-		<div className={page ? 'plugins-page-card' : 'rounded-lg border border-border p-3'}>
-			<div
-				className={page ? 'plugins-page-card-heading' : 'flex items-center justify-between gap-3'}
-			>
-				{page && (
-					<span className="plugins-page-card-icon" aria-hidden="true">
-						<PuzzleIcon />
-					</span>
-				)}
-				<span
-					className={page ? 'plugins-page-card-title' : 'min-w-0 truncate text-sm font-medium'}
-					title={plugin.name}
-				>
+		<div className="rounded-lg border border-border p-3">
+			<div className="flex items-center justify-between gap-3">
+				<span className="min-w-0 truncate text-sm font-medium" title={plugin.name}>
 					{plugin.name}
 				</span>
-				{!page && view.live && (
+				{view.live && (
 					<PluginInventoryAction plugin={plugin} inventory={inventory} changing={changing} />
 				)}
 			</div>
-			<p className={page ? 'plugins-page-card-meta' : 'mt-1 text-xs text-muted-foreground'}>
+			<p className="mt-1 text-xs text-muted-foreground">
 				{plugin.version && `${plugin.version} · `}
 				{plugin.scope === 'user' ? 'Personal' : 'Project'} ·{' '}
 				{view.live ? plugin.status : plugin.status === 'error' ? 'Unavailable' : 'Installed'}
 			</p>
 			{plugin.description && (
-				<p
-					className={page ? 'plugins-page-card-description' : 'mt-1 text-xs text-muted-foreground'}
-				>
-					{plugin.description}
-				</p>
+				<p className="mt-1 text-xs text-muted-foreground">{plugin.description}</p>
 			)}
-			<div className={page ? 'plugins-page-card-footer' : undefined}>
-				<p className={page ? 'plugins-page-card-setting' : 'mt-1 text-xs text-muted-foreground'}>
-					{plugin.startupEnabled === undefined
-						? 'Saved setting unavailable'
-						: plugin.startupEnabled
-							? 'Starts enabled next time'
-							: 'Starts disabled next time'}
-				</p>
-				{page && view.live && (
-					<PluginInventoryAction plugin={plugin} inventory={inventory} changing={changing} />
-				)}
-			</div>
+			<p className="mt-1 text-xs text-muted-foreground">{pluginStartupLabel(plugin)}</p>
 			{plugin.startupError && (
-				<p className={page ? 'plugins-page-card-error' : 'mt-1 text-xs text-destructive'}>
-					{plugin.startupError}
-				</p>
+				<p className="mt-1 text-xs text-destructive">{plugin.startupError}</p>
 			)}
+		</div>
+	)
+}
+
+function pluginStartupLabel(plugin: ComposerPlugin) {
+	return plugin.startupEnabled === undefined
+		? 'Saved setting unavailable'
+		: plugin.startupEnabled
+			? 'Starts enabled next time'
+			: 'Starts disabled next time'
+}
+
+export function PluginInventoryRow({
+	plugin,
+	view,
+	inventory,
+}: {
+	plugin: ComposerPlugin
+	view: ComposerPluginInventory
+	inventory: ReturnType<typeof usePluginInventory>
+}) {
+	const changing = inventory.changing === `${plugin.scope}:${plugin.name}`
+	return (
+		<div className="plugins-page-row">
+			<span className="plugins-page-row-icon" aria-hidden="true">
+				<PuzzleIcon />
+			</span>
+			<div className="plugins-page-row-copy">
+				<h3 className="plugins-page-row-title" title={plugin.name}>
+					{plugin.name}
+				</h3>
+				<p className="plugins-page-row-description">
+					{plugin.description || `${plugin.scope === 'user' ? 'Personal' : 'Project'} plugin`}
+				</p>
+				{plugin.status === 'error' && <span className="plugins-page-error">Unavailable</span>}
+			</div>
+			<Popover>
+				<PopoverTrigger
+					render={
+						<Button
+							variant="ghost-muted"
+							size="icon-sm"
+							className="plugins-page-row-action"
+							aria-label={`Plugin details for ${plugin.name}`}
+						/>
+					}
+				>
+					<MoreHorizontalIcon />
+				</PopoverTrigger>
+				<PopoverPopup
+					align="end"
+					width="md"
+					aria-label={`${plugin.name} details`}
+					className="plugins-page-details"
+				>
+					<h3>{plugin.name}</h3>
+					{plugin.description && <p>{plugin.description}</p>}
+					<dl>
+						<dt>Scope</dt>
+						<dd>{plugin.scope === 'user' ? 'Personal' : 'Project'}</dd>
+						{plugin.version && (
+							<>
+								<dt>Version</dt>
+								<dd>{plugin.version}</dd>
+							</>
+						)}
+						<dt>Status</dt>
+						<dd>{plugin.status}</dd>
+					</dl>
+					<p>{pluginStartupLabel(plugin)}</p>
+					{plugin.startupError && <p className="plugins-page-error">{plugin.startupError}</p>}
+					{view.live && (
+						<PluginInventoryAction plugin={plugin} inventory={inventory} changing={changing} />
+					)}
+				</PopoverPopup>
+			</Popover>
 		</div>
 	)
 }
@@ -207,7 +263,13 @@ function PluginMenu({
 	onSetEnabled,
 }: PluginMenuProps) {
 	const [open, setOpen] = useState(false)
-	const inventory = usePluginInventory({ scope, view, loading, disabled, onSetEnabled })
+	const inventory = usePluginInventory({
+		scope,
+		view,
+		loading,
+		disabled,
+		onSetEnabled,
+	})
 	const menuScope = useRef(scope)
 	useEffect(() => {
 		if (menuScope.current === scope) return

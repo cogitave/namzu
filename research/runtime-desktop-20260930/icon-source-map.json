@@ -20,7 +20,8 @@
       "MoreHorizontalIcon": "dist/esm/icons/ellipsis.js",
       "ConversationIcon": "dist/esm/icons/message-square.js",
       "FolderOpenIcon": "dist/esm/icons/folder-open.js",
-      "UserRoundIcon": "dist/esm/icons/user-round.js"
+      "UserRoundIcon": "dist/esm/icons/user-round.js",
+      "RefreshIcon": "dist/esm/icons/refresh-cw.js"
     }
   },
   "icons": {

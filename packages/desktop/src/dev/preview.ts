@@ -186,21 +186,21 @@ const api: DesktopApi = {
 				{
 					name: 'Sample project tools',
 					version: '1.0.0',
-					description: 'Preview a plugin that adds tools to the selected project.',
+					description: 'Tools for your selected project.',
 					scope: 'project',
 					status: 'installed',
 				},
 				{
 					name: 'Sample notes',
 					version: '1.0.0',
-					description: 'Preview a personal plugin available across your spaces.',
+					description: 'Notes available across your spaces.',
 					scope: 'user',
 					status: 'installed',
 				},
 				{
 					name: 'Sample document tools',
 					version: '1.0.0',
-					description: 'Review the layout with another installed project plugin.',
+					description: 'Read and work with project documents.',
 					scope: 'project',
 					status: 'installed',
 				},
@@ -208,7 +208,7 @@ const api: DesktopApi = {
 			live: false,
 			canChange: false,
 			notice:
-				'No plugin runtime is connected in this design preview. The cards below use sample data.',
+				'No plugin runtime is connected in this design preview. The plugins below use sample data.',
 		}
 	},
 	setPluginEnabled: async () => nativeOnly('Changing runtime plugins'),

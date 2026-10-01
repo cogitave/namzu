@@ -1,0 +1,517 @@
+{
+  "width": 600,
+  "height": 540,
+  "overflow": false,
+  "dark": false,
+  "reduced": true,
+  "content": {
+    "rect": {
+      "x": 48,
+      "y": 32,
+      "width": 552,
+      "height": 536,
+      "top": 32,
+      "right": 600,
+      "bottom": 568,
+      "left": 48
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "borders": [
+      "0px",
+      "0px",
+      "0px",
+      "0px"
+    ],
+    "radius": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0s",
+    "scrollWidth": 552,
+    "clientWidth": 552,
+    "paddingTop": "32px",
+    "paddingLeft": "24px"
+  },
+  "search": {
+    "rect": {
+      "x": 72,
+      "y": 144,
+      "width": 456,
+      "height": 32,
+      "top": 144,
+      "right": 528,
+      "bottom": 176,
+      "left": 72
+    },
+    "background": "rgb(255, 255, 255)",
+    "borders": [
+      "1px",
+      "1px",
+      "1px",
+      "1px"
+    ],
+    "radius": "999px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0s",
+    "scrollWidth": 454,
+    "clientWidth": 454
+  },
+  "filters": [
+    {
+      "label": "All",
+      "pressed": "true",
+      "rect": {
+        "x": 72,
+        "y": 198,
+        "width": 48.6875,
+        "height": 36,
+        "top": 198,
+        "right": 120.6875,
+        "bottom": 234,
+        "left": 72
+      },
+      "background": "rgb(238, 238, 238)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "19.5px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0s",
+      "scrollWidth": 47,
+      "clientWidth": 47
+    },
+    {
+      "label": "Project",
+      "pressed": "false",
+      "rect": {
+        "x": 124.6875,
+        "y": 198,
+        "width": 73.78125,
+        "height": 36,
+        "top": 198,
+        "right": 198.46875,
+        "bottom": 234,
+        "left": 124.6875
+      },
+      "background": "rgba(0, 0, 0, 0)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "19.5px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0s",
+      "scrollWidth": 72,
+      "clientWidth": 72
+    },
+    {
+      "label": "Personal",
+      "pressed": "false",
+      "rect": {
+        "x": 202.46875,
+        "y": 198,
+        "width": 82.859375,
+        "height": 36,
+        "top": 198,
+        "right": 285.328125,
+        "bottom": 234,
+        "left": 202.46875
+      },
+      "background": "rgba(0, 0, 0, 0)",
+      "borders": [
+        "1px",
+        "1px",
+        "1px",
+        "1px"
+      ],
+      "radius": "999px",
+      "fontSize": "13px",
+      "lineHeight": "19.5px",
+      "overflow": "visible",
+      "textOverflow": "clip",
+      "lineClamp": "none",
+      "shadow": "none",
+      "transition": "0s",
+      "scrollWidth": 81,
+      "clientWidth": 81
+    }
+  ],
+  "grid": {
+    "rect": {
+      "x": 72,
+      "y": 364,
+      "width": 504,
+      "height": 172,
+      "top": 364,
+      "right": 576,
+      "bottom": 536,
+      "left": 72
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "borders": [
+      "0px",
+      "0px",
+      "0px",
+      "0px"
+    ],
+    "radius": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "overflow": "visible",
+    "textOverflow": "clip",
+    "lineClamp": "none",
+    "shadow": "none",
+    "transition": "0s",
+    "scrollWidth": 504,
+    "clientWidth": 504
+  },
+  "rows": [
+    {
+      "text": "QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name\n\nControlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row.",
+      "row": {
+        "rect": {
+          "x": 72,
+          "y": 364,
+          "width": 504,
+          "height": 86,
+          "top": 364,
+          "right": 576,
+          "bottom": 450,
+          "left": 72
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 504,
+        "clientWidth": 504
+      },
+      "icon": {
+        "rect": {
+          "x": 72,
+          "y": 389,
+          "width": 36,
+          "height": 36,
+          "top": 389,
+          "right": 108,
+          "bottom": 425,
+          "left": 72
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "9px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 34,
+        "clientWidth": 34
+      },
+      "title": {
+        "rect": {
+          "x": 120,
+          "y": 376,
+          "width": 412,
+          "height": 20,
+          "top": 376,
+          "right": 532,
+          "bottom": 396,
+          "left": 120
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "ellipsis",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 2110,
+        "clientWidth": 412
+      },
+      "description": {
+        "rect": {
+          "x": 120,
+          "y": 398,
+          "width": 412,
+          "height": 40,
+          "top": 398,
+          "right": 532,
+          "bottom": 438,
+          "left": 120
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "clip",
+        "lineClamp": "2",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 412,
+        "clientWidth": 412
+      },
+      "detailsButton": {
+        "rect": {
+          "x": 544,
+          "y": 391,
+          "width": 32,
+          "height": 32,
+          "top": 391,
+          "right": 576,
+          "bottom": 423,
+          "left": 544
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "50%",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 30,
+        "clientWidth": 30
+      }
+    },
+    {
+      "text": "QA personal plugin\n\nA second explicit fixture keeps the wide two-column comparison meaningful.",
+      "row": {
+        "rect": {
+          "x": 72,
+          "y": 450,
+          "width": 504,
+          "height": 86,
+          "top": 450,
+          "right": 576,
+          "bottom": 536,
+          "left": 72
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 504,
+        "clientWidth": 504
+      },
+      "icon": {
+        "rect": {
+          "x": 72,
+          "y": 475,
+          "width": 36,
+          "height": 36,
+          "top": 475,
+          "right": 108,
+          "bottom": 511,
+          "left": 72
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "9px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 34,
+        "clientWidth": 34
+      },
+      "title": {
+        "rect": {
+          "x": 120,
+          "y": 462,
+          "width": 412,
+          "height": 20,
+          "top": 462,
+          "right": 532,
+          "bottom": 482,
+          "left": 120
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "ellipsis",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 412,
+        "clientWidth": 412
+      },
+      "description": {
+        "rect": {
+          "x": 120,
+          "y": 484,
+          "width": 412,
+          "height": 40,
+          "top": 484,
+          "right": 532,
+          "bottom": 524,
+          "left": 120
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "overflow": "hidden",
+        "textOverflow": "clip",
+        "lineClamp": "2",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 412,
+        "clientWidth": 412
+      },
+      "detailsButton": {
+        "rect": {
+          "x": 544,
+          "y": 477,
+          "width": 32,
+          "height": 32,
+          "top": 477,
+          "right": 576,
+          "bottom": 509,
+          "left": 544
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "50%",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 30,
+        "clientWidth": 30
+      }
+    }
+  ],
+  "details": null,
+  "focused": {
+    "tag": "BUTTON",
+    "label": "Profile",
+    "inert": false
+  },
+  "api": {
+    "reads": [
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "explicit-long-data-fixture"
+      }
+    ],
+    "changes": 0,
+    "sends": 0,
+    "longFixture": true
+  }
+}

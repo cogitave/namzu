@@ -152,3 +152,39 @@ final static/build checks cover those refinements. Production output retains
 its restrictive CSP and excludes the development preview and sample data.
 This is a local design correction, with no fresh native-kernel proof, push or
 publication.
+
+## Follow-up Plugins reference density
+
+The user identified another mismatch: the reference uses plain compact rows,
+not large raised cards. The supplied screenshot suggests about 900px of main
+content, 36px icons, 12px icon-to-copy gaps, two columns with a 48px gutter,
+14px names and 13px descriptions. These are image measurements/inferences;
+the reference application's DOM and exact font family were not available.
+
+The implementation now uses that icon/content/action composition. A 960px
+frame including 24px side padding provides 912px of content at wide sizes;
+the title begins 28px below the native title bar. Search is a 32px rounded
+field, scope filters are 36px pills, and ordinary rows have a 68px pitch with
+transparent backgrounds and no enclosing border. Longer descriptions clamp
+to two lines; their full text and version/status/startup information remain
+available in the row's details popover. Narrow workspaces use one column.
+
+The right-side details button operates on the real installed plugin record.
+Live enable/disable actions retain the shared inventory guards. Refresh reads
+the existing inventory API and is disabled during a plugin mutation; context
+keys close old details on ownership changes. The Customize sidebar's Search
+button focuses the main search field. No public catalogue, installation action,
+promotional banner or unavailable integration logo is inferred from the image.
+The sample preview retains its explicit data notice; native inventory is
+unchanged. Previous card captures remain historical evidence, not current UI.
+
+The focused `plugins-reference-proof.mjs` passed on the final source, recording
+four current captures and `artifacts/plugins-reference-receipt.json`. At
+1609×973 dark and 600×540 light/reduced-motion, ordinary rows measured 68px and
+long-text rows 86px, without page overflow. The proof exercised search, scopes,
+one explicit inventory refresh, details/Escape focus and sidebar search focus.
+Its data is browser-only sample/synthetic inventory: no plugin mutation or
+model request occurred, and no native runtime result is implied. Workspace
+typecheck, desktop lint, 47 existing desktop tests, docs conformance,
+external-name audit and final production build passed. The live review server
+is retained; no push or publication was performed.

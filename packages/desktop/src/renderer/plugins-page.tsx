@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import {
 	type ComposerPluginInventory,
-	PluginInventoryCard,
 	type PluginInventoryProps,
+	PluginInventoryRow,
 	usePluginInventory,
 } from './composer-plugins.js'
-import { LoaderCircleIcon, PuzzleFilledIcon, PuzzleIcon, SearchIcon, XIcon } from './icons.js'
+import {
+	LoaderCircleIcon,
+	PuzzleFilledIcon,
+	PuzzleIcon,
+	RefreshIcon,
+	SearchIcon,
+	XIcon,
+} from './icons.js'
 import { Button } from './ui/button.js'
 import './plugins-page.css'
 
@@ -54,26 +61,38 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 						<h1>Plugins</h1>
 						<p>{contextLabel ? `Installed for ${contextLabel}` : 'Your installed plugins'}</p>
 					</div>
-					<div className="plugins-page-search" data-disabled={disabled || undefined}>
-						<SearchIcon aria-hidden="true" />
-						<input
-							type="search"
-							aria-label="Search installed plugins"
-							placeholder="Search plugins"
-							value={query}
-							disabled={disabled}
-							onChange={(event) => setQuery(event.target.value)}
-						/>
-						{query && (
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								aria-label="Clear plugin search"
-								onClick={() => setQuery('')}
-							>
-								<XIcon />
-							</Button>
-						)}
+					<div className="plugins-page-header-actions">
+						<div className="plugins-page-search" data-disabled={disabled || undefined}>
+							<SearchIcon aria-hidden="true" />
+							<input
+								id="installed-plugin-search"
+								type="search"
+								aria-label="Search installed plugins"
+								placeholder="Search plugins"
+								value={query}
+								disabled={disabled}
+								onChange={(event) => setQuery(event.target.value)}
+							/>
+							{query && (
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label="Clear plugin search"
+									onClick={() => setQuery('')}
+								>
+									<XIcon />
+								</Button>
+							)}
+						</div>
+						<Button
+							variant="ghost-muted"
+							size="icon"
+							aria-label="Refresh installed plugins"
+							disabled={disabled || loading || Boolean(inventory.changing)}
+							onClick={onLoad}
+						>
+							<RefreshIcon className={loading ? 'animate-spin' : undefined} />
+						</Button>
 					</div>
 				</header>
 				{disabled ? (
@@ -125,7 +144,12 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 							<div className="plugins-page-notice">
 								<p>{view.notice}</p>
 								{view.plugins.length === 0 && (
-									<Button variant="ghost-muted" size="sm" disabled={loading} onClick={onLoad}>
+									<Button
+										variant="ghost-muted"
+										size="sm"
+										disabled={loading || Boolean(inventory.changing)}
+										onClick={onLoad}
+									>
 										Try again
 									</Button>
 								)}
@@ -145,13 +169,16 @@ export function PluginsPage({ onLoad, onChooseSpace, ...props }: PluginsPageProp
 							</p>
 						)}
 						{view && shown.length > 0 ? (
-							<ul className="plugins-page-grid" aria-label="Installed plugins">
-								{shown.map((plugin) => (
-									<li key={`${plugin.scope}:${plugin.name}`}>
-										<PluginInventoryCard plugin={plugin} view={view} inventory={inventory} page />
-									</li>
-								))}
-							</ul>
+							<section className="plugins-page-section" aria-label="Installed plugin collection">
+								<h2>Installed</h2>
+								<ul className="plugins-page-grid" aria-label="Installed plugins">
+									{shown.map((plugin) => (
+										<li key={`${scope}:${plugin.scope}:${plugin.name}`}>
+											<PluginInventoryRow plugin={plugin} view={view} inventory={inventory} />
+										</li>
+									))}
+								</ul>
+							</section>
 						) : !loading && (query || filter !== 'all' || !view?.notice) ? (
 							<div className="plugins-page-empty">
 								<span className="plugins-page-empty-icon" aria-hidden="true">
@@ -201,7 +228,18 @@ export function PluginsSidebar({
 	const plugins = disabled ? [] : (view?.plugins ?? [])
 	return (
 		<div className="plugins-sidebar-content">
-			<header className="plugins-sidebar-header">Customize</header>
+			<header className="plugins-sidebar-header">
+				<span>Customize</span>
+				<Button
+					variant="ghost-muted"
+					size="icon-xs"
+					aria-label="Search plugins"
+					disabled={disabled}
+					onClick={() => document.getElementById('installed-plugin-search')?.focus()}
+				>
+					<SearchIcon />
+				</Button>
+			</header>
 			<nav className="plugins-sidebar-navigation" aria-label="Customize navigation">
 				<button
 					type="button"

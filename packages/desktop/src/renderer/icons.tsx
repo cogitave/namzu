@@ -9,6 +9,7 @@ import {
 	type LucideIcon,
 	MessageSquare,
 	PanelLeft,
+	RefreshCw,
 	SquarePen,
 	UserRound,
 } from 'lucide-react'
@@ -208,5 +209,6 @@ export const PuzzleFilledIcon = createIcon(
 )
 
 export const MoreHorizontalIcon = createOutlineIcon(Ellipsis)
+export const RefreshIcon = createOutlineIcon(RefreshCw)
 export const ConversationIcon = createOutlineIcon(MessageSquare)
 export const UserRoundIcon = createOutlineIcon(UserRound)

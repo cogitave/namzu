@@ -1,0 +1,2423 @@
+{
+  "passed": true,
+  "scope": "Browser-only localhost design preview in one owned context. Default rows are explicit sample plugins; long names/descriptions are an isolated synthetic fixture. No native runtime, genuine installed plugin, device credentials, scheduler change or model request is claimed.",
+  "checks": [
+    "Compact transparent borderless rows with reference typography/icon/search dimensions",
+    "Wide two-column layout and narrow bounded long text",
+    "Installed section and honest sample notice",
+    "Scope filters/search without unnecessary host reads",
+    "Explicit refresh reads the existing inventory API",
+    "Actual plugin details and Escape focus restoration",
+    "No invented marketplace/installer controls or plugin/model mutation"
+  ],
+  "refreshed": {
+    "before": 1,
+    "after": 2
+  },
+  "counts": {
+    "reads": [
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "dev-preview-sample-inventory"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": null,
+        "source": "explicit-long-data-fixture"
+      }
+    ],
+    "changes": 0,
+    "sends": 0,
+    "longFixture": true
+  },
+  "captures": [
+    {
+      "name": "wide-dark-default-rows",
+      "width": 1609,
+      "height": 973,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "content": {
+        "rect": {
+          "x": 492.5,
+          "y": 32,
+          "width": 960,
+          "height": 436,
+          "top": 32,
+          "right": 1452.5,
+          "bottom": 468,
+          "left": 492.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 960,
+        "clientWidth": 960,
+        "paddingTop": "28px",
+        "paddingLeft": "24px"
+      },
+      "search": {
+        "rect": {
+          "x": 1144.5,
+          "y": 60,
+          "width": 240,
+          "height": 32,
+          "top": 60,
+          "right": 1384.5,
+          "bottom": 92,
+          "left": 1144.5
+        },
+        "background": "rgb(24, 24, 24)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "999px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "color(srgb 0.960784 0.960784 0.960784 / 0.08) 0px 0px 0px 2px",
+        "transition": "0.15s, 0.15s",
+        "scrollWidth": 238,
+        "clientWidth": 238
+      },
+      "filters": [
+        {
+          "label": "All",
+          "pressed": "true",
+          "rect": {
+            "x": 516.5,
+            "y": 138,
+            "width": 48.6875,
+            "height": 36,
+            "top": 138,
+            "right": 565.1875,
+            "bottom": 174,
+            "left": 516.5
+          },
+          "background": "rgba(241, 243, 247, 0.11)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 47,
+          "clientWidth": 47
+        },
+        {
+          "label": "Project",
+          "pressed": "false",
+          "rect": {
+            "x": 569.1875,
+            "y": 138,
+            "width": 73.78125,
+            "height": 36,
+            "top": 138,
+            "right": 642.96875,
+            "bottom": 174,
+            "left": 569.1875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 72,
+          "clientWidth": 72
+        },
+        {
+          "label": "Personal",
+          "pressed": "false",
+          "rect": {
+            "x": 646.96875,
+            "y": 138,
+            "width": 82.859375,
+            "height": 36,
+            "top": 138,
+            "right": 729.828125,
+            "bottom": 174,
+            "left": 646.96875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 81,
+          "clientWidth": 81
+        }
+      ],
+      "grid": {
+        "rect": {
+          "x": 516.5,
+          "y": 284,
+          "width": 912,
+          "height": 136,
+          "top": 284,
+          "right": 1428.5,
+          "bottom": 420,
+          "left": 516.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 912,
+        "clientWidth": 912
+      },
+      "rows": [
+        {
+          "text": "Sample project tools\n\nTools for your selected project.",
+          "row": {
+            "rect": {
+              "x": 516.5,
+              "y": 284,
+              "width": 432,
+              "height": 68,
+              "top": 284,
+              "right": 948.5,
+              "bottom": 352,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 516.5,
+              "y": 300,
+              "width": 36,
+              "height": 36,
+              "top": 300,
+              "right": 552.5,
+              "bottom": 336,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 564.5,
+              "y": 297,
+              "width": 344,
+              "height": 20,
+              "top": 297,
+              "right": 908.5,
+              "bottom": 317,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 564.5,
+              "y": 319,
+              "width": 344,
+              "height": 20,
+              "top": 319,
+              "right": 908.5,
+              "bottom": 339,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 920.5,
+              "y": 304,
+              "width": 28,
+              "height": 28,
+              "top": 304,
+              "right": 948.5,
+              "bottom": 332,
+              "left": 920.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        },
+        {
+          "text": "Sample notes\n\nNotes available across your spaces.",
+          "row": {
+            "rect": {
+              "x": 996.5,
+              "y": 284,
+              "width": 432,
+              "height": 68,
+              "top": 284,
+              "right": 1428.5,
+              "bottom": 352,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 996.5,
+              "y": 300,
+              "width": 36,
+              "height": 36,
+              "top": 300,
+              "right": 1032.5,
+              "bottom": 336,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 1044.5,
+              "y": 297,
+              "width": 344,
+              "height": 20,
+              "top": 297,
+              "right": 1388.5,
+              "bottom": 317,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 1044.5,
+              "y": 319,
+              "width": 344,
+              "height": 20,
+              "top": 319,
+              "right": 1388.5,
+              "bottom": 339,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 1400.5,
+              "y": 304,
+              "width": 28,
+              "height": 28,
+              "top": 304,
+              "right": 1428.5,
+              "bottom": 332,
+              "left": 1400.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        },
+        {
+          "text": "Sample document tools\n\nRead and work with project documents.",
+          "row": {
+            "rect": {
+              "x": 516.5,
+              "y": 352,
+              "width": 432,
+              "height": 68,
+              "top": 352,
+              "right": 948.5,
+              "bottom": 420,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 516.5,
+              "y": 368,
+              "width": 36,
+              "height": 36,
+              "top": 368,
+              "right": 552.5,
+              "bottom": 404,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 564.5,
+              "y": 365,
+              "width": 344,
+              "height": 20,
+              "top": 365,
+              "right": 908.5,
+              "bottom": 385,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 564.5,
+              "y": 387,
+              "width": 344,
+              "height": 20,
+              "top": 387,
+              "right": 908.5,
+              "bottom": 407,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 920.5,
+              "y": 372,
+              "width": 28,
+              "height": 28,
+              "top": 372,
+              "right": 948.5,
+              "bottom": 400,
+              "left": 920.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        }
+      ],
+      "details": null,
+      "focused": {
+        "tag": "INPUT",
+        "label": "Search installed plugins",
+        "inert": false
+      },
+      "api": {
+        "reads": [
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          }
+        ],
+        "changes": 0,
+        "sends": 0,
+        "longFixture": false
+      }
+    },
+    {
+      "name": "wide-dark-plugin-details",
+      "width": 1609,
+      "height": 973,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "content": {
+        "rect": {
+          "x": 492.5,
+          "y": 32,
+          "width": 960,
+          "height": 436,
+          "top": 32,
+          "right": 1452.5,
+          "bottom": 468,
+          "left": 492.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 960,
+        "clientWidth": 960,
+        "paddingTop": "28px",
+        "paddingLeft": "24px"
+      },
+      "search": {
+        "rect": {
+          "x": 1144.5,
+          "y": 60,
+          "width": 240,
+          "height": 32,
+          "top": 60,
+          "right": 1384.5,
+          "bottom": 92,
+          "left": 1144.5
+        },
+        "background": "rgb(24, 24, 24)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "999px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0.15s, 0.15s",
+        "scrollWidth": 238,
+        "clientWidth": 238
+      },
+      "filters": [
+        {
+          "label": "All",
+          "pressed": "true",
+          "rect": {
+            "x": 516.5,
+            "y": 138,
+            "width": 48.6875,
+            "height": 36,
+            "top": 138,
+            "right": 565.1875,
+            "bottom": 174,
+            "left": 516.5
+          },
+          "background": "rgba(241, 243, 247, 0.11)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 47,
+          "clientWidth": 47
+        },
+        {
+          "label": "Project",
+          "pressed": "false",
+          "rect": {
+            "x": 569.1875,
+            "y": 138,
+            "width": 73.78125,
+            "height": 36,
+            "top": 138,
+            "right": 642.96875,
+            "bottom": 174,
+            "left": 569.1875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 72,
+          "clientWidth": 72
+        },
+        {
+          "label": "Personal",
+          "pressed": "false",
+          "rect": {
+            "x": 646.96875,
+            "y": 138,
+            "width": 82.859375,
+            "height": 36,
+            "top": 138,
+            "right": 729.828125,
+            "bottom": 174,
+            "left": 646.96875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 81,
+          "clientWidth": 81
+        }
+      ],
+      "grid": {
+        "rect": {
+          "x": 516.5,
+          "y": 284,
+          "width": 912,
+          "height": 136,
+          "top": 284,
+          "right": 1428.5,
+          "bottom": 420,
+          "left": 516.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 912,
+        "clientWidth": 912
+      },
+      "rows": [
+        {
+          "text": "Sample project tools\n\nTools for your selected project.",
+          "row": {
+            "rect": {
+              "x": 516.5,
+              "y": 284,
+              "width": 432,
+              "height": 68,
+              "top": 284,
+              "right": 948.5,
+              "bottom": 352,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 516.5,
+              "y": 300,
+              "width": 36,
+              "height": 36,
+              "top": 300,
+              "right": 552.5,
+              "bottom": 336,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 564.5,
+              "y": 297,
+              "width": 344,
+              "height": 20,
+              "top": 297,
+              "right": 908.5,
+              "bottom": 317,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 564.5,
+              "y": 319,
+              "width": 344,
+              "height": 20,
+              "top": 319,
+              "right": 908.5,
+              "bottom": 339,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 920.5,
+              "y": 304,
+              "width": 28,
+              "height": 28,
+              "top": 304,
+              "right": 948.5,
+              "bottom": 332,
+              "left": 920.5
+            },
+            "background": "rgb(37, 37, 37)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        },
+        {
+          "text": "Sample notes\n\nNotes available across your spaces.",
+          "row": {
+            "rect": {
+              "x": 996.5,
+              "y": 284,
+              "width": 432,
+              "height": 68,
+              "top": 284,
+              "right": 1428.5,
+              "bottom": 352,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 996.5,
+              "y": 300,
+              "width": 36,
+              "height": 36,
+              "top": 300,
+              "right": 1032.5,
+              "bottom": 336,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 1044.5,
+              "y": 297,
+              "width": 344,
+              "height": 20,
+              "top": 297,
+              "right": 1388.5,
+              "bottom": 317,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 1044.5,
+              "y": 319,
+              "width": 344,
+              "height": 20,
+              "top": 319,
+              "right": 1388.5,
+              "bottom": 339,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 1400.5,
+              "y": 304,
+              "width": 28,
+              "height": 28,
+              "top": 304,
+              "right": 1428.5,
+              "bottom": 332,
+              "left": 1400.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        },
+        {
+          "text": "Sample document tools\n\nRead and work with project documents.",
+          "row": {
+            "rect": {
+              "x": 516.5,
+              "y": 352,
+              "width": 432,
+              "height": 68,
+              "top": 352,
+              "right": 948.5,
+              "bottom": 420,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 516.5,
+              "y": 368,
+              "width": 36,
+              "height": 36,
+              "top": 368,
+              "right": 552.5,
+              "bottom": 404,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 564.5,
+              "y": 365,
+              "width": 344,
+              "height": 20,
+              "top": 365,
+              "right": 908.5,
+              "bottom": 385,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 564.5,
+              "y": 387,
+              "width": 344,
+              "height": 20,
+              "top": 387,
+              "right": 908.5,
+              "bottom": 407,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 920.5,
+              "y": 372,
+              "width": 28,
+              "height": 28,
+              "top": 372,
+              "right": 948.5,
+              "bottom": 400,
+              "left": 920.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        }
+      ],
+      "details": {
+        "rect": {
+          "x": 628.5,
+          "y": 336,
+          "width": 320,
+          "height": 200,
+          "top": 336,
+          "right": 948.5,
+          "bottom": 536,
+          "left": 628.5
+        },
+        "background": "rgb(36, 36, 36)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "10px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.8) 0px 18px 44px -18px",
+        "transition": "0.15s",
+        "scrollWidth": 318,
+        "clientWidth": 318
+      },
+      "focused": {
+        "tag": "DIV",
+        "label": "Sample project tools details",
+        "inert": false
+      },
+      "api": {
+        "reads": [
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          }
+        ],
+        "changes": 0,
+        "sends": 0,
+        "longFixture": false
+      }
+    },
+    {
+      "name": "wide-dark-long-fixture",
+      "width": 1609,
+      "height": 973,
+      "overflow": false,
+      "dark": true,
+      "reduced": false,
+      "content": {
+        "rect": {
+          "x": 492.5,
+          "y": 32,
+          "width": 960,
+          "height": 386,
+          "top": 32,
+          "right": 1452.5,
+          "bottom": 418,
+          "left": 492.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 960,
+        "clientWidth": 960,
+        "paddingTop": "28px",
+        "paddingLeft": "24px"
+      },
+      "search": {
+        "rect": {
+          "x": 1144.5,
+          "y": 60,
+          "width": 240,
+          "height": 32,
+          "top": 60,
+          "right": 1384.5,
+          "bottom": 92,
+          "left": 1144.5
+        },
+        "background": "rgb(24, 24, 24)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "999px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0.15s, 0.15s",
+        "scrollWidth": 238,
+        "clientWidth": 238
+      },
+      "filters": [
+        {
+          "label": "All",
+          "pressed": "true",
+          "rect": {
+            "x": 516.5,
+            "y": 138,
+            "width": 48.6875,
+            "height": 36,
+            "top": 138,
+            "right": 565.1875,
+            "bottom": 174,
+            "left": 516.5
+          },
+          "background": "rgba(241, 243, 247, 0.11)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 47,
+          "clientWidth": 47
+        },
+        {
+          "label": "Project",
+          "pressed": "false",
+          "rect": {
+            "x": 569.1875,
+            "y": 138,
+            "width": 73.78125,
+            "height": 36,
+            "top": 138,
+            "right": 642.96875,
+            "bottom": 174,
+            "left": 569.1875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 72,
+          "clientWidth": 72
+        },
+        {
+          "label": "Personal",
+          "pressed": "false",
+          "rect": {
+            "x": 646.96875,
+            "y": 138,
+            "width": 82.859375,
+            "height": 36,
+            "top": 138,
+            "right": 729.828125,
+            "bottom": 174,
+            "left": 646.96875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "18.5714px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0.15s, 0.15s",
+          "scrollWidth": 81,
+          "clientWidth": 81
+        }
+      ],
+      "grid": {
+        "rect": {
+          "x": 516.5,
+          "y": 284,
+          "width": 912,
+          "height": 86,
+          "top": 284,
+          "right": 1428.5,
+          "bottom": 370,
+          "left": 516.5
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 912,
+        "clientWidth": 912
+      },
+      "rows": [
+        {
+          "text": "QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name\n\nControlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row.",
+          "row": {
+            "rect": {
+              "x": 516.5,
+              "y": 284,
+              "width": 432,
+              "height": 86,
+              "top": 284,
+              "right": 948.5,
+              "bottom": 370,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 516.5,
+              "y": 309,
+              "width": 36,
+              "height": 36,
+              "top": 309,
+              "right": 552.5,
+              "bottom": 345,
+              "left": 516.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 564.5,
+              "y": 296,
+              "width": 344,
+              "height": 20,
+              "top": 296,
+              "right": 908.5,
+              "bottom": 316,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 2110,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 564.5,
+              "y": 318,
+              "width": 344,
+              "height": 40,
+              "top": 318,
+              "right": 908.5,
+              "bottom": 358,
+              "left": 564.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 920.5,
+              "y": 313,
+              "width": 28,
+              "height": 28,
+              "top": 313,
+              "right": 948.5,
+              "bottom": 341,
+              "left": 920.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        },
+        {
+          "text": "QA personal plugin\n\nA second explicit fixture keeps the wide two-column comparison meaningful.",
+          "row": {
+            "rect": {
+              "x": 996.5,
+              "y": 284,
+              "width": 432,
+              "height": 86,
+              "top": 284,
+              "right": 1428.5,
+              "bottom": 370,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 432,
+            "clientWidth": 432
+          },
+          "icon": {
+            "rect": {
+              "x": 996.5,
+              "y": 309,
+              "width": 36,
+              "height": 36,
+              "top": 309,
+              "right": 1032.5,
+              "bottom": 345,
+              "left": 996.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 1044.5,
+              "y": 296,
+              "width": 344,
+              "height": 20,
+              "top": 296,
+              "right": 1388.5,
+              "bottom": 316,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "description": {
+            "rect": {
+              "x": 1044.5,
+              "y": 318,
+              "width": 344,
+              "height": 40,
+              "top": 318,
+              "right": 1388.5,
+              "bottom": 358,
+              "left": 1044.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 344,
+            "clientWidth": 344
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 1400.5,
+              "y": 313,
+              "width": 28,
+              "height": 28,
+              "top": 313,
+              "right": 1428.5,
+              "bottom": 341,
+              "left": 1400.5
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0.15s",
+            "scrollWidth": 26,
+            "clientWidth": 26
+          }
+        }
+      ],
+      "details": null,
+      "focused": {
+        "tag": "BUTTON",
+        "label": "Refresh installed plugins",
+        "inert": false
+      },
+      "api": {
+        "reads": [
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "explicit-long-data-fixture"
+          }
+        ],
+        "changes": 0,
+        "sends": 0,
+        "longFixture": true
+      }
+    },
+    {
+      "name": "narrow-light-long-fixture-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "dark": false,
+      "reduced": true,
+      "content": {
+        "rect": {
+          "x": 48,
+          "y": 32,
+          "width": 552,
+          "height": 536,
+          "top": 32,
+          "right": 600,
+          "bottom": 568,
+          "left": 48
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 552,
+        "clientWidth": 552,
+        "paddingTop": "32px",
+        "paddingLeft": "24px"
+      },
+      "search": {
+        "rect": {
+          "x": 72,
+          "y": 144,
+          "width": 456,
+          "height": 32,
+          "top": 144,
+          "right": 528,
+          "bottom": 176,
+          "left": 72
+        },
+        "background": "rgb(255, 255, 255)",
+        "borders": [
+          "1px",
+          "1px",
+          "1px",
+          "1px"
+        ],
+        "radius": "999px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 454,
+        "clientWidth": 454
+      },
+      "filters": [
+        {
+          "label": "All",
+          "pressed": "true",
+          "rect": {
+            "x": 72,
+            "y": 198,
+            "width": 48.6875,
+            "height": 36,
+            "top": 198,
+            "right": 120.6875,
+            "bottom": 234,
+            "left": 72
+          },
+          "background": "rgb(238, 238, 238)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "19.5px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0s",
+          "scrollWidth": 47,
+          "clientWidth": 47
+        },
+        {
+          "label": "Project",
+          "pressed": "false",
+          "rect": {
+            "x": 124.6875,
+            "y": 198,
+            "width": 73.78125,
+            "height": 36,
+            "top": 198,
+            "right": 198.46875,
+            "bottom": 234,
+            "left": 124.6875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "19.5px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0s",
+          "scrollWidth": 72,
+          "clientWidth": 72
+        },
+        {
+          "label": "Personal",
+          "pressed": "false",
+          "rect": {
+            "x": 202.46875,
+            "y": 198,
+            "width": 82.859375,
+            "height": 36,
+            "top": 198,
+            "right": 285.328125,
+            "bottom": 234,
+            "left": 202.46875
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "borders": [
+            "1px",
+            "1px",
+            "1px",
+            "1px"
+          ],
+          "radius": "999px",
+          "fontSize": "13px",
+          "lineHeight": "19.5px",
+          "overflow": "visible",
+          "textOverflow": "clip",
+          "lineClamp": "none",
+          "shadow": "none",
+          "transition": "0s",
+          "scrollWidth": 81,
+          "clientWidth": 81
+        }
+      ],
+      "grid": {
+        "rect": {
+          "x": 72,
+          "y": 364,
+          "width": 504,
+          "height": 172,
+          "top": 364,
+          "right": 576,
+          "bottom": 536,
+          "left": 72
+        },
+        "background": "rgba(0, 0, 0, 0)",
+        "borders": [
+          "0px",
+          "0px",
+          "0px",
+          "0px"
+        ],
+        "radius": "0px",
+        "fontSize": "16px",
+        "lineHeight": "24px",
+        "overflow": "visible",
+        "textOverflow": "clip",
+        "lineClamp": "none",
+        "shadow": "none",
+        "transition": "0s",
+        "scrollWidth": 504,
+        "clientWidth": 504
+      },
+      "rows": [
+        {
+          "text": "QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name QA controlled long plugin name\n\nControlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row. Controlled synthetic description with several words that must remain readable within a compact row.",
+          "row": {
+            "rect": {
+              "x": 72,
+              "y": 364,
+              "width": 504,
+              "height": 86,
+              "top": 364,
+              "right": 576,
+              "bottom": 450,
+              "left": 72
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 504,
+            "clientWidth": 504
+          },
+          "icon": {
+            "rect": {
+              "x": 72,
+              "y": 389,
+              "width": 36,
+              "height": 36,
+              "top": 389,
+              "right": 108,
+              "bottom": 425,
+              "left": 72
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 120,
+              "y": 376,
+              "width": 412,
+              "height": 20,
+              "top": 376,
+              "right": 532,
+              "bottom": 396,
+              "left": 120
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 2110,
+            "clientWidth": 412
+          },
+          "description": {
+            "rect": {
+              "x": 120,
+              "y": 398,
+              "width": 412,
+              "height": 40,
+              "top": 398,
+              "right": 532,
+              "bottom": 438,
+              "left": 120
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 412,
+            "clientWidth": 412
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 544,
+              "y": 391,
+              "width": 32,
+              "height": 32,
+              "top": 391,
+              "right": 576,
+              "bottom": 423,
+              "left": 544
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 30,
+            "clientWidth": 30
+          }
+        },
+        {
+          "text": "QA personal plugin\n\nA second explicit fixture keeps the wide two-column comparison meaningful.",
+          "row": {
+            "rect": {
+              "x": 72,
+              "y": 450,
+              "width": 504,
+              "height": 86,
+              "top": 450,
+              "right": 576,
+              "bottom": 536,
+              "left": 72
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 504,
+            "clientWidth": 504
+          },
+          "icon": {
+            "rect": {
+              "x": 72,
+              "y": 475,
+              "width": 36,
+              "height": 36,
+              "top": 475,
+              "right": 108,
+              "bottom": 511,
+              "left": 72
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "9px",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 34,
+            "clientWidth": 34
+          },
+          "title": {
+            "rect": {
+              "x": 120,
+              "y": 462,
+              "width": 412,
+              "height": 20,
+              "top": 462,
+              "right": 532,
+              "bottom": 482,
+              "left": 120
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "14px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 412,
+            "clientWidth": 412
+          },
+          "description": {
+            "rect": {
+              "x": 120,
+              "y": 484,
+              "width": 412,
+              "height": 40,
+              "top": 484,
+              "right": 532,
+              "bottom": 524,
+              "left": 120
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "0px",
+              "0px",
+              "0px",
+              "0px"
+            ],
+            "radius": "0px",
+            "fontSize": "13px",
+            "lineHeight": "20px",
+            "overflow": "hidden",
+            "textOverflow": "clip",
+            "lineClamp": "2",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 412,
+            "clientWidth": 412
+          },
+          "detailsButton": {
+            "rect": {
+              "x": 544,
+              "y": 477,
+              "width": 32,
+              "height": 32,
+              "top": 477,
+              "right": 576,
+              "bottom": 509,
+              "left": 544
+            },
+            "background": "rgba(0, 0, 0, 0)",
+            "borders": [
+              "1px",
+              "1px",
+              "1px",
+              "1px"
+            ],
+            "radius": "50%",
+            "fontSize": "16px",
+            "lineHeight": "24px",
+            "overflow": "visible",
+            "textOverflow": "clip",
+            "lineClamp": "none",
+            "shadow": "none",
+            "transition": "0s",
+            "scrollWidth": 30,
+            "clientWidth": 30
+          }
+        }
+      ],
+      "details": null,
+      "focused": {
+        "tag": "BUTTON",
+        "label": "Profile",
+        "inert": false
+      },
+      "api": {
+        "reads": [
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "dev-preview-sample-inventory"
+          },
+          {
+            "projectId": "sample-app",
+            "sessionId": null,
+            "source": "explicit-long-data-fixture"
+          }
+        ],
+        "changes": 0,
+        "sends": 0,
+        "longFixture": true
+      }
+    }
+  ],
+  "pageErrors": []
+}
