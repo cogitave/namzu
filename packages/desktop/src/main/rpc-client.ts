@@ -22,6 +22,14 @@ export interface RuntimeCommand {
 	env?: NodeJS.ProcessEnv
 }
 export class RuntimeClient extends EventEmitter {
+	private promptAttachments = false
+	private promptOptions = false
+	supportsPromptOptions(): boolean {
+		return this.promptOptions
+	}
+	supportsPromptAttachments(): boolean {
+		return this.promptAttachments
+	}
 	private child?: ChildProcessWithoutNullStreams
 	private buffer = ''
 	private sequence = 0
@@ -72,6 +80,8 @@ export class RuntimeClient extends EventEmitter {
 			},
 			30_000,
 		)) as AcpInitializeResult
+		this.promptAttachments = result.promptAttachments === true
+		this.promptOptions = result.promptOptions === true
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))

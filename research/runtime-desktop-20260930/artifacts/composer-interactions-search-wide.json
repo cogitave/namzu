@@ -1,0 +1,153 @@
+{
+  "width": 1180,
+  "height": 820,
+  "overflow": false,
+  "reduced": false,
+  "active": "Search models",
+  "nodes": [
+    {
+      "selector": "[data-chat-composer-main-surface]",
+      "rect": {
+        "x": 435,
+        "y": 373,
+        "width": 640,
+        "height": 106,
+        "top": 373,
+        "right": 1075,
+        "bottom": 479,
+        "left": 435
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0.2s"
+    },
+    {
+      "selector": "[data-chat-composer-footer]",
+      "rect": {
+        "x": 436,
+        "y": 430,
+        "width": 638,
+        "height": 48,
+        "top": 430,
+        "right": 1074,
+        "bottom": 478,
+        "left": 436
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0s"
+    },
+    {
+      "selector": ".composer-input textarea",
+      "rect": {
+        "x": 448,
+        "y": 386,
+        "width": 606,
+        "height": 40,
+        "top": 386,
+        "right": 1054,
+        "bottom": 426,
+        "left": 448
+      },
+      "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": ".model-picker-trigger",
+      "rect": {
+        "x": 452,
+        "y": 432,
+        "width": 152.421875,
+        "height": 28,
+        "top": 432,
+        "right": 604.421875,
+        "bottom": 460,
+        "left": 452
+      },
+      "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": ".model-picker-popup",
+      "rect": {
+        "x": 263.421875,
+        "y": 140,
+        "width": 341,
+        "height": 284,
+        "top": 140,
+        "right": 604.421875,
+        "bottom": 424,
+        "left": 263.421875
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0.15s"
+    },
+    {
+      "selector": ".model-search input",
+      "rect": {
+        "x": 344.421875,
+        "y": 152,
+        "width": 217,
+        "height": 30,
+        "top": 152,
+        "right": 561.421875,
+        "bottom": 182,
+        "left": 344.421875
+      },
+      "font": "13px / 30px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "5e+06s"
+    },
+    {
+      "selector": "[aria-label=\"Attach files\"]",
+      "rect": {
+        "x": 984,
+        "y": 432,
+        "width": 34,
+        "height": 28,
+        "top": 432,
+        "right": 1018,
+        "bottom": 460,
+        "left": 984
+      },
+      "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": "[aria-label=\"Model and tool settings\"]",
+      "rect": {
+        "x": 608.421875,
+        "y": 434,
+        "width": 28,
+        "height": 24,
+        "top": 434,
+        "right": 636.421875,
+        "bottom": 458,
+        "left": 608.421875
+      },
+      "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": "button[aria-label=\"Plugins\"]",
+      "rect": {
+        "x": 910.640625,
+        "y": 483,
+        "width": 80.28125,
+        "height": 24,
+        "top": 483,
+        "right": 990.921875,
+        "bottom": 507,
+        "left": 910.640625
+      },
+      "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    }
+  ]
+}

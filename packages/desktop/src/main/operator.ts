@@ -4,16 +4,39 @@ import { basename } from 'node:path'
 import type { AcpRequestPermissionParams, AcpSessionUpdateNotification } from '@namzu/sdk'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
+	AttachmentInput,
+	AttachmentView,
 	ChatMessage,
+	ComposerModelSettings,
 	ConversationView,
 	DesktopEvent,
+	DesktopSendOptions,
+	DraftSettings,
 	ModelCatalogueView,
 	PermissionView,
+	PluginInventoryView,
 	ProjectView,
 	ProviderView,
-	QueuedMessageView,
 } from '../shared/protocol.js'
+import {
+	type AdmittedAttachment,
+	MAX_ATTACHMENT_COUNT,
+	admitAttachment,
+	readChosenFile,
+	validateAttachmentBatch,
+} from './attachments.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
+
+interface PendingMessage {
+	id: string
+	prompt: string
+	files: OwnedAttachment[]
+	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+}
+interface OwnedAttachment extends AdmittedAttachment {
+	ownerId: string
+	draft: boolean
+}
 
 interface Project {
 	view: ProjectView
@@ -28,8 +51,9 @@ interface Conversation {
 	reattaching?: Promise<void>
 	client: RuntimeClient
 	running: boolean
-	queue: QueuedMessageView[]
+	queue: PendingMessage[]
 	draft: string
+	draftSettings?: DraftSettings
 	providers?: ProviderView
 	projection: ThreadState
 	needsLoad?: boolean
@@ -38,7 +62,12 @@ interface Conversation {
 export class Operator {
 	private readonly projects = new Map<string, Project>()
 	private readonly conversations = new Map<string, Conversation>()
-	private readonly projectDrafts = new Map<string, { draft: string }>()
+	private readonly projectDrafts = new Map<
+		string,
+		{ draft: string; draftSettings?: DraftSettings }
+	>()
+	private readonly attachmentFiles = new Map<string, OwnedAttachment>()
+	private readonly changingPlugins = new Set<string>()
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -162,7 +191,16 @@ export class Operator {
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
 			if (session.view.projectId !== id || returned.has(session.view.id)) continue
-			if (!session.needsLoad || session.running || session.queue.length || session.draft.length)
+			if (
+				!session.needsLoad ||
+				session.running ||
+				session.queue.length ||
+				session.draft.length ||
+				this.attachments(session.view.id).length ||
+				session.draftSettings?.choice ||
+				session.draftSettings?.options?.effort !== undefined ||
+				session.draftSettings?.options?.permissionMode !== undefined
+			)
 				views.unshift({ ...session.view })
 		}
 		return views
@@ -334,10 +372,73 @@ export class Operator {
 			...(session ? { sessionId: session.runtimeSessionId } : {}),
 		})) as ModelCatalogueView
 	}
+	async modelSettings(
+		id: string,
+		provider: string,
+		model: string,
+		sessionId?: string,
+	): Promise<ComposerModelSettings> {
+		const project = this.project(id)
+		if (
+			typeof provider !== 'string' ||
+			!provider.trim() ||
+			provider.length > 400 ||
+			typeof model !== 'string' ||
+			!model.trim() ||
+			model.length > 400
+		)
+			throw new Error('Invalid model choice.')
+		const session = sessionId === undefined ? undefined : this.session(sessionId)
+		if (session && session.view.projectId !== id)
+			throw new Error('This conversation belongs to another project.')
+		return (await project.client.request('namzu/providers/settings', {
+			provider,
+			model,
+			...(session ? { sessionId: session.runtimeSessionId } : {}),
+		})) as ComposerModelSettings
+	}
+	async plugins(id: string, sessionId?: string): Promise<PluginInventoryView> {
+		const project = this.project(id)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		const session = sessionId === undefined ? undefined : this.session(sessionId)
+		if (session && session.view.projectId !== id)
+			throw new Error('This conversation belongs to another project.')
+		return (await project.client.request(
+			'namzu/plugins/list',
+			session ? { sessionId: session.runtimeSessionId } : {},
+		)) as PluginInventoryView
+	}
+	async setPluginEnabled(
+		sessionId: string,
+		name: string,
+		enabled: boolean,
+	): Promise<PluginInventoryView> {
+		const session = this.session(sessionId)
+		if (session.running || session.permissions.size || this.changingPlugins.has(sessionId))
+			throw new Error('Stop this conversation’s active work before changing plugins.')
+		if (
+			typeof name !== 'string' ||
+			!name.trim() ||
+			name.length > 400 ||
+			typeof enabled !== 'boolean'
+		)
+			throw new Error('Invalid plugin choice.')
+		this.changingPlugins.add(sessionId)
+		try {
+			return (await session.client.request('namzu/plugins/set_enabled', {
+				sessionId: session.runtimeSessionId,
+				name,
+				enabled,
+			})) as PluginInventoryView
+		} finally {
+			this.changingPlugins.delete(sessionId)
+		}
+	}
 	async selectProvider(sessionId: string, provider: string, model?: string): Promise<void> {
 		const session = this.session(sessionId)
 		if (session.needsLoad) await this.openConversation(session.view.projectId, sessionId)
-		if (session.running) throw new Error('Stop this conversation before changing its model.')
+		if (session.running || this.changingPlugins.has(sessionId))
+			throw new Error('Stop this conversation before changing its model.')
 		if (
 			typeof provider !== 'string' ||
 			provider.length > 400 ||
@@ -350,26 +451,159 @@ export class Operator {
 			...(model?.trim() ? { model: model.trim() } : {}),
 		})
 	}
-	send(sessionId: string, prompt: string): void {
+	private attachmentProject(ownerId: string): string {
+		this.draftOwner(ownerId)
+		return ownerId.startsWith('project:')
+			? ownerId.slice(8)
+			: this.draftSession(ownerId).view.projectId
+	}
+	attachments(ownerId: string): AttachmentView[] {
+		this.attachmentProject(ownerId)
+		return [...this.attachmentFiles.values()]
+			.filter((file) => file.ownerId === ownerId && file.draft)
+			.map((file) => ({ ...file.view }))
+	}
+	addAttachments(ownerId: string, input: AttachmentInput[]): AttachmentView[] {
+		const projectId = this.attachmentProject(ownerId)
+		if (!this.project(projectId).view.trusted)
+			throw new Error('Trust this folder before attaching files.')
+		if (!Array.isArray(input) || input.length > MAX_ATTACHMENT_COUNT)
+			throw new Error('Attach at most eight files.')
+		const incoming = input.map(admitAttachment)
+		const existing = [...this.attachmentFiles.values()].filter(
+			(file) => file.ownerId === ownerId && file.draft,
+		)
+		validateAttachmentBatch([...existing, ...incoming])
+		const retainedBytes = [...this.attachmentFiles.values()].reduce(
+			(total, file) => total + file.view.size,
+			0,
+		)
+		if (
+			retainedBytes + incoming.reduce((total, file) => total + file.view.size, 0) >
+			24 * 1024 * 1024
+		)
+			throw new Error('Attachment storage is full. Remove pending attachments before adding more.')
+		for (const file of incoming)
+			this.attachmentFiles.set(file.view.id, { ...file, ownerId, draft: true })
+		return this.attachments(ownerId)
+	}
+	async addChosenFiles(ownerId: string, paths: string[]): Promise<AttachmentView[]> {
+		this.attachmentProject(ownerId)
+		if (!Array.isArray(paths) || paths.length > MAX_ATTACHMENT_COUNT)
+			throw new Error('Attach at most eight files.')
+		const files: AttachmentInput[] = []
+		for (const path of paths) files.push(await readChosenFile(path))
+		return this.addAttachments(ownerId, files)
+	}
+	removeAttachment(ownerId: string, id: string): void {
+		this.attachmentProject(ownerId)
+		const file = this.attachmentFiles.get(id)
+		if (!file || file.ownerId !== ownerId || !file.draft)
+			throw new Error('This attachment no longer belongs to this draft.')
+		this.attachmentFiles.delete(id)
+	}
+	moveAttachments(fromOwner: string, toSessionId: string): AttachmentView[] {
+		const projectId = this.attachmentProject(fromOwner)
+		const target = this.draftSession(toSessionId)
+		if (target.view.projectId !== projectId)
+			throw new Error('This conversation belongs to another project.')
+		const files = [...this.attachmentFiles.values()].filter(
+			(file) => file.ownerId === fromOwner && file.draft,
+		)
+		const existing = [...this.attachmentFiles.values()].filter(
+			(file) => file.ownerId === toSessionId && file.draft,
+		)
+		validateAttachmentBatch([...new Set([...existing, ...files])])
+		for (const file of files) file.ownerId = toSessionId
+		return this.attachments(toSessionId)
+	}
+	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void {
 		const session = this.session(sessionId)
-		if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 50_000)
+		if (this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s plugin change to finish.')
+		if (
+			options !== undefined &&
+			(!options || typeof options !== 'object' || Array.isArray(options))
+		)
+			throw new Error('Invalid message options.')
+		const ids = options?.attachmentIds ?? []
+		if (
+			!Array.isArray(ids) ||
+			ids.length > MAX_ATTACHMENT_COUNT ||
+			new Set(ids).size !== ids.length
+		)
+			throw new Error('Invalid attachments.')
+		const files = ids.map((id) => {
+			const file = this.attachmentFiles.get(id)
+			if (
+				!file ||
+				!file.draft ||
+				(file.ownerId !== sessionId && file.ownerId !== `project:${session.view.projectId}`)
+			)
+				throw new Error('This attachment belongs to another draft.')
+			return file
+		})
+		validateAttachmentBatch(files)
+		if (files.some((file) => file.image) && !session.client.supportsPromptAttachments())
+			throw new Error('Update Namzu to a version that can receive image attachments.')
+		if (
+			options?.effort !== undefined &&
+			(typeof options.effort !== 'string' ||
+				!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
+					options.effort,
+				))
+		)
+			throw new Error('Invalid reasoning effort.')
+		if (
+			options?.permissionMode !== undefined &&
+			!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
+		)
+			throw new Error('Invalid permission mode.')
+		if (
+			(options?.effort !== undefined ||
+				(options?.permissionMode !== undefined && options.permissionMode !== 'prompt')) &&
+			!session.client.supportsPromptOptions()
+		)
+			throw new Error('Update Namzu to a version that can apply message settings.')
+		if (typeof prompt !== 'string' || (!prompt.trim() && !files.length) || prompt.length > 50_000)
 			throw new Error('Enter a message under 50,000 characters.')
+		const captured: PendingMessage = {
+			id: randomUUID(),
+			prompt,
+			files,
+			...(options
+				? {
+						options: {
+							...(options.effort ? { effort: options.effort } : {}),
+							permissionMode: options.permissionMode ?? 'prompt',
+						},
+					}
+				: {}),
+		}
 		if (session.running) {
 			if (session.queue.length >= 20) throw new Error('The message queue is full.')
-			session.queue.push({ id: randomUUID(), prompt })
+			for (const file of files) {
+				file.draft = false
+				file.ownerId = sessionId
+			}
+			session.queue.push(captured)
 			if (session.draft === prompt) session.draft = ''
 			this.state(session)
 			return
 		}
+		for (const file of files) {
+			file.draft = false
+			file.ownerId = sessionId
+		}
 		if (session.draft === prompt) session.draft = ''
-		void this.run(session, prompt)
+		void this.run(session, captured)
 	}
 	private draftSession(sessionId: string): Conversation {
 		const session = this.conversations.get(sessionId)
 		if (!session) throw new Error('Open this conversation first.')
 		return session
 	}
-	private draftOwner(ownerId: string): { draft: string } {
+	private draftOwner(ownerId: string): { draft: string; draftSettings?: DraftSettings } {
 		if (!ownerId.startsWith('project:')) return this.draftSession(ownerId)
 		if (!this.projects.has(ownerId.slice('project:'.length))) throw new Error('Unknown project.')
 		let owner = this.projectDrafts.get(ownerId)
@@ -381,6 +615,77 @@ export class Operator {
 	}
 	draft(sessionId: string): string {
 		return this.draftOwner(sessionId).draft
+	}
+	draftSettings(ownerId: string): DraftSettings {
+		const value = this.draftOwner(ownerId).draftSettings
+		return value
+			? {
+					...(value.choice ? { choice: { ...value.choice } } : {}),
+					...(value.options ? { options: { ...value.options } } : {}),
+				}
+			: {}
+	}
+	saveDraftSettings(ownerId: string, value: DraftSettings): void {
+		const owner = this.draftOwner(ownerId)
+		if (
+			!value ||
+			typeof value !== 'object' ||
+			Array.isArray(value) ||
+			Object.keys(value).some((key) => key !== 'choice' && key !== 'options')
+		)
+			throw new Error('Invalid draft settings.')
+		const next: DraftSettings = {}
+		if (value.choice !== undefined) {
+			const choice = value.choice
+			if (
+				!choice ||
+				typeof choice !== 'object' ||
+				Array.isArray(choice) ||
+				Object.keys(choice).some((key) => !['provider', 'model', 'label'].includes(key))
+			)
+				throw new Error('Invalid draft model choice.')
+			for (const key of ['provider', 'model'] as const)
+				if (typeof choice[key] !== 'string' || !choice[key].trim() || choice[key].length > 400)
+					throw new Error('Invalid draft model choice.')
+			if (
+				choice.label !== undefined &&
+				(typeof choice.label !== 'string' || choice.label.length > 400)
+			)
+				throw new Error('Invalid draft model label.')
+			next.choice = {
+				provider: choice.provider,
+				model: choice.model,
+				...(choice.label !== undefined ? { label: choice.label } : {}),
+			}
+		}
+		if (value.options !== undefined) {
+			const options = value.options
+			if (
+				!options ||
+				typeof options !== 'object' ||
+				Array.isArray(options) ||
+				Object.keys(options).some((key) => key !== 'effort' && key !== 'permissionMode')
+			)
+				throw new Error('Invalid draft message settings.')
+			if (
+				options.effort !== undefined &&
+				(typeof options.effort !== 'string' ||
+					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
+						options.effort,
+					))
+			)
+				throw new Error('Invalid reasoning effort.')
+			if (
+				options.permissionMode !== undefined &&
+				!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
+			)
+				throw new Error('Invalid permission mode.')
+			next.options = {
+				...(options.effort !== undefined ? { effort: options.effort } : {}),
+				...(options.permissionMode !== undefined ? { permissionMode: options.permissionMode } : {}),
+			}
+		}
+		owner.draftSettings = next
 	}
 	saveDraft(sessionId: string, draft: string): void {
 		const session = this.draftOwner(sessionId)
@@ -400,22 +705,53 @@ export class Operator {
 			sessionId: session.view.id,
 			running: session.running,
 			queued: session.queue.map((item) => item.prompt),
-			queuedItems: session.queue.map((item) => ({ ...item })),
+			queuedItems: session.queue.map((item) => ({
+				id: item.id,
+				prompt: item.prompt,
+				...(item.files.length ? { attachments: item.files.map((file) => ({ ...file.view })) } : {}),
+				...item.options,
+			})),
 			...(error ? { error } : {}),
 		})
 	}
-	private async run(session: Conversation, prompt: string): Promise<void> {
+	private async run(session: Conversation, item: PendingMessage): Promise<void> {
+		const { prompt, files, options } = item
 		session.running = true
-		if (session.view.title === 'New conversation') session.view.title = prompt.trim().slice(0, 80)
-		this.emit({ kind: 'prompt', sessionId: session.view.id, prompt })
+		if (session.view.title === 'New conversation')
+			session.view.title = (prompt.trim() || files.map((file) => file.view.name).join(', ')).slice(
+				0,
+				80,
+			)
+		this.emit({
+			kind: 'prompt',
+			sessionId: session.view.id,
+			prompt,
+			...(files.length ? { attachments: files.map((file) => ({ ...file.view })) } : {}),
+		})
 		this.state(session)
 		let completed = false
 		try {
 			await this.reattach(session)
 			session.hasPrompted = true
+			const content = [
+				prompt,
+				...files.map((file) =>
+					file.text !== undefined
+						? `Attached text file: ${JSON.stringify(file.view.name)}\n${file.text}`
+						: `Attached image: ${JSON.stringify(file.view.name)}`,
+				),
+			]
+				.filter(Boolean)
+				.join('\n\n')
+			const images = files.flatMap((file) => (file.image ? [file.image] : []))
 			const result = (await session.client.request(
 				'session/prompt',
-				{ sessionId: session.runtimeSessionId, prompt },
+				{
+					sessionId: session.runtimeSessionId,
+					prompt: content,
+					...(images.length ? { attachments: images } : {}),
+					...(options && session.client.supportsPromptOptions() ? { options } : {}),
+				},
 				0,
 			)) as { stopReason: string }
 			completed = result.stopReason === 'end_turn'
@@ -427,6 +763,13 @@ export class Operator {
 		} catch (error) {
 			this.state(session, error instanceof Error ? error.message : String(error))
 		} finally {
+			for (const file of files) {
+				if (completed) this.attachmentFiles.delete(file.view.id)
+				else {
+					file.draft = true
+					file.ownerId = session.view.id
+				}
+			}
 			session.running = false
 			session.permissions.clear()
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
@@ -434,7 +777,7 @@ export class Operator {
 		}
 		if (completed) {
 			const next = session.queue.shift()
-			if (next) void this.run(session, next.prompt)
+			if (next) void this.run(session, next)
 		}
 	}
 	async cancel(sessionId: string): Promise<void> {
@@ -445,7 +788,7 @@ export class Operator {
 	}
 	takeQueued(sessionId: string, itemId?: string): string | null {
 		const session = this.session(sessionId)
-		if (session.draft.length > 0)
+		if (session.draft.length > 0 || this.attachments(sessionId).length > 0)
 			throw new Error('Send or clear your current draft before editing a queued message.')
 		const index =
 			itemId === undefined
@@ -457,6 +800,14 @@ export class Operator {
 		}
 		const prompt = session.queue[index]?.prompt ?? null
 		if (prompt !== null) this.saveDraft(sessionId, prompt)
+		this.saveDraftSettings(sessionId, {
+			...this.draftSettings(sessionId),
+			options: session.queue[index]?.options ?? { permissionMode: 'prompt' },
+		})
+		for (const file of session.queue[index]?.files ?? []) {
+			file.draft = true
+			file.ownerId = sessionId
+		}
 		session.queue.splice(index, 1)
 		this.state(session)
 		return prompt
@@ -465,6 +816,7 @@ export class Operator {
 		const session = this.session(sessionId)
 		const index = session.queue.findIndex((item) => item.id === itemId)
 		if (index < 0) throw new Error('This message has already started or was removed.')
+		for (const file of session.queue[index]?.files ?? []) this.attachmentFiles.delete(file.view.id)
 		session.queue.splice(index, 1)
 		this.state(session)
 	}
@@ -551,5 +903,7 @@ export class Operator {
 		await Promise.allSettled([...this.projects.values()].map((project) => project.client.close()))
 		this.projects.clear()
 		this.conversations.clear()
+		this.attachmentFiles.clear()
+		this.projectDrafts.clear()
 	}
 }

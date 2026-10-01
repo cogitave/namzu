@@ -88,6 +88,19 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 				text(params, 'provider'),
 				params.sessionId === undefined ? undefined : session(params),
 			),
+		'namzu/providers/settings': (params: Record<string, unknown>) =>
+			runtime.modelSettings(
+				text(params, 'provider'),
+				text(params, 'model'),
+				params.sessionId === undefined ? undefined : session(params),
+			),
+		'namzu/plugins/list': (params: Record<string, unknown>) =>
+			runtime.plugins(cwd, params.sessionId === undefined ? undefined : session(params)),
+		'namzu/plugins/set_enabled': (params: Record<string, unknown>) => {
+			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
+			if (typeof params.enabled !== 'boolean') throw new Error('Invalid plugin choice.')
+			return runtime.setPluginEnabled(session(params), text(params, 'name'), params.enabled, cwd)
+		},
 		'namzu/providers/select': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
 			await runtime.selectProvider(

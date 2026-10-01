@@ -16,6 +16,7 @@
 export type * from './types/ids/index.js'
 export type * from './types/message/index.js'
 export type * from './types/common/index.js'
+export type { AcpPromptOptions } from './types/acp/index.js'
 export type { CoalesceOptions } from './streaming/coalesce.js'
 export type * from './types/bidi/index.js'
 export type * from './types/tool/index.js'

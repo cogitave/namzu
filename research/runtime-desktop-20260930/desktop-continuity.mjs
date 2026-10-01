@@ -6,7 +6,9 @@ import { compareSourceSurface } from './reference-surface.mjs'
 
 const repo = resolve(process.argv[2] ?? '.')
 const require = createRequire(join(repo, 'packages/desktop/package.json'))
-const { _electron, expect } = require('@playwright/test')
+const { _electron, expect: assertions } = require('@playwright/test')
+// Real native subprocess, socket and filesystem work uses the framework timeout.
+const expect = assertions.configure({ timeout: 20000 })
 const root = await mkdtemp('/var/tmp/namzu-desktop-continuity-')
 const project = join(root, 'project'), home = join(root, 'namzu'), uiHome = join(root, 'desktop')
 await mkdir(join(project, '.git'), { recursive: true })
@@ -16,9 +18,9 @@ await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, pro
 const receipts = join(root, 'requests.jsonl')
 const desktop = await _electron.launch({ executablePath: require('electron'), args: [join(repo, 'packages/desktop'), `--user-data-dir=${uiHome}`], env: { ...process.env, NAMZU_HOME: home, ANTHROPIC_API_KEY: 'synthetic-not-a-secret', NAMZU_DESKTOP_CLI: join(repo, 'research/runtime-desktop-20260930/fixtures/scripted-cli.mjs'), NAMZU_TEST_RECEIPTS: receipts } })
 const artifacts = join(repo, 'research/runtime-desktop-20260930/artifacts')
-let desktopClosed = false
+let desktopClosed = false, page
 const settledFrames = async (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-const settleMotion = async (page) => page.evaluate(async () => { await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => undefined))) })
+const settleMotion = async (page) => page.evaluate(async () => { await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity && !(animation.effect?.target instanceof HTMLInputElement)).map((animation) => animation.finished.catch(() => undefined))) })
 async function armHold(method, sessionId, captureAfter = false) {
   await desktop.evaluate(({ ipcMain }, args) => {
     // A test-only deferred boundary around the real, origin-checked IPC handler.
@@ -57,12 +59,13 @@ try {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [args.project] })
     dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
   }, { project, uiHome })
-  const page = await desktop.firstWindow()
+  page = await desktop.firstWindow()
   page.setDefaultTimeout(15_000)
   const faults = []; page.on('pageerror', (error) => faults.push(error.message))
   await page.getByRole('button', { name: 'Open a project', exact: true }).last().click()
   await page.getByRole('button', { name: 'Review folder access' }).click()
-  await page.locator('.welcome').getByRole('button', { name: 'New conversation', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'What would you like to work on?', exact: true })).toBeVisible()
+  assert.equal(await page.evaluate(async () => { const projects = await window.namzu.projects(); return (await window.namzu.conversations(projects[0].id)).length }), 0)
   const input = page.getByRole('textbox', { name: 'Message Namzu' })
   await input.fill('Run the foreground fixture.')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
@@ -101,13 +104,19 @@ try {
   await expect(input).toHaveValue('Unsent first-conversation draft')
   await expect(page.locator('.queue')).toContainText('2 queued')
   await expect(page.getByRole('region', { name: 'Tool approval' })).toBeVisible()
-  await page.getByRole('button', { name: 'New thread', exact: true }).click()
+  await page.getByRole('button', { name: 'New conversation', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'What would you like to work on?', exact: true })).toBeVisible()
+  await expect(input).toHaveValue('')
+  assert.equal(await page.evaluate(async () => { const projects = await window.namzu.projects(); return (await window.namzu.conversations(projects[0].id)).length }), 1)
+  // Seed the second durable native session explicitly for deferred navigation tests.
+  // This is setup through the real host API, not a claim that the UI auto-creates it.
+  // No model request is made; current New conversation keeps the landing draft.
+  const second = await page.evaluate(async () => { const projects = await window.namzu.projects(); return await window.namzu.newConversation(projects[0].id) })
+  await page.reload()
+  await page.locator('.conversations').getByRole('button', { name: 'New conversation', exact: true }).click()
   await expect(page.locator('.breadcrumb [data-conversation-title]')).toHaveText('New conversation')
   await expect(input).toHaveValue('')
   await input.fill('Unsent second-conversation draft')
-  const after = await page.evaluate(async () => { const projects = await window.namzu.projects(); return await window.namzu.conversations(projects[0].id) })
-  const second = after.find((view) => view.id !== first.id)
-  assert.ok(second)
   assert.equal(await page.evaluate((id) => window.namzu.draft(id), second.id), 'Unsent second-conversation draft')
   await armHold('providers', first.id)
   await page.locator('.conversations').getByRole('button', { name: 'Run the foreground fixture.' }).click()
@@ -206,7 +215,10 @@ try {
   assert.equal(requests.filter((request) => request.purpose === 'agent').length, 6)
   await desktop.close()
   desktopClosed = true
-  const result = { native: true, realCli: true, realKernel: true, modelIo: 'scripted', draftReload: true, draftPerConversation: true, disconnectedReloadDraft: true, disconnectedSendRefused: true, unsentReconnectDraft: true, unsentReconnectSend: true, noDuplicateRecoveredConversation: true, shutdownAfterSignal: true, queueEditPreservesDraft: true, queueRemovalByIdentity: true, queueEditRestoresAuthoredText: true, popupEscapeDoesNotCancelTurn: true, capturedHistoryRetainsNewerEvents: true, deferredProviderDoesNotNavigate: true, deferredJobOutputDoesNotLeak: true, referenceCompared: comparison !== null, darkLight: true, narrowReducedMotion: true, width: 600, height: 540, root, requests }
+  const result = { native: true, realCli: true, realKernel: true, modelIo: 'scripted', secondSessionSetup: 'Explicit real native newConversation API without a model request; deferred navigation baseline only', landingNewConversationDoesNotCreate: true, draftReload: true, draftPerConversation: true, disconnectedReloadDraft: true, disconnectedSendRefused: true, unsentReconnectDraft: true, unsentReconnectSend: true, noDuplicateRecoveredConversation: true, shutdownAfterSignal: true, queueEditPreservesDraft: true, queueRemovalByIdentity: true, queueEditRestoresAuthoredText: true, popupEscapeDoesNotCancelTurn: true, capturedHistoryRetainsNewerEvents: true, deferredProviderDoesNotNavigate: true, deferredJobOutputDoesNotLeak: true, referenceCompared: comparison !== null, darkLight: true, narrowReducedMotion: true, width: 600, height: 540, root, requests }
   await writeFile(join(artifacts, 'desktop-continuity-receipt.json'), JSON.stringify(result, null, 2) + '\n')
   console.log(JSON.stringify(result))
+} catch (error) {
+  if (page && !page.isClosed()) await Promise.allSettled([page.screenshot({ path: join(root, 'failure.png') }), page.evaluate(() => ({ active: document.activeElement?.getAttribute('aria-label'), text: document.body.innerText, dialogs: [...document.querySelectorAll('[role="dialog"]')].map((node) => node.outerHTML) })).then((value) => writeFile(join(root, 'failure.json'), JSON.stringify(value, null, 2)))])
+  console.error(JSON.stringify({ failedProbeRoot: root })); throw error
 } finally { if (!desktopClosed) await desktop.close() }

@@ -21,7 +21,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
+import {
+	type ComposerModelSettings,
+	validateComposerSendSettings,
+} from '../integrations/providers/composer-settings.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -35,6 +40,7 @@ import {
 	type AgentSession,
 	createAgentSession,
 	describeProviderModels,
+	describeProviderReasoning,
 	probeAgentSession,
 } from '../tui/agent.js'
 import { modelStep } from '../tui/model-choices.js'
@@ -170,11 +176,18 @@ type AcpLiveSession = Pick<
 	| 'jobs'
 	| 'readJob'
 	| 'stopJob'
+	| 'plugins'
+	| 'reasoningEffortLevels'
+	| 'reasoningEffortDefault'
+	| 'imageAttachmentsSupported'
+	| 'documentAttachmentsSupported'
 >
 
 export interface AcpRuntimeDependencies {
 	readonly probe: typeof probeAgentSession
 	readonly describeModels?: typeof describeProviderModels
+	readonly describeReasoning?: typeof describeProviderReasoning
+	readonly readPlugins?: typeof readPluginInventory
 	readonly createSession: (
 		preferences: Preferences,
 		detected: readonly DetectedProvider[],
@@ -198,6 +211,14 @@ interface AcpRuntimeRecord {
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
 	providerStatus(sessionId?: string): Promise<unknown>
+	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
+	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
+	setPluginEnabled(
+		sessionId: string,
+		name: string,
+		enabled: boolean,
+		cwd?: string,
+	): Promise<PluginInventoryView>
 	models(
 		provider: string,
 		sessionId?: string,
@@ -253,6 +274,9 @@ export function createCliAcpRuntime(
 	const records = new Map<string, AcpRuntimeRecord>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
+	// Explicit changes belong to the wire conversation, including when a model
+	// change reconstructs its runtime. Never persist these into startup config.
+	const pluginOverrides = new Map<string, Map<string, boolean>>()
 	const selecting = new Set<string>()
 	const catalogueController = new AbortController()
 	const catalogueRequests = new Map<string, ReturnType<typeof describeProviderModels>>()
@@ -412,6 +436,16 @@ export function createCliAcpRuntime(
 					await closeCandidate()
 					throw new Error(failure)
 				}
+				for (const [name, enabled] of pluginOverrides.get(sessionId) ?? []) {
+					if (!candidate.plugins?.list().some((plugin) => plugin.name === name)) {
+						throw new Error(
+							'A previously selected plugin is no longer available in this conversation.',
+						)
+					}
+					await candidate.plugins.setEnabled(name, enabled)
+					signal.throwIfAborted()
+					if (closed) throw new Error('The connection closed while restoring plugin choices.')
+				}
 
 				const record: AcpRuntimeRecord = {
 					cwd,
@@ -454,7 +488,17 @@ export function createCliAcpRuntime(
 				closeSessions(state)
 			}
 		},
-		prompt: async ({ sessionId, prompt, cwd, onEvent, signal, ask, history }) => {
+		prompt: async ({
+			sessionId,
+			prompt,
+			attachments,
+			options,
+			cwd,
+			onEvent,
+			signal,
+			ask,
+			history,
+		}) => {
 			let record: AcpRuntimeRecord
 			try {
 				record = await ensureSession(sessionId, cwd, signal)
@@ -462,6 +506,20 @@ export function createCliAcpRuntime(
 				if (signal.aborted) return { stopReason: 'cancelled' }
 				throw error
 			}
+			if (
+				record.session.imageAttachmentsSupported === false &&
+				attachments?.some((file) => file.type !== 'document')
+			)
+				throw new Error(
+					'This model cannot receive images. Choose a model that supports images before sending this attachment.',
+				)
+			if (
+				record.session.documentAttachmentsSupported === false &&
+				attachments?.some((file) => file.type === 'document')
+			)
+				throw new Error(
+					'This model cannot receive documents. Choose a model that supports documents before sending this attachment.',
+				)
 			// Wraps `onEvent`, not aliases it: `toAcpSessionUpdate` reads
 			// `presenter` synchronously while building the update this call
 			// produces, so `activeRecord` is `record` for exactly that
@@ -483,6 +541,7 @@ export function createCliAcpRuntime(
 			record.route = routedEvent
 			try {
 				let stopReason: string | undefined
+				let failureMessage: string | undefined
 				let settledHistory: readonly Message[] | undefined
 				const onPermission = async (request: {
 					toolCalls: readonly {
@@ -513,8 +572,10 @@ export function createCliAcpRuntime(
 							}
 					}
 				}
-				const messages = [...(history as Message[]), createUserMessage(prompt)]
+				const messages = [...(history as Message[]), createUserMessage(prompt, attachments)]
+				const settings = validateComposerSendSettings(options, record.session)
 				for await (const event of record.session.send(messages, {
+					...settings,
 					signal,
 					onPermission,
 					onConversationMessages: (messages) => {
@@ -524,9 +585,12 @@ export function createCliAcpRuntime(
 					if (event.kind === 'done') stopReason = event.stopReason
 					else if (event.kind === 'error' || event.kind === 'paused') {
 						stopReason = signal.aborted ? 'cancelled' : 'error'
+						if (event.kind === 'error' && !signal.aborted) failureMessage = event.message
 					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
+				if (stopReason === 'error' && settledHistory === undefined && failureMessage)
+					throw new Error(failureMessage)
 				return {
 					...(stopReason === undefined ? {} : { stopReason }),
 					...(settledHistory === undefined ? {} : { history: settledHistory }),
@@ -540,6 +604,118 @@ export function createCliAcpRuntime(
 	return {
 		gateway,
 		presenter,
+		modelSettings: async (provider, model, sessionId) => {
+			if (closed) throw new Error('The connection is closed.')
+			if (sessionId !== undefined && !isEntityId(sessionId, 'session'))
+				throw new Error('Invalid conversation id.')
+			if (typeof model !== 'string' || !model.trim() || model.length > 400)
+				throw new Error('Invalid model.')
+			const probe = await sharedProbe()
+			const detected = probe.detected.find(({ entry }) => entry.id === provider)
+			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
+			const preferences =
+				(sessionId ? selections.get(sessionId) : undefined) ??
+				probe.preferences ??
+				defaultPrefs(probe.detected)
+			const current = preferences?.providers[0]
+			const record = sessionId ? records.get(sessionId) : undefined
+			if (
+				record &&
+				current?.id === provider &&
+				(current.model ?? detected.entry.defaultModel) === model
+			) {
+				return {
+					effortLevels: record.session.reasoningEffortLevels,
+					effortDefault: record.session.reasoningEffortDefault,
+				}
+			}
+			const result = await (deps.describeReasoning ?? describeProviderReasoning)(
+				{
+					...(preferences ?? { version: 3, subagents: { active: [] } }),
+					providers: [
+						{ id: detected.entry.id, model },
+						...(preferences?.providers.slice(1).filter((item) => item.id !== provider) ?? []),
+					],
+				},
+				probe.detected,
+				catalogueController.signal,
+			)
+			if (closed) throw new Error('The connection is closed.')
+			return {
+				effortLevels: result.effortLevels,
+				effortDefault: result.effortDefault,
+				...(result.notice
+					? { notice: 'Reasoning choices could not be fully established for this model.' }
+					: {}),
+			}
+		},
+		plugins: async (requestedCwd, sessionId) => {
+			if (closed) throw new Error('The connection is closed.')
+			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
+			if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
+			const record = sessionId ? records.get(sessionId) : undefined
+			if (record && record.cwd !== trust.cwd)
+				throw new Error('This conversation belongs to another project.')
+			const projectCtx = deps.resolveProjectContext(bootstrapCtx, trust.cwd)
+			return (deps.readPlugins ?? readPluginInventory)({
+				cwd: trust.cwd,
+				config: projectCtx.config.plugins,
+				runtime: record?.session.plugins,
+				canChange: Boolean(
+					record?.session.plugins &&
+						!record.route &&
+						!selecting.has(sessionId ?? '') &&
+						!record.session.jobs?.().some((job) => job.status === 'running'),
+				),
+			})
+		},
+		setPluginEnabled: async (sessionId, name, enabled, cwd) => {
+			if (
+				!isEntityId(sessionId, 'session') ||
+				typeof name !== 'string' ||
+				!name.trim() ||
+				name.length > 400 ||
+				typeof enabled !== 'boolean'
+			)
+				throw new Error('Invalid plugin choice.')
+			const record = records.get(sessionId)
+			if (cwd !== undefined) {
+				const trust = deps.decideTrust({ cwd, trustFlag: false })
+				if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
+				if (record && record.cwd !== trust.cwd)
+					throw new Error('This conversation belongs to another project.')
+			}
+			if (!record?.session.plugins)
+				throw new Error('Start this conversation before changing loaded plugins.')
+			if (
+				closed ||
+				constructing.has(sessionId) ||
+				selecting.has(sessionId) ||
+				record.route ||
+				record.session.jobs?.().some((job) => job.status === 'running')
+			)
+				throw new Error('Stop this conversation’s active work before changing plugins.')
+			if (!record.session.plugins.list().some((plugin) => plugin.name === name))
+				throw new Error('This plugin is not loaded in this conversation.')
+			selecting.add(sessionId)
+			try {
+				await record.session.plugins.setEnabled(name, enabled)
+				if (closed) throw new Error('The connection is closed.')
+				let overrides = pluginOverrides.get(sessionId)
+				if (!overrides) {
+					overrides = new Map()
+					pluginOverrides.set(sessionId, overrides)
+				}
+				overrides.set(name, enabled)
+				return await (deps.readPlugins ?? readPluginInventory)({
+					cwd: record.cwd,
+					runtime: record.session.plugins,
+					canChange: true,
+				})
+			} finally {
+				selecting.delete(sessionId)
+			}
+		},
 		providerStatus: async (sessionId) => {
 			const probe = await sharedProbe()
 			const choice =
@@ -657,6 +833,7 @@ export function createCliAcpRuntime(
 		},
 		close: async () => {
 			closed = true
+			pluginOverrides.clear()
 			catalogueController.abort(new Error('The connection is closed.'))
 			const owned = [...records.values()]
 			records.clear()
@@ -680,6 +857,8 @@ export function createCliAcpRuntime(
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const runtime = createCliAcpRuntime(ctx)
 	const server = new ACPServer({
+		supportsPromptAttachments: true,
+		supportsPromptOptions: true,
 		transport: new ServerStdioTransport(),
 		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),

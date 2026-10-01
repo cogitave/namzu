@@ -1,0 +1,19 @@
+{
+  "actualHook": "packages/desktop/src/renderer/use-attachments.ts",
+  "sourceSha256": "998e8e78cf023593132251f4720b9f6b3bacf06d889ca70daeec4331d5c435e5",
+  "clockRaces": false,
+  "native": false,
+  "observedBeforeRepair": {
+    "afterPick": [
+      "new-file"
+    ],
+    "afterOlderList": [],
+    "source": "Read-only actual-hook deferred probe run before mutation completion fences were added"
+  },
+  "verifiedAfterRepair": {
+    "heldPickerReplyRetainsFile": true,
+    "heldPromotionTargetReplyRetainsFile": true,
+    "heldPromotionSourceReplyCannotDuplicateFile": true,
+    "newerSettlementSnapshotRetainsFile": true
+  }
+}

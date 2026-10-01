@@ -1,0 +1,2858 @@
+{
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelNetworkIo": "scripted",
+  "root": "/tmp/namzu-composer-interactions-HkLS77",
+  "quickSearchClickAndKeyboard": true,
+  "sanitizedCatalogErrorAndRetry": true,
+  "noticeRetry": true,
+  "actualPluginInventoryWithoutInventedControls": true,
+  "inventory": {
+    "plugins": [],
+    "live": false,
+    "canChange": false,
+    "notice": "Plugins are off for this project."
+  },
+  "nativeDialogByteCapture": true,
+  "dropAndPasteByteAdmission": true,
+  "previewAndRemove": true,
+  "rendererReloadRetainsFiles": true,
+  "fileOnlySendReachesRealKernel": true,
+  "imageBytesVerified": true,
+  "sourceFileMutationDoesNotChangeCapturedText": true,
+  "actualEffortSnapshot": true,
+  "queueEditRestoresFilesAndSettings": true,
+  "planRefusesActualWrite": true,
+  "allowToolsExecutesActualWrite": true,
+  "cancelRestoresImageAndRetryExactBytes": true,
+  "failureSettlesBeforeReplyAndRetryExactBytes": true,
+  "failureStates": [
+    {
+      "kind": "state",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "running": true,
+      "queued": [],
+      "queuedItems": [],
+      "revision": 73
+    },
+    {
+      "kind": "state",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "running": false,
+      "queued": [],
+      "queuedItems": [],
+      "revision": 76
+    }
+  ],
+  "failureEvents": [
+    {
+      "kind": "prompt",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "prompt": "Fail composer provider once",
+      "attachments": [
+        {
+          "id": "db0a6973-205f-4a7d-ad5c-865e9aa8dd08",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        }
+      ],
+      "revision": 72
+    },
+    {
+      "kind": "state",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "running": true,
+      "queued": [],
+      "queuedItems": [],
+      "revision": 73
+    },
+    {
+      "kind": "update",
+      "projectId": "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "update": {
+        "kind": "turn_ended",
+        "stopReason": "error",
+        "error": "Provider stream error: COMPOSER_PROVIDER_FAILURE_FOR_RETRY"
+      },
+      "revision": 74
+    },
+    {
+      "kind": "permission-cleared",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "revision": 75
+    },
+    {
+      "kind": "state",
+      "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+      "running": false,
+      "queued": [],
+      "queuedItems": [],
+      "revision": 76
+    }
+  ],
+  "settledPopupCaptures": true,
+  "narrowReducedLayout": true,
+  "noOverflow": true,
+  "sessionId": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+  "calls": [
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-sonnet-4-5",
+        null
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "plugins",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        null
+      ],
+      "result": {
+        "plugins": [],
+        "live": false,
+        "canChange": false,
+        "notice": "Plugins are off for this project."
+      }
+    },
+    {
+      "method": "plugins",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        null
+      ],
+      "result": {
+        "plugins": [],
+        "live": false,
+        "canChange": false,
+        "notice": "Plugins are off for this project."
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        null
+      ],
+      "rejected": true
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "codex",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "google",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "gemini-2.5-flash",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "zen",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "zen",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
+    },
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-opus-4-7",
+        null
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "codex",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "google",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "gemini-2.5-flash",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "zen",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
+    },
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-sonnet-4-5",
+        null
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        null
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-opus-4-7",
+        null
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "pickAttachments",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c"
+      ],
+      "result": [
+        {
+          "id": "4beb4ef1-e032-4dcd-935b-26ce8c32f4d8",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        },
+        {
+          "id": "124d9387-025a-464a-81d2-a8a56ec2f787",
+          "name": "notes.txt",
+          "kind": "text",
+          "size": 23,
+          "mediaType": "text/plain"
+        }
+      ]
+    },
+    {
+      "method": "addAttachments",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        [
+          {
+            "name": "dropped.txt",
+            "bytes": {
+              "0": 67,
+              "1": 79,
+              "2": 77,
+              "3": 80,
+              "4": 79,
+              "5": 83,
+              "6": 69,
+              "7": 82,
+              "8": 95,
+              "9": 68,
+              "10": 82,
+              "11": 79,
+              "12": 80,
+              "13": 95,
+              "14": 66,
+              "15": 89,
+              "16": 84,
+              "17": 69,
+              "18": 83,
+              "19": 95,
+              "20": 79,
+              "21": 75
+            }
+          }
+        ]
+      ],
+      "result": [
+        {
+          "id": "4beb4ef1-e032-4dcd-935b-26ce8c32f4d8",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        },
+        {
+          "id": "124d9387-025a-464a-81d2-a8a56ec2f787",
+          "name": "notes.txt",
+          "kind": "text",
+          "size": 23,
+          "mediaType": "text/plain"
+        },
+        {
+          "id": "ff2df2e7-8d4e-4553-bc64-e988af399c66",
+          "name": "dropped.txt",
+          "kind": "text",
+          "size": 22,
+          "mediaType": "text/plain"
+        }
+      ]
+    },
+    {
+      "method": "removeAttachment",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "ff2df2e7-8d4e-4553-bc64-e988af399c66"
+      ]
+    },
+    {
+      "method": "addAttachments",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        [
+          {
+            "name": "pasted.txt",
+            "bytes": {
+              "0": 67,
+              "1": 79,
+              "2": 77,
+              "3": 80,
+              "4": 79,
+              "5": 83,
+              "6": 69,
+              "7": 82,
+              "8": 95,
+              "9": 80,
+              "10": 65,
+              "11": 83,
+              "12": 84,
+              "13": 69,
+              "14": 95,
+              "15": 66,
+              "16": 89,
+              "17": 84,
+              "18": 69,
+              "19": 83,
+              "20": 95,
+              "21": 79,
+              "22": 75
+            }
+          }
+        ]
+      ],
+      "result": [
+        {
+          "id": "4beb4ef1-e032-4dcd-935b-26ce8c32f4d8",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        },
+        {
+          "id": "124d9387-025a-464a-81d2-a8a56ec2f787",
+          "name": "notes.txt",
+          "kind": "text",
+          "size": 23,
+          "mediaType": "text/plain"
+        },
+        {
+          "id": "dc4d13e5-8fe3-46b3-a4cb-be6da9130bc0",
+          "name": "pasted.txt",
+          "kind": "text",
+          "size": 23,
+          "mediaType": "text/plain"
+        }
+      ]
+    },
+    {
+      "method": "removeAttachment",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "dc4d13e5-8fe3-46b3-a4cb-be6da9130bc0"
+      ]
+    },
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-opus-4-7",
+        null
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "newConversation",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c"
+      ],
+      "result": {
+        "id": "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "title": "New conversation",
+        "projectId": "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "updatedAt": "2026-10-01T10:59:56.365Z"
+      }
+    },
+    {
+      "method": "moveAttachments",
+      "values": [
+        "project:1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": [
+        {
+          "id": "4beb4ef1-e032-4dcd-935b-26ce8c32f4d8",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        },
+        {
+          "id": "124d9387-025a-464a-81d2-a8a56ec2f787",
+          "name": "notes.txt",
+          "kind": "text",
+          "size": 23,
+          "mediaType": "text/plain"
+        }
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": [
+            "4beb4ef1-e032-4dcd-935b-26ce8c32f4d8",
+            "124d9387-025a-464a-81d2-a8a56ec2f787"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "modelSettings",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "claude-opus-4-7",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": {
+        "effortLevels": [
+          "low",
+          "high"
+        ],
+        "effortDefault": "low"
+      }
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Hold composer turn",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": []
+        }
+      ]
+    },
+    {
+      "method": "pickAttachments",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": [
+        {
+          "id": "4ddedbc1-b7cd-477f-a7de-2dd42698d334",
+          "name": "queue.txt",
+          "kind": "text",
+          "size": 24,
+          "mediaType": "text/plain"
+        }
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Queued attachment with captured settings",
+        {
+          "effort": "low",
+          "permissionMode": "plan",
+          "attachmentIds": [
+            "4ddedbc1-b7cd-477f-a7de-2dd42698d334"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "takeQueued",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "4a932960-811c-4720-a9ae-6e53dfc3e763"
+      ],
+      "result": "Queued attachment with captured settings"
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Queued attachment with captured settings",
+        {
+          "effort": "low",
+          "permissionMode": "plan",
+          "attachmentIds": [
+            "4ddedbc1-b7cd-477f-a7de-2dd42698d334"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Run planned file change",
+        {
+          "effort": "low",
+          "permissionMode": "plan",
+          "attachmentIds": []
+        }
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Run allowed file change",
+        {
+          "effort": "high",
+          "permissionMode": "auto",
+          "attachmentIds": []
+        }
+      ]
+    },
+    {
+      "method": "pickAttachments",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": [
+        {
+          "id": "8bffcdf9-a203-456f-851b-4ae627193035",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        }
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Hold composer turn with retry image",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": [
+            "8bffcdf9-a203-456f-851b-4ae627193035"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "cancel",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": [
+            "8bffcdf9-a203-456f-851b-4ae627193035"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "pickAttachments",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": [
+        {
+          "id": "db0a6973-205f-4a7d-ad5c-865e9aa8dd08",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        }
+      ]
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "Fail composer provider once",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": [
+            "db0a6973-205f-4a7d-ad5c-865e9aa8dd08"
+          ]
+        }
+      ],
+      "replyAfterSettlement": true
+    },
+    {
+      "method": "selectProvider",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "anthropic",
+        "claude-opus-4-7"
+      ]
+    },
+    {
+      "method": "send",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76",
+        "",
+        {
+          "effort": "high",
+          "permissionMode": "prompt",
+          "attachmentIds": [
+            "db0a6973-205f-4a7d-ad5c-865e9aa8dd08"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "pickAttachments",
+      "values": [
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": [
+        {
+          "id": "ea7fd732-c8be-4efc-b485-1cd3c8e878cb",
+          "name": "screenshot.png",
+          "kind": "image",
+          "size": 68,
+          "mediaType": "image/png",
+          "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        }
+      ]
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "anthropic",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-5",
+            "label": "claude-opus-5",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "codex",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "google",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "gemini-2.5-flash",
+            "label": "gemini-2.5-flash",
+            "note": "(namzu default)"
+          },
+          {
+            "id": "claude-opus-4-7",
+            "label": "Fixture Opus"
+          },
+          {
+            "id": "claude-sonnet-4-5",
+            "label": "Fixture Sonnet"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "method": "models",
+      "values": [
+        "1cf8c7bc-1a22-40d7-aba8-444baca9951c",
+        "zen",
+        "01a0f71e-f54d-7041-9fb2-e7ef0aba5b76"
+      ],
+      "result": {
+        "models": [
+          {
+            "id": "space-bunny-free",
+            "label": "space-bunny-free",
+            "note": "(namzu default)"
+          }
+        ],
+        "notice": "The provider returned no models. Showing namzu's pick for it."
+      }
+    }
+  ],
+  "requests": [
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Hold composer turn\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Attached image: \\\"screenshot.png\\\"\\n\\nAttached text file: \\\"notes.txt\\\"\\nCOMPOSER_TEXT_BYTES_OK\\n\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Hold\"],[1,\"composer\"],[2,\"turn\"],[3,\"Attached\"],[4,\"image\"],[5,\"screenshot\"],[6,\"png\"],[7,\"text\"],[8,\"file\"],[9,\"notes\"],[10,\"txt\"],[11,\"COMPOSER_TEXT_BYTES_OK\"],[12,\"Composer\"],[13,\"fixture\"],[14,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "low",
+      "users": [
+        {
+          "text": "{\"current\":\"Queued attachment with captured settings\\n\\nAttached text file: \\\"queue.txt\\\"\\nCOMPOSER_QUEUED_TEXT_OK\\n\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Attached image: \\\"screenshot.png\\\"\\n\\nAttached text file: \\\"notes.txt\\\"\\nCOMPOSER_TEXT_BYTES_OK\\n\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":2,\"role\":\"user\",\"text\":\"Hold composer turn\",\"truncated\":false},{\"message\":3,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Queued\"],[1,\"attachment\"],[2,\"with\"],[3,\"captured\"],[4,\"settings\"],[5,\"Attached\"],[6,\"text\"],[7,\"file\"],[8,\"queue\"],[9,\"txt\"],[10,\"COMPOSER_QUEUED_TEXT_OK\"],[11,\"Hold\"],[12,\"composer\"],[13,\"turn\"],[14,\"image\"],[15,\"screenshot\"],[16,\"png\"],[17,\"notes\"],[18,\"COMPOSER_TEXT_BYTES_OK\"],[19,\"Composer\"],[20,\"fixture\"],[21,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "system",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "low",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "low",
+      "users": [
+        {
+          "text": "{\"current\":\"Run planned file change\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Attached image: \\\"screenshot.png\\\"\\n\\nAttached text file: \\\"notes.txt\\\"\\nCOMPOSER_TEXT_BYTES_OK\\n\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":2,\"role\":\"user\",\"text\":\"Hold composer turn\",\"truncated\":false},{\"message\":3,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":4,\"role\":\"user\",\"text\":\"Queued attachment with captured settings\\n\\nAttached text file: \\\"queue.txt\\\"\\nCOMPOSER_QUEUED_TEXT_OK\\n\",\"truncated\":false},{\"message\":5,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Run\"],[1,\"planned\"],[2,\"file\"],[3,\"change\"],[4,\"Queued\"],[5,\"attachment\"],[6,\"with\"],[7,\"captured\"],[8,\"settings\"],[9,\"Attached\"],[10,\"text\"],[11,\"queue\"],[12,\"txt\"],[13,\"COMPOSER_QUEUED_TEXT_OK\"],[14,\"Hold\"],[15,\"composer\"],[16,\"turn\"],[17,\"image\"],[18,\"screenshot\"],[19,\"png\"],[20,\"notes\"],[21,\"COMPOSER_TEXT_BYTES_OK\"],[22,\"Composer\"],[23,\"fixture\"],[24,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "low",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "low",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Run allowed file change\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Hold composer turn\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":2,\"role\":\"user\",\"text\":\"Queued attachment with captured settings\\n\\nAttached text file: \\\"queue.txt\\\"\\nCOMPOSER_QUEUED_TEXT_OK\\n\",\"truncated\":false},{\"message\":3,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":4,\"role\":\"user\",\"text\":\"Run planned file change\",\"truncated\":false},{\"message\":5,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Run\"],[1,\"allowed\"],[2,\"file\"],[3,\"change\"],[4,\"planned\"],[5,\"Queued\"],[6,\"attachment\"],[7,\"with\"],[8,\"captured\"],[9,\"settings\"],[10,\"Attached\"],[11,\"text\"],[12,\"queue\"],[13,\"txt\"],[14,\"COMPOSER_QUEUED_TEXT_OK\"],[15,\"Hold\"],[16,\"composer\"],[17,\"turn\"],[18,\"Composer\"],[19,\"fixture\"],[20,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "system",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Hold composer turn with retry image\\n\\nAttached image: \\\"screenshot.png\\\"\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Queued attachment with captured settings\\n\\nAttached text file: \\\"queue.txt\\\"\\nCOMPOSER_QUEUED_TEXT_OK\\n\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":2,\"role\":\"user\",\"text\":\"Run planned file change\",\"truncated\":false},{\"message\":3,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":4,\"role\":\"user\",\"text\":\"Run allowed file change\",\"truncated\":false},{\"message\":5,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Hold\"],[1,\"composer\"],[2,\"turn\"],[3,\"with\"],[4,\"retry\"],[5,\"image\"],[6,\"Attached\"],[7,\"screenshot\"],[8,\"png\"],[9,\"Run\"],[10,\"allowed\"],[11,\"file\"],[12,\"change\"],[13,\"planned\"],[14,\"Queued\"],[15,\"attachment\"],[16,\"captured\"],[17,\"settings\"],[18,\"text\"],[19,\"queue\"],[20,\"txt\"],[21,\"COMPOSER_QUEUED_TEXT_OK\"],[22,\"Composer\"],[23,\"fixture\"],[24,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        },
+        {
+          "text": "Hold composer turn with retry image\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Attached image: \\\"screenshot.png\\\"\",\"history\":[{\"message\":0,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":1,\"role\":\"user\",\"text\":\"Run planned file change\",\"truncated\":false},{\"message\":2,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":3,\"role\":\"user\",\"text\":\"Run allowed file change\",\"truncated\":false},{\"message\":4,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":5,\"role\":\"user\",\"text\":\"Hold composer turn with retry image\\n\\nAttached image: \\\"screenshot.png\\\"\",\"truncated\":false}],\"tokens\":[[0,\"Attached\"],[1,\"image\"],[2,\"screenshot\"],[3,\"png\"],[4,\"Hold\"],[5,\"composer\"],[6,\"turn\"],[7,\"with\"],[8,\"retry\"],[9,\"Run\"],[10,\"allowed\"],[11,\"file\"],[12,\"change\"],[13,\"planned\"],[14,\"Composer\"],[15,\"fixture\"],[16,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        },
+        {
+          "text": "Hold composer turn with retry image\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Attached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Fail composer provider once\\n\\nAttached image: \\\"screenshot.png\\\"\",\"history\":[{\"message\":0,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":1,\"role\":\"user\",\"text\":\"Run allowed file change\",\"truncated\":false},{\"message\":2,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":3,\"role\":\"user\",\"text\":\"Hold composer turn with retry image\\n\\nAttached image: \\\"screenshot.png\\\"\",\"truncated\":false},{\"message\":4,\"role\":\"user\",\"text\":\"Attached image: \\\"screenshot.png\\\"\",\"truncated\":false},{\"message\":5,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false}],\"tokens\":[[0,\"Fail\"],[1,\"composer\"],[2,\"provider\"],[3,\"once\"],[4,\"Attached\"],[5,\"image\"],[6,\"screenshot\"],[7,\"png\"],[8,\"Hold\"],[9,\"turn\"],[10,\"with\"],[11,\"retry\"],[12,\"Run\"],[13,\"allowed\"],[14,\"file\"],[15,\"change\"],[16,\"Composer\"],[17,\"fixture\"],[18,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "user",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        },
+        {
+          "text": "Hold composer turn with retry image\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Attached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Fail composer provider once\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "purpose": "evidence-query",
+      "effort": "high",
+      "users": [
+        {
+          "text": "{\"current\":\"Attached image: \\\"screenshot.png\\\"\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Run allowed file change\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":2,\"role\":\"user\",\"text\":\"Hold composer turn with retry image\\n\\nAttached image: \\\"screenshot.png\\\"\",\"truncated\":false},{\"message\":3,\"role\":\"user\",\"text\":\"Attached image: \\\"screenshot.png\\\"\",\"truncated\":false},{\"message\":4,\"role\":\"assistant\",\"text\":\"Composer fixture answered.\",\"truncated\":false},{\"message\":5,\"role\":\"user\",\"text\":\"Fail composer provider once\\n\\nAttached image: \\\"screenshot.png\\\"\",\"truncated\":false}],\"tokens\":[[0,\"Attached\"],[1,\"image\"],[2,\"screenshot\"],[3,\"png\"],[4,\"Fail\"],[5,\"composer\"],[6,\"provider\"],[7,\"once\"],[8,\"Hold\"],[9,\"turn\"],[10,\"with\"],[11,\"retry\"],[12,\"Run\"],[13,\"allowed\"],[14,\"file\"],[15,\"change\"],[16,\"Composer\"],[17,\"fixture\"],[18,\"answered\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-opus-4-7",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "user",
+        "user",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "effort": "high",
+      "users": [
+        {
+          "text": "Attached image: \"screenshot.png\"\n\nAttached text file: \"notes.txt\"\nCOMPOSER_TEXT_BYTES_OK\n",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Hold composer turn",
+          "attachments": []
+        },
+        {
+          "text": "Queued attachment with captured settings\n\nAttached text file: \"queue.txt\"\nCOMPOSER_QUEUED_TEXT_OK\n",
+          "attachments": []
+        },
+        {
+          "text": "Run planned file change",
+          "attachments": []
+        },
+        {
+          "text": "Run allowed file change",
+          "attachments": []
+        },
+        {
+          "text": "Hold composer turn with retry image\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Attached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Fail composer provider once\n\nAttached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        },
+        {
+          "text": "Attached image: \"screenshot.png\"",
+          "attachments": [
+            {
+              "type": "image",
+              "mediaType": "image/png",
+              "bytes": 68,
+              "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "captures": [
+    {
+      "name": "search-wide",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "reduced": false,
+      "active": "Search models",
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 435,
+            "y": 373,
+            "width": 640,
+            "height": 106,
+            "top": 373,
+            "right": 1075,
+            "bottom": 479,
+            "left": 435
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.2s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 436,
+            "y": 430,
+            "width": 638,
+            "height": 48,
+            "top": 430,
+            "right": 1074,
+            "bottom": 478,
+            "left": 436
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 448,
+            "y": 386,
+            "width": 606,
+            "height": 40,
+            "top": 386,
+            "right": 1054,
+            "bottom": 426,
+            "left": 448
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 452,
+            "y": 432,
+            "width": 152.421875,
+            "height": 28,
+            "top": 432,
+            "right": 604.421875,
+            "bottom": 460,
+            "left": 452
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-popup",
+          "rect": {
+            "x": 263.421875,
+            "y": 140,
+            "width": 341,
+            "height": 284,
+            "top": 140,
+            "right": 604.421875,
+            "bottom": 424,
+            "left": 263.421875
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.15s"
+        },
+        {
+          "selector": ".model-search input",
+          "rect": {
+            "x": 344.421875,
+            "y": 152,
+            "width": 217,
+            "height": 30,
+            "top": 152,
+            "right": 561.421875,
+            "bottom": 182,
+            "left": 344.421875
+          },
+          "font": "13px / 30px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "5e+06s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 984,
+            "y": 432,
+            "width": 34,
+            "height": 28,
+            "top": 432,
+            "right": 1018,
+            "bottom": 460,
+            "left": 984
+          },
+          "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 608.421875,
+            "y": 434,
+            "width": 28,
+            "height": 24,
+            "top": 434,
+            "right": 636.421875,
+            "bottom": 458,
+            "left": 608.421875
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 910.640625,
+            "y": 483,
+            "width": 80.28125,
+            "height": 24,
+            "top": 483,
+            "right": 990.921875,
+            "bottom": 507,
+            "left": 910.640625
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "attachments-wide",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "reduced": false,
+      "active": "Model and tool settings",
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 435,
+            "y": 338,
+            "width": 640,
+            "height": 176,
+            "top": 338,
+            "right": 1075,
+            "bottom": 514,
+            "left": 435
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.2s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 436,
+            "y": 465,
+            "width": 638,
+            "height": 48,
+            "top": 465,
+            "right": 1074,
+            "bottom": 513,
+            "left": 436
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 448,
+            "y": 421,
+            "width": 606,
+            "height": 40,
+            "top": 421,
+            "right": 1054,
+            "bottom": 461,
+            "left": 448
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 452,
+            "y": 467,
+            "width": 116,
+            "height": 28,
+            "top": 467,
+            "right": 568,
+            "bottom": 495,
+            "left": 452
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 452,
+            "y": 355,
+            "width": 606,
+            "height": 58,
+            "top": 355,
+            "right": 1058,
+            "bottom": 413,
+            "left": 452
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 984,
+            "y": 467,
+            "width": 34,
+            "height": 28,
+            "top": 467,
+            "right": 1018,
+            "bottom": 495,
+            "left": 984
+          },
+          "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 572,
+            "y": 469,
+            "width": 57.296875,
+            "height": 24,
+            "top": 469,
+            "right": 629.296875,
+            "bottom": 493,
+            "left": 572
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 910.640625,
+            "y": 518,
+            "width": 80.28125,
+            "height": 24,
+            "top": 518,
+            "right": 990.921875,
+            "bottom": 542,
+            "left": 910.640625
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "queue-edit",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "reduced": false,
+      "active": "Model and tool settings",
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 371,
+            "y": 585,
+            "width": 768,
+            "height": 176,
+            "top": 585,
+            "right": 1139,
+            "bottom": 761,
+            "left": 371
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.2s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 372,
+            "y": 712,
+            "width": 766,
+            "height": 48,
+            "top": 712,
+            "right": 1138,
+            "bottom": 760,
+            "left": 372
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 384,
+            "y": 668,
+            "width": 734,
+            "height": 40,
+            "top": 668,
+            "right": 1118,
+            "bottom": 708,
+            "left": 384
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 388,
+            "y": 714,
+            "width": 116,
+            "height": 28,
+            "top": 714,
+            "right": 504,
+            "bottom": 742,
+            "left": 388
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 388,
+            "y": 602,
+            "width": 734,
+            "height": 58,
+            "top": 602,
+            "right": 1122,
+            "bottom": 660,
+            "left": 388
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 1008,
+            "y": 714,
+            "width": 34,
+            "height": 28,
+            "top": 714,
+            "right": 1042,
+            "bottom": 742,
+            "left": 1008
+          },
+          "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 508,
+            "y": 716,
+            "width": 53.359375,
+            "height": 24,
+            "top": 716,
+            "right": 561.359375,
+            "bottom": 740,
+            "left": 508
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 994.1875,
+            "y": 765,
+            "width": 80.28125,
+            "height": 24,
+            "top": 765,
+            "right": 1074.46875,
+            "bottom": 789,
+            "left": 994.1875
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "canceled-image-restored",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "reduced": false,
+      "active": null,
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 371,
+            "y": 585,
+            "width": 768,
+            "height": 176,
+            "top": 585,
+            "right": 1139,
+            "bottom": 761,
+            "left": 371
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.2s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 372,
+            "y": 712,
+            "width": 766,
+            "height": 48,
+            "top": 712,
+            "right": 1138,
+            "bottom": 760,
+            "left": 372
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 384,
+            "y": 668,
+            "width": 734,
+            "height": 40,
+            "top": 668,
+            "right": 1118,
+            "bottom": 708,
+            "left": 384
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 388,
+            "y": 714,
+            "width": 116,
+            "height": 28,
+            "top": 714,
+            "right": 504,
+            "bottom": 742,
+            "left": 388
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 388,
+            "y": 602,
+            "width": 734,
+            "height": 58,
+            "top": 602,
+            "right": 1122,
+            "bottom": 660,
+            "left": 388
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 1048,
+            "y": 714,
+            "width": 34,
+            "height": 28,
+            "top": 714,
+            "right": 1082,
+            "bottom": 742,
+            "left": 1048
+          },
+          "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 508,
+            "y": 716,
+            "width": 57.296875,
+            "height": 24,
+            "top": 716,
+            "right": 565.296875,
+            "bottom": 740,
+            "left": 508
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 974.640625,
+            "y": 765,
+            "width": 80.28125,
+            "height": 24,
+            "top": 765,
+            "right": 1054.921875,
+            "bottom": 789,
+            "left": 974.640625
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "failed-image-restored",
+      "width": 1180,
+      "height": 820,
+      "overflow": false,
+      "reduced": false,
+      "active": null,
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 371,
+            "y": 585,
+            "width": 768,
+            "height": 176,
+            "top": 585,
+            "right": 1139,
+            "bottom": 761,
+            "left": 371
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0.2s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 372,
+            "y": 712,
+            "width": 766,
+            "height": 48,
+            "top": 712,
+            "right": 1138,
+            "bottom": 760,
+            "left": 372
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 384,
+            "y": 668,
+            "width": 734,
+            "height": 40,
+            "top": 668,
+            "right": 1118,
+            "bottom": 708,
+            "left": 384
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 388,
+            "y": 714,
+            "width": 116,
+            "height": 28,
+            "top": 714,
+            "right": 504,
+            "bottom": 742,
+            "left": 388
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 388,
+            "y": 602,
+            "width": 734,
+            "height": 58,
+            "top": 602,
+            "right": 1122,
+            "bottom": 660,
+            "left": 388
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 1048,
+            "y": 714,
+            "width": 34,
+            "height": 28,
+            "top": 714,
+            "right": 1082,
+            "bottom": 742,
+            "left": 1048
+          },
+          "font": "500 14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 508,
+            "y": 716,
+            "width": 57.296875,
+            "height": 24,
+            "top": 716,
+            "right": 565.296875,
+            "bottom": 740,
+            "left": 508
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 974.640625,
+            "y": 765,
+            "width": 80.28125,
+            "height": 24,
+            "top": 765,
+            "right": 1054.921875,
+            "bottom": 789,
+            "left": 974.640625
+          },
+          "font": "12px / 16px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "attachments-narrow-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "reduced": true,
+      "active": "Message Namzu",
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 61,
+            "y": 307,
+            "width": 520,
+            "height": 174,
+            "top": 307,
+            "right": 581,
+            "bottom": 481,
+            "left": 61
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 62,
+            "y": 432,
+            "width": 518,
+            "height": 48,
+            "top": 432,
+            "right": 580,
+            "bottom": 480,
+            "left": 62
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 70,
+            "y": 388,
+            "width": 494,
+            "height": 40,
+            "top": 388,
+            "right": 564,
+            "bottom": 428,
+            "left": 70
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 74,
+            "y": 436,
+            "width": 127.140625,
+            "height": 28,
+            "top": 436,
+            "right": 201.140625,
+            "bottom": 464,
+            "left": 74
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 74,
+            "y": 322,
+            "width": 494,
+            "height": 58,
+            "top": 322,
+            "right": 568,
+            "bottom": 380,
+            "left": 74
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 490,
+            "y": 436,
+            "width": 34,
+            "height": 28,
+            "top": 436,
+            "right": 524,
+            "bottom": 464,
+            "left": 490
+          },
+          "font": "500 16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 205.140625,
+            "y": 436,
+            "width": 61.5,
+            "height": 28,
+            "top": 436,
+            "right": 266.640625,
+            "bottom": 464,
+            "left": 205.140625
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 410.265625,
+            "y": 485,
+            "width": 86.65625,
+            "height": 28,
+            "top": 485,
+            "right": 496.921875,
+            "bottom": 513,
+            "left": 410.265625
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    },
+    {
+      "name": "search-narrow-reduced",
+      "width": 600,
+      "height": 540,
+      "overflow": false,
+      "reduced": true,
+      "active": "Search models",
+      "nodes": [
+        {
+          "selector": "[data-chat-composer-main-surface]",
+          "rect": {
+            "x": 61,
+            "y": 307,
+            "width": 520,
+            "height": 174,
+            "top": 307,
+            "right": 581,
+            "bottom": 481,
+            "left": 61
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-footer]",
+          "rect": {
+            "x": 62,
+            "y": 432,
+            "width": 518,
+            "height": 48,
+            "top": 432,
+            "right": 580,
+            "bottom": 480,
+            "left": 62
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".composer-input textarea",
+          "rect": {
+            "x": 70,
+            "y": 388,
+            "width": 494,
+            "height": 40,
+            "top": 388,
+            "right": 564,
+            "bottom": 428,
+            "left": 70
+          },
+          "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-trigger",
+          "rect": {
+            "x": 74,
+            "y": 436,
+            "width": 127.140625,
+            "height": 28,
+            "top": 436,
+            "right": 201.140625,
+            "bottom": 464,
+            "left": 74
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-picker-popup",
+          "rect": {
+            "x": 74,
+            "y": 144,
+            "width": 341,
+            "height": 284,
+            "top": 144,
+            "right": 415,
+            "bottom": 428,
+            "left": 74
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": ".model-search input",
+          "rect": {
+            "x": 155,
+            "y": 154,
+            "width": 213,
+            "height": 34,
+            "top": 154,
+            "right": 368,
+            "bottom": 188,
+            "left": 155
+          },
+          "font": "13px / 34px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[data-chat-composer-body] .attachment-list",
+          "rect": {
+            "x": 74,
+            "y": 322,
+            "width": 494,
+            "height": 58,
+            "top": 322,
+            "right": 568,
+            "bottom": 380,
+            "left": 74
+          },
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "none",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Attach files\"]",
+          "rect": {
+            "x": 490,
+            "y": 436,
+            "width": 34,
+            "height": 28,
+            "top": 436,
+            "right": 524,
+            "bottom": 464,
+            "left": 490
+          },
+          "font": "500 16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "[aria-label=\"Model and tool settings\"]",
+          "rect": {
+            "x": 205.140625,
+            "y": 436,
+            "width": 61.5,
+            "height": 28,
+            "top": 436,
+            "right": 266.640625,
+            "bottom": 464,
+            "left": 205.140625
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        },
+        {
+          "selector": "button[aria-label=\"Plugins\"]",
+          "rect": {
+            "x": 410.265625,
+            "y": 485,
+            "width": 86.65625,
+            "height": 28,
+            "top": 485,
+            "right": 496.921875,
+            "bottom": 513,
+            "left": 410.265625
+          },
+          "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+          "appRegion": "no-drag",
+          "transition": "0s"
+        }
+      ]
+    }
+  ]
+}

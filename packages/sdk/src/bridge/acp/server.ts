@@ -11,6 +11,7 @@ import {
 } from '../../constants/acp/index.js'
 import type { HostCommandRegistry } from '../../registry/command/index.js'
 import type { ToolPresenter } from '../../registry/tool/presentation.js'
+import { isReviewMode } from '../../runtime/query/review-policy.js'
 import type {
 	AcpFsReadResult,
 	AcpInitializeParams,
@@ -80,6 +81,8 @@ export interface AcpAgentGateway {
 	prompt(request: {
 		readonly sessionId: string
 		readonly prompt: string
+		readonly attachments?: AcpSessionPromptParams['attachments']
+		readonly options?: AcpSessionPromptParams['options']
 		readonly cwd: string
 		readonly onEvent: (event: SessionEvent) => void
 		readonly signal: AbortSignal
@@ -125,6 +128,10 @@ export interface AcpAgentGateway {
 }
 
 export interface AcpServerOptions {
+	/** Declare that the gateway preserves user attachment bytes in its model messages. */
+	readonly supportsPromptAttachments?: boolean
+	/** The host applies optional effort and permission settings to the exact turn. */
+	readonly supportsPromptOptions?: boolean
 	readonly transport: MCPTransport
 	readonly gateway: AcpAgentGateway
 	/**
@@ -398,6 +405,8 @@ export class ACPServer {
 		this.clientCapabilities = params.capabilities ?? []
 		return {
 			protocolVersion: ACP_PROTOCOL_VERSION,
+			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
+			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
 			agentInfo: this.options.agentInfo,
 			// From the registry, per call. A hard-coded list here would be a
 			// second definition of the command surface.
@@ -565,6 +574,18 @@ export class ACPServer {
 
 	private async onSessionPrompt(params: AcpSessionPromptParams): Promise<AcpSessionPromptResult> {
 		const session = this.requireSession(params.sessionId)
+		if (
+			typeof params.prompt !== 'string' ||
+			(params.attachments !== undefined && params.prompt.length > 400_000)
+		)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt text.')
+		const attachments = this.readPromptAttachments(params.attachments)
+		const options = this.readPromptOptions(params.options)
+		if (attachments.length && this.options.supportsPromptAttachments !== true)
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_REQUEST,
+				'This agent does not accept prompt attachments.',
+			)
 		if (session.promptInFlight) {
 			throw new AcpError(
 				ACP_ERROR_CODES.INVALID_REQUEST,
@@ -582,6 +603,8 @@ export class ACPServer {
 			const outcome = await this.options.gateway.prompt({
 				sessionId: params.sessionId,
 				prompt: params.prompt,
+				...(attachments.length ? { attachments } : {}),
+				...(options ? { options } : {}),
 				cwd: session.cwd,
 				signal: controller.signal,
 				onEvent: (event) => {
@@ -698,6 +721,85 @@ export class ACPServer {
 		}
 	}
 
+	private readPromptOptions(value: unknown): AcpSessionPromptParams['options'] {
+		if (value === undefined) return undefined
+		if (this.options.supportsPromptOptions !== true)
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_REQUEST,
+				'This agent does not accept prompt settings.',
+			)
+		if (!value || typeof value !== 'object' || Array.isArray(value))
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt settings.')
+		const { effort, permissionMode } = value as Record<string, unknown>
+		if (
+			Object.keys(value).some((key) => key !== 'effort' && key !== 'permissionMode') ||
+			(effort !== undefined &&
+				(typeof effort !== 'string' ||
+					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
+						effort,
+					))) ||
+			(permissionMode !== undefined && !isReviewMode(permissionMode))
+		)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt settings.')
+		return {
+			...(effort
+				? { effort: effort as NonNullable<AcpSessionPromptParams['options']>['effort'] }
+				: {}),
+			...(permissionMode
+				? {
+						permissionMode: permissionMode as NonNullable<
+							AcpSessionPromptParams['options']
+						>['permissionMode'],
+					}
+				: {}),
+		}
+	}
+	private readPromptAttachments(
+		value: unknown,
+	): NonNullable<AcpSessionPromptParams['attachments']> {
+		if (value === undefined) return []
+		if (!Array.isArray(value) || value.length > 8)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Attach at most eight files.')
+		let bytes = 0
+		return value.map((item) => {
+			if (!item || typeof item !== 'object' || Array.isArray(item))
+				throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid attachment.')
+			const { type, data, mediaType, name, citations } = item
+			if (
+				(type !== undefined && type !== 'image' && type !== 'document') ||
+				typeof data !== 'string' ||
+				!data.length ||
+				data.length > 4 * 1024 * 1024 ||
+				data.length % 4 !== 0 ||
+				!/^[A-Za-z0-9+/]+={0,2}$/.test(data) ||
+				typeof mediaType !== 'string' ||
+				(type === 'document'
+					? !['application/pdf', 'text/plain'].includes(mediaType)
+					: !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mediaType)) ||
+				(name !== undefined && (typeof name !== 'string' || name.length > 180)) ||
+				(citations !== undefined && typeof citations !== 'boolean')
+			)
+				throw new AcpError(
+					ACP_ERROR_CODES.INVALID_PARAMS,
+					'Invalid attachment bytes or media type.',
+				)
+			bytes += Buffer.from(data, 'base64').byteLength
+			if (bytes > 3 * 1024 * 1024)
+				throw new AcpError(
+					ACP_ERROR_CODES.INVALID_PARAMS,
+					'Keep attachments under 3 MiB per message.',
+				)
+			return type === 'document'
+				? {
+						type,
+						data,
+						mediaType,
+						...(name ? { name } : {}),
+						...(citations !== undefined ? { citations } : {}),
+					}
+				: { type: 'image' as const, data, mediaType }
+		})
+	}
 	private requireSession(sessionId: string): Session {
 		const session = this.sessions.get(sessionId)
 		if (!session) {

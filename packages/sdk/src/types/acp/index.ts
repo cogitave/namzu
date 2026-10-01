@@ -1,4 +1,7 @@
+import type { ReviewMode } from '../../runtime/query/review-policy.js'
 import type { SerializableHostCommand } from '../command/index.js'
+import type { DocumentAttachment, ImageAttachment } from '../message/index.js'
+import type { ReasoningEffort } from '../provider/chat.js'
 import type { ToolCallView } from '../tool/presentation.js'
 
 /**
@@ -34,6 +37,10 @@ export interface AcpInitializeParams extends AcpClientCapabilities {
 }
 
 export interface AcpInitializeResult {
+	/** True only when the host gateway opts into inline user attachment delivery. */
+	readonly promptAttachments?: boolean
+	/** True only when this host applies captured effort and review settings per prompt. */
+	readonly promptOptions?: boolean
 	/** Optional, explicitly installed Namzu host methods; core ACP peers can ignore them. */
 	readonly extensions?: readonly string[]
 	readonly protocolVersion: number
@@ -112,10 +119,17 @@ export interface AcpFsWriteParams {
 	readonly content: string
 }
 
+export interface AcpPromptOptions {
+	readonly effort?: ReasoningEffort
+	readonly permissionMode?: ReviewMode
+}
 export interface AcpSessionPromptParams {
 	readonly sessionId: string
 	/** The operator's message, already plain text. */
 	readonly prompt: string
+	/** Inline user-owned bytes; store references are not admitted across this boundary. */
+	readonly attachments?: readonly (ImageAttachment | DocumentAttachment)[]
+	readonly options?: AcpPromptOptions
 }
 
 /** Why a prompt stopped, in the peer's vocabulary. */

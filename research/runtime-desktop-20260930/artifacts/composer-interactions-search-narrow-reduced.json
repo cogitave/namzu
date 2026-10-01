@@ -1,0 +1,169 @@
+{
+  "width": 600,
+  "height": 540,
+  "overflow": false,
+  "reduced": true,
+  "active": "Search models",
+  "nodes": [
+    {
+      "selector": "[data-chat-composer-main-surface]",
+      "rect": {
+        "x": 61,
+        "y": 307,
+        "width": 520,
+        "height": 174,
+        "top": 307,
+        "right": 581,
+        "bottom": 481,
+        "left": 61
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0s"
+    },
+    {
+      "selector": "[data-chat-composer-footer]",
+      "rect": {
+        "x": 62,
+        "y": 432,
+        "width": 518,
+        "height": 48,
+        "top": 432,
+        "right": 580,
+        "bottom": 480,
+        "left": 62
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0s"
+    },
+    {
+      "selector": ".composer-input textarea",
+      "rect": {
+        "x": 70,
+        "y": 388,
+        "width": 494,
+        "height": 40,
+        "top": 388,
+        "right": 564,
+        "bottom": 428,
+        "left": 70
+      },
+      "font": "14px / 22.75px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": ".model-picker-trigger",
+      "rect": {
+        "x": 74,
+        "y": 436,
+        "width": 127.140625,
+        "height": 28,
+        "top": 436,
+        "right": 201.140625,
+        "bottom": 464,
+        "left": 74
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": ".model-picker-popup",
+      "rect": {
+        "x": 74,
+        "y": 144,
+        "width": 341,
+        "height": 284,
+        "top": 144,
+        "right": 415,
+        "bottom": 428,
+        "left": 74
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0s"
+    },
+    {
+      "selector": ".model-search input",
+      "rect": {
+        "x": 155,
+        "y": 154,
+        "width": 213,
+        "height": 34,
+        "top": 154,
+        "right": 368,
+        "bottom": 188,
+        "left": 155
+      },
+      "font": "13px / 34px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": "[data-chat-composer-body] .attachment-list",
+      "rect": {
+        "x": 74,
+        "y": 322,
+        "width": 494,
+        "height": 58,
+        "top": 322,
+        "right": 568,
+        "bottom": 380,
+        "left": 74
+      },
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "none",
+      "transition": "0s"
+    },
+    {
+      "selector": "[aria-label=\"Attach files\"]",
+      "rect": {
+        "x": 490,
+        "y": 436,
+        "width": 34,
+        "height": 28,
+        "top": 436,
+        "right": 524,
+        "bottom": 464,
+        "left": 490
+      },
+      "font": "500 16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": "[aria-label=\"Model and tool settings\"]",
+      "rect": {
+        "x": 205.140625,
+        "y": 436,
+        "width": 61.5,
+        "height": 28,
+        "top": 436,
+        "right": 266.640625,
+        "bottom": 464,
+        "left": 205.140625
+      },
+      "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    },
+    {
+      "selector": "button[aria-label=\"Plugins\"]",
+      "rect": {
+        "x": 410.265625,
+        "y": 485,
+        "width": 86.65625,
+        "height": 28,
+        "top": 485,
+        "right": 496.921875,
+        "bottom": 513,
+        "left": 410.265625
+      },
+      "font": "14px / 20px -apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+      "appRegion": "no-drag",
+      "transition": "0s"
+    }
+  ]
+}

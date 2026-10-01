@@ -29,6 +29,34 @@ argument. Existing one-argument gateways remain valid; hosts with scoped stores
 should use that workspace to check project and tenant ownership. The CLI gateway
 uses its existing resumable-conversation check and rejects archived writers.
 
+## Prompt attachments and options
+
+`AcpSessionPromptParams.attachments` optionally carries inline user image or
+document attachments. An embedded host opts in with
+`AcpServerOptions.supportsPromptAttachments: true`; initialization then advertises
+`AcpInitializeResult.promptAttachments: true`. The gateway's `prompt` receives
+the validated attachments along with the authored text. Plain text requests are
+unchanged. Clients must check the capability before sending attachment bytes.
+
+This boundary accepts at most eight attachments and 3 MiB of decoded bytes per
+message. Images use inline bytes; documents use inline text or PDF bytes.
+Stored attachment references are refused because this transport does not own
+the caller's attachment store. Unsupported attachment requests fail before the
+gateway starts a turn. The CLI opts in and preserves attachments through its
+actual user-message and history path.
+The CLI refuses new image or document inputs before its send when its active
+provider explicitly declares that media unsupported. Transport attachment
+support alone does not establish model capability.
+
+`AcpSessionPromptParams.options` optionally accepts `AcpPromptOptions` with
+`effort?: ReasoningEffort` and `permissionMode?: ReviewMode`. The host opts in with
+`supportsPromptOptions: true`, advertised as `promptOptions: true` at
+initialization. Unknown fields, invalid modes and unsupported explicit options
+are refused before execution. The CLI validates effort against the selected
+session's actual provider menu, including its configured fallbacks, and applies
+the captured review mode to that message's turn. These options do not rewrite
+saved global preferences or change a currently running turn.
+
 ## Explicit host extensions
 
 `AcpServerOptions.extensions` optionally installs a table of handlers whose names

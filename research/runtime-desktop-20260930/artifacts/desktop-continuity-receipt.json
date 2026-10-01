@@ -3,6 +3,8 @@
   "realCli": true,
   "realKernel": true,
   "modelIo": "scripted",
+  "secondSessionSetup": "Explicit real native newConversation API without a model request; deferred navigation baseline only",
+  "landingNewConversationDoesNotCreate": true,
   "draftReload": true,
   "draftPerConversation": true,
   "disconnectedReloadDraft": true,
@@ -23,7 +25,7 @@
   "narrowReducedMotion": true,
   "width": 600,
   "height": 540,
-  "root": "/var/tmp/namzu-desktop-continuity-awKjNT",
+  "root": "/var/tmp/namzu-desktop-continuity-AJFBO3",
   "requests": [
     {
       "model": "claude-sonnet-4-5",
@@ -33,7 +35,13 @@
         "user",
         "user"
       ],
-      "purpose": "agent"
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Run the foreground fixture.",
+          "attachments": []
+        }
+      ]
     },
     {
       "model": "claude-sonnet-4-5",
@@ -45,7 +53,13 @@
         "tool",
         "user"
       ],
-      "purpose": "agent"
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Run the foreground fixture.",
+          "attachments": []
+        }
+      ]
     },
     {
       "model": "claude-sonnet-4-5",
@@ -53,7 +67,37 @@
         "system",
         "user"
       ],
-      "purpose": "evidence-query"
+      "purpose": "evidence-query",
+      "users": [
+        {
+          "text": "{\"current\":\"Start the background fixture next.\",\"history\":[{\"message\":0,\"role\":\"user\",\"text\":\"Run the foreground fixture.\",\"truncated\":false},{\"message\":1,\"role\":\"assistant\",\"text\":\"Native runtime answered. DESKTOP_PIPE_OK\\n\\nThe foreground command completed successfully.\\n\\n- Ran the command in the selected project.\\n- Captured its output in this conversation.\\n\\nYou can continue here while I work on the next step.\",\"truncated\":false}],\"tokens\":[[0,\"Start\"],[1,\"the\"],[2,\"background\"],[3,\"fixture\"],[4,\"next\"],[5,\"Run\"],[6,\"foreground\"],[7,\"Native\"],[8,\"runtime\"],[9,\"answered\"],[10,\"DESKTOP_PIPE_OK\"],[11,\"The\"],[12,\"command\"],[13,\"completed\"],[14,\"successfully\"],[15,\"Ran\"],[16,\"in\"],[17,\"selected\"],[18,\"project\"],[19,\"Captured\"],[20,\"its\"],[21,\"output\"],[22,\"this\"],[23,\"conversation\"],[24,\"You\"],[25,\"can\"],[26,\"continue\"],[27,\"here\"],[28,\"while\"],[29,\"I\"],[30,\"work\"],[31,\"on\"],[32,\"step\"]],\"omittedTokens\":0}",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Run the foreground fixture.",
+          "attachments": []
+        },
+        {
+          "text": "Start the background fixture next.",
+          "attachments": []
+        }
+      ]
     },
     {
       "model": "claude-sonnet-4-5",
@@ -65,9 +109,37 @@
         "tool",
         "assistant",
         "user",
+        "assistant",
+        "tool",
         "user"
       ],
-      "purpose": "agent"
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Run the foreground fixture.",
+          "attachments": []
+        },
+        {
+          "text": "Start the background fixture next.",
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "user"
+      ],
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Unsent second-conversation draft",
+          "attachments": []
+        }
+      ]
     },
     {
       "model": "claude-sonnet-4-5",
@@ -77,35 +149,15 @@
         "user",
         "assistant",
         "tool",
-        "assistant",
-        "user",
-        "assistant",
-        "tool",
         "user"
       ],
-      "purpose": "agent"
-    },
-    {
-      "model": "claude-sonnet-4-5",
-      "roles": [
-        "system",
-        "system",
-        "user",
-        "user"
-      ],
-      "purpose": "agent"
-    },
-    {
-      "model": "claude-sonnet-4-5",
-      "roles": [
-        "system",
-        "system",
-        "user",
-        "assistant",
-        "tool",
-        "user"
-      ],
-      "purpose": "agent"
+      "purpose": "agent",
+      "users": [
+        {
+          "text": "Unsent second-conversation draft",
+          "attachments": []
+        }
+      ]
     }
   ]
 }

@@ -7,12 +7,13 @@ const operators: Operator[] = []
 afterEach(async () => {
 	await Promise.all(operators.splice(0).map((owner) => owner.close()))
 })
-function harness() {
+function harness(env?: NodeJS.ProcessEnv) {
 	const events = new EventEmitter()
 	const owner = new Operator(
 		{
 			program: process.execPath,
 			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
+			...(env ? { env } : {}),
 		},
 		(event) => events.emit('update', event),
 	)
@@ -217,6 +218,64 @@ it('keeps an unsent conversation usable after reconnect without loading missing 
 	})
 })
 
+it('keeps attachment-only and settings-only draft conversations listed and usable after reconnect', async () => {
+	const { owner, wait, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const started = await owner.newConversation(project.id)
+	const fileOnly = await owner.newConversation(project.id)
+	const settingsOnly = await owner.newConversation(project.id)
+	const empty = await owner.newConversation(project.id)
+	const files = owner.addAttachments(fileOnly.id, [
+		{ name: 'notes.txt', bytes: Buffer.from('Retained contents') },
+	])
+	const settings = {
+		choice: { provider: 'fixture', model: 'selected', label: 'Selected model' },
+		options: { effort: 'high' as const, permissionMode: 'strict' as const },
+	}
+	owner.saveDraftSettings(settingsOnly.id, settings)
+	owner.saveDraftSettings(empty.id, { options: {} })
+	const failed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
+	owner.send(started.id, 'Break connection')
+	await failed
+	await owner.reconnect(project.id)
+	const listed = await owner.listConversations(project.id)
+	for (const id of [fileOnly.id, settingsOnly.id])
+		expect(listed).toContainEqual(expect.objectContaining({ id }))
+	expect(listed).not.toContainEqual(expect.objectContaining({ id: empty.id }))
+	await Promise.all([
+		owner.openConversation(project.id, fileOnly.id),
+		owner.openConversation(project.id, settingsOnly.id),
+	])
+	expect(owner.draft(fileOnly.id)).toBe('')
+	expect(owner.attachments(fileOnly.id)).toEqual(files)
+	expect(owner.draftSettings(settingsOnly.id)).toEqual(settings)
+	const fileReview = permission()
+	owner.send(fileOnly.id, '', { attachmentIds: files.map((file) => file.id) })
+	const fileRequest = await fileReview
+	expect(fileRequest.sessionId).toBe(fileOnly.id)
+	expect(fileRequest.calls[0]?.input).toEqual({
+		prompt: 'Attached text file: "notes.txt"\nRetained contents',
+	})
+	const fileEnded = wait(
+		(event) => event.kind === 'state' && event.sessionId === fileOnly.id && !event.running,
+	)
+	owner.approve(fileOnly.id, fileRequest.id, true)
+	await fileEnded
+	const settingsReview = permission()
+	owner.send(
+		settingsOnly.id,
+		'Continue my settings-only draft',
+		owner.draftSettings(settingsOnly.id).options,
+	)
+	const settingsRequest = await settingsReview
+	expect(settingsRequest.sessionId).toBe(settingsOnly.id)
+	const settingsEnded = wait(
+		(event) => event.kind === 'state' && event.sessionId === settingsOnly.id && !event.running,
+	)
+	owner.approve(settingsOnly.id, settingsRequest.id, true)
+	await settingsEnded
+})
+
 it('edits and removes queued identities without overwriting a draft or another conversation', async () => {
 	const { owner, permission } = harness()
 	const project = await owner.openProject(process.cwd())
@@ -257,4 +316,214 @@ it('keeps project landing drafts separate from conversations without creating a 
 	expect(owner.draft(conversation.id)).toBe('Different conversation draft')
 	expect(() => owner.saveDraft('project:unknown', 'Rejected')).toThrow('Unknown project')
 	expect(() => owner.saveDraft(landing, 'x'.repeat(50_001))).toThrow('50,000')
+})
+
+it('promotes files without rereading bytes, preserves them on refusal and restores queued edits', async () => {
+	const { owner, permission, wait } = harness()
+	const project = await owner.openProject(process.cwd())
+	const ownerId = `project:${project.id}`
+	const files = owner.addAttachments(ownerId, [
+		{ name: 'notes.txt', bytes: Buffer.from('EXACT_FILE_CONTENT') },
+	])
+	const session = await owner.newConversation(project.id)
+	expect(owner.moveAttachments(ownerId, session.id)).toEqual(files)
+	expect(owner.attachments(ownerId)).toEqual([])
+	expect(() =>
+		owner.send(session.id, 'x'.repeat(50_001), { attachmentIds: files.map((file) => file.id) }),
+	).toThrow('50,000')
+	expect(owner.attachments(session.id)).toEqual(files)
+	const review = permission()
+	owner.send(session.id, 'Wait')
+	await review
+	owner.send(session.id, 'Queued files', {
+		attachmentIds: files.map((file) => file.id),
+		effort: 'high',
+		permissionMode: 'strict',
+	})
+	const queue = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	expect(queue[0]).toMatchObject({
+		prompt: 'Queued files',
+		attachments: files,
+		effort: 'high',
+		permissionMode: 'strict',
+	})
+	expect(owner.attachments(session.id)).toEqual([])
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	await owner.cancel(session.id)
+	await stopped
+	owner.saveDraftSettings(session.id, {
+		choice: { provider: 'fixture', model: 'selected' },
+		options: { effort: 'low', permissionMode: 'plan' },
+	})
+	expect(owner.takeQueued(session.id, queue[0]?.id)).toBe('Queued files')
+	expect(owner.attachments(session.id)).toEqual(files)
+	expect(owner.draftSettings(session.id)).toEqual({
+		choice: { provider: 'fixture', model: 'selected' },
+		options: { effort: 'high', permissionMode: 'strict' },
+	})
+	owner.saveDraft(session.id, '')
+	const retryReview = permission()
+	owner.send(session.id, '', { attachmentIds: files.map((file) => file.id) })
+	const request = await retryReview
+	expect(request.calls[0]?.input).toEqual({
+		prompt: 'Attached text file: "notes.txt"\nEXACT_FILE_CONTENT',
+	})
+})
+
+it('refuses attachment ownership theft and frees queued blobs when removing a queued message', async () => {
+	const { owner, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const a = await owner.newConversation(project.id)
+	const b = await owner.newConversation(project.id)
+	const files = owner.addAttachments(a.id, [
+		{ name: 'owned.txt', bytes: Buffer.from('Owned content') },
+	])
+	expect(() => owner.send(b.id, 'Steal', { attachmentIds: files.map((file) => file.id) })).toThrow(
+		'another draft',
+	)
+	expect(() => owner.removeAttachment(b.id, files[0]?.id ?? '')).toThrow('belongs to this draft')
+	expect(owner.attachments(a.id)).toEqual(files)
+	const review = permission()
+	owner.send(a.id, 'Wait')
+	await review
+	owner.send(a.id, 'Queued files', { attachmentIds: files.map((file) => file.id) })
+	const queue = (await owner.openConversation(project.id, a.id)).thread?.queuedItems ?? []
+	owner.removeQueued(a.id, queue[0]?.id ?? '')
+	expect(owner.attachments(a.id)).toEqual([])
+	expect(() =>
+		owner.send(a.id, 'No longer retained', { attachmentIds: files.map((file) => file.id) }),
+	).toThrow('another draft')
+})
+
+it('bounds retained queued image bytes and releases their budget on queue removal', async () => {
+	const { owner, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const review = permission()
+	owner.send(session.id, 'Wait')
+	await review
+	const image = Buffer.alloc(3 * 1024 * 1024)
+	Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(image)
+	for (let index = 0; index < 8; index += 1) {
+		const files = owner.addAttachments(session.id, [{ name: 'image.png', bytes: image }])
+		owner.send(session.id, `Queued ${index}`, { attachmentIds: files.map((file) => file.id) })
+	}
+	expect(() =>
+		owner.addAttachments(session.id, [{ name: 'over-budget.png', bytes: image }]),
+	).toThrow('storage is full')
+	const queue = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	expect(queue).toHaveLength(8)
+	owner.removeQueued(session.id, queue[0]?.id ?? '')
+	expect(owner.addAttachments(session.id, [{ name: 'room-again.png', bytes: image }])).toHaveLength(
+		1,
+	)
+})
+
+it('sends admitted image bytes unchanged and restores them to the draft after cancellation', async () => {
+	const { owner, permission, wait } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const image = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aBz8AAAAASUVORK5CYII=',
+		'base64',
+	)
+	const data = image.toString('base64')
+	const files = owner.addAttachments(session.id, [{ name: 'pixel.png', bytes: image }])
+	image.fill(0)
+	const review = permission()
+	owner.send(session.id, '', { attachmentIds: files.map((file) => file.id) })
+	const request = await review
+	expect(request.calls[0]?.input).toEqual({
+		prompt: 'Attached image: "pixel.png"',
+		attachments: [{ type: 'image', mediaType: 'image/png', data }],
+	})
+	expect(owner.attachments(session.id)).toEqual([])
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	await owner.cancel(session.id)
+	await stopped
+	expect(owner.attachments(session.id)).toEqual(files)
+})
+
+it('keeps image drafts when an older CLI cannot receive attachments', async () => {
+	const { owner } = harness({ ...process.env, FIXTURE_NO_ATTACHMENTS: '1' })
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const files = owner.addAttachments(session.id, [
+		{ name: 'image.png', bytes: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) },
+	])
+	expect(() =>
+		owner.send(session.id, 'Keep the image', { attachmentIds: files.map((file) => file.id) }),
+	).toThrow('can receive image attachments')
+	expect(owner.attachments(session.id)).toEqual(files)
+	expect((await owner.openConversation(project.id, session.id)).thread?.messages).toEqual([])
+})
+
+it('refuses unsupported explicit settings before consuming the draft, but retains default-prompt compatibility', async () => {
+	const { owner, permission } = harness({ ...process.env, FIXTURE_NO_OPTIONS: '1' })
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	owner.saveDraft(session.id, 'Keep my draft')
+	const files = owner.addAttachments(session.id, [
+		{ name: 'notes.txt', bytes: Buffer.from('Owned notes') },
+	])
+	for (const settings of [{ effort: 'high' as const }, { permissionMode: 'strict' as const }]) {
+		expect(() =>
+			owner.send(session.id, 'Keep my draft', {
+				attachmentIds: files.map((file) => file.id),
+				...settings,
+			}),
+		).toThrow('apply message settings')
+	}
+	expect(owner.draft(session.id)).toBe('Keep my draft')
+	expect(owner.attachments(session.id)).toEqual(files)
+	expect((await owner.openConversation(project.id, session.id)).thread?.messages).toEqual([])
+	const review = permission()
+	owner.send(session.id, 'Keep my draft', {
+		permissionMode: 'prompt',
+		attachmentIds: files.map((file) => file.id),
+	})
+	expect((await review).calls[0]?.input).toEqual({
+		prompt: 'Keep my draft\n\nAttached text file: "notes.txt"\nOwned notes',
+	})
+})
+
+it('retains bounded draft settings in the main owner across navigation and disconnection', async () => {
+	const { owner, wait } = harness()
+	const project = await owner.openProject(process.cwd())
+	const landing = `project:${project.id}`
+	const session = await owner.newConversation(project.id)
+	const settings = {
+		choice: { provider: 'fixture', model: 'chosen', label: 'Chosen model' },
+		options: { effort: 'high' as const, permissionMode: 'strict' as const },
+	}
+	owner.saveDraftSettings(landing, settings)
+	owner.saveDraftSettings(session.id, owner.draftSettings(landing))
+	settings.choice.model = 'mutated renderer object'
+	const loaded = owner.draftSettings(session.id)
+	if (loaded.choice) loaded.choice.model = 'mutated read result'
+	expect(owner.draftSettings(landing).choice?.model).toBe('chosen')
+	expect(owner.draftSettings(session.id).choice?.model).toBe('chosen')
+	expect(() =>
+		owner.saveDraftSettings(session.id, {
+			choice: { provider: 'fixture', model: 'x'.repeat(401) },
+		}),
+	).toThrow('Invalid draft model choice')
+	expect(() =>
+		owner.saveDraftSettings(session.id, { options: { attachmentIds: ['foreign'] } } as never),
+	).toThrow('Invalid draft message settings')
+	expect(() => owner.draftSettings('project:unknown')).toThrow('Unknown project')
+	const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
+	owner.send(session.id, 'Break connection')
+	await closed
+	expect(owner.draftSettings(session.id)).toEqual({
+		choice: { provider: 'fixture', model: 'chosen', label: 'Chosen model' },
+		options: { effort: 'high', permissionMode: 'strict' },
+	})
+	owner.saveDraftSettings(landing, {})
+	expect(owner.draftSettings(landing)).toEqual({})
+	expect(owner.draftSettings(session.id).choice?.model).toBe('chosen')
 })

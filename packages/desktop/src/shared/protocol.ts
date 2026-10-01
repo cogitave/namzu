@@ -1,4 +1,45 @@
-import type { AcpSessionUpdate } from '@namzu/sdk'
+import type { AcpSessionUpdate, ReasoningEffort, ReviewMode } from '@namzu/sdk'
+
+export interface AttachmentView {
+	id: string
+	name: string
+	kind: 'image' | 'text'
+	size: number
+	mediaType: string
+	preview?: string
+}
+export interface AttachmentInput {
+	name: string
+	bytes: Uint8Array
+}
+export interface DesktopSendOptions {
+	attachmentIds?: string[]
+	effort?: ReasoningEffort
+	permissionMode?: ReviewMode
+}
+export interface DraftSettings {
+	choice?: { provider: string; model: string; label?: string }
+	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+}
+export interface ComposerModelSettings {
+	effortLevels?: readonly ReasoningEffort[]
+	effortDefault?: ReasoningEffort
+	notice?: string
+}
+export interface PluginInventoryView {
+	plugins: readonly {
+		name: string
+		version: string
+		description: string
+		scope: 'project' | 'user'
+		status: string
+		startupEnabled?: boolean
+		startupError?: string
+	}[]
+	live: boolean
+	canChange: boolean
+	notice?: string
+}
 
 export interface ProjectView {
 	id: string
@@ -17,6 +58,7 @@ export interface ConversationView {
 export interface ChatMessage {
 	role: 'user' | 'assistant'
 	text: string
+	attachments?: AttachmentView[]
 }
 export interface ProviderView {
 	available: { id: string; label: string; defaultModel: string }[]
@@ -36,6 +78,9 @@ export interface JobView {
 export interface QueuedMessageView {
 	id: string
 	prompt: string
+	attachments?: AttachmentView[]
+	effort?: ReasoningEffort
+	permissionMode?: DesktopSendOptions['permissionMode']
 }
 export interface PermissionView {
 	id: string
@@ -54,7 +99,7 @@ export interface WindowMenuAnchor {
 	y: number
 }
 export type DesktopEvent = (
-	| { kind: 'prompt'; sessionId: string; prompt: string }
+	| { kind: 'prompt'; sessionId: string; prompt: string; attachments?: AttachmentView[] }
 	| {
 			kind: 'update'
 			projectId: string
@@ -93,10 +138,25 @@ export interface DesktopApi {
 	}>
 	providers(projectId: string, sessionId?: string): Promise<ProviderView>
 	models(projectId: string, provider: string, sessionId?: string): Promise<ModelCatalogueView>
+	modelSettings(
+		projectId: string,
+		provider: string,
+		model: string,
+		sessionId?: string,
+	): Promise<ComposerModelSettings>
+	plugins(projectId: string, sessionId?: string): Promise<PluginInventoryView>
+	setPluginEnabled(sessionId: string, name: string, enabled: boolean): Promise<PluginInventoryView>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
-	send(sessionId: string, prompt: string): Promise<void>
+	pickAttachments(ownerId: string): Promise<AttachmentView[]>
+	addAttachments(ownerId: string, files: AttachmentInput[]): Promise<AttachmentView[]>
+	attachments(ownerId: string): Promise<AttachmentView[]>
+	removeAttachment(ownerId: string, id: string): Promise<void>
+	moveAttachments(fromOwner: string, toSessionId: string): Promise<AttachmentView[]>
+	send(sessionId: string, prompt: string, options?: DesktopSendOptions): Promise<void>
 	draft(sessionId: string): Promise<string>
 	saveDraft(sessionId: string, draft: string): Promise<void>
+	draftSettings(ownerId: string): Promise<DraftSettings>
+	saveDraftSettings(ownerId: string, value: DraftSettings): Promise<void>
 	cancel(sessionId: string): Promise<void>
 	takeQueued(sessionId: string, itemId?: string): Promise<string | null>
 	removeQueued(sessionId: string, itemId: string): Promise<void>

@@ -1,0 +1,14 @@
+{
+  "native": true,
+  "realCli": true,
+  "realKernel": true,
+  "modelNetworkIo": "scripted",
+  "modelPickerOpened": false,
+  "selectedProviderHadNoExplicitModel": true,
+  "defaultModel": "claude-opus-5",
+  "firstSendAdmitted": true,
+  "persistedDefaultMatchesActualRequest": true,
+  "sessionId": "01a0f719-8549-740e-80fb-1f82221c662f",
+  "root": "/tmp/namzu-default-provider-send-i7EpLy",
+  "faults": []
+}

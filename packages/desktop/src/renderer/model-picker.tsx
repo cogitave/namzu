@@ -1,7 +1,7 @@
 import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { Tabs } from '@base-ui/react/tabs'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ModelCatalogueView, ProviderView } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import {
@@ -126,6 +126,7 @@ function ModelBrowser({
 	const [searching, setSearching] = useState(false)
 	const [query, setQuery] = useState('')
 	const search = useRef<HTMLInputElement>(null)
+	const results = useRef<HTMLDivElement>(null)
 	const [custom, setCustom] = useState(false)
 	const [customModel, setCustomModel] = useState(choice.model)
 	const active =
@@ -136,10 +137,9 @@ function ModelBrowser({
 			mounted.current = false
 		}
 	}, [])
-	useEffect(() => {
-		const targets = searching ? providers.available : active ? [active] : []
-		for (const provider of targets) {
-			if (requested.current.has(provider.id)) continue
+	const load = useCallback(
+		(provider: Provider) => {
+			if (requested.current.has(provider.id)) return
 			requested.current.add(provider.id)
 			setCatalogues((all) => ({ ...all, [provider.id]: { loading: true } }))
 			void window.namzu
@@ -148,18 +148,23 @@ function ModelBrowser({
 					if (mounted.current)
 						setCatalogues((all) => ({ ...all, [provider.id]: { loading: false, value } }))
 				})
-				.catch((error: unknown) => {
+				.catch(() => {
 					if (mounted.current)
 						setCatalogues((all) => ({
 							...all,
 							[provider.id]: {
 								loading: false,
-								error: error instanceof Error ? error.message : String(error),
+								error: 'Could not load these models. Try again.',
 							},
 						}))
 				})
-		}
-	}, [active, providers.available, searching, projectId, sessionId])
+		},
+		[projectId, sessionId],
+	)
+	useEffect(() => {
+		const targets = searching ? providers.available : active ? [active] : []
+		for (const provider of targets) load(provider)
+	}, [active, providers.available, searching, load])
 	useEffect(() => {
 		if (searching) search.current?.focus({ preventScroll: true })
 	}, [searching])
@@ -175,8 +180,16 @@ function ModelBrowser({
 	const loading = shownProviders.some(
 		(provider) => !catalogues[provider.id] || catalogues[provider.id]?.loading,
 	)
-	const error = shownProviders.find((provider) => catalogues[provider.id]?.error)
-	const notice = active ? catalogues[active.id]?.value?.notice : null
+	const errors = shownProviders.filter((provider) => catalogues[provider.id]?.error)
+	const retry = (id: string) => {
+		requested.current.delete(id)
+		const provider = providers.available.find((provider) => provider.id === id)
+		if (provider) load(provider)
+	}
+	const notices = shownProviders.flatMap((provider) => {
+		const notice = catalogues[provider.id]?.value?.notice
+		return notice ? [{ provider, notice }] : []
+	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
 	const lineUp = (
 		<div className="model-lineup">
@@ -193,6 +206,21 @@ function ModelBrowser({
 							placeholder="Search all models…"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.nativeEvent.isComposing) return
+								if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+									const rows = results.current?.querySelectorAll<HTMLElement>('[role="radio"]')
+									const row = event.key === 'ArrowDown' ? rows?.[0] : rows?.[rows.length - 1]
+									if (row) {
+										event.preventDefault()
+										row.focus()
+									}
+								} else if (event.key === 'Enter' && filtered[0]) {
+									event.preventDefault()
+									const next = filtered[0]
+									onChoose({ provider: next.provider.id, model: next.id, label: next.label }, true)
+								}
+							}}
 						/>
 						<Button
 							size="icon-xs"
@@ -216,7 +244,7 @@ function ModelBrowser({
 					</>
 				)}
 			</header>
-			<div className="model-picker-list">
+			<div ref={results} className="model-picker-list">
 				<RadioGroup
 					aria-label={searching ? 'Search results' : `${active?.label ?? ''} models`}
 					value={modelKey(
@@ -239,10 +267,24 @@ function ModelBrowser({
 							render={<button type="button" />}
 							className="model-picker-row"
 							aria-label={`${model.provider.label} ${model.label}`}
+							onClick={(event) => {
+								event.preventDefault()
+								onChoose({ provider: model.provider.id, model: model.id, label: model.label }, true)
+							}}
+							onKeyDown={(event) => {
+								if (event.key === 'Enter') {
+									event.preventDefault()
+									onChoose(
+										{ provider: model.provider.id, model: model.id, label: model.label },
+										true,
+									)
+								}
+							}}
 						>
 							<ProviderMark provider={model.provider} />
 							<span className="model-picker-name">
 								<span title={model.id}>{model.label}</span>
+								{searching && <small>{model.provider.label}</small>}
 								{model.note && <small>{model.note}</small>}
 							</span>
 							<Radio.Indicator className="model-picker-checked">
@@ -257,17 +299,41 @@ function ModelBrowser({
 						Loading models…
 					</output>
 				)}
-				{!loading && filtered.length === 0 && (
+				{!loading && filtered.length === 0 && errors.length === 0 && (
 					<output className="model-picker-status">
 						{query ? 'No matching listed models.' : 'No models listed.'}
 					</output>
 				)}
-				{error && (
-					<p className="model-picker-status" role="alert">
-						{error.label}: {catalogues[error.id]?.error}
+				{errors.map((provider) => (
+					<div key={provider.id} className="model-picker-status" role="alert">
+						<span>
+							{provider.label}: {catalogues[provider.id]?.error}
+						</span>
+						<Button
+							variant="ghost-muted"
+							size="xs"
+							onClick={() => retry(provider.id)}
+							aria-label={`Retry ${provider.label} models`}
+						>
+							Retry
+						</Button>
+					</div>
+				))}
+				{notices.map(({ provider, notice }) => (
+					<p key={provider.id} className="model-picker-notice">
+						{searching && `${provider.label}: `}
+						{notice}
+						<Button
+							variant="ghost-muted"
+							size="xs"
+							onClick={() => retry(provider.id)}
+							disabled={catalogues[provider.id]?.loading}
+							aria-label={`Retry ${provider.label} models`}
+						>
+							Retry
+						</Button>
 					</p>
-				)}
-				{!searching && notice && <p className="model-picker-notice">{notice}</p>}
+				))}
 			</div>
 			{active && (
 				<div className="model-custom">
@@ -356,11 +422,11 @@ function ModelBrowser({
 					</Tooltip>
 				))}
 			</Tabs.List>
-			{providers.available.map((provider) => (
-				<Tabs.Panel key={provider.id} value={provider.id} className="model-provider-panel">
+			{active && (
+				<Tabs.Panel key={active.id} value={active.id} className="model-provider-panel">
 					{lineUp}
 				</Tabs.Panel>
-			))}
+			)}
 		</Tabs.Root>
 	)
 }

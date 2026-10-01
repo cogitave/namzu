@@ -2,7 +2,12 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme } from 'electron'
-import type { DesktopEvent } from '../shared/protocol.js'
+import type {
+	AttachmentInput,
+	DesktopEvent,
+	DesktopSendOptions,
+	DraftSettings,
+} from '../shared/protocol.js'
 import { Operator } from './operator.js'
 import {
 	readWindowMenu,
@@ -114,12 +119,79 @@ function register(): void {
 	handle('models', (id: string, provider: string, sessionId?: string) =>
 		operator.models(id, provider, sessionId),
 	)
+	handle('modelSettings', (id: string, provider: string, model: string, sessionId?: string) =>
+		operator.modelSettings(id, provider, model, sessionId),
+	)
+	handle('plugins', (id: string, sessionId?: string) => operator.plugins(id, sessionId))
+	handle('setPluginEnabled', (id: string, name: string, enabled: boolean) =>
+		operator.setPluginEnabled(id, name, enabled),
+	)
 	handle('selectProvider', (id: string, provider: string, model?: string) =>
 		operator.selectProvider(id, provider, model),
 	)
-	handle('send', (id: string, prompt: string) => operator.send(id, prompt))
+	let choosingFiles = false
+	handle('pickAttachments', async (owner: string) => {
+		operator.attachments(owner)
+		if (!window || choosingFiles) throw new Error('Finish choosing files before adding more.')
+		choosingFiles = true
+		try {
+			const picked = await dialog.showOpenDialog(window, {
+				title: 'Attach files',
+				properties: ['openFile', 'multiSelections'],
+				filters: [
+					{
+						name: 'Images and text',
+						extensions: [
+							'png',
+							'jpg',
+							'jpeg',
+							'webp',
+							'gif',
+							'txt',
+							'md',
+							'json',
+							'yaml',
+							'yml',
+							'toml',
+							'csv',
+							'ts',
+							'tsx',
+							'js',
+							'jsx',
+							'py',
+							'rs',
+							'css',
+							'html',
+							'log',
+						],
+					},
+					{ name: 'All files', extensions: ['*'] },
+				],
+			})
+			return picked.canceled
+				? operator.attachments(owner)
+				: await operator.addChosenFiles(owner, picked.filePaths)
+		} finally {
+			choosingFiles = false
+		}
+	})
+	handle('addAttachments', (owner: string, files: AttachmentInput[]) =>
+		operator.addAttachments(owner, files),
+	)
+	handle('attachments', (owner: string) => operator.attachments(owner))
+	handle('removeAttachment', (owner: string, id: string) => operator.removeAttachment(owner, id))
+	handle('moveAttachments', (owner: string, target: string) =>
+		operator.moveAttachments(owner, target),
+	)
+	handle('send', (id: string, prompt: string, options?: DesktopSendOptions) =>
+		operator.send(id, prompt, options),
+	)
 	handle('draft', (id: string) => operator.draft(id))
 	handle('saveDraft', (id: string, draft: string) => operator.saveDraft(id, draft))
+	handle('draftSettings', (owner: string) => operator.draftSettings(owner))
+	handle('saveDraftSettings', (owner: string, value: DraftSettings) =>
+		operator.saveDraftSettings(owner, value),
+	)
 	handle('cancel', (id: string) => operator.cancel(id))
 	handle('takeQueued', (id: string, itemId?: string) => operator.takeQueued(id, itemId))
 	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))

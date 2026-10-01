@@ -156,7 +156,6 @@ import {
 	seedObservationLedger,
 	toolset,
 	webGuidanceContribution,
-	withProviderFallback,
 	wrapUntrusted,
 } from '@namzu/sdk'
 
@@ -220,6 +219,10 @@ import {
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
+import {
+	type ComposerModelSettings,
+	resolveProviderReasoning,
+} from '../integrations/providers/composer-settings.js'
 import { createGeminiAccessTokenResolver } from '../integrations/providers/gemini-credentials.js'
 import {
 	type AgentOAuthCredential,
@@ -251,7 +254,10 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
-import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
+import {
+	PickerProviderTimeoutError,
+	runPickerProviderOperation,
+} from '../integrations/providers/picker-operation.js'
 import { activeZenCatalogue, isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
@@ -887,6 +893,9 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/** Exact primary route declarations; absent means support has not been declared. */
+	readonly imageAttachmentsSupported?: boolean
+	readonly documentAttachmentsSupported?: boolean
 	/**
 	 * Exact reasoning-effort levels every usable member of this provider chain
 	 * accepts for its selected model. `undefined` means at least one member
@@ -3421,60 +3430,14 @@ export async function createAgentSession(
 			.map((result) => result.reason)
 		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
 	})
-	let reasoningEffortLevels: readonly ReasoningEffort[] | undefined
-	let reasoningEffortDefault: ReasoningEffort | undefined
-	let effortNotice: string | undefined
-	try {
-		const capabilityMembers = [
-			{ provider, model },
-			...fallbackPlan.build(currentToken, scope.sessionId),
-		]
-		const capabilityView = withProviderFallback(
-			await Promise.all(
-				capabilityMembers.map(async (member) => {
-					const memberModel = member.model ?? model
-					const known = member.provider.reasoningEffortLevelsFor
-						? member.provider.reasoningEffortLevelsFor(memberModel)
-						: member.provider.effortLevelsFor?.(memberModel)
-					// A model-owned answer (including []) needs no extra catalogue
-					// request. Discover only missing capability information.
-					const catalogue =
-						known === undefined && member.provider.listModels
-							? await runPickerProviderOperation(
-									undefined,
-									(signal) => member.provider.listModels?.(signal) ?? Promise.resolve([]),
-								).catch(() => [])
-							: []
-					return {
-						...member,
-						provider: modelReasoningView(member.provider, memberModel, catalogue),
-					}
-				}),
-			),
-		)
-		const offered = capabilityView.reasoningEffortLevelsFor
-			? capabilityView.reasoningEffortLevelsFor(model)
-			: capabilityView.effortLevelsFor?.(model)
-		reasoningEffortLevels = offered === undefined ? undefined : Object.freeze([...offered])
-		try {
-			const publishedDefault = capabilityView.reasoningEffortDefaultFor?.(model)
-			if (
-				publishedDefault !== undefined &&
-				reasoningEffortLevels !== undefined &&
-				!reasoningEffortLevels.includes(publishedDefault)
-			) {
-				effortNotice = `The provider published default effort "${publishedDefault}" outside its exact menu. Directional effort shortcuts require an explicit selection.`
-			} else {
-				reasoningEffortDefault = publishedDefault
-			}
-		} catch (error) {
-			effortNotice = `The default reasoning effort could not be established for this session: ${describeError(error)}`
-		}
-	} catch (error) {
-		reasoningEffortLevels = undefined
-		reasoningEffortDefault = undefined
-		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
-	}
+	const reasoning = await resolveProviderReasoning([
+		{ provider, model },
+		...fallbackPlan.build(currentToken, scope.sessionId),
+	])
+	const reasoningEffortLevels = reasoning.effortLevels
+	const reasoningEffortDefault = reasoning.effortDefault
+	const effortNotice = reasoning.notice
+
 	/**
 	 * The provider a resumed turn runs on when its caller pinned one (a
 	 * scheduled job's model): built from this session's credential for that
@@ -3868,6 +3831,12 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
+		get imageAttachmentsSupported() {
+			return providerForSession(scope.sessionId).capabilities?.supportsVision
+		},
+		get documentAttachmentsSupported() {
+			return providerForSession(scope.sessionId).capabilities?.supportsDocuments
+		},
 		reasoningEffortLevels,
 		reasoningEffortDefault,
 		compact: (messages) =>
@@ -4647,7 +4616,7 @@ interface FallbackPlan {
 	 * explicitly permits when only the model differs — is built with the token
 	 * the head just refreshed rather than the one discovery found at startup.
 	 */
-	build(headToken: string | undefined, sessionId: SessionId): readonly ProviderChainMember[]
+	build(headToken: string | undefined, sessionId?: SessionId): readonly ProviderChainMember[]
 }
 
 function planFallbacks(
@@ -4857,50 +4826,6 @@ export type ModelListing =
 	| { readonly kind: 'timeout' }
 	| { readonly kind: 'failed'; readonly reason: string }
 
-const PICKER_PROVIDER_DEADLINE_MS = 3_000
-
-class PickerProviderTimeoutError extends Error {
-	constructor() {
-		super(`The provider did not answer within ${PICKER_PROVIDER_DEADLINE_MS}ms.`)
-		this.name = 'PickerProviderTimeoutError'
-	}
-}
-
-/** Bound a picker side-call even when a third-party provider ignores abort. */
-async function runPickerProviderOperation<T>(
-	signal: AbortSignal | undefined,
-	operation: (operationSignal: AbortSignal) => Promise<T>,
-): Promise<T> {
-	signal?.throwIfAborted()
-	const controller = new AbortController()
-	const timeoutCause = new PickerProviderTimeoutError()
-	let rejectBoundary: (cause: unknown) => void = () => {}
-	const boundary = new Promise<never>((_resolve, reject) => {
-		rejectBoundary = reject
-	})
-	const onCallerAbort = () => {
-		controller.abort(signal?.reason)
-		rejectBoundary(signal?.reason)
-	}
-	signal?.addEventListener('abort', onCallerAbort, { once: true })
-	const timer = setTimeout(() => {
-		controller.abort(timeoutCause)
-		rejectBoundary(timeoutCause)
-	}, PICKER_PROVIDER_DEADLINE_MS)
-
-	try {
-		return await Promise.race([operation(controller.signal), boundary])
-	} catch (error) {
-		// Cooperative transports may replace the owner cause with AbortError.
-		if (signal?.aborted) throw signal.reason
-		if (controller.signal.aborted && controller.signal.reason === timeoutCause) throw timeoutCause
-		throw error
-	} finally {
-		clearTimeout(timer)
-		signal?.removeEventListener('abort', onCallerAbort)
-	}
-}
-
 /**
  * The price pair, and only the halves the driver gave a number for.
  *
@@ -4917,6 +4842,42 @@ function publishedPrices(m: ModelInfo): Pick<ListedModel, 'inputPrice' | 'output
 	if (Number.isFinite(m.inputPrice)) prices.inputPrice = m.inputPrice
 	if (Number.isFinite(m.outputPrice)) prices.outputPrice = m.outputPrice
 	return prices
+}
+
+/** Capability-only composer query; no session, tools, browser or model turn is created. */
+export async function describeProviderReasoning(
+	preferences: Preferences,
+	detected: readonly DetectedProvider[],
+	signal?: AbortSignal,
+): Promise<ComposerModelSettings> {
+	try {
+		signal?.throwIfAborted()
+		const primary = primaryProvider(preferences)
+		const entry = PROVIDER_REGISTRY[primary.id]
+		if (!entry) return { notice: 'The selected provider is unavailable.' }
+		const model = primary.model ?? entry.defaultModel
+		const det = findDetected(detected, primary.id)
+		if (requiresCredentialForModel(entry, model) && !hasApiCredential(entry, det?.apiKey)) {
+			return { notice: 'Set up the selected provider to choose its reasoning effort.' }
+		}
+		await ensureRegistered(primary.id)
+		signal?.throwIfAborted()
+		const resolvedCapabilities = await resolveChainCapabilities(preferences.providers)
+		signal?.throwIfAborted()
+		const disagreements = chainCapabilityDisagreements(preferences.providers, resolvedCapabilities)
+		if (disagreements.length > 0 && preferences.allowCapabilityMismatch !== true) {
+			const refusal = describeCapabilityRefusal(disagreements)
+			if (refusal) return { notice: refusal }
+		}
+		const provider = constructProvider(primary.id, det, model)
+		return await resolveProviderReasoning(
+			[{ provider, model }, ...planFallbacks(preferences.providers, detected).build(det?.apiKey)],
+			signal,
+		)
+	} catch (error) {
+		if (signal?.aborted) throw signal.reason
+		return { notice: `Reasoning effort could not be checked: ${describeError(error)}` }
+	}
 }
 
 /**

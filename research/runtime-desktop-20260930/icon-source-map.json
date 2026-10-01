@@ -3,6 +3,23 @@
   "tag": "v4.9.0",
   "revision": "019480ec14b97959a1ad35c3de302a224714b068",
   "license": "Remix Icon License v1.0",
+  "adaptation": "Hybrid: rounded outline navigation uses the existing Lucide React package; selected navigation and other glyphs retain original Remix SVG paths. The screenshot's exact icon family is unverified.",
+  "lucide": {
+    "source": "https://github.com/lucide-icons/lucide",
+    "package": "lucide-react",
+    "version": "0.564.0",
+    "license": "ISC; MIT for portions derived from Feather",
+    "adaptation": "Existing package components wrapped with aria-hidden and forwarded SVG props; original outline geometry, rounded stroke caps and joins are unchanged.",
+    "icons": {
+      "FolderIcon": "dist/esm/icons/folder-closed.js",
+      "FoldersIcon": "dist/esm/icons/folders.js",
+      "HomeIcon": "dist/esm/icons/house.js",
+      "HistoryIcon": "dist/esm/icons/clock.js",
+      "PanelLeftIcon": "dist/esm/icons/panel-left.js",
+      "SquarePenIcon": "dist/esm/icons/square-pen.js",
+      "MoreHorizontalIcon": "dist/esm/icons/ellipsis.js"
+    }
+  },
   "icons": {
     "ArrowLeftIcon": "icons/Arrows/arrow-left-line.svg",
     "ArrowRightIcon": "icons/Arrows/arrow-right-line.svg",
@@ -15,20 +32,14 @@
     "XIcon": "icons/System/close-line.svg",
     "PlusIcon": "icons/System/add-line.svg",
     "SearchIcon": "icons/System/search-line.svg",
-    "FolderIcon": "icons/Document/folder-line.svg",
     "FolderPlusIcon": "icons/Document/folder-add-line.svg",
-    "FoldersIcon": "icons/Document/folders-line.svg",
     "FoldersFilledIcon": "icons/Document/folders-fill.svg",
-    "HomeIcon": "icons/Buildings/home-line.svg",
-    "HomeFilledIcon": "icons/Buildings/home-fill.svg",
-    "HistoryIcon": "icons/System/history-line.svg",
-    "HistoryFilledIcon": "icons/System/history-fill.svg",
+    "HomeFilledIcon": "icons/Buildings/home-4-fill.svg",
+    "HistoryFilledIcon": "icons/System/time-fill.svg",
     "MoonIcon": "icons/Weather/moon-line.svg",
     "SunIcon": "icons/Weather/sun-line.svg",
     "MonitorIcon": "icons/Device/computer-line.svg",
-    "PanelLeftIcon": "icons/Design/layout-left-line.svg",
     "PanelRightIcon": "icons/Design/layout-right-line.svg",
-    "SquarePenIcon": "icons/Design/edit-box-line.svg",
     "FileDiffIcon": "icons/Document/file-edit-line.svg",
     "TerminalIcon": "icons/Development/terminal-box-line.svg",
     "WrenchIcon": "icons/Design/tools-line.svg",
@@ -43,7 +54,10 @@
     "Rows3Icon": "icons/Design/layout-row-line.svg",
     "TextWrapIcon": "icons/Editor/text-wrap.svg",
     "CloudIcon": "icons/Business/cloud-line.svg",
-    "ServerIcon": "icons/Device/server-line.svg"
+    "ServerIcon": "icons/Device/server-line.svg",
+    "PaperclipIcon": "icons/Editor/attachment-2.svg",
+    "FileTextIcon": "icons/Document/file-text-line.svg",
+    "PuzzleIcon": "icons/Development/puzzle-line.svg"
   },
   "providers": {
     "anthropic": "icons/Logos/claude-fill.svg",

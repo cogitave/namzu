@@ -1,0 +1,150 @@
+.attachment-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.attachment-item {
+	display: flex;
+	align-items: center;
+	position: relative;
+	gap: 8px;
+	max-width: 100%;
+	padding: 6px 8px 6px 6px;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--background);
+	animation: attachment-arrive 160ms var(--motion-ease);
+}
+.attachment-image,
+.attachment-file-icon {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 44px;
+	height: 44px;
+	border: 0;
+	padding: 0;
+	border-radius: 9px;
+	color: var(--muted-foreground);
+	background: var(--accent);
+	overflow: hidden;
+}
+.attachment-image {
+	cursor: zoom-in;
+}
+.attachment-image img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.attachment-file-icon svg {
+	width: 22px;
+	height: 22px;
+}
+.attachment-name {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	gap: 2px;
+}
+.attachment-name > span {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+}
+.attachment-name small {
+	color: var(--muted-foreground);
+	font-size: 10px;
+}
+.attachment-preview-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 150;
+	background: rgb(0 0 0 / 65%);
+	transition: opacity 160ms ease;
+}
+.attachment-preview {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	z-index: 151;
+	width: min(90vw, 960px);
+	max-height: 90vh;
+	transform: translate(-50%, -50%);
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	padding: 12px;
+	background: var(--popover);
+	color: var(--foreground);
+	outline: none;
+	transition: opacity 160ms ease;
+}
+.attachment-preview header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 4px 8px;
+	font-size: 13px;
+}
+.attachment-preview header h2 {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.attachment-preview > img {
+	display: block;
+	width: 100%;
+	max-height: calc(90vh - 72px);
+	object-fit: contain;
+	border-radius: 12px;
+}
+.attachment-preview[data-starting-style],
+.attachment-preview[data-ending-style],
+.attachment-preview-backdrop[data-starting-style],
+.attachment-preview-backdrop[data-ending-style] {
+	opacity: 0;
+}
+.composer-drop-target {
+	position: absolute;
+	inset: 4px;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	border: 1px dashed var(--primary);
+	border-radius: 18px;
+	background: var(--background);
+	color: var(--foreground);
+	font-size: 13px;
+	pointer-events: none;
+}
+.composer-drop-target svg {
+	width: 18px;
+	height: 18px;
+}
+@keyframes attachment-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.attachment-item {
+		animation: none;
+	}
+	.attachment-preview,
+	.attachment-preview-backdrop {
+		transition: none;
+	}
+}

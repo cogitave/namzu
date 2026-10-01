@@ -1,7 +1,21 @@
-import { type RefObject, useLayoutEffect, useRef } from 'react'
-import type { PermissionView, ProviderView, QueuedMessageView } from '../shared/protocol.js'
+import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import type {
+	AttachmentView,
+	ComposerModelSettings,
+	DesktopSendOptions,
+	PermissionView,
+	ProviderView,
+	QueuedMessageView,
+} from '../shared/protocol.js'
+import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
 import { ComposerControl } from './composer-control.js'
+import {
+	type ComposerPlugin,
+	type ComposerPluginInventory,
+	ComposerPlugins,
+} from './composer-plugins.js'
+import { ComposerSettings } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
 import {
 	ArrowUpIcon,
@@ -11,6 +25,8 @@ import {
 	ListPlusIcon,
 	ListTodoIcon,
 	LoaderCircleIcon,
+	MoreHorizontalIcon,
+	PaperclipIcon,
 	SearchIcon,
 	SquareIcon,
 } from './icons.js'
@@ -46,6 +62,18 @@ export function Composer({
 	empty,
 	permissions,
 	onApproval,
+	attachments,
+	attachmentsBusy,
+	onAttach,
+	onAddFiles,
+	onRemoveAttachment,
+	settings,
+	capabilities,
+	onSettingsChange,
+	plugins,
+	pluginsLoading,
+	onOpenPlugins,
+	onSetPluginEnabled,
 }: {
 	inputRef: RefObject<HTMLTextAreaElement | null>
 	draft: string
@@ -72,7 +100,29 @@ export function Composer({
 	empty: boolean
 	permissions: PermissionView[]
 	onApproval: (permission: PermissionView, approved: boolean) => void
+	attachments: AttachmentView[]
+	attachmentsBusy: boolean
+	onAttach: () => void
+	onAddFiles: (files: File[]) => void
+	onRemoveAttachment: (id: string) => void
+	settings: DesktopSendOptions
+	capabilities: ComposerModelSettings | null
+	onSettingsChange: (settings: DesktopSendOptions) => void
+	plugins?: ComposerPluginInventory
+	pluginsLoading: boolean
+	onOpenPlugins: () => void
+	onSetPluginEnabled: (plugin: ComposerPlugin, enabled: boolean) => Promise<void>
 }) {
+	const [dragging, setDragging] = useState(false)
+	const dragDepth = useRef(0)
+	const importDisabled = sending || attachmentsBusy || editingQueued || !connected
+	const permissionLabel = {
+		prompt: 'Ask first',
+		'accept-edits': 'Allow edits',
+		auto: 'Allow tools',
+		strict: 'Preapproved',
+		plan: 'Plan',
+	}[settings.permissionMode ?? 'prompt']
 	const overlay = useRef<HTMLDivElement>(null)
 	const previous = useRef<{ top: number; empty: boolean } | null>(null)
 	useLayoutEffect(() => {
@@ -167,6 +217,11 @@ export function Composer({
 												<p className="whitespace-pre-wrap wrap-anywhere text-sm text-message-foreground">
 													{item.prompt}
 												</p>
+												{item.attachments && (
+													<div className="mt-2">
+														<AttachmentList attachments={item.attachments} />
+													</div>
+												)}
 												<div className="mt-2 flex items-center justify-end gap-1">
 													<Button
 														variant="ghost-muted"
@@ -197,7 +252,10 @@ export function Composer({
 									)}
 								</PopoverPopup>
 							</Popover>
-							<span className="min-w-0 flex-1 truncate">{queued[0]?.slice(0, 100)}</span>
+							<span className="min-w-0 flex-1 truncate">
+								{queued[0]?.slice(0, 100) ||
+									queuedItems[0]?.attachments?.map((file) => file.name).join(', ')}
+							</span>
 							<Button
 								variant="ghost-muted"
 								size="xs"
@@ -209,7 +267,31 @@ export function Composer({
 							</Button>
 						</div>
 					)}
-					<ComposerSurface.Shell contextStrip>
+					<ComposerSurface.Shell
+						contextStrip
+						onDragEnter={(event) => {
+							if (!event.dataTransfer.types.includes('Files')) return
+							event.preventDefault()
+							dragDepth.current += 1
+							if (!importDisabled) setDragging(true)
+						}}
+						onDragOver={(event) => {
+							if (!event.dataTransfer.types.includes('Files')) return
+							event.preventDefault()
+							event.dataTransfer.dropEffect = importDisabled ? 'none' : 'copy'
+						}}
+						onDragLeave={() => {
+							dragDepth.current = Math.max(0, dragDepth.current - 1)
+							if (!dragDepth.current) setDragging(false)
+						}}
+						onDrop={(event) => {
+							if (!event.dataTransfer.types.includes('Files')) return
+							event.preventDefault()
+							dragDepth.current = 0
+							setDragging(false)
+							if (!importDisabled) onAddFiles(Array.from(event.dataTransfer.files))
+						}}
+					>
 						{permissions[0] && (
 							<ComposerApproval
 								key={permissions[0].id}
@@ -226,6 +308,24 @@ export function Composer({
 									data-approval={permissions.length > 0}
 									className="relative px-3 pb-2 pt-3.5 sm:px-4 sm:pt-4"
 								>
+									{attachments.length > 0 && (
+										<div className="pb-3">
+											<AttachmentList
+												attachments={attachments}
+												disabled={importDisabled}
+												onRemove={onRemoveAttachment}
+											/>
+										</div>
+									)}
+									{attachmentsBusy && (
+										<output className="pb-2 text-xs text-muted-foreground">Adding files…</output>
+									)}
+									{dragging && (
+										<div className="composer-drop-target" aria-hidden="true">
+											<PaperclipIcon />
+											<span>Drop files to attach</span>
+										</div>
+									)}
 									<Textarea
 										unstyled
 										className="composer-input"
@@ -236,6 +336,12 @@ export function Composer({
 										disabled={editingQueued}
 										placeholder="Ask Namzu anything"
 										onChange={(event) => onDraftChange(event.target.value)}
+										onPaste={(event) => {
+											const files = Array.from(event.clipboardData.files)
+											if (files.length === 0) return
+											event.preventDefault()
+											if (!importDisabled) onAddFiles(files)
+										}}
 										onKeyDown={(event) => {
 											if (
 												event.key === 'Enter' &&
@@ -252,17 +358,76 @@ export function Composer({
 									data-chat-composer-footer
 									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4"
 								>
-									<div className="min-w-0 flex-1">
-										<ModelPicker
-											projectId={projectId}
-											sessionId={sessionId}
-											providers={providers}
-											choice={choice}
-											onChange={onChoiceChange}
-											disabled={running || sending || !connected}
-										/>
+									<div className="flex min-w-0 flex-1 items-center gap-1">
+										<div className="min-w-0 max-w-full">
+											<ModelPicker
+												projectId={projectId}
+												sessionId={sessionId}
+												providers={providers}
+												choice={choice}
+												onChange={onChoiceChange}
+												disabled={running || sending || !connected}
+											/>
+										</div>
+										<Popover>
+											<PopoverTrigger
+												render={<ComposerControl size="xs" />}
+												aria-label="Model and tool settings"
+												disabled={sending || !connected}
+											>
+												<MoreHorizontalIcon className="size-4" />
+												{settings.effort && (
+													<span>
+														{settings.effort === 'xhigh'
+															? 'Extra high'
+															: settings.effort[0]?.toUpperCase() + settings.effort.slice(1)}
+													</span>
+												)}
+											</PopoverTrigger>
+											<PopoverPopup
+												side="top"
+												align="start"
+												width="md"
+												aria-label="Model and tool settings"
+											>
+												<h2 className="mb-3 text-sm font-medium">Message settings</h2>
+												<div className="flex flex-wrap items-center gap-2">
+													<ComposerSettings
+														effortLevels={capabilities?.effortLevels}
+														effortDefault={capabilities?.effortDefault}
+														effort={settings.effort}
+														permissionMode={settings.permissionMode ?? 'prompt'}
+														disabled={sending}
+														onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
+														onPermissionModeChange={(permissionMode) =>
+															onSettingsChange({ ...settings, permissionMode })
+														}
+													/>
+												</div>
+												<p className="mt-3 text-xs text-muted-foreground">
+													These choices apply to this message.{' '}
+													{running && 'Running work keeps its current settings.'}
+												</p>
+												{capabilities?.notice && (
+													<p className="mt-2 text-xs text-muted-foreground">
+														{capabilities.notice}
+													</p>
+												)}
+											</PopoverPopup>
+										</Popover>
 									</div>
 									<div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+										<Tooltip>
+											<TooltipTrigger
+												render={<ComposerControl />}
+												aria-label="Attach files"
+												disabled={importDisabled}
+												onClick={onAttach}
+											>
+												<PaperclipIcon className="size-4" />
+											</TooltipTrigger>
+											<TooltipPopup>Attach images or text files</TooltipPopup>
+										</Tooltip>
 										{running && (
 											<Tooltip>
 												<TooltipTrigger
@@ -280,7 +445,7 @@ export function Composer({
 												<TooltipPopup>Stop · Esc</TooltipPopup>
 											</Tooltip>
 										)}
-										{(!running || draft.trim()) && (
+										{(!running || draft.trim() || attachments.length > 0) && (
 											<Tooltip>
 												<TooltipTrigger
 													render={
@@ -291,7 +456,13 @@ export function Composer({
 																sending ? 'Sending' : running ? 'Queue message' : 'Send message'
 															}
 															aria-busy={sending}
-															disabled={!draft.trim() || !choice.provider || sending || !connected}
+															disabled={
+																(!draft.trim() && attachments.length === 0) ||
+																!choice.provider ||
+																sending ||
+																attachmentsBusy ||
+																!connected
+															}
 															onClick={onSend}
 														/>
 													}
@@ -323,38 +494,61 @@ export function Composer({
 								size="xs"
 								onClick={onOpenProject}
 								aria-label="Choose project folder"
-								className="min-w-0 max-w-full"
+								className="min-w-0 shrink flex-1 justify-start overflow-hidden"
 								title={projectPath}
 							>
 								<FolderIcon className="size-3.5" />
 								<span className="truncate">{projectName}</span>
 							</ComposerControl>
-							<span className="ml-auto hidden pe-1 text-xs text-muted-foreground/50 sm:block">
-								{running ? 'Working' : 'Local'}
+							<ComposerControl size="xs" onClick={onAttach} disabled={importDisabled}>
+								<PaperclipIcon className="size-3.5" />
+								<span>Files</span>
+							</ComposerControl>
+							<ComposerPlugins
+								scope={JSON.stringify([projectId, sessionId, choice.provider, choice.model])}
+								view={
+									plugins && {
+										...plugins,
+										canChange: plugins.canChange && !running && permissions.length === 0,
+									}
+								}
+								loading={pluginsLoading}
+								disabled={sending || !connected}
+								onOpen={onOpenPlugins}
+								onSetEnabled={onSetPluginEnabled}
+							/>
+							<span
+								data-composer-permission={settings.permissionMode ?? 'prompt'}
+								className="ml-auto shrink-0 pe-1 text-xs text-muted-foreground/70"
+							>
+								{permissionLabel}
 							</span>
 						</ComposerSurface.ContextStrip>
 					</ComposerSurface.Shell>
-					{empty && draft.length === 0 && providers.available.length > 0 && (
-						<div className="starter-actions" aria-label="Ideas to get started">
-							{[
-								{ label: 'Explore this project', Icon: SearchIcon },
-								{ label: 'Review a change', Icon: FileDiffIcon },
-								{ label: 'Plan a task', Icon: ListTodoIcon },
-							].map(({ label, Icon }) => (
-								<button
-									type="button"
-									key={label}
-									onClick={() => {
-										onDraftChange(`${label}. `)
-										inputRef.current?.focus()
-									}}
-								>
-									<Icon aria-hidden="true" />
-									<span>{label}</span>
-								</button>
-							))}
-						</div>
-					)}
+					{empty &&
+						draft.length === 0 &&
+						attachments.length === 0 &&
+						providers.available.length > 0 && (
+							<div className="starter-actions" aria-label="Ideas to get started">
+								{[
+									{ label: 'Explore this project', Icon: SearchIcon },
+									{ label: 'Review a change', Icon: FileDiffIcon },
+									{ label: 'Plan a task', Icon: ListTodoIcon },
+								].map(({ label, Icon }) => (
+									<button
+										type="button"
+										key={label}
+										onClick={() => {
+											onDraftChange(`${label}. `)
+											inputRef.current?.focus()
+										}}
+									>
+										<Icon aria-hidden="true" />
+										<span>{label}</span>
+									</button>
+								))}
+							</div>
+						)}
 					{!providersLoading && providers.available.length === 0 && (
 						<p className="notice">
 							Connect a provider in the Namzu terminal app, then reconnect this project.

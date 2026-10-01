@@ -49,7 +49,14 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if (event.kind === 'prompt')
 		return {
 			...thread,
-			messages: [...thread.messages, { role: 'user', text: event.prompt }],
+			messages: [
+				...thread.messages,
+				{
+					role: 'user',
+					text: event.prompt,
+					...(event.attachments?.length ? { attachments: event.attachments } : {}),
+				},
+			],
 			timeline: [
 				...thread.timeline,
 				{ kind: 'message', index: thread.messages.length, turn: thread.turn + 1 },

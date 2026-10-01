@@ -2,15 +2,18 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
+	ComposerModelSettings,
 	ConversationView,
 	DesktopEvent,
 	JobView,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { AttachmentList } from './attachment-list.js'
 import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
+import type { ComposerPluginInventory } from './composer-plugins.js'
 import { Composer } from './composer.js'
 import {
 	ArrowUpIcon,
@@ -31,6 +34,8 @@ import { ToolView } from './tool-view.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { TooltipProvider } from './ui/tooltip.js'
+import { useAttachments } from './use-attachments.js'
+import { useDraftSettings } from './use-draft-settings.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import { Wordmark } from './wordmark.js'
 import {
@@ -124,6 +129,8 @@ function App() {
 		})
 	}, [projectId, sessionId])
 	const [threads, setThreads] = useState<Record<string, ThreadState>>({})
+	const threadsRef = useRef(threads)
+	threadsRef.current = threads
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
 	const draftsRef = useRef<Record<string, string>>({})
 	const navigation = useRef(0)
@@ -143,7 +150,13 @@ function App() {
 		selected: null,
 	})
 	const [providerProjectId, setProviderProjectId] = useState('')
-	const [choices, setChoices] = useState<Record<string, { provider: string; model: string }>>({})
+	const [modelSettings, setModelSettings] = useState<{
+		key: string
+		value: ComposerModelSettings
+	} | null>(null)
+	const [pluginStates, setPluginStates] = useState<
+		Record<string, { loading: boolean; value?: ComposerPluginInventory }>
+	>({})
 	const [sideOpen, setSideOpen] = useState(false)
 	const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
 	useEffect(() => {
@@ -272,10 +285,73 @@ function App() {
 		: { available: [], selected: null }
 	const draftOwner = sessionId || `project:${projectId}`
 	const draft = drafts[draftOwner] ?? ''
-	const choice = choices[draftOwner] ?? {
-		provider: activeProviders.selected?.id ?? activeProviders.available[0]?.id ?? '',
-		model: activeProviders.selected?.model ?? '',
+	const attached = useAttachments(draftOwner, Boolean(project), (failure) =>
+		setError(errorText(failure)),
+	)
+	const savedSettings = useDraftSettings(draftOwner, Boolean(project), (failure) =>
+		setError(errorText(failure)),
+	)
+	const settings = savedSettings.value.options ?? { permissionMode: 'prompt' as const }
+	const defaultProvider = activeProviders.selected?.id ?? activeProviders.available[0]?.id ?? ''
+	const choice = savedSettings.value.choice ?? {
+		provider: defaultProvider,
+		model:
+			activeProviders.selected?.model ||
+			activeProviders.available.find((provider) => provider.id === defaultProvider)?.defaultModel ||
+			'',
 	}
+	const modelId =
+		choice.model ||
+		activeProviders.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
+		''
+	const modelSettingsKey = JSON.stringify([projectId, sessionId, choice.provider, modelId])
+	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
+	const pluginsKey = modelSettingsKey
+	const loadPlugins = async () => {
+		const targetProject = projectId
+		const targetSession = sessionId
+		const key = pluginsKey
+		setPluginStates((all) => ({ ...all, [key]: { ...all[key], loading: true } }))
+		try {
+			const value = await api.plugins(targetProject, targetSession || undefined)
+			setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
+		} catch {
+			setPluginStates((all) => ({
+				...all,
+				[key]: {
+					loading: false,
+					value: {
+						plugins: [],
+						live: false,
+						canChange: false,
+						notice: 'Plugins could not be loaded. Close this menu and try again.',
+					},
+				},
+			}))
+		}
+	}
+	useEffect(() => {
+		if (!projectId || !providerReady || !choice.provider || !modelId) return
+		let current = true
+		void api
+			.modelSettings(projectId, choice.provider, modelId, sessionId || undefined)
+			.then((value) => {
+				if (current) setModelSettings({ key: modelSettingsKey, value })
+			})
+			.catch(() => {
+				if (current)
+					setModelSettings({
+						key: modelSettingsKey,
+						value: {
+							notice:
+								'Model settings could not be loaded. Try selecting the model again, or reset your effort choice.',
+						},
+					})
+			})
+		return () => {
+			current = false
+		}
+	}, [projectId, sessionId, providerReady, choice.provider, modelId, modelSettingsKey])
 	const updateProject = useCallback(
 		(item: ProjectView) =>
 			setProjects((items) => [...items.filter((row) => row.id !== item.id), item]),
@@ -319,16 +395,25 @@ function App() {
 				...all,
 				[id]: applyEvent(all[id] ?? emptyThread(), event),
 			}))
+			if (event.kind === 'state' && !event.running)
+				void attached.reload(event.sessionId).catch((failure) => setError(errorText(failure)))
 			if (event.kind === 'prompt')
 				setConversations((all) =>
 					all.map((item) =>
 						item.id === id && item.title === 'New conversation'
-							? { ...item, title: event.prompt.slice(0, 80) }
+							? {
+									...item,
+									title: (
+										event.prompt.trim() ||
+										event.attachments?.map((file) => file.name).join(', ') ||
+										'New conversation'
+									).slice(0, 80),
+								}
 							: item,
 					),
 				)
 		})
-	}, [updateProject])
+	}, [updateProject, attached.reload])
 	useEffect(() => {
 		if (!project || project.status === 'connecting' || !project.trusted) return
 		let current = true
@@ -484,15 +569,9 @@ function App() {
 				draftsRef.current[view.id] = savedDraft
 				setDrafts((all) => ({ ...all, [view.id]: all[view.id] ?? savedDraft }))
 			}
-			if (status.selected)
-				setChoices((all) => ({
-					...all,
-					[view.id]: {
-						provider: status.selected?.id ?? '',
-						model: status.selected?.model ?? '',
-					},
-				}))
 			if (generation !== navigation.current) return
+			setProviders(status)
+			setProviderProjectId(view.projectId)
 			setSessionId(view.id)
 			setProjectId(view.projectId)
 			setSideOpen(false)
@@ -563,10 +642,18 @@ function App() {
 			editingQueue.current.add(target)
 			setQueueEditing((all) => ({ ...all, [target]: true }))
 			try {
+				const items = threadsRef.current[target]?.queuedItems ?? []
+				const item = itemId ? items.find((item) => item.id === itemId) : items.at(-1)
 				const message = await api.takeQueued(target, itemId)
 				if (message !== null) {
 					draftsRef.current[target] = message
 					setDrafts((all) => ({ ...all, [target]: message }))
+					await attached.reload(target)
+					if (item)
+						await savedSettings.save(target, {
+							...savedSettings.get(target),
+							options: { effort: item.effort, permissionMode: item.permissionMode ?? 'prompt' },
+						})
 				}
 			} finally {
 				editingQueue.current.delete(target)
@@ -574,20 +661,25 @@ function App() {
 				if (activeSession.current === target) input.current?.focus()
 			}
 		},
-		[sessionId],
+		[sessionId, attached.reload, savedSettings.get, savedSettings.save],
 	)
 	const send = async () => {
 		if (
-			!draft.trim() ||
+			(!draft.trim() && attached.get(draftOwner).length === 0) ||
 			!project?.trusted ||
 			project.status !== 'ready' ||
 			!choice.provider ||
 			!providerReady ||
-			sendingRef.current.has(draftOwner)
+			savedSettings.loading ||
+			sendingRef.current.has(draftOwner) ||
+			attached.isBusy(draftOwner)
 		)
 			return
 		const owner = draftOwner
 		const prompt = draft
+		const attachmentIds = attached.get(owner).map((file) => file.id)
+		const options = { ...settings, attachmentIds }
+		const originalSettings = savedSettings.get(owner)
 		const route = { ...choice }
 		const generation = navigation.current
 		let target = sessionId
@@ -605,7 +697,7 @@ function App() {
 					generation === navigation.current ? (draftsRef.current[owner] ?? prompt) : prompt
 				draftsRef.current[target] = latest
 				setDrafts((all) => ({ ...all, [target]: latest }))
-				setChoices((all) => ({ ...all, [target]: route }))
+				const promotedSettings = savedSettings.save(target, { choice: route, options: settings })
 				sendingRef.current.add(target)
 				setSending((all) => ({ ...all, [target]: true }))
 				const draftWrites: Promise<void>[] = []
@@ -619,9 +711,18 @@ function App() {
 				// Admit both saves before yielding to newer typing in the promoted editor.
 				draftWrites.push(api.saveDraft(target, latest))
 				await Promise.all(draftWrites)
+				await attached.promote(owner, target)
+				await promotedSettings
+				if (savedSettings.get(owner) === originalSettings) await savedSettings.save(owner, {})
 			}
+			// Preserve the actual route even when it came from a provider default.
+			await savedSettings.save(target, { choice: route, options: settings })
 			if (!thread.running) await api.selectProvider(target, route.provider, route.model)
-			await api.send(target, prompt)
+			await api.send(target, prompt, options)
+			attached.consume(target, attachmentIds)
+			// A fast failure may settle before this admission reply arrives. Read main's
+			// draft after consumption as well as on settlement, so retry files stay visible.
+			void attached.reload(target).catch((failure) => setError(errorText(failure)))
 			if (draftsRef.current[target] === prompt) {
 				draftsRef.current[target] = ''
 				setDrafts((all) => ({ ...all, [target]: '' }))
@@ -895,6 +996,11 @@ function App() {
 											data-timeline-turn={entry.turn}
 										>
 											<MessageContent text={message.text} markdown={message.role === 'assistant'} />
+											{message.attachments && (
+												<div className="mt-2">
+													<AttachmentList attachments={message.attachments} />
+												</div>
+											)}
 										</Message>
 									) : null
 								})}
@@ -950,10 +1056,42 @@ function App() {
 							draft={draft}
 							onDraftChange={(value) => changeDraft(draftOwner, value)}
 							providers={activeProviders}
-							connected={project.status === 'ready' && providerReady}
+							connected={
+								project.status === 'ready' &&
+								providerReady &&
+								project.trusted &&
+								!savedSettings.loading
+							}
 							providersLoading={!providerReady}
 							choice={choice}
-							onChoiceChange={(value) => setChoices((all) => ({ ...all, [draftOwner]: value }))}
+							onChoiceChange={(value) => {
+								void act(() =>
+									savedSettings.save(draftOwner, {
+										choice: value,
+										options: { ...settings, effort: undefined },
+									}),
+								)
+							}}
+							attachments={attached.files}
+							attachmentsBusy={attached.busy}
+							onAttach={() => void act(attached.pick)}
+							onAddFiles={(files) => void act(() => attached.add(files))}
+							onRemoveAttachment={(id) => void act(() => attached.remove(id))}
+							settings={settings}
+							capabilities={capabilities}
+							onSettingsChange={(value) =>
+								void act(() => savedSettings.save(draftOwner, { choice, options: value }))
+							}
+							plugins={pluginStates[pluginsKey]?.value}
+							pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
+							onOpenPlugins={() => void loadPlugins()}
+							onSetPluginEnabled={async (plugin, enabled) => {
+								if (!sessionId)
+									throw new Error('Send a message before changing conversation plugins.')
+								const key = pluginsKey
+								const value = await api.setPluginEnabled(sessionId, plugin.name, enabled)
+								setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
+							}}
 							running={thread.running}
 							sending={sending[draftOwner] ?? false}
 							queued={thread.queued}

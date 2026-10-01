@@ -46,7 +46,8 @@ creation action, rather than duplicating it across icon groups.
 The dark icon rail has a slightly deeper surface than the conversation sidebar.
 The selected destination uses a filled icon and a neutral rounded background.
 Hover, press and selection transitions are brief and respect reduced motion.
-Navigation, composer and result controls share one icon family. Known provider
+Navigation uses rounded stock outline icons and filled selected variants;
+composer and result controls use licensed SVG assets. Known provider
 routes show their service glyphs; other remote or local routes use cloud or
 server symbols with the actual provider label.
 Home opens the selected project’s blank composer, and the sidebar control or
@@ -128,6 +129,12 @@ The menu has a provider column and selectable model rows with their catalogue
 labels. Quick search searches model IDs, labels and provider names across the
 configured providers; `/` opens search while the menu has focus. Arrow keys move
 through the model choices, and Escape dismisses the menu and restores focus.
+Typing in Quick search keeps the search field focused. Arrow Down/Up enters the
+first/last matching row; Enter chooses a result and closes the menu. Clicking or
+pressing Space on a row also closes it and restores focus to the model control.
+Catalogue errors use a readable message and a provider-specific Retry action;
+they do not expose raw driver diagnostics or imply that the catalogue is empty.
+Fallback notices also remain visible in global search.
 The provider tab browses its models without changing the current choice. Use a
 model ID remains available for custom endpoints and models absent from a list.
 Opening or searching the catalogue does not submit a model prompt or create a
@@ -140,6 +147,49 @@ Choices last for this connection and survive window reload, rather than editing
 global CLI preferences. Existing fallback and delegation preferences remain in
 force. Reload also restores live messages, pending reviews and queued prompts
 from the main process; it does not restart the running turn.
+
+The adjacent settings menu offers reasoning effort only when the selected model
+has known supported choices. The menu uses the existing provider capability
+resolution, including configured fallbacks; unavailable settings are reported.
+An old explicit choice can be reset to the provider default. Changing the model
+clears its previous explicit effort rather than silently remapping it.
+Tool permissions use the actual runtime modes: Ask first (`prompt`), Allow edits
+(`accept-edits`), Allow tools (`auto`), Preapproved only (`strict`) and Plan
+(`plan`). Allow tools remains subject to configured deny rules; Plan refuses
+changes. Settings are captured with each submitted or queued message and do not
+change the turn already running.
+
+The lower strip exposes Files and Plugins. Files and the paperclip open the
+native chooser. Drop files into the editor or paste an image to add their actual
+bytes. Supported native inputs are PNG, JPEG, GIF, WebP and strict UTF-8 text.
+PDF and other binary files are currently refused in the desktop preview. Image
+thumbnails open a full preview; each file has a removal action. A file-only
+message can be sent. Each draft/message accepts up to eight files and 3 MiB in
+total, with text limited to 128 KiB per file and 256 KiB combined. The main process
+retains at most 24 MiB of attachment data across active messages, queues and
+drafts. Native paths stay in main; file names, safe previews and bounded metadata
+are the renderer's view.
+
+Files belong to their captured project or conversation. Changing folders during
+a chooser cannot redirect its result. The first Send moves its draft files and
+choices into the created conversation, including a failed route-selection retry.
+Window reload restores the unsent text, files, model and settings while main
+lives. A queued message keeps its original bytes and settings; Edit restores
+them, and Remove releases its files. Cancellation or a provider error returns
+active files to the draft for retry. Images reach the actual user-message path;
+text files become labelled authored prompt content. The app checks the CLI's
+attachment/options capabilities before consuming a draft, and refuses unsupported
+explicit requests instead of silently losing their content.
+The CLI also refuses new image/document inputs when the selected live provider
+explicitly declares that it cannot receive them. Files remain available for
+retry with a suitable model. An unknown declaration is not presented as proof
+of model support.
+
+Plugins shows installed manifests before the first turn without importing plugin
+modules or creating a runtime. After a conversation starts, it displays actual
+loaded states. Enable/Disable operates only on an idle conversation without
+pending reviews or running background jobs. Choices survive that conversation's
+model changes and remain session-local; they do not update startup configuration.
 
 Tools stream their registry-owned presentations. Allow once or decline the exact
 pending batch in the attached composer approval strip. A compact summary and
@@ -204,6 +254,9 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
 | `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 rows; default and current choices remain labelled |
 | `namzu/providers/select` | `sessionId`, `provider`, optional `model` | acknowledges a session-local choice; active work blocks changes |
+| `namzu/providers/settings` | `provider`, `model`, optional `sessionId` | exact supported effort choices/default or a safe notice, without creating a session |
+| `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
+| `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
@@ -217,6 +270,7 @@ content policy. Model and tool text is rendered as text, never executable HTML.
 ## Current scope
 
 The first slice covers local projects, conversation history, formatted replies,
-tool review, reasoning, message queues and background shells. Attachments,
-embedded browsing, terminal emulation, remote hosts, native release packaging and auto-update are not offered in this preview. Source comparisons
+tool review, model settings, attachments, plugin inventory, message queues and
+background shells. Embedded browsing, terminal emulation, remote hosts, native
+release packaging and auto-update are not offered in this preview. Source comparisons
 and validation receipts are in `research/runtime-desktop-20260930/`.

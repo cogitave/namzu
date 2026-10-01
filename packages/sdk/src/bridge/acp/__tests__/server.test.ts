@@ -64,6 +64,8 @@ function build(
 	over: {
 		gateway?: Partial<AcpAgentGateway>
 		commands?: HostCommandRegistry
+		supportsPromptAttachments?: boolean
+		supportsPromptOptions?: boolean
 	} = {},
 ) {
 	const wire = pair()
@@ -71,6 +73,8 @@ function build(
 		prompt: over.gateway?.prompt ?? (async () => ({ stopReason: 'end_turn' })),
 	}
 	const server = new ACPServer({
+		supportsPromptAttachments: over.supportsPromptAttachments,
+		supportsPromptOptions: over.supportsPromptOptions,
 		transport: wire.transport,
 		gateway,
 		commands: over.commands ?? new HostCommandRegistry(),
@@ -1241,5 +1245,197 @@ describe('one active turn per session, and sessions the store does not have', ()
 		})
 		await settle()
 		expect(wire.sent.find((m) => m.id === 3)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+	})
+})
+
+describe('inline prompt attachment admission', () => {
+	it('advertises host support and carries the exact inline bytes to the gateway', async () => {
+		let received: Parameters<AcpAgentGateway['prompt']>[0] | undefined
+		const fixture = build({
+			supportsPromptAttachments: true,
+			gateway: {
+				prompt: async (request) => {
+					received = request
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const attachment = {
+			type: 'image' as const,
+			data: Buffer.from('owned image bytes').toString('base64'),
+			mediaType: 'image/png',
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: {
+				sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+				prompt: 'Look at this',
+				attachments: [attachment],
+			},
+		})
+		await settle()
+		expect(fixture.sent.find((frame) => frame.id === 1)?.result).toMatchObject({
+			promptAttachments: true,
+		})
+		expect(received?.attachments).toEqual([attachment])
+		expect(received?.prompt).toBe('Look at this')
+		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({ stopReason: 'end_turn' })
+		await fixture.server.stop()
+	})
+	it('refuses unsupported delivery and opaque store references before running a gateway', async () => {
+		let calls = 0
+		for (const supports of [false, true]) {
+			const fixture = build({
+				supportsPromptAttachments: supports,
+				gateway: {
+					prompt: async () => {
+						calls += 1
+						return { stopReason: 'end_turn' }
+					},
+				},
+			})
+			await handshake(fixture)
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'session/prompt',
+				params: {
+					sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+					prompt: 'Image',
+					attachments: supports
+						? [{ type: 'stored', ref: '/foreign/store', mediaType: 'image/png', kind: 'image' }]
+						: [{ data: 'eA==', mediaType: 'image/png' }],
+				},
+			})
+			await settle()
+			expect(fixture.sent.find((frame) => frame.id === 3)?.error?.code).toBe(
+				supports ? ACP_ERROR_CODES.INVALID_PARAMS : ACP_ERROR_CODES.INVALID_REQUEST,
+			)
+			await fixture.server.stop()
+		}
+		expect(calls).toBe(0)
+	})
+	it('refuses malformed base64 and aggregate payload overflow without consuming the session turn', async () => {
+		let calls = 0
+		const fixture = build({
+			supportsPromptAttachments: true,
+			gateway: {
+				prompt: async () => {
+					calls += 1
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		for (const [id, attachments] of [
+			[3, [{ data: 'not-base64', mediaType: 'image/png' }]],
+			[
+				4,
+				Array.from({ length: 2 }, () => ({
+					data: Buffer.alloc(2 * 1024 * 1024).toString('base64'),
+					mediaType: 'image/png',
+				})),
+			],
+		] as const) {
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'Image', attachments },
+			})
+			await settle()
+			expect(fixture.sent.find((frame) => frame.id === id)?.error?.code).toBe(
+				ACP_ERROR_CODES.INVALID_PARAMS,
+			)
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 5,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'Plain follow-up' },
+		})
+		await settle()
+		expect(calls).toBe(1)
+		await fixture.server.stop()
+	})
+})
+
+describe('per-message prompt settings', () => {
+	it('advertises opt-in support and forwards the exact settings for the turn', async () => {
+		let received: Parameters<AcpAgentGateway['prompt']>[0] | undefined
+		const fixture = build({
+			supportsPromptOptions: true,
+			gateway: {
+				prompt: async (request) => {
+					received = request
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: {
+				sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+				prompt: 'Review this',
+				options: { effort: 'high', permissionMode: 'strict' },
+			},
+		})
+		await settle()
+		expect(fixture.sent.find((frame) => frame.id === 1)?.result).toMatchObject({
+			promptOptions: true,
+		})
+		expect(received?.options).toEqual({ effort: 'high', permissionMode: 'strict' })
+		await fixture.server.stop()
+	})
+	it('rejects invalid or unsupported settings before the gateway and leaves the session usable', async () => {
+		let calls = 0
+		for (const supports of [false, true]) {
+			const fixture = build({
+				supportsPromptOptions: supports,
+				gateway: {
+					prompt: async () => {
+						calls += 1
+						return { stopReason: 'end_turn' }
+					},
+				},
+			})
+			await handshake(fixture)
+			for (const [index, options] of [
+				{ effort: 'unknown' },
+				{ permissionMode: 'skip' },
+				{ effort: 'high', credential: 'synthetic' },
+				{ effort: ['high'] },
+			].entries()) {
+				fixture.deliver({
+					jsonrpc: '2.0',
+					id: 3 + index,
+					method: 'session/prompt',
+					params: {
+						sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+						prompt: 'Invalid',
+						options,
+					},
+				})
+				await settle()
+				expect(fixture.sent.find((frame) => frame.id === 3 + index)?.error?.code).toBe(
+					supports ? ACP_ERROR_CODES.INVALID_PARAMS : ACP_ERROR_CODES.INVALID_REQUEST,
+				)
+			}
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 7,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'Plain follow-up' },
+			})
+			await settle()
+			await fixture.server.stop()
+		}
+		expect(calls).toBe(2)
 	})
 })
