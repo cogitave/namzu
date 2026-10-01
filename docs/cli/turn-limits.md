@@ -50,6 +50,11 @@ turn's ledger. `limits.waitForProviderMs` remains a headless wait policy.
 Omitting the three limits or setting them to `0` leaves those guards unlimited.
 An explicit positive value in the effective config still takes precedence.
 
+[Scheduled agent runs](scheduled-tasks.md#creating-a-job) also default to unlimited
+tokens and accept `--token-budget 0`. They retain their separate iteration and
+timeout defaults. Previously saved jobs keep their confirmed token limits until
+an operator confirms an edit.
+
 Interactive and headless sessions use the same token-budget default. Built-in
 children inherit explicitly configured iteration and time limits, including `0`;
 without those settings their turn guards are unlimited. Their tokens

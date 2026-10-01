@@ -80,6 +80,11 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 			? [`Results  Source conversation ${preview.delivery.sessionId}`]
 			: []),
 		`Run     ${kind}${script ? ` (${preview.script?.shell ?? 'shell'} on this machine)` : ` (${preview.model ?? 'model'})`}`,
+		...(preview.runKind === 'script'
+			? []
+			: [
+					`Tokens  ${preview.budget.tokenBudget === 0 ? 'No token limit per run' : `Up to ${preview.budget.tokenBudget.toLocaleString('en-US')} per run`}`,
+				]),
 		...(preview.script?.report === 'json-v1'
 			? ['Script report  JSON v1: quiet/changed; optional scheduler state.']
 			: []),

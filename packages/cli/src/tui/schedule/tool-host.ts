@@ -384,10 +384,10 @@ export function chosenByTheModel(
 	const iterations = limits.maxIterations || DEFAULT_MAX_ITERATIONS
 	if (draft.budget?.maxIterations !== undefined && draft.budget.maxIterations !== iterations)
 		out.push(`${draft.budget.maxIterations} iterations per run (the default is ${iterations})`)
-	const tokens = limits.tokenBudget || DEFAULT_TOKEN_BUDGET
+	const tokens = limits.tokenBudget ?? DEFAULT_TOKEN_BUDGET
 	if (draft.budget?.tokenBudget !== undefined && draft.budget.tokenBudget !== tokens)
 		out.push(
-			`${draft.budget.tokenBudget.toLocaleString('en-US')} tokens per run (the default is ${tokens.toLocaleString('en-US')})`,
+			`${draft.budget.tokenBudget === 0 ? 'no token limit per run' : `${draft.budget.tokenBudget.toLocaleString('en-US')} tokens per run`} (the default is ${tokens === 0 ? 'no token limit' : tokens.toLocaleString('en-US')})`,
 		)
 	const timeout = limits.timeoutMs || DEFAULT_TIMEOUT_MS
 	if (draft.budget?.timeoutMs !== undefined && draft.budget.timeoutMs !== timeout)
@@ -497,7 +497,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 							timeoutMs: job.budget.timeoutMs,
 						},
 			notifyOnFinish: job.notify.finished,
-			...(job.runKind === 'script' || job.schedule.kind === 'at'
+			...(job.runKind === 'script' || job.schedule.kind === 'at' || job.budget.tokenBudget === 0
 				? {}
 				: { dailyTokenCeiling: perDay * job.budget.tokenBudget }),
 			...(job.runKind === 'script' || !job.model

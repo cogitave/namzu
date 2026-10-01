@@ -91,6 +91,17 @@ const agent = (detected = [DEEPSEEK]) => ({
 
 const HANDOFF_REASON = 'Sign in to example.test in the browser, then continue.'
 
+/** Provider-reported usage drives the real ledger without large fixture text. */
+async function measuredCompletion(response: Response, tokens: number): Promise<Response> {
+	const text = (await response.text()).replace(
+		/"usage":\{[^}]*\}/,
+		JSON.stringify({
+			usage: { prompt_tokens: 12, completion_tokens: tokens - 12, total_tokens: tokens },
+		}).slice(1, -1),
+	)
+	return new Response(text, { status: response.status, headers: response.headers })
+}
+
 /** The real session, with one tool that asks for a person. */
 const agentWithHandoffTool = () => ({
 	...agent(),
@@ -159,6 +170,44 @@ describe('a scheduled run', () => {
 		expect(result?.sessionId).toBeTruthy()
 		expect(result?.projectSlug).toBeTruthy()
 		expect(result?.credentialSource).toContain('DEEPSEEK_API_KEY')
+	})
+
+	it('an unlimited run still writes its result after usage exceeds the former token default', async () => {
+		const marker = join(sb.project, 'result.txt')
+		const job = confirmedJob(sb, {
+			budget: { tokenBudget: 0 },
+			permissions: { preset: 'edit-in-folder' },
+		})
+		responses.push(() =>
+			measuredCompletion(
+				completion({ name: 'write', input: { path: marker, content: 'result produced' } }),
+				600_000,
+			),
+		)
+		const { code, result } = await fire(job)
+		expect(code).toBe(0)
+		expect(result?.status).toBe('completed')
+		expect(result?.usage?.totalTokens).toBeGreaterThan(500_000)
+		expect(readFileSync(marker, 'utf8')).toBe('result produced')
+	})
+
+	it('keeps an explicitly opted-in finite token allowance enforceable', async () => {
+		const marker = join(sb.project, 'current-step.txt')
+		const job = confirmedJob(sb, {
+			budget: { tokenBudget: 100_000 },
+			permissions: { preset: 'edit-in-folder' },
+		})
+		responses.push(() =>
+			measuredCompletion(
+				completion({ name: 'write', input: { path: marker, content: 'current step' } }),
+				600_000,
+			),
+		)
+		const { code, result } = await fire(job)
+		expect(code).toBe(1)
+		expect(result?.status).toBe('failed')
+		expect(result?.reason).toContain('token_budget')
+		expect(result?.usage?.totalTokens).toBeGreaterThan(100_000)
 	})
 
 	it('holds a call its rules ask about, and never runs it', async () => {

@@ -109,6 +109,46 @@ describe('jobs', () => {
 		expect(readJob(sb.paths, job.id)?.runKind).toBeUndefined()
 	})
 
+	it('persists an unlimited token budget as zero and keeps its confirmation valid', () => {
+		const job = confirmedJob(sb, { budget: { tokenBudget: 0 } })
+		const saved = readJob(sb.paths, job.id)
+		expect(saved?.budget.tokenBudget).toBe(0)
+		expect(saved?.v).toBe(1)
+		expect(confirmationHolds(saved as never)).toBe(true)
+		expect(JSON.parse(readFileSync(sb.paths.job(job.id), 'utf8')).budget.tokenBudget).toBe(0)
+		expect(findJob(sb.paths, job.name).budget.tokenBudget).toBe(0)
+	})
+
+	it('keeps existing finite token budgets when reading or editing another field', () => {
+		const job = confirmedJob(sb, { budget: { tokenBudget: 75_000 } })
+		expect(readJob(sb.paths, job.id)?.budget.tokenBudget).toBe(75_000)
+		expect(confirmationHolds(readJob(sb.paths, job.id) as never)).toBe(true)
+		updateJob(sb.paths, job.id, job.revision, (current) => ({ ...current, name: 'renamed' }))
+		const edited = readJob(sb.paths, job.id)
+		expect(edited?.budget.tokenBudget).toBe(75_000)
+		expect(confirmationHolds(edited as never)).toBe(true)
+	})
+
+	it('requires fresh confirmation when a stored budget changes between finite and unlimited', () => {
+		const job = confirmedJob(sb, { budget: { tokenBudget: 75_000 } })
+		const unlimited = updateJob(sb.paths, job.id, job.revision, (current) => ({
+			...current,
+			budget: { ...current.budget, tokenBudget: 0 },
+		}))
+		expect(readJob(sb.paths, job.id)?.budget.tokenBudget).toBe(0)
+		expect(confirmationHolds(unlimited)).toBe(false)
+		const confirmed = updateJob(sb.paths, job.id, unlimited.revision, (current) =>
+			confirmJob(current, 'cli-tty', new Date()),
+		)
+		expect(confirmationHolds(confirmed)).toBe(true)
+		const finite = updateJob(sb.paths, job.id, confirmed.revision, (current) => ({
+			...current,
+			budget: { ...current.budget, tokenBudget: 25_000 },
+		}))
+		expect(readJob(sb.paths, job.id)?.budget.tokenBudget).toBe(25_000)
+		expect(confirmationHolds(finite)).toBe(false)
+	})
+
 	// A UX review found `createJob`'s uniqueness check and `findJob` both
 	// worked only from `listJobs`'s successfully PARSED jobs, so a job file
 	// `readVersioned` could not fully parse (written by a newer namzu, or
@@ -258,10 +298,13 @@ describe('the project digest', () => {
 })
 
 describe('building a job', () => {
-	const build = (over: Parameters<typeof jobRequest>[1] = {}) =>
+	const build = (
+		over: Parameters<typeof jobRequest>[1] = {},
+		config: Parameters<typeof buildJob>[1]['config'] = {},
+	) =>
 		buildJob(jobRequest(sb, over), {
 			paths: sb.paths,
-			config: {},
+			config,
 			now: new Date(),
 			osHome: sb.osHome,
 		})
@@ -293,12 +336,33 @@ describe('building a job', () => {
 		).toBe('sandbox')
 	})
 
-	it('always has a token budget and a wall clock above zero', () => {
+	it('has no token ceiling by default and keeps a positive wall clock', () => {
 		const job = build()
-		expect(job.budget.tokenBudget).toBe(500_000)
+		expect(job.budget.tokenBudget).toBe(0)
 		expect(job.budget.timeoutMs).toBe(1_800_000)
-		expect(() => build({ budget: { tokenBudget: 0 } })).toThrow(JobRequestError)
+		expect(build({ budget: { tokenBudget: 0 } }).budget.tokenBudget).toBe(0)
+		expect(() => build({ budget: { timeoutMs: 0 } })).toThrow(JobRequestError)
 	})
+
+	it('inherits explicitly configured finite budgets while respecting request overrides', () => {
+		const config = { limits: { tokenBudget: 75_000 } }
+		expect(build({}, config).budget.tokenBudget).toBe(75_000)
+		expect(build({ budget: { tokenBudget: 25_000 } }, config).budget.tokenBudget).toBe(25_000)
+		expect(build({ budget: { tokenBudget: 0 } }, config).budget.tokenBudget).toBe(0)
+		expect(build({}, { limits: { tokenBudget: 0 } }).budget.tokenBudget).toBe(0)
+		expect(build({ budget: { tokenBudget: 25_000 } }).budget.tokenBudget).toBe(25_000)
+		expect(build({ budget: { tokenBudget: Number.MAX_SAFE_INTEGER } }).budget.tokenBudget).toBe(
+			Number.MAX_SAFE_INTEGER,
+		)
+	})
+
+	it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+		'refuses invalid request and configured token budgets (%s)',
+		(value) => {
+			expect(() => build({ budget: { tokenBudget: value } })).toThrow(/token budget/)
+			expect(() => build({}, { limits: { tokenBudget: value } })).toThrow(/token budget/)
+		},
+	)
 
 	it('is inert until confirmed on a terminal or in the TUI', () => {
 		const built = build()

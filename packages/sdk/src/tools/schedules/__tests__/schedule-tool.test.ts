@@ -97,6 +97,31 @@ describe('schedule tool', () => {
 		expect(confirms[0]?.proposedBy).toBe('model')
 	})
 
+	it.each([0, 125_000])(
+		'accepts and forwards an agent token budget of %s unchanged',
+		async (tokenBudget) => {
+			const { host } = fakeHost('create')
+			const t = tool(host)
+			const input = t.inputSchema.parse({ ...createInput, budget: { tokenBudget } })
+			expect((await t.execute(input, context)).success).toBe(true)
+			expect(host.preview).toHaveBeenCalledWith(
+				expect.objectContaining({ budget: { tokenBudget } }),
+			)
+		},
+	)
+
+	it.each([-1, 0.5, Number.POSITIVE_INFINITY])(
+		'refuses an invalid token budget of %s in the tool schema',
+		(tokenBudget) => {
+			expect(
+				tool(fakeHost('create').host).inputSchema.safeParse({
+					...createInput,
+					budget: { tokenBudget },
+				}).success,
+			).toBe(false)
+		},
+	)
+
 	it('forwards an explicit completed-run notice preference without changing the default', async () => {
 		const { host } = fakeHost('create')
 		await tool(host).execute(createInput, context)
@@ -277,6 +302,18 @@ describe('schedule tool', () => {
 			expect(result.success).toBe(true)
 			expect(host.previewUpdate).toHaveBeenCalledWith('nightly', { notifyOnFinish: false })
 			expect(host.confirmUpdate).toHaveBeenCalledOnce()
+		})
+
+		it('forwards an explicit unlimited token budget when updating an agent', async () => {
+			const host = updatingHost(true)
+			const t = tool(host)
+			const input = t.inputSchema.parse({
+				action: 'update',
+				job: 'nightly',
+				budget: { tokenBudget: 0 },
+			})
+			expect((await t.execute(input, context)).success).toBe(true)
+			expect(host.previewUpdate).toHaveBeenCalledWith('nightly', { budget: { tokenBudget: 0 } })
 		})
 
 		it.each([
@@ -473,16 +510,16 @@ describe('schedule tool: kind and script', () => {
 		expect(result.output).toContain('It creates no session.')
 	})
 
-	it('refuses an agent budget on a pure script before asking the host', async () => {
-		const { host } = fakeHost('create')
-		const result = await tool(host).execute(
-			{ ...scriptInput, budget: { tokenBudget: 42 } },
-			context,
-		)
-		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/pure script job has no agent budget/)
-		expect(host.preview).not.toHaveBeenCalled()
-	})
+	it.each([0, 42])(
+		'refuses an agent budget of %s on a pure script before asking the host',
+		async (tokenBudget) => {
+			const { host } = fakeHost('create')
+			const result = await tool(host).execute({ ...scriptInput, budget: { tokenBudget } }, context)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/pure script job has no agent budget/)
+			expect(host.preview).not.toHaveBeenCalled()
+		},
+	)
 
 	it('refuses a prompt or browser grant on a pure script', async () => {
 		const { host } = fakeHost('create')
@@ -1019,6 +1056,10 @@ describe('schedule tool: budget words', () => {
 			(budget.unwrap().shape as unknown as { tokenBudget: { description?: string } }).tokenBudget
 				.description,
 		).toContain('Every model call resends the whole prompt')
+		expect(
+			(budget.unwrap().shape as unknown as { tokenBudget: { description?: string } }).tokenBudget
+				.description,
+		).toContain('0 means no token limit')
 	})
 })
 

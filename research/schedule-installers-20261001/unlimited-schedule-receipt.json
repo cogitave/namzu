@@ -1,0 +1,424 @@
+{
+  "implementation": "Locally built worktree CLI after unlimited-token change; not an npm release",
+  "recordedAt": "2026-10-01T20:17:15.772Z",
+  "provider": "zen",
+  "model": "space-bunny-free",
+  "isolation": "Private test home/project; public free-provider credential; no scheduler service installed",
+  "job": {
+    "id": "01a0f904-5a3a-71aa-b5e6-488ee287feb6",
+    "revision": 6,
+    "budget": {
+      "maxIterations": 50,
+      "tokenBudget": 0,
+      "timeoutMs": 1800000,
+      "waitForProviderMs": 600000
+    },
+    "state": "paused"
+  },
+  "schedule": {
+    "kind": "cron",
+    "expr": "0 10 * * *",
+    "tz": "Europe/Istanbul"
+  },
+  "run": {
+    "id": "01a0f916-9270-72a7-b9a7-3a7dee3bbe7f",
+    "sessionId": "01a0f916-936c-7325-b41b-94f6aeb7d0ba",
+    "status": "completed",
+    "summary": "Rapor tamamlandı ve dosya doğrulandı: `ai-haberler/gunluk.html` (641 satır, `</html>` ile kapanıyor).",
+    "usage": {
+      "totalTokens": 1438001,
+      "costUsd": 0
+    }
+  },
+  "firstToolRoster": [
+    "edit",
+    "glob",
+    "grep",
+    "read",
+    "write",
+    "search_memory",
+    "read_memory",
+    "web_search",
+    "search_conversation",
+    "read_conversation",
+    "skill",
+    "task_create",
+    "task_update",
+    "task_list"
+  ],
+  "toolCalls": {
+    "web_search": {
+      "completed": 15,
+      "errors": 0
+    },
+    "write": {
+      "completed": 1,
+      "errors": 0
+    },
+    "edit": {
+      "completed": 7,
+      "errors": 1
+    },
+    "read": {
+      "completed": 2,
+      "errors": 0
+    }
+  },
+  "iterations": 16,
+  "usageSnapshots": [
+    {
+      "usage": {
+        "promptTokens": 9870,
+        "completionTokens": 331,
+        "totalTokens": 10201,
+        "cachedTokens": 128,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 126
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 10201,
+        "treeTokens": 10201,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 44276,
+        "completionTokens": 1882,
+        "totalTokens": 46158,
+        "cachedTokens": 256,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 1467
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 46158,
+        "treeTokens": 46158,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 107200,
+        "completionTokens": 3729,
+        "totalTokens": 110929,
+        "cachedTokens": 31872,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 3105
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 110929,
+        "treeTokens": 110929,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 185577,
+        "completionTokens": 10200,
+        "totalTokens": 195777,
+        "cachedTokens": 91904,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 5980
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 195777,
+        "treeTokens": 195777,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 267757,
+        "completionTokens": 13298,
+        "totalTokens": 281055,
+        "cachedTokens": 167424,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 8929
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 281055,
+        "treeTokens": 281055,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 357953,
+        "completionTokens": 17295,
+        "totalTokens": 375248,
+        "cachedTokens": 246656,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 12857
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 375248,
+        "treeTokens": 375248,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 452871,
+        "completionTokens": 20998,
+        "totalTokens": 473869,
+        "cachedTokens": 333824,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 16427
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 473869,
+        "treeTokens": 473869,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 547819,
+        "completionTokens": 26271,
+        "totalTokens": 574090,
+        "cachedTokens": 425728,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 18234
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 574090,
+        "treeTokens": 574090,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 646306,
+        "completionTokens": 32911,
+        "totalTokens": 679217,
+        "cachedTokens": 517888,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 21817
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 679217,
+        "treeTokens": 679217,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 747903,
+        "completionTokens": 34887,
+        "totalTokens": 782790,
+        "cachedTokens": 613504,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 22093
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 782790,
+        "treeTokens": 782790,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 851278,
+        "completionTokens": 38142,
+        "totalTokens": 889420,
+        "cachedTokens": 712192,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 23735
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 889420,
+        "treeTokens": 889420,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 956343,
+        "completionTokens": 39777,
+        "totalTokens": 996120,
+        "cachedTokens": 812672,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 25012
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 996120,
+        "treeTokens": 996120,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 1061841,
+        "completionTokens": 45298,
+        "totalTokens": 1107139,
+        "cachedTokens": 914816,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 27418
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 1107139,
+        "treeTokens": 1107139,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 1170570,
+        "completionTokens": 45618,
+        "totalTokens": 1216188,
+        "cachedTokens": 1017344,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 27664
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 1216188,
+        "treeTokens": 1216188,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 1280313,
+        "completionTokens": 45884,
+        "totalTokens": 1326197,
+        "cachedTokens": 1123072,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 27887
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 1326197,
+        "treeTokens": 1326197,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "usage": {
+        "promptTokens": 1391000,
+        "completionTokens": 47001,
+        "totalTokens": 1438001,
+        "cachedTokens": 1229824,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 28100
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 1438001,
+        "treeTokens": 1438001,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    }
+  ],
+  "terminalStopReason": "end_turn",
+  "exceededFormerTokenDefault": true,
+  "allReportedTokenLimitsUnlimited": true,
+  "output": {
+    "path": "ai-haberler/gunluk.html",
+    "bytes": 37117,
+    "sha256": "c805755773ebf187f386ced35685e0c7739df524b326569a61ee8ce998b1f5c2"
+  },
+  "cleanup": {
+    "activeRun": null,
+    "serviceInstalled": false,
+    "daemonEndpointPresent": false
+  },
+  "caveats": [
+    "Output is a local HTML file, not an integrated artifact page.",
+    "Iteration and time limits are normal scheduler defaults, not token ceilings.",
+    "Completion status and file existence do not establish news accuracy or future unattended execution."
+  ]
+}

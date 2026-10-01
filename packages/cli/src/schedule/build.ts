@@ -10,7 +10,7 @@
  *   which only the CLI flag sets (the tool can never);
  * - the folder is canonicalised and may not be `/`, the home directory, or
  *   anything containing or inside `NAMZU_HOME`;
- * - the token budget and the wall clock are always above zero;
+ * - the token budget is nonnegative (zero is unlimited), and the wall clock is above zero;
  * - the schedule parses in the job's zone and fires at least once.
  *
  * A built job is inert (`pending-confirmation`, no trust) until
@@ -50,7 +50,7 @@ import { JOB_NAME, jobSecurityDigest } from './store/jobs.js'
 import type { ConfirmationSurface, ScheduleBudget, ScheduleJob, ScheduleRunKind } from './types.js'
 import { jobFormatVersion } from './types.js'
 
-export const DEFAULT_TOKEN_BUDGET = 500_000
+export const DEFAULT_TOKEN_BUDGET = 0
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000
 export const DEFAULT_MAX_ITERATIONS = 50
 /** Below this many iterations a run's preview warns that it may stop unfinished. */
@@ -116,6 +116,15 @@ function positive(label: string, value: number | undefined, fallback: number): n
 	if (!Number.isSafeInteger(v) || v <= 0)
 		throw new JobRequestError(`${label} must be a whole number above zero`)
 	return v
+}
+
+function tokenBudget(value: number | undefined, fallback: number): number {
+	const budget = value ?? fallback
+	if (!Number.isSafeInteger(budget) || budget < 0)
+		throw new JobRequestError(
+			'the token budget must be a nonnegative whole number (0 means unlimited)',
+		)
+	return budget
 }
 
 /** The model a job pins: `provider[/model]`, or the configured primary. */
@@ -301,10 +310,9 @@ export function buildJob(
 			request.budget?.maxIterations,
 			limits.maxIterations || DEFAULT_MAX_ITERATIONS,
 		),
-		tokenBudget: positive(
-			'the token budget',
+		tokenBudget: tokenBudget(
 			request.budget?.tokenBudget,
-			limits.tokenBudget || DEFAULT_TOKEN_BUDGET,
+			limits.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 		),
 		timeoutMs: positive(
 			'the timeout',
@@ -559,7 +567,7 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 				]
 			: [
 					`Model       ${job.model?.provider ?? '(missing)'}${job.model?.model ? `/${job.model.model}` : ''}${job.model?.effort ? ` (${job.model.effort})` : ''}`,
-					`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+					`Budget      ${job.budget.tokenBudget === 0 ? 'no token limit' : `${job.budget.tokenBudget.toLocaleString('en-US')} tokens`}, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
 				]),
 		// A proposal once set 1, read as "one post per run": the first run
 		// stopped after its first model call, with nothing done.
@@ -570,16 +578,20 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 			: []),
 		// A proposal once set 4,000 tokens for a job whose runs each took
 		// about 110,000: every model call resends the whole prompt.
-		...(job.runKind !== 'script' && job.budget.tokenBudget < FEW_TOKENS
+		...(job.runKind !== 'script' &&
+		job.budget.tokenBudget > 0 &&
+		job.budget.tokenBudget < FEW_TOKENS
 			? [
-					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is ${DEFAULT_TOKEN_BUDGET.toLocaleString('en-US')})`,
+					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default has no token limit)`,
 				]
 			: []),
 		...(job.runKind === 'script'
 			? []
-			: [
-					`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
-				]),
+			: job.budget.tokenBudget === 0
+				? ['Ceiling     no daily token limit']
+				: [
+						`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
+					]),
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
 		...(networkCapable ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
 		...(job.permissions.browser && job.runKind !== 'script'

@@ -69,6 +69,7 @@ export interface ScheduleJobDraft {
 	}
 	readonly budget?: {
 		readonly maxIterations?: number
+		/** Total model tokens per agent phase; zero means no token limit. Omit to inherit the host default. */
 		readonly tokenBudget?: number
 		readonly timeoutMs?: number
 	}
@@ -141,10 +142,11 @@ export interface ScheduleJobPreview {
 	/** Effective run limits. A pure script has zero model iterations/tokens and its script timeout. */
 	readonly budget: {
 		readonly maxIterations: number
+		/** Zero means no token limit for an agent phase, or no model use for a pure script. */
 		readonly tokenBudget: number
 		readonly timeoutMs: number
 	}
-	/** Runs per day at most, times the token budget. Absent for a one-shot. */
+	/** Runs per day at most, times a finite token budget. Absent for a one-shot, an unlimited agent phase, or a pure script. */
 	readonly dailyTokenCeiling?: number
 	/** Provider and model the agent phase is pinned to. Absent for a pure script job. */
 	readonly model?: string

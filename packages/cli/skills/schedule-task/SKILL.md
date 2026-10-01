@@ -231,18 +231,22 @@ minute (`7 3 * * *`) to the top of the hour for anything not time-critical.
 ## 3. Budget
 
 `budget` is the limits of ONE run, not of the job. Leave it unset unless
-the user asked for limits: the defaults are 500 000 tokens and 30 minutes a
-run (or the operator's `limits`). If you set it:
+the user asked for limits: tokens default to unlimited (`tokenBudget: 0`),
+with 50 model steps and 30 minutes a run (or the operator's `limits`). Do not
+invent a finite token allowance. If you set it:
 
-- `tokenBudget` is every token the run spends. Each model call resends the
+- `tokenBudget: 0` removes the token limit, including an inherited positive
+  value. A positive `tokenBudget` limits every token the run spends. Each model call resends the
   whole prompt (often 10 000 to 30 000 tokens), so a run needs far more
   than its answer; the confirmation warns below 50 000.
 - `maxIterations` is model steps in one run (each model call with its tool
   calls), not how many times the job runs. A browser task takes 10 or more.
 - `timeoutMs` is one run's wall clock.
 
-The confirmation shows the most the job can spend in a day (runs per day
-times the token budget).
+For a positive token budget, the confirmation shows the daily token allowance
+(runs per day times the token budget). Unlimited jobs show no daily token limit;
+this does not mean their usage is zero. Existing saved jobs retain their
+confirmed limits until the operator confirms an update.
 
 ## 4. The prompt: written for nobody watching
 

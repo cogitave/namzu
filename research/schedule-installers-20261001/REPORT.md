@@ -1,5 +1,9 @@
 # Schedule, installers and Resume investigation — 2026-10-01
 
+Follow-up: [UNLIMITED-RECHECK.md](UNLIMITED-RECHECK.md) records the scheduler's
+unlimited-token fix and a successful free-model run. The installed-CLI evidence
+below retains the original diagnostic limits.
+
 ## Scope and evidence
 
 The actual installed CLI **35.0.0**, Zen `space-bunny-free`, and its real terminal

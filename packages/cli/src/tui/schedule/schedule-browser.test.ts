@@ -290,7 +290,7 @@ describe('the model proposing a browser job', () => {
 		const cheap = host('cancel')
 		await cheap.tool.execute({ ...input, budget: { tokenBudget: 4000 } }, {} as never)
 		expect(cheap.said[0]).toContain(
-			'Warning     4,000 tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is 500,000)',
+			'Warning     4,000 tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default has no token limit)',
 		)
 	})
 
@@ -324,7 +324,7 @@ describe('the model proposing a browser job', () => {
 			'Chosen by the model, not the default: commands run in the sandbox; the default is this machine',
 		)
 		expect(shown).toContain(
-			'Chosen by the model, not the default: 12,000 tokens per run (the default is 500,000)',
+			'Chosen by the model, not the default: 12,000 tokens per run (the default is no token limit)',
 		)
 		const plain = host('cancel')
 		await plain.tool.execute(input, {} as never)

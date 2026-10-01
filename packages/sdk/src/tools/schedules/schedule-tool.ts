@@ -155,10 +155,10 @@ const inputSchema = z.object({
 			tokenBudget: z
 				.number()
 				.int()
-				.positive()
+				.nonnegative()
 				.optional()
 				.describe(
-					'Tokens one run may spend in total. Every model call resends the whole prompt (often 10,000-30,000 tokens each), so a run needs far more than its answer; omit for the default.',
+					'Tokens one run may spend in total; 0 means no token limit. Every model call resends the whole prompt (often 10,000-30,000 tokens each), so a finite budget needs far more than its answer; omit to inherit the host default.',
 				),
 			timeoutMs: z
 				.number()

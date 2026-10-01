@@ -177,7 +177,8 @@ tools and agree on a supported output before proposing the job. `write` can save
 a local HTML or Markdown file. An integrated artifact page requires a separate
 host capability; it is not supplied by the scheduler or by `DeliverableRef`.
 
-The run's token budget covers cumulative model input and output, including
+Scheduled agent phases default to no token limit (`tokenBudget: 0`). An
+explicit positive token budget covers cumulative model input and output, including
 retrieved content sent again in later iterations. A large model context window
 does not increase that budget. Research prompts should limit searches and leave
 room to produce their result. A batch of several tool calls counts as one model
@@ -206,7 +207,7 @@ there is no default permission set.
 | `--execution host\|sandbox` | Where commands run. Default `host`; `sandbox` is refused for `script`/`script+agent` |
 | `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
 | `--model <provider>/<model>`, `--effort <level>` | Agent phase only, pinned at creation. The model defaults to your configured primary; a pure `script` job needs no model and rejects either flag |
-| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per agent phase. A token budget and a timeout are always stored (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 iterations or 50 000 tokens the confirmation warns that a model run may stop unfinished, since every model call resends the whole prompt. They govern the agent phase of `script+agent`; pure `script` rejects these flags and uses `--script-timeout` for its wall clock. Older script jobs may still store agent budget fields, but they have no effect on execution. |
+| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per agent phase. The token budget defaults to `0` (unlimited); a positive value opts into a cumulative limit. The timeout defaults to 30 minutes and iterations to 50, or your configured `limits`. An explicit token `0` overrides a configured positive value. An iteration is one model call with its tool calls; below 10 iterations or a positive token budget below 50 000 the confirmation warns that a model run may stop unfinished, since every model call resends the whole prompt. They govern the agent phase of `script+agent`; pure `script` rejects these flags and uses `--script-timeout` for its wall clock. Older script jobs may still store agent budget fields, but they have no effect on execution. |
 | `--wait-for-provider 10m` | How long a model run waits out a provider pause before giving up; refused for a pure `script` job |
 | `--approval-ttl 7d` | How long a parked model run waits for you before it is abandoned; refused for a pure `script` job |
 | `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived; refused for a pure `script` job, which opens no session |
@@ -230,6 +231,16 @@ including the denies it inherits from your config files. On a terminal it asks
 you to confirm. The preview also says whether Namzu sends a generic notice
 after a successful run. A host script, or an agent allowed to run host shell
 commands, is marked network-capable even when no web or browser tool is granted.
+
+**Token-default migration:** new agent jobs previously defaulted to 500 000
+tokens. They now default to unlimited tokens unless the request or effective
+configuration supplies a positive value. Existing saved jobs keep their confirmed
+budget. To remove a saved limit, run `namzu schedule edit <name> --token-budget 0`
+and confirm the edit. To retain the old default for new jobs, set
+`limits.tokenBudget: 500000` or pass `--token-budget 500000`.
+Unlimited jobs still record usage; their preview shows no daily token limit
+instead of a zero-cost estimate. Iteration limits, timeouts and provider quotas
+remain separate.
 
 ### Only a terminal or the TUI confirms a job
 

@@ -274,7 +274,7 @@ async function confirmInTui(
 					? { maxIterations: 0, tokenBudget: 0, timeoutMs: job.script.timeoutMs }
 					: job.budget,
 			notifyOnFinish: job.notify.finished,
-			...(runKind === 'script' || job.schedule.kind === 'at'
+			...(runKind === 'script' || job.schedule.kind === 'at' || job.budget.tokenBudget === 0
 				? {}
 				: { dailyTokenCeiling: runsPerDay(job.schedule, now) * job.budget.tokenBudget }),
 			...(runKind === 'script' || !job.model

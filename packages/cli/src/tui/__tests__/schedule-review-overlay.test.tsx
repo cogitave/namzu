@@ -120,6 +120,32 @@ describe('schedule review overlay', () => {
 		expect(lines.join('\n')).toContain('permission set governs its tools')
 	})
 
+	it.each(['agent', 'script+agent'] as const)('shows unlimited %s model use as no token limit before scrolling', (runKind) => {
+		const unlimited: ScheduleReviewRequest = {
+			...request,
+			preview: {
+				...preview,
+				runKind,
+				budget: { maxIterations: 50, tokenBudget: 0, timeoutMs: 1_800_000 },
+			},
+		}
+		expect(scheduleReviewSummary(unlimited).join('\n')).toContain('Tokens  No token limit per run')
+		const screen = render(<ScheduleReviewOverlay request={unlimited} columns={100} rows={40} onAnswer={() => {}} />)
+		expect(screen.lastFrame()).toContain('No token limit per run')
+		expect(screen.lastFrame()).not.toContain('0 tokens')
+		screen.unmount()
+	})
+
+	it('preserves a finite opt-in and distinguishes a pure script from unlimited model use', () => {
+		const finite = scheduleReviewSummary({
+			...request,
+			preview: { ...preview, runKind: 'agent', budget: { ...preview.budget, tokenBudget: 125_000 } },
+		}).join('\n')
+		expect(finite).toContain('Tokens  Up to 125,000 per run')
+		expect(finite).not.toContain('No token limit')
+		expect(scheduleReviewSummary(request).join('\n')).not.toContain('No token limit')
+	})
+
 	it('shows the private workspace, host authority and source conversation without the scratch path', () => {
 		const lines = scheduleReviewSummary({
 			...request,

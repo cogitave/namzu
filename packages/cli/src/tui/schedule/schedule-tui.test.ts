@@ -732,6 +732,44 @@ describe('/schedule confirm for a script job', () => {
 	})
 })
 
+describe('/schedule confirm for an agent job', () => {
+	it.each([0, 125_000])(
+		'reviews the saved %s token budget without a zero daily ceiling',
+		async (tokenBudget) => {
+			const original = confirmedJob(sb, { when: 'every 5m', budget: { tokenBudget } })
+			updateJob(sb.paths, original.id, original.revision, (job) => ({
+				...job,
+				state: 'pending-confirmation',
+				confirmation: null,
+			}))
+			let reviewed = false
+			await runScheduleCommand(['confirm', original.name], {
+				home: sb.home,
+				cwd: sb.project,
+				config: { limits: { tokenBudget: 25_000 } },
+				say: () => {},
+				ask: async () => {
+					throw new Error('the legacy question must not open')
+				},
+				review: async (request) => {
+					reviewed = true
+					expect(request.preview.budget.tokenBudget).toBe(tokenBudget)
+					expect(request.preview.dailyTokenCeiling).toBe(
+						tokenBudget === 0 ? undefined : 288 * tokenBudget,
+					)
+					if (tokenBudget === 0) {
+						expect(request.fullText).toContain('no token limit')
+						expect(request.fullText).not.toContain('0 tokens')
+					}
+					return 'cancel'
+				},
+			})
+			expect(reviewed).toBe(true)
+			expect(readJob(sb.paths, original.id)?.state).toBe('pending-confirmation')
+		},
+	)
+})
+
 describe('/schedule add', () => {
 	it('uses the bounded review without calling an operator request model-proposed', async () => {
 		const said: string[] = []
@@ -765,6 +803,7 @@ describe('the schedule tool’s host', () => {
 		cwd = () => sb.project,
 		review?: Parameters<typeof createScheduleToolHost>[0]['review'],
 		sourceConversation?: Parameters<typeof createScheduleToolHost>[0]['sourceConversation'],
+		config: Parameters<typeof createScheduleToolHost>[0]['config'] = () => ({}),
 	) {
 		const said: string[] = []
 		const questions: { options: { id: string }[] }[] = []
@@ -773,7 +812,7 @@ describe('the schedule tool’s host', () => {
 			cwd,
 			extraRoots: () => [],
 			model: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
-			config: () => ({}),
+			config,
 			sessionId: () => undefined,
 			...(sourceConversation ? { sourceConversation } : {}),
 			say: (t) => said.push(t),
@@ -803,6 +842,53 @@ describe('the schedule tool’s host', () => {
 		projectId: 'project-id',
 		tenantId: 'tenant-id',
 	}
+
+	it.each([
+		{ inherited: undefined, proposed: undefined, expected: 0 },
+		{ inherited: 0, proposed: undefined, expected: 0 },
+		{ inherited: 125_000, proposed: undefined, expected: 125_000 },
+		{ inherited: 125_000, proposed: 0, expected: 0 },
+		{ inherited: 0, proposed: 125_000, expected: 125_000 },
+	])(
+		'previews inherited $inherited and proposed $proposed tokens without turning unlimited into free',
+		async ({ inherited, proposed, expected }) => {
+			const h = host(
+				'cancel',
+				() => sb.project,
+				undefined,
+				undefined,
+				() => ({
+					limits: { ...(inherited === undefined ? {} : { tokenBudget: inherited }) },
+				}),
+			)
+			const draft = {
+				...input,
+				when: 'every 5m',
+				permissions: { preset: 'read-only' as const, unmatched: 'deny' as const },
+				...(proposed === undefined ? {} : { budget: { tokenBudget: proposed } }),
+			}
+			const preview = await h.host.preview(draft)
+			expect(preview.budget.tokenBudget).toBe(expected)
+			expect(preview.dailyTokenCeiling).toBe(expected === 0 ? undefined : 288 * expected)
+			await h.tool.execute(draft, {} as never)
+			const shown = h.said.join('\n')
+			if (expected === 0) {
+				expect(shown).toContain('Budget      no token limit, 50 iterations, 30 min per run')
+				expect(shown).toContain('Ceiling     no daily token limit')
+				expect(shown).not.toContain('0 tokens')
+				expect(shown).not.toContain('may not cover even a few model calls')
+			} else {
+				expect(shown).toContain('Budget      125,000 tokens')
+				expect(shown).toContain('36,000,000 tokens a day')
+			}
+			if (proposed === 0 && inherited !== 0) {
+				expect(shown).toContain('no token limit per run (the default is 125,000)')
+			}
+			if (proposed !== undefined && inherited === 0) {
+				expect(shown).toContain('125,000 tokens per run (the default is no token limit)')
+			}
+		},
+	)
 
 	it('previews a no-project script without creating a folder and binds its source conversation on confirmation', async () => {
 		const {

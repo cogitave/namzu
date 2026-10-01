@@ -44,7 +44,7 @@ export interface SchedulePermissionSet {
 
 export interface ScheduleBudget {
 	readonly maxIterations: number
-	/** Required above zero: an unattended run always has a token ceiling. */
+	/** Nonnegative safe integer: 0 is unlimited; a positive value caps cumulative model tokens. */
 	readonly tokenBudget: number
 	/** Required above zero: an unattended run always has a wall clock. */
 	readonly timeoutMs: number
