@@ -10,9 +10,17 @@ import {
 /** Decorative local scene. The SVG remains available when motion or WebGL is unavailable. */
 export function PalCharacter3D({
 	appearance = defaultPalAppearance,
-}: { appearance?: PalCharacterAppearance }) {
+	size = 'hero',
+	paused = false,
+}: { appearance?: PalCharacterAppearance; size?: 'hero' | 'avatar'; paused?: boolean }) {
 	const host = useRef<HTMLSpanElement>(null)
+	const pausedState = useRef(paused)
+	const resumeDrawing = useRef<(() => void) | undefined>(undefined)
 	const [ready, setReady] = useState(false)
+	useEffect(() => {
+		pausedState.current = paused
+		resumeDrawing.current?.()
+	}, [paused])
 	useEffect(() => {
 		let active = true
 		let generation = 0
@@ -216,14 +224,16 @@ export function PalCharacter3D({
 					frame = 0
 					if (!active || cleaned || !visible || document.hidden || lostContext) return
 					const seconds = time / 1000
-					figure.position.y = Math.sin(seconds * 1.4) * 0.035
-					figure.scale.setScalar(1 + Math.sin(seconds * 1.4) * 0.009)
-					figure.rotation.y +=
-						(-0.1 + pointer.x * 0.25 + Math.sin(seconds * 0.4) * 0.025 - figure.rotation.y) * 0.06
-					figure.rotation.x += (pointer.y * 0.12 - figure.rotation.x) * 0.06
-					const blink = seconds % 6.2
-					const eyeHeight = blink > 5.9 && blink < 6.1 ? 0.08 + Math.abs(blink - 6) * 10 : 1.35
-					for (const eye of eyes) eye.scale.y = eyeHeight
+					if (!pausedState.current) {
+						figure.position.y = Math.sin(seconds * 1.4) * 0.035
+						figure.scale.setScalar(1 + Math.sin(seconds * 1.4) * 0.009)
+						figure.rotation.y +=
+							(-0.1 + pointer.x * 0.25 + Math.sin(seconds * 0.4) * 0.025 - figure.rotation.y) * 0.06
+						figure.rotation.x += (pointer.y * 0.12 - figure.rotation.x) * 0.06
+						const blink = seconds % 6.2
+						const eyeHeight = blink > 5.9 && blink < 6.1 ? 0.08 + Math.abs(blink - 6) * 10 : 1.35
+						for (const eye of eyes) eye.scale.y = eyeHeight
+					}
 					try {
 						renderer.render(scene, camera)
 					} catch {
@@ -231,12 +241,16 @@ export function PalCharacter3D({
 						setReady(false)
 						return
 					}
-					frame = requestAnimationFrame(draw)
+					if (!pausedState.current) frame = requestAnimationFrame(draw)
 				}
 				const start = () => {
 					if (!frame && !cleaned && visible && !document.hidden && !lostContext)
 						frame = requestAnimationFrame(draw)
 				}
+				resumeDrawing.current = start
+				cleanups.push(() => {
+					if (resumeDrawing.current === start) resumeDrawing.current = undefined
+				})
 				const resize = new ResizeObserver(([entry]) => {
 					if (!entry || !entry.contentRect.width || !entry.contentRect.height) return
 					const { width, height } = entry.contentRect
@@ -310,13 +324,14 @@ export function PalCharacter3D({
 	}, [appearance.character, appearance.color])
 	return (
 		<span
-			className="pal-character-scene"
+			className={`pal-character-scene pal-character-scene-${size}`}
 			ref={host}
 			data-ready={ready || undefined}
+			data-paused={paused || undefined}
 			aria-hidden="true"
 		>
 			<span className="pal-character-fallback">
-				<PalCharacter appearance={appearance} size="hero" />
+				<PalCharacter appearance={appearance} size={size} paused={paused} />
 			</span>
 		</span>
 	)

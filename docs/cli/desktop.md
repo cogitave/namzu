@@ -96,16 +96,21 @@ stored revision. An unavailable model catalogue leaves setup and customization
 usable; the Pal may use the host's configured model when its own model is null.
 
 The saved Pal view explains its saved purpose and offers customization. Its chat
-uses the existing transcript, composer, approvals and tool events. A separate
-context card shows the Pal, its computer, owned recent conversations and current
-completed change receipts. It becomes a context menu when the workspace is
-smaller than 1280px. Neither empty outputs nor a disconnected computer imply
+uses the existing transcript, composer, approvals and tool events. Once setup
+saves the profile, the central character disappears. A persistent card on the
+right shows its live 3D character, computer, owned recent conversations and
+current completed change receipts. The pencil beside the character opens
+customization. The card has no menu trigger and reserves its own layout space,
+so it never overlaps the transcript or composer. Below 720px of workspace width,
+or while a detail pane is open, it stays visible above the conversation with
+bounded scrolling. Neither empty outputs nor a disconnected computer imply
 completed work. Customizing an existing profile preserves the selected
 conversation. Its default model applies to future conversations.
 
-The preview uses locally generated Three.js geometry, loaded only when needed,
-with idle motion, blinking and pointer tracking. Hidden or offscreen scenes
-stop rendering. Unmount and failed initialization release the renderer, WebGL
+The customization preview and saved Pal card use locally generated Three.js
+geometry, loaded only when needed, with idle motion, blinking and pointer
+tracking. Pausing freezes the card's scene; resuming restarts it. Hidden or
+offscreen scenes stop rendering. Unmount and failed initialization release the renderer, WebGL
 context, geometry, materials, textures, listeners and observers. Reduced motion
 or unavailable WebGL uses a static character with the same selected appearance.
 

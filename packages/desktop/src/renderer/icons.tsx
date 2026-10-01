@@ -10,6 +10,7 @@ import {
 	MessageSquare,
 	MessagesSquare,
 	PanelLeft,
+	Pencil,
 	RefreshCw,
 	Settings,
 	SquarePen,
@@ -82,6 +83,7 @@ export const SearchIcon = createIcon([
 export const FolderIcon = createOutlineIcon(FolderClosed)
 export const MessagesSquareIcon = createOutlineIcon(MessagesSquare)
 export const SettingsIcon = createOutlineIcon(Settings)
+export const PencilIcon = createOutlineIcon(Pencil)
 export const TrashIcon = createOutlineIcon(Trash2)
 export const FolderOpenIcon = createOutlineIcon(FolderOpen)
 export const FolderPlusIcon = createIcon([

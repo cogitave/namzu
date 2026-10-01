@@ -44,7 +44,7 @@ import {
 import { JobRow } from './job-row.js'
 import { Message, MessageContent } from './message.js'
 import { NavigationRail } from './navigation-rail.js'
-import { PalContextCard, PalContextMenu, type PalContextProps } from './pal-context.js'
+import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
@@ -1533,7 +1533,6 @@ function App() {
 							</h2>
 						</WorkspaceBreadcrumbItem>
 					</WorkspaceBreadcrumb>
-					{palContextProps && <PalContextMenu {...palContextProps} />}
 					{sessionId && (
 						<>
 							<Button
@@ -1647,157 +1646,167 @@ function App() {
 					<div
 						className="chat-stage"
 						data-empty={!pal && thread.messages.length === 0}
-						data-context-card={!jobsOpen && (Boolean(pal) || thread.messages.length > 0)}
+						data-context-card={!jobsOpen && !pal && thread.messages.length > 0}
+						data-pal-context={Boolean(palContextProps)}
 					>
 						{!pal && contextProps && thread.messages.length > 0 && !jobsOpen && (
 							<ProjectContextCard {...contextProps} />
 						)}
-						{palContextProps && !jobsOpen && <PalContextCard {...palContextProps} />}
-						<div
-							className="transcript"
-							ref={transcript}
-							onScroll={() => {
-								if (transcript.current)
-									follow.current =
-										transcript.current.scrollHeight -
-											transcript.current.scrollTop -
-											transcript.current.clientHeight <
-										100
-							}}
-						>
-							<div className="conversation-body">
-								{pal && thread.messages.length === 0 && (
-									<PalWelcome pal={pal} disabled={palBusy} onCustomize={() => showPalEditor(pal)} />
-								)}
-								{thread.partial && (
-									<p className="notice">
-										Showing the latest part of this conversation. The full record remains on this
-										device.
-									</p>
-								)}
-								{thread.timeline.map((entry) => {
-									if (entry.kind === 'tool') {
-										const tool = thread.tools[entry.id]
-										return tool ? (
-											<div
-												className="tool-list"
-												key={`tool-${entry.id}`}
+						{palContextProps && <PalContextCard {...palContextProps} />}
+						<div className="conversation-lane">
+							<div
+								className="transcript"
+								ref={transcript}
+								onScroll={() => {
+									if (transcript.current)
+										follow.current =
+											transcript.current.scrollHeight -
+												transcript.current.scrollTop -
+												transcript.current.clientHeight <
+											100
+								}}
+							>
+								<div className="conversation-body">
+									{pal && thread.messages.length === 0 && (
+										<PalWelcome
+											pal={pal}
+											disabled={palBusy}
+											onCustomize={() => showPalEditor(pal)}
+										/>
+									)}
+									{thread.partial && (
+										<p className="notice">
+											Showing the latest part of this conversation. The full record remains on this
+											device.
+										</p>
+									)}
+									{thread.timeline.map((entry) => {
+										if (entry.kind === 'tool') {
+											const tool = thread.tools[entry.id]
+											return tool ? (
+												<div
+													className="tool-list"
+													key={`tool-${entry.id}`}
+													data-timeline-turn={entry.turn}
+												>
+													<ToolRow tool={tool} active={thread.activeToolIds.includes(entry.id)} />
+												</div>
+											) : null
+										}
+										const message = thread.messages[entry.index]
+										return message ? (
+											<Message
+												from={message.role}
+												className={`message ${message.role}`}
+												key={`message-${entry.index}`}
 												data-timeline-turn={entry.turn}
 											>
-												<ToolRow tool={tool} active={thread.activeToolIds.includes(entry.id)} />
-											</div>
+												<MessageContent
+													text={message.text}
+													markdown={message.role === 'assistant'}
+												/>
+												{message.attachments && (
+													<div className="mt-2">
+														<AttachmentList attachments={message.attachments} />
+													</div>
+												)}
+											</Message>
 										) : null
-									}
-									const message = thread.messages[entry.index]
-									return message ? (
-										<Message
-											from={message.role}
-											className={`message ${message.role}`}
-											key={`message-${entry.index}`}
-											data-timeline-turn={entry.turn}
-										>
-											<MessageContent text={message.text} markdown={message.role === 'assistant'} />
-											{message.attachments && (
-												<div className="mt-2">
-													<AttachmentList attachments={message.attachments} />
-												</div>
-											)}
-										</Message>
-									) : null
-								})}
-								{thread.reasoning && (
-									<details className="reasoning">
-										<summary>Thinking</summary>
-										<p>{thread.reasoning}</p>
-									</details>
-								)}
-								<ChangedFilesCard
-									tools={thread.tools}
-									onOpen={() => {
-										setPanelTab('changes')
-										setJobsOpen(true)
-									}}
-								/>
-								{thread.error && (
-									<p className="inline-error" role="alert">
-										{thread.error}
-									</p>
-								)}
-								{thread.running && (
-									<div className="working">
-										<span className="activity" />
-										{thread.permissions.length ? 'Waiting for your decision' : 'Working'}
-									</div>
-								)}
-								{!thread.running && thread.stopReason && thread.stopReason !== 'end_turn' && (
-									<p className="notice">
-										{thread.stopReason === 'cancelled'
-											? 'Stopped. You can continue from here.'
-											: thread.stopReason === 'max_turns'
-												? 'Turn limit reached. Review the work before continuing.'
-												: thread.stopReason === 'refused'
-													? 'The action was not approved.'
-													: 'This turn could not finish.'}
-									</p>
-								)}
+									})}
+									{thread.reasoning && (
+										<details className="reasoning">
+											<summary>Thinking</summary>
+											<p>{thread.reasoning}</p>
+										</details>
+									)}
+									<ChangedFilesCard
+										tools={thread.tools}
+										onOpen={() => {
+											setPanelTab('changes')
+											setJobsOpen(true)
+										}}
+									/>
+									{thread.error && (
+										<p className="inline-error" role="alert">
+											{thread.error}
+										</p>
+									)}
+									{thread.running && (
+										<div className="working">
+											<span className="activity" />
+											{thread.permissions.length ? 'Waiting for your decision' : 'Working'}
+										</div>
+									)}
+									{!thread.running && thread.stopReason && thread.stopReason !== 'end_turn' && (
+										<p className="notice">
+											{thread.stopReason === 'cancelled'
+												? 'Stopped. You can continue from here.'
+												: thread.stopReason === 'max_turns'
+													? 'Turn limit reached. Review the work before continuing.'
+													: thread.stopReason === 'refused'
+														? 'The action was not approved.'
+														: 'This turn could not finish.'}
+										</p>
+									)}
+								</div>
 							</div>
+							<Composer
+								inputRef={input}
+								permissions={thread.permissions}
+								onApproval={(permission, approved) =>
+									void act(() => api.approve(permission.sessionId, permission.id, approved))
+								}
+								projectName={project.name}
+								projectId={project.id}
+								sessionId={sessionId || undefined}
+								projectPath={project.path}
+								onOpenProject={() => void act(openProject)}
+								empty={!pal && thread.messages.length === 0}
+								draft={draft}
+								onDraftChange={(value) => changeDraft(draftOwner, value)}
+								providers={activeProviders}
+								connected={
+									project.status === 'ready' &&
+									(!pal || (!pal.paused && palComputer?.status === 'ready')) &&
+									providerReady &&
+									project.trusted &&
+									!savedSettings.loading
+								}
+								providersLoading={!providerReady}
+								choice={choice}
+								onChoiceChange={(value) => {
+									void act(() =>
+										savedSettings.save(draftOwner, {
+											choice: value,
+											options: { ...settings, effort: undefined },
+										}),
+									)
+								}}
+								attachments={attached.files}
+								attachmentsBusy={attached.busy}
+								onAttach={() => void act(attached.pick)}
+								onAddFiles={(files) => void act(() => attached.add(files))}
+								onRemoveAttachment={(id) => void act(() => attached.remove(id))}
+								settings={settings}
+								capabilities={capabilities}
+								onSettingsChange={(value) =>
+									void act(() => savedSettings.save(draftOwner, { choice, options: value }))
+								}
+								plugins={pluginStates[pluginsKey]?.value}
+								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
+								onOpenPlugins={() => void loadPlugins()}
+								onSetPluginEnabled={setPluginEnabled}
+								running={thread.running}
+								sending={sending[draftOwner] ?? false}
+								queued={thread.queued}
+								queuedItems={thread.queuedItems}
+								editingQueued={queueEditing[sessionId] ?? false}
+								onSend={() => void act(send)}
+								onStop={() => void act(() => api.cancel(sessionId))}
+								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
+								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
+							/>
 						</div>
-						<Composer
-							inputRef={input}
-							permissions={thread.permissions}
-							onApproval={(permission, approved) =>
-								void act(() => api.approve(permission.sessionId, permission.id, approved))
-							}
-							projectName={project.name}
-							projectId={project.id}
-							sessionId={sessionId || undefined}
-							projectPath={project.path}
-							onOpenProject={() => void act(openProject)}
-							empty={!pal && thread.messages.length === 0}
-							draft={draft}
-							onDraftChange={(value) => changeDraft(draftOwner, value)}
-							providers={activeProviders}
-							connected={
-								project.status === 'ready' &&
-								(!pal || (!pal.paused && palComputer?.status === 'ready')) &&
-								providerReady &&
-								project.trusted &&
-								!savedSettings.loading
-							}
-							providersLoading={!providerReady}
-							choice={choice}
-							onChoiceChange={(value) => {
-								void act(() =>
-									savedSettings.save(draftOwner, {
-										choice: value,
-										options: { ...settings, effort: undefined },
-									}),
-								)
-							}}
-							attachments={attached.files}
-							attachmentsBusy={attached.busy}
-							onAttach={() => void act(attached.pick)}
-							onAddFiles={(files) => void act(() => attached.add(files))}
-							onRemoveAttachment={(id) => void act(() => attached.remove(id))}
-							settings={settings}
-							capabilities={capabilities}
-							onSettingsChange={(value) =>
-								void act(() => savedSettings.save(draftOwner, { choice, options: value }))
-							}
-							plugins={pluginStates[pluginsKey]?.value}
-							pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
-							onOpenPlugins={() => void loadPlugins()}
-							onSetPluginEnabled={setPluginEnabled}
-							running={thread.running}
-							sending={sending[draftOwner] ?? false}
-							queued={thread.queued}
-							queuedItems={thread.queuedItems}
-							editingQueued={queueEditing[sessionId] ?? false}
-							onSend={() => void act(send)}
-							onStop={() => void act(() => api.cancel(sessionId))}
-							onEditQueued={(itemId) => void act(() => editQueued(itemId))}
-							onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
-						/>
 					</div>
 				)}
 				<aside

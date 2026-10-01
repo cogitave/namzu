@@ -10,32 +10,21 @@
 	width: 25px;
 	height: 28px;
 }
-.pal-context-menu {
-	display: flex;
-	align-items: center;
-	flex: none;
-}
-.pal-context-card,
-.pal-context-popup {
+.pal-context-card {
 	width: 300px;
-	max-width: calc(100vw - 32px);
-	border: 1px solid var(--border);
+	max-width: 100%;
 	border-radius: 18px;
 	background: var(--surface-raised);
 	color: var(--foreground);
-}
-.pal-context-card {
-	display: none;
-	position: absolute;
-	top: 16px;
-	right: 16px;
-	z-index: 15;
-	max-height: min(72dvh, 640px);
+	display: block;
+	flex: none;
+	align-self: flex-start;
+	order: 2;
+	margin: 16px 16px 16px 8px;
+	max-height: calc(100% - 32px);
 	overflow-y: auto;
+	scrollbar-width: thin;
 	animation: pal-context-arrive 180ms var(--motion-ease) both;
-}
-.pal-context-popup {
-	max-height: min(72dvh, var(--available-height, 640px));
 }
 .pal-context-body {
 	min-width: 0;
@@ -44,9 +33,9 @@
 .pal-context-heading {
 	display: flex;
 	align-items: center;
-	gap: 14px;
+	gap: 10px;
 	min-width: 0;
-	margin-bottom: 28px;
+	margin-bottom: 22px;
 }
 .pal-context-avatar {
 	position: relative;
@@ -192,13 +181,19 @@
 		transform: translateY(0);
 	}
 }
-@container workspace (min-width: 1280px) {
+@container workspace (max-width: 719px) {
 	.pal-context-card {
-		display: block;
+		order: 0;
+		width: calc(100% - 24px);
+		margin: 12px;
+		max-height: min(26dvh, 210px);
 	}
-	.pal-context-menu {
-		display: none;
-	}
+}
+.workspace.jobs-open .pal-context-card {
+	order: 0;
+	width: calc(100% - 24px);
+	margin: 12px;
+	max-height: min(26dvh, 210px);
 }
 @media (prefers-reduced-motion: reduce) {
 	.pal-context-card,

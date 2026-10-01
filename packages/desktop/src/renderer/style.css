@@ -517,6 +517,25 @@ pre {
 	min-width: 0;
 	flex-direction: column;
 }
+.conversation-lane {
+	position: relative;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.chat-stage[data-pal-context="true"] {
+	flex-direction: row;
+}
+@container workspace (max-width: 719px) {
+	.chat-stage[data-pal-context="true"] {
+		flex-direction: column;
+	}
+}
+.workspace.jobs-open .chat-stage[data-pal-context="true"] {
+	flex-direction: column;
+}
 .transcript {
 	min-height: 0;
 	flex: 1;

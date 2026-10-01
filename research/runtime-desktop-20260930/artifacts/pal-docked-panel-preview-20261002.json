@@ -1,0 +1,387 @@
+{
+  "browserPreview": true,
+  "memoryFixture": true,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "persistent dock without trigger",
+    "central identity only before profile creation",
+    "live WebGL avatar",
+    "pencil edit",
+    "appearance save",
+    "pause and resume rendering",
+    "GPU loss releases resources and keeps fallback",
+    "desktop and narrow geometry",
+    "composer inside conversation lane",
+    "dark/light reduced motion"
+  ],
+  "faults": [],
+  "states": [
+    {
+      "name": "desktop-dark",
+      "viewport": [
+        1322,
+        900
+      ],
+      "panel": {
+        "x": 1006,
+        "y": 100,
+        "width": 300,
+        "height": 440,
+        "top": 100,
+        "right": 1306,
+        "bottom": 540,
+        "left": 1006
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 662,
+        "height": 816,
+        "top": 84,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "composer": {
+        "x": 336,
+        "y": 734,
+        "width": 662,
+        "height": 166,
+        "top": 734,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 986,
+        "height": 816,
+        "top": 84,
+        "right": 1322,
+        "bottom": 900,
+        "left": 336
+      },
+      "avatar": {
+        "x": 1022,
+        "y": 118,
+        "width": 72,
+        "height": 76,
+        "top": 118,
+        "right": 1094,
+        "bottom": 194,
+        "left": 1022
+      },
+      "overflow": false,
+      "ready": true,
+      "centered": false,
+      "reduced": false
+    },
+    {
+      "name": "paused",
+      "viewport": [
+        1322,
+        900
+      ],
+      "panel": {
+        "x": 1006,
+        "y": 100,
+        "width": 300,
+        "height": 402,
+        "top": 100,
+        "right": 1306,
+        "bottom": 502,
+        "left": 1006
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 662,
+        "height": 816,
+        "top": 84,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "composer": {
+        "x": 336,
+        "y": 734,
+        "width": 662,
+        "height": 166,
+        "top": 734,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 986,
+        "height": 816,
+        "top": 84,
+        "right": 1322,
+        "bottom": 900,
+        "left": 336
+      },
+      "avatar": {
+        "x": 1022,
+        "y": 118,
+        "width": 72,
+        "height": 76,
+        "top": 118,
+        "right": 1094,
+        "bottom": 194,
+        "left": 1022
+      },
+      "overflow": false,
+      "ready": true,
+      "centered": false,
+      "reduced": false
+    },
+    {
+      "name": "context-loss",
+      "viewport": [
+        1322,
+        900
+      ],
+      "panel": {
+        "x": 1006,
+        "y": 100,
+        "width": 300,
+        "height": 440,
+        "top": 100,
+        "right": 1306,
+        "bottom": 540,
+        "left": 1006
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 662,
+        "height": 816,
+        "top": 84,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "composer": {
+        "x": 336,
+        "y": 734,
+        "width": 662,
+        "height": 166,
+        "top": 734,
+        "right": 998,
+        "bottom": 900,
+        "left": 336
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 986,
+        "height": 816,
+        "top": 84,
+        "right": 1322,
+        "bottom": 900,
+        "left": 336
+      },
+      "avatar": {
+        "x": 1022,
+        "y": 118,
+        "width": 72,
+        "height": 76,
+        "top": 118,
+        "right": 1094,
+        "bottom": 194,
+        "left": 1022
+      },
+      "overflow": false,
+      "ready": false,
+      "centered": false,
+      "reduced": false
+    },
+    {
+      "name": "laptop",
+      "viewport": [
+        1100,
+        760
+      ],
+      "panel": {
+        "x": 784,
+        "y": 100,
+        "width": 300,
+        "height": 440,
+        "top": 100,
+        "right": 1084,
+        "bottom": 540,
+        "left": 784
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 440,
+        "height": 676,
+        "top": 84,
+        "right": 776,
+        "bottom": 760,
+        "left": 336
+      },
+      "composer": {
+        "x": 336,
+        "y": 594,
+        "width": 440,
+        "height": 166,
+        "top": 594,
+        "right": 776,
+        "bottom": 760,
+        "left": 336
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 764,
+        "height": 676,
+        "top": 84,
+        "right": 1100,
+        "bottom": 760,
+        "left": 336
+      },
+      "avatar": {
+        "x": 800,
+        "y": 118,
+        "width": 72,
+        "height": 76,
+        "top": 118,
+        "right": 872,
+        "bottom": 194,
+        "left": 800
+      },
+      "overflow": false,
+      "ready": false,
+      "centered": false,
+      "reduced": false
+    },
+    {
+      "name": "narrow-dark-reduced",
+      "viewport": [
+        620,
+        720
+      ],
+      "panel": {
+        "x": 60,
+        "y": 96,
+        "width": 548,
+        "height": 187.1875,
+        "top": 96,
+        "right": 608,
+        "bottom": 283.1875,
+        "left": 60
+      },
+      "lane": {
+        "x": 48,
+        "y": 295.1875,
+        "width": 572,
+        "height": 424.8125,
+        "top": 295.1875,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "composer": {
+        "x": 48,
+        "y": 558,
+        "width": 572,
+        "height": 162,
+        "top": 558,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "stage": {
+        "x": 48,
+        "y": 84,
+        "width": 572,
+        "height": 636,
+        "top": 84,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "avatar": {
+        "x": 76,
+        "y": 114,
+        "width": 72,
+        "height": 76,
+        "top": 114,
+        "right": 148,
+        "bottom": 190,
+        "left": 76
+      },
+      "overflow": false,
+      "ready": false,
+      "centered": false,
+      "reduced": true
+    },
+    {
+      "name": "narrow-light-reduced",
+      "viewport": [
+        620,
+        720
+      ],
+      "panel": {
+        "x": 60,
+        "y": 96,
+        "width": 548,
+        "height": 187.1875,
+        "top": 96,
+        "right": 608,
+        "bottom": 283.1875,
+        "left": 60
+      },
+      "lane": {
+        "x": 48,
+        "y": 295.1875,
+        "width": 572,
+        "height": 424.8125,
+        "top": 295.1875,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "composer": {
+        "x": 48,
+        "y": 558,
+        "width": 572,
+        "height": 162,
+        "top": 558,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "stage": {
+        "x": 48,
+        "y": 84,
+        "width": 572,
+        "height": 636,
+        "top": 84,
+        "right": 620,
+        "bottom": 720,
+        "left": 48
+      },
+      "avatar": {
+        "x": 76,
+        "y": 114,
+        "width": 72,
+        "height": 76,
+        "top": 114,
+        "right": 148,
+        "bottom": 190,
+        "left": 76
+      },
+      "overflow": false,
+      "ready": false,
+      "centered": false,
+      "reduced": true
+    }
+  ]
+}

@@ -166,7 +166,6 @@ const api: DesktopApi = {
 	},
 	palComputer: async () => ({
 		status: 'unavailable',
-		notice: 'Design preview only. Start a real local computer from the desktop or CLI.',
 	}),
 	startPalComputer: async () => nativeOnly('Starting a Pal virtual computer'),
 	stopPalComputer: async () => nativeOnly('Stopping a Pal virtual computer'),

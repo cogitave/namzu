@@ -425,10 +425,12 @@ export function PalWelcome({
 }: { pal?: PalView; onCustomize: () => void; disabled?: boolean }) {
 	return (
 		<div className="pal-welcome">
-			<div className="pal-welcome-identity">
-				<PalCharacter3D appearance={pal?.appearance} />
-				<span>{pal?.name ?? 'Your Pal'}</span>
-			</div>
+			{!pal && (
+				<div className="pal-welcome-identity">
+					<PalCharacter3D />
+					<span>Your Pal</span>
+				</div>
+			)}
 			<div className="pal-welcome-message">
 				{pal ? `Hey! I’m ${pal.name}.` : 'Hey! I’m your Pal.'}
 			</div>

@@ -41,6 +41,10 @@
 	opacity: 0;
 	transition: opacity var(--motion-duration) var(--motion-ease);
 }
+.pal-character-scene-avatar {
+	width: 72px;
+	height: 76px;
+}
 .pal-character-fallback {
 	display: flex;
 	align-items: center;

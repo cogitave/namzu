@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Update** Desktop Pal conversations keep a live 3D identity in a persistent right card, use a pencil to customize, remove the central identity after setup and preserve conversation space at narrow widths.
+
 - **Creation** [Pal lifecycle and activity observations](sdk/pal-activity.md): expose live computer/admission facts with isolated observers and authorized bounded metadata pages from the owned original journal. Recheck consent before byte access and output; retain original sequence, generation and stable fact identity without private payloads. Document trusted host-stored cursors and their prefix-verification limit. `.changeset/pal-activity-observation.md`, **minor** for `@namzu/sdk`.
 
 - **Update** [Desktop Pal onboarding](cli/desktop.md#persistent-pals), [SDK appearance](sdk/pals.md#store) and [CLI appearance](cli/pals.md#commands): begin setup in the conversation, place the first-Pal action under New conversation and group only four or more Pals. Persist name/model/color/character through the shared revision; add a two-column animated Three.js customization dialog with reduced-motion/WebGL fallback and complete resource cleanup. Browser states and actual native Windows renderer/IPC/Operator/ACP save, edit and restart passed. `.changeset/pal-persisted-appearance.md`, **minor** for `@namzu/sdk` and `@namzu/cli`; desktop is private.

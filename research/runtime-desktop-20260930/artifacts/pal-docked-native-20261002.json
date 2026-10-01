@@ -1,0 +1,52 @@
+{
+  "platform": "win32",
+  "scope": "Existing owned private profiles, native Electron/preload/Operator/ACP, current live renderer",
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "persisted-profile-opens-with-always-visible-live-3D-right-panel",
+    "pencil-opens-persisted-customization-and-restores-focus",
+    "panel-remains-visible-at-laptop-width-without-a-toggle"
+  ],
+  "faults": [],
+  "runtime": {
+    "electron": "44.4.5",
+    "pid": 52208,
+    "userData": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-pal-onboarding-native-klbev_mk\\ui"
+  },
+  "geometry": {
+    "panel": {
+      "x": 1006,
+      "y": 100,
+      "width": 300,
+      "height": 440,
+      "top": 100,
+      "right": 1306,
+      "bottom": 540,
+      "left": 1006
+    },
+    "lane": {
+      "x": 336,
+      "y": 84,
+      "width": 662,
+      "height": 856,
+      "top": 84,
+      "right": 998,
+      "bottom": 940,
+      "left": 336
+    },
+    "composer": {
+      "x": 336,
+      "y": 774,
+      "width": 662,
+      "height": 166,
+      "top": 774,
+      "right": 998,
+      "bottom": 940,
+      "left": 336
+    },
+    "overflow": false
+  },
+  "passed": true,
+  "completedAt": "2026-10-01T23:43:33.787Z"
+}

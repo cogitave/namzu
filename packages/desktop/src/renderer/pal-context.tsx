@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
 import type { PalView } from '../shared/protocol.js'
 import {
 	ConversationIcon,
 	FileTextIcon,
 	LoaderCircleIcon,
 	MonitorIcon,
-	PanelRightIcon,
-	SettingsIcon,
+	PencilIcon,
 } from './icons.js'
+import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import { Button } from './ui/button.js'
-import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './pal-context.css'
 
 export interface PalContextProps {
@@ -83,7 +81,7 @@ function PalContextBody({
 		<div className="pal-context-body">
 			<header className="pal-context-heading">
 				<div className="pal-context-avatar">
-					<PalAvatar name={pal.name} appearance={pal.appearance} paused={pal.paused} />
+					<PalCharacter3D appearance={pal.appearance} size="avatar" paused={pal.paused} />
 					<Button
 						variant="secondary"
 						size="icon-xs"
@@ -92,7 +90,7 @@ function PalContextBody({
 						disabled={customizeDisabled}
 						onClick={onCustomize}
 					>
-						<SettingsIcon />
+						<PencilIcon />
 					</Button>
 				</div>
 				<div className="pal-context-identity">
@@ -206,61 +204,6 @@ function PalContextBody({
 					</Button>
 				</footer>
 			)}
-		</div>
-	)
-}
-
-/** A compact menu replaces the summary card when workspace space is limited. */
-export function PalContextMenu(props: PalContextProps) {
-	const [open, setOpen] = useState(false)
-	const menu = useRef<HTMLDivElement>(null)
-	const previousPal = useRef(props.pal.id)
-	useEffect(() => {
-		const workspace = menu.current?.closest('.workspace')
-		if (!workspace) return
-		const observer = new ResizeObserver(([entry]) => {
-			if (entry && entry.contentRect.width >= 1280) setOpen(false)
-		})
-		observer.observe(workspace)
-		return () => observer.disconnect()
-	}, [])
-	useEffect(() => {
-		if (previousPal.current === props.pal.id) return
-		previousPal.current = props.pal.id
-		setOpen(false)
-	}, [props.pal.id])
-	return (
-		<div className="pal-context-menu" ref={menu}>
-			<Popover open={open && previousPal.current === props.pal.id} onOpenChange={setOpen}>
-				<PopoverTrigger
-					render={<Button variant="ghost-muted" size="icon-sm" />}
-					aria-label="Pal context"
-				>
-					<PanelRightIcon />
-				</PopoverTrigger>
-				<PopoverPopup
-					aria-label="Pal context"
-					align="end"
-					padding="none"
-					className="pal-context-popup"
-				>
-					<PalContextBody
-						{...props}
-						onCustomize={() => {
-							setOpen(false)
-							props.onCustomize()
-						}}
-						onActivity={(id) => {
-							setOpen(false)
-							props.onActivity(id)
-						}}
-						onOutput={(id) => {
-							setOpen(false)
-							props.onOutput(id)
-						}}
-					/>
-				</PopoverPopup>
-			</Popover>
 		</div>
 	)
 }
