@@ -13,6 +13,14 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
+import {
+	type LivePeers,
+	type PeerMail,
+	buildPeerTools,
+	openLivePeers,
+	peerMailLabel,
+	peerMailMessage,
+} from '../integrations/peers/runtime.js'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { ProviderSetup } from './ProviderSetup.js'
 import { ToolOutputViewer } from './ToolOutputViewer.js'
@@ -803,6 +811,7 @@ type QueuedPrompt =
 			 */
 			readonly triggers?: readonly TriggerId[]
 	  }
+	| { readonly kind: 'peer'; readonly text: string; readonly mail: PeerMail; readonly generation: number }
 	| {
 			readonly kind: 'goal'
 			readonly text: string
@@ -825,6 +834,7 @@ interface LiveInput {
 }
 
 interface ActiveTurnInbox {
+	notify(): void
 	accept(input: LiveInput): boolean
 	drain(): Message[]
 	waitForInbound(signal: AbortSignal): Promise<void>
@@ -980,6 +990,8 @@ export function App({
 	const stateRef = useRef(state)
 	stateRef.current = state
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
+	const phaseRef = useRef(phase)
+	phaseRef.current = phase
 	const [session, setSession] = useState<AgentSession | null>(null)
 	// Once a usable session publishes the transcript, temporary lifecycle
 	// surfaces must never take ownership of it. Ink's <Static> remembers which
@@ -1244,8 +1256,8 @@ export function App({
 	// started would still say "empty" after the operator queued a follow-up.
 	const queuedRef = useRef<readonly QueuedPrompt[]>([])
 	/**
-	 * A failed human turn owns the decision to hold work composed before its
-	 * failure became visible. A ref is the admission gate; state is its rendered
+	 * A failed operator or peer turn holds automatic work until the operator
+	 * explicitly continues. A ref is the admission gate; state is its rendered
 	 * explanation.
 	 */
 	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
@@ -1861,7 +1873,8 @@ export function App({
 	 */
 	const closeAndExit = useCallback(() => {
 		cancelPendingModelSwitch()
-		const closing = session?.close() ?? Promise.resolve()
+		peersRef.current?.setEnabled(false)
+		const closing = Promise.all([session?.close(), peersRef.current?.close()])
 		const bounded = Promise.race([
 			closing,
 			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
@@ -1913,6 +1926,10 @@ export function App({
 	 * deliberately leaves this value alone.
 	 */
 	const conversationGenRef = useRef<number>(0)
+	const peersRef = useRef<LivePeers | null>(null)
+	const peersStartingRef = useRef(false)
+	const [peerVersion, wakePeers] = useState(0)
+	const peerTools = useMemo(() => buildPeerTools(() => peersRef.current), [])
 	/**
 	 * Turns whose `finally` blocks have not yet attached their durable write.
 	 *
@@ -2472,12 +2489,12 @@ export function App({
 	}, [subagents, activeTools, pushMessage, session, receiptTick])
 
 	/**
-	 * A delivered `send_message` correction already lands its own row inside
+	 * An accepted `send_message` correction already lands its own queue row inside
 	 * the child's transcript (`SubagentActivityMonitor.recordMessage`); this
 	 * mirrors it into the main conversation so the operator sees what was
 	 * sent without drilling in. Deliberately a separate ref from
 	 * `reportedAgentsRef` above: that gate is exactly-once per terminal
-	 * agent, this one is exactly-once per delivered message, and folding the
+	 * agent, this one is one notice per accepted message, and folding the
 	 * two together would let one gate's reset silently double-report the
 	 * other's rows.
 	 */
@@ -3692,6 +3709,7 @@ export function App({
 				// A person is here to confirm: the model may propose scheduled jobs
 				// and session loops (never in exec, a scheduled run or a sub-agent).
 				extraTools: [
+					...peerTools,
 					...(scheduleRef.current?.tools() ?? []),
 					...(saveSkillToolRef.current ? [saveSkillToolRef.current] : []),
 				],
@@ -4217,7 +4235,7 @@ export function App({
 		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
 	}))
 	const queuedInputItems = queued.map((prompt) => ({
-		text: prompt.kind === 'goal' ? 'Automatic goal continuation' : prompt.recallText ?? prompt.text,
+		text: prompt.kind === 'goal' ? 'Automatic goal continuation' : prompt.kind === 'peer' ? peerMailLabel(prompt.mail) : prompt.recallText ?? prompt.text,
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
 	}))
 	const recallableQueued = queued.filter(isRecallableHumanPrompt).at(-1)
@@ -6164,6 +6182,10 @@ export function App({
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
 			}
+			if (prompt.kind === 'peer' && prompt.generation !== conversationGenRef.current) {
+				pushMessage('system', 'Peer message was not delivered because the conversation changed.')
+				return
+			}
 			const { text } = prompt
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
@@ -6229,6 +6251,10 @@ export function App({
 			// is dropped rather than begun under that conversation.
 			if (admissionRef.current !== admission) return
 			admissionRef.current = null
+			if (prompt.kind === 'peer' && !peersRef.current?.takeExact(prompt.generation, prompt.mail.id)) {
+				setState('idle')
+				return
+			}
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
@@ -6251,7 +6277,7 @@ export function App({
 							round: goalRound.round,
 							maxGoalRounds: goalRound.maxGoalRounds,
 						}
-					: undefined,
+					: prompt.kind === 'peer' ? { type: 'runtime-context', kind: 'peer-message' } : undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			// Reserved before the turn begins, so everything that refers to this
@@ -6267,7 +6293,9 @@ export function App({
 			)
 			const pinnedEffort = triggerEffort(turnTriggers, session.reasoningEffortLevels)
 
-			if (goalRound) {
+			if (prompt.kind === 'peer') {
+				pushMessage('system', peerMailLabel(prompt.mail), false, '↳')
+			} else if (goalRound) {
 				pushMessage(
 					'system',
 					`Goal round ${goalRound.round} / ${goalRound.maxGoalRounds}`,
@@ -6348,9 +6376,9 @@ export function App({
 						outcome: QueuePauseOutcome
 				  }
 				| undefined
-			const markHumanAbnormal = () => {
+			const markNonGoalAbnormal = () => {
 				if (
-					prompt.kind !== 'human' ||
+					prompt.kind === 'goal' ||
 					abnormalTerminal !== undefined ||
 					(st.outcome !== 'failed' && st.outcome !== 'stopped')
 				)
@@ -6452,6 +6480,7 @@ export function App({
 			const inboxEntries: LiveInput[] = []
 			const inputWaiters = new Set<() => void>()
 			const inbox: ActiveTurnInbox = {
+				notify() { for (const wake of [...inputWaiters]) wake() },
 				accept(input): boolean {
 					if (
 						!inboxOpen ||
@@ -6468,7 +6497,7 @@ export function App({
 				},
 				waitForInbound(signal): Promise<void> {
 					if (signal.aborted) return Promise.reject(signal.reason)
-					if (!inboxOpen || inboxEntries.length > 0) return Promise.resolve()
+					if (!inboxOpen || inboxEntries.length > 0 || (peersRef.current?.enabled && peersRef.current.pending > 0)) return Promise.resolve()
 					return new Promise((resolve, reject) => {
 						const cleanup = () => {
 							inputWaiters.delete(wake)
@@ -6528,6 +6557,9 @@ export function App({
 				},
 			}
 			activeTurnInboxRef.current = inbox
+			// Materialization mutates a ref without a render. Publish after its
+			// admission barrier so discovery cannot retain the transient refusal.
+			peersRef.current?.publish()
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnHypermode = hypermodeRef.current
@@ -6607,7 +6639,24 @@ export function App({
 						onPermission: askPermission,
 						onQuestion: askQuestion,
 						onModelSwitch: requestModelSwitch,
-						inboundMessages: () => inbox.drain(),
+						inboundMessages: () => {
+							const operatorMessages = inbox.drain()
+							if (ac.signal.aborted || !stillHere()) return operatorMessages
+							const mail = peersRef.current?.take(turnGeneration) ?? []
+							if (mail.length) {
+								// An idle wake may already be queued behind operator admission.
+								// Once this turn drains it, its queue row is no longer pending.
+								const deliveredIds = new Set(mail.map((item) => item.id))
+								replaceQueued(queuedRef.current.filter((item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id)))
+								flushStream(st)
+								if (st.assistantId) {
+									finalizeMessage(st.assistantId)
+									st.assistantId = null
+								}
+								for (const item of mail) pushMessage('system', peerMailLabel(item), false, '↳')
+							}
+							return [...operatorMessages, ...mail.map(peerMailMessage)]
+						},
 						waitForInbound: (signal) => inbox.waitForInbound(signal),
 						onJobNoticeDelivered: (ids) => {
 							const notices = idleJobNoticesRef.current
@@ -6638,7 +6687,7 @@ export function App({
 						// truncated at the moment the operator happened to leave.
 						if (stillHere()) {
 							applyEvent(event, st)
-							markHumanAbnormal()
+							markNonGoalAbnormal()
 						} else if (event.kind === 'delta') st.text += event.text
 						else if (event.kind === 'done' && event.text !== undefined) st.text = event.text
 					}
@@ -6654,7 +6703,7 @@ export function App({
 					if (!ac.signal.aborted) {
 						st.outcome = 'failed'
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						markHumanAbnormal()
+						markNonGoalAbnormal()
 					}
 					// Flushed first: this path does not go through `applyEvent`, so
 					// without it the partial answer the model had produced before
@@ -6699,8 +6748,7 @@ export function App({
 					const shouldPauseQueued =
 						ownsTurn &&
 						abnormalTerminal?.token === turnToken &&
-						abnormalTerminal.continuationEpoch === queueContinuationEpochRef.current &&
-						queuedRef.current.length > 0
+						abnormalTerminal.continuationEpoch === queueContinuationEpochRef.current
 					if (shouldPauseQueued && abnormalTerminal) {
 						setQueuePause({ outcome: abnormalTerminal.outcome })
 					}
@@ -7185,6 +7233,42 @@ export function App({
 							})),
 							windowSize: suggestionWindowSize(terminal.rows),
 						})
+						return
+					}
+					case 'peers': {
+						const peers = peersRef.current
+						if (!peers) {
+							pushMessage('system', 'Peer messaging is not ready.')
+							return
+						}
+						const [verb, target, ...words] = slash.args
+						if (verb === 'on' || verb === 'off') {
+							peers.setEnabled(verb === 'on')
+							pushMessage(
+								'system',
+								`Peer messaging is ${verb}; ${peers.pending} message(s) pending.`,
+							)
+						} else if (verb === 'send' && target && words.length) {
+							void peers
+								.send(target, words.join(' '))
+								.then((receipt) =>
+									pushMessage(
+										'system',
+										`Peer message ${receipt.status}: ${receipt.reason ?? 'accepted in the receiving inbox'}`,
+									),
+								)
+								.catch((error) => pushMessage('system', `Peer message failed: ${String(error)}`))
+						} else if (!verb || verb === 'list') {
+							void peers
+								.list()
+								.then((peersList) =>
+									pushMessage(
+										'system',
+										`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${peersList.map((peer) => `${peer.self ? 'This terminal' : peer.title} [${peer.ref}] · ${peer.state} · ${peer.permission_mode}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`,
+									),
+								)
+								.catch((error) => pushMessage('system', `Peer discovery failed: ${String(error)}`))
+						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
 					case 'agents': {
@@ -8830,6 +8914,98 @@ export function App({
 		dequeueQueued,
 		hasUnsettledTurn,
 		runTurn,
+	])
+
+	useEffect(() => {
+		if (phase !== 'ready' || peersRef.current || peersStartingRef.current) return
+		peersStartingRef.current = true
+		let disposed = false
+		let opened: LivePeers | null = null
+		const onClose = () => {
+			disposed = true
+			if (peersRef.current === opened) peersRef.current = null
+			void opened?.close()
+		}
+		appLifetime.signal.addEventListener('abort', onClose, { once: true })
+		void openLivePeers({
+			home: sessionsRef.current?.root ?? resolveNamzuHome(),
+			cwd: sessionsRef.current?.projectRoot ?? ctxRef.current.cwd,
+			version: ctxRef.current.version,
+			mode: () => permissionModeRef.current,
+			state: () =>
+				permissionResolveRef.current
+					? 'awaiting-permission'
+					: stateRef.current === 'idle'
+						? 'idle'
+						: 'busy',
+			owner: () => conversationGenRef.current,
+			ready: () =>
+				!appLifetime.signal.aborted && phaseRef.current === 'ready' &&
+				previousSessionRef.current?.hasProvider === true &&
+				!conversationMutationRef.current,
+			available: () => {
+				activeTurnInboxRef.current?.notify()
+				wakePeers((version) => version + 1)
+			},
+			report: (text) => pushMessage('system', text),
+		})
+			.then((peers) => {
+				peersStartingRef.current = false
+				opened = peers
+				if (disposed) { void peers.close(); return }
+				peersRef.current = peers
+				wakePeers((version) => version + 1)
+			})
+			.catch((error) => {
+				peersStartingRef.current = false
+				appLifetime.signal.removeEventListener('abort', onClose)
+				if (!disposed) pushMessage('system', `Peer messaging unavailable: ${String(error)}`)
+			})
+	}, [phase, appLifetime.signal, pushMessage])
+
+	useEffect(() => {
+		const peers = peersRef.current
+		peers?.publish()
+		if (
+			!peers?.enabled ||
+			phase !== 'ready' ||
+			state !== 'idle' ||
+			abortRef.current ||
+			hasUnsettledTurn() ||
+			queuePauseRef.current ||
+			pendingModelSwitchRef.current ||
+			conversationMutationRef.current ||
+			textPromptRef.current ||
+			choicePickerRef.current ||
+			copyPickerRef.current ||
+			exportingRef.current ||
+			compactingRef.current ||
+			goalCommandInFlightRef.current
+		)
+			return
+		const generation = conversationGenRef.current
+		const mail = peers.peek(generation)[0]
+		if (mail && !queuedRef.current.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id))
+			enqueueQueued({
+				kind: 'peer',
+				text: peerMailMessage(mail).content as string,
+				mail,
+				generation,
+			})
+	}, [
+		phase,
+		state,
+		peerVersion,
+		permissionMode,
+		conversationMutation,
+		queueSettleVersion,
+		modelSwitchVersion,
+		queuePause,
+		textPrompt,
+		choicePicker,
+		copyPicker,
+		enqueueQueued,
+		hasUnsettledTurn,
 	])
 
 	// One-shot update check on launch.

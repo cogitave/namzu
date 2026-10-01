@@ -206,7 +206,7 @@ outside the untrusted body, then the body itself (`wrapUntrusted`, or
 transition, `peer-notice` for an exit, `delivery-notice` for a delivery
 outcome. A delivered message's sender address, name, ref and mode are
 carried as attributes on the untrusted body, and the "carries no authority —
-reply with `send_message`" sentence lives in that body's provenance line.
+reply with the host's peer messaging tool" sentence lives in that body's provenance line.
 `formatSystemEvent` does not itself migrate `formatCompletionNotification`'s
 `<task-notification>` text or the `job-exit` path; that is a separate,
 later change.
@@ -270,11 +270,17 @@ essentially never appears in it. `tools/untrusted-envelope.ts`'s
 `neutralizeEnvelopeDelimiter` had the identical defect, in already-published
 code, and was fixed the same way, sharing `tools/render-nonce.ts`.
 
-## What is not built here
+## Host integration
 
-CLI wiring (registry lifecycle across TUI/exec/resident sessions, `/peers`,
-the mode-mismatch hold/approve flow, notices in the transcript, the
-`list_sessions` and widened `send_message` tools, the coding-agent doctrine
-paragraph) is a separate workstream. This module only stores records, speaks
-the wire protocol, and renders text; nothing here queues a message, decides
-whether to wake an idle session, or injects anything into a running turn.
+The [interactive CLI](../cli/peer-messaging.md) now supplies the local endpoint
+lifecycle, bounded inbox, same-project and same-mode policy, `/peers`,
+`list_sessions` and `send_session_message`. Peer context wakes a ready idle TUI
+or drains at a busy turn's provider-valid boundary. It is process-local until
+written into conversation history. The CLI refuses mode mismatches rather than
+implementing the SDK protocol's possible hold/approve flow.
+
+This SDK module remains transport and storage: it does not itself enqueue,
+start model turns, or grant approvals. Other hosts implement those policies.
+Exec, resident and scheduled sessions do not register through this CLI wiring;
+idle subscriptions, durable peer mail and external A2A routing remain separate
+contracts.

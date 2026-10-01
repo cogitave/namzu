@@ -1384,13 +1384,13 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 }
 
 /**
- * A delivered `send_message` renders as `← from parent: …` — the arrow is
+ * An accepted `send_message` renders as `← queued from parent: …` — the arrow is
  * the row's own glyph (`rowGlyph`), so only the label goes here. Every other
  * row kind keeps its own text unchanged.
  */
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
-	if (row.kind === 'system' && row.direction === 'to-child') return `from parent: ${row.text}`
+	if (row.kind === 'system' && row.direction === 'to-child') return `queued from parent: ${row.text}`
 	return row.text
 }
 

@@ -77,6 +77,7 @@ export type SlashAction =
 	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
 	 */
 	| { kind: 'agents'; args: readonly string[] }
+	| { kind: 'peers'; args: readonly string[] }
 	/** Open the session's interactive background shell list. */
 	| { kind: 'jobs' }
 	| { kind: 'settings-picker' }
@@ -737,7 +738,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				const setting = (args[1] ?? 'list').toLowerCase()
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
 					return { kind: 'composer-triggers', setting }
-				return { kind: 'message', role: 'system', content: 'Usage: /config triggers [on|off|list]' }
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Usage: /config triggers [on|off|list]',
+				}
 			}
 			return {
 				kind: 'message',
@@ -753,6 +758,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'settings',
 		description: 'View current settings and change model, reasoning or permissions.',
 		action: () => ({ kind: 'settings-picker' }),
+	},
+	{
+		name: 'peers',
+		description: 'Find and message other live terminals in this project.',
+		help: { usage: ['/peers [list|on|off]', '/peers send <ref> <message>'] },
+		action: (_ctx, args) => ({ kind: 'peers', args }),
 	},
 	{
 		name: 'agents',
@@ -947,7 +958,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'worktree',
-		help: { usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'] },
+		help: {
+			usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'],
+		},
 		description: 'List or create separate Git checkouts; fork this conversation into one.',
 		action: (_ctx, args) => ({ kind: 'worktree', args }),
 	},

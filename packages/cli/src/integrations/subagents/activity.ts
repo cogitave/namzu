@@ -51,7 +51,7 @@ export type SubagentActivityStatus =
 
 /**
  * Only value produced today: a correction or context queued with
- * `send_message`, delivered into a running child. Named for the receiving
+ * `send_message`, accepted in a running child's queue. Named for the receiving
  * surface's point of view — the child received it — so the glyph each
  * renderer picks stays unambiguous without re-reading the row's text.
  */
@@ -75,7 +75,7 @@ export type SubagentTranscriptRow =
 			readonly kind: 'system'
 			readonly text: string
 			/**
-			 * Set only for a delivered `send_message`; absent for every other
+			 * Set only for an accepted `send_message`; absent for every other
 			 * system row (agent_failed, turn_failed, the settle fallback), which
 			 * render as before.
 			 */
@@ -382,7 +382,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			viewId,
 			agentId: bounded(input.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			...(input.model?.trim()
-				? { model: bounded(input.model.trim(), MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) }
+				? {
+						model: bounded(input.model.trim(), MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+					}
 				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
@@ -522,9 +524,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	}
 
 	/**
-	 * Pushes a bounded system row recording a message delivered into a
-	 * running child, through the same `pushRow` path every other transcript
-	 * row uses. Callers own delivery: this only records that it happened, so
+	 * Pushes a bounded system row recording a message accepted for a
+	 * running child's queue, through the same `pushRow` path every other transcript
+	 * row uses. This records acceptance, not model delivery, so
 	 * it must run after the send it announces has actually succeeded — a
 	 * refused or unowned send must never call this. A `taskId` with no
 	 * matching record (already pruned, or never tracked) is a silent no-op:
@@ -834,7 +836,9 @@ function displayLabels(input: SubagentDisplayLabels): SubagentDisplayLabels {
 			: {}),
 		...(input.phaseOrder !== undefined ? { phaseOrder: input.phaseOrder } : {}),
 		...(input.phaseDetail !== undefined
-			? { phaseDetail: bounded(input.phaseDetail, MAX_IDENTITY_LABEL_CODE_UNITS) }
+			? {
+					phaseDetail: bounded(input.phaseDetail, MAX_IDENTITY_LABEL_CODE_UNITS),
+				}
 			: {}),
 	}
 }

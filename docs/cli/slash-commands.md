@@ -40,6 +40,7 @@ explain why they cannot run and are checked again when selected.
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show usage and cost for the current or latest turn; `/cost details` adds pricing and scope information. |
 | `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
+| `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this session runs, by event. |
 | `/context` | Show the latest context measurement and cleanup summary; `/context details` adds thresholds and cleanup counters. |

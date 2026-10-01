@@ -14,14 +14,11 @@ export function isOperatorUserMessage(message: Message): message is UserMessage 
 /**
  * Guidance a host hands to a turn that is already running.
  *
- * The gap this closes is narrow and was documented rather than fixed:
- * `AgentManager` has had `queueMessage` / `drainMessages` for a while, and
- * nothing in the iteration loop ever read them — the type says so in as many
- * words. So a host watching a turn go the wrong way had two options, and both
- * are worse than they sound. Cancel and start over throws away every tool
- * result the turn had already paid for. Reject through the review gate only
- * works if a tool call happens to be pending approval, and it says "no" when
- * the host wanted to say "yes, but look at this first".
+ * This tool-result channel is distinct from `inboundMessages`. The manager
+ * injects its mailbox through that callback, and query-backed agents consume
+ * it at provider-valid message boundaries. Custom agents must consume their
+ * injected callback themselves. This channel instead lets a host attach
+ * guidance to a completed tool batch without adding another user message.
  *
  * **Why the text rides on a tool result rather than arriving as a user
  * message.** A `tool_use` block must be answered by a `tool_result` with the
@@ -34,7 +31,7 @@ export function isOperatorUserMessage(message: Message): message is UserMessage 
  * attends to for tool outcomes. Steering is the same delivery with the
  * refusal removed.
  *
- * **What it deliberately is not.** It does not interrupt. The batch in flight
+ * It does not interrupt. The batch in flight
  * finishes, and the guidance lands where the model looks next. A host that
  * wants the current work stopped wants `AbortSignal`, which is a different
  * question with a different answer — and conflating the two is how "please
