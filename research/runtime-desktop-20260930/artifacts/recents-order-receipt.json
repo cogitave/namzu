@@ -1,0 +1,202 @@
+{
+  "passed": true,
+  "baseline": false,
+  "reproduced": false,
+  "scope": "Owned localhost sample preview only. Connection refresh, reversed API rows and newer saved metadata are synthetic read fixtures; no model/native operation.",
+  "steps": [
+    {
+      "label": "all indexes loaded",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-4",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-1",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-6",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-5",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-2",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "reversed API rows, equal timestamps",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "open sample-thread-6",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "return to workspace",
+      "ids": [
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5",
+        "sample-thread-6"
+      ]
+    },
+    {
+      "label": "real newer metadata may reorder",
+      "ids": [
+        "sample-thread-6",
+        "sample-thread-1",
+        "sample-thread-2",
+        "sample-thread-3",
+        "sample-thread-4",
+        "sample-thread-5"
+      ]
+    }
+  ],
+  "counts": {
+    "reads": 12,
+    "mutations": 0
+  },
+  "errors": [],
+  "beforeFix": {
+    "passed": false,
+    "baseline": true,
+    "reproduced": true,
+    "scope": "Owned localhost sample preview only. Connection refresh, reversed API rows and newer saved metadata are synthetic read fixtures; no model/native operation.",
+    "steps": [
+      {
+        "label": "all indexes loaded",
+        "ids": [
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3",
+          "sample-thread-4",
+          "sample-thread-5",
+          "sample-thread-6"
+        ]
+      },
+      {
+        "label": "open sample-thread-4",
+        "ids": [
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3",
+          "sample-thread-6",
+          "sample-thread-4",
+          "sample-thread-5"
+        ]
+      },
+      {
+        "label": "open sample-thread-1",
+        "ids": [
+          "sample-thread-6",
+          "sample-thread-4",
+          "sample-thread-5",
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3"
+        ]
+      },
+      {
+        "label": "open sample-thread-6",
+        "ids": [
+          "sample-thread-4",
+          "sample-thread-5",
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3",
+          "sample-thread-6"
+        ]
+      },
+      {
+        "label": "open sample-thread-5",
+        "ids": [
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3",
+          "sample-thread-6",
+          "sample-thread-4",
+          "sample-thread-5"
+        ]
+      },
+      {
+        "label": "open sample-thread-2",
+        "ids": [
+          "sample-thread-6",
+          "sample-thread-4",
+          "sample-thread-5",
+          "sample-thread-1",
+          "sample-thread-2",
+          "sample-thread-3"
+        ]
+      }
+    ],
+    "counts": {
+      "reads": 9,
+      "mutations": 0
+    },
+    "errors": []
+  }
+}

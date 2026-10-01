@@ -329,3 +329,23 @@ reads, blank-folder pane dismissal and narrow light reduced motion. All mutation
 counters are zero; controlled history/provider reads and events are synthetic.
 Historical captures were retained. The live server remains available and this
 correction is committed locally without a remote push.
+
+## Stable Recents order on conversation opening
+
+The next reported defect was reproduced before changing the renderer: all six
+sample conversations have equal saved timestamps, and switching project refreshes
+its records by removing and appending them. The timestamp-only sort preserved
+that changed input order, moving the clicked project's block in Recents.
+
+Recents and command search now share a saved-timestamp comparator with the
+immutable session ID as its final tie breaker. Opening a session does not create
+a visit timestamp. The regression tests exercise repeated project replacement
+with reversed returned records and retain legitimate newer-date ordering.
+
+`recents-order-proof.mjs` records the reproduced baseline and passing correction
+in separate receipts, with one inspected settled screenshot. Five cross-project
+clicks and reversed equal-date results retain all six row positions; an explicitly
+synthetic newer saved timestamp still promotes its conversation. Each click keeps
+one selected copy. There were twelve local sample catalogue reads, zero model or
+native mutations and zero page errors. Desktop typecheck, lint, all 49 tests,
+build and docs conformance passed. The live preview remains running.

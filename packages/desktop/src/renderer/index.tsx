@@ -23,6 +23,7 @@ import {
 	pluginRowId,
 } from './composer-plugins.js'
 import { Composer } from './composer.js'
+import { compareConversationRecency } from './conversation-order.js'
 import {
 	ArrowUpIcon,
 	FileDiffIcon,
@@ -975,7 +976,7 @@ function App() {
 	const commandItems: CommandPaletteItem[] = [
 		...conversations
 			.filter((view) => projects.some((item) => item.id === view.projectId))
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.sort(compareConversationRecency)
 			.map((view) => {
 				const owner = projects.find((item) => item.id === view.projectId)
 				return {

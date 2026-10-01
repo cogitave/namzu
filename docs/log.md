@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Fix** [Desktop operator](cli/desktop.md): keep equal-date conversations in a deterministic order in Recents and command search when opening another project refreshes its index. Continue ranking by saved update timestamps; opening a conversation does not create visit recency.
+
 - **Fix** [Desktop operator](cli/desktop.md): show only the accepted conversation selection in its originating Projects or Recents list, preserve collapsed project groups during command search, and omit project connection dots while retaining error recovery and shared activity indicators. Hide conversation header controls and close the detail pane on blank project routes.
 
 - **Fix** [Desktop operator](cli/desktop.md): show a neutral running-turn spinner in project conversation rows and in a separate Recents list backed by the same loaded session records and state. Retain active/running rows beyond initial list limits, keep approval indicators first and reserve stable title space. Reduced motion keeps the running indicator static.

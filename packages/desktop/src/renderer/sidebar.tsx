@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import { BrandDither } from './brand-dither.js'
+import { compareConversationRecency } from './conversation-order.js'
 import {
 	ChevronDownIcon,
 	FolderIcon,
@@ -66,13 +67,7 @@ export function Sidebar({
 	const projectById = new Map(projects.map((project) => [project.id, project]))
 	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
 		.filter((item) => projectById.has(item.projectId))
-		.sort((left, right) => {
-			const leftTime = Date.parse(left.updatedAt)
-			const rightTime = Date.parse(right.updatedAt)
-			return (
-				(Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
-			)
-		})
+		.sort(compareConversationRecency)
 		.filter((item, index) => index < 10 || item.id === sessionId || threads[item.id]?.running)
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)

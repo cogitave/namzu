@@ -153,6 +153,9 @@ timestamps. It shows the ten most recent records plus any active or running
 conversation outside that limit. A recent row opens the same conversation as its project row and reads the
 same session state; it does not create another session. Recency reflects loaded
 index metadata rather than an inferred visit history or live-event timestamp.
+Equal timestamps use the immutable session ID as a final ordering key in Recents
+and command search. Opening a conversation or refreshing a project index does
+not reshuffle tied records; a newer saved update timestamp can change the order.
 Idle timestamps appear on hover or keyboard focus. Running turns show a small
 neutral spinner at the right of both rows; stopping the turn clears both
 indicators even while another conversation is open. Approval requests retain
