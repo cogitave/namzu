@@ -1,0 +1,24 @@
+
+ █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+ █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0
+
+ Warning: Auto-approve tools — tools run without asking. Use /permissions to
+ change this.
+
+ ↳ Message from project [a4ace8]: PEER_HELLO_719
+
+ ! Error: PEER_FAILURE_FIXTURE_719
+
+ · Peer messaging on · 1 pending
+   This terminal [f5490a] · idle · auto
+   project [a4ace8] · idle · auto
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                     │
+ └────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/project            gpt-5.6-luna
+
+
+
+
+

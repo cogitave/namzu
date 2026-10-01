@@ -1,0 +1,24 @@
+  ▏ ]
+
+ ✓ Send session message({"target":"01a0f4b2-9fa7-7305-95c6-d169079bfb48","messa
+   ge":"PEER_HELLO_719"}) · 0.0s
+ ⎿ {
+  ▏   "id": "01a0f4b3-2c6b-752d-ab4e-c78b7d13bc51",
+  ▏   "session_id": "01a0f4b2-9fa7-7305-95c6-d169079bfb48",
+  ▏   "status": "queued",
+  ▏   "reason": "Accepted in the live inbox; this is not proof of model
+    delivery."
+  ▏ }
+
+ ∴ SENDER_HELLO_QUEUED_719
+
+ ↳ Message from project [cefa9a] [cefa9a]: PEER_ACK_719
+
+ ∴ SENDER_ACK_CONFIRMED_719
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                     │
+ └────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/project            gpt-5.6-luna
+
+

@@ -1,0 +1,24 @@
+
+
+● Agent "Sleep then return marker" finished · 30s
+
+● The child received the correction. It says the sleep is still running and that
+  it will return CORRECTED_MARKER when the sleep finishes. That's another
+  interim result, not the final one. I'm waiting for the next completion
+  notification and won't launch or cancel anything.
+
+✻ Sautéed for 5s · done 2:18 AM
+
+● Agent "Sleep then return marker" finished · 49s
+
+● The child agent aa32bd6bf4b1b1b50 has finished and returned CORRECTED_MARKER.
+  That is the corrected value, not ORIGINAL_MARKER. The correction reached it
+  before it finished. I launched only that one child, and I didn't edit files,
+  use the network or create memories.
+
+✻ Brewed for 1s · done 2:19 AM
+                                        ✔ Update installed · Restart to update
+────────────────────────────────────────────────────────────────────────────────
+❯ what did the child return?
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ don't ask on (shift+tab to cycle) · ← 1 agent

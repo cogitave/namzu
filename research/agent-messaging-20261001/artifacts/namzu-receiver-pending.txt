@@ -1,0 +1,24 @@
+
+ █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+ █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0
+
+ Warning: Auto-approve tools — tools run without asking. Use /permissions to
+ change this.
+
+ › RECEIVER_BUSY
+
+ · Peer messaging on · 1 pending
+   This terminal [cefa9a] · busy · auto
+   project [333d92] [333d92] · idle · auto
+ Working (14s · esc to interrupt)
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                     │
+ └────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/project            gpt-5.6-luna
+
+
+
+
+
+

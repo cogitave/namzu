@@ -1,0 +1,24 @@
+  - What I didn't do: I didn't spawn or resume a session, edit files, use shell
+    or network tools, or create memories. I only loaded the SendMessage tool
+    schema first.
+
+✻ Brewed for 5s · done 2:22 AM
+
+› Message from @messaging-receiver: PEER_ACK_719 — receiver session got your
+PEER_HELLO_719. (ctrl+o to expand)
+
+● The receiver replied, so the message was delivered and read. The reply came
+  from messaging-receiver (from="uds:/run/user/1000/cc-socks/1216476.sock", mode
+  prompting):
+
+  ▎ PEER_ACK_719 — receiver session got your PEER_HELLO_719.
+
+  That confirms delivery, which the earlier receipt alone couldn't. The reply
+  asks nothing of me, so I'm taking no further action and sending nothing back.
+
+✻ Brewed for 2s · done 2:22 AM
+
+───────────────────────────────────────────────────────────── messaging-sender ─
+❯ Check whether the receiver acknowledged PEER_HELLO_719
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ don't ask on (shift+tab to cycle) · ← 1 agent

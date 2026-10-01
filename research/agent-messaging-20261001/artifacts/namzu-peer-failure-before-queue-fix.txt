@@ -1,0 +1,35 @@
+
+ █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+ █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0
+
+ Warning: Auto-approve tools — tools run without asking. Use /permissions to
+ change this.
+
+ ↳ Message from project [bcf876]: PEER_HELLO_719
+
+ ! Error: PEER_FAILURE_FIXTURE_719
+
+ · Peer messaging on · 0 pending
+   This terminal [3c22c4] · idle · auto
+   project [bcf876] · idle · auto
+
+ · Peer messaging on · 1 pending
+   This terminal [3c22c4] · idle · auto
+   project [bcf876] · idle · auto
+
+ › CONTINUE_719
+
+ ∴ RECEIVER_READY_719
+
+ ↳ Message from project [bcf876]: SECOND_PENDING_719
+
+ ! Error: PEER_FAILURE_FIXTURE_719
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────┐
+ │ Queued · paused after a failed turn                                        │
+ │   ↳ Message from project [bcf876]: SECOND_PENDING_719                      │
+ │ › Type a message… (/help for commands)                                     │
+ └────────────────────────────────────────────────────────────────────────────┘
+ ⏵⏵ Auto-approve tools (shift+tab to cycle) · …/project            gpt-5.6-luna
+
+
