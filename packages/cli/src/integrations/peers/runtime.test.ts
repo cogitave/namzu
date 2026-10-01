@@ -231,6 +231,29 @@ it('excludes other projects even in the same OS-user registry', async () => {
 	expect(await foreign.send(f.receiver.ref, 'foreign')).toMatchObject({
 		status: 'refused',
 	})
+	// Bypass the sender's discovery filter: the receiving host must enforce
+	// project scope even for a correctly authenticated live protocol sender.
+	const records = readPeerRecords(join(f.home, 'run', 'sessions'))
+	const receiver = records.find((record) => record.sessionId === f.receiver.id)!
+	const from = records.find((record) => record.sessionId === foreign.id)!
+	expect(
+		await new PeerClient().deliver(receiver, {
+			id: 'foreign-direct-delivery',
+			text: 'outside project',
+			from: {
+				sessionId: from.sessionId,
+				ref: from.ref,
+				name: from.title ?? from.ref,
+				address: from.address,
+				mode: from.permissionMode,
+				kind: from.kind,
+			},
+		}),
+	).toMatchObject({
+		kind: 'responded',
+		status: 'refused',
+		reason: 'Only live terminals in the same project may send here.',
+	})
 	expect(f.receiver.pending).toBe(0)
 })
 
