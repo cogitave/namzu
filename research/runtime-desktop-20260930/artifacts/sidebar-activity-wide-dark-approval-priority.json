@@ -1,0 +1,597 @@
+{
+  "width": 1609,
+  "height": 973,
+  "dark": true,
+  "reduced": false,
+  "overflow": false,
+  "recentsOutsideProjects": true,
+  "recentsFollowsProjects": true,
+  "recentIds": [
+    "sample-thread-6",
+    "sample-thread-2",
+    "sample-thread-4",
+    "sample-thread-1",
+    "sample-thread-3",
+    "sample-thread-5"
+  ],
+  "rows": [
+    {
+      "id": "sample-thread-1",
+      "collection": "projects",
+      "description": "Approval needed",
+      "statusId": "_r_1p_",
+      "active": null,
+      "row": {
+        "x": 80,
+        "y": 204,
+        "width": 247,
+        "height": 32,
+        "top": 204,
+        "right": 327,
+        "bottom": 236,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 210.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 210.25,
+        "right": 283,
+        "bottom": 229.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 213,
+        "width": 28,
+        "height": 14,
+        "top": 213,
+        "right": 319,
+        "bottom": 227,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-2",
+      "collection": "projects",
+      "description": "Running",
+      "statusId": "_r_1q_",
+      "active": null,
+      "row": {
+        "x": 80,
+        "y": 237,
+        "width": 247,
+        "height": 32,
+        "top": 237,
+        "right": 327,
+        "bottom": 269,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 243.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 243.25,
+        "right": 283,
+        "bottom": 262.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 247,
+        "width": 28,
+        "height": 12,
+        "top": 247,
+        "right": 319,
+        "bottom": 259,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": {
+        "role": "img",
+        "label": "Running",
+        "ariaHidden": "false",
+        "cssWidth": "12px",
+        "cssHeight": "12px",
+        "color": "rgb(163, 163, 163)",
+        "animation": "thread-running-turn",
+        "duration": "1s",
+        "iterations": "infinite"
+      }
+    },
+    {
+      "id": "sample-thread-3",
+      "collection": "projects",
+      "description": "Needs attention",
+      "statusId": "_r_1r_",
+      "active": null,
+      "row": {
+        "x": 80,
+        "y": 270,
+        "width": 247,
+        "height": 32,
+        "top": 270,
+        "right": 327,
+        "bottom": 302,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 276.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 276.25,
+        "right": 283,
+        "bottom": 295.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 277.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 277.75,
+        "right": 319,
+        "bottom": 294.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-4",
+      "collection": "projects",
+      "description": null,
+      "statusId": null,
+      "active": "page",
+      "row": {
+        "x": 80,
+        "y": 344,
+        "width": 247,
+        "height": 32,
+        "top": 344,
+        "right": 327,
+        "bottom": 376,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 350.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 350.25,
+        "right": 283,
+        "bottom": 369.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 351.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 351.75,
+        "right": 319,
+        "bottom": 368.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-5",
+      "collection": "projects",
+      "description": null,
+      "statusId": null,
+      "active": null,
+      "row": {
+        "x": 80,
+        "y": 377,
+        "width": 247,
+        "height": 32,
+        "top": 377,
+        "right": 327,
+        "bottom": 409,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 383.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 383.25,
+        "right": 283,
+        "bottom": 402.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 384.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 384.75,
+        "right": 319,
+        "bottom": 401.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-6",
+      "collection": "projects",
+      "description": null,
+      "statusId": null,
+      "active": null,
+      "row": {
+        "x": 80,
+        "y": 451,
+        "width": 247,
+        "height": 32,
+        "top": 451,
+        "right": 327,
+        "bottom": 483,
+        "left": 80
+      },
+      "title": {
+        "x": 88,
+        "y": 457.25,
+        "width": 195,
+        "height": 19.5,
+        "top": 457.25,
+        "right": 283,
+        "bottom": 476.75,
+        "left": 88
+      },
+      "slot": {
+        "x": 291,
+        "y": 458.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 458.75,
+        "right": 319,
+        "bottom": 475.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-6",
+      "collection": "recents",
+      "description": null,
+      "statusId": null,
+      "active": null,
+      "row": {
+        "x": 56,
+        "y": 535,
+        "width": 271,
+        "height": 32,
+        "top": 535,
+        "right": 327,
+        "bottom": 567,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 541.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 541.25,
+        "right": 283,
+        "bottom": 560.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 542.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 542.75,
+        "right": 319,
+        "bottom": 559.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-2",
+      "collection": "recents",
+      "description": "Running",
+      "statusId": "_r_1s_",
+      "active": null,
+      "row": {
+        "x": 56,
+        "y": 568,
+        "width": 271,
+        "height": 32,
+        "top": 568,
+        "right": 327,
+        "bottom": 600,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 574.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 574.25,
+        "right": 283,
+        "bottom": 593.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 578,
+        "width": 28,
+        "height": 12,
+        "top": 578,
+        "right": 319,
+        "bottom": 590,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": {
+        "role": "img",
+        "label": "Running",
+        "ariaHidden": "false",
+        "cssWidth": "12px",
+        "cssHeight": "12px",
+        "color": "rgb(163, 163, 163)",
+        "animation": "thread-running-turn",
+        "duration": "1s",
+        "iterations": "infinite"
+      }
+    },
+    {
+      "id": "sample-thread-4",
+      "collection": "recents",
+      "description": null,
+      "statusId": null,
+      "active": "page",
+      "row": {
+        "x": 56,
+        "y": 601,
+        "width": 271,
+        "height": 32,
+        "top": 601,
+        "right": 327,
+        "bottom": 633,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 607.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 607.25,
+        "right": 283,
+        "bottom": 626.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 608.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 608.75,
+        "right": 319,
+        "bottom": 625.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-1",
+      "collection": "recents",
+      "description": "Approval needed",
+      "statusId": "_r_1t_",
+      "active": null,
+      "row": {
+        "x": 56,
+        "y": 634,
+        "width": 271,
+        "height": 32,
+        "top": 634,
+        "right": 327,
+        "bottom": 666,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 640.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 640.25,
+        "right": 283,
+        "bottom": 659.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 643,
+        "width": 28,
+        "height": 14,
+        "top": 643,
+        "right": 319,
+        "bottom": 657,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-3",
+      "collection": "recents",
+      "description": "Needs attention",
+      "statusId": "_r_1u_",
+      "active": null,
+      "row": {
+        "x": 56,
+        "y": 667,
+        "width": 271,
+        "height": 32,
+        "top": 667,
+        "right": 327,
+        "bottom": 699,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 673.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 673.25,
+        "right": 283,
+        "bottom": 692.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 674.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 674.75,
+        "right": 319,
+        "bottom": 691.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    },
+    {
+      "id": "sample-thread-5",
+      "collection": "recents",
+      "description": null,
+      "statusId": null,
+      "active": null,
+      "row": {
+        "x": 56,
+        "y": 700,
+        "width": 271,
+        "height": 32,
+        "top": 700,
+        "right": 327,
+        "bottom": 732,
+        "left": 56
+      },
+      "title": {
+        "x": 64,
+        "y": 706.25,
+        "width": 219,
+        "height": 19.5,
+        "top": 706.25,
+        "right": 283,
+        "bottom": 725.75,
+        "left": 64
+      },
+      "slot": {
+        "x": 291,
+        "y": 707.75,
+        "width": 28,
+        "height": 16.5,
+        "top": 707.75,
+        "right": 319,
+        "bottom": 724.25,
+        "left": 291
+      },
+      "slotWidth": "28px",
+      "titleOverflow": "ellipsis",
+      "running": null
+    }
+  ],
+  "api": {
+    "reads": [
+      "sample-app",
+      "sample-docs",
+      "sample-workspace",
+      "sample-app",
+      "sample-docs"
+    ],
+    "jobs": [
+      "sample-thread-1",
+      "sample-thread-2",
+      "sample-thread-4"
+    ],
+    "opened": [
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-1"
+      },
+      {
+        "projectId": "sample-app",
+        "sessionId": "sample-thread-2"
+      },
+      {
+        "projectId": "sample-docs",
+        "sessionId": "sample-thread-4"
+      }
+    ],
+    "events": [
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-1",
+        "running": true,
+        "queued": [],
+        "revision": 1
+      },
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-2",
+        "running": true,
+        "queued": [],
+        "revision": 1
+      },
+      {
+        "kind": "state",
+        "sessionId": "sample-thread-3",
+        "running": false,
+        "queued": [],
+        "error": "Explicit synthetic failure; no model was called.",
+        "revision": 1
+      },
+      {
+        "kind": "permission",
+        "request": {
+          "id": "qa-synthetic-approval",
+          "sessionId": "sample-thread-1",
+          "projectId": "sample-app",
+          "calls": [
+            {
+              "id": "qa-synthetic-call",
+              "name": "QA explicit synthetic action",
+              "input": {
+                "preview": true
+              },
+              "isDestructive": false
+            }
+          ]
+        },
+        "revision": 2
+      }
+    ],
+    "forbidden": {
+      "send": 0,
+      "cancel": 0,
+      "approve": 0,
+      "stopJob": 0,
+      "pluginChanges": 0
+    }
+  }
+}

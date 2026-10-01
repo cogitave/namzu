@@ -1,8 +1,10 @@
+import { useId } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { ShieldQuestionIcon } from './icons.js'
+import { LoaderCircleIcon, ShieldQuestionIcon } from './icons.js'
 import { cn } from './lib/utils.js'
+import './thread-card.css'
 
 export function ThreadCard({
 	conversation,
@@ -17,6 +19,7 @@ export function ThreadCard({
 	active: boolean
 	onClick: () => void
 }) {
+	const statusId = useId()
 	const age = Date.now() - Date.parse(conversation.updatedAt)
 	const time = !Number.isFinite(age)
 		? ''
@@ -27,14 +30,23 @@ export function ThreadCard({
 				: age < 86400000
 					? `${Math.floor(age / 3600000)}h`
 					: `${Math.floor(age / 86400000)}d`
+	const status = thread?.permissions.length
+		? 'Approval needed'
+		: thread?.running
+			? 'Running'
+			: thread?.error
+				? 'Needs attention'
+				: undefined
 	return (
 		<li
 			data-thread-item
+			data-session-id={conversation.id}
 			className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]"
 		>
 			<button
 				type="button"
 				aria-label={conversation.title}
+				aria-describedby={status ? statusId : undefined}
 				aria-current={active ? 'page' : undefined}
 				onClick={onClick}
 				className={cn(
@@ -44,6 +56,11 @@ export function ThreadCard({
 						: 'bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover',
 				)}
 			>
+				{status && (
+					<span id={statusId} className="sr-only">
+						{status}
+					</span>
+				)}
 				<div className="conversation-row" title={`${conversation.title} · ${project.name}`}>
 					<span className="conversation-row-title">{conversation.title}</span>
 					<span className="conversation-row-state">
@@ -53,7 +70,12 @@ export function ThreadCard({
 								aria-label="Approval needed"
 							/>
 						) : thread?.running ? (
-							<span className="activity" aria-label="Working" />
+							<LoaderCircleIcon
+								className="thread-running-indicator"
+								role="img"
+								aria-label="Running"
+								aria-hidden={false}
+							/>
 						) : (
 							<span className="conversation-age">{time}</span>
 						)}

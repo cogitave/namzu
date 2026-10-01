@@ -2,6 +2,8 @@
 
 ## 2026-10-01
 
+- **Fix** [Desktop operator](cli/desktop.md): show a neutral running-turn spinner in project conversation rows and in a separate Recents list backed by the same loaded session records and state. Retain active/running rows beyond initial list limits, keep approval indicators first and reserve stable title space. Reduced motion keeps the running indicator static.
+
 - **Fix** [Desktop operator](cli/desktop.md): restore Public and Personal tabs, keeping catalogue data separate from project/user installation locations. Plugin rows and installed sidebar names open a full detail page; the row menu contains Try now, Manage and Uninstall. Try now navigates only to an existing conversation with the plugin enabled; unsupported catalogue/uninstall operations are explicit. Returning retains search, collection and focus, and context changes invalidate the selected detail. Reserve room for the narrow sidebar's Close control beside Search.
 
 - **Fix** [Desktop operator](cli/desktop.md): restore the subtle divider on the sidebar's right edge, retaining the rail's borderless surface and rounded content corners.

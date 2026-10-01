@@ -259,3 +259,36 @@ lint and tests (including 47 desktop tests), docs conformance for 129 pages, ext
 and the final desktop production build passed. The packaged renderer retains
 its production CSP and excludes the development preview and sample catalogue.
 The live renderer server is retained; no push or publication occurred.
+
+## Session activity in Projects and Recents
+
+The user supplied a reference with a small trailing spinner and the same
+conversation under both Projects and Recents. A shared ThreadCard now renders
+a neutral 12px running indicator from the existing session projection, retaining
+approval priority and visible errors. A fixed 28px state slot keeps the title
+and row width stable; reduced motion leaves the indicator static. Background
+jobs, pending tools and queues do not substitute for a running turn.
+
+Recents is a separate sidebar collection of the loaded ConversationView records
+across known projects, deduplicated by session ID and sorted by saved updatedAt.
+Its first ten records retain active/running sessions outside that cap. Project
+lists similarly retain running sessions beyond their initial five rows. Both
+occurrences use the same session state and openConversation callback; they are
+display copies of one session. The existing motion implementation owns each
+list separately. Recency does not claim that an unloaded project's index or an
+unobserved external session has been read, and does not invent live timestamps.
+
+`sidebar-activity-proof.mjs` passed with three screenshot/measurement pairs in
+an isolated localhost preview: wide dark concurrent work, approval priority,
+and narrow light reduced motion. Checks covered inactive session navigation,
+stopping both occurrences, error state, stable long-title geometry, independent
+Recents ordering and a running session outside both initial caps. The proof
+used six sample catalogue reads, three synthetic job reads and eleven explicit
+synthetic events; there were zero model sends, cancellations, approval decisions
+or native mutations. Historical captures were retained; five old proof clicks
+were scoped to Projects because conversation names now intentionally repeat.
+
+Workspace typecheck, lint and tests passed, alongside the desktop production
+build, docs conformance and external-name audit. Production CSP and the exclusion
+of development sample fixtures remain intact. The live preview stays running;
+no remote push, publication or live job modification was performed.

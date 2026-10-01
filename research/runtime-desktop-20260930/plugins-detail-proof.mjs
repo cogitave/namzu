@@ -252,7 +252,7 @@ try {
   results.collections = 'Public uses explicit catalogue records; Personal includes both installation scopes; omitted public data shows the unavailable state rather than relabelling project plugins.'
 
   await rail('Spaces').click()
-  await page.getByRole('button', { name: 'Refine navigation', exact: true }).click()
+  await page.locator('.sidebar-project-list').getByRole('button', { name: 'Refine navigation', exact: true }).click()
   await page.getByRole('textbox', { name: 'Message Namzu', exact: true }).fill('Plugin Try now retained sample draft')
   await page.evaluate(() => { window.__pluginDetailsQa.mode = 'guarded' })
   await rail('Plugins').click()

@@ -116,7 +116,8 @@
 	list-style: none;
 }
 
-.sidebar-project-list .sidebar-conversation-button {
+.sidebar-project-list .sidebar-conversation-button,
+.sidebar-recent-list .sidebar-conversation-button {
 	border-radius: 8px;
 	transition: background-color 150ms ease, color 150ms ease;
 }
@@ -125,24 +126,40 @@
 	background: var(--sidebar-row-active);
 }
 
-.sidebar-project-list .conversation-row {
+.sidebar-project-list .conversation-row,
+.sidebar-recent-list .conversation-row {
 	min-height: 32px;
 	padding: 6px 8px;
 	gap: 8px;
 }
 
-.sidebar-project-list .conversation-row-state {
+.sidebar-project-list .conversation-row-state,
+.sidebar-recent-list .conversation-row-state {
 	min-width: 28px;
 	justify-content: flex-end;
 }
 
-.sidebar-project-list .conversation-age {
+.sidebar-project-list .conversation-age,
+.sidebar-recent-list .conversation-age {
 	opacity: 0;
 }
 
 .sidebar-project-list .sidebar-conversation-button:hover .conversation-age,
-.sidebar-project-list .sidebar-conversation-button:focus-visible .conversation-age {
+.sidebar-project-list .sidebar-conversation-button:focus-visible .conversation-age,
+.sidebar-recent-list .sidebar-conversation-button:hover .conversation-age,
+.sidebar-recent-list .sidebar-conversation-button:focus-visible .conversation-age {
 	opacity: 1;
+}
+.sidebar-recents {
+	padding: 0 var(--sidebar-content-inset) 20px;
+}
+.sidebar-recents .sidebar-section-title {
+	margin: 8px 8px 10px;
+}
+.sidebar-recent-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
 
 .sidebar-list-disclosure > button {
@@ -171,6 +188,8 @@
 	.sidebar-project-heading,
 	.sidebar-project-list .sidebar-conversation-button,
 	.sidebar-project-list .conversation-age,
+	.sidebar-recent-list .sidebar-conversation-button,
+	.sidebar-recent-list .conversation-age,
 	.sidebar-list-disclosure > button,
 	.sidebar-project-heading .project-row,
 	.sidebar-project-folder > svg,

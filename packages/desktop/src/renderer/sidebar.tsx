@@ -60,6 +60,17 @@ export function Sidebar({
 		project,
 		rows: conversations.filter((item) => item.projectId === project.id),
 	}))
+	const projectById = new Map(projects.map((project) => [project.id, project]))
+	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
+		.filter((item) => projectById.has(item.projectId))
+		.sort((left, right) => {
+			const leftTime = Date.parse(left.updatedAt)
+			const rightTime = Date.parse(right.updatedAt)
+			return (
+				(Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+			)
+		})
+		.filter((item, index) => index < 10 || item.id === sessionId || threads[item.id]?.running)
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
 		: ''
@@ -242,6 +253,18 @@ export function Sidebar({
 							</button>
 						)}
 					</nav>
+					{recent.length > 0 && (
+						<section className="sidebar-recents" aria-label="Recent conversations">
+							<h2 className="sidebar-section-title">Recents</h2>
+							<RecentList
+								rows={recent}
+								projects={projectById}
+								threads={threads}
+								sessionId={sessionId}
+								onConversation={onConversation}
+							/>
+						</section>
+					)}
 				</div>
 			</aside>
 		</>
@@ -265,24 +288,12 @@ function ThreadList({
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
 }) {
-	const limitedRows = rows.filter((item, index) => index < 5 || item.id === sessionId)
+	const limitedRows = rows.filter(
+		(item, index) => index < 5 || item.id === sessionId || threads[item.id]?.running,
+	)
 	const shownRows = expanded ? rows : limitedRows
 	const hasExtra = limitedRows.length < rows.length
-	const list = useRef<HTMLUListElement>(null)
-	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
-	useLayoutEffect(() => {
-		if (!list.current) return
-		const instance = createSidebarListMotion(list.current)
-		motion.current = instance
-		instance.update(false)
-		return () => {
-			instance.dispose()
-			motion.current = null
-		}
-	}, [])
-	useLayoutEffect(() => {
-		motion.current?.update(true)
-	})
+	const list = useThreadListMotion()
 	return (
 		<ul
 			ref={list}
@@ -313,4 +324,60 @@ function ThreadList({
 			)}
 		</ul>
 	)
+}
+
+function RecentList({
+	rows,
+	projects,
+	threads,
+	sessionId,
+	onConversation,
+}: {
+	rows: ConversationView[]
+	projects: ReadonlyMap<string, ProjectView>
+	threads: Record<string, ThreadState>
+	sessionId: string
+	onConversation: (view: ConversationView) => void
+}) {
+	const list = useThreadListMotion()
+	return (
+		<ul
+			ref={list}
+			className="sidebar-recent-list relative flex flex-col gap-px"
+			aria-label="Recent conversations"
+		>
+			{rows.map((item) => {
+				const project = projects.get(item.projectId)
+				return project ? (
+					<ThreadCard
+						key={item.id}
+						conversation={item}
+						project={project}
+						thread={threads[item.id]}
+						active={item.id === sessionId}
+						onClick={() => onConversation(item)}
+					/>
+				) : null
+			})}
+		</ul>
+	)
+}
+
+function useThreadListMotion() {
+	const list = useRef<HTMLUListElement>(null)
+	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
+	useLayoutEffect(() => {
+		if (!list.current) return
+		const instance = createSidebarListMotion(list.current)
+		motion.current = instance
+		instance.update(false)
+		return () => {
+			instance.dispose()
+			motion.current = null
+		}
+	}, [])
+	useLayoutEffect(() => {
+		motion.current?.update(true)
+	})
+	return list
 }

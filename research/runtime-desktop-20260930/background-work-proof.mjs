@@ -45,7 +45,7 @@ async function settle() {
 }
 try {
   await page.goto(new URL('preview', origin).href)
-  await page.getByRole('button', { name: 'Refine navigation', exact: true }).click()
+  await page.locator('.sidebar-project-list').getByRole('button', { name: 'Refine navigation', exact: true }).click()
   await expect(page.locator('[data-conversation-title]')).toContainText('Refine navigation')
   await page.getByRole('textbox', { name: 'Message Namzu', exact: true }).fill('A retained draft while background work opens and closes.')
   await page.evaluate(() => document.fonts.ready)

@@ -193,7 +193,7 @@ try {
   await page.keyboard.press('Escape')
   await expect(input()).toHaveValue('Rail QA retained landing draft')
 
-  await page.getByRole('button', { name: 'Refine navigation', exact: true }).click()
+  await page.locator('.sidebar-project-list').getByRole('button', { name: 'Refine navigation', exact: true }).click()
   await input().fill('Rail QA retained conversation draft')
   await control('Spaces').click()
   await assertNoCommand()
@@ -203,7 +203,7 @@ try {
   await control('Home').click()
   await expect(input()).toHaveValue('Rail QA retained landing draft')
   assert.equal(await page.evaluate(() => window.namzu.draft('sample-thread-1')), 'Rail QA retained conversation draft')
-  await page.getByRole('button', { name: 'Refine navigation', exact: true }).click()
+  await page.locator('.sidebar-project-list').getByRole('button', { name: 'Refine navigation', exact: true }).click()
   await expect(input()).toHaveValue('Rail QA retained conversation draft')
   await capture('wide-dark-retained-conversation')
 
@@ -222,7 +222,7 @@ try {
   await expect(command()).toBeVisible()
   await page.keyboard.press('Escape')
   await control('Spaces').click()
-  await page.getByRole('button', { name: 'Refine navigation', exact: true }).click()
+  await page.locator('.sidebar-project-list').getByRole('button', { name: 'Refine navigation', exact: true }).click()
   await expect(input()).toHaveValue('Rail QA retained conversation draft')
   const counts = await page.evaluate(() => window.__railQa)
   assert.equal(counts.pluginChanges, 0)

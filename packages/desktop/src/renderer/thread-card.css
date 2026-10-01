@@ -1,0 +1,30 @@
+.sidebar-conversation-button .conversation-row-state {
+	width: 28px;
+	min-width: 28px;
+	flex: 0 0 28px;
+	justify-content: flex-end;
+}
+.sidebar-conversation-button .conversation-age {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.thread-running-indicator {
+	display: block;
+	width: 12px;
+	height: 12px;
+	flex: none;
+	color: var(--sidebar-muted-foreground);
+	animation: thread-running-turn 1s linear infinite;
+}
+@keyframes thread-running-turn {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.thread-running-indicator {
+		animation: none;
+	}
+}

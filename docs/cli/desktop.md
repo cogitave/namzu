@@ -138,8 +138,20 @@ available width. Unsupported artifact and child-session inventories are absent.
 The sidebar uses one folder glyph per project and plain indented conversation
 titles. Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
-rows. Idle timestamps appear on hover or keyboard focus; running work, reviews
-and errors remain visible.
+rows. Active and running conversations remain visible beyond that initial
+limit. Recents repeats the loaded conversation records across known projects,
+deduplicated by session ID and sorted by their saved update timestamps. It shows
+the ten most recent records plus any active or running conversation outside that
+limit. A recent row opens the same conversation as its project row and reads the
+same session state; it does not create another session. Recency reflects loaded
+index metadata rather than an inferred visit history or live-event timestamp.
+Idle timestamps appear on hover or keyboard focus. Running turns show a small
+neutral spinner at the right of both rows; stopping the turn clears both
+indicators even while another conversation is open. Approval requests retain
+their approval icon priority. Pending tools, queued messages and background
+shells alone do not imply a running turn. The state area keeps a fixed width to
+avoid moving the truncated title; reduced motion leaves the running indicator
+visible without rotation. Errors remain visible.
 Search sits at the right of the sidebar brand header. Clicking it or pressing
 Ctrl/Cmd+K opens the same centred command
 palette. It searches conversation titles and project names, and includes New
