@@ -1,8 +1,12 @@
 import { execFile, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
+import { type DesktopDiagnosticSink, DesktopDiagnostics } from './diagnostics.js'
 import { RuntimeClient } from './rpc-client.js'
 vi.mock('node:child_process', async (importOriginal) => {
 	const original = await importOriginal<typeof import('node:child_process')>()
@@ -10,13 +14,18 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 const nativePlatform = process.platform
 const clients: RuntimeClient[] = []
+const diagnosticRoots: string[] = []
 const fixture = fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))
-function client(env = process.env) {
-	const runtime = new RuntimeClient(process.cwd(), {
-		program: process.execPath,
-		args: [fixture],
-		env,
-	})
+function client(env = process.env, diagnostics?: DesktopDiagnosticSink) {
+	const runtime = new RuntimeClient(
+		process.cwd(),
+		{
+			program: process.execPath,
+			args: [fixture],
+			env,
+		},
+		diagnostics,
+	)
 	clients.push(runtime)
 	return runtime
 }
@@ -26,6 +35,7 @@ afterEach(async () => {
 	vi.mocked(spawn).mockClear()
 	vi.mocked(execFile).mockClear()
 	await Promise.all(clients.splice(0).map((runtime) => runtime.close()))
+	for (const root of diagnosticRoots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 it('decodes a response split within UTF-8 and correlates actual process replies', async () => {
 	const runtime = client()
@@ -60,7 +70,67 @@ it('fails initialization before exposing an incompatible runtime', async () => {
 	)
 })
 
-function windowsFixture() {
+it('persists a handled actual CLI RPC failure without prompt, error payload or credentials', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-desktop-rpc-diagnostics-'))
+	diagnosticRoots.push(root)
+	const sink = new DesktopDiagnostics(root)
+	const runtime = client(process.env, sink)
+	await runtime.start()
+	await expect(
+		runtime.request('namzu/pals/computer/start', {
+			prompt: 'PRIVATE_PROMPT_FIXTURE',
+			token: 'PRIVATE_TOKEN_FIXTURE',
+		}),
+	).rejects.toThrow('local Docker')
+	const text = readFileSync(sink.path, 'utf8')
+	const failed = text
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line))
+		.find((record) => record.eventName === 'namzu.desktop.cli_request_failed')
+	expect(failed.attributes).toMatchObject({
+		'namzu.desktop.operation': 'namzu/pals/computer/start',
+		'namzu.desktop.request': 2,
+		'namzu.desktop.rpcCode': -32603,
+		'namzu.desktop.failure.reason': 'docker-engine-or-image-required',
+		'namzu.desktop.connection': expect.stringMatching(/^[0-9a-f-]{36}$/),
+	})
+	for (const privateText of [
+		'PRIVATE_PROMPT_FIXTURE',
+		'PRIVATE_TOKEN_FIXTURE',
+		'SECRET_DIAGNOSTIC_FIXTURE',
+		'private prompt payload',
+	])
+		expect(text).not.toContain(privateText)
+	await runtime.close()
+	expect(readFileSync(sink.path, 'utf8')).not.toContain('namzu.desktop.cli_transport_failed')
+})
+
+it('records an actual successful RPC carrying an error turn outcome without retaining its history', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-desktop-rpc-turn-error-'))
+	diagnosticRoots.push(root)
+	const sink = new DesktopDiagnostics(root)
+	const runtime = client(process.env, sink)
+	await runtime.start()
+	expect(
+		await runtime.request('session/prompt', { prompt: 'Fail turn with fixture' }),
+	).toMatchObject({ stopReason: 'error' })
+	const text = readFileSync(sink.path, 'utf8')
+	const failed = text
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line))
+		.find((record) => record.eventName === 'namzu.desktop.cli_turn_failed')
+	expect(failed.attributes).toMatchObject({
+		'namzu.desktop.operation': 'session/prompt',
+		'namzu.desktop.request': 2,
+		'namzu.desktop.failure.reason': 'turn-failed',
+	})
+	expect(text).not.toContain('PRIVATE_TURN_HISTORY_FIXTURE')
+	expect(text).not.toContain('Fail turn with fixture')
+})
+
+function windowsFixture(diagnostics?: DesktopDiagnosticSink) {
 	Object.defineProperty(process, 'platform', { value: 'win32' })
 	const child = Object.assign(new EventEmitter(), {
 		pid: 7345,
@@ -95,7 +165,10 @@ function windowsFixture() {
 		)
 	})
 	vi.mocked(spawn).mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>)
-	return { child, runtime: new RuntimeClient(process.cwd(), { program: 'cmd.exe', args: [] }) }
+	return {
+		child,
+		runtime: new RuntimeClient(process.cwd(), { program: 'cmd.exe', args: [] }, diagnostics),
+	}
 }
 
 it('lets the owned Windows runtime finish its EOF cleanup without tree killing', async () => {
@@ -163,4 +236,71 @@ it('retains split UTF-8 runtime diagnostics without replacement characters', asy
 	expect((runtime as unknown as { diagnostic: string }).diagnostic).toBe('Türkçe 🧪')
 	child.emit('close', 0)
 	await runtime.close()
+})
+
+it('captures otherwise unreported CLI stderr and transport failures with connection correlation', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-desktop-rpc-stderr-'))
+	diagnosticRoots.push(root)
+	const sink = new DesktopDiagnostics(root)
+	const { child, runtime } = windowsFixture(sink)
+	await runtime.start()
+	child.stderr.emit(
+		'data',
+		Buffer.from('The provider catalogue could not be loaded. PRIVATE_STDERR_FIXTURE\n'),
+	)
+	child.emit('error', Object.assign(new Error('PRIVATE_ERROR_FIXTURE'), { code: 'ECONNRESET' }))
+	const entries = readFileSync(sink.path, 'utf8')
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line))
+	const stderr = entries.find((entry) => entry.eventName === 'namzu.desktop.cli_stderr')
+	const failed = entries.find((entry) => entry.eventName === 'namzu.desktop.cli_transport_failed')
+	expect(stderr.attributes['namzu.desktop.failure.reason']).toBe('model-catalogue-unavailable')
+	expect(failed.attributes['namzu.desktop.failure.code']).toBe('ECONNRESET')
+	expect(failed.attributes['namzu.desktop.connection']).toBe(
+		stderr.attributes['namzu.desktop.connection'],
+	)
+	expect(readFileSync(sink.path, 'utf8')).not.toContain('PRIVATE_')
+	child.emit('close', 1)
+	await runtime.close()
+})
+
+it('decodes split structured stderr lines, preserves INFO startup and flushes a final warning', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-desktop-rpc-stderr-level-'))
+	diagnosticRoots.push(root)
+	const sink = new DesktopDiagnostics(root)
+	const { child, runtime } = windowsFixture(sink)
+	await runtime.start()
+	const line = JSON.stringify({
+		timestamp: 1,
+		observedTimestamp: 1,
+		severityText: 'info',
+		severityNumber: 9,
+		body: 'ACP protocol server started',
+		scope: { name: 'cli' },
+		resource: { 'service.name': 'namzu' },
+		attributes: { content: 'PRIVATE_STRUCTURED_STDERR' },
+	})
+	child.stderr.emit('data', Buffer.from(line.slice(0, 25)))
+	expect(readFileSync(sink.path, 'utf8')).not.toContain('namzu.desktop.cli_stderr')
+	child.stderr.emit(
+		'data',
+		Buffer.from(
+			`${line.slice(25)}\n[2026-10-02T09:00:00.000Z] [INFO] [cli] ACP protocol server started\n`,
+		),
+	)
+	child.stderr.emit('data', Buffer.from('Node runtime warning, PRIVATE_FINAL_STDERR'))
+	child.emit('close', 0)
+	await runtime.close()
+	const text = readFileSync(sink.path, 'utf8')
+	const stderr = text
+		.trim()
+		.split('\n')
+		.map((value) => JSON.parse(value))
+		.filter((record) => record.eventName === 'namzu.desktop.cli_stderr')
+	expect(stderr.map((record) => record.severityText)).toEqual(['info', 'info', 'warn'])
+	for (const record of stderr.slice(0, 2))
+		expect(record.attributes).not.toHaveProperty('namzu.desktop.failure.reason')
+	expect(text).not.toContain('PRIVATE_')
+	expect(text).not.toContain('protocol-invalid')
 })

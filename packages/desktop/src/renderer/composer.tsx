@@ -42,6 +42,7 @@ export function Composer({
 	onDraftChange,
 	providers,
 	connected,
+	modelSelectionReady = connected,
 	providersLoading = false,
 	choice,
 	onChoiceChange,
@@ -80,6 +81,8 @@ export function Composer({
 	onDraftChange: (draft: string) => void
 	providers: ProviderView
 	connected: boolean
+	/** Catalogue access does not require a Pal's execution computer. */
+	modelSelectionReady?: boolean
 	providersLoading?: boolean
 	choice: ModelChoice
 	onChoiceChange: (choice: ModelChoice) => void
@@ -366,7 +369,7 @@ export function Composer({
 												providers={providers}
 												choice={choice}
 												onChange={onChoiceChange}
-												disabled={running || sending || !connected}
+												disabled={running || sending || !modelSelectionReady}
 											/>
 										</div>
 										<Popover>

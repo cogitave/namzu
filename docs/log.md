@@ -2,6 +2,8 @@
 
 ## 2026-10-02
 
+- **Fix** [Desktop Pal model selection](cli/desktop.md#operator-flow) remains available before computer startup and while paused; preserve the saved landing model during metadata loading and the claimed route of existing conversations. Add [native diagnostic logs](cli/desktop.md#diagnostic-logs) for caught IPC errors, CLI failures, asynchronous failed turns and renderer errors, with bounded storage and payload-free failure classification. Keep CLI INFO output informational. Correct development CSP sources and allow Vite's local Blob worker for live reconnection while retaining the production policy.
+
 - **Creation** [Shared Pal input ledger](sdk/pal-ingress.md), [durable activity subscriptions](sdk/pal-subscriptions.md) and [finite CLI publication](cli/pals.md#finite-activity-subscriptions): share one recipient claim across peer, host-observation and channel inputs; accept closed original facts before cursor progress, recheck independent current consent and suppress verified observation feedback. Preserve peer APIs and migrate persisted mixed ledgers with explicit old-process refusal. The SDK major changeset requires exhaustive consumers to handle the new runtime-context output kinds; CLI additions are minor.
 
 - **Creation** [Authenticated Pal channel routes](sdk/pal-channels.md) and [CLI host adapters](cli/pal-channels.md): verify each current event actor, pin exact native connection/conversation/channel/thread and authorize routing separately. Match outbound/actions to recorded owned input. Compose local HMAC fixtures and real parked tool-review decisions; no external transport is installed.

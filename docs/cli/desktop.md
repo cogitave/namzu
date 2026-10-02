@@ -45,7 +45,64 @@ $env:NAMZU_DESKTOP_CLI = (Resolve-Path .\packages\cli\dist\bin.js).Path
 pnpm --filter @namzu/desktop start
 ```
 
+Pal computers inherit the CLI's local-engine settings from this native host.
+The default is Docker. If this device uses an existing local Podman machine,
+set `NAMZU_PAL_COMPUTER_ENGINE=podman` and its verified local machine/connection
+settings before launching, as described in [Local Pal computer](../sdk/local-pal-computer.md).
+Starting a renderer development server alone does not configure that native
+host or start a Pal computer.
+
+### Diagnostic logs
+
+The native host records startup, unhandled main-process failures, renderer
+load/process failures and error-level renderer console reports, CLI transport
+and stderr diagnostics, failed CLI
+requests, unavailable capability notices, and failed IPC calls. An error
+caught and displayed by the interface is still recorded at the native IPC
+boundary. Normal process shutdown does not create a transport-failure record.
+An asynchronous turn whose successful RPC envelope carries `stopReason: error`
+also creates a failure record, without recording its returned history.
+
+Use **Help → Open diagnostic logs** in the native application menu, or
+**Ctrl+Shift+L** (**Cmd+Shift+L** on macOS). The files
+are `logs/desktop.ndjson` and `logs/desktop.previous.ndjson` inside Electron's
+normal application `userData` directory. A trusted native renderer can also
+call `window.namzu.diagnostics()` to inspect the exact file paths and whether
+storage is available. This method is absent in the browser design preview.
+No log destination override is taken from the renderer.
+
+Each NDJSON record has a fixed event/body, severity, timestamp, process
+instance and namespaced attributes. CLI request failures include the fixed
+method, connection and request correlation, numeric RPC code when supplied,
+and recognized failure reason or OS code. For example,
+`docker-engine-or-image-required`, `podman-machine-stopped`,
+`provider-not-configured` and `model-catalogue-unavailable` identify actionable
+failures. Unrecognized errors retain their safe type and `unclassified`
+reason. Raw stderr, error messages/stacks, prompts, tool inputs/results,
+credentials, project paths and URLs are never stored. Renderer reports include
+only a fixed failure kind and numeric source position.
+Startup records include the platform and selected local engine, including
+`default-docker` when `NAMZU_PAL_COMPUTER_ENGINE` is absent.
+Complete CLI stderr lines retain the SDK structured or standard pretty logger's
+recognized `debug`, `info`, `warn` or `error` level. Unknown stderr is a diagnostic
+warning. INFO/debug output has no failure attributes; the words `JSON` or
+`protocol` alone do not establish a protocol failure. Split UTF-8/line chunks
+are reassembled with a bounded buffer, and a final partial line is recorded on
+stream closure. Raw body and attribute content still remain excluded.
+
+Each file is bounded to 512 KiB; rotation retains one previous file. A burst
+above 200 records of one event per second produces one rate-limit record, then resumes in
+the next second. Files/directories request owner-only POSIX permissions;
+Windows uses the application's userData directory permissions. Redirected log
+files/directories are refused; each write checks the original directory's
+canonical identity again. Storage failure remains visible through the
+diagnostic metadata and cannot replace the original operation failure.
+
 ### Live interface development
+
+The development CSP permits the exact local reload connections and local Blob
+workers used by Vite reconnection. The bundled renderer retains its production
+policy.
 
 ```sh
 NAMZU_DESKTOP_CLI="$PWD/packages/cli/dist/bin.js" pnpm --filter @namzu/desktop dev
@@ -351,6 +408,13 @@ The provider tab browses its models without changing the current choice. Use a
 model ID remains available for custom endpoints and models absent from a list.
 Opening or searching the catalogue does not submit a model prompt or create a
 conversation. Navigating to another project or conversation closes the menu.
+An idle Pal can browse and choose models while its computer is stopped,
+unavailable or paused. Catalogue access requires its own connected, trusted
+workspace and loaded provider settings. Sending still requires a ready computer
+and an unpaused Pal; active work continues to block model changes.
+The Pal landing retains its saved model label while provider metadata loads.
+Existing conversations retain their claimed model route rather than adopting
+an edited Pal default.
 
 Sending an idle turn applies the shown
 choice before submitting the prompt. Failed selection is visible and prevents

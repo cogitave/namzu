@@ -25,6 +25,7 @@ lines.on('line', (line) => {
 	else if (method === 'session/load') reply(id, { sessionId: params.sessionId })
 	else if (method === 'session/new') reply(id, { sessionId: `session-${randomUUID()}` })
 	else if (method === 'session/prompt') {
+		if (params.prompt === 'Fail turn with fixture') { reply(id, { stopReason: 'error', history: { messages: ['PRIVATE_TURN_HISTORY_FIXTURE'] } }); return }
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })
@@ -41,6 +42,7 @@ lines.on('line', (line) => {
 		const split = bytes.indexOf(Buffer.from('ü')) + 1
 		process.stdout.write(bytes.subarray(0, split), () => process.stdout.write(bytes.subarray(split)))
 	} else if (method === 'test/malformed') process.stdout.write('invalid-json\n')
+	else if (method === 'namzu/pals/computer/start') send({ id, error: { code: -32603, message: 'A local Docker engine running Linux containers and the image are required. Synthetic token=SECRET_DIAGNOSTIC_FIXTURE and private prompt payload must not be retained.' } })
 	else if (method === 'test/exit') process.exit(0)
 	else if (method === 'test/signal') process.kill(process.pid, 'SIGTERM')
 	else if (method === 'test/wait') { /* pending until transport closes */ }

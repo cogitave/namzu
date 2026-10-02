@@ -31,6 +31,7 @@ import {
 	readChosenFile,
 	validateAttachmentBatch,
 } from './attachments.js'
+import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 
 interface PendingMessage {
@@ -86,6 +87,7 @@ export class Operator {
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
 		private readonly registryDirectory?: string,
+		private readonly diagnostics?: DesktopDiagnosticSink,
 	) {}
 	private async closeClient(client: RuntimeClient): Promise<void> {
 		await client.close()
@@ -99,7 +101,7 @@ export class Operator {
 			const cwd = this.registryDirectory ?? process.cwd()
 			await mkdir(cwd, { recursive: true, mode: 0o700 })
 			if (this.closing) throw new Error('Namzu is closing.')
-			const client = new RuntimeClient(cwd, this.command)
+			const client = new RuntimeClient(cwd, this.command, this.diagnostics)
 			this.ownedClients.add(client)
 			client.on('closed', () => {
 				if (this.registryClient === client) this.registryClient = undefined
@@ -303,7 +305,7 @@ export class Operator {
 			trusted: false,
 			status: 'connecting',
 		}
-		const client = new RuntimeClient(cwd, this.command)
+		const client = new RuntimeClient(cwd, this.command, this.diagnostics)
 		this.ownedClients.add(client)
 		const project = { view, client }
 		for (const session of this.conversations.values()) {

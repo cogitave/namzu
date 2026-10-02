@@ -43,6 +43,7 @@ import {
 } from './icons.js'
 import { JobRow } from './job-row.js'
 import { Message, MessageContent } from './message.js'
+import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
@@ -387,14 +388,12 @@ function App() {
 	const settings = savedSettings.value.options ?? {
 		permissionMode: 'prompt' as const,
 	}
-	const defaultProvider = activeProviders.selected?.id ?? activeProviders.available[0]?.id ?? ''
-	const choice = savedSettings.value.choice ?? {
-		provider: defaultProvider,
-		model:
-			activeProviders.selected?.model ||
-			activeProviders.available.find((provider) => provider.id === defaultProvider)?.defaultModel ||
-			'',
-	}
+	const choice = resolveComposerModelChoice({
+		providers: activeProviders,
+		draftChoice: savedSettings.value.choice,
+		palModel: pal?.model,
+		sessionId,
+	})
 	const modelId =
 		choice.model ||
 		activeProviders.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
@@ -1765,6 +1764,12 @@ function App() {
 								draft={draft}
 								onDraftChange={(value) => changeDraft(draftOwner, value)}
 								providers={activeProviders}
+								modelSelectionReady={
+									project.status === 'ready' &&
+									providerReady &&
+									project.trusted &&
+									!savedSettings.loading
+								}
 								connected={
 									project.status === 'ready' &&
 									(!pal || (!pal.paused && palComputer?.status === 'ready')) &&

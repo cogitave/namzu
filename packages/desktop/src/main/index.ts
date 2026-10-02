@@ -1,7 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme } from 'electron'
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import type {
 	AttachmentInput,
 	DesktopEvent,
@@ -10,6 +10,7 @@ import type {
 	PalChanges,
 	PalInput,
 } from '../shared/protocol.js'
+import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { Operator } from './operator.js'
 import { selectRendererPage } from './renderer-page.js'
 import {
@@ -21,11 +22,34 @@ import {
 } from './window-chrome.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const page = selectRendererPage({
-	isPackaged: app.isPackaged,
-	productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
-	developmentUrl: process.env.NAMZU_DESKTOP_DEV_URL,
+const diagnostics = new DesktopDiagnostics(app.getPath('userData'))
+diagnostics.record('started', {
+	engine:
+		process.env.NAMZU_PAL_COMPUTER_ENGINE === undefined
+			? 'default-docker'
+			: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'podman'
+				? 'podman'
+				: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'docker'
+					? 'docker'
+					: 'invalid',
+	platform:
+		process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux'
+			? process.platform
+			: 'other',
 })
+process.on('uncaughtExceptionMonitor', (error) => diagnostics.record('unhandled_error', { error }))
+const page = (() => {
+	try {
+		return selectRendererPage({
+			isPackaged: app.isPackaged,
+			productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
+			developmentUrl: process.env.NAMZU_DESKTOP_DEV_URL,
+		})
+	} catch (error) {
+		diagnostics.record('startup_failed', { error })
+		throw error
+	}
+})()
 let window: BrowserWindow | undefined
 const cliEntry = process.env.NAMZU_DESKTOP_CLI
 const command = cliEntry
@@ -46,6 +70,7 @@ const operator = new Operator(
 		if (window && !window.isDestroyed()) window.webContents.send('namzu:event', event)
 	},
 	app.getPath('userData'),
+	diagnostics,
 )
 function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
@@ -62,18 +87,49 @@ function saveProjects(): void {
 	renameSync(`${file}.tmp`, file)
 }
 function register(): void {
+	let sequence = 0
 	const handle = (name: string, action: (...args: never[]) => unknown) => {
-		ipcMain.handle(`namzu:${name}`, (event, ...args) => {
-			if (
-				!window ||
-				event.sender !== window.webContents ||
-				event.senderFrame !== window.webContents.mainFrame ||
-				event.senderFrame.url !== page
-			)
-				throw new Error('This window cannot control Namzu.')
-			return action(...(args as never[]))
-		})
+		ipcMain.handle(`namzu:${name}`, (event, ...args) =>
+			observeDesktopIpc(
+				diagnostics,
+				name,
+				() => {
+					if (
+						!window ||
+						event.sender !== window.webContents ||
+						event.senderFrame !== window.webContents.mainFrame ||
+						event.senderFrame.url !== page
+					)
+						throw new Error('This window cannot control Namzu.')
+					return action(...(args as never[]))
+				},
+				++sequence,
+			),
+		)
 	}
+	handle('diagnostics', () => diagnostics.view())
+	ipcMain.on('namzu:rendererDiagnostic', (event, report: unknown) => {
+		if (
+			!window ||
+			event.sender !== window.webContents ||
+			event.senderFrame !== window.webContents.mainFrame ||
+			event.senderFrame.url !== page
+		)
+			return
+		if (!report || typeof report !== 'object') return
+		const value = report as { reason?: unknown; line?: unknown; column?: unknown }
+		const reason =
+			value.reason === 'type-error' ||
+			value.reason === 'reference-error' ||
+			value.reason === 'unhandled-rejection'
+				? value.reason
+				: undefined
+		diagnostics.record('renderer_failed', {
+			reason,
+			line: typeof value.line === 'number' ? value.line : undefined,
+			column: typeof value.column === 'number' ? value.column : undefined,
+		})
+	})
 	handle('windowChrome', () => windowChrome(process.platform))
 	handle('setWindowAppearance', (appearance: unknown) => {
 		const colors = windowCaptionColors(appearance)
@@ -259,6 +315,21 @@ async function createWindow(): Promise<void> {
 		if (url !== page) event.preventDefault()
 	})
 	window.webContents.on('will-attach-webview', (event) => event.preventDefault())
+	window.webContents.on('render-process-gone', (_event, details) =>
+		diagnostics.record('renderer_process_gone', {
+			reason: 'process-ended',
+			exitCode: details.exitCode,
+		}),
+	)
+	window.webContents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
+		if (isMainFrame) diagnostics.record('renderer_load_failed', { exitCode: errorCode })
+	})
+	window.webContents.on('preload-error', (_event, _path, error) =>
+		diagnostics.record('renderer_failed', { error }),
+	)
+	window.webContents.on('console-message', (details) =>
+		observeRendererConsole(diagnostics, details),
+	)
 	window.once('ready-to-show', () => window?.show())
 	window.on('close', (event) => {
 		if (process.platform === 'darwin' || stopped) return
@@ -271,7 +342,7 @@ async function createWindow(): Promise<void> {
 	await window.loadURL(page)
 }
 app.on('activate', () => {
-	if (!window) void createWindow()
+	if (!window) void createWindow().catch((error) => diagnostics.record('startup_failed', { error }))
 })
 app.on('window-all-closed', () => {
 	if (process.platform !== 'darwin') app.quit()
@@ -290,6 +361,7 @@ app.on('before-quit', (event) => {
 		},
 		(error: unknown) => {
 			quitting = false
+			diagnostics.record('shutdown_failed', { error })
 			dialog.showErrorBox(
 				'Namzu could not stop',
 				error instanceof Error ? error.message : String(error),
@@ -307,6 +379,31 @@ void app
 				{ id: 'edit', role: 'editMenu' },
 				{ id: 'view', role: 'viewMenu' },
 				{ id: 'window', role: 'windowMenu' },
+				{
+					label: 'Help',
+					submenu: [
+						{
+							label: 'Open diagnostic logs',
+							accelerator: 'CmdOrCtrl+Shift+L',
+							click: () => {
+								void observeDesktopIpc(
+									diagnostics,
+									'openLogs',
+									async () => {
+										const error = await shell.openPath(diagnostics.directory)
+										if (error) throw new Error('Diagnostic storage is unavailable.')
+									},
+									0,
+								).catch(() =>
+									dialog.showErrorBox(
+										'Diagnostic logs unavailable',
+										diagnostics.view().notice ?? 'Could not open the diagnostic folder.',
+									),
+								)
+							},
+						},
+					],
+				},
 			]),
 		)
 		register()
@@ -318,11 +415,13 @@ void app
 			if (Array.isArray(paths))
 				for (const path of paths.slice(0, 20))
 					if (typeof path === 'string' && !quitting) await operator.openProject(path)
-		} catch {
-			/* First launch has no project catalog. */
+		} catch (error) {
+			if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'))
+				diagnostics.record('project_restore_failed', { error })
 		}
 	})
 	.catch((error: unknown) => {
+		diagnostics.record('startup_failed', { error })
 		dialog.showErrorBox(
 			'Namzu could not start',
 			error instanceof Error ? error.message : String(error),

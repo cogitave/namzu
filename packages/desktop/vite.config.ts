@@ -29,9 +29,10 @@ function localDevelopment(): Plugin {
 				if (!address || typeof address === 'string') return html
 				// The production document stays unchanged. Only this listening local
 				// server may provide modules and the renderer's HMR websocket.
+				// Reconnect pings use a local Blob worker.
 				return html.replace(
 					"connect-src 'none'",
-					`connect-src 'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port} ws://[::1]:${address.port}`,
+					`connect-src 'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port}; worker-src 'self' blob:`,
 				)
 			},
 		},

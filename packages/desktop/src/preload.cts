@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
+	diagnostics: () => invoke('diagnostics'),
 	windowChrome: () => invoke('windowChrome'),
 	setWindowAppearance: (appearance) => invoke('setWindowAppearance', appearance),
 	popupWindowMenu: (menu, anchor) => invoke('popupWindowMenu', menu, anchor),
@@ -53,3 +54,19 @@ const api: DesktopApi = {
 	},
 }
 contextBridge.exposeInMainWorld('namzu', api)
+// Report failures without transferring error text, stacks, URLs or page content.
+window.addEventListener('error', (event) => {
+	ipcRenderer.send('namzu:rendererDiagnostic', {
+		reason:
+			event.error instanceof TypeError
+				? 'type-error'
+				: event.error instanceof ReferenceError
+					? 'reference-error'
+					: undefined,
+		line: event.lineno,
+		column: event.colno,
+	})
+})
+window.addEventListener('unhandledrejection', () =>
+	ipcRenderer.send('namzu:rendererDiagnostic', { reason: 'unhandled-rejection' }),
+)

@@ -170,6 +170,8 @@ export type DesktopEvent = (
 	| { kind: 'connection'; project: ProjectView }
 ) & { readonly revision?: number }
 export interface DesktopApi {
+	/** Native diagnostic paths and storage status; never journal or raw error payloads. */
+	diagnostics?(): Promise<DesktopDiagnosticsView>
 	windowChrome(): Promise<WindowChrome>
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
@@ -230,6 +232,13 @@ export interface DesktopApi {
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	onEvent(listener: (event: DesktopEvent) => void): () => void
+}
+
+export interface DesktopDiagnosticsView {
+	path: string
+	previousPath: string
+	available: boolean
+	notice?: string
 }
 declare global {
 	interface Window {

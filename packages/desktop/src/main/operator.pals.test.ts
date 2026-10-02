@@ -238,6 +238,42 @@ it('shares metadata startup and routes computer access through the Pal workspace
 	await owner.close()
 	expect(transport.clients.every((client) => client.closed)).toBe(true)
 })
+it('loads onboarding and saved Pal catalogues without starting a computer or conversation', async () => {
+	const { owner, workspace, pal } = fixture()
+	const provider = { id: 'zen', label: 'Zen', defaultModel: 'space-bunny-free' }
+	const catalogue = {
+		models: [{ id: provider.defaultModel, label: 'Space Bunny Free' }],
+		notice: null,
+	}
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/providers/status')
+			return { available: [provider], selected: { id: provider.id, model: provider.defaultModel } }
+		if (method === 'namzu/providers/models') return catalogue
+	}
+
+	expect((await owner.palProviders()).available).toEqual([provider])
+	expect(await owner.palModels(provider.id)).toEqual(catalogue)
+	const opened = await owner.openPal(pal.id)
+	expect((await owner.providers(opened.project.id)).selected?.model).toBe(provider.defaultModel)
+	expect(await owner.models(opened.project.id, provider.id)).toEqual(catalogue)
+
+	const requests = transport.calls.filter((call) => call.method === 'namzu/providers/models')
+	expect(requests).toEqual([
+		{
+			cwd: transport.clients[0]?.cwd,
+			method: 'namzu/providers/models',
+			params: { provider: 'zen' },
+		},
+		{ cwd: workspace, method: 'namzu/providers/models', params: { provider: 'zen' } },
+	])
+	expect(requests[0]?.cwd).not.toBe(workspace)
+	expect(
+		transport.calls.some((call) =>
+			['session/new', 'session/prompt', 'namzu/pals/computer/start'].includes(call.method),
+		),
+	).toBe(false)
+})
+
 it('publishes a new conversation only after the runtime confirms its Pal claim', async () => {
 	const { owner, pal } = fixture()
 	const opened = await owner.openPal(pal.id)
