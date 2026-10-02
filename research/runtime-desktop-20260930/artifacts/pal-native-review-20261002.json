@@ -1,0 +1,79 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "callerWorkingDirectoryKind": "WSL UNC",
+  "phases": 3,
+  "checks": [
+    "fresh native CLI creates a private Pal and real SDK checkpoint park; model-requested guest change has no effect before approval",
+    "new profile revision changes purpose/model while the original conversation remains pinned to revision 1",
+    "park: owned native Pal session and actual local computer confirm shutdown",
+    "second native process restores the exact original turn and approved guest batch once under pinned model/purpose and original recorded limits",
+    "real native decision resolution pointer acknowledges the first answer; a later guest batch receives a distinct durable checkpoint and remains unexecuted",
+    "host auto mode supplies no later automatic approval through the authenticated one-batch action",
+    "resume: owned native Pal session and actual local computer confirm shutdown",
+    "third native process keeps the guest volume and duplicate action returns original durable receipt without inference or repeated effects",
+    "changed retry, forged request pointer and current consent revocation refuse before another model request or guest change",
+    "separate second approval completes the same turn; two exact tool IDs execute once each and the real guest yields a PNG",
+    "fresh host accept-edits mode retains duplicate refusal and separately applies the exact later decision",
+    "verify: owned native Pal session and actual local computer confirm shutdown"
+  ],
+  "sourceHashes": [
+    {
+      "file": "packages/p22/dist/index.js",
+      "sha256": "30b9109b06b89ae5bdee64c49e8d7da8073c97b1e2209fc6e48f0ea587edb48e"
+    },
+    {
+      "file": "packages/p0/dist/pals/agent-session.js",
+      "sha256": "da100cdddc34b3a0df97f3c1c3dfff209bd68c5ef31e9fde853badddf20a7373"
+    },
+    {
+      "file": "packages/p0/dist/pals/actions.js",
+      "sha256": "a71a93d8a0ee52be05c13067aa463060b33284f8c5f56486daa68fee9dd4a8ee"
+    },
+    {
+      "file": "packages/p0/dist/pals/review.js",
+      "sha256": "dcf98a67de14dc2bffd13c4f32d973bf00b237e34b7113f6ca28d9f11290c125"
+    },
+    {
+      "file": "packages/p22/dist/runtime/query/resume-session.js",
+      "sha256": "3a25aa929f58746db540e75fe3aca8eb458f659fdd5803ca074920306141435f"
+    },
+    {
+      "file": "packages/p22/dist/runtime/query/checkpoint.js",
+      "sha256": "99e0145e8e420c9e871c62ed68b2fe829eae2064af37538ea02ce5f2a9116f65"
+    },
+    {
+      "file": "packages/p77/dist/local-virtual-computer/index.js",
+      "sha256": "8b96cfed1337e097615401b6d2335722b874bbc151ba8a0e0152dd06b2c22e82"
+    },
+    {
+      "file": "research/runtime-desktop-20260930/windows-pal-review-proof.mjs",
+      "sha256": "3ca470941b14853507fee3cf5f04bf0bf27745310de57ddde71f7093d3b5c547"
+    }
+  ],
+  "runtimeTreeHashes": [
+    {
+      "package": "@namzu/sdk",
+      "files": 7008,
+      "sha256": "4e4decebe3acbcea9b8096fa14812479d74269f511dfdba78996139aceb7fd61"
+    },
+    {
+      "package": "@namzu/cli",
+      "files": 3684,
+      "sha256": "2bc35fd354b163d856de66ab7edf139c7a644f9361790707f1806f60da893ad5"
+    },
+    {
+      "package": "@namzu/sandbox",
+      "files": 37,
+      "sha256": "cb48219eced4946cba9bd651095aabf51c7991d6c53c7facbb590e4085ab849b"
+    }
+  ],
+  "limitations": [
+    "Built consumer snapshot, not a registry install. No dependency or engine installation.",
+    "Model inference is scripted; CLI session, SDK journal/checkpoint/replay and local guest are production code.",
+    "Authenticated actor/current consent is an explicit private host fixture, not an external channel account.",
+    "Resolution receipts prove the answer was applied, not success of arbitrary future tools.",
+    "Podman Linux container guest is not a full VM; Chromium browser sandbox and cgroup quotas remain disabled as documented."
+  ]
+}

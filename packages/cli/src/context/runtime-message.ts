@@ -17,6 +17,10 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Limit finalization request'
 		case 'peer-message':
 			return 'Message from another session'
+		case 'host-observation':
+			return 'Observed Pal activity'
+		case 'channel-message':
+			return 'Message from a connected channel'
 		case 'peer-notice':
 			return 'Notice from another session'
 		case 'repeat-call':

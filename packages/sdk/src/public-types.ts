@@ -773,3 +773,13 @@ export type {
 } from './pals/communication/policy.js'
 export type { PalLifecycleEvent, PalLifecycleListener } from './pals/lifecycle.js'
 export type * from './pals/activity/types.js'
+
+export type * from './pals/communication/ingress-types.js'
+export type * from './pals/channels/types.js'
+export type * from './pals/activity/subscription-types.js'
+export type {
+	PalActivitySubscriptionPermission,
+	PalActivitySubscriptionPermissionUpdate,
+} from './pals/activity/subscription-policy.js'
+export type { PalActivitySubscriptionRunnerOptions } from './pals/activity/subscriptions.js'
+export type { PalActivityCausalityOptions } from './pals/activity/causality.js'

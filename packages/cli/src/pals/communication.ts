@@ -11,18 +11,25 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import {
+	DiskPalActivitySubscriptionPolicy,
+	DiskPalActivitySubscriptionStore,
 	DiskPalCommunicationStore,
 	DiskPalMessagePolicy,
 	DiskSessionLog,
 	type DurableInboundSource,
-	type PalCommunicationSnapshot,
+	type PalChannelIngressOptions,
 	type PalDefinition,
+	type PalIngressAuthorizationRequest,
+	type PalIngressHostPort,
+	type PalIngressOptions,
+	type PalIngressRouteBinding,
+	type PalIngressSnapshot,
 	PalMessageBroker,
 	type PalMessageHostPort,
 	type PalRouteBinding,
 	type SessionId,
 	type TenantId,
-	createPalInboxSource,
+	createPalIngressInboxSource,
 	createPalMessagingTools,
 } from '@namzu/sdk'
 import { restrictToOwner } from '../integrations/providers/credential-store.js'
@@ -45,6 +52,39 @@ export function cliPalCommunicationStore() {
 	})
 }
 
+export function cliPalActivitySubscriptionStore() {
+	return new DiskPalActivitySubscriptionStore({
+		root: join(resolveNamzuHome(), 'pal-activity-subscriptions'),
+		secureDirectory: restrictToOwner,
+	})
+}
+export function cliPalActivitySubscriptionPolicy() {
+	return new DiskPalActivitySubscriptionPolicy({
+		root: join(resolveNamzuHome(), 'pal-activity-subscription-policy'),
+		subscriptions: cliPalActivitySubscriptionStore(),
+		secureDirectory: restrictToOwner,
+	})
+}
+
+/** Only a trusted configured connection adapter can authorize a channel actor. */
+export interface CliPalIngressAuthorizationOptions {
+	readonly authorizeChannel?: PalChannelIngressOptions['authorize']
+}
+export function createCliPalIngressAuthorization(
+	input: CliPalIngressAuthorizationOptions = {},
+): PalIngressOptions['authorize'] {
+	const authorizeChannel = input.authorizeChannel
+	const peer = cliPalCommunicationPolicy()
+	const observation = cliPalActivitySubscriptionPolicy()
+	return async (request: PalIngressAuthorizationRequest) => {
+		if (!('kind' in request)) return peer.authorize(request)
+		if (request.kind === 'observation') return observation.authorizeIngress(request)
+		if (!authorizeChannel)
+			return { allow: false, reason: 'No trusted channel authorization adapter is configured.' }
+		return authorizeChannel(request)
+	}
+}
+
 function wakeDirectory(palId: string): string {
 	if (!getCliPalStore().get(palId)) throw new Error('Unknown Pal notification recipient.')
 	const root = join(resolveNamzuHome(), 'pal-message-wake')
@@ -63,9 +103,9 @@ function wakeDirectory(palId: string): string {
 }
 
 /** Notification files are hints only; the SDK inbox remains authoritative. */
-export function createCliPalMessageHost(
-	runConversation?: PalMessageHostPort['runConversation'],
-): PalMessageHostPort {
+export function createCliPalIngressHost(
+	runConversation?: PalIngressHostPort['runConversation'],
+): PalIngressHostPort {
 	const pals = getCliPalStore()
 	return {
 		async ensureConversation(binding, signal) {
@@ -128,10 +168,26 @@ export function createCliPalMessageHost(
 	}
 }
 
+/** Existing Pal-only host signature remains available to peer brokers. */
+export function createCliPalMessageHost(
+	runConversation?: PalMessageHostPort['runConversation'],
+): PalMessageHostPort {
+	return createCliPalIngressHost(
+		runConversation
+			? async (binding, source, signal) => {
+					if (binding.key.kind !== 'pal')
+						throw new Error('This Pal-only host cannot run another input family.')
+					await runConversation(binding as PalRouteBinding, source, signal)
+				}
+			: undefined,
+	)
+}
+
 export function createCliPalMessagingContext(
 	profile: PalDefinition,
 	contextScope: { readonly sessionId: SessionId; readonly tenantId: TenantId },
 	assertActive: () => void,
+	options: CliPalIngressAuthorizationOptions = {},
 ) {
 	const definition = Object.freeze({
 		...profile,
@@ -142,14 +198,15 @@ export function createCliPalMessagingContext(
 	const pals = getCliPalStore()
 	const store = cliPalCommunicationStore()
 	const policy = cliPalCommunicationPolicy()
-	const host = createCliPalMessageHost()
-	const authorize = policy.authorize.bind(policy)
+	const host = createCliPalIngressHost()
+	const authorizePeer = policy.authorize.bind(policy)
+	const authorize = createCliPalIngressAuthorization(options)
 	const source = {
 		address: { tenantId: scope.tenantId, palId: definition.id },
 		conversationId: scope.sessionId,
 		profileRevision: definition.revision,
 	}
-	const broker = new PalMessageBroker({ pals, store, host, authorize })
+	const broker = new PalMessageBroker({ pals, store, host, authorize: authorizePeer })
 	const tools = createPalMessagingTools({
 		source,
 		sender: broker.sender(source),
@@ -162,9 +219,9 @@ export function createCliPalMessagingContext(
 			})
 		},
 	})
-	const inbox = (binding: PalRouteBinding) =>
-		createPalInboxSource({ pals, store, host, authorize, binding })
-	const ownBinding = (binding: PalRouteBinding | undefined): PalRouteBinding => {
+	const inbox = (binding: PalIngressRouteBinding) =>
+		createPalIngressInboxSource({ pals, store, host, authorize, binding })
+	const ownBinding = (binding: PalIngressRouteBinding | undefined): PalIngressRouteBinding => {
 		if (
 			!binding ||
 			binding.sessionId !== scope.sessionId ||
@@ -175,13 +232,13 @@ export function createCliPalMessagingContext(
 			throw new Error('Foreign Pal conversation inbox route.')
 		return binding
 	}
-	const belongsHere = (state: PalCommunicationSnapshot, routeId: string) =>
+	const belongsHere = (state: PalIngressSnapshot, routeId: string) =>
 		state.routes.find((route) => route.id === routeId)?.sessionId === scope.sessionId
-	const pendingHere = (state: PalCommunicationSnapshot) =>
+	const pendingHere = (state: PalIngressSnapshot) =>
 		state.messages.some(
 			(message) => message.phase === 'pending' && belongsHere(state, message.routeId),
 		)
-	const assertNoBlockedDelivery = (state: PalCommunicationSnapshot | null) => {
+	const assertNoBlockedDelivery = (state: PalIngressSnapshot | null) => {
 		const unresolved = state?.messages.find((message) => message.phase === 'claimed')
 		if (state && unresolved && (belongsHere(state, unresolved.routeId) || pendingHere(state)))
 			throw new Error(
@@ -194,7 +251,7 @@ export function createCliPalMessagingContext(
 				throw new Error('Foreign query cannot drain this Pal conversation.')
 			context.signal.throwIfAborted()
 			assertActive()
-			const state = await store.read(source.address)
+			const state = await store.readIngress(source.address)
 			const claimed = state?.messages.find((message) => message.phase === 'claimed')
 			const next =
 				claimed ??
@@ -214,7 +271,7 @@ export function createCliPalMessagingContext(
 			if (binding.phase === 'reserved') {
 				await host.ensureConversation(binding, context.signal)
 				assertActive()
-				binding = await store.activate(binding, {
+				binding = await store.activateIngress(binding, {
 					binding,
 					definition,
 					access: await host.openConversation(binding, context.signal),
@@ -222,12 +279,12 @@ export function createCliPalMessagingContext(
 			}
 			const claims = await inbox(binding).claim(context)
 			assertActive()
-			if (!claims.length) assertNoBlockedDelivery(await store.read(source.address))
+			if (!claims.length) assertNoBlockedDelivery(await store.readIngress(source.address))
 			return claims
 		},
 		async recorded(receipts) {
 			for (const receipt of receipts) {
-				const state = await store.read(source.address)
+				const state = await store.readIngress(source.address)
 				const message = state?.messages.find((item) => item.id === receipt.ref.id)
 				const binding = ownBinding(state?.routes.find((item) => item.id === message?.routeId))
 				await inbox(binding).recorded([receipt])
@@ -252,7 +309,7 @@ export function createCliPalMessagingContext(
 				}
 				const check = () => {
 					if (settled) return
-					store.read(source.address).then((state) => {
+					store.readIngress(source.address).then((state) => {
 						if (settled) return
 						try {
 							assertNoBlockedDelivery(state)

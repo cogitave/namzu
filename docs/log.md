@@ -2,6 +2,12 @@
 
 ## 2026-10-02
 
+- **Creation** [Shared Pal input ledger](sdk/pal-ingress.md), [durable activity subscriptions](sdk/pal-subscriptions.md) and [finite CLI publication](cli/pals.md#finite-activity-subscriptions): share one recipient claim across peer, host-observation and channel inputs; accept closed original facts before cursor progress, recheck independent current consent and suppress verified observation feedback. Preserve peer APIs and migrate persisted mixed ledgers with explicit old-process refusal. The SDK major changeset requires exhaustive consumers to handle the new runtime-context output kinds; CLI additions are minor.
+
+- **Creation** [Authenticated Pal channel routes](sdk/pal-channels.md) and [CLI host adapters](cli/pal-channels.md): verify each current event actor, pin exact native connection/conversation/channel/thread and authorize routing separately. Match outbound/actions to recorded owned input. Compose local HMAC fixtures and real parked tool-review decisions; no external transport is installed.
+
+- **Update** [Pal parked tool reviews](cli/pals.md): resume real original checkpoints under their model/profile/turn limits after fresh actor and action authorization. Record immutable operation/decision reservations and exact resolved receipts; retain ambiguous failures and cleanup for retry. `.changeset/pal-guest-parked-review.md`, minor CLI.
+
 - **Update** Desktop Pal conversations keep a live 3D identity in a persistent right card, use a pencil to customize, remove the central identity after setup and preserve conversation space at narrow widths.
 
 - **Creation** [Pal lifecycle and activity observations](sdk/pal-activity.md): expose live computer/admission facts with isolated observers and authorized bounded metadata pages from the owned original journal. Recheck consent before byte access and output; retain original sequence, generation and stable fact identity without private payloads. Document trusted host-stored cursors and their prefix-verification limit. `.changeset/pal-activity-observation.md`, **minor** for `@namzu/sdk`.

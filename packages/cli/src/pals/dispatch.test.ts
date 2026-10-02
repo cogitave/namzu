@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	DiskSessionLog,
 	MockLLMProvider,
+	type PalChannelIngressOptions,
 	type PalEnvironmentLease,
+	type PalIngressIntentDraft,
 	PalRuntime,
 	ProviderRegistry,
 	type Sandbox,
@@ -12,6 +15,8 @@ import {
 	type ToolContext,
 	generateSessionId,
 	generateTurnId,
+	ingressIntentDigest,
+	ingressIntentId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -20,6 +25,8 @@ import { PROVIDER_REGISTRY } from '../integrations/providers/index.js'
 import { closeSessions, openSessions } from '../integrations/sessions/store.js'
 import { createFormatter } from '../output/index.js'
 import {
+	cliPalActivitySubscriptionPolicy,
+	cliPalActivitySubscriptionStore,
 	cliPalCommunicationPolicy,
 	cliPalCommunicationStore,
 	createCliPalMessagingContext,
@@ -112,6 +119,7 @@ function environment(palId: string): PalEnvironmentLease {
 async function fixture(
 	provider = new MockLLMProvider({ responseText: 'Reviewed incoming finding.' }),
 	allowWake = true,
+	sendInitial = true,
 ) {
 	const sender = createPal({ name: 'Research' })
 	const recipient = createPal({
@@ -154,7 +162,7 @@ async function fixture(
 		expect(result.success).toBe(true)
 		return result
 	}
-	await send()
+	if (sendInitial) await send()
 	const store = cliPalCommunicationStore()
 	const guest = environment(recipient.id)
 	const acquire = vi.fn(async () => guest)
@@ -178,6 +186,7 @@ async function fixture(
 	return {
 		sender,
 		recipient,
+		sessionId,
 		source,
 		target,
 		provider,
@@ -190,6 +199,93 @@ async function fixture(
 		send,
 		revoke,
 	}
+}
+
+async function acceptedObservation(f: Awaited<ReturnType<typeof fixture>>, wake: boolean) {
+	const subscriptionId = randomUUID()
+	const state = await openSessions(f.sender.workspace)
+	const scope = {
+		tenantId: state.tenantId,
+		projectId: state.projectId,
+		palId: f.sender.id,
+		profileRevision: f.sender.revision,
+		sessionId: f.sessionId,
+	}
+	closeSessions(state)
+	await cliPalActivitySubscriptionStore().create({
+		id: subscriptionId,
+		scope,
+		recipient: f.target,
+		enabled: true,
+	})
+	const policy = cliPalActivitySubscriptionPolicy()
+	await policy.update({
+		subscriptionId,
+		expectedRevision: 0,
+		observe: true,
+		disclose: true,
+		receive: true,
+		wake,
+	})
+	const draft: PalIngressIntentDraft = {
+		kind: 'observation',
+		source: { kind: 'host-observation', subscriptionId, scope },
+		recipient: f.target,
+		routeKey: { v: 1, kind: 'observation', recipient: f.target, subscriptionId, scope },
+		operationId: 'b'.repeat(64),
+		fact: {
+			id: 'b'.repeat(64),
+			type: 'turn_started',
+			sessionId: f.sessionId,
+			turnId: generateTurnId(),
+			seq: 2,
+			generation: 1,
+			at: '2026-10-02T00:00:00.000Z',
+			status: 'running',
+		},
+		subscriptionTrail: [subscriptionId],
+		replyTo: null,
+		grant: { id: 'accepted-observation', revision: '1' },
+		createdAt: 100,
+	}
+	const id = ingressIntentId(draft)
+	await f.store.acceptIngress(
+		{ ...draft, id, digest: ingressIntentDigest({ ...draft, id }) },
+		f.recipient.revision,
+	)
+	return { subscriptionId, policy }
+}
+async function acceptedChannel(f: Awaited<ReturnType<typeof fixture>>) {
+	const native = {
+		provider: 'local-fixture',
+		connectionId: 'configured-connection',
+		externalTenantId: 'verified-native-tenant',
+		nativeConversationId: 'native-conversation',
+		nativeChannelId: null,
+		nativeThreadId: 'native-thread',
+	}
+	const draft: PalIngressIntentDraft = {
+		kind: 'channel',
+		source: {
+			kind: 'channel',
+			tenantId: f.target.tenantId,
+			...native,
+			actorId: 'verified-event-actor',
+			eventId: 'captured-native-event',
+		},
+		recipient: f.target,
+		routeKey: { v: 1, kind: 'channel', recipient: f.target, ...native },
+		body: 'AUTHENTICATED_CHANNEL_CONTEXT',
+		operationId: 'captured-native-event',
+		replyTo: null,
+		grant: { id: 'accepted-channel', revision: '1' },
+		createdAt: 100,
+	}
+	const id = ingressIntentId(draft)
+	await f.store.acceptIngress(
+		{ ...draft, id, digest: ingressIntentDigest({ ...draft, id }) },
+		f.recipient.revision,
+	)
 }
 
 describe('finite CLI Pal dispatch with actual SDK delivery', () => {
@@ -348,5 +444,85 @@ describe('finite CLI Pal dispatch with actual SDK delivery', () => {
 		expect(add.mock.calls.some(([type]) => type === 'abort')).toBe(true)
 		expect(f.provider.requests).toEqual([])
 		expect(f.guest.release).toHaveBeenCalledOnce()
+	})
+	it('checks observation wake independently before any computer or provider work', async () => {
+		const f = await fixture(undefined, true, false)
+		await acceptedObservation(f, false)
+		const result = await dispatchCliPalMessages(f.ctx, f.recipient.id, new AbortController().signal)
+		expect(result.status).toBe('blocked')
+		expect(controls.probe).not.toHaveBeenCalled()
+		expect(f.acquire).not.toHaveBeenCalled()
+		expect(f.provider.requests).toEqual([])
+		expect((await f.store.readIngress(f.target))?.messages[0]?.phase).toBe('pending')
+	})
+	it('rechecks observation disclosure revocation after admission before model or guest effects', async () => {
+		const f = await fixture(undefined, true, false)
+		const observation = await acceptedObservation(f, true)
+		const original = f.runtime.admit.bind(f.runtime)
+		vi.spyOn(f.runtime, 'admit').mockImplementation(async (request) => {
+			const admission = await original(request)
+			await observation.policy.update({
+				subscriptionId: observation.subscriptionId,
+				expectedRevision: 1,
+				observe: true,
+				disclose: false,
+				receive: true,
+				wake: true,
+			})
+			return admission
+		})
+		await expect(
+			dispatchCliPalMessages(f.ctx, f.recipient.id, new AbortController().signal),
+		).rejects.toThrow('permission')
+		expect(f.provider.requests).toEqual([])
+		expect(f.guest.sandbox.readFile).not.toHaveBeenCalled()
+		expect(f.guest.release).toHaveBeenCalledOnce()
+		expect((await f.store.readIngress(f.target))?.messages[0]?.phase).toBe('pending')
+	})
+	it('requires a trusted channel authorizer before allocating a computer or calling a model', async () => {
+		const f = await fixture(undefined, true, false)
+		await acceptedChannel(f)
+		expect(
+			await dispatchCliPalMessages(f.ctx, f.recipient.id, new AbortController().signal),
+		).toEqual({
+			status: 'blocked',
+			reason: 'No trusted channel authorization adapter is configured.',
+		})
+		expect(f.acquire).not.toHaveBeenCalled()
+		expect(f.provider.requests).toEqual([])
+	})
+	it('rechecks the current channel actor grant at tool boundaries', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ name: 'read', args: { path: 'private.txt' } }] },
+				{ text: 'Must not infer again after actor revocation' },
+			],
+		})
+		const f = await fixture(provider, true, false)
+		await acceptedChannel(f)
+		let permitted = true
+		const authorizeChannel: PalChannelIngressOptions['authorize'] = vi.fn(async (request) =>
+			permitted && request.source.actorId === 'verified-event-actor'
+				? { allow: true as const, grant: { id: 'current-actor', revision: '1' } }
+				: { allow: false as const, reason: 'Current channel actor revoked' },
+		)
+		const stream = provider.chatStream.bind(provider)
+		vi.spyOn(provider, 'chatStream').mockImplementation(async function* (params) {
+			yield* stream(params)
+			permitted = false
+		})
+		await expect(
+			dispatchCliPalMessages(f.ctx, f.recipient.id, new AbortController().signal, {
+				authorizeChannel,
+			}),
+		).rejects.toThrow('step_refused')
+		expect(provider.requests).toHaveLength(1)
+		expect(f.guest.sandbox.readFile).not.toHaveBeenCalled()
+		expect(f.guest.release).toHaveBeenCalledOnce()
+		expect((await f.store.readIngress(f.target))?.messages[0]).toMatchObject({
+			kind: 'channel',
+			phase: 'recorded',
+			receipt: { ref: { namespace: 'namzu-pal-channel/1' } },
+		})
 	})
 })

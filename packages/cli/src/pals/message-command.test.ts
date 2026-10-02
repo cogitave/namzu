@@ -1,13 +1,21 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+	type PalIngressIntentDraft,
+	generateSessionId,
+	generateTurnId,
+	ingressIntentDigest,
+	ingressIntentId,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { CommandContext } from '../commands/types.js'
 import { EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
 import { closeSessions, openSessions } from '../integrations/sessions/store.js'
 import { createFormatter } from '../output/index.js'
-import { cliPalCommunicationPolicy } from './communication.js'
+import { cliPalCommunicationPolicy, cliPalCommunicationStore } from './communication.js'
 import { runPalMessageCommand } from './message-command.js'
 import { createPal } from './store.js'
 
@@ -38,12 +46,14 @@ async function addresses() {
 	const recipient = createPal({ name: 'Recipient' })
 	const state = await openSessions(sender.workspace)
 	const tenantId = state.tenantId
+	const projectId = state.projectId
 	closeSessions(state)
 	return {
 		sender,
 		recipient,
 		source: { tenantId, palId: sender.id },
 		target: { tenantId, palId: recipient.id },
+		projectId,
 	}
 }
 
@@ -109,6 +119,117 @@ describe('explicit Pal message commands', () => {
 		const pal = createPal({ name: 'Idle' })
 		expect(await runPalMessageCommand(ctx, 'inbox', [pal.id])).toBe(EXIT_OK)
 		expect(print).toHaveBeenCalledWith([])
+		expect(controls.dispatch).not.toHaveBeenCalled()
+	})
+	it('prints truthful source metadata for the shared inbox without exposing message bodies or grants', async () => {
+		const f = await addresses()
+		const senderSession = generateSessionId()
+		const subscriptionId = randomUUID()
+		const scope = {
+			tenantId: f.source.tenantId,
+			projectId: f.projectId,
+			palId: f.sender.id,
+			profileRevision: f.sender.revision,
+			sessionId: senderSession,
+		}
+		const native = {
+			provider: 'native-fixture',
+			connectionId: 'configured-connection',
+			externalTenantId: 'verified-external-tenant',
+			nativeConversationId: 'private-native-conversation',
+			nativeChannelId: null,
+			nativeThreadId: 'private-native-thread',
+		}
+		const common = {
+			recipient: f.target,
+			replyTo: null,
+			grant: { id: 'private-acceptance-audit', revision: '1' },
+			createdAt: 100,
+		} as const
+		const drafts: PalIngressIntentDraft[] = [
+			{
+				...common,
+				operationId: 'sender-tool-call',
+				source: {
+					address: f.source,
+					conversationId: senderSession,
+					profileRevision: f.sender.revision,
+				},
+				routeKey: {
+					v: 1,
+					kind: 'pal',
+					sender: f.source,
+					senderConversationId: senderSession,
+					recipient: f.target,
+					dialogKey: 'default',
+				},
+				body: 'Private peer body',
+			},
+			{
+				...common,
+				kind: 'observation',
+				operationId: 'b'.repeat(64),
+				source: { kind: 'host-observation', subscriptionId, scope },
+				routeKey: { v: 1, kind: 'observation', recipient: f.target, subscriptionId, scope },
+				fact: {
+					id: 'b'.repeat(64),
+					type: 'turn_started',
+					sessionId: senderSession,
+					turnId: generateTurnId(),
+					seq: 2,
+					generation: 1,
+					at: '2026-10-02T00:00:00.000Z',
+					status: 'running',
+				},
+				subscriptionTrail: [subscriptionId],
+			},
+			{
+				...common,
+				kind: 'channel',
+				operationId: 'verified-provider-event',
+				source: {
+					kind: 'channel',
+					tenantId: f.target.tenantId,
+					...native,
+					actorId: 'verified-event-actor',
+					eventId: 'verified-provider-event',
+				},
+				routeKey: { v: 1, kind: 'channel', recipient: f.target, ...native },
+				body: 'Private channel body',
+			},
+		]
+		const receipts = []
+		for (const draft of drafts) {
+			const id = ingressIntentId(draft)
+			receipts.push(
+				await cliPalCommunicationStore().acceptIngress(
+					{ ...draft, id, digest: ingressIntentDigest({ ...draft, id }) },
+					f.recipient.revision,
+				),
+			)
+		}
+		expect(await runPalMessageCommand(ctx, 'inbox', [f.recipient.id])).toBe(EXIT_OK)
+		const shared = receipts.map((receipt) => ({
+			id: receipt.id,
+			status: 'pending',
+			conversationId: receipt.sessionId,
+		}))
+		expect(print).toHaveBeenCalledWith([
+			{ ...shared[0], sourcePalId: f.sender.id },
+			{
+				...shared[1],
+				sourceKind: 'host-observation',
+				subscriptionId,
+				observedPalId: f.sender.id,
+			},
+			{
+				...shared[2],
+				sourceKind: 'channel',
+				provider: native.provider,
+				connectionId: native.connectionId,
+				actorId: 'verified-event-actor',
+			},
+		])
 		expect(controls.dispatch).not.toHaveBeenCalled()
 	})
 	it('dispatches once and removes both process interruption listeners after success', async () => {

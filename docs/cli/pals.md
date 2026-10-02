@@ -99,9 +99,75 @@ Current pause state blocks the next admission and each next guest operation.
 It does not rewrite a conversation's pinned purpose or model. Pausing is not a
 request to terminate an already admitted process halfway through an operation.
 
-This MVP has no autonomous resident loop or Pal Team. Manual compaction and
-reopening a parked tool decision are not exposed in Pal terminal sessions yet.
-A new user message can continue a settled or explicitly abandoned turn.
+This MVP has no autonomous resident loop or Pal Team. Manual compaction is not
+available in Pal sessions. A new user message can continue a settled or
+explicitly abandoned turn.
+
+## Parked turns and authenticated review actions
+
+The Pal session host supports `AgentSession.send(messages, { reviewHold: { reason } })` through its
+ordinary send options. Under `prompt`, a tool batch requiring a person is saved
+as a real checkpoint and `decision_requested` record, and the turn pauses
+without executing that batch. An explicit hold ignores a live prompt callback
+and has no remembered approval. Without a hold, the existing terminal and
+desktop permission prompts continue to operate normally. A gate deny still
+refuses the call; holding a review does not override the gate.
+
+`AgentSession.resumePaused` and `resumeDurable` resume through the SDK's
+`resumeSession` using the Pal's original conversation journal, same turn and
+checkpoint, pinned model and purpose, and actual local computer admission.
+They restore the original recorded token, iteration and timeout limits. They
+refuse foreign journals, a changed model, incompatible answers, expired or
+replaced reviews, and completed turns before acquiring the guest. The host
+holds the original session writer while rechecking the park, renews its fence
+before tools and model requests, and retains failed cleanup for an explicit
+close retry. A supplied writer lease remains owned by its caller and is checked
+before each resumed tool or model request. No host filesystem or computer
+fallback is introduced.
+
+The trusted CLI host factory `createCliPalReviewActions` supports a separate
+authenticated action path for **tool reviews**. It captures the pinned Pal,
+owned scope, original journal, bound native resume port and live authorization
+callback. A verified
+channel adapter must supply its authenticated actor and stable upstream
+operation identity. Its action names the exact session, turn, checkpoint,
+decision, original `decision_requested` record pointer and committed checkpoint
+document hash. Only `approve_once` and `reject` with feedback are accepted;
+there is no channel grant for later batches, arbitrary modified tools or sandbox
+escape. A later review is held again. Observation access alone does not grant
+decision authority.
+
+Hosts must supply `currentPermissionMode` as a captured live policy callback.
+An absent or invalid port refuses the action; it never assumes prompt mode over
+an existing plan policy.
+Current plan mode refuses changes in a restored approved batch and sends later
+rule-allowed batches through the same CLI plan review controls. This callback is
+trusted host state; action payloads cannot change the permission mode.
+
+Within this authenticated action only, current `auto` and `accept-edits` modes
+are limited to `prompt` for later review requests, including a mode changed
+while the approved batch runs. Current `plan` and `strict` remain stricter.
+Independent explicit operator rules can still authorize their own calls; this
+action supplies no later grant or approval latch. Normal operator sends and
+resumes retain their existing automatic-mode behavior.
+
+Reservations are fsynced under `NAMZU_HOME/pal-review-actions/` before execution
+and bind both the upstream operation and the exact decision. A matching retry
+returns the original journal's actual `decision_resolved` pointer; changing the
+actor, answer or request conflicts. Concurrent attempts cannot execute the same
+reserved decision. A failed or interrupted attempt without an authoritative
+resolution retains its reservation and reports that reconciliation is required;
+it is never guessed safe to execute again. The receipt confirms application of
+the decision, **not success of the tools**. Current pause and actor consent are
+rechecked before resumed tools and inference. A revoked tool can remain
+unexecuted even if the kernel recorded the applied approval. Kernel resolution
+records retain their system policy attribution; the host reservation separately
+records the authenticated actor without claiming it is a kernel human record.
+
+These are trusted host APIs. A raw renderer or model payload is not a runtime
+decision. Channel integration must verify its original delivery and native
+conversation and actor binding before invoking this gate. Durable plan approval
+is not exposed by this action path.
 
 ## ACP host extensions
 
@@ -168,9 +234,14 @@ permits an explicit dispatcher to start a peer turn. `grant` and `revoke` accept
 and still refuses a concurrent stale update. These commands affect only the
 current Namzu home's local tenant and persisted Pal IDs.
 
-`inbox` reports accepted message ID, source Pal ID, delivery status and owned
-conversation ID. Acceptance does not mean the model has read the message.
-`dispatch` runs one eligible owned route with the recipient's pinned profile and
+`inbox` reports every accepted input family in the shared ledger: message ID,
+delivery status and owned conversation ID. Existing peer rows retain `sourcePalId`.
+Observation rows add `sourceKind: host-observation`, subscription ID and observed
+Pal ID; channel rows add `sourceKind: channel`, provider, connection and current
+event actor. It prints no private message bodies. Acceptance does not mean the
+model has read the input.
+`dispatch` selects the oldest pending input across all families and runs one
+eligible owned route with the recipient's pinned profile and
 actual local computer. Its tools use **strict** review mode: only explicit
 preapproved tool rules can authorize changes or replies without a reviewer.
 Directed message consent does not approve guest writes, shell commands or the
@@ -197,8 +268,62 @@ Revocation blocks new work; it does not undo already performed effects or erase
 previously disclosed transcript context. An unknown prior append remains
 `claimed` for verified recovery, rather than being retried as a new task.
 
+Pal sessions and finite dispatch use the same SDK generic durable input source.
+Observation delivery checks independent current observe, disclose and receive
+permissions; idle wake additionally requires wake permission. A channel has no
+implicit peer grant: CLI host composition must provide an explicitly trusted
+connection/actor authorizer, otherwise channel receive and wake are denied.
+External transport membership is not Pal Team membership.
+
+Observation subscription configuration and permissions reside under
+`pal-activity-subscriptions` and `pal-activity-subscription-policy`. These are
+metadata/consent records; their inputs share `pal-message-inbox`, without a
+second inbox. The finite CLI dispatcher owns its runtime cleanup and must not be
+invoked as a cleanup owner inside a desktop process that shares that runtime.
+
 State resides under `pal-message-policy`, `pal-message-inbox` and
 `pal-message-wake` in the private Namzu home. The guest never mounts those
 control directories. Existing conversations keep their claimed profile revision,
 including routes accepted before a later profile edit. Notifications and
 discovery do not publish another Pal's transcript.
+
+## Finite activity subscriptions
+
+```sh
+namzu pal subscribe <source-pal-id> <source-conversation-id> <recipient-pal-id> [--wake] [--json]
+namzu pal subscription <subscription-id> [--json]
+namzu pal activity <subscription-id> [--max-records <n>] [--max-bytes <n>] [--causality-bytes <n>] [--causality-records <n>] [--json]
+namzu pal unsubscribe <subscription-id> [--revision <n>] [--json]
+```
+
+`subscribe` is an explicit local operator consent action. It validates the
+original source conversation and pinned profile, saves a disabled subscription,
+grants observation/disclosure/receipt and then enables it with revision checking.
+An interrupted setup remains disabled. Wake is false unless `--wake` is given;
+publication never starts a computer or calls a model. Paused sources can be
+observed. Profile edits do not change the captured source profile.
+
+`subscription` displays the saved scope, destination, progress and current four
+permission fields. `unsubscribe` disables that exact subscription using the
+current revision, or an explicitly supplied expected revision. Already accepted
+messages remain pending but cannot be delivered under disabled consent.
+
+`activity` publishes one page of closed original metadata into the shared inbox,
+then commits its host-stored cursor. Observation, disclosure and receipt are
+checked independently and together again immediately before each acceptance;
+revocation during an earlier check prevents new acceptance and cursor progress.
+Defaults are 64 newly scanned records and
+1 MiB of page reads; maxima are 256 records and 16 MiB. Causality verifies the
+complete original prefix within separate defaults of 16 MiB and 100,000 records.
+The corresponding flags accept positive integers; insufficient or incomplete
+evidence rejects without progress. These journal read limits do not impose a
+model token limit. Exact retries deduplicate accepted facts after interrupted
+progress. No client cursor, transcript body or arbitrary observation text is
+accepted.
+
+The trusted [SDK causality resolver](../sdk/pal-subscriptions.md#verified-turn-causality)
+requires the turn's first provider request and exact recorded observation
+delivery receipts. A not-yet-recorded first request may need a later retry.
+Verified observation feedback is suppressed; arbitrary peer/channel causality
+is not inferred. Use `pal inbox` to inspect acceptance and `pal dispatch` for
+separately authorized recipient execution. These commands install no daemon.

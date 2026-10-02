@@ -1,12 +1,13 @@
 # Decision: durable Pal messages and authorized conversation routes
 
-Date: 2026-10-02. Status: accepted for local Pal messages; native implementation,
-source review, workspace checks and process regressions passed in the local
-feature checkpoint. No push or publication is authorized.
-Activity subscriptions, external channels and approval actions remain separate
-proposals. The original API sketches below are design history; the actual
-additive declarations are described in [SDK Pals](../../docs/sdk/pals.md) and
-[query delivery](../../docs/sdk/query.md). This decision follows the
+Date: 2026-10-02. Status: accepted and implemented for local Pal messages,
+durable activity subscriptions, authenticated channel host adapters and exact
+parked tool-review actions. Source review, workspace checks and real native
+Windows proofs passed. No external transport/account is connected, and no push
+or publication is authorized. The original API sketches below are design history;
+the actual exported declarations are described in
+[SDK Pals](../../docs/sdk/pals.md), [shared inputs](../../docs/sdk/pal-ingress.md)
+and [query delivery](../../docs/sdk/query.md). This decision follows the
 [pinned communication source audit](PAL-COMMUNICATION-CHANNELS-20261002.md) and
 the current SDK/CLI/desktop Pal implementation in the schedule-ownership
 worktree. No upstream SDK dependency is proposed.
@@ -17,8 +18,56 @@ from the exact original owned journal, with current observation consent. Cursors
 are unchanged outputs retained by the trusted host, not client credentials; the
 reader rechecks root and anchor bytes and verifies new successors without
 rescanning consumed prefixes. No observation fact approves an action, publishes
-a private message or wakes a Pal. Durable subscriptions and authenticated
-channel ingress still need their separate authority and persistence layer.
+a private message or wakes a Pal. [Durable subscriptions](../../docs/sdk/pal-subscriptions.md)
+now add separately revocable observe/disclose/receive/wake policy, stored progress
+and verified observation lineage. [Channel ingress](../../docs/sdk/pal-channels.md)
+requires trusted per-event verification, current actor policy and immutable native
+target selection. Both use [one common inbox](../../docs/sdk/pal-ingress.md), with
+one unresolved recipient claim across peer, observation and channel families.
+
+## Implemented extensions and verification scope
+
+- Activity publication stores immutable source/destination and accepts each
+  closed fact before cursor progress. Stable operation IDs recover partial
+  acceptance. Unknown intake or receipt evidence fails closed. The original
+  first provider envelope uses the runtime's existing 16-character schema digest;
+  this boundary is tested with an actual SDK query, alongside malformed fixtures.
+- Observation causality verifies the original prefix, exact fact and recorded
+  shared-inbox receipt. Verified trails suppress a returning subscription. This
+  does not prove arbitrary causality through peer messages, channels or outside
+  effects, and no fake independence callback belongs in production composition.
+- Channel verification captures host connection identity and authenticates each
+  current actor; it does not permanently attribute a group thread to its first
+  participant. Native conversation/channel/thread target selection is pinned
+  before shared-inbox acceptance. Source event conflicts cannot silently retarget.
+- Outbound/action requests resolve the exact recorded original input and native
+  target, then recheck current actor and policy. CLI defaults deny channel input
+  unless a trusted adapter is configured. Local HMAC fixtures are evidence of
+  the adapter boundary, not a live Microsoft Teams or other transport integration.
+- Parked tool actions accept only an authenticated exact tool-review
+  `approve_once` or `reject`, anchored to the original checkpoint, turn and signed
+  payload. Immutable reservations retain unknown outcomes. A resolved decision
+  receipt records application; current plan/tool/inference checks still govern
+  effects. It does not assert tool success or permission to later batches.
+
+CLI `subscribe`, `subscription`, `activity`, `unsubscribe` provide finite local
+operator control. Publishing installs no daemon and performs no inference or
+guest startup. Generic finite dispatch and already-running Pal queries use the
+same recipient claim, original writer and computer admission as peer messages.
+Team membership and Coordinator remain the next organizational stage.
+
+The [final checkpoint](artifacts/pal-input-checkpoint-20261002.json) records exact
+verification scopes. The [native subscription proof](PAL-NATIVE-SUBSCRIPTION-PROOF-20261002.md)
+used nine fresh publication processes, unchanged original source bytes, 14
+recorded observations and 105 exact receipt checks before provider delegation.
+The [native parked review proof](PAL-NATIVE-PARKED-REVIEW-PROOF-20261002.md)
+used three fresh processes and actual `auto`/`accept-edits` host modes; the trusted
+one-batch action leaves later unapproved work parked. Models are scripted, while
+original journals, guest files/shell/browser and continuation are production
+paths. Ordinary operator modes and independent explicit rules retain their
+behavior. These proofs establish local process recovery and consent boundaries,
+not live external accounts, power-loss protection or a full VM.
+
 
 ## Decision
 

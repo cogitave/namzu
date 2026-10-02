@@ -167,7 +167,8 @@ stable fact ID, so rereading a page or reopening the original journal after
 process restart preserves identity. Compaction does not hide the retained
 original activity records.
 
-This slice supplies no durable activity subscription, automatic wake loop,
-Pal Team membership, external transport or action dispatcher. A host must not
-turn these observations into trusted model instructions or private transcript
-sharing without separate authorization and provenance.
+For durable host publication, use [Pal activity subscriptions](pal-subscriptions.md)
+with separate observation, disclosure and recipient consent, verified turn
+causality and the shared input ledger. The reader itself installs no automatic
+wake loop, Team membership, external transport or action dispatcher.
+Observations remain untrusted context and do not approve actions.

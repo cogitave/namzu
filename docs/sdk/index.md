@@ -1,7 +1,10 @@
 # SDK
 
+* [Shared Pal input ledger](pal-ingress.md) - One durable recipient queue and exact receipts for Pal, host-observation and channel inputs.
 * [Persistent Pals and computer admission](pals.md) - SDK identity, immutable profile revisions and required local-computer admission.
+* [Authenticated Pal channel ingress](pal-channels.md) - Per-event actor authentication, immutable native targets and exact recorded response/action routes.
 * [Pal lifecycle and activity observations](pal-activity.md) - Live computer facts and authorized bounded pages from an owned original session journal.
+* [Durable Pal activity subscriptions](pal-subscriptions.md) - Independent current consent, verified observation causality and shared-inbox acceptance before progress.
 
 The kernel.
 

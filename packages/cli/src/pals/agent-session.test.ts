@@ -4,24 +4,37 @@ import { join } from 'node:path'
 import {
 	BackgroundJobRegistry,
 	type ComputerUseHost,
+	DiskSessionLog,
 	MockLLMProvider,
+	PLAN_MODE_REFUSAL,
 	type PalEnvironmentLease,
 	PalRuntime,
 	ProviderRegistry,
 	type Sandbox,
 	type SandboxId,
 	type SessionEvent,
+	type SessionRecord,
 	createUserMessage,
+	findPendingCheckpoint,
 	generateSessionId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { PROVIDER_REGISTRY, type Preferences } from '../integrations/providers/index.js'
 import { closeSessions, openSessions } from '../integrations/sessions/store.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import { createAgentSession } from '../tui/agent.js'
+import {
+	type CliPalReviewActionsOptions,
+	type PalReviewAction,
+	createCliPalReviewActions,
+} from './actions.js'
 import { claimPalConversation } from './conversations.js'
+import { readPalWaitingReview } from './review.js'
 import { createPal, getCliPalStore, updatePal } from './store.js'
 
+const fixtureProviderId = 'openai'
 let root: string
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), 'namzu-pal-agent-'))
@@ -58,7 +71,11 @@ function lease(palId: string, generation = 1): PalEnvironmentLease {
 		sandbox,
 		computerUseHost: {
 			id: 'guest-display',
-			getDisplayGeometry: async () => ({ width: 1280, height: 800, scaleFactor: 1 }),
+			getDisplayGeometry: async () => ({
+				width: 1280,
+				height: 800,
+				scaleFactor: 1,
+			}),
 			capabilities: {
 				displayServer: 'x11',
 				screenshot: true,
@@ -86,7 +103,10 @@ async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: Sessi
 	const original = lease(pal.id)
 	const replacement = lease(pal.id, 2)
 	const acquire = vi.fn().mockResolvedValueOnce(original).mockResolvedValueOnce(replacement)
-	const runtime = new PalRuntime({ store: getCliPalStore(), environments: { acquire } })
+	const runtime = new PalRuntime({
+		store: getCliPalStore(),
+		environments: { acquire },
+	})
 	await runtime.startComputer(pal.id)
 	const construct = vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const scope = {
@@ -95,31 +115,52 @@ async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: Sessi
 		topicId: state.topicId,
 		tenantId: state.tenantId,
 	}
-	const agent = await createAgentSession(
-		{ version: 3, providers: [{ id: 'openai', model: 'pinned-model' }] } as Preferences,
-		[
+	const reopen = (permissionMode: PermissionMode = 'auto') =>
+		createAgentSession(
 			{
-				entry: PROVIDER_REGISTRY['openai'],
-				apiKey: 'host-provider-secret',
-				source: { kind: 'env', envName: 'OPENAI_API_KEY' },
-				alternatives: [],
+				version: 3,
+				providers: [{ id: 'openai', model: 'pinned-model' }],
+			} as Preferences,
+			[
+				{
+					entry: PROVIDER_REGISTRY[fixtureProviderId],
+					apiKey: 'host-provider-secret',
+					source: { kind: 'env', envName: 'OPENAI_API_KEY' },
+					alternatives: [],
+				},
+			],
+			{
+				cwd: pal.workspace,
+				onSessionEvent,
+				scope,
+				conversationSessions: state,
+				permissionMode,
+				palEnvironment: {
+					definition: pal,
+					lease: original,
+					admit: (signal) =>
+						runtime.admit({
+							palId: pal.id,
+							revision: 1,
+							conversationId: id,
+							signal,
+						}),
+				},
 			},
-		],
-		{
-			cwd: pal.workspace,
-			onSessionEvent,
-			scope,
-			conversationSessions: state,
-			permissionMode: 'auto',
-			palEnvironment: {
-				definition: pal,
-				lease: original,
-				admit: (signal) =>
-					runtime.admit({ palId: pal.id, revision: 1, conversationId: id, signal }),
-			},
-		},
-	)
-	return { pal, id, state, agent, runtime, original, replacement, construct, scope }
+		)
+	const agent = await reopen()
+	return {
+		pal,
+		id,
+		state,
+		agent,
+		reopen,
+		runtime,
+		original,
+		replacement,
+		construct,
+		scope,
+	}
 }
 it('puts the pinned model and purpose into the actual provider request and keeps host policy out', async () => {
 	const provider = new MockLLMProvider({ responseText: 'Ready' })
@@ -133,7 +174,10 @@ it('puts the pinned model and purpose into the actual provider request and keeps
 		for await (const _event of f.agent.send([createUserMessage('Start research')])) {
 		}
 		expect(f.construct).toHaveBeenCalledWith(
-			expect.objectContaining({ model: 'pinned-model', apiKey: 'host-provider-secret' }),
+			expect.objectContaining({
+				model: 'pinned-model',
+				apiKey: 'host-provider-secret',
+			}),
 		)
 		expect(provider.requests).toHaveLength(1)
 		const request = provider.requests[0]
@@ -266,7 +310,9 @@ it('rechecks pause at the provider boundary after an iteration event yielded', a
 
 it('rechecks dispatch consent after the iteration event and before provider entry', async () => {
 	let revoked = false
-	const provider = new MockLLMProvider({ responseText: 'Must not run after revocation' })
+	const provider = new MockLLMProvider({
+		responseText: 'Must not run after revocation',
+	})
 	const f = await fixture(provider, (event) => {
 		if (event.type === 'iteration_started') revoked = true
 	})
@@ -320,6 +366,970 @@ it('settles failed admission cleanup, refuses another send, and retains authorit
 		await expect(f.agent.close()).resolves.toBeUndefined()
 		expect(release).toHaveBeenCalledTimes(3)
 		expect(f.runtime.busy(f.pal.id)).toBe(false)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+async function records(f: Awaited<ReturnType<typeof fixture>>): Promise<SessionRecord[]> {
+	const log = DiskSessionLog.at(f.state.paths, { sessionId: f.id })
+	const result: SessionRecord[] = []
+	for await (const { record } of log.read({ mode: 'strict' })) result.push(record)
+	return result
+}
+async function park(f: Awaited<ReturnType<typeof fixture>>) {
+	// These paths are new guest files; an existing unread file must correctly refuse overwrite.
+	for (const computer of [f.original, f.replacement])
+		vi.mocked(computer.sandbox.readFile).mockRejectedValue(
+			Object.assign(new Error('absent'), { code: 'ENOENT' }),
+		)
+	const permission = vi.fn(async () => ({ kind: 'approve' as const }))
+	for await (const _event of f.agent.send([createUserMessage('Write the guest notes')], {
+		permissionMode: 'prompt',
+		reviewHold: { reason: 'Await the operator.' },
+		onPermission: permission,
+		limits: { tokenBudget: 1300, maxIterations: 8, timeoutMs: 0 },
+	})) {
+	}
+	expect(permission).not.toHaveBeenCalled()
+	const pending = await findPendingCheckpoint(DiskSessionLog.at(f.state.paths, { sessionId: f.id }))
+	expect(pending).not.toBeNull()
+	if (!pending) throw new Error('The actual query did not record its review park.')
+	return pending
+}
+
+it('records a real tool review and resumes its exact batch after reopening on a new guest generation', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{
+						id: 'reviewed_write',
+						name: 'write',
+						args: { path: 'notes.txt', content: 'approved' },
+					},
+				],
+			},
+			{ text: 'The approved write is complete.' },
+		],
+	})
+	const f = await fixture(provider)
+	let resumed = f.agent
+	try {
+		const pending = await park(f)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
+		await f.agent.close()
+		await f.runtime.stopComputer(f.pal.id)
+		await f.runtime.startComputer(f.pal.id)
+		updatePal(f.pal.id, 1, {
+			purpose: 'Changed profile purpose',
+			model: { provider: 'openai', model: 'changed' },
+		})
+		resumed = await f.reopen()
+		for await (const _event of resumed.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			permissionMode: 'prompt',
+			reviewHold: { reason: 'Later reviews still require their own answer.' },
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.replacement.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
+		expect(provider.requests).toHaveLength(2)
+		expect(JSON.stringify(provider.requests[1])).toContain('Separate AI news by model')
+		expect(JSON.stringify(provider.requests[1])).not.toContain('Changed profile purpose')
+		const journal = await records(f)
+		expect(journal.filter((r) => r.type === 'turn_started')).toHaveLength(1)
+		expect(journal.filter((r) => r.type === 'decision_resolved')).toEqual([
+			expect.objectContaining({
+				turnId: pending.turnId,
+				decisionId: pending.decisionId,
+				decision: { action: 'approve_tools' },
+			}),
+		])
+		const completed = journal.find((r) => r.type === 'turn_completed')
+		expect(completed).toEqual(expect.objectContaining({ turnId: pending.turnId }))
+		await expect(
+			(async () => {
+				for await (const _event of resumed.resumePaused({
+					turnId: pending.turnId,
+					checkpointId: pending.checkpointId,
+					pendingDecision: { action: 'approve_tools' },
+				})) {
+				}
+			})(),
+		).rejects.toThrow('no longer waiting')
+		expect(provider.requests).toHaveLength(2)
+		expect(f.replacement.sandbox.writeFile).toHaveBeenCalledTimes(1)
+	} finally {
+		await resumed.close()
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('approves one recorded batch and parks the next batch with a distinct checkpoint and no remembered grant', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{
+						id: 'first_write',
+						name: 'write',
+						args: { path: 'one.txt', content: 'one' },
+					},
+				],
+			},
+			{
+				toolCalls: [
+					{
+						id: 'next_write',
+						name: 'write',
+						args: { path: 'two.txt', content: 'two' },
+					},
+				],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const first = await park(f)
+		for await (const _event of f.agent.resumePaused({
+			turnId: first.turnId,
+			checkpointId: first.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			permissionMode: 'prompt',
+			reviewHold: { reason: 'A different batch requires its own approval.' },
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		const second = await findPendingCheckpoint(
+			DiskSessionLog.at(f.state.paths, { sessionId: f.id }),
+		)
+		expect(second?.turnId).toBe(first.turnId)
+		expect(second?.checkpointId).not.toBe(first.checkpointId)
+		expect(second?.pending.request).toEqual(
+			expect.objectContaining({
+				toolCalls: [expect.objectContaining({ id: 'next_write' })],
+			}),
+		)
+		expect(f.agent.approvalLatched()).toBe(false)
+		await expect(
+			(async () => {
+				for await (const _event of f.agent.resumePaused({
+					turnId: first.turnId,
+					checkpointId: first.checkpointId,
+					pendingDecision: { action: 'approve_tools' },
+				})) {
+				}
+			})(),
+		).rejects.toThrow('newer review')
+		expect(provider.requests).toHaveLength(2)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('refuses mismatched decisions, foreign journals, repinned models and revoked execution before guest admission', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'notes.txt', content: 'pending' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const pending = await park(f)
+		const admit = vi.spyOn(f.runtime, 'admit')
+		const invoke = async (extra: Parameters<typeof f.agent.resumePaused>[0]) => {
+			for await (const _event of f.agent.resumePaused(extra)) {
+			}
+		}
+		await expect(
+			invoke({
+				turnId: pending.turnId,
+				pendingDecision: { action: 'continue' },
+			}),
+		).rejects.toThrow('does not apply')
+		await expect(
+			invoke({
+				turnId: generateTurnId(),
+				pendingDecision: { action: 'approve_tools' },
+			}),
+		).rejects.toThrow('no longer')
+		await expect(
+			invoke({
+				turnId: pending.turnId,
+				pendingDecision: { action: 'approve_tools' },
+				model: { provider: 'openai', model: 'other' },
+			}),
+		).rejects.toThrow('pinned model')
+		await expect(
+			invoke({
+				turnId: pending.turnId,
+				pendingDecision: { action: 'approve_tools' },
+				assertExecutionAllowed: () => {
+					throw new Error('Actor permission revoked.')
+				},
+			}),
+		).rejects.toThrow('revoked')
+		await expect(
+			f.agent.resumeDurable({
+				entry: { ...f.scope, turnId: pending.turnId },
+				sessionLog: new DiskSessionLog({
+					sessionId: f.id,
+					file: join(root, 'foreign.jsonl'),
+					sessionDir: join(root, 'foreign'),
+				}),
+			}),
+		).rejects.toThrow('own original')
+		expect(admit).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		// Durable read uses the genuine journal and returns the actual waiting state, without inference.
+		const waiting = await f.agent.resumeDurable({
+			entry: { ...f.scope, turnId: pending.turnId },
+			sessionLog: DiskSessionLog.at(f.state.paths, { sessionId: f.id }),
+		})
+		expect(waiting).toEqual(
+			expect.objectContaining({
+				resumed: false,
+				reason: 'awaiting-decision',
+				pending: expect.objectContaining({ request: pending.pending.request }),
+			}),
+		)
+		expect(provider.requests).toHaveLength(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('retains ordinary live permission prompting when reviewHold is absent', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'notes.txt', content: 'live' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	const onPermission = vi.fn(async () => ({ kind: 'approve' as const }))
+	try {
+		vi.mocked(f.original.sandbox.readFile).mockRejectedValue(
+			Object.assign(new Error('absent'), { code: 'ENOENT' }),
+		)
+		for await (const _event of f.agent.send([createUserMessage('Write live notes')], {
+			permissionMode: 'prompt',
+			onPermission,
+		})) {
+		}
+		expect(onPermission).toHaveBeenCalledTimes(1)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(
+			await findPendingCheckpoint(DiskSessionLog.at(f.state.paths, { sessionId: f.id })),
+		).toBeNull()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+async function actionFixture(f: Awaited<ReturnType<typeof fixture>>) {
+	const pending = await park(f)
+	const log = DiskSessionLog.at(f.state.paths, { sessionId: f.id })
+	const waiting = await readPalWaitingReview(log, pending.turnId, pending.checkpointId)
+	if (!waiting) throw new Error('Missing real parked review.')
+	const action: PalReviewAction = {
+		actor: {
+			tenantId: f.scope.tenantId,
+			actorId: 'authenticated-operator',
+			connectionId: 'verified-channel',
+		},
+		operationId: 'native-callback-1',
+		waiting: {
+			sessionId: f.id,
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			decisionId: pending.decisionId,
+			requestKind: 'tool_review',
+			requestRecord: waiting.requestRecord,
+			checkpointDocSha256: waiting.checkpointDocSha256,
+		},
+		answer: { action: 'approve_once' },
+	}
+	const create = (authorize = async () => {}) =>
+		createCliPalReviewActions({
+			profile: f.pal,
+			scope: f.scope,
+			paths: f.state.paths,
+			session: f.agent,
+			authorize,
+			currentPermissionMode: () => 'prompt',
+		})
+	return { action, create, log }
+}
+
+it('authenticates a durable exact review action and returns the actual resolution receipt across gate restart', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'approved.txt', content: 'once' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		const authorize = vi.fn(async () => {})
+		const receipt = await a.create(authorize).execute(a.action)
+		expect(receipt).toEqual(
+			expect.objectContaining({
+				status: 'resolved',
+				decisionId: a.action.waiting.decisionId,
+			}),
+		)
+		expect(receipt.resolutionRecord.seq).toBeGreaterThan(receipt.requestRecord.seq)
+		expect(authorize).toHaveBeenCalledWith(
+			a.action.actor,
+			a.action.waiting,
+			expect.any(AbortSignal),
+		)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(provider.requests).toHaveLength(2)
+		// Fresh host gate, no transient in-memory acknowledgement or preappended decision.
+		expect(await a.create(authorize).execute(structuredClone(a.action))).toEqual(receipt)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(provider.requests).toHaveLength(2)
+		await expect(
+			a.create().execute({
+				...a.action,
+				answer: { action: 'reject', feedback: 'changed' },
+			}),
+		).rejects.toThrow('Conflicting retry')
+		await expect(
+			a.create().execute({
+				...a.action,
+				actor: { ...a.action.actor, actorId: 'changed-authenticated-actor' },
+			}),
+		).rejects.toThrow('Conflicting retry')
+		expect((await records(f)).filter((r) => r.type === 'decision_resolved')).toHaveLength(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('refuses forged review references and revoked authenticated actions without acquiring the guest or reserving permission', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'pending.txt', content: 'hold' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		const admit = vi.spyOn(f.runtime, 'admit')
+		await expect(
+			a.create().execute({
+				...a.action,
+				waiting: {
+					...a.action.waiting,
+					requestRecord: {
+						...a.action.waiting.requestRecord,
+						sha256: 'a'.repeat(64),
+					},
+				},
+			}),
+		).rejects.toThrow('actual waiting')
+		await expect(
+			a
+				.create(async () => {
+					throw new Error('Current actor authority revoked.')
+				})
+				.execute(a.action),
+		).rejects.toThrow('revoked')
+		await expect(
+			a.create().execute({
+				...a.action,
+				waiting: { ...a.action.waiting, sessionId: generateSessionId() },
+			}),
+		).rejects.toThrow('Foreign')
+		await expect(
+			a.create().execute({
+				...a.action,
+				answer: { action: 'approve_once', remember: ['write'] },
+			} as unknown as PalReviewAction),
+		).rejects.toThrow('Unexpected')
+		expect(admit).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		// Invalid/denied ingress did not consume this real operation identity.
+		await a.create().execute(a.action)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('captures authenticated policy and the native resume port before an awaited action can mutate factory options', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'captured.txt', content: 'once' } }] },
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	let enter!: () => void
+	let release!: () => void
+	const entered = new Promise<void>((resolve) => {
+		enter = resolve
+	})
+	const released = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	try {
+		const a = await actionFixture(f)
+		let first = true
+		const authorize = vi.fn(async () => {
+			if (first) {
+				first = false
+				enter()
+				await released
+			}
+		})
+		const session = { resumePaused: f.agent.resumePaused.bind(f.agent) }
+		const options = {
+			profile: f.pal,
+			scope: f.scope,
+			paths: f.state.paths,
+			session,
+			authorize,
+			currentPermissionMode: () => 'prompt' as const,
+		}
+		const gate = createCliPalReviewActions(options)
+		const attempt = gate.execute(a.action)
+		await entered
+		const replacedPolicy = vi.fn(async () => {
+			throw new Error('An unrelated host policy was substituted.')
+		})
+		const replacedSession = vi.fn(f.agent.resumePaused.bind(f.agent))
+		options.authorize = replacedPolicy
+		session.resumePaused = replacedSession
+		release()
+		expect(await attempt).toEqual(expect.objectContaining({ status: 'resolved' }))
+		expect(authorize.mock.calls.length).toBeGreaterThan(3)
+		expect(replacedPolicy).not.toHaveBeenCalled()
+		expect(replacedSession).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(provider.requests).toHaveLength(2)
+	} finally {
+		release()
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('reserves one action across concurrent gate instances and never guesses an unknown attempt was safe to replay', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'pending.txt', content: 'once' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	let enter!: () => void
+	let release!: () => void
+	const entered = new Promise<void>((resolve) => {
+		enter = resolve
+	})
+	const released = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	try {
+		const a = await actionFixture(f)
+		let checks = 0
+		const first = a
+			.create(async () => {
+				if (++checks === 3) {
+					enter()
+					await released
+				}
+			})
+			.execute(a.action)
+		await entered // This boundary is after both permanent reservations, before guest work.
+		await expect(a.create().execute(structuredClone(a.action))).rejects.toThrow(
+			'unconfirmed outcome',
+		)
+		await expect(
+			a.create().execute({ ...a.action, operationId: 'other-native-callback' }),
+		).rejects.toThrow('reserved action')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		release()
+		const receipt = await first
+		expect(await a.create().execute(a.action)).toEqual(receipt)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		// The losing operation cannot adopt the winning actor's resolution on retry.
+		await expect(
+			a.create().execute({ ...a.action, operationId: 'other-native-callback' }),
+		).rejects.toThrow('another reserved action')
+	} finally {
+		release()
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('rechecks action authority between guest operations and never reexecutes a resolved approval', async () => {
+	let revoke = false
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'write', args: { path: 'pending.txt', content: 'blocked' } }],
+			},
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		vi.mocked(f.original.sandbox.readFile).mockImplementation(async () => {
+			revoke = true
+			throw Object.assign(new Error('absent'), { code: 'ENOENT' })
+		})
+		const gate = a.create(async () => {
+			if (revoke) throw new Error('Action authority revoked.')
+		})
+		await expect(gate.execute(a.action)).rejects.toThrow()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+		revoke = false
+		expect((await records(f)).some((record) => record.type === 'decision_resolved')).toBe(true)
+		expect(await a.create().execute(a.action)).toEqual(
+			expect.objectContaining({ status: 'resolved' }),
+		)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('keeps a durable reservation with no resolution when consent disappears after reservation and before native admission', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'pending.txt', content: 'blocked' } }] },
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		let checks = 0
+		await expect(
+			a
+				.create(async () => {
+					if (++checks === 3) throw new Error('Consent revoked after reservation.')
+				})
+				.execute(a.action),
+		).rejects.toThrow('revoked')
+		expect((await records(f)).filter((record) => record.type === 'decision_resolved')).toEqual([])
+		await expect(a.create().execute(a.action)).rejects.toThrow('unconfirmed outcome')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('keeps the trusted host current plan mode stricter than a one-batch authenticated approval', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'plan.txt', content: 'blocked' } }] },
+			{ text: 'The current plan mode refused the change.' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		const options = {
+			profile: f.pal,
+			scope: f.scope,
+			paths: f.state.paths,
+			session: f.agent,
+			authorize: async () => {},
+			currentPermissionMode: () => 'plan' as const,
+		}
+		expect(await createCliPalReviewActions(options).execute(a.action)).toEqual(
+			expect.objectContaining({ status: 'resolved' }),
+		)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(2)
+		expect(JSON.stringify(provider.requests[1])).toContain(PLAN_MODE_REFUSAL)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it.each(['auto', 'accept-edits'] as const)(
+	'holds a later reviewed batch after approve_once when the current host mode is %s',
+	async (mode) => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ name: 'write', args: { path: 'first.txt', content: 'once' } }] },
+				{ toolCalls: [{ name: 'write', args: { path: 'later.txt', content: 'must wait' } }] },
+			],
+		})
+		const f = await fixture(provider)
+		try {
+			const a = await actionFixture(f)
+			await createCliPalReviewActions({
+				profile: f.pal,
+				scope: f.scope,
+				paths: f.state.paths,
+				session: f.agent,
+				authorize: async () => {},
+				currentPermissionMode: () => mode,
+			}).execute(a.action)
+			expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+			expect(f.original.sandbox.writeFile).toHaveBeenCalledWith('first.txt', 'once')
+			expect(provider.requests).toHaveLength(2)
+			const later = await findPendingCheckpoint(a.log)
+			expect(later?.turnId).toBe(a.action.waiting.turnId)
+			expect(later?.checkpointId).not.toBe(a.action.waiting.checkpointId)
+			expect(later?.pending.request).toEqual(
+				expect.objectContaining({
+					type: 'tool_review',
+					toolCalls: [
+						expect.objectContaining({ input: { path: 'later.txt', content: 'must wait' } }),
+					],
+				}),
+			)
+		} finally {
+			await f.agent.close()
+			await f.runtime.close()
+			closeSessions(f.state)
+		}
+	},
+)
+
+it.each(['auto', 'accept-edits'] as const)(
+	'keeps the one-batch ceiling when the live host switches from prompt to %s during the approved guest write',
+	async (nextMode) => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ name: 'write', args: { path: 'first.txt', content: 'once' } }] },
+				{ toolCalls: [{ name: 'write', args: { path: 'later.txt', content: 'must wait' } }] },
+			],
+		})
+		const f = await fixture(provider)
+		try {
+			const a = await actionFixture(f)
+			let mode: PermissionMode = 'prompt'
+			vi.mocked(f.original.sandbox.writeFile).mockImplementation(async () => {
+				mode = nextMode
+			})
+			await createCliPalReviewActions({
+				profile: f.pal,
+				scope: f.scope,
+				paths: f.state.paths,
+				session: f.agent,
+				authorize: async () => {},
+				currentPermissionMode: () => mode,
+			}).execute(a.action)
+			expect(mode).toBe(nextMode)
+			expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+			expect(provider.requests).toHaveLength(2)
+			const later = await findPendingCheckpoint(a.log)
+			expect(later?.turnId).toBe(a.action.waiting.turnId)
+			expect(later?.checkpointId).not.toBe(a.action.waiting.checkpointId)
+			expect(
+				(await records(f)).filter((record) => record.type === 'decision_resolved'),
+			).toHaveLength(1)
+		} finally {
+			await f.agent.close()
+			await f.runtime.close()
+			closeSessions(f.state)
+		}
+	},
+)
+
+it('refuses an action host missing its current mode port instead of overriding an actually reopened plan session', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'plan.txt', content: 'blocked' } }] },
+			{ text: 'Must not request inference.' },
+		],
+	})
+	const f = await fixture(provider)
+	let planned: Awaited<ReturnType<typeof f.reopen>> | undefined
+	try {
+		await actionFixture(f)
+		await f.agent.close()
+		planned = await f.reopen('plan')
+		const admit = vi.spyOn(f.runtime, 'admit')
+		expect(() =>
+			createCliPalReviewActions({
+				profile: f.pal,
+				scope: f.scope,
+				paths: f.state.paths,
+				session: planned,
+				authorize: async () => {},
+			} as unknown as CliPalReviewActionsOptions),
+		).toThrow('trusted host current permission mode')
+		expect(admit).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+		expect((await records(f)).filter((record) => record.type === 'decision_resolved')).toEqual([])
+	} finally {
+		await planned?.close()
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('applies current plan review controls to a later rule-allowed batch after native checkpoint replay', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'first.txt', content: 'blocked' } }] },
+			{
+				toolCalls: [
+					{
+						id: 'later-plan-review',
+						name: 'write',
+						args: { path: 'later.txt', content: 'blocked too' },
+					},
+				],
+			},
+			{ text: 'Both changes remain blocked by the current plan mode.' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const pending = await park(f)
+		for await (const _event of f.agent.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			permissionMode: 'auto',
+			currentPermissionMode: () => 'plan',
+			rules: [{ type: 'allow_by_name', toolNames: ['write'] }],
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(3)
+		expect(JSON.stringify(provider.requests[2])).toContain(PLAN_MODE_REFUSAL)
+		const recorded = await records(f)
+		expect(recorded.filter((record) => record.type === 'decision_resolved')).toEqual([
+			expect.objectContaining({ decision: { action: 'approve_tools' } }),
+		])
+		expect(
+			recorded.find(
+				(record) => record.type === 'tool_completed' && record.toolUseId === 'later-plan-review',
+			),
+		).toEqual(
+			expect.objectContaining({
+				isError: true,
+				result: `Error: Tool "write" was not executed. ${PLAN_MODE_REFUSAL}`,
+			}),
+		)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('refuses an actually expired journal decision before acquiring the guest even with an explicit checkpoint', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'pending.txt', content: 'blocked' } }] },
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const pending = await park(f)
+		const log = DiskSessionLog.at(f.state.paths, { sessionId: f.id })
+		const held = await log.claim({
+			holder: 'expiry-fixture-writer',
+			ttlMs: 90_000,
+			repairTornTail: false,
+		})
+		if (!held) throw new Error('The actual parked fixture has another writer.')
+		try {
+			await log.append(held, {
+				type: 'decision_requested',
+				turnId: pending.turnId,
+				decisionId: pending.decisionId,
+				checkpointId: pending.checkpointId,
+				request: pending.pending.request,
+				deadlineAt: new Date(1).toISOString(),
+			})
+		} finally {
+			await log.release(held)
+		}
+		const admit = vi.spyOn(f.runtime, 'admit')
+		await expect(
+			(async () => {
+				for await (const _event of f.agent.resumePaused({
+					turnId: pending.turnId,
+					checkpointId: pending.checkpointId,
+					pendingDecision: { action: 'approve_tools' },
+				})) {
+				}
+			})(),
+		).rejects.toThrow('expired')
+		expect(admit).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(1)
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('retains a failed native resume writer release for confirmed close retry without reopening paid work', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'notes.txt', content: 'one' } }] },
+			{ text: 'Done' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const pending = await park(f)
+		const release = DiskSessionLog.prototype.release
+		vi.spyOn(DiskSessionLog.prototype, 'release')
+			.mockRejectedValueOnce(new Error('Writer release unconfirmed.'))
+			.mockImplementation(release)
+		await expect(
+			(async () => {
+				for await (const _event of f.agent.resumePaused({
+					turnId: pending.turnId,
+					checkpointId: pending.checkpointId,
+					pendingDecision: { action: 'approve_tools' },
+				})) {
+				}
+			})(),
+		).rejects.toThrow('unconfirmed')
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		await expect(
+			f.agent
+				.send([createUserMessage('Overlap')])
+				[Symbol.asyncIterator]()
+				.next(),
+		).rejects.toThrow('cleanup')
+		await expect(f.agent.close()).resolves.toBeUndefined()
+		expect(await DiskSessionLog.at(f.state.paths, { sessionId: f.id }).lease()).toEqual(
+			expect.objectContaining({ holder: '' }),
+		)
+		expect(provider.requests).toHaveLength(2)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('uses the original recorded iteration limit rather than the reopened session defaults', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'bounded.txt', content: 'one' } }] },
+			{ text: 'Must not request another paid iteration' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		vi.mocked(f.original.sandbox.readFile).mockRejectedValue(
+			Object.assign(new Error('absent'), { code: 'ENOENT' }),
+		)
+		for await (const _event of f.agent.send([createUserMessage('One iteration only')], {
+			permissionMode: 'prompt',
+			reviewHold: { reason: 'Wait for approval.' },
+			limits: { tokenBudget: 0, maxIterations: 1, timeoutMs: 0 },
+		})) {
+		}
+		const pending = await findPendingCheckpoint(
+			DiskSessionLog.at(f.state.paths, { sessionId: f.id }),
+		)
+		if (!pending) throw new Error('The actual query did not park.')
+		for await (const _event of f.agent.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(provider.requests).toHaveLength(1)
+		expect((await records(f)).filter((record) => record.type === 'turn_started')).toEqual([
+			expect.objectContaining({ config: expect.objectContaining({ maxIterations: 1 }) }),
+		])
+		expect(await DiskSessionLog.at(f.state.paths, { sessionId: f.id }).activeTurn()).toBeNull()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('records an authenticated rejection without executing the reviewed guest change and forwards its exact feedback', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'write', args: { path: 'rejected.txt', content: 'blocked' } }] },
+			{ text: 'I will respect that decision.' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		const a = await actionFixture(f)
+		const receipt = await a.create().execute({
+			...a.action,
+			answer: { action: 'reject', feedback: 'Do not write this reviewed file.' },
+		})
+		expect(receipt.status).toBe('resolved')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(2)
+		expect(JSON.stringify(provider.requests[1])).toContain('Do not write this reviewed file.')
+		expect((await records(f)).filter((record) => record.type === 'decision_resolved')).toEqual([
+			expect.objectContaining({
+				decision: { action: 'reject_tools', feedback: 'Do not write this reviewed file.' },
+			}),
+		])
 	} finally {
 		await f.agent.close()
 		await f.runtime.close()

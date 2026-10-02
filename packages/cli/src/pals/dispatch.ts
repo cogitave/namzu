@@ -1,17 +1,19 @@
 import {
 	type DurableInboundSource,
-	type PalDispatchOutcome,
-	type PalRouteBinding,
-	dispatchPalMessagesOnce,
+	type PalIngressDispatchOutcome,
+	type PalIngressRouteBinding,
+	dispatchPalIngressOnce,
+	ingressAuthorizationRequest,
 } from '@namzu/sdk'
 import type { CommandContext } from '../commands/types.js'
 import { closeSessions, loadConversation, openSessions } from '../integrations/sessions/store.js'
 import { compilePermissions } from '../permissions/rules.js'
 import { createAgentSession, probeAgentSession } from '../tui/agent.js'
 import {
-	cliPalCommunicationPolicy,
+	type CliPalIngressAuthorizationOptions,
 	cliPalCommunicationStore,
-	createCliPalMessageHost,
+	createCliPalIngressAuthorization,
+	createCliPalIngressHost,
 } from './communication.js'
 import { closeCliPalRuntime, getCliPalRuntime } from './environment.js'
 import { getCliPalStore } from './store.js'
@@ -40,7 +42,9 @@ export async function dispatchCliPalMessages(
 	ctx: CommandContext,
 	palId: string,
 	signal: AbortSignal,
-): Promise<PalDispatchOutcome> {
+	options: CliPalIngressAuthorizationOptions = {},
+): Promise<PalIngressDispatchOutcome> {
+	const authorizeChannel = options.authorizeChannel
 	const pals = getCliPalStore()
 	const pal = pals.get(palId)
 	if (!pal) throw new Error('Pal does not exist.')
@@ -48,27 +52,20 @@ export async function dispatchCliPalMessages(
 	const address = { tenantId: identity.tenantId, palId }
 	closeSessions(identity)
 	const store = cliPalCommunicationStore()
-	const policy = cliPalCommunicationPolicy()
+	const authorize = createCliPalIngressAuthorization({ authorizeChannel })
 	const runConversation = async (
-		binding: PalRouteBinding,
+		binding: PalIngressRouteBinding,
 		source: DurableInboundSource,
 		runSignal: AbortSignal,
 	) => {
-		const snapshot = await store.read(address)
+		const snapshot = await store.readIngress(address)
 		const envelope = snapshot?.messages.find(
 			(message) => message.routeId === binding.id && message.phase !== 'recorded',
 		)
 		if (!envelope) throw new Error('No pending Pal message is owned by this dispatch.')
 		const assertExecutionAllowed = async () => {
 			runSignal.throwIfAborted()
-			const decision = await policy.authorize({
-				phase: 'wake',
-				source: envelope.source,
-				recipient: envelope.recipient,
-				routeKey: envelope.routeKey,
-				body: envelope.body,
-				replyTo: envelope.replyTo,
-			})
+			const decision = await authorize(ingressAuthorizationRequest(envelope, 'wake'))
 			if (!decision.allow) throw new Error(`Pal execution refused: ${decision.reason}`)
 		}
 		await assertExecutionAllowed()
@@ -120,12 +117,12 @@ export async function dispatchCliPalMessages(
 	}
 	let dispatchFailure: unknown
 	try {
-		return await dispatchPalMessagesOnce(
+		return await dispatchPalIngressOnce(
 			{
 				pals,
 				store,
-				authorize: policy.authorize.bind(policy),
-				host: createCliPalMessageHost(runConversation),
+				authorize,
+				host: createCliPalIngressHost(runConversation),
 			},
 			address,
 			signal,

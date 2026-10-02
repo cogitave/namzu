@@ -26,6 +26,10 @@ export const PAL_HELP = [
 	'  revoke <sender-id> <recipient-id> [--revision <n>]',
 	'  inbox <id> [--json]',
 	'  dispatch <id> [--json]',
+	'  subscribe <source-pal-id> <source-conversation-id> <recipient-pal-id> [--wake] [--json]',
+	'  subscription <subscription-id> [--json]',
+	'  activity <subscription-id> [--max-records <n>] [--max-bytes <n>] [--causality-bytes <n>] [--causality-records <n>] [--json]',
+	'  unsubscribe <subscription-id> [--revision <n>] [--json]',
 	'',
 	'A Pal keeps its identity and immutable profile revisions across conversations.',
 	'Chat requires a ready local virtual computer; no host-folder execution fallback.',
@@ -33,6 +37,8 @@ export const PAL_HELP = [
 	'Appearance characters: pixel, sprout, spark. Colors: green, blue, amber, violet, rose.',
 	'Messaging is denied until a directed grant exists. --wake also permits explicit dispatch.',
 	'Dispatch runs one owned inbox route with preapproved tools; no background listener is installed.',
+	'Subscribe explicitly permits closed activity metadata; --wake separately permits dispatch.',
+	'Activity publishes one bounded journal page without inference or guest startup.',
 ].join('\n')
 function argumentsFor(args: readonly string[]) {
 	const positional: string[] = []
@@ -95,12 +101,25 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 		handler: async ({ ctx, rawArgs }) => {
 			try {
 				const [verb, ...rest] = rawArgs
+				if (
+					verb === 'subscribe' ||
+					verb === 'subscription' ||
+					verb === 'activity' ||
+					verb === 'unsubscribe'
+				)
+					return (await import('../pals/activity-command.js')).runPalActivityCommand(
+						ctx,
+						verb,
+						rest,
+					)
 				if (verb === 'grant' || verb === 'revoke' || verb === 'inbox' || verb === 'dispatch')
 					return (await import('../pals/message-command.js')).runPalMessageCommand(ctx, verb, rest)
 				if (verb === 'chat') {
 					const [id, ...args] = rest
 					if (!id) throw new Error('A Pal id is required.')
-					return (await import('../pals/chat.js')).runPalChat(ctx, id, args, { resumeCommand })
+					return (await import('../pals/chat.js')).runPalChat(ctx, id, args, {
+						resumeCommand,
+					})
 				}
 				const { positional, values, json } = argumentsFor(rest)
 				const output = json ? createFormatter('json', { quiet: false }) : ctx.formatter
@@ -166,7 +185,9 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 				output.print(updatePal(value, revision, changes))
 				return 0
 			} catch (error) {
-				ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+				ctx.formatter.error({
+					message: error instanceof Error ? error.message : String(error),
+				})
 				return EXIT_USAGE
 			}
 		},

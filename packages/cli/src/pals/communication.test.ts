@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import {
 	type FSWatcher,
@@ -15,6 +16,9 @@ import {
 	DiskPalCommunicationStore,
 	DiskSessionLog,
 	MockLLMProvider,
+	type PalChannelIntent,
+	type PalIngressIntentDraft,
+	type PalObservationIntent,
 	type PalRouteBinding,
 	type ToolContext,
 	autoApproveHandler,
@@ -23,6 +27,8 @@ import {
 	generateSessionId,
 	generateTenantId,
 	generateTurnId,
+	ingressIntentDigest,
+	ingressIntentId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -33,8 +39,12 @@ import {
 	startConversation,
 } from '../integrations/sessions/store.js'
 import {
+	cliPalActivitySubscriptionPolicy,
+	cliPalActivitySubscriptionStore,
 	cliPalCommunicationPolicy,
 	cliPalCommunicationStore,
+	createCliPalIngressAuthorization,
+	createCliPalIngressHost,
 	createCliPalMessageHost,
 	createCliPalMessagingContext,
 } from './communication.js'
@@ -132,6 +142,87 @@ async function fixture() {
 		grant,
 		accepted,
 	}
+}
+
+async function observation(f: Awaited<ReturnType<typeof fixture>>) {
+	const subscriptionId = randomUUID()
+	const scope = {
+		tenantId: f.senderState.tenantId,
+		projectId: f.senderState.projectId,
+		palId: f.sender.id,
+		profileRevision: f.sender.revision,
+		sessionId: f.sessionId,
+	}
+	await cliPalActivitySubscriptionStore().create({
+		id: subscriptionId,
+		scope,
+		recipient: f.target,
+		enabled: true,
+	})
+	const draft: PalIngressIntentDraft = {
+		kind: 'observation',
+		source: { kind: 'host-observation', subscriptionId, scope },
+		recipient: f.target,
+		routeKey: { v: 1, kind: 'observation', subscriptionId, scope, recipient: f.target },
+		operationId: 'a'.repeat(64),
+		fact: {
+			id: 'a'.repeat(64),
+			type: 'turn_started',
+			sessionId: f.sessionId,
+			turnId: generateTurnId(),
+			seq: 2,
+			generation: 1,
+			at: '2026-10-02T00:00:00.000Z',
+			status: 'running',
+		},
+		subscriptionTrail: [subscriptionId],
+		replyTo: null,
+		grant: { id: 'accepted-host-observation', revision: '1' },
+		createdAt: 100,
+	}
+	const id = ingressIntentId(draft)
+	const intent = {
+		...draft,
+		id,
+		digest: ingressIntentDigest({ ...draft, id }),
+	} as PalObservationIntent
+	await f.store.acceptIngress(intent, f.recipient.revision)
+	const binding = await f.store.routeIngress(intent.routeKey)
+	if (!binding) throw new Error('Missing observation route')
+	return { intent, binding, subscriptionId }
+}
+async function channel(f: Awaited<ReturnType<typeof fixture>>) {
+	const native = {
+		provider: 'local-fixture',
+		connectionId: 'captured-local-connection',
+		externalTenantId: 'verified-external-tenant',
+		nativeConversationId: 'native-conversation',
+		nativeChannelId: null,
+		nativeThreadId: 'native-thread',
+	}
+	const draft: PalIngressIntentDraft = {
+		kind: 'channel',
+		source: {
+			kind: 'channel',
+			tenantId: f.target.tenantId,
+			...native,
+			actorId: 'verified-current-actor',
+			eventId: 'provider-native-event',
+		},
+		recipient: f.target,
+		routeKey: { v: 1, kind: 'channel', recipient: f.target, ...native },
+		body: 'CHANNEL_PRIVATE_CONTEXT_20261002',
+		operationId: 'provider-native-event',
+		replyTo: null,
+		grant: { id: 'verified-test-acceptance', revision: '1' },
+		createdAt: 100,
+	}
+	const id = ingressIntentId(draft)
+	const intent = { ...draft, id, digest: ingressIntentDigest({ ...draft, id }) } as PalChannelIntent
+	await f.store.acceptIngress(intent, f.recipient.revision)
+	const binding = await f.store.routeIngress(intent.routeKey)
+	if (!binding) throw new Error('Missing channel route')
+	return { intent, binding }
 }
 
 function fakeWatcher() {
@@ -474,9 +565,9 @@ describe('CLI Pal messaging over real disk and session ownership', () => {
 	it('ignores unrelated notification hints and leaves the wait open until explicitly aborted', async () => {
 		const f = await fixture()
 		const { watcher, close } = fakeWatcher()
-		const read = DiskPalCommunicationStore.prototype.read
+		const read = DiskPalCommunicationStore.prototype.readIngress
 		let inspected!: Promise<Awaited<ReturnType<typeof read>>>
-		vi.spyOn(DiskPalCommunicationStore.prototype, 'read').mockImplementation(function (
+		vi.spyOn(DiskPalCommunicationStore.prototype, 'readIngress').mockImplementation(function (
 			this: DiskPalCommunicationStore,
 			address,
 		) {
@@ -513,6 +604,179 @@ describe('CLI Pal messaging over real disk and session ownership', () => {
 				Promise.resolve().then(() => createCliPalMessageHost().notify?.(f.target)),
 			).rejects.toThrow()
 			expect(existsSync(join(foreign, 'signal'))).toBe(false)
+		},
+	)
+	it('observes full shared state and refuses an own Pal wait while a hidden channel claim is unresolved', async () => {
+		const f = await fixture()
+		const incoming = await channel(f)
+		const peer = await f.accepted()
+		const host = createCliPalIngressHost()
+		const signal = new AbortController().signal
+		await host.ensureConversation(incoming.binding, signal)
+		const active = await f.store.activateIngress(incoming.binding, {
+			binding: incoming.binding,
+			definition: f.recipient,
+			access: await host.openConversation(incoming.binding, signal),
+		})
+		await f.store.claimIngress(active, {
+			turnId: generateTurnId(),
+			generation: 1,
+			content: () => 'Unresolved channel delivery',
+		})
+		expect((await f.store.read(f.target))?.messages).toHaveLength(1)
+		const recipient = createCliPalMessagingContext(
+			f.recipient,
+			{ sessionId: peer.binding.sessionId, tenantId: f.target.tenantId },
+			() => {},
+		).durableInbound
+		const watcher = fakeWatcher()
+		await expect(recipient.wait?.(signal)).rejects.toThrow('requires reconciliation')
+		expect(watcher.close).toHaveBeenCalledOnce()
+		await expect(
+			recipient.claim({ sessionId: peer.binding.sessionId, turnId: generateTurnId(), signal }),
+		).rejects.toThrow('requires reconciliation')
+		expect((await f.store.readIngress(f.target))?.messages.map((m) => m.phase)).toEqual([
+			'claimed',
+			'pending',
+		])
+	})
+	it('uses independently current observation consent and defaults channel receive to denied', async () => {
+		const f = await fixture()
+		const obs = await observation(f)
+		const external = await channel(f)
+		const authorize = createCliPalIngressAuthorization()
+		const observationRequest = {
+			kind: 'observation' as const,
+			phase: 'deliver' as const,
+			source: obs.intent.source,
+			recipient: obs.intent.recipient,
+			routeKey: obs.intent.routeKey,
+			fact: obs.intent.fact,
+			subscriptionTrail: obs.intent.subscriptionTrail,
+			replyTo: null,
+		}
+		expect((await authorize(observationRequest)).allow).toBe(false)
+		const policy = cliPalActivitySubscriptionPolicy()
+		await policy.update({
+			subscriptionId: obs.subscriptionId,
+			expectedRevision: 0,
+			observe: true,
+			disclose: true,
+			receive: true,
+			wake: false,
+		})
+		expect((await authorize(observationRequest)).allow).toBe(true)
+		expect((await authorize({ ...observationRequest, phase: 'wake' })).allow).toBe(false)
+		expect(
+			await authorize({
+				kind: 'channel',
+				phase: 'deliver',
+				source: external.intent.source,
+				recipient: external.intent.recipient,
+				routeKey: external.intent.routeKey,
+				body: external.intent.body,
+				replyTo: null,
+			}),
+		).toEqual({ allow: false, reason: 'No trusted channel authorization adapter is configured.' })
+		await policy.update({
+			subscriptionId: obs.subscriptionId,
+			expectedRevision: 1,
+			observe: true,
+			disclose: false,
+			receive: true,
+			wake: false,
+		})
+		expect((await authorize(observationRequest)).allow).toBe(false)
+	})
+	it.each(['observation', 'channel'] as const)(
+		'records %s intake through actual CLI query composition with exact provenance',
+		async (kind) => {
+			const f = await fixture()
+			const incoming = kind === 'observation' ? await observation(f) : await channel(f)
+			if ('subscriptionId' in incoming)
+				await cliPalActivitySubscriptionPolicy().update({
+					subscriptionId: incoming.subscriptionId,
+					expectedRevision: 0,
+					observe: true,
+					disclose: true,
+					receive: true,
+					wake: false,
+				})
+			const authorizeChannel = vi.fn(async () => ({
+				allow: true as const,
+				grant: { id: 'current-native-actor-policy', revision: '1' },
+			}))
+			const host = createCliPalIngressHost()
+			const signal = new AbortController().signal
+			await host.ensureConversation(incoming.binding, signal)
+			const state = await sessions(f.recipient.workspace)
+			const log = DiskSessionLog.at(state.paths, { sessionId: incoming.binding.sessionId })
+			const context = createCliPalMessagingContext(
+				f.recipient,
+				{ sessionId: incoming.binding.sessionId, tenantId: state.tenantId },
+				vi.fn(),
+				kind === 'channel' ? { authorizeChannel } : {},
+			)
+			const provider = new MockLLMProvider({ responseText: 'Received authorized source context' })
+			const turn = await drainQuery({
+				provider,
+				toolsets: [],
+				resumeHandler: autoApproveHandler,
+				agentId: f.recipient.id,
+				agentName: f.recipient.name,
+				messages: [createUserMessage('Read the authorized incoming context')],
+				workingDirectory: f.recipient.workspace,
+				paths: state.paths,
+				sessionLog: log,
+				sessionId: incoming.binding.sessionId,
+				topicId: state.topicId,
+				projectId: state.projectId,
+				tenantId: state.tenantId,
+				durableInbound: context.durableInbound,
+				turnConfig: { model: 'fixture', tokenBudget: 0, timeoutMs: 0, maxIterations: 2 },
+			})
+			expect(turn.status).toBe('completed')
+			expect(provider.requests).toHaveLength(1)
+			const delivered = (await f.store.readIngress(f.target))?.messages.find(
+				(m) => m.id === incoming.intent.id,
+			)
+			if (!delivered?.receipt) throw new Error('Missing actual input receipt')
+			expect(delivered).toMatchObject({
+				phase: 'recorded',
+				receipt: {
+					ref: {
+						namespace: `namzu-pal-${kind}/1`,
+						id: incoming.intent.id,
+						digest: incoming.intent.digest,
+					},
+					sessionId: incoming.binding.sessionId,
+					turnId: turn.id,
+				},
+			})
+			const record = (
+				await log.readAll({ expectHead: delivered.receipt.through.pointer })
+			).entries.find(
+				(e) => e.record.type === 'message' && e.record.messageId === delivered.receipt?.messageId,
+			)?.record
+			expect(record).toMatchObject({
+				type: 'message',
+				role: 'user',
+				content: {
+					source: {
+						type: 'runtime-context',
+						kind: kind === 'observation' ? 'host-observation' : 'channel-message',
+						deliveryRef: delivered.receipt.ref,
+					},
+				},
+			})
+			if (kind === 'channel')
+				expect(authorizeChannel).toHaveBeenCalledWith(
+					expect.objectContaining({
+						source: expect.objectContaining({ actorId: 'verified-current-actor' }),
+						phase: 'deliver',
+					}),
+				)
+			else expect(authorizeChannel).not.toHaveBeenCalled()
 		},
 	)
 })

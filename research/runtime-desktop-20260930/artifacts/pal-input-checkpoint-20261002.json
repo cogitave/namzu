@@ -1,0 +1,279 @@
+{
+  "status": "complete-local-checkpoint",
+  "date": "2026-10-02",
+  "scope": "Shared Pal ingress, durable activity subscriptions, authenticated host channel adapters and exact parked tool-review continuation",
+  "baseUiCommit": "e233702f",
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "passed": true,
+      "log": "/var/tmp/namzu-pal-action-ceiling-typecheck-20261002.log"
+    },
+    {
+      "command": "pnpm lint",
+      "passed": true,
+      "log": "/var/tmp/namzu-pal-action-ceiling-lint-20261002.log",
+      "note": "Existing non-failing warnings remain."
+    },
+    {
+      "command": "pnpm -r build",
+      "passed": true,
+      "log": "/var/tmp/namzu-pal-ingress-workspace-build-20261002.log",
+      "note": "Followed by final changed SDK and CLI builds."
+    },
+    {
+      "command": "pnpm --filter @namzu/sdk build",
+      "passed": true,
+      "log": "/var/tmp/namzu-pal-ingress-sdk-build-accepted-20261002.log"
+    },
+    {
+      "command": "pnpm --filter @namzu/cli build",
+      "passed": true,
+      "log": "/var/tmp/namzu-pal-action-ceiling-build-20261002.log"
+    },
+    {
+      "command": "pnpm --filter @namzu/sdk test:coverage",
+      "passed": true,
+      "testFiles": 877,
+      "tests": 9884,
+      "skipped": 0,
+      "log": "/var/tmp/namzu-pal-ingress-sdk-coverage-accepted-20261002.log"
+    },
+    {
+      "command": "pnpm -r --filter '!@namzu/sdk' --filter '!namzu' test",
+      "passed": true,
+      "testFiles": 789,
+      "skippedFiles": 6,
+      "tests": 8379,
+      "skipped": 116,
+      "packages": {
+        "packages/desktop": {
+          "passed": 67,
+          "skipped": 0
+        },
+        "packages/computer-use": {
+          "passed": 165,
+          "skipped": 0
+        },
+        "packages/browser": {
+          "passed": 133,
+          "skipped": 42
+        },
+        "packages/ag-ui": {
+          "passed": 189,
+          "skipped": 0
+        },
+        "packages/live": {
+          "passed": 25,
+          "skipped": 0
+        },
+        "packages/lsp": {
+          "passed": 27,
+          "skipped": 0
+        },
+        "packages/providers/anthropic": {
+          "passed": 251,
+          "skipped": 44
+        },
+        "packages/providers/deepseek": {
+          "passed": 44,
+          "skipped": 0
+        },
+        "packages/providers/bedrock": {
+          "passed": 127,
+          "skipped": 0
+        },
+        "packages/providers/google": {
+          "passed": 29,
+          "skipped": 0
+        },
+        "packages/files": {
+          "passed": 48,
+          "skipped": 11
+        },
+        "packages/providers/http": {
+          "passed": 83,
+          "skipped": 10
+        },
+        "packages/providers/lmstudio": {
+          "passed": 29,
+          "skipped": 0
+        },
+        "packages/providers/ollama": {
+          "passed": 36,
+          "skipped": 0
+        },
+        "packages/providers/openrouter": {
+          "passed": 80,
+          "skipped": 0
+        },
+        "packages/providers/zen": {
+          "passed": 234,
+          "skipped": 0
+        },
+        "packages/providers/openai": {
+          "passed": 129,
+          "skipped": 0
+        },
+        "packages/telemetry": {
+          "passed": 33,
+          "skipped": 0
+        },
+        "packages/sandbox": {
+          "passed": 1757,
+          "skipped": 3
+        },
+        "packages/cli": {
+          "passed": 4893,
+          "skipped": 6
+        }
+      },
+      "log": "/var/tmp/namzu-pal-ingress-workspace-tests-final-20261002.log",
+      "note": "Before final CLI current-mode and action-ceiling cases; fresh CLI and final affected suite below cover them."
+    },
+    {
+      "command": "pnpm --filter @namzu/cli test",
+      "passed": true,
+      "testFiles": 535,
+      "tests": 4894,
+      "skipped": 6,
+      "log": "/var/tmp/namzu-pal-ingress-cli-tests-accepted-20261002.log",
+      "note": "After required current host mode, before final four action-ceiling cases."
+    },
+    {
+      "command": "pnpm --filter @namzu/cli exec vitest run src/pals/agent-session.test.ts",
+      "passed": true,
+      "testFiles": 1,
+      "tests": 29,
+      "skipped": 0,
+      "log": "/var/tmp/namzu-pal-parked-review-ceiling-tests-20261002.log",
+      "note": "Final actual SDK query coverage of plan, prompt, auto and accept-edits action ceilings; native final-mode proof recorded separately."
+    },
+    {
+      "command": "pnpm --filter @namzu/sdk test:proc",
+      "passed": true,
+      "testFiles": 46,
+      "tests": 278,
+      "log": "/var/tmp/namzu-pal-ingress-sdk-proc-20261002.log"
+    },
+    {
+      "command": "pnpm docs:check",
+      "passed": true,
+      "pages": 139,
+      "tests": 4,
+      "log": "/var/tmp/namzu-pal-complete-docs-20261002.log"
+    },
+    {
+      "command": "node tools/check-doc-fences.mjs",
+      "passed": true,
+      "compiledFences": 114,
+      "packageReadmes": 21,
+      "declaredSketches": 15,
+      "log": "/var/tmp/namzu-pal-ingress-doc-fences-20261002.log"
+    }
+  ],
+  "additionalPassingGates": {
+    "SDK module coverage floor": {
+      "modules": 13,
+      "palLinesCovered": 1533,
+      "palLinesTotal": 1643,
+      "palBranchesCovered": 1192,
+      "palBranchesTotal": 1412,
+      "palLinePercent": 93.3,
+      "palBranchPercent": 84.42,
+      "palLineFloor": 89,
+      "palBranchFloor": 78
+    },
+    "SDK test presence": {
+      "required": 43,
+      "declarative": 5,
+      "baseline": 0
+    },
+    "Project references": {
+      "edges": 31,
+      "packages": 21
+    },
+    "Publish metadata": {
+      "packages": 21
+    },
+    "Signature exports": {
+      "signatures": 1005,
+      "packages": 20
+    },
+    "Log standard": {
+      "files": 1398,
+      "tests": 39
+    },
+    "External-name audit": {
+      "tests": 14
+    },
+    "Workflow parity and validated-tree tests": {
+      "tests": 98,
+      "gates": 23
+    },
+    "Local-entry tests": {
+      "tests": 22
+    },
+    "Model price catalogue": {
+      "passed": true
+    },
+    "Zen snapshot generator tests": {
+      "tests": 77
+    },
+    "POSIX installer parse": {
+      "command": "sh -n install.sh",
+      "passed": true
+    }
+  },
+  "nativeReceipts": [
+    {
+      "file": "pal-docked-native-20261002.json",
+      "scope": "Actual Windows Electron right column, live Three.js character, saved profile and edit/focus; no model or guest startup.",
+      "sha256": "3c21c3346f68e34ea57cab22d1c94844f61ac45740a3e5ccdbda3a54ddf72bdb"
+    },
+    {
+      "file": "pal-native-review-20261002.json",
+      "scope": "Three fresh native Windows processes, actual original checkpoint, prompt -> auto -> accept-edits host modes, own persistent Linux guest and exact once-only review effects.",
+      "sha256": "fbde8011319f6916071366b6e303194820661feb4f695e3f89499e61cf424879"
+    },
+    {
+      "file": "pal-native-subscriptions-20261002.json",
+      "scope": "Native Windows UNC caller, production directed permission stores, 14 recorded observations through nine fresh publication processes and 105 exact receipt checks; unchanged source bytes, revoke refusal, distinct actual guests and confirmed shutdown.",
+      "sha256": "4c30d898b53a8f64a764fd36aeaa412049adcc88e294653b0061cc97a9972f06"
+    }
+  ],
+  "limitations": [
+    "Test suites overlap; counts must not be added as unique cases across commands.",
+    "Local unit and native fixture verification, not all release/CI gates or a fresh npm registry install.",
+    "dash is unavailable; sh parsing passed but dash parsing was not run successfully.",
+    "Credentialed/live provider, browser opt-in, Azurite and Windows-only unit suites retain their explicit skips; native fixtures provide separate scoped Windows evidence.",
+    "Native inference/catalogue discovery is scripted. Parked review actor/current-consent ports are a private host fixture; subscription grants use production local permission stores. Original CLI/SDK journals, writer/checkpoint paths and local guests are production code.",
+    "No external channel transport or account has been connected; host authentication/routing is verified with local fixtures.",
+    "Durability claims process restart on supported local filesystems, not power-loss protection.",
+    "The local computer is a Linux container guest with persistent per-Pal storage, not a full VM. This Windows WSL machine lacks cgroup quotas; Chromium uses the outer guest boundary.",
+    "Team/Coordinator, organization views and continuous listener UI are later work.",
+    "No push, merge or publication."
+  ],
+  "independentReview": {
+    "publicDocsAndIngress": "No remaining concrete defect; SDK major output-union note and combined current observation acceptance verified.",
+    "nativeEvidence": "Executed harness and critical native/runtime artifact hashes match repository/workspace files; no credentials, Happy content or existing user-session bodies in intended public evidence."
+  },
+  "passed": true,
+  "runtimeTreeHashes": [
+    {
+      "package": "@namzu/sdk",
+      "files": 7008,
+      "sha256": "4e4decebe3acbcea9b8096fa14812479d74269f511dfdba78996139aceb7fd61"
+    },
+    {
+      "package": "@namzu/cli",
+      "files": 3684,
+      "sha256": "2bc35fd354b163d856de66ab7edf139c7a644f9361790707f1806f60da893ad5"
+    },
+    {
+      "package": "@namzu/sandbox",
+      "files": 37,
+      "sha256": "cb48219eced4946cba9bd651095aabf51c7991d6c53c7facbb590e4085ab849b"
+    }
+  ]
+}

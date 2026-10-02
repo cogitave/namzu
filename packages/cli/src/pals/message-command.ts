@@ -66,11 +66,24 @@ export async function runPalMessageCommand(
 				}),
 			)
 		} else if (verb === 'inbox') {
-			const state = await cliPalCommunicationStore().read(first)
+			const state = await cliPalCommunicationStore().readIngress(first)
 			output.print(
 				(state?.messages ?? []).map((message) => ({
 					id: message.id,
-					sourcePalId: message.source.address.palId,
+					...(!('kind' in message)
+						? { sourcePalId: message.source.address.palId }
+						: message.kind === 'observation'
+							? {
+									sourceKind: 'host-observation',
+									subscriptionId: message.source.subscriptionId,
+									observedPalId: message.source.scope.palId,
+								}
+							: {
+									sourceKind: 'channel',
+									provider: message.source.provider,
+									connectionId: message.source.connectionId,
+									actorId: message.source.actorId,
+								}),
 					status: message.phase,
 					conversationId: state?.routes.find((route) => route.id === message.routeId)?.sessionId,
 				})),

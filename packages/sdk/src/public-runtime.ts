@@ -1745,3 +1745,43 @@ export {
 	PalActivityIntegrityError,
 	PalActivityReadLimitError,
 } from './pals/activity/source.js'
+
+export { PalIngressBlockedError } from './pals/communication/store.js'
+export {
+	createPalIngressInboxSource,
+	reconcilePalIngressDelivery,
+} from './pals/communication/ingress-inbound.js'
+export { dispatchPalIngressOnce } from './pals/communication/ingress-dispatch.js'
+export { verifyIngressRecorded } from './pals/communication/verify.js'
+export {
+	PAL_OBSERVATION_NAMESPACE,
+	PAL_CHANNEL_NAMESPACE,
+	ingressMessageRef,
+} from './pals/communication/ingress-types.js'
+export { DiskPalChannelRoutes, PalChannelRouteConflictError } from './pals/channels/routes.js'
+export { PalChannelIngress } from './pals/channels/ingress.js'
+export { PalChannelRouter } from './pals/channels/routing.js'
+export {
+	DiskPalActivitySubscriptionStore,
+	PalActivitySubscriptionConflictError,
+} from './pals/activity/subscription-store.js'
+export {
+	DiskPalActivitySubscriptionPolicy,
+	PalActivitySubscriptionPermissionConflictError,
+} from './pals/activity/subscription-policy.js'
+export {
+	publishPalActivityOnce,
+	PalActivitySubscriptionDeniedError,
+} from './pals/activity/subscriptions.js'
+export {
+	createPalActivityCausalityResolver,
+	PalActivityCausalityUnavailableError,
+} from './pals/activity/causality.js'
+
+export {
+	ingressIntentId,
+	ingressIntentDigest,
+	ingressRouteId,
+} from './pals/communication/ingress-schema.js'
+
+export { ingressAuthorizationRequest } from './pals/communication/ingress-types.js'

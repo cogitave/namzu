@@ -1,0 +1,88 @@
+{
+  "v": 1,
+  "purpose": "Sanitized native Windows production Pal activity subscription proof",
+  "executedAt": "2026-10-02",
+  "passed": true,
+  "nativeExitCode": 0,
+  "outerCleanupCompleted": true,
+  "ownGuestCleanupConfirmed": true,
+  "runtime": {
+    "platform": "win32",
+    "node": "v22.20.0",
+    "workingDirectoryKind": "UNC",
+    "engine": "podman",
+    "guestImage": "namzu-local-computer:1",
+    "guestImageId": "3a34d95148b3a650fe504567fd9765e075582a32bf24e073589b3efea1a626cf"
+  },
+  "modelBoundary": "MockLLMProvider and private catalogue discovery only; production SDK/CLI/store/policy/tool/guest code is unchanged.",
+  "authorityBoundary": "Explicit directed local operator observe/disclose/receive/wake consent; no external channel actor or transport is exercised by this activity proof.",
+  "redaction": "Private home/cwd text and all Pal/session/subscription IDs omitted.",
+  "results": {
+    "accepted": 14,
+    "recorded": 14,
+    "pending": 0,
+    "claimed": 0,
+    "publicationProcesses": 9,
+    "checkedOriginalLogReceiptsBeforeProvider": 105,
+    "sourceOriginalRecords": 36,
+    "publicationCursor": 36,
+    "sourceJournalSha256BeforeAndAfter": "73477f2f111529d1ce8abab2f86a2b14e68be0d318f5b1de81f800f0a721f391",
+    "wakeRevokedModelRequests": 0,
+    "observeRevokePreservedProgress": true,
+    "sourceAndRecipientComputersDistinct": true,
+    "actualGuestWriteReadLinuxShellAndPng": true
+  },
+  "checks": [
+    "native CLI creates two private fixture Pals without external accounts",
+    "actual SDK query records independent source facts and real guest write/PNG; only model is scripted",
+    "fresh native processes publish bounded pages, retain durable progress and dedup without modifying original journal/profile",
+    "shared observation envelopes contain allowlisted facts and exact causality, excluding private source contents",
+    "current wake revocation blocks accepted pending observations with zero model requests",
+    "finite production dispatch records exact durable receipts before actual recipient SDK requests and guest tools",
+    "recipient has a separate real local computer, guest file/Linux shell/PNG, without source private history",
+    "a fresh publication process observes revocation and fails closed without changing progress or original source"
+  ],
+  "limitations": [
+    "Already-built local consumer snapshot, not npm registry installation.",
+    "Only model inference and catalogue discovery are scripted; no credentialed inference.",
+    "Finite explicit publication/dispatch, not a daemon or external channel transport.",
+    "No external channel transport, authenticated remote actor, remote outbox, continuous listener, or remote exactly-once delivery is exercised.",
+    "The real local computer is a Podman Linux container guest, not a full VM."
+  ],
+  "code": {
+    "criticalProductionSha256": {
+      "@namzu/sdk/dist/pals/activity/causality.js": "a018919576f146b42df7f858d6e510ece90580d2b9c73700e43e123ddfb72c70",
+      "@namzu/sdk/dist/pals/activity/subscriptions.js": "45a2f4c8d451086389807fc92858f365e79b4a00ca6caec63598c3374284c8fd",
+      "@namzu/sdk/dist/pals/activity/subscription-policy.js": "8cce3bb3c6c1e5edad3c06fe369b286632f9da15738e281e3534f2f1c170ef7f",
+      "@namzu/cli/dist/pals/activity.js": "d46dbb69f6fdc9d67a3ece33e99b3e22e165036cee26b91fd385f9123fdf5bfe",
+      "@namzu/cli/dist/pals/dispatch.js": "4b7980bf09bfdd14c2af62db38dead945e4e93ec649d67b9d6a1281a5460ea11",
+      "@namzu/cli/dist/pals/agent-session.js": "da100cdddc34b3a0df97f3c1c3dfff209bd68c5ef31e9fde853badddf20a7373"
+    },
+    "executedHarnessSha256": "aafcd7c79ef537c57fc970c248b466007705f5fdc69adb41f1c756ff5a139dae",
+    "harnessMatchesResearchSource": true,
+    "snapshotManifestSha256": "a45fd8e5c5b66ecc6d3cffd9d82a8e7326e0d1a15dc03f12ee7dafdb116693e6",
+    "snapshotPackageCount": 130,
+    "baseGitCommit": "e233702f57494ff0bb78aae764d55c238e797aa2",
+    "baseGitTree": "bc7f16274ab1fb25d2cfd46a1d3e56a94f272369",
+    "identityNote": "Built local snapshot from working sources; base Git tree alone does not identify uncommitted changes. All SDK/CLI/sandbox dist-tree hashes below cross-reference the independently audited unchanged consumer snapshot used for both native proofs.",
+    "runtimeTreeHashes": [
+      {
+        "package": "@namzu/sdk",
+        "files": 7008,
+        "sha256": "4e4decebe3acbcea9b8096fa14812479d74269f511dfdba78996139aceb7fd61"
+      },
+      {
+        "package": "@namzu/cli",
+        "files": 3684,
+        "sha256": "2bc35fd354b163d856de66ab7edf139c7a644f9361790707f1806f60da893ad5"
+      },
+      {
+        "package": "@namzu/sandbox",
+        "files": 37,
+        "sha256": "cb48219eced4946cba9bd651095aabf51c7991d6c53c7facbb590e4085ab849b"
+      }
+    ],
+    "runtimeTreeEvidence": "pal-native-review-20261002.json",
+    "runtimeTreeEvidenceSha256": "fbde8011319f6916071366b6e303194820661feb4f695e3f89499e61cf424879"
+  }
+}

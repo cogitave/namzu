@@ -4,6 +4,9 @@ import type {
 	InboundDeliveryClaim,
 } from '../../types/message/inbound-delivery.js'
 import { createRuntimeContextMessage } from '../../types/message/index.js'
+import type { PalIngressStore } from './ingress-types.js'
+import { bindingSchema, freezeCommunicationValue } from './schema.js'
+import { PalIngressBlockedError } from './store.js'
 import {
 	type PalInboxMessage,
 	type PalInboxSourceOptions,
@@ -85,7 +88,17 @@ export async function reconcilePalDelivery(
 }
 
 /** Optional query source bound to exactly one owned conversation. */
-export function createPalInboxSource(options: PalInboxSourceOptions): DurableInboundSource {
+export function createPalInboxSource(inputOptions: PalInboxSourceOptions): DurableInboundSource {
+	const options: PalInboxSourceOptions = {
+		...inputOptions,
+		binding: freezeCommunicationValue(bindingSchema.parse(inputOptions.binding)),
+		host: {
+			ensureConversation: inputOptions.host.ensureConversation.bind(inputOptions.host),
+			openConversation: inputOptions.host.openConversation.bind(inputOptions.host),
+			runConversation: inputOptions.host.runConversation.bind(inputOptions.host),
+			...(inputOptions.host.wait ? { wait: inputOptions.host.wait.bind(inputOptions.host) } : {}),
+		},
+	}
 	async function context(signal: AbortSignal): Promise<PalVerificationContext> {
 		signal.throwIfAborted()
 		return {
@@ -102,6 +115,12 @@ export function createPalInboxSource(options: PalInboxSourceOptions): DurableInb
 			input.signal.throwIfAborted()
 			if (input.sessionId !== options.binding.sessionId)
 				throw new Error('Foreign query cannot drain this Pal route.')
+			const shared = options.store as Partial<PalIngressStore>
+			if (shared.readIngress) {
+				const full = await shared.readIngress(options.binding.key.recipient)
+				if (full?.messages.some((message) => message.phase === 'claimed' && 'kind' in message))
+					throw new PalIngressBlockedError()
+			}
 			currentRecipient(options.pals, options.binding)
 			const verification = await context(input.signal)
 			await verifyConversation(verification)

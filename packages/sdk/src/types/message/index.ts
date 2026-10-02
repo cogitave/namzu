@@ -351,6 +351,8 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'advisory',
 	'answer-review',
 	'auto-continuation',
+	'channel-message',
+	'host-observation',
 	'job-exit',
 	'limit-finalization',
 	'peer-message',

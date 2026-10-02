@@ -792,6 +792,8 @@ export interface SendOptions {
 
 /** What {@link AgentSession.resumeDurable} needs that the session does not hold. */
 export interface ResumeDurableParams {
+	/** Current host execution consent, checked at each Pal provider and guest tool entry. */
+	readonly assertExecutionAllowed?: () => void | Promise<void>
 	/** The paused or interrupted turn to continue, and the session it belongs to. */
 	readonly entry: {
 		readonly tenantId: TenantId
@@ -813,6 +815,8 @@ export interface ResumeDurableParams {
 }
 
 export interface ResumePausedParams {
+	/** Current host execution consent, checked at each Pal provider and guest tool entry. */
+	readonly assertExecutionAllowed?: () => void | Promise<void>
 	/** The turn the `paused` event named. */
 	readonly turnId: string
 	/**

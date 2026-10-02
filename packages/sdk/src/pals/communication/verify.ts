@@ -3,13 +3,36 @@ import type { SessionLogEntry } from '../../store/session-log/chain.js'
 import type { SessionLogRead } from '../../store/session-log/core.js'
 import type { InboundDeliveryReceipt } from '../../types/message/inbound-delivery.js'
 import type { UserMessage } from '../../types/message/index.js'
-import { type PalInboxMessage, type PalVerificationContext, palMessageRef } from './types.js'
+import {
+	checkedIngressIntent,
+	ingressBindingSchema,
+	ingressInboxSchema,
+	ingressReceiptSchema,
+	ingressRouteId,
+} from './ingress-schema.js'
+import {
+	type PalIngressInboxMessage,
+	type PalIngressVerificationContext,
+	ingressMessageRef,
+	ingressRuntimeContextKind,
+} from './ingress-types.js'
+import { freezeCommunicationValue } from './schema.js'
+import type { PalInboxMessage, PalVerificationContext } from './types.js'
+
+function capturedContext(input: PalIngressVerificationContext): PalIngressVerificationContext {
+	return {
+		binding: freezeCommunicationValue(ingressBindingSchema.parse(input.binding)),
+		definition: { ...input.definition },
+		access: { ...input.access },
+	}
+}
 
 /** Read original records, never compacted model history or model-supplied evidence. */
-export async function verifyConversation(
-	context: PalVerificationContext,
+export async function verifyIngressConversation(
+	inputContext: PalIngressVerificationContext,
 	through?: InboundDeliveryReceipt['through'],
 ): Promise<SessionLogRead> {
+	const context = capturedContext(inputContext)
 	const { binding, access, definition } = context
 	if (
 		access.log.sessionId !== binding.sessionId ||
@@ -49,10 +72,30 @@ export async function verifyConversation(
 	return read
 }
 
+function checkedDelivery(
+	input: PalIngressInboxMessage,
+	context: PalIngressVerificationContext,
+): PalIngressInboxMessage {
+	const message = ingressInboxSchema.parse(input) as PalIngressInboxMessage
+	const raw = { ...message } as Record<string, unknown>
+	for (const key of ['ordinal', 'routeId', 'phase', 'claim', 'receipt']) delete raw[key]
+	checkedIngressIntent(raw)
+	if (
+		message.routeId !== ingressRouteId(message.routeKey) ||
+		context.binding.id !== ingressRouteId(context.binding.key) ||
+		context.binding.id !== message.routeId ||
+		!isDeepStrictEqual(context.binding.key, message.routeKey) ||
+		!message.claim ||
+		message.claim.sessionId !== context.binding.sessionId
+	)
+		throw new Error('Foreign delivery route or claim.')
+	return message
+}
+
 async function matches(
 	entry: SessionLogEntry,
-	message: PalInboxMessage,
-	context: PalVerificationContext,
+	message: PalIngressInboxMessage,
+	context: PalIngressVerificationContext,
 ): Promise<boolean> {
 	const record = entry.record
 	if (
@@ -74,20 +117,26 @@ async function matches(
 		typeof content.source !== 'object'
 	)
 		return false
-	const source = content.source as { type?: unknown; kind?: unknown; deliveryRef?: unknown }
+	const source = content.source as {
+		type?: unknown
+		kind?: unknown
+		deliveryRef?: unknown
+	}
 	return (
 		source.type === 'runtime-context' &&
-		source.kind === 'peer-message' &&
-		isDeepStrictEqual(source.deliveryRef, palMessageRef(message))
+		source.kind === ingressRuntimeContextKind(message) &&
+		isDeepStrictEqual(source.deliveryRef, ingressMessageRef(message))
 	)
 }
 
-export async function findRecordedMessage(
-	message: PalInboxMessage,
-	context: PalVerificationContext,
+export async function findRecordedIngressMessage(
+	inputMessage: PalIngressInboxMessage,
+	inputContext: PalIngressVerificationContext,
 	through?: InboundDeliveryReceipt['through'],
 ): Promise<{ read: SessionLogRead; entry: SessionLogEntry | null }> {
-	const read = await verifyConversation(context, through)
+	const context = capturedContext(inputContext)
+	const message = checkedDelivery(inputMessage, context)
+	const read = await verifyIngressConversation(context, through)
 	let found: SessionLogEntry | null = null
 	for (const entry of read.entries) {
 		if (!(await matches(entry, message, context))) continue
@@ -97,13 +146,26 @@ export async function findRecordedMessage(
 	return { read, entry: found }
 }
 
-export async function verifyRecorded(
-	message: PalInboxMessage,
-	receipt: InboundDeliveryReceipt,
-	context: PalVerificationContext,
+export async function verifyIngressRecorded(
+	inputMessage: PalIngressInboxMessage,
+	inputReceipt: InboundDeliveryReceipt,
+	inputContext: PalIngressVerificationContext,
 ): Promise<void> {
-	if (context.binding.id !== message.routeId) throw new Error('Foreign delivery route.')
-	const { entry } = await findRecordedMessage(message, context, receipt.through)
+	const context = capturedContext(inputContext)
+	const message = checkedDelivery(inputMessage, context)
+	const receipt = ingressReceiptSchema.parse(inputReceipt)
+	if (
+		!message.claim ||
+		context.binding.id !== message.routeId ||
+		!isDeepStrictEqual(context.binding.key, message.routeKey) ||
+		!isDeepStrictEqual(receipt.ref, ingressMessageRef(message)) ||
+		receipt.claimId !== message.claim.id ||
+		receipt.sessionId !== message.claim.sessionId ||
+		receipt.turnId !== message.claim.turnId ||
+		receipt.through.gen < message.claim.generation
+	)
+		throw new Error('Foreign delivery route or receipt.')
+	const { entry } = await findRecordedIngressMessage(message, context, receipt.through)
 	if (
 		!entry ||
 		entry.record.type !== 'message' ||
@@ -113,16 +175,46 @@ export async function verifyRecorded(
 		throw new Error('No matching recorded message covers this Pal delivery receipt.')
 }
 
-export async function verifyUnrecorded(
-	message: PalInboxMessage,
-	context: PalVerificationContext,
+export async function verifyIngressUnrecorded(
+	inputMessage: PalIngressInboxMessage,
+	inputContext: PalIngressVerificationContext,
 ): Promise<void> {
+	const context = capturedContext(inputContext)
+	const message = checkedDelivery(inputMessage, context)
 	if (!message.claim || context.binding.id !== message.routeId)
 		throw new Error('Foreign delivery route.')
-	const { entry } = await findRecordedMessage(message, context)
+	const { entry } = await findRecordedIngressMessage(message, context)
 	if (entry) throw new Error('Recorded delivery cannot be released for retry.')
 	const lease = await context.access.log.lease()
 	const active = await context.access.log.activeTurn()
 	if (!lease || lease.fence <= message.claim.generation || active !== null)
 		throw new Error('Unrecorded delivery has no proof of a fenced and stopped writer.')
+}
+
+/** Legacy Pal-only verification retains its existing signatures. */
+export function verifyConversation(
+	context: PalVerificationContext,
+	through?: InboundDeliveryReceipt['through'],
+): Promise<SessionLogRead> {
+	return verifyIngressConversation(context, through)
+}
+export function findRecordedMessage(
+	message: PalInboxMessage,
+	context: PalVerificationContext,
+	through?: InboundDeliveryReceipt['through'],
+): Promise<{ read: SessionLogRead; entry: SessionLogEntry | null }> {
+	return findRecordedIngressMessage(message, context, through)
+}
+export function verifyRecorded(
+	message: PalInboxMessage,
+	receipt: InboundDeliveryReceipt,
+	context: PalVerificationContext,
+): Promise<void> {
+	return verifyIngressRecorded(message, receipt, context)
+}
+export function verifyUnrecorded(
+	message: PalInboxMessage,
+	context: PalVerificationContext,
+): Promise<void> {
+	return verifyIngressUnrecorded(message, context)
 }

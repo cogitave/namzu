@@ -1,4 +1,5 @@
 import { createPalInboxSource, reconcilePalDelivery } from './inbound.js'
+import type { PalIngressStore } from './ingress-types.js'
 import {
 	type PalAddress,
 	type PalDispatchOutcome,
@@ -16,7 +17,17 @@ export async function dispatchPalMessagesOnce(
 ): Promise<PalDispatchOutcome> {
 	signal.throwIfAborted()
 	const host = options.host
-	if (!host) return { status: 'blocked', reason: 'No Pal conversation host is configured.' }
+	if (!host)
+		return {
+			status: 'blocked',
+			reason: 'No Pal conversation host is configured.',
+		}
+	const shared = options.store as Partial<PalIngressStore>
+	if (shared.readIngress) {
+		const full = await shared.readIngress(recipient)
+		if (full?.messages.some((message) => message.phase === 'claimed' && 'kind' in message))
+			return { status: 'idle', reason: 'unresolved' }
+	}
 	let state = await options.store.read(recipient)
 	const unresolved = state?.messages.find((m) => m.phase === 'claimed')
 	if (unresolved) {
@@ -41,7 +52,11 @@ export async function dispatchPalMessagesOnce(
 	const access = await host.openConversation(binding, signal)
 	await verifyConversation({ binding, access, definition })
 	if (binding.phase === 'reserved')
-		binding = await options.store.activate(binding, { binding, access, definition })
+		binding = await options.store.activate(binding, {
+			binding,
+			access,
+			definition,
+		})
 	const currentAuthorization = await options.authorize(authorizationRequest(message, 'wake'))
 	if (!currentAuthorization.allow) return { status: 'blocked', reason: currentAuthorization.reason }
 	currentRecipient(options.pals, binding)

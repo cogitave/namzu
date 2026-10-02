@@ -8,17 +8,30 @@ import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { InboundDeliveryReceipt } from '../../types/message/inbound-delivery.js'
 import { generateSessionId } from '../../utils/id.js'
 import {
+	checkedIngressIntent,
+	ingressOperationReservationSchema,
+	ingressReceiptSchema,
+	ingressRouteId,
+	ingressRouteKeySchema,
+	ingressSnapshotSchema,
+} from './ingress-schema.js'
+import {
+	type PalIngressInboxMessage,
+	type PalIngressIntent,
+	type PalIngressRouteBinding,
+	type PalIngressRouteKey,
+	type PalIngressSnapshot,
+	type PalIngressStore,
+	type PalIngressVerificationContext,
+	ingressMessageRef,
+} from './ingress-types.js'
+import {
 	addressSchema,
 	addressTuple,
 	hash,
-	intentDigest,
+	inboxSchema,
 	intentSchema,
-	messageId,
-	operationReservationSchema,
-	receiptSchema,
-	routeId,
 	routeKeySchema,
-	snapshotSchema,
 } from './schema.js'
 import {
 	type PalAddress,
@@ -30,13 +43,24 @@ import {
 	type PalRouteBinding,
 	type PalRouteKey,
 	type PalVerificationContext,
-	palMessageRef,
 	sameAddress,
 } from './types.js'
-import { verifyConversation, verifyRecorded, verifyUnrecorded } from './verify.js'
+import {
+	verifyIngressConversation,
+	verifyIngressRecorded,
+	verifyIngressUnrecorded,
+} from './verify.js'
 
 export class PalCommunicationConflictError extends Error {
 	override readonly name = 'PalCommunicationConflictError'
+}
+
+/** A filtered legacy reader must not spin around a hidden non-Pal claim. */
+export class PalIngressBlockedError extends Error {
+	override readonly name = 'PalIngressBlockedError'
+	constructor() {
+		super('Another input delivery requires reconciliation before this Pal route can continue.')
+	}
 }
 
 function frozen<T>(value: T): T {
@@ -46,7 +70,10 @@ function frozen<T>(value: T): T {
 	}
 	return value
 }
-function receipt(message: PalInboxMessage, binding: PalRouteBinding): PalMessageReceipt {
+function receipt(
+	message: PalIngressInboxMessage,
+	binding: PalIngressRouteBinding,
+): PalMessageReceipt {
 	return frozen({
 		id: message.id,
 		digest: message.digest,
@@ -60,26 +87,40 @@ function receipt(message: PalInboxMessage, binding: PalRouteBinding): PalMessage
 function conflict(message = 'Pal communication state changed; reload before retrying.'): never {
 	throw new PalCommunicationConflictError(message)
 }
+function isPalMessage(message: PalIngressInboxMessage): message is PalInboxMessage {
+	return !('kind' in message)
+}
+function isPalBinding(binding: PalIngressRouteBinding): binding is PalRouteBinding {
+	return binding.key.kind === 'pal'
+}
 
 interface OperationReservation {
 	readonly revision: 1
-	readonly intent: PalMessageIntent
+	readonly intent: PalIngressIntent
 	readonly recipientRevision: number
 	readonly conversationId: SessionId | null
 }
 
 /** Immutable local commits support process restart; no power-loss durability is claimed. */
-export class DiskPalCommunicationStore implements PalCommunicationStore {
+export class DiskPalCommunicationStore implements PalCommunicationStore, PalIngressStore {
 	private readonly root: string
 	private readonly secure: (path: string) => void
 	private readonly maxPending: number
 	private readonly operations = new DiskRevisionRecordStore<OperationReservation>(
-		defineSchema({ kind: 'pal-message-operation', current: 1, migrations: {} }),
+		defineSchema({
+			kind: 'pal-message-operation',
+			current: 2,
+			migrations: { 1: (value) => value },
+		}),
 		'Pal source operation',
 		(record) => record.revision,
 	)
-	private readonly records = new DiskRevisionRecordStore<PalCommunicationSnapshot>(
-		defineSchema({ kind: 'pal-communication', current: 1, migrations: {} }),
+	private readonly records = new DiskRevisionRecordStore<PalIngressSnapshot>(
+		defineSchema({
+			kind: 'pal-communication',
+			current: 2,
+			migrations: { 1: (value) => value },
+		}),
 		'Pal communication',
 		(record) => record.revision,
 	)
@@ -128,21 +169,13 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			publishLegacyProjection: false,
 		}
 	}
-	private checkedIntent(value: unknown): PalMessageIntent {
-		const intent = intentSchema.parse(value)
-		if (
-			intent.id !== messageId(intent.source, intent.operationId) ||
-			intent.digest !== intentDigest(intent) ||
-			!sameAddress(intent.source.address, intent.routeKey.sender) ||
-			intent.source.conversationId !== intent.routeKey.senderConversationId ||
-			!sameAddress(intent.recipient, intent.routeKey.recipient)
-		)
-			throw new Error('Invalid immutable Pal source operation.')
-		return frozen(intent)
+	private checkedIntent(value: unknown): PalIngressIntent {
+		return checkedIngressIntent(value)
 	}
+
 	/** First bind the source call globally. Exact retry can finish the recipient commit. */
 	private async reserveOperation(
-		input: PalMessageIntent,
+		input: PalIngressIntent,
 		recipientRevision: number,
 		conversationId?: SessionId,
 	): Promise<OperationReservation> {
@@ -151,14 +184,14 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		const operationsRoot = join(this.root, 'operations')
 		this.directory(operationsRoot)
 		const location = this.commitLocation(join(operationsRoot, intent.id))
-		const proposed = operationReservationSchema.parse({
+		const proposed = ingressOperationReservationSchema.parse({
 			revision: 1,
 			intent,
 			recipientRevision,
 			conversationId: conversationId ?? null,
 		})
 		const checked = (record: unknown): OperationReservation => {
-			const reserved = operationReservationSchema.parse(record)
+			const reserved = ingressOperationReservationSchema.parse(record)
 			const retained = this.checkedIntent(reserved.intent)
 			if (retained.id !== intent.id || retained.digest !== intent.digest)
 				conflict('Source operation already names a different immutable intent or recipient.')
@@ -178,15 +211,15 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			return checked(winner)
 		}
 	}
-	private checked(record: unknown, recipient: PalAddress): PalCommunicationSnapshot {
-		const state = snapshotSchema.parse(record) as PalCommunicationSnapshot
+	private checkedRaw(record: unknown, recipient: PalAddress): PalIngressSnapshot {
+		const state = ingressSnapshotSchema.parse(record) as PalIngressSnapshot
 		if (!sameAddress(state.recipient, recipient))
 			throw new Error('Foreign recipient communication record.')
-		const routes = new Map<string, PalRouteBinding>()
+		const routes = new Map<string, PalIngressRouteBinding>()
 		for (const route of state.routes) {
 			if (
 				!sameAddress(route.key.recipient, recipient) ||
-				route.id !== routeId(route.key) ||
+				route.id !== ingressRouteId(route.key) ||
 				routes.has(route.id)
 			)
 				throw new Error('Invalid Pal route binding.')
@@ -196,15 +229,14 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		let ordinal = 0
 		let claimed = false
 		for (const message of state.messages) {
+			const raw = { ...message } as Record<string, unknown>
+			for (const key of ['ordinal', 'routeId', 'phase', 'claim', 'receipt']) delete raw[key]
+			this.checkedIntent(raw)
 			const binding = routes.get(message.routeId)
 			if (
 				!binding ||
 				!isDeepStrictEqual(binding.key, message.routeKey) ||
 				!sameAddress(message.recipient, recipient) ||
-				message.id !== messageId(message.source, message.operationId) ||
-				message.digest !== intentDigest(message) ||
-				!sameAddress(message.source.address, message.routeKey.sender) ||
-				message.source.conversationId !== message.routeKey.senderConversationId ||
 				ids.has(message.id) ||
 				message.ordinal <= ordinal
 			)
@@ -227,23 +259,26 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		}
 		return frozen(state)
 	}
-	async read(recipient: PalAddress): Promise<PalCommunicationSnapshot | null> {
+	private async readRaw(recipient: PalAddress): Promise<PalIngressSnapshot | null> {
 		const address = addressSchema.parse(recipient)
 		const value = await this.records.read(this.location(address))
-		return value === null ? null : this.checked(value, address)
+		return value === null ? null : this.checkedRaw(value, address)
 	}
-	private async change<R>(
+	async readIngress(recipient: PalAddress): Promise<PalIngressSnapshot | null> {
+		return this.readRaw(recipient)
+	}
+	private async changeRaw<R>(
 		recipient: PalAddress,
-		mutate: (state: PalCommunicationSnapshot | null) => {
-			state: PalCommunicationSnapshot | null
+		mutate: (state: PalIngressSnapshot | null) => {
+			state: PalIngressSnapshot | null
 			result: R
 		},
 	): Promise<R> {
 		for (let attempt = 0; attempt < 16; attempt++) {
-			const current = await this.read(recipient)
+			const current = await this.readRaw(recipient)
 			const proposal = mutate(current)
 			if (proposal.state === null) return proposal.result
-			const next = this.checked(
+			const next = this.checkedRaw(
 				{ ...proposal.state, revision: (current?.revision ?? 0) + 1 },
 				recipient,
 			)
@@ -258,8 +293,8 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		}
 		return conflict('Pal communication is contended; retry the same immutable operation.')
 	}
-	async accept(
-		input: PalMessageIntent,
+	async acceptIngress(
+		input: PalIngressIntent,
 		recipientRevision: number,
 		conversationId?: SessionId,
 	): Promise<PalMessageReceipt> {
@@ -268,9 +303,9 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		const reservation = await this.reserveOperation(input, recipientRevision, conversationId)
 		const intent = reservation.intent
 		const pinnedConversationId = reservation.conversationId
-		const id = routeId(intent.routeKey)
+		const id = ingressRouteId(intent.routeKey)
 		const sessionId = pinnedConversationId ?? generateSessionId()
-		return this.change(intent.recipient, (current) => {
+		return this.changeRaw(intent.recipient, (current) => {
 			const routes = current?.routes ?? []
 			let binding = routes.find((r) => r.id === id)
 			if (
@@ -295,7 +330,7 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 				revision: 1,
 				phase: 'reserved',
 			}
-			const message: PalInboxMessage = {
+			const message: PalIngressInboxMessage = {
 				...intent,
 				ordinal: (current?.messages.at(-1)?.ordinal ?? 0) + 1,
 				routeId: id,
@@ -314,43 +349,69 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			}
 		})
 	}
-	async route(key: PalRouteKey): Promise<PalRouteBinding | null> {
-		const parsed = routeKeySchema.parse(key)
-		return (await this.read(parsed.recipient))?.routes.find((r) => r.id === routeId(parsed)) ?? null
+	async routeIngress(key: PalIngressRouteKey): Promise<PalIngressRouteBinding | null> {
+		const parsed = ingressRouteKeySchema.parse(key)
+		return (
+			(await this.readRaw(parsed.recipient))?.routes.find((r) => r.id === ingressRouteId(parsed)) ??
+			null
+		)
 	}
-	async activate(
-		binding: PalRouteBinding,
-		context: PalVerificationContext,
-	): Promise<PalRouteBinding> {
+	async activateIngress(
+		binding: PalIngressRouteBinding,
+		context: PalIngressVerificationContext,
+	): Promise<PalIngressRouteBinding> {
 		if (!isDeepStrictEqual(context.binding, binding))
 			throw new Error('Foreign route activation context.')
-		await verifyConversation(context)
-		return this.change(binding.key.recipient, (state) => {
+		await verifyIngressConversation(context)
+		return this.changeRaw(binding.key.recipient, (state) => {
 			const current = state?.routes.find((r) => r.id === binding.id)
 			if (!state || !current || !isDeepStrictEqual(current, binding))
 				conflict('Route claim changed.')
 			if (current.phase === 'active') return { state: null, result: current }
-			const next: PalRouteBinding = { ...current, phase: 'active', revision: current.revision + 1 }
+			const next: PalIngressRouteBinding = {
+				...current,
+				phase: 'active',
+				revision: current.revision + 1,
+			}
 			return {
-				state: { ...state, routes: state.routes.map((r) => (r.id === current.id ? next : r)) },
+				state: {
+					...state,
+					routes: state.routes.map((r) => (r.id === current.id ? next : r)),
+				},
 				result: frozen(next),
 			}
 		})
 	}
-	async claim(
-		binding: PalRouteBinding,
-		request: { turnId: TurnId; generation: number; content: (message: PalInboxMessage) => string },
-	): Promise<PalInboxMessage | null> {
+	async claimIngress(
+		binding: PalIngressRouteBinding,
+		request: {
+			turnId: TurnId
+			generation: number
+			content: (message: PalIngressInboxMessage) => string
+		},
+	): Promise<PalIngressInboxMessage | null> {
+		return this.claimRaw(binding, request, false)
+	}
+	private async claimRaw(
+		binding: PalIngressRouteBinding,
+		request: {
+			turnId: TurnId
+			generation: number
+			content: (message: PalIngressInboxMessage) => string
+		},
+		legacy: boolean,
+	): Promise<PalIngressInboxMessage | null> {
 		const claimId = randomUUID()
-		return this.change(binding.key.recipient, (state) => {
-			if (!state || state.messages.some((m) => m.phase === 'claimed'))
-				return { state: null, result: null }
+		return this.changeRaw(binding.key.recipient, (state) => {
+			const unresolved = state?.messages.find((m) => m.phase === 'claimed')
+			if (legacy && unresolved && !isPalMessage(unresolved)) throw new PalIngressBlockedError()
+			if (!state || unresolved) return { state: null, result: null }
 			const current = state.routes.find((r) => r.id === binding.id)
 			if (!current || current.phase !== 'active' || !isDeepStrictEqual(current, binding))
 				conflict('Route is not active.')
 			const message = state.messages.find((m) => m.routeId === binding.id && m.phase === 'pending')
 			if (!message) return { state: null, result: null }
-			const next: PalInboxMessage = {
+			const next: PalIngressInboxMessage = {
 				...message,
 				phase: 'claimed',
 				claim: {
@@ -362,19 +423,92 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 				},
 			}
 			return {
-				state: { ...state, messages: state.messages.map((m) => (m.id === next.id ? next : m)) },
+				state: {
+					...state,
+					messages: state.messages.map((m) => (m.id === next.id ? next : m)),
+				},
 				result: frozen(next),
 			}
 		})
 	}
-	private checkedReceipt(
+	/** Legacy projections never participate in private writes: hidden inputs survive every mutation. */
+	async read(recipient: PalAddress): Promise<PalCommunicationSnapshot | null> {
+		const state = await this.readRaw(recipient)
+		return state === null
+			? null
+			: frozen({
+					...state,
+					routes: state.routes.filter(isPalBinding),
+					messages: state.messages.filter(isPalMessage),
+				})
+	}
+	async accept(
+		intent: PalMessageIntent,
+		recipientRevision: number,
+		conversationId?: SessionId,
+	): Promise<PalMessageReceipt> {
+		return this.acceptIngress(intentSchema.parse(intent), recipientRevision, conversationId)
+	}
+	async route(key: PalRouteKey): Promise<PalRouteBinding | null> {
+		const binding = await this.routeIngress(routeKeySchema.parse(key))
+		if (binding && !isPalBinding(binding)) throw new Error('Foreign legacy Pal route.')
+		return binding
+	}
+	async activate(
+		binding: PalRouteBinding,
+		context: PalVerificationContext,
+	): Promise<PalRouteBinding> {
+		const next = await this.activateIngress(binding, context)
+		if (!isPalBinding(next)) throw new Error('Foreign legacy Pal route.')
+		return next
+	}
+	async claim(
+		binding: PalRouteBinding,
+		request: {
+			turnId: TurnId
+			generation: number
+			content: (message: PalInboxMessage) => string
+		},
+	): Promise<PalInboxMessage | null> {
+		const next = await this.claimRaw(
+			binding,
+			{
+				...request,
+				content: (message) => {
+					if (!isPalMessage(message)) throw new Error('Foreign legacy Pal input.')
+					return request.content(message)
+				},
+			},
+			true,
+		)
+		if (next && !isPalMessage(next)) throw new Error('Foreign legacy Pal input.')
+		return next
+	}
+	async recorded(
 		message: PalInboxMessage,
+		receipt: InboundDeliveryReceipt,
+		context: PalVerificationContext,
+	): Promise<PalInboxMessage> {
+		const next = await this.recordedIngress(inboxSchema.parse(message), receipt, context)
+		if (!isPalMessage(next)) throw new Error('Foreign legacy Pal input.')
+		return next
+	}
+	async releaseUnrecorded(
+		message: PalInboxMessage,
+		context: PalVerificationContext,
+	): Promise<PalInboxMessage> {
+		const next = await this.releaseUnrecordedIngress(inboxSchema.parse(message), context)
+		if (!isPalMessage(next)) throw new Error('Foreign legacy Pal input.')
+		return next
+	}
+	private checkedReceipt(
+		message: PalIngressInboxMessage,
 		input: InboundDeliveryReceipt,
 	): InboundDeliveryReceipt {
-		const value = receiptSchema.parse(input) as InboundDeliveryReceipt
+		const value = ingressReceiptSchema.parse(input) as InboundDeliveryReceipt
 		if (
 			!message.claim ||
-			!isDeepStrictEqual(value.ref, palMessageRef(message)) ||
+			!isDeepStrictEqual(value.ref, ingressMessageRef(message)) ||
 			value.claimId !== message.claim.id ||
 			value.sessionId !== message.claim.sessionId ||
 			value.turnId !== message.claim.turnId ||
@@ -384,13 +518,13 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			throw new Error('Receipt does not match the exact Pal delivery claim.')
 		return value
 	}
-	async recorded(
-		message: PalInboxMessage,
+	async recordedIngress(
+		message: PalIngressInboxMessage,
 		input: InboundDeliveryReceipt,
-		context: PalVerificationContext,
-	): Promise<PalInboxMessage> {
+		context: PalIngressVerificationContext,
+	): Promise<PalIngressInboxMessage> {
 		const value = this.checkedReceipt(message, input)
-		await verifyRecorded(message, value, context)
+		await verifyIngressRecorded(message, value, context)
 		return this.changeMessage(message, (current) => {
 			if (current.phase === 'recorded') {
 				if (!isDeepStrictEqual(current.receipt, value))
@@ -400,11 +534,11 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			return { ...current, phase: 'recorded', receipt: value }
 		})
 	}
-	async releaseUnrecorded(
-		message: PalInboxMessage,
-		context: PalVerificationContext,
-	): Promise<PalInboxMessage> {
-		await verifyUnrecorded(message, context)
+	async releaseUnrecordedIngress(
+		message: PalIngressInboxMessage,
+		context: PalIngressVerificationContext,
+	): Promise<PalIngressInboxMessage> {
+		await verifyIngressUnrecorded(message, context)
 		return this.changeMessage(message, (current) => ({
 			...current,
 			phase: 'pending',
@@ -413,10 +547,10 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 		}))
 	}
 	private async changeMessage(
-		message: PalInboxMessage,
-		mutate: (current: PalInboxMessage) => PalInboxMessage,
-	): Promise<PalInboxMessage> {
-		return this.change(message.recipient, (state) => {
+		message: PalIngressInboxMessage,
+		mutate: (current: PalIngressInboxMessage) => PalIngressInboxMessage,
+	): Promise<PalIngressInboxMessage> {
+		return this.changeRaw(message.recipient, (state) => {
 			const current = state?.messages.find((m) => m.id === message.id)
 			if (
 				!state ||
@@ -432,7 +566,10 @@ export class DiskPalCommunicationStore implements PalCommunicationStore {
 			if (current.phase === 'recorded' && next.phase !== 'recorded')
 				conflict('Recorded delivery cannot be retried.')
 			return {
-				state: { ...state, messages: state.messages.map((m) => (m.id === next.id ? next : m)) },
+				state: {
+					...state,
+					messages: state.messages.map((m) => (m.id === next.id ? next : m)),
+				},
 				result: next,
 			}
 		})
