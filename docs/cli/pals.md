@@ -188,7 +188,10 @@ exact current directory belongs to a Pal.
 | `namzu/pals/computer/status` | `{ palId }` | Computer availability |
 | `namzu/pals/computer/start` | `{ palId }` | Ready computer identity |
 | `namzu/pals/computer/stop` | `{ palId }` | Confirmed stopped state |
-| `namzu/pals/computer/screen` | `{ palId }` | PNG data URL `source`, `width`, `height` |
+| `namzu/pals/computer/screen` | `{ palId, generation? }` | PNG data URL `source`, `width`, `height` |
+| `namzu/pals/computer/take_over` | `{ palId, generation }` | Ready computer identity and operator control |
+| `namzu/pals/computer/return_control` | `{ palId, generation }` | Ready computer identity and Pal control |
+| `namzu/pals/computer/input` | `{ palId, generation, input }` | `{ type: 'ok' }` after confirmed guest input |
 
 Definitions have the [SDK PalDefinition shape](../sdk/pals.md). The computer
 status has `status: 'ready' | 'stopped' | 'unavailable'`; ready includes
@@ -198,6 +201,33 @@ actual capture from the guest, never the operator desktop. Conversation rows
 contain `id`, `title`, `named`, `updatedAt`, message `count` and `hasPrompted`.
 Claim immediately after `session/new` and before history, settings or prompt
 access. Ordinary session IDs and a different Pal's IDs confer no access.
+
+Ready computer state additionally includes
+`control: { supported, mode: 'pal' | 'operator' | 'transitioning' | 'unavailable' }`.
+An unsupported third-party provider is reported truthfully and cannot receive
+manual input through a generic computer fallback. Control requests must use the
+same trusted Pal workspace client that owns the actual guest, with its exact
+current generation encoded as a canonical positive decimal string. Leading
+zeros, signs, exponent notation, nonintegers and stale generations are refused.
+Screen requests optionally pin this generation; all captures recheck the
+computer identity and generation afterward, so a replaced guest's old image is
+not returned.
+
+The desktop host cancels and drains existing Pal work before takeover. The SDK
+then fences new admissions and the local provider independently requires idle
+guest foreground operations and detached processes. While operator control is
+active, every agent filesystem, shell, browser and GUI effect is blocked; bounded
+readonly screen previews remain available. Human input is limited to the
+[SDK PalComputerInput shapes and bounds](../sdk/pals.md#ownership-and-lifecycle),
+with actual guest geometry checked by the provider. Input, control return and
+stop cannot overlap an outstanding control operation.
+
+Returning control starts no query and restores no approval. On its next explicit
+turn, the Pal must obtain its own fresh screenshot before GUI input; the desktop
+preview cannot satisfy this observation. A warm paused Pal computer can still be
+controlled manually, and returning it leaves the Pal paused. These controls apply
+to the same local container guest; they do not expose the operator desktop or
+claim a dedicated-kernel VM boundary.
 
 A Pal connection's plugin listing is empty with a clear notice. Host plugin
 mutation is refused because Pal composition has no host plugin manager. Saved

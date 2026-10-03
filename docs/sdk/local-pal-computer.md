@@ -69,7 +69,9 @@ PNG capture, a running browser and the execution worker's exact protocol.
 
 `acquire({ pal, conversationId, signal })` returns a `PalEnvironmentLease` with
 the admitted Pal ID, environment ID, generation, `Sandbox`, `ComputerUseHost`
-and `release()`. Paused Pals are refused. One Pal receives a named engine data
+and `release()`, plus the optional exclusive `operatorControl` port described below.
+Paused Pals are refused at allocation; an already warm computer can be controlled
+manually while the SDK keeps its Pal paused. One Pal receives a named engine data
 volume derived from its opaque ID; a different Pal receives a different volume.
 The host `pal.workspace` is control metadata and is never mounted into the guest.
 No host root, desktop socket, browser profile, credentials directory or Docker
@@ -158,6 +160,39 @@ If a state-changing desktop request loses confirmation, the host raises
 `computer_use_outcome_unknown` with unsafe retry metadata. It does not replay
 the input. Loss of an execution-cancellation acknowledgement retires the owned
 computer and reports whether retirement was confirmed.
+
+## Exclusive operator control
+
+This provider adds `operatorControl` to the environment lease. `mode` is `pal`,
+`operator` or `transitioning`. `takeOver()` reserves the transition synchronously
+and refuses while any tracked foreground command, file request, desktop request
+or detached guest job is pending. It preserves Pal control on refusal. The
+embedding host must first cancel its owned queries and confirm background-job
+termination; a cancellation request alone is not a completed handoff.
+
+After a confirmed takeover, `Sandbox` command, file and detached-process
+operations and every state-changing `ComputerUseHost` action refuse new calls.
+The trusted host retains lease destruction for stop and recovery. This includes shell
+commands and file access, so invoking Chromium or `xdotool` through an admitted
+agent shell does not bypass the input owner. Bounded screenshots and display
+metadata remain available to the native observer. The separate
+`executeInput(input)` port accepts only mouse movement, click, drag, scroll,
+text and keys on the existing guest desktop. It never targets the operator's
+host desktop or exposes the worker endpoint or token to the renderer.
+
+`returnControl()` refuses pending input and changes only authority. It does
+not restart queries, run queued messages or replay a failed action. The provider
+requires a fresh screenshot before subsequent agent GUI input. The SDK also
+requires that the newly admitted agent itself captures a fresh screenshot;
+a native preview cannot satisfy that admission's requirement.
+
+An unconfirmed desktop mutation or remote file write fences further effects
+and control changes until the owned computer is stopped. An unknown outcome
+is not proof of idle state. These are host-admitted control guarantees over
+tracked work, not hostile guest process revocation: an arbitrary guest command
+that deliberately escapes the tracked process group or accesses same-user
+worker internals is outside this local container boundary. Operator sign-in
+is not a private credential vault isolated from later Pal guest commands.
 
 ## Explicit Windows Podman machine
 

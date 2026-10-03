@@ -1,0 +1,97 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "fc06a25b",
+  "environment": {
+    "host": "Windows native Electron",
+    "renderer": "Vite local development",
+    "guest": "owned Linux container on native Windows Podman",
+    "normalUserData": true,
+    "fixtureOverrides": false,
+    "provider": "Zen model catalogue",
+    "guestImageChanged": false
+  },
+  "checks": {
+    "nativeWindows": true,
+    "actualRuntime": true,
+    "normalUserData": true,
+    "fixtureOverrides": false,
+    "normalConversationSeparate": true,
+    "appOwnedNormalContext": true,
+    "palDraftRetained": true,
+    "modelCatalogueRows": 8,
+    "actualGuestThumbnail": true,
+    "actualHostRow": true,
+    "fullContentComputerView": true,
+    "actualOperatorControl": true,
+    "nativeMenuShortcutSuppressed": true,
+    "uriInputMilliseconds": 1643,
+    "actualKeyboardNavigation": true,
+    "textInputMilliseconds": 945,
+    "actualFastTextInput": true,
+    "actualHomeKey": true,
+    "actualControlReturned": true,
+    "normalFromComputer": true,
+    "cardWidth": 300,
+    "thumbnailWidth": 48,
+    "thumbnailHeight": 32,
+    "actualPointerClick": true
+  },
+  "guestVerification": {
+    "transport": "Actual renderer events through native IPC, CLI ACP and SDK provider control",
+    "textReadBack": "Boolean-only CDP inspection of the exact owned guest test page",
+    "pointerClickReadBack": true,
+    "keyboardShortcut": "Ctrl+R forwarded to guest without reloading the native app",
+    "finalView": "Pal chat",
+    "finalControl": "pal",
+    "testPageRestored": "about:blank",
+    "modelQueryIssued": false
+  },
+  "diagnostics": {
+    "currentNativeInstanceRecords": 8,
+    "currentNativeInstanceErrors": 0,
+    "rendererErrorsObserved": 0
+  },
+  "gates": {
+    "workspaceTypecheck": "pass",
+    "workspaceLint": "pass, existing warnings retained",
+    "workspaceTests": "pass",
+    "workspacePassedTestsByPackage": {
+      "packages/files": 48,
+      "packages/sdk": 9897,
+      "packages/desktop": 119,
+      "packages/computer-use": 165,
+      "packages/browser": 133,
+      "packages/live": 25,
+      "packages/ag-ui": 189,
+      "packages/providers/anthropic": 251,
+      "packages/lsp": 27,
+      "packages/providers/bedrock": 127,
+      "packages/providers/deepseek": 44,
+      "packages/providers/google": 29,
+      "packages/providers/http": 83,
+      "packages/providers/lmstudio": 29,
+      "packages/providers/ollama": 36,
+      "packages/providers/openrouter": 80,
+      "packages/providers/zen": 234,
+      "packages/providers/openai": 129,
+      "packages/telemetry": 33,
+      "packages/sandbox": 1763,
+      "packages/cli": 4907
+    },
+    "finalDesktopTests": {
+      "files": 22,
+      "passed": 129
+    },
+    "docsOKF": {
+      "files": 139,
+      "result": "pass"
+    }
+  },
+  "limits": [
+    "The installed guest provides Chromium, Openbox and xterm. The other applications in the reference are not installed.",
+    "Native proof exercises pointer click, text forwarding, Home, Ctrl+L, Ctrl+R, takeover and return. Drag/scroll and ownership edge cases also have deterministic unit coverage.",
+    "Screenshots were captured and inspected locally; user device names and local state are omitted from this receipt.",
+    "No external model turn was submitted in this verification.",
+    "No push or release is included."
+  ]
+}

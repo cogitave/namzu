@@ -25,7 +25,6 @@ export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
 export function Sidebar({
 	projects,
-	activeProject,
 	conversations,
 	projectId,
 	sessionId,
@@ -62,12 +61,13 @@ export function Sidebar({
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
-	const active = activeProject ?? projects.find((item) => item.id === projectId)
-	const newConversationDisabled = opening || !active?.trusted || active.status !== 'ready'
-	const groups = projects.map((project) => ({
-		project,
-		rows: conversations.filter((item) => item.projectId === project.id),
-	}))
+	const newConversationDisabled = opening
+	const groups = projects
+		.filter((project) => !project.isChat)
+		.map((project) => ({
+			project,
+			rows: conversations.filter((item) => item.projectId === project.id),
+		}))
 	const projectById = new Map(projects.map((project) => [project.id, project]))
 	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
 		.filter((item) => projectById.has(item.projectId))

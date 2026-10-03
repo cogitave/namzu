@@ -11,6 +11,7 @@ import {
 	type DesktopDiagnosticSink,
 	desktopStderrDetails,
 } from './diagnostics.js'
+import { ExpectedRuntimeCloseError } from './expected-close.js'
 
 const MAX_FRAME = 8 * 1024 * 1024
 const REQUIRED_EXTENSIONS = [
@@ -35,6 +36,10 @@ export class RuntimeClient extends EventEmitter {
 	supportsPals(): boolean {
 		return this.pals
 	}
+	private palComputerControl = false
+	supportsPalComputerControl(): boolean {
+		return this.palComputerControl
+	}
 	private promptAttachments = false
 	private promptOptions = false
 	supportsPromptOptions(): boolean {
@@ -49,6 +54,7 @@ export class RuntimeClient extends EventEmitter {
 	private diagnostic = ''
 	private stderrBuffer = ''
 	private closed = false
+	private expectedClose = false
 	private processClosed = false
 	private shutdown?: Promise<void>
 	private readonly pending = new Map<
@@ -152,6 +158,11 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/pals/computer/stop',
 			'namzu/pals/computer/screen',
 		].every((method) => result.extensions?.includes(method))
+		this.palComputerControl = [
+			'namzu/pals/computer/take_over',
+			'namzu/pals/computer/return_control',
+			'namzu/pals/computer/input',
+		].every((method) => result.extensions?.includes(method))
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))
@@ -167,8 +178,11 @@ export class RuntimeClient extends EventEmitter {
 	): Promise<unknown> {
 		const id = ++this.sequence
 		if (this.closed || !this.child) {
-			const error = new Error('Namzu is not connected.')
-			this.report('cli_request_failed', { operation: method, request: id, error })
+			const error = this.expectedClose
+				? new ExpectedRuntimeCloseError()
+				: new Error('Namzu is not connected.')
+			if (!this.expectedClose)
+				this.report('cli_request_failed', { operation: method, request: id, error })
 			return Promise.reject(error)
 		}
 		return new Promise((resolve, reject) => {
@@ -270,10 +284,11 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private fail(error: Error, expected = false): void {
 		if (!this.closed && !expected) this.report('cli_transport_failed', { error })
+		const failure = expected ? new ExpectedRuntimeCloseError() : error
 		for (const [request, entry] of this.pending) {
-			this.report('cli_request_failed', { operation: entry.method, request, error })
+			if (!expected) this.report('cli_request_failed', { operation: entry.method, request, error })
 			clearTimeout(entry.timer)
-			entry.reject(error)
+			entry.reject(failure)
 		}
 		this.pending.clear()
 		if (!this.closed) {
@@ -283,7 +298,8 @@ export class RuntimeClient extends EventEmitter {
 	}
 	close(): Promise<void> {
 		if (this.shutdown) return this.shutdown
-		this.fail(new Error('The Namzu connection was closed.'), true)
+		if (!this.closed) this.expectedClose = true
+		this.fail(new ExpectedRuntimeCloseError(), true)
 		const child = this.child
 		if (!child?.pid || this.processClosed) return Promise.resolve()
 		const shutdown = new Promise<void>((resolve, reject) => {

@@ -59,7 +59,8 @@ load/process failures and error-level renderer console reports, CLI transport
 and stderr diagnostics, failed CLI
 requests, unavailable capability notices, and failed IPC calls. An error
 caught and displayed by the interface is still recorded at the native IPC
-boundary. Normal process shutdown does not create a transport-failure record.
+boundary. Pending observation requests cancelled by an explicit owned transport close are
+expected cancellation; unexpected exits and OS shutdown failures remain failures.
 An asynchronous turn whose successful RPC envelope carries `stopReason: error`
 also creates a failure record, without recording its returned history.
 
@@ -129,6 +130,16 @@ filesystem or live tasks. Use the native development window for actual work.
 
 ## Persistent Pals
 
+**New conversation** opens an ordinary conversation, including when a Pal or its
+computer is selected. It reuses the current or last available trusted ordinary
+project, never a Pal control directory. With no such project, the native host
+creates a private normal chat context beneath its application data directory.
+Only an app-created, unredirected directory with its exact ownership marker can
+receive implicit folder trust. This context is not listed under Projects; its
+conversations appear in Recents. No conversation is created before the first
+send. Normal and Pal drafts, attachments and model choices retain separate
+owners. Choosing an existing Pal returns to its owned chat.
+
 The Home sidebar puts **Create your first Pal** directly below New conversation.
 After creation it lists each Pal followed by **New Pal**, without a group
 heading for the first three. Four or more Pals appear in a collapsible **Pals**
@@ -174,10 +185,34 @@ or unavailable WebGL uses a static character with the same selected appearance.
 Each Pal requires its own [local guest computer](../sdk/local-pal-computer.md).
 Start computer uses the owning Pal runtime; a missing engine or image produces
 an unavailable state with the setup reason. The composer admits work only after
-that computer is ready and the Pal is not paused. Open computer displays an
-actual PNG capture with a Refresh control. This is a read-only screen view;
-the desktop does not yet provide human keyboard/mouse takeover. Guest browser
-and file tools do not fall back to the operator's device.
+that computer is ready and the Pal is not paused. The card's **Computers** section
+shows an actual guest thumbnail beside the Pal computer and a separate host row
+from the native device's real hostname. Selecting the guest opens a full content
+view, with actual PNG captures, automatic refresh and a manual Refresh action.
+Offline, capture failure and unsupported control remain explicit states; this
+view does not simulate installed apps. The bundled guest supplies Chromium,
+Openbox and a terminal; additional desktop applications must actually be installed.
+Guest browser and file tools do not fall back to the operator's device.
+
+**Take over** verifies the allocation generation, fences new Pal work, cancels
+owned foreground turns and confirms background job termination before requesting
+exclusive operator control. A failed or uncertain stop keeps the control change
+refused. The view then forwards mouse, drag, scroll, text and keys through native
+IPC into that exact guest. Coordinates exclude letterboxing. Text input follows
+the keyboard layout, including Unicode and AltGr; Tab remains host focus navigation.
+Rapid input is serialized; adjacent pending text is combined into bounded UTF-8
+batches without crossing key or pointer actions. Native menu accelerators are
+suppressed only while the controlled guest has keyboard focus. Navigation and
+allocation changes invalidate queued input. Worker credentials never enter the
+renderer. Captures and delayed status
+replies cannot certify another generation or replace a newer control transition.
+
+**Return control** restores Pal authority explicitly. Queued work remains parked;
+returning control does not start a model turn. A later admitted Pal must capture
+a fresh screen before GUI mutations. An already warm paused Pal can be controlled
+by the operator without allowing model work. Providers without the optional
+arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal-computer.md#exclusive-operator-control)
+document the boundary, including guest-process limitations.
 
 Stop computer is refused while known turns, queued messages, approvals or
 background jobs still own work. Cleanup failures retain a recovery notice and
@@ -261,7 +296,8 @@ Navigation uses rounded stock outline icons and filled selected variants;
 composer and result controls use licensed SVG assets. Known provider
 routes show their service glyphs; other remote or local routes use cloud or
 server symbols with the actual provider label.
-Home opens the selected project’s blank composer, and the sidebar control or
+Home opens an ordinary blank composer, using the same ownership rules as New
+conversation. The sidebar control or
 Ctrl/Cmd+B toggles its list. On narrow windows the same control opens a drawer
 below the title bar. Compact conversation rows appear underneath their owning
 project groups. Group expansion is independent of project navigation, and opening a conversation
@@ -364,7 +400,7 @@ canonical path and a native confirmation before allowing project access. A new
 protocol session alone never grants trust. Cancel keeps the folder untrusted.
 
 Choose a saved conversation, or type directly in the selected project’s blank
-composer. New conversation and Home return to this blank composer; a runtime
+composer. New conversation and Home open a blank ordinary composer; a runtime
 conversation is created only when its first prompt is sent. Suggestions fill the
 editor for review rather than submitting a prompt. Navigation during creation
 leaves the submitted prompt bound to its captured project and model; it cannot

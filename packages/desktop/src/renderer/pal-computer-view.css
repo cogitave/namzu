@@ -1,0 +1,218 @@
+.pal-computer-view {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	padding: 10px 24px 18px;
+	overflow: hidden;
+	color: var(--foreground);
+	animation: pal-computer-arrive 180ms var(--motion-ease) both;
+}
+.pal-computer-view-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex: none;
+	gap: 16px;
+	min-width: 0;
+	min-height: 40px;
+	margin-bottom: 10px;
+}
+.pal-computer-view-title {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-width: 0;
+}
+.pal-computer-view-title h2 {
+	margin: 0;
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-computer-view-title > svg {
+	width: 15px;
+	height: 15px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+.pal-computer-viewport {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+.pal-computer-screen {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 22px;
+	background: var(--surface);
+	outline: none;
+	box-shadow: 0 12px 36px rgb(0 0 0 / 8%);
+	transition: box-shadow 180ms var(--motion-ease), border-color 180ms var(--motion-ease);
+}
+.pal-computer-screen:focus-visible {
+	border-color: var(--ring);
+	box-shadow: 0 0 0 2px var(--ring);
+}
+.pal-computer-screen[data-interactive="true"] {
+	cursor: crosshair;
+	touch-action: none;
+}
+.pal-computer-screen > img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+.pal-computer-empty {
+	display: flex;
+	align-items: center;
+	flex-direction: column;
+	gap: 12px;
+	max-width: min(100%, 380px);
+	max-height: 100%;
+	min-width: 0;
+	padding: 28px;
+	overflow-y: auto;
+	text-align: center;
+}
+.pal-computer-empty > svg {
+	width: 28px;
+	height: 28px;
+	margin-bottom: 2px;
+	color: var(--muted-foreground);
+}
+.pal-computer-empty h3 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 500;
+	line-height: 22px;
+}
+.pal-computer-empty p {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+}
+.pal-computer-screen-loading {
+	position: absolute;
+	bottom: 16px;
+	left: 50%;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	background: var(--popover);
+	color: var(--foreground);
+	font-size: 12px;
+	transform: translateX(-50%);
+	pointer-events: none;
+}
+.pal-computer-screen-loading svg {
+	width: 14px;
+	height: 14px;
+}
+.pal-computer-control-bar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	flex-wrap: wrap;
+	gap: 10px;
+	min-height: 52px;
+	padding: 16px 0 0;
+}
+.pal-computer-control-bar output {
+	min-width: 0;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+}
+.pal-computer-control-bar .pal-computer-control-button {
+	min-height: 32px;
+	padding: 0 12px;
+	border-color: transparent;
+	border-radius: 20px;
+	background: var(--foreground);
+	color: var(--background);
+	font-size: 12px;
+	transition: background-color 150ms var(--motion-ease);
+}
+.pal-computer-control-bar .pal-computer-control-button:not(:disabled):hover {
+	background: color-mix(in srgb, var(--foreground) 90%, var(--background));
+}
+.pal-computer-view-notice {
+	margin: 10px 0 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
+	overflow-wrap: anywhere;
+}
+.pal-computer-loading {
+	animation: pal-computer-spin 900ms linear infinite;
+}
+@keyframes pal-computer-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes pal-computer-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@container workspace (max-width: 719px) {
+	.pal-computer-view {
+		padding: 8px 12px 12px;
+	}
+	.pal-computer-view-heading {
+		gap: 8px;
+	}
+	.pal-computer-back span {
+		display: none;
+	}
+	.pal-computer-screen {
+		border-radius: 16px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pal-computer-view {
+		animation: none;
+	}
+	.pal-computer-loading {
+		animation: none;
+	}
+	.pal-computer-screen {
+		transition: none;
+	}
+	.pal-computer-control-bar .pal-computer-control-button {
+		transition: none;
+	}
+}

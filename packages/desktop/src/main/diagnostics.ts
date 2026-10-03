@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { DesktopDiagnosticsView } from '../shared/protocol.js'
+import { ExpectedRuntimeCloseError } from './expected-close.js'
 
 const LIMIT = 512 * 1024
 const EVENTS = {
@@ -73,6 +74,7 @@ const OS_CODES = new Set([
 ])
 const OPERATIONS = new Set([
 	'windowChrome',
+	'setComputerKeyboardCapture',
 	'setWindowAppearance',
 	'popupWindowMenu',
 	'diagnostics',
@@ -88,7 +90,12 @@ const OPERATIONS = new Set([
 	'startPalComputer',
 	'stopPalComputer',
 	'palScreen',
+	'humanComputer',
+	'takeOverPalComputer',
+	'returnPalComputerControl',
+	'palComputerInput',
 	'openProject',
+	'openChat',
 	'reconnectProject',
 	'trustProject',
 	'conversations',
@@ -145,6 +152,9 @@ const OPERATIONS = new Set([
 	'namzu/pals/computer/start',
 	'namzu/pals/computer/stop',
 	'namzu/pals/computer/screen',
+	'namzu/pals/computer/take_over',
+	'namzu/pals/computer/return_control',
+	'namzu/pals/computer/input',
 ])
 
 /** Arbitrary errors can contain prompts, headers and paths. Only fixed reasons survive. */
@@ -415,6 +425,7 @@ export async function observeDesktopIpc<T>(
 	try {
 		return await action()
 	} catch (error) {
+		if (error instanceof ExpectedRuntimeCloseError) throw error
 		try {
 			sink.record('ipc_failed', { operation, request, error })
 		} catch {

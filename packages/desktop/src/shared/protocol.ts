@@ -1,4 +1,12 @@
-import type { AcpSessionUpdate, PalAppearance, ReasoningEffort, ReviewMode } from '@namzu/sdk'
+import type {
+	AcpSessionUpdate,
+	PalAppearance,
+	PalComputerControlState,
+	PalComputerInput,
+	ReasoningEffort,
+	ReviewMode,
+} from '@namzu/sdk'
+export type { PalComputerInput } from '@namzu/sdk'
 
 export interface AttachmentView {
 	id: string
@@ -56,6 +64,8 @@ export interface ProjectView {
 	status: 'connecting' | 'ready' | 'error'
 	error?: string
 	palId?: string
+	/** App-created ordinary chat context, not a user project or Pal workspace. */
+	isChat?: boolean
 }
 export interface ConversationView {
 	id: string
@@ -98,7 +108,12 @@ export interface PalInput {
 export interface PalChanges extends PalInput {
 	paused?: boolean
 }
+export interface HumanComputerView {
+	name: string
+	platform: 'win32' | 'darwin' | 'linux' | 'other'
+}
 export interface PalComputerView {
+	control?: PalComputerControlState
 	status: 'stopped' | 'ready' | 'unavailable'
 	requiresStop?: boolean
 	notice?: string
@@ -172,6 +187,7 @@ export type DesktopEvent = (
 export interface DesktopApi {
 	/** Native diagnostic paths and storage status; never journal or raw error payloads. */
 	diagnostics?(): Promise<DesktopDiagnosticsView>
+	setComputerKeyboardCapture?(enabled: boolean): Promise<void>
 	windowChrome(): Promise<WindowChrome>
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
@@ -189,8 +205,13 @@ export interface DesktopApi {
 	palComputer(id: string): Promise<PalComputerView>
 	startPalComputer(id: string): Promise<PalComputerView>
 	stopPalComputer(id: string): Promise<PalComputerView>
-	palScreen(id: string): Promise<PalScreenView>
+	palScreen(id: string, generation?: string): Promise<PalScreenView>
+	humanComputer?(): Promise<HumanComputerView>
+	takeOverPalComputer?(id: string, generation: string): Promise<PalComputerView>
+	returnPalComputerControl?(id: string, generation: string): Promise<PalComputerView>
+	palComputerInput?(id: string, generation: string, input: PalComputerInput): Promise<void>
 	openProject(): Promise<ProjectView | null>
+	openChat?(): Promise<ProjectView>
 	reconnectProject(projectId: string): Promise<ProjectView>
 	trustProject(projectId: string): Promise<ProjectView>
 	conversations(projectId: string): Promise<ConversationView[]>

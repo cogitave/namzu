@@ -66,6 +66,17 @@ A guest `BrowserHost` is optional. The provider may expose `probe()` returning
 `{ ready, reason? }`. The embedding host is responsible for a truthful provider;
 capability flags alone do not prove a virtual-machine boundary.
 
+A lease may expose `operatorControl: PalComputerControl`. Its live `mode` is
+`pal`, `operator` or `transitioning`; `takeOver()` and `returnControl()` transfer
+exclusive authority, and `executeInput(PalComputerInput)` supplies human mouse,
+scroll, text and key input to the same guest. The provider must reserve a
+transition synchronously, confirm all guest operations and detached processes
+are idle, and gate **every** agent shell, filesystem, browser and GUI operation
+while authority belongs to the operator or is transitioning. A screenshot can
+remain available as bounded readonly observation. A provider without this port
+supports normal Pal execution but explicitly refuses manual takeover; the SDK
+does not fall back to its generic GUI host for operator input.
+
 The shipped [local computer provider](local-pal-computer.md) supplies a Linux
 container desktop with persistent Pal storage through a preinstalled local
 Docker engine. It does not mount the host control directory or inherit host
@@ -77,7 +88,10 @@ VM. Provider credentials remain with the host's existing model routing.
 `startComputer(palId, signal?)` starts or returns a warm computer.
 `computer(palId)` returns its ready lease or null; `computerError(palId)` returns
 an unavailable notice. `busy(palId)` reports an active controller, pending start
-or pending stop.
+or pending stop, operator ownership, or an outstanding control operation.
+`computerControl(palId)` reports `{ supported, mode }`, where `mode` also includes
+`unavailable` when no usable control port exists. It exposes a runtime-reserved
+transition before the provider begins the transfer.
 
 `admit({ palId, revision?, conversationId, signal? })` returns `PalAdmission`:
 its pinned `definition`, `lease`, `assertActive()` and `release()`.
@@ -93,10 +107,38 @@ computer retirement. Pausing during computer startup cannot publish a usable
 lease. A profile edit affects future conversations; a pinned revision remains
 stable, while current pause state always applies.
 
+`takeOver(palId, generation)` requires the exact current positive integer
+generation and an idle Pal controller. The host must cancel and await existing
+work before invoking it. The runtime reserves the operation before calling the
+provider, preventing a concurrent admission or stop. The provider separately
+refuses guest operations or detached processes that have not confirmed idle.
+`executeOperatorInput(palId, generation, input)` requires current operator
+authority and serializes input against another input, return or stop.
+`returnControl(palId, generation)` transfers authority back without starting a
+query, replaying input or automatically approving work. Stale generations and
+foreign Pals are refused. A failed or unconfirmed transfer does not assume that
+Pal authority was restored.
+
+`PalComputerInput` accepts only exact mouse move/click/drag, scroll, text and key
+shapes. Coordinates are integer physical pixels from 0 through 32767; the
+provider also checks the actual guest display bounds. Scroll amount is an
+integer from 1 through 100. Text has at most 100,000 characters and no NUL; keys
+are nonblank, at most 100 characters, using letters, digits, underscore, plus,
+space or hyphen. Inputs are captured before awaiting provider work. No shell,
+file target, screenshot action or host selector is part of this input port.
+
+Admissions and every `assertActive()` refuse operator or transitional authority.
+After takeover, each later admission's `computerUseHost` refuses GUI mutations
+until that admission successfully executes its own fresh screenshot. A raw
+host preview or screenshot from an earlier admission does not satisfy this
+requirement. Terminal/file work still uses the ordinary admission and provider
+guards. A warm paused Pal can be controlled manually; returning its computer
+does not unpause or wake it.
+
 `PalAdmission.release()` releases the task slot and keeps the computer warm.
 `stopComputer(palId)` refuses active work and releases the guest only after the
 provider confirms cleanup. `close()` revokes admissions and stops all owned
-computers. A failed release remains tracked and unavailable; stopping or closing
+computers, awaiting pending owned control operations before release. A failed release remains tracked and unavailable; stopping or closing
 can be retried. A retired sandbox requires an explicit confirmed stop before
 replacement. No failed cleanup is reported as a stopped computer.
 

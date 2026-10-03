@@ -1,4 +1,4 @@
-import type { PalView } from '../shared/protocol.js'
+import type { PalScreenView, PalView } from '../shared/protocol.js'
 import {
 	ConversationIcon,
 	FileTextIcon,
@@ -13,13 +13,17 @@ import './pal-context.css'
 
 export interface PalContextProps {
 	pal: PalView
-	status: 'idle' | 'working' | 'approval' | 'paused' | 'offline'
+	status: 'idle' | 'working' | 'approval' | 'paused' | 'offline' | 'operator'
 	computer: {
 		name: string
 		workspace: string
 		status: 'ready' | 'connecting' | 'error'
 		notice?: string
+		screen?: PalScreenView | null
+		loading?: boolean
 	}
+	/** Supplied only when the native host has reported its actual identity. */
+	hostComputer?: { name: string }
 	activity: readonly { id: string; title: string; status?: string }[]
 	outputs: readonly { id: string; label: string }[]
 	onCustomize: () => void
@@ -54,6 +58,7 @@ export function PalAvatar({
 
 const statusLabels: Record<PalContextProps['status'], string> = {
 	idle: 'Ready to chat',
+	operator: 'You have control',
 	working: 'Working',
 	approval: 'Waiting for your decision',
 	paused: 'Paused',
@@ -64,6 +69,7 @@ function PalContextBody({
 	pal,
 	status,
 	computer,
+	hostComputer,
 	activity,
 	outputs,
 	onCustomize,
@@ -101,43 +107,61 @@ function PalContextBody({
 					</output>
 				</div>
 			</header>
-			<section className="pal-context-section" aria-label="Pal computer">
-				<h3>Computer</h3>
-				<div className="pal-computer-row">
-					<MonitorIcon aria-hidden="true" />
-					<div className="pal-context-copy">
-						<strong>{computer.name}</strong>
-						<output aria-live="polite">
+			<section className="pal-context-section" aria-label="Pal computers">
+				<h3>Computers</h3>
+				<Button
+					variant="ghost"
+					className="pal-computer-row pal-computer-open"
+					disabled={!onOpenComputer}
+					onClick={onOpenComputer}
+					aria-label={`Open ${computer.name}`}
+				>
+					<span className="pal-computer-icon" data-connected={computer.status === 'ready'}>
+						<MonitorIcon aria-hidden="true" />
+					</span>
+					<span className="pal-context-copy">
+						<strong title={computer.name}>{computer.name}</strong>
+						<span className="pal-computer-status">
 							{computer.status === 'ready'
-								? 'Connected · on this device'
+								? 'Connected'
 								: computer.status === 'connecting'
 									? 'Connecting…'
-									: 'Unavailable'}
-						</output>
-					</div>
-					{computer.status === 'connecting' && (
-						<LoaderCircleIcon className="pal-context-loading" aria-label="Connecting" />
-					)}
-				</div>
-				{computer.notice && <p className="pal-context-note">{computer.notice}</p>}
-				{((onStartComputer && computer.status !== 'ready') ||
-					(onOpenComputer && computer.status === 'ready')) && (
-					<div className="pal-computer-actions">
-						{onOpenComputer && computer.status === 'ready' ? (
-							<Button variant="outline" size="sm" onClick={onOpenComputer}>
-								Open computer
-							</Button>
+									: 'Offline'}
+						</span>
+					</span>
+					<span className="pal-computer-thumbnail" aria-hidden="true">
+						{computer.screen && computer.status === 'ready' ? (
+							<img src={computer.screen.source} alt="" draggable={false} />
+						) : computer.loading || computer.status === 'connecting' ? (
+							<LoaderCircleIcon className="pal-context-loading" />
 						) : (
-							onStartComputer && (
-								<Button
-									variant="outline"
-									size="sm"
-									disabled={computer.status === 'connecting'}
-									onClick={onStartComputer}
-								>
-									Start computer
-								</Button>
-							)
+							<MonitorIcon />
+						)}
+					</span>
+				</Button>
+				{hostComputer?.name.trim() && (
+					<div className="pal-computer-row pal-host-computer">
+						<span className="pal-computer-icon">
+							<MonitorIcon aria-hidden="true" />
+						</span>
+						<div className="pal-context-copy">
+							<strong title={hostComputer.name}>{hostComputer.name}</strong>
+							<span className="pal-computer-status">Your computer</span>
+						</div>
+					</div>
+				)}
+				{computer.notice && <p className="pal-context-note">{computer.notice}</p>}
+				{((onStartComputer && computer.status !== 'ready') || onStopComputer) && (
+					<div className="pal-computer-actions">
+						{onStartComputer && computer.status !== 'ready' && (
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={computer.status === 'connecting'}
+								onClick={onStartComputer}
+							>
+								Start computer
+							</Button>
 						)}
 						{onStopComputer && (
 							<Button

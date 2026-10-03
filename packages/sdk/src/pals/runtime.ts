@@ -1,13 +1,138 @@
+import type {
+	ComputerUseAction,
+	ComputerUseHost,
+	ComputerUseResult,
+} from '../types/computer-use/index.js'
 import { PalLifecycleEmitter, type PalLifecycleListener } from './lifecycle.js'
 import type {
 	PalAdmission,
 	PalAdmissionRequest,
+	PalComputerControl,
+	PalComputerControlState,
+	PalComputerInput,
 	PalEnvironmentLease,
 	PalRuntimeOptions,
 } from './types.js'
 
 export class PalUnavailableError extends Error {
 	override readonly name = 'PalUnavailableError'
+}
+
+function captureInput(input: PalComputerInput): PalComputerInput {
+	const invalid = () => new Error('Invalid Pal computer input.')
+	const shape = (value: unknown, keys: readonly string[]): value is Record<string, unknown> =>
+		!!value &&
+		typeof value === 'object' &&
+		!Array.isArray(value) &&
+		Object.keys(value).length === keys.length &&
+		keys.every((key) => Object.hasOwn(value, key))
+	const point = (value: unknown) => {
+		if (
+			!shape(value, ['x', 'y']) ||
+			!Number.isSafeInteger(value.x) ||
+			!Number.isSafeInteger(value.y) ||
+			(value.x as number) < 0 ||
+			(value.y as number) < 0 ||
+			(value.x as number) > 32767 ||
+			(value.y as number) > 32767
+		)
+			throw invalid()
+		return { x: value.x as number, y: value.y as number }
+	}
+	const button = (value: unknown) => {
+		if (value !== 'left' && value !== 'right' && value !== 'middle') throw invalid()
+		return value
+	}
+	if (!input || typeof input !== 'object') throw invalid()
+	switch (input.type) {
+		case 'mouse_move':
+			if (!shape(input, ['type', 'to'])) throw invalid()
+			return { type: input.type, to: point(input.to) }
+		case 'mouse_click':
+			if (!shape(input, ['type', 'at', 'button'])) throw invalid()
+			return { type: input.type, at: point(input.at), button: button(input.button) }
+		case 'mouse_drag':
+			if (!shape(input, ['type', 'from', 'to', 'button'])) throw invalid()
+			return {
+				type: input.type,
+				from: point(input.from),
+				to: point(input.to),
+				button: button(input.button),
+			}
+		case 'scroll':
+			if (
+				!shape(input, ['type', 'at', 'direction', 'amount']) ||
+				!['up', 'down', 'left', 'right'].includes(input.direction) ||
+				!Number.isSafeInteger(input.amount) ||
+				input.amount < 1 ||
+				input.amount > 100
+			)
+				throw invalid()
+			return {
+				type: input.type,
+				at: point(input.at),
+				direction: input.direction,
+				amount: input.amount,
+			}
+		case 'type_text':
+			if (
+				!shape(input, ['type', 'text']) ||
+				typeof input.text !== 'string' ||
+				input.text.length > 100_000 ||
+				input.text.includes('\0')
+			)
+				throw invalid()
+			return { type: input.type, text: input.text }
+		case 'key':
+			if (
+				!shape(input, ['type', 'keys']) ||
+				typeof input.keys !== 'string' ||
+				!input.keys.trim() ||
+				input.keys.length > 100 ||
+				!/^[a-zA-Z0-9_+ -]+$/.test(input.keys)
+			)
+				throw invalid()
+			return { type: input.type, keys: input.keys }
+		default:
+			throw invalid()
+	}
+}
+
+function controlMode(control: PalComputerControl): PalComputerControl['mode'] {
+	return control.mode
+}
+
+function freshAdmissionComputer(host: ComputerUseHost, assertActive: () => void): ComputerUseHost {
+	let observed = false
+	const requireScreen = () => {
+		if (!observed)
+			throw new PalUnavailableError(
+				'Capture a fresh Pal computer screenshot after operator control before sending GUI input.',
+			)
+	}
+	return new Proxy(Object.create(host) as ComputerUseHost, {
+		get(_target, property) {
+			const value = Reflect.get(host, property, host)
+			if (typeof value !== 'function') return value
+			if (property === 'execute')
+				return async (action: ComputerUseAction) => {
+					assertActive()
+					if (action.type !== 'screenshot' && action.type !== 'cursor_position') requireScreen()
+					const result: ComputerUseResult = await host.execute(action)
+					assertActive()
+					if (action.type === 'screenshot' && result.type === 'screenshot') observed = true
+					return result
+				}
+			return async (...args: unknown[]) => {
+				assertActive()
+				if (property === 'focusWindow' || property === 'executeWindow' || property === 'uiAct')
+					requireScreen()
+				const result = await Reflect.apply(value, host, args)
+				assertActive()
+				return result
+			}
+		},
+	})
 }
 
 /** One host-owned local computer and one active input controller per Pal. */
@@ -20,6 +145,11 @@ export class PalRuntime {
 	>()
 	private readonly lifecycle = new PalLifecycleEmitter()
 	private readonly stopping = new Set<string>()
+	private readonly freshScreenRequired = new Set<string>()
+	private readonly controlOperations = new Map<
+		string,
+		{ readonly transition: boolean; readonly promise: Promise<unknown> }
+	>()
 	private readonly failures = new Map<string, string>()
 	private closing: Promise<void> | undefined
 	private closed = false
@@ -40,8 +170,103 @@ export class PalRuntime {
 		this.computer(palId)
 		return this.failures.get(palId) ?? null
 	}
+	/** Actual provider authority, including a transition reserved by this runtime. */
+	computerControl(palId: string): PalComputerControlState {
+		const lease = this.computer(palId)
+		if (!lease) return { supported: false, mode: 'unavailable' }
+		if (!lease.operatorControl) return { supported: false, mode: 'unavailable' }
+		if (this.controlOperations.get(palId)?.transition)
+			return { supported: true, mode: 'transitioning' }
+		const mode = lease.operatorControl.mode
+		return mode === 'pal' || mode === 'operator' || mode === 'transitioning'
+			? { supported: true, mode }
+			: { supported: true, mode: 'unavailable' }
+	}
 	busy(palId: string): boolean {
-		return this.controllers.has(palId) || this.starting.has(palId) || this.stopping.has(palId)
+		return (
+			this.controllers.has(palId) ||
+			this.starting.has(palId) ||
+			this.stopping.has(palId) ||
+			this.controlOperations.has(palId) ||
+			(this.computers.get(palId)?.operatorControl?.mode !== undefined &&
+				this.computers.get(palId)?.operatorControl?.mode !== 'pal')
+		)
+	}
+	private ownedControl(palId: string, generation: number) {
+		if (this.closed) throw new PalUnavailableError('The Pal runtime is closed.')
+		if (!Number.isSafeInteger(generation) || generation < 1)
+			throw new PalUnavailableError('Invalid Pal computer generation.')
+		const pal = this.options.store.get(palId)
+		const lease = this.computer(palId)
+		if (
+			!pal ||
+			!lease ||
+			lease.palId !== pal.id ||
+			lease.generation !== generation ||
+			this.starting.has(palId) ||
+			this.stopping.has(palId)
+		)
+			throw new PalUnavailableError('This Pal computer generation is unavailable or changed.')
+		if (this.controllers.has(palId))
+			throw new PalUnavailableError('Stop this Pal’s active work before taking computer control.')
+		if (this.controlOperations.has(palId))
+			throw new PalUnavailableError('This Pal computer control operation is still pending.')
+		if (!lease.operatorControl)
+			throw new PalUnavailableError('This Pal computer does not support operator control.')
+		return { lease, control: lease.operatorControl }
+	}
+	private async controlOperation<T>(
+		palId: string,
+		generation: number,
+		transition: boolean,
+		run: (control: PalComputerControl) => Promise<T>,
+	): Promise<T> {
+		const { lease, control } = this.ownedControl(palId, generation)
+		// Reserve before invoking the provider; synchronous observers cannot admit a new task.
+		const promise = Promise.resolve().then(async () => {
+			if (this.closed || this.computer(palId) !== lease || !this.options.store.get(palId))
+				throw new PalUnavailableError('This Pal computer control operation lost its ownership.')
+			return run(control)
+		})
+		const operation = { transition, promise }
+		this.controlOperations.set(palId, operation)
+		try {
+			return await promise
+		} finally {
+			if (this.controlOperations.get(palId) === operation) this.controlOperations.delete(palId)
+		}
+	}
+	async takeOver(palId: string, generation: number): Promise<void> {
+		return this.controlOperation(palId, generation, true, async (control) => {
+			if (control.mode !== 'pal')
+				throw new PalUnavailableError('This Pal computer is not under Pal control.')
+			// A preview capture must never certify what a later Pal admission has observed.
+			this.freshScreenRequired.add(palId)
+			await control.takeOver()
+			if (controlMode(control) !== 'operator')
+				throw new PalUnavailableError('Operator control of this Pal computer was not confirmed.')
+		})
+	}
+	async returnControl(palId: string, generation: number): Promise<void> {
+		return this.controlOperation(palId, generation, true, async (control) => {
+			if (control.mode !== 'operator')
+				throw new PalUnavailableError('This Pal computer is not under operator control.')
+			await control.returnControl()
+			if (controlMode(control) !== 'pal')
+				throw new PalUnavailableError('Pal control of this computer was not confirmed.')
+		})
+	}
+	async executeOperatorInput(
+		palId: string,
+		generation: number,
+		input: PalComputerInput,
+	): Promise<ComputerUseResult> {
+		const captured = captureInput(input)
+		return this.controlOperation(palId, generation, false, async (control) => {
+			if (control.mode !== 'operator')
+				throw new PalUnavailableError('Take operator control before sending computer input.')
+			return control.executeInput(captured)
+		})
 	}
 	async startComputer(palId: string, signal?: AbortSignal): Promise<PalEnvironmentLease> {
 		signal?.throwIfAborted()
@@ -126,6 +351,8 @@ export class PalRuntime {
 		}
 	}
 	async stopComputer(palId: string): Promise<void> {
+		if (this.controlOperations.has(palId))
+			throw new PalUnavailableError('Wait for this Pal computer control operation to finish.')
 		if (this.stopping.has(palId))
 			throw new PalUnavailableError('This Pal computer is already stopping.')
 		if (this.controllers.has(palId))
@@ -143,6 +370,7 @@ export class PalRuntime {
 		try {
 			await lease.release()
 			if (this.computers.get(palId) === lease) this.computers.delete(palId)
+			this.freshScreenRequired.delete(palId)
 			this.failures.delete(palId)
 			this.lifecycle.emit({ type: 'computer.stopped', palId, ...identity })
 		} catch (error) {
@@ -164,6 +392,12 @@ export class PalRuntime {
 			request.revision === undefined
 				? current
 				: this.options.store.getRevision(current.id, request.revision)
+		if (
+			this.controlOperations.has(current.id) ||
+			(this.computers.get(current.id)?.operatorControl &&
+				this.computers.get(current.id)?.operatorControl?.mode !== 'pal')
+		)
+			throw new PalUnavailableError('Return this Pal computer to Pal control before starting work.')
 		if (this.controllers.has(current.id))
 			throw new PalUnavailableError('This Pal computer is busy in another conversation.')
 		const controller = {
@@ -185,6 +419,11 @@ export class PalRuntime {
 					throw new PalUnavailableError('This Pal admission no longer owns its computer.')
 				if (lease.sandbox.status !== 'ready' && lease.sandbox.status !== 'busy')
 					throw new PalUnavailableError('This Pal computer retired during its work.')
+				if (
+					this.controlOperations.has(current.id) ||
+					(lease.operatorControl && lease.operatorControl.mode !== 'pal')
+				)
+					throw new PalUnavailableError('This Pal admission does not have Pal computer control.')
 				const latest = this.options.store.get(definition.id)
 				if (!latest || latest.paused)
 					throw new PalUnavailableError('This Pal is paused or unavailable.')
@@ -201,7 +440,13 @@ export class PalRuntime {
 			})
 			return {
 				definition,
-				lease,
+				lease: this.freshScreenRequired.has(current.id)
+					? {
+							...lease,
+							computerUseHost: freshAdmissionComputer(lease.computerUseHost, assertActive),
+							release: () => lease.release(),
+						}
+					: lease,
 				assertActive,
 				release: async () => {
 					if (released) return
@@ -228,6 +473,7 @@ export class PalRuntime {
 		this.closed = true
 		const closing = (async () => {
 			await Promise.allSettled(this.starting.values())
+			await Promise.allSettled([...this.controlOperations.values()].map(({ promise }) => promise))
 			for (const [palId, controller] of this.controllers) {
 				if (controller.generation !== undefined)
 					this.lifecycle.emit({

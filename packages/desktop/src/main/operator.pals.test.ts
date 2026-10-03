@@ -19,6 +19,7 @@ const transport = vi.hoisted(() => ({
 		| ((cwd: string, method: string, params: Record<string, unknown>) => Promise<unknown>)
 		| undefined,
 	claimFailure: false,
+	controlSupported: true,
 	screen: { source: 'data:image/png;base64,aGVsbG8=', width: 1280, height: 800 },
 }))
 vi.mock('./rpc-client.js', async () => {
@@ -37,6 +38,9 @@ vi.mock('./rpc-client.js', async () => {
 			}
 			supportsPals() {
 				return true
+			}
+			supportsPalComputerControl() {
+				return transport.controlSupported
 			}
 			supportsPromptOptions() {
 				return true
@@ -143,6 +147,7 @@ afterEach(async () => {
 	transport.clients.length = 0
 	transport.instances.length = 0
 	transport.claimFailure = false
+	transport.controlSupported = true
 	transport.pal = undefined
 	transport.pals.clear()
 	transport.sessionIds.clear()
@@ -554,4 +559,294 @@ it('forwards appearance selections through the Pal create/update wire and return
 		expectedRevision: 1,
 		appearance: edited,
 	})
+})
+
+it('verifies a stale generation before cancelling any owned Pal work', async () => {
+	const { owner, pal } = fixture()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '2', control: { supported: true, mode: 'pal' } }
+	}
+	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('computer changed')
+	expect(
+		transport.calls.some((call) =>
+			['session/cancel', 'namzu/jobs/stop', 'namzu/pals/computer/take_over'].includes(call.method),
+		),
+	).toBe(false)
+})
+it('reports unsupported controls without attempting transfer or input', async () => {
+	const { owner, pal } = fixture()
+	transport.controlSupported = false
+	expect((await owner.palComputer(pal.id)).control).toEqual({
+		supported: false,
+		mode: 'unavailable',
+	})
+	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('does not support')
+	await expect(owner.palComputerInput(pal.id, '1', { type: 'key', keys: 'A' })).rejects.toThrow(
+		'does not support',
+	)
+	expect(
+		transport.calls.some((call) =>
+			['namzu/pals/computer/take_over', 'namzu/pals/computer/input'].includes(call.method),
+		),
+	).toBe(false)
+})
+it('fences new work, waits for cancelled foreground completion, stops owned jobs and retains the queue', async () => {
+	const events: DesktopEvent[] = []
+	const { owner, pal } = fixture((event) => events.push(event))
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const promptEntered = deferred()
+	const promptDone = deferred()
+	const cancelEntered = deferred()
+	const stopEntered = deferred()
+	const stopDone = deferred()
+	let mode = 'pal'
+	let jobRunning = true
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+		if (method === 'session/prompt') {
+			promptEntered.resolve()
+			await promptDone.promise
+			return { stopReason: 'end_turn' }
+		}
+		if (method === 'session/cancel') {
+			cancelEntered.resolve()
+			return {}
+		}
+		if (method === 'namzu/jobs/list')
+			return jobRunning
+				? [{ id: 'owned-job', status: 'running' }]
+				: [{ id: 'owned-job', status: 'killed' }]
+		if (method === 'namzu/jobs/stop') {
+			stopEntered.resolve()
+			await stopDone.promise
+			jobRunning = false
+			return {}
+		}
+		if (method === 'namzu/pals/computer/take_over') {
+			mode = 'operator'
+			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+		}
+		if (method === 'namzu/pals/computer/return_control') {
+			mode = 'pal'
+			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+		}
+	}
+	owner.send(conversation.id, 'First')
+	await promptEntered.promise
+	owner.send(conversation.id, 'Queued')
+	const takeover = owner.takeOverPalComputer(pal.id, '1')
+	await cancelEntered.promise
+	expect(() => owner.send(conversation.id, 'Concurrent')).toThrow('changes to finish')
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/take_over')).toBe(
+		false,
+	)
+	promptDone.resolve()
+	await stopEntered.promise
+	expect(transport.calls.filter((call) => call.method === 'session/prompt')).toHaveLength(1)
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/take_over')).toBe(
+		false,
+	)
+	stopDone.resolve()
+	expect((await takeover).control?.mode).toBe('operator')
+	expect(() => owner.send(conversation.id, 'Blocked')).toThrow('Return this Pal computer')
+	expect(transport.calls.find((call) => call.method === 'namzu/jobs/stop')?.params).toEqual({
+		sessionId: conversation.id,
+		jobId: 'owned-job',
+	})
+	await owner.returnPalComputerControl(pal.id, '1')
+	expect(transport.calls.filter((call) => call.method === 'session/prompt')).toHaveLength(1)
+	const state = events.filter((event) => event.kind === 'state').at(-1)
+	expect(state?.kind === 'state' && state.queued).toEqual(['Queued'])
+})
+it('keeps Pal control when job termination remains unconfirmed', async () => {
+	const completed = deferred()
+	const { owner, pal } = fixture((event) => {
+		if (event.kind === 'state' && !event.running) completed.resolve()
+	})
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'session/prompt') return { stopReason: 'end_turn' }
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+		if (method === 'namzu/jobs/list')
+			return [{ id: 'owned-job', status: 'running', recoveryRequired: true }]
+		if (method === 'namzu/jobs/stop') throw new Error('Stop unconfirmed')
+	}
+	owner.send(conversation.id, 'Prepare')
+	await completed.promise
+	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('Stop unconfirmed')
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/take_over')).toBe(
+		false,
+	)
+	expect(() => owner.send(conversation.id, 'Retry')).not.toThrow()
+})
+it('captures exact operator input before asynchronous preflight and routes only to its owned guest client', async () => {
+	const { owner, pal, workspace } = fixture()
+	const statusEntered = deferred()
+	const statusDone = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') {
+			statusEntered.resolve()
+			await statusDone.promise
+			return { status: 'ready', generation: '7', control: { supported: true, mode: 'operator' } }
+		}
+		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
+	}
+	const input = { type: 'key' as const, keys: 'A' }
+	const pending = owner.palComputerInput(pal.id, '7', input)
+	await statusEntered.promise
+	input.keys = 'B'
+	statusDone.resolve()
+	await pending
+	expect(transport.calls.find((call) => call.method === 'namzu/pals/computer/input')).toEqual({
+		cwd: workspace,
+		method: 'namzu/pals/computer/input',
+		params: { palId: pal.id, generation: '7', input: { type: 'key', keys: 'A' } },
+	})
+	await owner.palScreen(pal.id, '7')
+	expect(
+		transport.calls.find((call) => call.method === 'namzu/pals/computer/screen')?.params,
+	).toEqual({ palId: pal.id, generation: '7' })
+})
+it('clears native control admission fencing only after a confirmed computer stop', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+	}
+	await owner.palComputer(pal.id)
+	expect(() => owner.send(conversation.id, 'Still owned')).toThrow('Return this Pal computer')
+	await owner.stopPalComputer(pal.id)
+	expect(() => owner.send(conversation.id, 'Fresh admission')).not.toThrow()
+})
+it('does not let an earlier Pal status response clear newly confirmed operator authority', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const statusEntered = deferred()
+	const oldStatusDone = deferred()
+	let first = true
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') {
+			if (first) {
+				first = false
+				statusEntered.resolve()
+				await oldStatusDone.promise
+			}
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+		}
+		if (method === 'namzu/pals/computer/take_over')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+	}
+	const stale = owner.palComputer(pal.id)
+	await statusEntered.promise
+	await owner.takeOverPalComputer(pal.id, '1')
+	oldStatusDone.resolve()
+	await stale
+	expect(() => owner.send(conversation.id, 'No concurrent Pal work')).toThrow(
+		'Return this Pal computer',
+	)
+})
+
+it('reuses only an owned ready Pal input connection without reloading metadata or conversations', async () => {
+	const { owner, pal, workspace } = fixture()
+	await owner.openPal(pal.id)
+	let mode = 'operator'
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '8', control: { supported: true, mode } }
+		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
+	}
+	const before = transport.calls.length
+	await owner.palComputerInput(pal.id, '8', { type: 'key', keys: 'CTRL+l' })
+	await owner.palComputerInput(pal.id, '8', { type: 'type_text', text: 'Owned guest text' })
+	await expect(owner.palComputerInput(pal.id, '7', { type: 'key', keys: 'ENTER' })).rejects.toThrow(
+		'computer changed',
+	)
+	mode = 'pal'
+	await expect(owner.palComputerInput(pal.id, '8', { type: 'key', keys: 'ENTER' })).rejects.toThrow(
+		'control changed',
+	)
+	const calls = transport.calls.slice(before)
+	expect(calls.every((call) => call.cwd === workspace && call.params.palId === pal.id)).toBe(true)
+	expect(calls.map((call) => call.method)).toEqual([
+		'namzu/pals/computer/status',
+		'namzu/pals/computer/input',
+		'namzu/pals/computer/status',
+		'namzu/pals/computer/input',
+		'namzu/pals/computer/status',
+		'namzu/pals/computer/status',
+	])
+})
+it('reconnects an errored Pal input client instead of reusing its retained shutdown authority', async () => {
+	const { owner, pal, workspace } = fixture()
+	await owner.openPal(pal.id)
+	const old = workspaceClient(workspace)
+	old.emit('closed', new Error('Unexpected disconnect'))
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '9', control: { supported: true, mode: 'operator' } }
+		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
+	}
+	const before = transport.calls.length
+	await owner.palComputerInput(pal.id, '9', { type: 'key', keys: 'A' })
+	expect(workspaceClient(workspace)).not.toBe(old)
+	expect(transport.clients.filter((client) => client.cwd === workspace)).toHaveLength(2)
+	expect(transport.calls.slice(before).map((call) => call.method)).toContain('namzu/pals/get')
+	expect(
+		transport.calls.filter((call) => call.method === 'namzu/pals/computer/input').at(-1),
+	).toMatchObject({ cwd: workspace, params: { palId: pal.id, generation: '9' } })
+})
+
+it('rejects a delayed native input preflight after return and retake of the same computer generation', async () => {
+	const { owner, pal } = fixture()
+	await owner.openPal(pal.id)
+	const oldStatusEntered = deferred()
+	const oldStatusDone = deferred()
+	let first = true
+	let mode = 'operator'
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') {
+			if (first) {
+				first = false
+				oldStatusEntered.resolve()
+				await oldStatusDone.promise
+				return { status: 'ready', generation: '12', control: { supported: true, mode: 'operator' } }
+			}
+			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+		}
+		if (method === 'namzu/pals/computer/return_control') {
+			mode = 'pal'
+			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+		}
+		if (method === 'namzu/pals/computer/take_over') {
+			mode = 'operator'
+			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+		}
+		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
+	}
+	const pending = owner.palComputerInput(pal.id, '12', {
+		type: 'type_text',
+		text: 'Old control cycle',
+	})
+	await oldStatusEntered.promise
+	await owner.returnPalComputerControl(pal.id, '12')
+	await owner.takeOverPalComputer(pal.id, '12')
+	const rejected = expect(pending).rejects.toThrow('earlier computer control')
+	oldStatusDone.resolve()
+	await rejected
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/input')).toBe(false)
+	await owner.palComputerInput(pal.id, '12', { type: 'key', keys: 'ENTER' })
+	expect(transport.calls.filter((call) => call.method === 'namzu/pals/computer/input')).toEqual([
+		expect.objectContaining({
+			params: { palId: pal.id, generation: '12', input: { type: 'key', keys: 'ENTER' } },
+		}),
+	])
 })

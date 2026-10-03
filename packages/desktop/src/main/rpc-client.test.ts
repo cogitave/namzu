@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import { type DesktopDiagnosticSink, DesktopDiagnostics } from './diagnostics.js'
+import { type DesktopDiagnosticSink, DesktopDiagnostics, observeDesktopIpc } from './diagnostics.js'
+import { ExpectedRuntimeCloseError } from './expected-close.js'
 import { RuntimeClient } from './rpc-client.js'
 vi.mock('node:child_process', async (importOriginal) => {
 	const original = await importOriginal<typeof import('node:child_process')>()
@@ -303,4 +304,43 @@ it('decodes split structured stderr lines, preserves INFO startup and flushes a 
 		expect(record.attributes).not.toHaveProperty('namzu.desktop.failure.reason')
 	expect(text).not.toContain('PRIVATE_')
 	expect(text).not.toContain('protocol-invalid')
+})
+
+it('rejects pending and later polling during explicit owned shutdown without diagnostic failure records', async () => {
+	const calls: string[] = []
+	const sink: DesktopDiagnosticSink = {
+		record: (event) => {
+			calls.push(event)
+		},
+	}
+	const runtime = client(process.env, sink)
+	await runtime.start()
+	const pending = expect(
+		observeDesktopIpc(sink, 'palComputer', () => runtime.request('test/wait', {}, 0), 61),
+	).rejects.toBeInstanceOf(ExpectedRuntimeCloseError)
+	const closed = runtime.close()
+	await pending
+	await expect(
+		runtime.request('namzu/pals/computer/status', { palId: 'private-fixture' }),
+	).rejects.toBeInstanceOf(ExpectedRuntimeCloseError)
+	await closed
+	expect(calls).not.toContain('cli_transport_failed')
+	expect(calls).not.toContain('cli_request_failed')
+	expect(calls).not.toContain('ipc_failed')
+})
+it('keeps an unexpected exit diagnostic and ordinary disconnected errors after cleanup', async () => {
+	const calls: string[] = []
+	const runtime = client(process.env, {
+		record: (event) => {
+			calls.push(event)
+		},
+	})
+	await runtime.start()
+	await expect(runtime.request('test/exit')).rejects.toThrow('connection closed')
+	await runtime.close()
+	await expect(runtime.request('namzu/pals/computer/status')).rejects.not.toBeInstanceOf(
+		ExpectedRuntimeCloseError,
+	)
+	expect(calls).toContain('cli_transport_failed')
+	expect(calls.filter((event) => event === 'cli_request_failed')).toHaveLength(2)
 })

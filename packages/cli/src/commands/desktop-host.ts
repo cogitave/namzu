@@ -1,5 +1,5 @@
 /** Scoped operator methods; ACP owns prompts, cancellation and review. */
-import { asSessionId, isEntityId } from '@namzu/sdk'
+import { type PalComputerInput, asSessionId, isEntityId } from '@namzu/sdk'
 import {
 	closeSessions,
 	listRecent,
@@ -15,9 +15,12 @@ import {
 import {
 	cliPalComputerStatus,
 	cliPalScreen,
+	executeCliPalComputerInput,
 	getCliPalRuntime,
+	returnCliPalComputerControl,
 	startCliPalComputer,
 	stopCliPalComputer,
+	takeOverCliPalComputer,
 } from '../pals/environment.js'
 import { createPal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
@@ -100,7 +103,20 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 		'namzu/pals/computer/stop': (params: Record<string, unknown>) =>
 			stopCliPalComputer(ownedPal(params)),
 		'namzu/pals/computer/screen': (params: Record<string, unknown>) =>
-			cliPalScreen(ownedPal(params)),
+			cliPalScreen(
+				ownedPal(params),
+				params.generation === undefined ? undefined : text(params, 'generation', 16),
+			),
+		'namzu/pals/computer/take_over': (params: Record<string, unknown>) =>
+			takeOverCliPalComputer(ownedPal(params), text(params, 'generation', 16)),
+		'namzu/pals/computer/return_control': (params: Record<string, unknown>) =>
+			returnCliPalComputerControl(ownedPal(params), text(params, 'generation', 16)),
+		'namzu/pals/computer/input': (params: Record<string, unknown>) =>
+			executeCliPalComputerInput(
+				ownedPal(params),
+				text(params, 'generation', 16),
+				params.input as PalComputerInput,
+			),
 		'namzu/pals/conversations/claim': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('This Pal workspace is not trusted.')
 			return claimPalConversation(cwd, text(params, 'palId'), session(params))

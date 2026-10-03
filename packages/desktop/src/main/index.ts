@@ -8,9 +8,11 @@ import type {
 	DesktopSendOptions,
 	DraftSettings,
 	PalChanges,
+	PalComputerInput,
 	PalInput,
 } from '../shared/protocol.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
+import { humanComputer } from './host-computer.js'
 import { Operator } from './operator.js'
 import { selectRendererPage } from './renderer-page.js'
 import {
@@ -108,6 +110,10 @@ function register(): void {
 		)
 	}
 	handle('diagnostics', () => diagnostics.view())
+	handle('setComputerKeyboardCapture', (enabled: boolean) => {
+		if (typeof enabled !== 'boolean') throw new Error('Invalid computer keyboard focus.')
+		window?.webContents.setIgnoreMenuShortcuts(enabled)
+	})
 	ipcMain.on('namzu:rendererDiagnostic', (event, report: unknown) => {
 		if (
 			!window ||
@@ -166,7 +172,22 @@ function register(): void {
 	handle('palComputer', (id: string) => operator.palComputer(id))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))
 	handle('stopPalComputer', (id: string) => operator.stopPalComputer(id))
-	handle('palScreen', (id: string) => operator.palScreen(id))
+	handle('palScreen', (id: string, generation?: string) => operator.palScreen(id, generation))
+	handle('humanComputer', () => humanComputer())
+	handle('takeOverPalComputer', (id: string, generation: string) =>
+		operator.takeOverPalComputer(id, generation),
+	)
+	handle('returnPalComputerControl', (id: string, generation: string) =>
+		operator.returnPalComputerControl(id, generation),
+	)
+	handle('palComputerInput', (id: string, generation: string, input: PalComputerInput) =>
+		operator.palComputerInput(id, generation, input),
+	)
+	handle('openChat', async () => {
+		const project = await operator.openChat()
+		saveProjects()
+		return project
+	})
 	handle('openProject', async () => {
 		if (!window) return null
 		const picked = await dialog.showOpenDialog(window, {
@@ -329,6 +350,9 @@ async function createWindow(): Promise<void> {
 	)
 	window.webContents.on('console-message', (details) =>
 		observeRendererConsole(diagnostics, details),
+	)
+	window.webContents.on('did-start-loading', () =>
+		window?.webContents.setIgnoreMenuShortcuts(false),
 	)
 	window.once('ready-to-show', () => window?.show())
 	window.on('close', (event) => {

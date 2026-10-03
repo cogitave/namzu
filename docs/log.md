@@ -1,5 +1,11 @@
 # Documentation update log
 
+## 2026-10-04
+
+- **Fix** [Desktop conversations and Pal computers](cli/desktop.md#persistent-pals): separate global New conversation from owned Pal chat, retain independent drafts and model choices, and open a checked app-owned ordinary context when no trusted project is available. Show real guest thumbnails and native host identity, then a full computer content view. The [native Windows receipt](../research/runtime-desktop-20260930/artifacts/pal-native-control-20261004.json) records catalogue selection, pointer and rapid text input, exclusive takeover and explicit return; batch adjacent pending text without crossing actions and suppress native menu shortcuts only while guest keyboard focus is owned. Treat deliberate transport-close cancellation as expected while retaining actual failures in diagnostics.
+
+- **Update** [SDK Pals](sdk/pals.md), [CLI computer control](cli/pals.md#acp-host-extensions) and [local Pal computer](sdk/local-pal-computer.md#exclusive-operator-control): add generation-bound exclusive operator takeover, guest input and explicit control return. Fence model and tool admissions, confirm idle handoff and require a fresh admitted-agent screenshot after return; preserve queued work and refuse unknown outcomes. SDK, CLI and sandbox declare additive minor changesets.
+
 ## 2026-10-02
 
 - **Fix** [Desktop Pal model selection](cli/desktop.md#operator-flow) remains available before computer startup and while paused; preserve the saved landing model during metadata loading and the claimed route of existing conversations. Add [native diagnostic logs](cli/desktop.md#diagnostic-logs) for caught IPC errors, CLI failures, asynchronous failed turns and renderer errors, with bounded storage and payload-free failure classification. Keep CLI INFO output informational. Correct development CSP sources and allow Vite's local Blob worker for live reconnection while retaining the production policy.

@@ -1,4 +1,4 @@
-import { type PalEnvironmentProvider, PalRuntime } from '@namzu/sdk'
+import { type PalComputerInput, type PalEnvironmentProvider, PalRuntime } from '@namzu/sdk'
 import { getCliPalStore } from './store.js'
 
 interface LocalComputerProvider extends PalEnvironmentProvider {
@@ -74,6 +74,7 @@ function readyComputer(runtime: PalRuntime, palId: string) {
 				status: 'ready' as const,
 				environmentId: lease.environmentId,
 				generation: String(lease.generation),
+				control: runtime.computerControl(palId),
 			}
 		: null
 }
@@ -86,6 +87,11 @@ export async function cliPalComputerStatus(palId: string) {
 		if (failure) return { status: 'unavailable' as const, notice: failure, requiresStop: true }
 		const held = readyComputer(runtime, palId)
 		if (held) return held
+		if (runtime.busy(palId))
+			return {
+				status: 'unavailable' as const,
+				notice: 'This Pal computer is still changing state. Wait for the operation to finish.',
+			}
 		const probe = await provider.probe()
 		return probe.ready
 			? { status: 'stopped' as const }
@@ -115,11 +121,58 @@ export async function stopCliPalComputer(palId: string) {
 	return { status: 'stopped' as const }
 }
 
-export async function cliPalScreen(palId: string) {
+function computerGeneration(generation: string): number {
+	if (typeof generation !== 'string' || !/^[1-9][0-9]{0,15}$/.test(generation))
+		throw new Error('Invalid Pal computer generation.')
+	const value = Number(generation)
+	if (!Number.isSafeInteger(value) || value < 1 || String(value) !== generation)
+		throw new Error('Invalid Pal computer generation.')
+	return value
+}
+
+export async function takeOverCliPalComputer(palId: string, generation: string) {
+	const expected = computerGeneration(generation)
+	const runtime = await getCliPalRuntime()
+	await runtime.takeOver(palId, expected)
+	const computer = readyComputer(runtime, palId)
+	if (!computer || computer.generation !== generation)
+		throw new Error('This Pal computer changed while taking operator control.')
+	return computer
+}
+
+export async function returnCliPalComputerControl(palId: string, generation: string) {
+	const expected = computerGeneration(generation)
+	const runtime = await getCliPalRuntime()
+	await runtime.returnControl(palId, expected)
+	const computer = readyComputer(runtime, palId)
+	if (!computer || computer.generation !== generation)
+		throw new Error('This Pal computer changed while returning Pal control.')
+	return computer
+}
+
+export async function executeCliPalComputerInput(
+	palId: string,
+	generation: string,
+	input: PalComputerInput,
+) {
+	const expected = computerGeneration(generation)
+	const runtime = await getCliPalRuntime()
+	const result = await runtime.executeOperatorInput(palId, expected, input)
+	if (result.type !== 'ok') throw new Error('The Pal computer did not confirm operator input.')
+	return { type: 'ok' as const }
+}
+
+export async function cliPalScreen(palId: string, generation?: string) {
+	const expected = generation === undefined ? undefined : computerGeneration(generation)
 	const runtime = await getCliPalRuntime()
 	const lease = runtime.computer(palId)
 	if (!lease) throw new Error('Start this Pal computer before opening its screen.')
+	const capturedGeneration = lease.generation
+	if (expected !== undefined && lease.generation !== expected)
+		throw new Error('This Pal computer generation changed before its screen capture.')
 	const response = await lease.computerUseHost.execute({ type: 'screenshot' })
+	if (runtime.computer(palId) !== lease || lease.generation !== capturedGeneration)
+		throw new Error('This Pal computer generation changed during its screen capture.')
 	if (response.type !== 'screenshot')
 		throw new Error('The Pal computer did not return a screen capture.')
 	const result = response.result

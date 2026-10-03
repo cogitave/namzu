@@ -6,7 +6,12 @@ import type { ComputerUseHost } from '../types/computer-use/index.js'
 import type { Sandbox } from '../types/sandbox/index.js'
 import { PalRuntime } from './runtime.js'
 import { DiskPalStore } from './store.js'
-import type { PalDefinition, PalEnvironmentLease } from './types.js'
+import type {
+	PalComputerControl,
+	PalComputerInput,
+	PalDefinition,
+	PalEnvironmentLease,
+} from './types.js'
 
 const roots: string[] = []
 function fixture() {
@@ -208,4 +213,395 @@ it('cancels a waiting controller without destroying a separately started warm co
 	expect(runtime.busy(pal.id)).toBe(false)
 	expect(lease.release).not.toHaveBeenCalled()
 	await runtime.close()
+})
+
+function controlledComputer(pal: PalDefinition) {
+	let mode: PalComputerControl['mode'] = 'pal'
+	const control: PalComputerControl = {
+		get mode() {
+			return mode
+		},
+		takeOver: vi.fn(async () => {
+			mode = 'operator'
+		}),
+		returnControl: vi.fn(async () => {
+			mode = 'pal'
+		}),
+		executeInput: vi.fn(async () => ({ type: 'ok' as const })),
+	}
+	return {
+		lease: { ...computer(pal), operatorControl: control },
+		control,
+		setMode(value: PalComputerControl['mode']) {
+			mode = value
+		},
+	}
+}
+
+describe('Pal operator computer control', () => {
+	it('refuses an unsupported provider without a generic computer input fallback', async () => {
+		const { pal, store } = fixture()
+		const lease = computer(pal)
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		expect(runtime.computerControl(pal.id)).toEqual({ supported: false, mode: 'unavailable' })
+		await expect(runtime.takeOver(pal.id, 1)).rejects.toThrow('does not support')
+		await expect(runtime.returnControl(pal.id, 1)).rejects.toThrow('does not support')
+		await expect(
+			runtime.executeOperatorInput(pal.id, 1, { type: 'key', keys: 'Return' }),
+		).rejects.toThrow('does not support')
+		const admitted = await runtime.admit({ palId: pal.id, conversationId: 'unchanged-provider' })
+		admitted.assertActive()
+		await admitted.release()
+		await runtime.close()
+	})
+	it('requires idle Pal work and current generation before transferring authority', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		const active = await runtime.admit({ palId: pal.id, conversationId: 'active' })
+		await expect(runtime.takeOver(pal.id, 1)).rejects.toThrow('active work')
+		expect(control.takeOver).not.toHaveBeenCalled()
+		active.assertActive()
+		await active.release()
+		for (const generation of [0, -1, 1.2, Number.NaN, Number.MAX_SAFE_INTEGER + 1, 2])
+			await expect(runtime.takeOver(pal.id, generation)).rejects.toThrow('generation')
+		await expect(runtime.takeOver('00000000-0000-4000-8000-000000000000', 1)).rejects.toThrow(
+			'generation',
+		)
+		expect(control.takeOver).not.toHaveBeenCalled()
+		await runtime.takeOver(pal.id, 1)
+		expect(runtime.computerControl(pal.id)).toEqual({ supported: true, mode: 'operator' })
+		await expect(runtime.admit({ palId: pal.id, conversationId: 'blocked' })).rejects.toThrow(
+			'Pal control',
+		)
+		await runtime.returnControl(pal.id, 1)
+		expect(runtime.computerControl(pal.id)).toEqual({ supported: true, mode: 'pal' })
+		expect(runtime.busy(pal.id)).toBe(false)
+		const next = await runtime.admit({ palId: pal.id, conversationId: 'explicit-new-turn' })
+		next.assertActive()
+		await next.release()
+		await runtime.close()
+	})
+	it('fences new admissions synchronously while takeover is pending and keeps screens observable', async () => {
+		const { pal, store } = fixture()
+		const { lease, control, setMode } = controlledComputer(pal)
+		const pending = deferred<void>()
+		vi.mocked(control.takeOver).mockImplementation(async () => {
+			setMode('transitioning')
+			await pending.promise
+			setMode('operator')
+		})
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		const takeover = runtime.takeOver(pal.id, 1)
+		// The runtime fence already exists before the provider's first microtask.
+		expect(control.takeOver).not.toHaveBeenCalled()
+		expect(runtime.computer(pal.id)).toBe(lease)
+		expect(runtime.computerControl(pal.id)).toEqual({ supported: true, mode: 'transitioning' })
+		await expect(runtime.admit({ palId: pal.id, conversationId: 'racing' })).rejects.toThrow(
+			'Pal control',
+		)
+		await expect(runtime.takeOver(pal.id, 1)).rejects.toThrow('pending')
+		await expect(runtime.stopComputer(pal.id)).rejects.toThrow('control operation')
+		pending.resolve()
+		await takeover
+		expect(runtime.computerControl(pal.id).mode).toBe('operator')
+		await runtime.close()
+	})
+	it('releases a failed idle transition without assuming takeover succeeded', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		vi.mocked(control.takeOver).mockRejectedValueOnce(new Error('A guest process is still active.'))
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await expect(runtime.takeOver(pal.id, 1)).rejects.toThrow('guest process')
+		expect(runtime.computerControl(pal.id).mode).toBe('pal')
+		expect(runtime.busy(pal.id)).toBe(false)
+		const admitted = await runtime.admit({ palId: pal.id, conversationId: 'still-pal' })
+		await admitted.release()
+		await runtime.close()
+	})
+	it('does not infer Pal control after an unconfirmed transition failure', async () => {
+		const { pal, store } = fixture()
+		const { lease, control, setMode } = controlledComputer(pal)
+		vi.mocked(control.takeOver).mockImplementation(async () => {
+			setMode('transitioning')
+			throw new Error('Guest authority could not be confirmed.')
+		})
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await expect(runtime.takeOver(pal.id, 1)).rejects.toThrow('could not be confirmed')
+		expect(runtime.computerControl(pal.id).mode).toBe('transitioning')
+		await expect(runtime.admit({ palId: pal.id, conversationId: 'blocked' })).rejects.toThrow()
+		await expect(
+			runtime.executeOperatorInput(pal.id, 1, { type: 'key', keys: 'Return' }),
+		).rejects.toThrow('Take operator control')
+		await runtime.close()
+	})
+	it('checks live provider authority at each existing admission guard', async () => {
+		const { pal, store } = fixture()
+		const { lease, setMode } = controlledComputer(pal)
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		const admitted = await runtime.admit({ palId: pal.id, conversationId: 'guarded-tools' })
+		for (const mode of ['operator', 'transitioning'] as const) {
+			setMode(mode)
+			expect(() => admitted.assertActive()).toThrow('does not have Pal computer control')
+		}
+		setMode('pal')
+		admitted.assertActive()
+		await admitted.release()
+		await runtime.close()
+	})
+	it('serializes human input, return and stop, and snapshots delayed coordinates', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const pending = deferred<void>()
+		vi.mocked(control.executeInput).mockImplementation(async () => {
+			await pending.promise
+			return { type: 'ok' }
+		})
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		const input = { type: 'mouse_click' as const, at: { x: 2, y: 3 }, button: 'left' as const }
+		const executing = runtime.executeOperatorInput(pal.id, 1, input)
+		input.at.x = 999
+		expect(runtime.computerControl(pal.id).mode).toBe('operator')
+		await expect(runtime.returnControl(pal.id, 1)).rejects.toThrow('pending')
+		await expect(runtime.stopComputer(pal.id)).rejects.toThrow('control operation')
+		await expect(runtime.executeOperatorInput(pal.id, 1, input)).rejects.toThrow('pending')
+		expect(control.executeInput).toHaveBeenCalledWith({
+			type: 'mouse_click',
+			at: { x: 2, y: 3 },
+			button: 'left',
+		})
+		pending.resolve()
+		expect(await executing).toEqual({ type: 'ok' })
+		await runtime.returnControl(pal.id, 1)
+		await expect(runtime.executeOperatorInput(pal.id, 1, input)).rejects.toThrow(
+			'Take operator control',
+		)
+		await runtime.close()
+	})
+	it('waits for owned input before close and denies new work immediately', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const pending = deferred<void>()
+		const entered = deferred<void>()
+		vi.mocked(control.executeInput).mockImplementation(async () => {
+			entered.resolve()
+			await pending.promise
+			return { type: 'ok' }
+		})
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		const executing = runtime.executeOperatorInput(pal.id, 1, { type: 'key', keys: 'Return' })
+		await entered.promise
+		const closing = runtime.close()
+		expect(lease.release).not.toHaveBeenCalled()
+		await expect(runtime.returnControl(pal.id, 1)).rejects.toThrow('closed')
+		pending.resolve()
+		await executing
+		await closing
+		expect(lease.release).toHaveBeenCalledOnce()
+	})
+	it('allows deliberate manual control of a warm paused computer without waking the Pal', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const acquire = vi.fn(async () => lease)
+		const runtime = new PalRuntime({ store, environments: { acquire } })
+		await runtime.startComputer(pal.id)
+		store.update(pal.id, 1, { paused: true })
+		await runtime.takeOver(pal.id, 1)
+		await runtime.executeOperatorInput(pal.id, 1, { type: 'type_text', text: 'manual' })
+		await runtime.returnControl(pal.id, 1)
+		await expect(runtime.admit({ palId: pal.id, conversationId: 'no-wake' })).rejects.toThrow(
+			'paused',
+		)
+		expect(acquire).toHaveBeenCalledOnce()
+		expect(control.executeInput).toHaveBeenCalledOnce()
+		await runtime.close()
+	})
+	it('refuses stale input after stop/start and never replays it on return', async () => {
+		const { pal, store } = fixture()
+		const first = controlledComputer(pal)
+		const next = controlledComputer(pal)
+		const acquire = vi
+			.fn()
+			.mockResolvedValueOnce(first.lease)
+			.mockResolvedValueOnce({
+				...next.lease,
+				generation: 2,
+			})
+		const runtime = new PalRuntime({ store, environments: { acquire } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		await runtime.stopComputer(pal.id)
+		await runtime.startComputer(pal.id)
+		await expect(runtime.returnControl(pal.id, 1)).rejects.toThrow('generation')
+		await expect(
+			runtime.executeOperatorInput(pal.id, 1, { type: 'key', keys: 'Return' }),
+		).rejects.toThrow('generation')
+		await runtime.takeOver(pal.id, 2)
+		await runtime.returnControl(pal.id, 2)
+		expect(first.control.executeInput).not.toHaveBeenCalled()
+		expect(next.control.executeInput).not.toHaveBeenCalled()
+		await runtime.close()
+	})
+	it('admits only bounded exact mouse, scroll, text and key input shapes', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		const valid: PalComputerInput[] = [
+			{ type: 'mouse_move', to: { x: 0, y: 32767 } },
+			{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'right' },
+			{ type: 'mouse_drag', from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, button: 'middle' },
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'left', amount: 100 },
+			{ type: 'type_text', text: 'Türkçe 👋' },
+			{ type: 'key', keys: 'Ctrl+Alt+Return' },
+		]
+		for (const input of valid) await runtime.executeOperatorInput(pal.id, 1, input)
+		const invalid = [
+			null,
+			{ type: 'screenshot' },
+			{ type: 'exec', command: 'host command' },
+			{ type: 'key', keys: 'Return', palId: 'foreign' },
+			{ type: 'key', keys: 'a;command' },
+			{ type: 'key', keys: ' ' },
+			{ type: 'key', keys: 'a'.repeat(101) },
+			{ type: 'type_text', text: 'a\0b' },
+			{ type: 'type_text', text: 'a'.repeat(100_001) },
+			{ type: 'mouse_move', to: { x: -1, y: 1 } },
+			{ type: 'mouse_move', to: { x: 1.5, y: 1 } },
+			{ type: 'mouse_move', to: { x: 32768, y: 1 } },
+			{ type: 'mouse_move', to: { x: 1, y: Number.POSITIVE_INFINITY } },
+			{ type: 'mouse_move', to: { x: 1, y: 2, environmentId: 'foreign' } },
+			{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'extra' },
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'extra', amount: 1 },
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'up', amount: 0 },
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'up', amount: 101 },
+		]
+		for (const input of invalid)
+			await expect(
+				runtime.executeOperatorInput(pal.id, 1, input as PalComputerInput),
+			).rejects.toThrow('Invalid Pal computer input')
+		expect(control.executeInput).toHaveBeenCalledTimes(valid.length)
+		await runtime.close()
+	})
+	it('requires the resumed admission to observe its own fresh screen before GUI input', async () => {
+		const { pal, store } = fixture()
+		const { lease } = controlledComputer(pal)
+		const execute = vi.fn<ComputerUseHost['execute']>(async (action) =>
+			action.type === 'screenshot'
+				? {
+						type: 'screenshot',
+						result: {
+							data: Buffer.from('owned-fixture-png'),
+							mimeType: 'image/png',
+							width: 10,
+							height: 10,
+						},
+					}
+				: { type: 'ok' },
+		)
+		Object.assign(lease.computerUseHost, { execute })
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		await runtime.returnControl(pal.id, 1)
+		// The human's readonly preview uses the raw host and does not satisfy agent observation.
+		await runtime.computer(pal.id)?.computerUseHost.execute({ type: 'screenshot' })
+		const admitted = await runtime.admit({ palId: pal.id, conversationId: 'resumed' })
+		await expect(
+			admitted.lease.computerUseHost.execute({
+				type: 'mouse_click',
+				at: { x: 1, y: 2 },
+				button: 'left',
+			}),
+		).rejects.toThrow('fresh Pal computer screenshot')
+		expect(execute).toHaveBeenCalledTimes(1)
+		await admitted.lease.computerUseHost.execute({ type: 'screenshot' })
+		await admitted.lease.computerUseHost.execute({
+			type: 'mouse_click',
+			at: { x: 1, y: 2 },
+			button: 'left',
+		})
+		expect(execute).toHaveBeenCalledTimes(3)
+		await admitted.release()
+		const next = await runtime.admit({ palId: pal.id, conversationId: 'another-admission' })
+		await expect(
+			next.lease.computerUseHost.execute({ type: 'key', keys: 'Return' }),
+		).rejects.toThrow('fresh Pal computer screenshot')
+		await next.release()
+		await runtime.close()
+	})
+	it('keeps frozen provider hosts usable while optional GUI methods cannot bypass fresh observation', async () => {
+		const { pal, store } = fixture()
+		const controlled = controlledComputer(pal)
+		const raw = Object.freeze<ComputerUseHost>({
+			id: 'frozen-owned-fixture',
+			capabilities: {
+				displayServer: 'x11',
+				screenshot: true,
+				mouse: true,
+				keyboard: true,
+				cursorPosition: false,
+				clipboard: false,
+				windows: true,
+				windowCapture: true,
+				uiTree: true,
+			},
+			getDisplayGeometry: vi.fn(async () => ({ width: 10, height: 10, scaleFactor: 1 })),
+			execute: vi.fn(async () => ({
+				type: 'screenshot' as const,
+				result: {
+					data: Buffer.from('owned-fixture-png'),
+					mimeType: 'image/png' as const,
+					width: 10,
+					height: 10,
+				},
+			})),
+			focusWindow: vi.fn(async () => ({ ok: true, focusedId: 'owned-window' })),
+			executeWindow: vi.fn(async () => {}),
+			uiAct: vi.fn(async () => ({ ok: true })),
+		})
+		const lease = { ...controlled.lease, computerUseHost: raw }
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		await runtime.returnControl(pal.id, 1)
+		const admission = await runtime.admit({ palId: pal.id, conversationId: 'frozen-host' })
+		const agent = admission.lease.computerUseHost
+		await expect(agent.getDisplayGeometry()).resolves.toEqual({
+			width: 10,
+			height: 10,
+			scaleFactor: 1,
+		})
+		await expect(agent.focusWindow?.('owned-window')).rejects.toThrow(
+			'fresh Pal computer screenshot',
+		)
+		await expect(
+			agent.executeWindow?.('owned-capture', { type: 'key', keys: 'Return' }),
+		).rejects.toThrow('fresh Pal computer screenshot')
+		await expect(agent.uiAct?.('owned-ref', 'invoke')).rejects.toThrow(
+			'fresh Pal computer screenshot',
+		)
+		expect(raw.focusWindow).not.toHaveBeenCalled()
+		expect(raw.executeWindow).not.toHaveBeenCalled()
+		expect(raw.uiAct).not.toHaveBeenCalled()
+		await agent.execute({ type: 'screenshot' })
+		await agent.focusWindow?.('owned-window')
+		await agent.executeWindow?.('owned-capture', { type: 'key', keys: 'Return' })
+		await agent.uiAct?.('owned-ref', 'invoke')
+		expect(raw.focusWindow).toHaveBeenCalledOnce()
+		expect(raw.executeWindow).toHaveBeenCalledOnce()
+		expect(raw.uiAct).toHaveBeenCalledOnce()
+		await admission.release()
+		await expect(agent.execute({ type: 'screenshot' })).rejects.toThrow('no longer owns')
+		await runtime.close()
+	})
 })

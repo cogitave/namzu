@@ -15,6 +15,7 @@ import type {
 	JobView,
 	ModelCatalogueView,
 	PalChanges,
+	PalComputerInput,
 	PalComputerView,
 	PalInput,
 	PalScreenView,
@@ -32,6 +33,7 @@ import {
 	validateAttachmentBatch,
 } from './attachments.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 
 interface PendingMessage {
@@ -58,6 +60,7 @@ interface Conversation {
 	reattaching?: Promise<void>
 	client: RuntimeClient
 	running: boolean
+	runSettled?: Promise<void>
 	queue: PendingMessage[]
 	draft: string
 	draftSettings?: DraftSettings
@@ -70,9 +73,12 @@ export class Operator {
 	private closing = false
 	private registryClient?: RuntimeClient
 	private registryStarting?: Promise<RuntimeClient>
+	private chatStarting?: Promise<ProjectView>
 	/** Retain shutdown authority even when a disconnected client leaves its UI slot. */
 	private readonly ownedClients = new Set<RuntimeClient>()
 	private readonly palRecords = new Map<string, PalView>()
+	private readonly computerAuthorityEpochs = new Map<string, number>()
+	private readonly operatorComputers = new Map<string, string>()
 	private readonly changingPals = new Set<string>()
 	private readonly projects = new Map<string, Project>()
 	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
@@ -200,9 +206,156 @@ export class Operator {
 	}
 	async palComputer(id: string): Promise<PalComputerView> {
 		const { project } = await this.openPal(id)
-		return (await this.project(project.id).client.request('namzu/pals/computer/status', {
+		return this.computerStatus(this.project(project.id).client, id)
+	}
+	private advanceComputerAuthority(id: string): void {
+		this.computerAuthorityEpochs.set(id, (this.computerAuthorityEpochs.get(id) ?? 0) + 1)
+	}
+	private async computerStatus(client: RuntimeClient, id: string): Promise<PalComputerView> {
+		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
+		const state = (await client.request('namzu/pals/computer/status', {
 			palId: id,
 		})) as PalComputerView
+		if (!client.supportsPalComputerControl())
+			return { ...state, control: { supported: false, mode: 'unavailable' } }
+		if (
+			this.closing ||
+			this.changingPals.has(id) ||
+			epoch !== (this.computerAuthorityEpochs.get(id) ?? 0)
+		)
+			return state
+		if (state.control?.mode === 'operator' && state.generation)
+			this.operatorComputers.set(id, state.generation)
+		else if (state.control?.mode === 'pal' || state.status === 'stopped')
+			this.operatorComputers.delete(id)
+		return state
+	}
+	private async controlClient(id: string, reuseReady: boolean): Promise<RuntimeClient> {
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (reuseReady) {
+			const owned = [...this.projects.values()].find(
+				({ view, client }) =>
+					view.palId === id &&
+					view.status === 'ready' &&
+					view.trusted &&
+					this.ownedClients.has(client),
+			)
+			if (owned) return this.project(owned.view.id).client
+		}
+		const { project } = await this.openPal(id)
+		return this.project(project.id).client
+	}
+	private async controlledComputer(
+		id: string,
+		generation: string,
+		expectedMode: 'pal' | 'operator',
+		reuseReady = false,
+	): Promise<RuntimeClient> {
+		if (
+			typeof generation !== 'string' ||
+			!/^[1-9][0-9]{0,15}$/.test(generation) ||
+			!Number.isSafeInteger(Number(generation))
+		)
+			throw new Error('Invalid Pal computer generation.')
+		const client = await this.controlClient(id, reuseReady)
+		if (!client.supportsPalComputerControl())
+			throw new Error('This computer provider does not support operator control.')
+		const current = await this.computerStatus(client, id)
+		if (
+			current.status !== 'ready' ||
+			current.generation !== generation ||
+			!current.control?.supported
+		)
+			throw new Error('This Pal computer changed. Refresh its status before changing control.')
+		if (current.control.mode !== expectedMode)
+			throw new Error('This Pal computer’s control changed. Refresh its status.')
+		return client
+	}
+	async takeOverPalComputer(id: string, generation: string): Promise<PalComputerView> {
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPals.add(id)
+		this.advanceComputerAuthority(id)
+		try {
+			// Verify the exact current computer before cancelling any owned work.
+			const client = await this.controlledComputer(id, generation, 'pal')
+			const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
+			for (const item of owned) {
+				if (item.running) {
+					const settled = item.runSettled
+					if (!settled) throw new Error('This Pal turn has no confirmed completion boundary.')
+					await this.cancel(item.view.id)
+					await settled
+				}
+				if (item.running || item.permissions.size)
+					throw new Error('This Pal’s active work did not stop. Retry after it finishes.')
+				const jobs = (await this.jobs(item.view.id)) as JobView[]
+				if (!Array.isArray(jobs))
+					throw new Error('This Pal’s background work could not be verified.')
+				for (const job of jobs)
+					if (job.status === 'running') await this.stopJob(item.view.id, job.id)
+				const remaining = (await this.jobs(item.view.id)) as JobView[]
+				if (
+					!Array.isArray(remaining) ||
+					remaining.some((job) => job.status === 'running' || job.recoveryRequired)
+				)
+					throw new Error('This Pal’s background work did not stop. Retry after recovery.')
+			}
+			const state = (await client.request('namzu/pals/computer/take_over', {
+				palId: id,
+				generation,
+			})) as PalComputerView
+			if (
+				state.status !== 'ready' ||
+				state.generation !== generation ||
+				state.control?.mode !== 'operator'
+			)
+				throw new Error('The Pal computer did not confirm operator control. Refresh its status.')
+			this.operatorComputers.set(id, generation)
+			return state
+		} finally {
+			this.advanceComputerAuthority(id)
+			this.changingPals.delete(id)
+		}
+	}
+	async returnPalComputerControl(id: string, generation: string): Promise<PalComputerView> {
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPals.add(id)
+		this.advanceComputerAuthority(id)
+		try {
+			const client = await this.controlledComputer(id, generation, 'operator')
+			const state = (await client.request('namzu/pals/computer/return_control', {
+				palId: id,
+				generation,
+			})) as PalComputerView
+			if (
+				state.status !== 'ready' ||
+				state.generation !== generation ||
+				state.control?.mode !== 'pal'
+			)
+				throw new Error('The Pal computer did not confirm returned control. Refresh its status.')
+			this.operatorComputers.delete(id)
+			// Queued work remains parked. Returning input authority does not start a turn.
+			return state
+		} finally {
+			this.advanceComputerAuthority(id)
+			this.changingPals.delete(id)
+		}
+	}
+	async palComputerInput(id: string, generation: string, input: PalComputerInput): Promise<void> {
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s control change to finish.')
+		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
+		const captured = structuredClone(input)
+		const client = await this.controlledComputer(id, generation, 'operator', true)
+		if (this.changingPals.has(id) || epoch !== (this.computerAuthorityEpochs.get(id) ?? 0))
+			throw new Error(
+				'This input belongs to an earlier computer control. Refresh before sending input.',
+			)
+		const result = (await client.request('namzu/pals/computer/input', {
+			palId: id,
+			generation,
+			input: captured,
+		})) as { type?: string }
+		if (result?.type !== 'ok') throw new Error('The Pal computer did not confirm this input.')
 	}
 	async startPalComputer(id: string): Promise<PalComputerView> {
 		const { project } = await this.openPal(id)
@@ -217,6 +370,7 @@ export class Operator {
 	async stopPalComputer(id: string): Promise<PalComputerView> {
 		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
 		this.changingPals.add(id)
+		this.advanceComputerAuthority(id)
 		try {
 			const { project } = await this.openPal(id)
 			const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
@@ -227,17 +381,21 @@ export class Operator {
 				if (!Array.isArray(jobs) || jobs.some((job) => job.status === 'running'))
 					throw new Error('Stop this Pal’s background work before stopping its computer.')
 			}
-			return (await this.project(project.id).client.request('namzu/pals/computer/stop', {
+			const state = (await this.project(project.id).client.request('namzu/pals/computer/stop', {
 				palId: id,
 			})) as PalComputerView
+			if (state.status === 'stopped') this.operatorComputers.delete(id)
+			return state
 		} finally {
+			this.advanceComputerAuthority(id)
 			this.changingPals.delete(id)
 		}
 	}
-	async palScreen(id: string): Promise<PalScreenView> {
+	async palScreen(id: string, generation?: string): Promise<PalScreenView> {
 		const { project } = await this.openPal(id)
 		const screen = (await this.project(project.id).client.request('namzu/pals/computer/screen', {
 			palId: id,
+			...(generation === undefined ? {} : { generation }),
 		})) as PalScreenView
 		if (
 			!screen ||
@@ -273,6 +431,24 @@ export class Operator {
 	listProjects(): ProjectView[] {
 		return [...this.projects.values()].map(({ view }) => ({ ...view }))
 	}
+	async openChat(): Promise<ProjectView> {
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (!this.registryDirectory) throw new Error('The native chat workspace is unavailable.')
+		if (this.chatStarting) return this.chatStarting
+		const operation = (async () => {
+			const path = await normalChatWorkspace(this.registryDirectory as string)
+			const view = await this.openProject(path)
+			if (view.palId) throw new Error('A Pal workspace cannot become a normal conversation.')
+			if (view.status !== 'ready') return view
+			return view.trusted ? view : this.trust(view.id)
+		})()
+		this.chatStarting = operation
+		try {
+			return await operation
+		} finally {
+			if (this.chatStarting === operation) this.chatStarting = undefined
+		}
+	}
 	async openProject(path: string): Promise<ProjectView> {
 		if (this.closing) throw new Error('Namzu is closing.')
 		const cwd = await realpath(path)
@@ -298,10 +474,12 @@ export class Operator {
 			if (this.closing) throw new Error('Namzu is closing.')
 			this.projects.delete(existing.view.id)
 		}
+		const isChat = await isNormalChatWorkspace(cwd, this.registryDirectory)
 		const view: ProjectView = {
 			id: existing?.view.id ?? randomUUID(),
 			path: cwd,
-			name: basename(cwd),
+			name: isChat ? 'Chat' : basename(cwd),
+			...(isChat ? { isChat: true } : {}),
 			trusted: false,
 			status: 'connecting',
 		}
@@ -746,6 +924,8 @@ export class Operator {
 	private assertPalAdmission(palId?: string): void {
 		if (!palId) return
 		if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
+		if (this.operatorComputers.has(palId))
+			throw new Error('Return this Pal computer’s control before sending a message.')
 		if (this.palRecords.get(palId)?.paused)
 			throw new Error('Resume this Pal before sending a message.')
 	}
@@ -829,7 +1009,7 @@ export class Operator {
 			file.ownerId = sessionId
 		}
 		if (session.draft === prompt) session.draft = ''
-		void this.run(session, captured)
+		this.startRun(session, captured)
 	}
 	private draftSession(sessionId: string): Conversation {
 		const session = this.conversations.get(sessionId)
@@ -950,6 +1130,14 @@ export class Operator {
 			...(error ? { error } : {}),
 		})
 	}
+	private startRun(session: Conversation, item: PendingMessage): void {
+		const running = this.run(session, item)
+		session.runSettled = running
+		const clear = () => {
+			if (session.runSettled === running) session.runSettled = undefined
+		}
+		void running.then(clear, clear)
+	}
 	private async run(session: Conversation, item: PendingMessage): Promise<void> {
 		const { prompt, files, options } = item
 		session.running = true
@@ -968,6 +1156,7 @@ export class Operator {
 		let completed = false
 		try {
 			await this.reattach(session)
+			this.assertPalAdmission(session.view.palId)
 			session.hasPrompted = true
 			const content = [
 				prompt,
@@ -1011,9 +1200,14 @@ export class Operator {
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			this.state(session)
 		}
-		if (completed) {
+		if (
+			completed &&
+			(!session.view.palId ||
+				(!this.changingPals.has(session.view.palId) &&
+					!this.operatorComputers.has(session.view.palId)))
+		) {
 			const next = session.queue.shift()
-			if (next) void this.run(session, next)
+			if (next) this.startRun(session, next)
 		}
 	}
 	async cancel(sessionId: string): Promise<void> {
@@ -1058,6 +1252,7 @@ export class Operator {
 	}
 	approve(sessionId: string, requestId: string, approved: boolean): void {
 		const session = this.session(sessionId)
+		this.assertPalAdmission(session.view.palId)
 		if (typeof approved !== 'boolean') throw new Error('Invalid approval.')
 		const wireId = session.permissions.get(requestId)
 		if (wireId === undefined || !session.running)
@@ -1087,6 +1282,9 @@ export class Operator {
 				!session ||
 				session.view.projectId !== project.view.id ||
 				!session.running ||
+				(session.view.palId &&
+					(this.changingPals.has(session.view.palId) ||
+						this.operatorComputers.has(session.view.palId))) ||
 				!Array.isArray(params.toolCalls)
 			) {
 				project.client.answer(frame.id, { outcome: 'reject' })

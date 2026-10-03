@@ -1,13 +1,14 @@
-import { Dialog } from '@base-ui/react/dialog'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	ComposerModelSettings,
+	PalComputerView as ComputerState,
 	ConversationView,
 	DesktopEvent,
+	HumanComputerView,
 	JobView,
-	PalComputerView,
+	PalComputerInput,
 	PalInput,
 	PalScreenView,
 	PalView,
@@ -28,6 +29,7 @@ import {
 	pluginRowId,
 } from './composer-plugins.js'
 import { Composer } from './composer.js'
+import { ComputerInputQueue } from './computer-input-queue.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
 	ArrowUpIcon,
@@ -45,6 +47,8 @@ import { JobRow } from './job-row.js'
 import { Message, MessageContent } from './message.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
+import { normalConversationProject } from './normal-conversation.js'
+import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -129,12 +133,29 @@ function App() {
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
 	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
-	const [palComputers, setPalComputers] = useState<Record<string, PalComputerView>>({})
-	const [palScreen, setPalScreen] = useState<{
-		palId: string
-		screen?: PalScreenView
-		error?: string
-	}>()
+	const [palComputers, setPalComputers] = useState<Record<string, ComputerState>>({})
+	const [palScreen, setPalScreen] = useState<{ palId: string }>()
+	const [palScreens, setPalScreens] = useState<
+		Record<
+			string,
+			{
+				generation?: string
+				screen?: PalScreenView
+				loading?: boolean
+				error?: string
+			}
+		>
+	>({})
+	const [humanComputer, setHumanComputer] = useState<HumanComputerView>()
+	const [screenRefresh, setScreenRefresh] = useState(0)
+	const [controlBusy, setControlBusy] = useState(false)
+	const controlPending = useRef(false)
+	const computerReadEpoch = useRef(0)
+	const startingComputers = useRef(new Set<string>())
+	const captureFlight = useRef<Promise<PalScreenView> | undefined>(undefined)
+	const inputSequence = useRef(0)
+	const [inputBusy, setInputBusy] = useState(false)
+	const previousNormalProject = useRef<string | undefined>(undefined)
 	const [projects, setProjects] = useState<ProjectView[]>([])
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
@@ -347,6 +368,32 @@ function App() {
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const thread = threads[sessionId] ?? emptyThread()
 	const pal = pals.find((item) => item.id === project?.palId)
+	useEffect(() => {
+		if (project?.id && !project?.palId) previousNormalProject.current = project.id
+	}, [project?.id, project?.palId])
+	const routeKey = JSON.stringify([projectId, sessionId, railSection, palsPage])
+	const previousRoute = useRef(routeKey)
+	useEffect(() => {
+		if (previousRoute.current !== routeKey) {
+			previousRoute.current = routeKey
+			setPalScreen(undefined)
+		}
+	}, [routeKey])
+	useEffect(() => {
+		if (!api.humanComputer) return
+		let current = true
+		void api.humanComputer().then(
+			(value) => {
+				if (current) setHumanComputer(value)
+			},
+			(failure) => {
+				if (current) setError(errorText(failure))
+			},
+		)
+		return () => {
+			current = false
+		}
+	}, [])
 	const visibleJobs = jobsSessionId === sessionId ? jobs : []
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
@@ -442,7 +489,7 @@ function App() {
 		if (
 			!sessionId ||
 			!project?.trusted ||
-			(pal && (pal.paused || palComputer?.status !== 'ready')) ||
+			!palCanWork ||
 			project.status !== 'ready' ||
 			!view?.live ||
 			pluginStates[pluginsKey]?.loading ||
@@ -719,15 +766,35 @@ function App() {
 		return () => observer.disconnect()
 	}, [sessionId])
 	const newConversation = useCallback(async () => {
-		if (!projectId) return
-		navigation.current += 1
-		setSessionId('')
-		setRailSection(null)
-		setPalsPage(false)
-		setSideOpen(false)
-		setJobsOpen(false)
-		input.current?.focus()
-	}, [projectId])
+		const generation = ++navigation.current
+		setLoading(true)
+		try {
+			let destination = normalConversationProject(
+				projects,
+				projectId,
+				previousNormalProject.current,
+			)
+			if (!destination) {
+				if (!api.openChat) throw new Error('Restart the desktop app to open a normal conversation.')
+				destination = await api.openChat()
+				updateProject(destination)
+			}
+			if (generation !== navigation.current) return
+			if (destination.palId) throw new Error('A normal conversation cannot use a Pal workspace.')
+			previousNormalProject.current = destination.id
+			setProjectId(destination.id)
+			setSessionId('')
+			setConversationSelection(null)
+			setPalScreen(undefined)
+			setRailSection(null)
+			setPalsPage(false)
+			setSideOpen(false)
+			setJobsOpen(false)
+			requestAnimationFrame(() => input.current?.focus())
+		} finally {
+			setLoading(false)
+		}
+	}, [projects, projectId, updateProject])
 
 	const openProject = useCallback(async () => {
 		const generation = ++navigation.current
@@ -756,6 +823,7 @@ function App() {
 		collection: ConversationCollection = 'projects',
 	) => {
 		const generation = ++navigation.current
+		setPalScreen(undefined)
 		if (snapshotRead.current) snapshotRead.current.events.length = 0
 		const read = {
 			generation,
@@ -837,6 +905,7 @@ function App() {
 	}
 	const openPal = async (value: PalView) => {
 		const generation = ++navigation.current
+		setPalScreen(undefined)
 		setLoading(true)
 		try {
 			const opened = await api.openPal(value.id)
@@ -881,25 +950,97 @@ function App() {
 		}
 	}
 	useEffect(() => {
-		if (!pal || palsPage || project?.status !== 'ready') return
+		if (!pal?.id || palsPage || railSection === 'plugins' || project?.status !== 'ready') return
+		// Explicit refresh invalidates a pending capture and starts a new read.
+		void screenRefresh
+		const id = pal.id
+		const epoch = computerReadEpoch.current
 		let current = true
-		void api.palComputer(pal.id).then(
-			(value) => {
-				if (current) setPalComputers((all) => ({ ...all, [pal.id]: value }))
-			},
-			(failure) => {
-				if (current)
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const read = async () => {
+			try {
+				if (controlPending.current || startingComputers.current.has(id)) return
+				const computer = await api.palComputer(id)
+				if (
+					!current ||
+					epoch !== computerReadEpoch.current ||
+					controlPending.current ||
+					startingComputers.current.has(id)
+				)
+					return
+				setPalComputers((all) => ({ ...all, [id]: computer }))
+				if (computer.status !== 'ready' || !computer.generation) {
+					setPalScreens((all) => ({
+						...all,
+						[id]: { generation: computer.generation },
+					}))
+					return
+				}
+				const generation = computer.generation
+				setPalScreens((all) => ({
+					...all,
+					[id]:
+						all[id]?.generation === generation
+							? { ...all[id], loading: !all[id]?.screen }
+							: { generation, loading: true },
+				}))
+				try {
+					await captureFlight.current?.catch(() => {})
+					if (
+						!current ||
+						epoch !== computerReadEpoch.current ||
+						controlPending.current ||
+						startingComputers.current.has(id)
+					)
+						return
+					const capture = api.palScreen(id, generation)
+					captureFlight.current = capture
+					let screen: PalScreenView
+					try {
+						screen = await capture
+					} finally {
+						if (captureFlight.current === capture) captureFlight.current = undefined
+					}
+					if (current && epoch === computerReadEpoch.current)
+						setPalScreens((all) => ({ ...all, [id]: { generation, screen } }))
+				} catch (failure) {
+					if (current && epoch === computerReadEpoch.current)
+						setPalScreens((all) => ({
+							...all,
+							[id]: {
+								generation,
+								loading: false,
+								error: errorText(failure),
+							},
+						}))
+				}
+			} catch (failure) {
+				if (current && epoch === computerReadEpoch.current) {
 					setPalComputers((all) => ({
 						...all,
-						[pal.id]: { status: 'unavailable', notice: errorText(failure) },
+						[id]: { status: 'unavailable', notice: errorText(failure) },
 					}))
-			},
-		)
+					setPalScreens((all) => ({
+						...all,
+						[id]: { error: errorText(failure) },
+					}))
+				}
+			} finally {
+				if (current) timer = setTimeout(() => void read(), palScreen?.palId === id ? 1200 : 5000)
+			}
+		}
+		void read()
 		return () => {
 			current = false
+			if (timer) clearTimeout(timer)
 		}
-	}, [pal, project?.status, palsPage])
+	}, [pal?.id, project?.status, palsPage, railSection, palScreen?.palId, screenRefresh])
+
 	const startPalComputer = async (value: PalView) => {
+		if (startingComputers.current.has(value.id)) return
+		startingComputers.current.add(value.id)
+		computerReadEpoch.current += 1
+		setScreenRefresh((value) => value + 1)
 		setPalComputers((all) => ({
 			...all,
 			[value.id]: { status: 'stopped', notice: 'Starting the local computer…' },
@@ -907,44 +1048,146 @@ function App() {
 		try {
 			const computer = await api.startPalComputer(value.id)
 			setPalComputers((all) => ({ ...all, [value.id]: computer }))
+			setScreenRefresh((value) => value + 1)
 		} catch (failure) {
 			setPalComputers((all) => ({
 				...all,
 				[value.id]: { status: 'unavailable', notice: errorText(failure) },
 			}))
+		} finally {
+			startingComputers.current.delete(value.id)
+			setScreenRefresh((value) => value + 1)
 		}
 	}
-	const openPalScreen = async (value: PalView) => {
+	const openPalScreen = (value: PalView) => {
+		navigation.current += 1
+		setJobsOpen(false)
+		setSideOpen(false)
 		setPalScreen({ palId: value.id })
-		try {
-			const screen = await api.palScreen(value.id)
-			setPalScreen((current) =>
-				current?.palId === value.id ? { palId: value.id, screen } : current,
-			)
-		} catch (failure) {
-			setPalScreen((current) =>
-				current?.palId === value.id ? { palId: value.id, error: errorText(failure) } : current,
-			)
-		}
 	}
+
 	const ownedConversations = pal ? conversations.filter((item) => item.palId === pal.id) : []
 	const palBusy = ownedConversations.some((item) => {
 		const owned = threads[item.id]
 		return owned && (owned.running || owned.queued.length > 0 || owned.permissions.length > 0)
 	})
 	const palComputer = pal ? palComputers[pal.id] : undefined
+	const palCanWork =
+		!pal ||
+		(!pal.paused &&
+			palComputer?.status === 'ready' &&
+			(!palComputer.control?.supported || palComputer.control.mode === 'pal'))
+	const computerCapture = pal ? palScreens[pal.id] : undefined
+	const currentScreen =
+		palComputer?.status === 'ready' && computerCapture?.generation === palComputer.generation
+			? (computerCapture?.screen ?? null)
+			: null
+	const computerPage =
+		!!pal && palScreen?.palId === pal.id && !palsPage && railSection !== 'plugins'
+	const computerOwner = useRef<{
+		id?: string
+		generation?: string
+		mode?: string
+		navigation: number
+		visible: boolean
+	}>({ navigation: 0, visible: false })
+	computerOwner.current = {
+		id: pal?.id,
+		generation: palComputer?.generation,
+		mode: palComputer?.control?.mode,
+		navigation: navigation.current,
+		visible: computerPage,
+	}
+	const inputQueue = useRef<ComputerInputQueue | null>(null)
+	if (!inputQueue.current)
+		inputQueue.current = new ComputerInputQueue(async (action, owner) => {
+			const current = computerOwner.current
+			if (
+				current.id !== owner.id ||
+				current.generation !== owner.generation ||
+				current.navigation !== owner.navigation ||
+				navigation.current !== owner.navigation ||
+				!current.visible ||
+				current.mode !== 'operator' ||
+				!api.palComputerInput
+			)
+				throw new Error('Computer input belongs to an earlier view.')
+			await api.palComputerInput(owner.id, owner.generation, action)
+		})
+	const computerInputQueue = inputQueue.current
+	const changeComputerControl = async (takeOver: boolean) => {
+		const id = pal?.id
+		const generation = palComputer?.generation
+		const viewGeneration = navigation.current
+		const operation = takeOver ? api.takeOverPalComputer : api.returnPalComputerControl
+		if (!id || !generation || !operation || controlPending.current) return
+		controlPending.current = true
+		computerReadEpoch.current += 1
+		setScreenRefresh((value) => value + 1)
+		setControlBusy(true)
+		try {
+			await computerInputQueue.flush()
+			await captureFlight.current?.catch(() => {})
+			if (
+				computerOwner.current.id !== id ||
+				computerOwner.current.generation !== generation ||
+				computerOwner.current.navigation !== viewGeneration ||
+				navigation.current !== viewGeneration ||
+				!computerOwner.current.visible
+			)
+				throw new Error('The computer view changed. Open it again to change control.')
+			const state = await operation(id, generation)
+			setPalComputers((all) => ({ ...all, [id]: state }))
+			setScreenRefresh((value) => value + 1)
+		} finally {
+			controlPending.current = false
+			setControlBusy(false)
+			setScreenRefresh((value) => value + 1)
+		}
+	}
+	const sendComputerInput = (action: PalComputerInput): Promise<void> => {
+		const owner = { ...computerOwner.current }
+		if (
+			!owner.id ||
+			!owner.generation ||
+			!owner.visible ||
+			owner.mode !== 'operator' ||
+			controlPending.current ||
+			!api.palComputerInput
+		)
+			return Promise.reject(new Error('Take over this computer before sending input.'))
+		const sequence = ++inputSequence.current
+		setInputBusy(true)
+		const operation = computerInputQueue.enqueue(action, {
+			id: owner.id,
+			generation: owner.generation,
+			navigation: owner.navigation,
+		})
+		void operation
+			.finally(() => {
+				if (sequence === inputSequence.current) {
+					setInputBusy(false)
+					setScreenRefresh((value) => value + 1)
+				}
+			})
+			.catch(() => {})
+		return operation
+	}
+
 	const palContextProps: PalContextProps | null = pal
 		? {
 				pal,
 				status: pal.paused
 					? 'paused'
-					: palBusy
-						? thread.permissions.length
-							? 'approval'
-							: 'working'
-						: project?.status !== 'ready' || palComputer?.status !== 'ready'
-							? 'offline'
-							: 'idle',
+					: palComputer?.control?.mode === 'operator'
+						? 'operator'
+						: palBusy
+							? thread.permissions.length
+								? 'approval'
+								: 'working'
+							: project?.status !== 'ready' || palComputer?.status !== 'ready'
+								? 'offline'
+								: 'idle',
 				computer: {
 					name: `${pal.name}’s computer`,
 					workspace: pal.workspace,
@@ -954,12 +1197,15 @@ function App() {
 							: !palComputer || palComputer.notice === 'Starting the local computer…'
 								? 'connecting'
 								: 'error',
+					screen: currentScreen,
+					loading: computerCapture?.loading,
 					notice:
 						palComputer?.notice ??
 						(palComputer?.status === 'stopped'
 							? 'Start your Pal’s local computer to begin.'
 							: undefined),
 				},
+				hostComputer: humanComputer,
 				activity: [...ownedConversations].sort(compareConversationRecency).map((item) => ({
 					id: item.id,
 					title: item.title,
@@ -998,11 +1244,16 @@ function App() {
 					palComputer?.status === 'ready' || palComputer?.requiresStop
 						? () =>
 								void act(async () => {
-									const stopped = await api.stopPalComputer(pal.id)
-									setPalComputers((all) => ({ ...all, [pal.id]: stopped }))
+									computerReadEpoch.current += 1
+									try {
+										const stopped = await api.stopPalComputer(pal.id)
+										setPalComputers((all) => ({ ...all, [pal.id]: stopped }))
+									} finally {
+										setScreenRefresh((value) => value + 1)
+									}
 								})
 						: undefined,
-				stopComputerDisabled: palBusy,
+				stopComputerDisabled: palBusy || controlBusy || inputBusy,
 			}
 		: null
 
@@ -1053,6 +1304,8 @@ function App() {
 		)
 	}
 	const showSpaces = () => {
+		navigation.current += 1
+		setPalScreen(undefined)
 		setPalsPage(false)
 		setRailSection('spaces')
 		revealSidebar('[data-project-group] .project-row')
@@ -1189,6 +1442,11 @@ function App() {
 			// Modal dismissal must never become a cancellation of the underlying turn.
 			if (commandOpen || creatingPal || editingPal) return
 			if (event.key === 'Escape') {
+				if (computerPage) {
+					navigation.current += 1
+					setPalScreen(undefined)
+					return
+				}
 				if (sideOpen || jobsOpen) {
 					setSideOpen(false)
 					if (jobsOpen) closeDetails()
@@ -1212,7 +1470,7 @@ function App() {
 				event.key.toLowerCase() === 'n'
 			) {
 				event.preventDefault()
-				if (!loading && project?.trusted && project.status === 'ready') void act(newConversation)
+				if (!loading) void act(newConversation)
 			}
 			if (event.altKey && event.key === 'ArrowUp' && sessionId && railSection !== 'plugins') {
 				event.preventDefault()
@@ -1235,10 +1493,9 @@ function App() {
 		editingPal,
 		openCommands,
 		loading,
-		project?.trusted,
-		project?.status,
 		closeDetails,
 		railSection,
+		computerPage,
 	])
 	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 	const commandItems: CommandPaletteItem[] = [
@@ -1263,7 +1520,7 @@ function App() {
 			group: 'Quick actions',
 			icon: <SquarePenIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, 'N'],
-			disabled: loading || !project?.trusted || project.status !== 'ready',
+			disabled: loading,
 			onAction: () => void act(newConversation),
 		},
 		{
@@ -1276,7 +1533,7 @@ function App() {
 			onAction: () => void act(openProject),
 		},
 		...projects
-			.filter((item) => !item.palId)
+			.filter((item) => !item.palId && !item.isChat)
 			.map((item) => ({
 				id: `project:${item.id}`,
 				label: item.name,
@@ -1299,7 +1556,15 @@ function App() {
 		<div
 			className="app"
 			data-sidebar-collapsed={sideCollapsed}
-			data-page={railSection === 'plugins' ? 'plugins' : palsPage ? 'pals' : 'chat'}
+			data-page={
+				railSection === 'plugins'
+					? 'plugins'
+					: palsPage
+						? 'pals'
+						: computerPage
+							? 'computer'
+							: 'chat'
+			}
 		>
 			{(creatingPal || editingPal) && (
 				<PalCustomizeDialog
@@ -1318,44 +1583,6 @@ function App() {
 					loadModels={api.palModels}
 				/>
 			)}
-			<Dialog.Root
-				open={Boolean(palScreen)}
-				onOpenChange={(open) => {
-					if (!open) setPalScreen(undefined)
-				}}
-			>
-				<Dialog.Portal>
-					<Dialog.Backdrop className="command-palette-backdrop" />
-					<Dialog.Viewport className="command-palette-viewport">
-						<Dialog.Popup className="pal-screen-popup">
-							<header>
-								<Dialog.Title>Pal computer</Dialog.Title>
-								<Dialog.Close
-									render={<Button variant="ghost-muted" size="icon-sm" />}
-									aria-label="Close computer"
-								>
-									<XIcon />
-								</Dialog.Close>
-							</header>
-							<Dialog.Description>Screen capture of your Pal’s local computer.</Dialog.Description>
-							{palScreen?.screen ? (
-								<img src={palScreen.screen.source} alt="Pal computer screen" />
-							) : (
-								<output>{palScreen?.error ?? 'Loading screen…'}</output>
-							)}
-							<Button
-								variant="outline"
-								onClick={() => {
-									const value = pals.find((item) => item.id === palScreen?.palId)
-									if (value) void openPalScreen(value)
-								}}
-							>
-								Refresh screen
-							</Button>
-						</Dialog.Popup>
-					</Dialog.Viewport>
-				</Dialog.Portal>
-			</Dialog.Root>
 
 			<CommandPalette
 				open={commandOpen}
@@ -1378,19 +1605,14 @@ function App() {
 				sidebarExpanded={mobile ? sideOpen : !sideCollapsed}
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
-				newConversationDisabled={loading || !project?.trusted || project.status !== 'ready'}
+				newConversationDisabled={loading}
 				onError={setError}
 			/>
 			<NavigationRail
 				section={railSection ?? 'home'}
 				appearance={appearance}
 				onHome={() => {
-					navigation.current += 1
-					setSessionId('')
-					setRailSection(null)
-					setPalsPage(false)
-					setJobsOpen(false)
-					setSideOpen(false)
+					if (!loading) void act(newConversation)
 				}}
 				onSpaces={showSpaces}
 				onAppearanceChange={setAppearance}
@@ -1398,6 +1620,8 @@ function App() {
 				openProjectDisabled={loading}
 				onToggleSidebar={toggleSidebar}
 				onPlugins={() => {
+					navigation.current += 1
+					setPalScreen(undefined)
 					setPluginSelection(undefined)
 					setPalsPage(false)
 					setRailSection('plugins')
@@ -1482,8 +1706,53 @@ function App() {
 			)}
 			<main
 				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
-				data-page={railSection === 'plugins' ? 'plugins' : palsPage ? 'pals' : 'chat'}
+				data-page={
+					railSection === 'plugins'
+						? 'plugins'
+						: palsPage
+							? 'pals'
+							: computerPage
+								? 'computer'
+								: 'chat'
+				}
 			>
+				{computerPage && pal && palContextProps && (
+					<PalComputerView
+						key={`${pal.id}:${palComputer?.generation ?? 'offline'}`}
+						palName={pal.name}
+						computer={{
+							...palContextProps.computer,
+							notice: computerCapture?.error ?? palContextProps.computer.notice,
+						}}
+						screen={currentScreen}
+						loading={computerCapture?.loading ?? false}
+						control={palComputer?.control}
+						controlBusy={controlBusy}
+						inputBusy={inputBusy}
+						onBack={() => {
+							navigation.current += 1
+							setPalScreen(undefined)
+						}}
+						onRefresh={() => setScreenRefresh((value) => value + 1)}
+						onStart={palContextProps.onStartComputer}
+						onTakeOver={
+							api.takeOverPalComputer
+								? () => void act(() => changeComputerControl(true))
+								: undefined
+						}
+						onRelease={
+							api.returnPalComputerControl
+								? () => void act(() => changeComputerControl(false))
+								: undefined
+						}
+						onInput={api.palComputerInput ? sendComputerInput : undefined}
+						onKeyboardFocus={(enabled) => {
+							void api
+								.setComputerKeyboardCapture?.(enabled)
+								.catch((failure) => setError(errorText(failure)))
+						}}
+					/>
+				)}
 				{railSection === 'plugins' && (
 					<PluginsPage
 						scope={pluginsKey}
@@ -1591,7 +1860,7 @@ function App() {
 						/>
 					</div>
 				)}
-				{!project ? (
+				{computerPage ? null : !project ? (
 					<Empty className="welcome">
 						<Wordmark hero />
 
@@ -1772,7 +2041,7 @@ function App() {
 								}
 								connected={
 									project.status === 'ready' &&
-									(!pal || (!pal.paused && palComputer?.status === 'ready')) &&
+									palCanWork &&
 									providerReady &&
 									project.trusted &&
 									!savedSettings.loading

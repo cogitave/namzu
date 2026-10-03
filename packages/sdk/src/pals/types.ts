@@ -1,5 +1,9 @@
 import type { BrowserHost } from '../types/browser/index.js'
-import type { ComputerUseHost } from '../types/computer-use/index.js'
+import type {
+	ComputerUseAction,
+	ComputerUseHost,
+	ComputerUseResult,
+} from '../types/computer-use/index.js'
 import type { Sandbox } from '../types/sandbox/index.js'
 
 export interface PalModel {
@@ -62,6 +66,24 @@ export interface PalEnvironmentRequest {
 	readonly conversationId: string
 	readonly signal?: AbortSignal
 }
+/** Human input to the Pal's guest desktop; no shell, filesystem or host target. */
+export type PalComputerInput = Extract<
+	ComputerUseAction,
+	{ readonly type: 'mouse_move' | 'mouse_click' | 'mouse_drag' | 'scroll' | 'type_text' | 'key' }
+>
+/** Optional provider-owned exclusive control. A provider must gate every agent effect. */
+export interface PalComputerControl {
+	readonly mode: 'pal' | 'operator' | 'transitioning'
+	/** Reserve the transition before checking all guest activity; refuse unless idle is confirmed. */
+	takeOver(): Promise<void>
+	/** Return only the input authority. This must not start a query or replay input. */
+	returnControl(): Promise<void>
+	executeInput(input: PalComputerInput): Promise<ComputerUseResult>
+}
+export interface PalComputerControlState {
+	readonly supported: boolean
+	readonly mode: 'pal' | 'operator' | 'transitioning' | 'unavailable'
+}
 export interface PalEnvironmentLease {
 	readonly palId: string
 	readonly environmentId: string
@@ -69,6 +91,7 @@ export interface PalEnvironmentLease {
 	readonly sandbox: Sandbox
 	readonly computerUseHost: ComputerUseHost
 	readonly browserHost?: BrowserHost
+	readonly operatorControl?: PalComputerControl
 	release(): Promise<void>
 }
 export interface PalEnvironmentProbe {

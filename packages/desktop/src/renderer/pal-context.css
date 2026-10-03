@@ -89,13 +89,70 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 2px 0;
+	min-height: 44px;
+	min-width: 0;
+	text-align: left;
 }
-.pal-computer-row > svg {
+.pal-context-section .pal-computer-open {
+	width: calc(100% + 12px);
+	height: auto;
+	margin: 0 -6px;
+	padding: 5px 6px;
+	font-weight: 400;
+	white-space: normal;
+	transition: background-color 150ms var(--motion-ease);
+}
+.pal-computer-icon {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	width: 16px;
 	height: 16px;
 	flex: none;
 	color: var(--muted-foreground);
+}
+.pal-computer-icon > svg {
+	width: 16px;
+	height: 16px;
+}
+.pal-computer-icon[data-connected="true"]::after {
+	position: absolute;
+	right: -1px;
+	bottom: -1px;
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--primary);
+	box-shadow: 0 0 0 2px var(--surface-raised);
+	content: "";
+}
+.pal-computer-thumbnail {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 48px;
+	height: 32px;
+	flex: none;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--muted-foreground);
+	transition: transform 160ms var(--motion-ease);
+}
+.pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {
+	transform: translateY(-1px);
+}
+.pal-computer-thumbnail img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.pal-computer-thumbnail > svg {
+	width: 14px;
+	height: 14px;
 }
 .pal-context-copy {
 	min-width: 0;
@@ -105,10 +162,12 @@
 }
 .pal-context-copy strong {
 	display: block;
-	overflow-wrap: anywhere;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-weight: 400;
 }
-.pal-context-copy output {
+.pal-computer-status {
 	display: block;
 	color: var(--muted-foreground);
 }
@@ -120,6 +179,10 @@
 	overflow-wrap: anywhere;
 }
 .pal-computer-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 4px;
 	margin-top: 10px;
 }
 .pal-context-empty {
@@ -200,7 +263,12 @@
 	.pal-context-loading {
 		animation: none;
 	}
-	.pal-context-row {
+	.pal-context-row,
+	.pal-computer-open,
+	.pal-computer-thumbnail {
 		transition: none;
+	}
+	.pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {
+		transform: none;
 	}
 }

@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import {
 	DesktopDiagnostics,
 	desktopFailure,
@@ -18,6 +18,7 @@ import {
 	observeDesktopIpc,
 	observeRendererConsole,
 } from './diagnostics.js'
+import { ExpectedRuntimeCloseError } from './expected-close.js'
 
 const roots: string[] = []
 function create(now?: () => number) {
@@ -268,4 +269,37 @@ it('refuses a logs directory replaced after startup without appending to its red
 	sink.record('ipc_failed', { error: 'private' })
 	expect(sink.view().available).toBe(false)
 	expect(readFileSync(redirected, 'utf8')).toBe('untouched')
+})
+
+it('does not classify a deliberate typed transport cancellation as IPC failure', async () => {
+	const sink = { record: vi.fn() }
+	const expected = new ExpectedRuntimeCloseError()
+	await expect(
+		observeDesktopIpc(
+			sink,
+			'palComputer',
+			async () => {
+				throw expected
+			},
+			61,
+		),
+	).rejects.toBe(expected)
+	expect(sink.record).not.toHaveBeenCalled()
+	// Neither a copied name nor a matching message from a wire error grants this exemption.
+	const unexpected = Object.assign(new Error(expected.message), { name: expected.name })
+	await expect(
+		observeDesktopIpc(
+			sink,
+			'palComputer',
+			async () => {
+				throw unexpected
+			},
+			62,
+		),
+	).rejects.toBe(unexpected)
+	expect(sink.record).toHaveBeenCalledWith('ipc_failed', {
+		operation: 'palComputer',
+		request: 62,
+		error: unexpected,
+	})
 })

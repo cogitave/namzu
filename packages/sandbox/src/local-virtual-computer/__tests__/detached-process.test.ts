@@ -149,6 +149,8 @@ describe.skipIf(process.platform !== 'linux')('guest background process protocol
 		}) as OwnedDetachedProcess
 		const observed = observe(process, 'READY-GUEST-TREE')
 		await observed.ready
+		await expect(clients.operatorControl.takeOver()).rejects.toThrow('background jobs')
+		expect(clients.operatorControl.mode).toBe('pal')
 		const pids = JSON.parse(await readFile(join(root, 'pids.json'), 'utf8')) as number[]
 		expect(await Promise.all(pids.map(running))).toEqual([true, true])
 		// A second operation uses the same live computer while the server runs.
@@ -163,6 +165,8 @@ describe.skipIf(process.platform !== 'linux')('guest background process protocol
 		process.kill('SIGKILL')
 		await process.closed
 		expect(await Promise.all(pids.map(running))).toEqual([false, false])
+		await clients.operatorControl.takeOver()
+		expect(clients.operatorControl.mode).toBe('operator')
 		await clients.sandbox.destroy()
 	}, 15_000)
 	it('cancels admission before a background command can execute', async () => {

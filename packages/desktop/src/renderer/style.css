@@ -1260,3 +1260,7 @@ pre {
 	margin: 16px 0;
 	border-radius: 10px;
 }
+
+.workspace[data-page="computer"] > :not(.pal-computer-view):not(.connection-error) {
+	display: none;
+}
