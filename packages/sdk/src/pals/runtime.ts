@@ -10,6 +10,7 @@ import type {
 	PalComputerControl,
 	PalComputerControlState,
 	PalComputerInput,
+	PalComputerScreenStream,
 	PalEnvironmentLease,
 	PalRuntimeOptions,
 } from './types.js'
@@ -169,6 +170,52 @@ export class PalRuntime {
 	computerError(palId: string): string | null {
 		this.computer(palId)
 		return this.failures.get(palId) ?? null
+	}
+	/** Trusted host observation only. The credentials do not grant guest input authority. */
+	computerScreenStream(palId: string, generation: number): PalComputerScreenStream {
+		if (this.closed) throw new PalUnavailableError('The Pal runtime is closed.')
+		if (!Number.isSafeInteger(generation) || generation < 1)
+			throw new PalUnavailableError('Invalid Pal computer generation.')
+		const pal = this.options.store.get(palId)
+		const lease = this.computer(palId)
+		if (
+			!pal ||
+			!lease ||
+			lease.palId !== pal.id ||
+			lease.generation !== generation ||
+			this.starting.has(palId) ||
+			this.stopping.has(palId)
+		)
+			throw new PalUnavailableError('This Pal computer generation is unavailable or changed.')
+		const stream = lease.screenStream
+		if (!stream) throw new PalUnavailableError('This Pal computer does not support a live screen.')
+		const { protocol, url, authorization } = stream
+		const bounded = (value: unknown): value is string =>
+			typeof value === 'string' &&
+			value.length > 0 &&
+			value.length <= 4096 &&
+			value.trim() === value &&
+			![...value].some((character) => {
+				const code = character.charCodeAt(0)
+				return code < 32 || code === 127
+			})
+		if (protocol !== 'rfb' || !bounded(url) || !bounded(authorization))
+			throw new PalUnavailableError('The Pal computer returned an invalid live screen descriptor.')
+		let target: URL
+		try {
+			target = new URL(url)
+		} catch {
+			throw new PalUnavailableError('The Pal computer returned an invalid live screen descriptor.')
+		}
+		if (
+			(target.protocol !== 'ws:' && target.protocol !== 'wss:') ||
+			target.username ||
+			target.password ||
+			this.computer(palId) !== lease ||
+			lease.generation !== generation
+		)
+			throw new PalUnavailableError('The Pal computer returned an invalid live screen descriptor.')
+		return Object.freeze({ protocol, url, authorization })
 	}
 	/** Actual provider authority, including a transition reserved by this runtime. */
 	computerControl(palId: string): PalComputerControlState {

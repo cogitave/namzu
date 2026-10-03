@@ -9,6 +9,7 @@ import { DiskPalStore } from './store.js'
 import type {
 	PalComputerControl,
 	PalComputerInput,
+	PalComputerScreenStream,
 	PalDefinition,
 	PalEnvironmentLease,
 } from './types.js'
@@ -49,6 +50,116 @@ function deferred<T>() {
 }
 afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+describe('host-only live Pal screen', () => {
+	const descriptor: PalComputerScreenStream = {
+		protocol: 'rfb',
+		url: 'ws://127.0.0.1:19876/stream',
+		authorization: 'owned-stream-fixture-credential',
+	}
+	it('observes an active or paused operator computer without admitting work or changing authority', async () => {
+		const { pal, store } = fixture()
+		const controlled = controlledComputer(pal)
+		const lease = { ...controlled.lease, screenStream: descriptor }
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		const active = await runtime.admit({ palId: pal.id, conversationId: 'owned-view' })
+		const events = vi.fn()
+		runtime.onLifecycle(events)
+		expect(runtime.computerScreenStream(pal.id, 1)).toEqual(descriptor)
+		active.assertActive()
+		expect(events).not.toHaveBeenCalled()
+		await active.release()
+		await runtime.takeOver(pal.id, 1)
+		store.update(pal.id, 1, { paused: true })
+		expect(runtime.computerScreenStream(pal.id, 1)).toEqual(descriptor)
+		expect(runtime.computerControl(pal.id).mode).toBe('operator')
+		expect(controlled.control.executeInput).not.toHaveBeenCalled()
+		await runtime.close()
+	})
+	it('refuses missing streams without starting a computer or falling back to screenshot execution', async () => {
+		const { pal, store } = fixture()
+		const acquire = vi.fn(async () => computer(pal))
+		const runtime = new PalRuntime({ store, environments: { acquire } })
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('unavailable')
+		expect(acquire).not.toHaveBeenCalled()
+		await runtime.startComputer(pal.id)
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('does not support')
+		expect(acquire).toHaveBeenCalledTimes(1)
+		await runtime.close()
+	})
+	it('requires the exact current owned generation and persisted Pal identity', async () => {
+		const { pal, store } = fixture()
+		const other = store.create({ name: 'Other fixture' })
+		const lease = { ...computer(pal), screenStream: descriptor }
+		const acquire = vi.fn(async () => lease)
+		const runtime = new PalRuntime({ store, environments: { acquire } })
+		await runtime.startComputer(pal.id)
+		for (const generation of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+			expect(() => runtime.computerScreenStream(pal.id, generation)).toThrow('generation')
+		expect(() => runtime.computerScreenStream(other.id, 1)).toThrow('unavailable')
+		expect(() => runtime.computerScreenStream(pal.id, 2)).toThrow('generation')
+		vi.spyOn(store, 'get').mockReturnValueOnce(null)
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('unavailable')
+		await runtime.stopComputer(pal.id)
+		acquire.mockResolvedValueOnce({ ...lease, generation: 2 })
+		await runtime.startComputer(pal.id)
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('generation')
+		expect(runtime.computerScreenStream(pal.id, 2)).toEqual(descriptor)
+		await runtime.close()
+	})
+	it('rejects lifecycle transitions and retirement instead of exposing obsolete credentials', async () => {
+		const { pal, store } = fixture()
+		const pending = deferred<PalEnvironmentLease>()
+		const lease = { ...computer(pal), screenStream: descriptor }
+		const runtime = new PalRuntime({ store, environments: { acquire: () => pending.promise } })
+		const starting = runtime.startComputer(pal.id)
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('unavailable')
+		pending.resolve(lease)
+		await starting
+		const cleanup = deferred<void>()
+		vi.mocked(lease.release).mockReturnValueOnce(cleanup.promise)
+		const stopping = runtime.stopComputer(pal.id)
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('unavailable')
+		cleanup.resolve()
+		await stopping
+		await runtime.startComputer(pal.id)
+		Object.assign(lease.sandbox, { status: 'destroyed' })
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('unavailable')
+		await runtime.close()
+		expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow('closed')
+	})
+	it('captures credentials without retaining a mutable provider descriptor or logging it', async () => {
+		const { pal, store } = fixture()
+		const providerDescriptor = { ...descriptor }
+		const lease = { ...computer(pal), screenStream: providerDescriptor }
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		const captured = runtime.computerScreenStream(pal.id, 1)
+		providerDescriptor.authorization = 'changed-fixture-credential'
+		expect(captured.authorization).toBe(descriptor.authorization)
+		expect(Object.isFrozen(captured)).toBe(true)
+		const invalid = [
+			{ ...descriptor, protocol: 'other' },
+			{ ...descriptor, url: 'not a socket address' },
+			{ ...descriptor, url: 'https://127.0.0.1/stream' },
+			{ ...descriptor, url: 'ws://fixture-secret@127.0.0.1/stream' },
+			{ ...descriptor, authorization: '' },
+			{ ...descriptor, authorization: 'fixture-secret\r\nextra: header' },
+			{ ...descriptor, authorization: 'fixture-secret'.repeat(400) },
+		]
+		for (const value of invalid) {
+			Object.assign(lease, { screenStream: value })
+			expect(() => runtime.computerScreenStream(pal.id, 1)).toThrow(
+				'invalid live screen descriptor',
+			)
+			try {
+				runtime.computerScreenStream(pal.id, 1)
+			} catch (error) {
+				expect(String(error)).not.toContain('fixture-secret')
+			}
+		}
+		await runtime.close()
+	})
 })
 describe('Pal computer admission', () => {
 	it('refuses execution without a local computer provider', async () => {

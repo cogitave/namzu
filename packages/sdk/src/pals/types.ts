@@ -84,6 +84,12 @@ export interface PalComputerControlState {
 	readonly supported: boolean
 	readonly mode: 'pal' | 'operator' | 'transitioning' | 'unavailable'
 }
+/** Host-only credentials for a readonly RFB WebSocket stream; never pass to a renderer. */
+export interface PalComputerScreenStream {
+	readonly protocol: 'rfb'
+	readonly url: string
+	readonly authorization: string
+}
 export interface PalEnvironmentLease {
 	readonly palId: string
 	readonly environmentId: string
@@ -92,6 +98,7 @@ export interface PalEnvironmentLease {
 	readonly computerUseHost: ComputerUseHost
 	readonly browserHost?: BrowserHost
 	readonly operatorControl?: PalComputerControl
+	readonly screenStream?: PalComputerScreenStream
 	release(): Promise<void>
 }
 export interface PalEnvironmentProbe {

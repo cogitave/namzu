@@ -12,6 +12,7 @@ const calls = vi.hoisted(() => ({
 	release: vi.fn(),
 	input: vi.fn(),
 	screen: vi.fn(),
+	stream: vi.fn(),
 }))
 vi.mock('../../pals/environment.js', () => ({
 	cliPalComputerStatus: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../../pals/environment.js', () => ({
 	returnCliPalComputerControl: calls.release,
 	executeCliPalComputerInput: calls.input,
 	cliPalScreen: calls.screen,
+	cliPalScreenStream: calls.stream,
 }))
 let root: string
 beforeEach(() => {
@@ -45,10 +47,12 @@ it('binds all new control methods and screen generation to the exact trusted Pal
 	own['namzu/pals/computer/return_control']({ palId: pal.id, generation: '42' })
 	own['namzu/pals/computer/input']({ palId: pal.id, generation: '42', input })
 	own['namzu/pals/computer/screen']({ palId: pal.id, generation: '42' })
+	own['namzu/pals/computer/stream']({ palId: pal.id, generation: '42' })
 	expect(calls.takeover).toHaveBeenCalledWith(pal.id, '42')
 	expect(calls.release).toHaveBeenCalledWith(pal.id, '42')
 	expect(calls.input).toHaveBeenCalledWith(pal.id, '42', input)
 	expect(calls.screen).toHaveBeenCalledWith(pal.id, '42')
+	expect(calls.stream).toHaveBeenCalledWith(pal.id, '42')
 })
 it('refuses a foreign or ordinary workspace before invoking a control adapter', () => {
 	const pal = createPal({ name: 'Owned RPC fixture' })
@@ -63,6 +67,7 @@ it('refuses a foreign or ordinary workspace before invoking a control adapter', 
 			'namzu/pals/computer/return_control',
 			'namzu/pals/computer/input',
 			'namzu/pals/computer/screen',
+			'namzu/pals/computer/stream',
 		] as const)
 			expect(() =>
 				owner[method]({ palId: pal.id, generation: '1', input: { type: 'key', keys: 'Return' } }),
@@ -77,6 +82,7 @@ it('rejects a missing or nonstring generation before dispatching takeover, retur
 		'namzu/pals/computer/take_over',
 		'namzu/pals/computer/return_control',
 		'namzu/pals/computer/input',
+		'namzu/pals/computer/stream',
 	] as const)
 		for (const generation of [undefined, 1, '', '1'.repeat(17)])
 			expect(() =>

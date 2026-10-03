@@ -75,6 +75,58 @@
 	width: 13px;
 	height: 13px;
 }
+.pal-status-action {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	justify-content: start;
+	width: max-content;
+	max-width: 100%;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--muted-foreground);
+	text-align: left;
+	font-size: 13px;
+	line-height: 20px;
+	font-weight: 400;
+}
+.pal-context-identity .pal-status-action {
+	height: 18px;
+	line-height: 18px;
+}
+.pal-status-action:hover,
+.pal-status-action:active {
+	background: transparent;
+	scale: 1;
+}
+.pal-status-rest,
+.pal-status-hover {
+	grid-area: 1 / 1;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	pointer-events: none;
+	transition: opacity 120ms var(--motion-ease);
+}
+.pal-status-rest > span,
+.pal-status-hover > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-status-hover {
+	opacity: 0;
+	color: var(--foreground);
+}
+.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-rest {
+	opacity: 0;
+}
+.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-hover {
+	opacity: 1;
+}
 .pal-context-section + .pal-context-section {
 	margin-top: 22px;
 }
@@ -93,10 +145,14 @@
 	min-width: 0;
 	text-align: left;
 }
-.pal-context-section .pal-computer-open {
+.pal-computer-entry {
+	position: relative;
 	width: calc(100% + 12px);
-	height: auto;
 	margin: 0 -6px;
+}
+.pal-context-section .pal-computer-open {
+	width: 100%;
+	height: auto;
 	padding: 5px 6px;
 	font-weight: 400;
 	white-space: normal;
@@ -171,6 +227,20 @@
 	display: block;
 	color: var(--muted-foreground);
 }
+.pal-computer-status-placeholder {
+	opacity: 0;
+}
+.pal-computer-entry .pal-computer-stop {
+	position: absolute;
+	top: 25px;
+	left: 32px;
+	z-index: 1;
+	max-width: calc(100% - 96px);
+}
+.pal-computer-stop:disabled {
+	pointer-events: auto;
+	cursor: default;
+}
 .pal-context-note {
 	margin: 10px 0 0;
 	color: var(--muted-foreground);
@@ -226,9 +296,6 @@
 .pal-context-loading {
 	animation: pal-context-spin 900ms linear infinite;
 }
-.pal-context-footer {
-	margin-top: 20px;
-}
 @keyframes pal-context-spin {
 	to {
 		transform: rotate(360deg);
@@ -258,6 +325,14 @@
 	margin: 12px;
 	max-height: min(26dvh, 210px);
 }
+@media (hover: none) {
+	.pal-status-action:not(:disabled) .pal-status-rest {
+		opacity: 0;
+	}
+	.pal-status-action:not(:disabled) .pal-status-hover {
+		opacity: 1;
+	}
+}
 @media (prefers-reduced-motion: reduce) {
 	.pal-context-card,
 	.pal-context-loading {
@@ -265,7 +340,10 @@
 	}
 	.pal-context-row,
 	.pal-computer-open,
-	.pal-computer-thumbnail {
+	.pal-computer-thumbnail,
+	.pal-status-action,
+	.pal-status-rest,
+	.pal-status-hover {
 		transition: none;
 	}
 	.pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {

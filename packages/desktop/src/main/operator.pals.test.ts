@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { DesktopEvent, PalView } from '../shared/protocol.js'
+import type { DesktopEvent, PalComputerStreamView, PalView } from '../shared/protocol.js'
+import type { PalStreamProxy } from './pal-stream-proxy.js'
 
 const transport = vi.hoisted(() => ({
 	pal: undefined as PalView | undefined,
@@ -12,7 +13,11 @@ const transport = vi.hoisted(() => ({
 	calls: [] as { cwd: string; method: string; params: Record<string, unknown> }[],
 	answers: [] as { cwd: string; id: string | number; result: unknown }[],
 	clients: [] as { cwd: string; closed: boolean }[],
-	instances: [] as { cwd: string; emit(event: string, value: unknown): boolean }[],
+	instances: [] as {
+		cwd: string
+		emit(event: string, value: unknown): boolean
+		listenerCount(event: string): number
+	}[],
 	startHook: undefined as ((cwd: string) => Promise<void>) | undefined,
 	closeHook: undefined as ((cwd: string) => Promise<void>) | undefined,
 	requestHook: undefined as
@@ -112,7 +117,10 @@ vi.mock('./rpc-client.js', async () => {
 import { Operator } from './operator.js'
 const roots: string[] = []
 const owners: Operator[] = []
-function fixture(publish: (event: DesktopEvent) => void = () => {}) {
+function fixture(
+	publish: (event: DesktopEvent) => void = () => {},
+	streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
+) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-desktop-pal-'))
 	roots.push(root)
 	const workspace = join(root, 'control')
@@ -133,6 +141,8 @@ function fixture(publish: (event: DesktopEvent) => void = () => {}) {
 		{ program: 'fixture', args: [] },
 		publish,
 		join(root, 'registry-client'),
+		undefined,
+		streamProxy,
 	)
 	owners.push(owner)
 	return { owner, workspace, pal: transport.pal }
@@ -160,6 +170,35 @@ function deferred() {
 		resolve = done
 	})
 	return { promise, resolve }
+}
+function fakeStreamProxy() {
+	const listeners = new Set<(id: string) => void>()
+	const views = new Map<string, PalComputerStreamView>()
+	let sequence = 0
+	const proxy = {
+		onClosed(listener: (id: string) => void) {
+			listeners.add(listener)
+			return () => {
+				listeners.delete(listener)
+			}
+		},
+		open: vi.fn((_descriptor: unknown, generation: string): PalComputerStreamView => {
+			const view = {
+				id: `fixture-view-${++sequence}`,
+				url: 'ws://127.0.0.1:1234/stream/fixture-ticket',
+				generation,
+				width: 1280,
+				height: 800,
+			}
+			views.set(view.id, view)
+			return view
+		}),
+		close: vi.fn((id: string) => {
+			if (!views.delete(id)) return
+			for (const listener of listeners) listener(id)
+		}),
+	}
+	return { proxy, views }
 }
 function workspaceClient(cwd: string) {
 	const client = transport.instances.filter((item) => item.cwd === cwd).at(-1)
@@ -785,6 +824,20 @@ it('reuses only an owned ready Pal input connection without reloading metadata o
 		'namzu/pals/computer/status',
 	])
 })
+it('reuses the owned ready connection for status and generation-bound frames without rescanning conversations', async () => {
+	const { owner, pal, workspace } = fixture()
+	await owner.openPal(pal.id)
+	const before = transport.calls.length
+	await owner.palComputer(pal.id)
+	await owner.palScreen(pal.id, '7')
+	const calls = transport.calls.slice(before)
+	expect(calls.map((call) => call.method)).toEqual([
+		'namzu/pals/computer/status',
+		'namzu/pals/computer/screen',
+	])
+	expect(calls.every((call) => call.cwd === workspace && call.params.palId === pal.id)).toBe(true)
+	expect(calls[1]?.params.generation).toBe('7')
+})
 it('reconnects an errored Pal input client instead of reusing its retained shutdown authority', async () => {
 	const { owner, pal, workspace } = fixture()
 	await owner.openPal(pal.id)
@@ -849,4 +902,342 @@ it('rejects a delayed native input preflight after return and retake of the same
 			params: { palId: pal.id, generation: '12', input: { type: 'key', keys: 'ENTER' } },
 		}),
 	])
+})
+
+it('opens a live view only through the owned current client and detaches its listener when the proxy closes', async () => {
+	const { proxy, views } = fakeStreamProxy()
+	const { owner, pal, workspace } = fixture(() => {}, proxy)
+	await owner.openPal(pal.id)
+	const client = workspaceClient(workspace)
+	const initialListeners = client.listenerCount('closed')
+	const descriptor = {
+		protocol: 'rfb',
+		url: 'ws://127.0.0.1:1234/stream',
+		authorization: 'Bearer fixture-private-allocation',
+		generation: '12',
+		width: 1280,
+		height: 800,
+	}
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/stream') return descriptor
+	}
+	const before = transport.calls.length
+	const view = await owner.openPalComputerStream(pal.id, '12')
+	expect(transport.calls.slice(before)).toEqual([
+		{
+			cwd: workspace,
+			method: 'namzu/pals/computer/stream',
+			params: { palId: pal.id, generation: '12' },
+		},
+	])
+	expect(proxy.open).toHaveBeenCalledWith(descriptor, '12')
+	expect(view).not.toHaveProperty('authorization')
+	expect(client.listenerCount('closed')).toBe(initialListeners + 1)
+	proxy.close(view.id)
+	expect(views.size).toBe(0)
+	expect(client.listenerCount('closed')).toBe(initialListeners)
+	const closeCalls = proxy.close.mock.calls.length
+	owner.closePalComputerStream(view.id)
+	expect(proxy.close).toHaveBeenCalledTimes(closeCalls)
+})
+
+it('rejects a stream result from the previous authority epoch before opening a ticket', async () => {
+	const { proxy } = fakeStreamProxy()
+	const { owner, pal } = fixture(() => {}, proxy)
+	await owner.openPal(pal.id)
+	const streamEntered = deferred()
+	const streamDone = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/stream') {
+			streamEntered.resolve()
+			await streamDone.promise
+			return { generation: '1' }
+		}
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+		if (method === 'namzu/pals/computer/take_over')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+	}
+	const view = owner.openPalComputerStream(pal.id, '1')
+	await streamEntered.promise
+	await owner.takeOverPalComputer(pal.id, '1')
+	const rejected = expect(view).rejects.toThrow('changed before the view opened')
+	streamDone.resolve()
+	await rejected
+	expect(proxy.open).not.toHaveBeenCalled()
+})
+
+it('reboots only the current owned generation, preserving its profile and closing only its viewers after confirmed stop', async () => {
+	const { proxy, views } = fakeStreamProxy()
+	const { owner, pal, workspace } = fixture(() => {}, proxy)
+	const otherWorkspace = join(roots.at(-1) as string, 'other-control')
+	mkdirSync(otherWorkspace)
+	const other = { ...pal, id: 'other-pal', workspace: otherWorkspace }
+	transport.pals.set(other.id, other)
+	await owner.openPal(pal.id)
+	await owner.openPal(other.id)
+	let generation = '5'
+	let mode = 'operator'
+	transport.requestHook = async (cwd, method) => {
+		if (method === 'namzu/pals/computer/stream')
+			return { generation: cwd === workspace ? generation : '1' }
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation, control: { supported: true, mode } }
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+		if (method === 'namzu/pals/computer/start') {
+			generation = '6'
+			mode = 'pal'
+			return { status: 'ready', generation, control: { supported: true, mode } }
+		}
+	}
+	const view = await owner.openPalComputerStream(pal.id, '5')
+	const otherView = await owner.openPalComputerStream(other.id, '1')
+	const client = workspaceClient(workspace)
+	const listeners = client.listenerCount('closed')
+	const before = transport.calls.length
+	expect(await owner.rebootPalComputer(pal.id, '5')).toMatchObject({
+		status: 'ready',
+		generation: '6',
+		control: { mode: 'pal' },
+	})
+	expect(transport.pals.get(pal.id)).toEqual(pal)
+	expect(views.has(view.id)).toBe(false)
+	expect(views.has(otherView.id)).toBe(true)
+	expect(client.listenerCount('closed')).toBe(listeners - 1)
+	expect(
+		transport.calls.slice(before).filter((call) => /computer\/(stop|start)$/.test(call.method)),
+	).toEqual([
+		{ cwd: workspace, method: 'namzu/pals/computer/stop', params: { palId: pal.id } },
+		{ cwd: workspace, method: 'namzu/pals/computer/start', params: { palId: pal.id } },
+	])
+	expect(transport.calls.some((call) => call.method === 'session/prompt')).toBe(false)
+	await expect(owner.palComputerInput(pal.id, '5', { type: 'key', keys: 'ENTER' })).rejects.toThrow(
+		'computer changed',
+	)
+})
+
+it.each(['0', '01', '-1', '9007199254740992'])(
+	'rejects invalid reboot generation %s before any stop',
+	async (generation) => {
+		const { owner, pal } = fixture()
+		await expect(owner.rebootPalComputer(pal.id, generation)).rejects.toThrow(
+			'Invalid Pal computer generation',
+		)
+		expect(transport.calls).toEqual([])
+	},
+)
+
+it('refuses a stale reboot generation and a persisted paused Pal before stopping either computer', async () => {
+	const { owner, pal } = fixture()
+	await owner.openPal(pal.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '2' }
+	}
+	await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow('computer changed')
+	transport.pals.set(pal.id, { ...pal, paused: true, revision: 2 })
+	await expect(owner.rebootPalComputer(pal.id, '2')).rejects.toThrow('Resume this Pal')
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/stop')).toBe(false)
+})
+
+it('rereads pause after asynchronous idle verification instead of stopping a newly paused Pal', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	await owner.newConversation(opened.project.id)
+	const jobsEntered = deferred()
+	const jobsDone = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+		if (method === 'namzu/jobs/list') {
+			jobsEntered.resolve()
+			await jobsDone.promise
+			return []
+		}
+	}
+	const reboot = owner.rebootPalComputer(pal.id, '1')
+	await jobsEntered.promise
+	transport.pals.set(pal.id, { ...pal, paused: true, revision: 2 })
+	const rejected = expect(reboot).rejects.toThrow('Resume this Pal')
+	jobsDone.resolve()
+	await rejected
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/stop')).toBe(false)
+})
+
+it.each([
+	{ jobs: [{ id: 'job', status: 'running' }] },
+	{ jobs: [{ id: 'job', status: 'killed', recoveryRequired: true }] },
+	{ jobs: { unknown: true } },
+])('refuses reboot when background idleness cannot be confirmed ($jobs)', async ({ jobs }) => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+		if (method === 'namzu/jobs/list') return jobs
+	}
+	await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow('background work')
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/stop')).toBe(false)
+})
+
+it.each(['running', 'review', 'queued'])(
+	'refuses reboot while owned foreground work is %s',
+	async (work) => {
+		const completed = deferred()
+		const { owner, pal, workspace } = fixture((event) => {
+			if (event.kind === 'state' && !event.running) completed.resolve()
+		})
+		const opened = await owner.openPal(pal.id)
+		const conversation = await owner.newConversation(opened.project.id)
+		const promptEntered = deferred()
+		const promptDone = deferred()
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+			if (method === 'session/prompt') {
+				promptEntered.resolve()
+				await promptDone.promise
+				return { stopReason: 'cancelled' }
+			}
+		}
+		owner.send(conversation.id, 'Owned foreground')
+		await promptEntered.promise
+		if (work === 'review')
+			workspaceClient(workspace).emit('frame', permissionFrame(conversation.id, 'review'))
+		if (work === 'queued') owner.send(conversation.id, 'Queued foreground')
+		await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow('active work')
+		promptDone.resolve()
+		await completed.promise
+		if (work === 'queued')
+			await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow('active work')
+		expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/stop')).toBe(false)
+	},
+)
+
+it('keeps the reboot fence across both stop and start, including input, live views and new messages', async () => {
+	const { proxy } = fakeStreamProxy()
+	const { owner, pal } = fixture(() => {}, proxy)
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const stopEntered = deferred()
+	const stopDone = deferred()
+	const startEntered = deferred()
+	const startDone = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+		if (method === 'namzu/pals/computer/stop') {
+			stopEntered.resolve()
+			await stopDone.promise
+			return { status: 'stopped' }
+		}
+		if (method === 'namzu/pals/computer/start') {
+			startEntered.resolve()
+			await startDone.promise
+			return { status: 'ready', generation: '2' }
+		}
+	}
+	const reboot = owner.rebootPalComputer(pal.id, '1')
+	const assertFenced = async () => {
+		expect(() => owner.send(conversation.id, 'Concurrent prompt')).toThrow('changes to finish')
+		await expect(owner.newConversation(opened.project.id)).rejects.toThrow('changes to finish')
+		await expect(
+			owner.palComputerInput(pal.id, '1', { type: 'key', keys: 'ENTER' }),
+		).rejects.toThrow('control change')
+		await expect(owner.openPalComputerStream(pal.id, '1')).rejects.toThrow('changes to finish')
+		await expect(owner.startPalComputer(pal.id)).rejects.toThrow('changes to finish')
+		await expect(owner.stopPalComputer(pal.id)).rejects.toThrow('changes to finish')
+		await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow('changes to finish')
+	}
+	await stopEntered.promise
+	await assertFenced()
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
+	stopDone.resolve()
+	await startEntered.promise
+	await assertFenced()
+	startDone.resolve()
+	expect(await reboot).toMatchObject({ status: 'ready', generation: '2' })
+	await expect(owner.newConversation(opened.project.id)).resolves.toHaveProperty('palId', pal.id)
+	expect(transport.calls.some((call) => call.method === 'session/prompt')).toBe(false)
+})
+
+it.each(['failed', 'unconfirmed'])(
+	'never starts after a %s stop or discards the current viewer/control latch',
+	async (outcome) => {
+		const { proxy, views } = fakeStreamProxy()
+		const { owner, pal } = fixture(() => {}, proxy)
+		const opened = await owner.openPal(pal.id)
+		const conversation = await owner.newConversation(opened.project.id)
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/pals/computer/status')
+				return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			if (method === 'namzu/pals/computer/stream') return { generation: '1' }
+			if (method === 'namzu/pals/computer/stop') {
+				if (outcome === 'failed') throw new Error('Stop failed')
+				return { status: 'unavailable' }
+			}
+		}
+		await owner.palComputer(pal.id)
+		const view = await owner.openPalComputerStream(pal.id, '1')
+		await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow(
+			outcome === 'failed' ? 'Stop failed' : 'did not confirm its stop',
+		)
+		expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
+		expect(views.has(view.id)).toBe(true)
+		expect(() => owner.send(conversation.id, 'Still operator owned')).toThrow(
+			'Return this Pal computer',
+		)
+	},
+)
+
+it.each(['failed', 'old-generation', 'unavailable'])(
+	'does not report successful reboot after %s startup',
+	async (outcome) => {
+		const { proxy, views } = fakeStreamProxy()
+		const { owner, pal } = fixture(() => {}, proxy)
+		await owner.openPal(pal.id)
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+			if (method === 'namzu/pals/computer/stream') return { generation: '1' }
+			if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+			if (method === 'namzu/pals/computer/start') {
+				if (outcome === 'failed') throw new Error('Start failed')
+				return outcome === 'old-generation'
+					? { status: 'ready', generation: '1' }
+					: { status: 'unavailable' }
+			}
+		}
+		const view = await owner.openPalComputerStream(pal.id, '1')
+		await expect(owner.rebootPalComputer(pal.id, '1')).rejects.toThrow(
+			outcome === 'failed' ? 'Start failed' : 'did not confirm a new generation',
+		)
+		expect(views.has(view.id)).toBe(false)
+		expect(
+			transport.calls.filter((call) => call.method === 'namzu/pals/computer/start'),
+		).toHaveLength(1)
+	},
+)
+
+it('refuses an earlier independent start preflight after a complete reboot', async () => {
+	const { owner, pal } = fixture()
+	await owner.openPal(pal.id)
+	const getEntered = deferred()
+	const getDone = deferred()
+	let first = true
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/get' && first) {
+			first = false
+			getEntered.resolve()
+			await getDone.promise
+			return pal
+		}
+		if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+		if (method === 'namzu/pals/computer/start') return { status: 'ready', generation: '2' }
+	}
+	const oldStart = owner.startPalComputer(pal.id)
+	await getEntered.promise
+	await owner.rebootPalComputer(pal.id, '1')
+	const rejected = expect(oldStart).rejects.toThrow('changed before it could start')
+	getDone.resolve()
+	await rejected
+	expect(
+		transport.calls.filter((call) => call.method === 'namzu/pals/computer/start'),
+	).toHaveLength(1)
 })

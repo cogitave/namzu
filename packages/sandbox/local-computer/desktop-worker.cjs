@@ -1,6 +1,108 @@
 const http = require('node:http')
 const { execFile } = require('node:child_process')
 const { createHash, timingSafeEqual } = require('node:crypto')
+const { createConnection } = require('node:net')
+
+const STREAM_MAX_PAYLOAD = 64 * 1024
+const STREAM_MAX_VIEWERS = 4
+
+/** Probe the actual guest RFB server, not merely a listening TCP socket. */
+function probeVnc(connect) {
+	return new Promise((resolve) => {
+		const socket = connect()
+		let banner = Buffer.alloc(0)
+		let settled = false
+		const finish = (ready) => {
+			if (settled) return
+			settled = true
+			socket.destroy()
+			resolve(ready)
+		}
+		socket.setTimeout(2_000, () => finish(false))
+		socket.on('error', () => finish(false))
+		socket.on('close', () => finish(false))
+		socket.on('data', (data) => {
+			banner = Buffer.concat([banner, data.subarray(0, 12 - banner.length)])
+			if (banner.length === 12) finish(/^RFB 003\.00[378]\n$/.test(banner.toString('ascii')))
+		})
+	})
+}
+
+function attachScreenStream(server, authorized, connect) {
+	const { WebSocketServer, createWebSocketStream } = require('ws')
+	const websocketServer = new WebSocketServer({
+		noServer: true,
+		perMessageDeflate: false,
+		maxPayload: STREAM_MAX_PAYLOAD,
+		maxBufferedChunks: 32,
+		maxFragments: 32,
+	})
+	const viewers = new Set()
+	server.on('upgrade', (req, socket, head) => {
+		const refused = !authorized(req)
+			? 401
+			: req.method !== 'GET' || req.url !== '/stream'
+				? 404
+				: viewers.size >= STREAM_MAX_VIEWERS
+					? 503
+					: undefined
+		if (refused) {
+			socket.end(`HTTP/1.1 ${refused} Refused\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+			return
+		}
+		websocketServer.handleUpgrade(req, socket, head, (websocket) => {
+			let guest
+			try {
+				guest = connect()
+			} catch {
+				websocket.terminate()
+				return
+			}
+			let closed = false
+			const close = () => {
+				if (closed) return
+				closed = true
+				viewers.delete(close)
+				guest.destroy()
+				stream.destroy()
+				websocket.terminate()
+			}
+			viewers.add(close)
+			websocket.on('error', close)
+			websocket.on('close', close)
+			websocket.on('message', (_data, binary) => {
+				if (!binary) close()
+			})
+			const stream = createWebSocketStream(websocket, {
+				highWaterMark: STREAM_MAX_PAYLOAD,
+			})
+			stream.on('error', close)
+			stream.on('close', close)
+			guest.on('error', close)
+			guest.on('close', close)
+			guest.setTimeout(2_000, close)
+			guest.once('connect', () => guest.setTimeout(0))
+			// Duplex pipes propagate backpressure instead of retaining whole frames.
+			// The target is an independently enforced view-only x11vnc server.
+			stream.pipe(guest)
+			guest.pipe(stream)
+		})
+	})
+	const closeViewers = () => {
+		for (const close of viewers) close()
+	}
+	const closeServer = server.close.bind(server)
+	server.close = (callback) => {
+		// HTTP close waits for upgraded sockets, so retire them before waiting
+		// for its close event. Waiting until that event would deadlock shutdown.
+		closeViewers()
+		return closeServer(callback)
+	}
+	server.on('close', () => {
+		closeViewers()
+		websocketServer.close()
+	})
+}
 
 const BUTTONS = { left: '1', middle: '2', right: '3' }
 const SCROLL = { up: '4', down: '5', left: '6', right: '7' }
@@ -128,6 +230,17 @@ function createDesktopServer(options) {
 	if (!/^[a-zA-Z0-9_-]{16,}$/.test(options.token ?? ''))
 		throw new Error('A per-allocation desktop token is required')
 	const digest = createHash('sha256').update(options.token).digest()
+	const authorized = (req) => {
+		const authorization =
+			typeof req.headers.authorization === 'string' ? req.headers.authorization : ''
+		const presented = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
+		return (
+			req.headers.origin === undefined &&
+			timingSafeEqual(digest, createHash('sha256').update(presented).digest())
+		)
+	}
+	const connectVnc =
+		options.connectVnc ?? (() => createConnection({ host: '127.0.0.1', port: 5900 }))
 	const execute = options.run ?? run
 	const fetchBrowser =
 		options.fetchBrowser ??
@@ -169,14 +282,8 @@ function createDesktopServer(options) {
 		})
 		res.end(JSON.stringify(body))
 	}
-	return http.createServer(async (req, res) => {
-		const authorization =
-			typeof req.headers.authorization === 'string' ? req.headers.authorization : ''
-		const presented = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
-		if (
-			req.headers.origin ||
-			!timingSafeEqual(digest, createHash('sha256').update(presented).digest())
-		) {
+	const server = http.createServer(async (req, res) => {
+		if (!authorized(req)) {
 			json(res, 401, { error: 'unauthorized' })
 			return
 		}
@@ -185,13 +292,20 @@ function createDesktopServer(options) {
 				const display = await geometry()
 				const screenshot = pngGeometry(await capture())
 				const browserReady = await fetchBrowser()
+				const streamReady = options.stream === true ? await probeVnc(connectVnc) : false
 				if (
 					!browserReady ||
+					(options.stream === true && !streamReady) ||
 					screenshot.width !== display.width ||
 					screenshot.height !== display.height
 				)
 					throw new Error('Guest is not ready')
-				json(res, 200, { protocol: 1, ...display, browserReady: true })
+				json(res, 200, {
+					protocol: 1,
+					...display,
+					browserReady: true,
+					...(streamReady ? { stream: { protocol: 'rfb' } } : {}),
+				})
 			} catch {
 				json(res, 503, { error: 'desktop_not_ready' })
 			}
@@ -245,6 +359,8 @@ function createDesktopServer(options) {
 			json(res, 400, { error: 'invalid_request' })
 		}
 	})
+	if (options.stream === true) attachScreenStream(server, authorized, connectVnc)
+	return server
 }
 
 module.exports = { createDesktopServer, actionArguments, pngGeometry }
@@ -252,6 +368,7 @@ module.exports = { createDesktopServer, actionArguments, pngGeometry }
 if (require.main === module) {
 	const server = createDesktopServer({
 		token: process.env.NAMZU_SANDBOX_TOKEN,
+		stream: true,
 	})
 	server.listen(2025, '0.0.0.0')
 }

@@ -188,11 +188,31 @@ an unavailable state with the setup reason. The composer admits work only after
 that computer is ready and the Pal is not paused. The card's **Computers** section
 shows an actual guest thumbnail beside the Pal computer and a separate host row
 from the native device's real hostname. Selecting the guest opens a full content
-view, with actual PNG captures, automatic refresh and a manual Refresh action.
+view, with a persistent noVNC framebuffer stream. PNG captures are used only
+for the small card thumbnail; the full view does not poll screenshots.
 Offline, capture failure and unsupported control remain explicit states; this
-view does not simulate installed apps. The bundled guest supplies Chromium,
-Openbox and a terminal; additional desktop applications must actually be installed.
+view does not simulate installed apps. The bundled guest supplies a real Openbox desktop, a themed wallpaper, a tint2
+dock and Chromium, Terminal and Files launchers. A local browser home page shows
+the clock and web search. Closing/reopening the browser leaves the desktop
+running; additional applications must actually be installed.
 Guest browser and file tools do not fall back to the operator's device.
+
+The computer workspace has a named computer tab and a close-view button. Closing
+the tab returns to the same Pal chat and leaves the guest running. Layout controls
+show chat beside the computer, hide it, or place that same chat in a small floating
+window. Minimizing/restoring and docking preserve the conversation, composer draft,
+attachments and model choice. These views do not create an ordinary conversation.
+The Pal menu provides customization, guarded pause/resume and guarded computer
+reboot. Delete is shown disabled because the saved Pal deletion contract is not
+implemented; it never pretends to delete a profile or persistent volume.
+
+The native host validates the guest's exact generation and keeps its allocation
+bearer private. An Origin-checked loopback WebSocket proxy exposes only an ephemeral,
+single-view, read-only ticket. The renderer's CSP permits that exact local port.
+noVNC draws changing framebuffer rectangles directly to its canvas without React
+state or JSON IPC per frame. Disconnect immediately disables input and offers a
+reconnect action; route/generation changes close the old viewer. Older images
+report live observation as unsupported until explicitly rebuilt and restarted.
 
 **Take over** verifies the allocation generation, fences new Pal work, cancels
 owned foreground turns and confirms background job termination before requesting
@@ -214,6 +234,8 @@ by the operator without allowing model work. Providers without the optional
 arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal-computer.md#exclusive-operator-control)
 document the boundary, including guest-process limitations.
 
+The top Pal status reveals Pause/Resume on hover or keyboard focus, and Connected
+reveals Stop computer in the same position. The card has no separate pause footer.
 Stop computer is refused while known turns, queued messages, approvals or
 background jobs still own work. Cleanup failures retain a recovery notice and
 allow a stop retry. Pausing blocks new admissions, model steps and subsequent
@@ -581,8 +603,10 @@ content policy. Model and tool text is rendered as text, never executable HTML.
 
 ## Current scope
 
-The first slice covers local projects, conversation history, formatted replies,
-tool review, model settings, attachments, plugin inventory, message queues and
-background shells. Embedded browsing, terminal emulation, remote hosts, native
-release packaging and auto-update are not offered in this preview. Source comparisons
-and validation receipts are in `research/runtime-desktop-20260930/`.
+The preview covers local projects, conversation history, formatted replies,
+tool review, model settings, attachments, plugin inventory, message queues,
+background shells and persistent Pals with local virtual computers. Each computer
+runs its installed browser, terminal and Files applications; its live desktop
+supports exclusive operator control. Remote hosts, native release packaging and
+auto-update are not offered in this preview. Source comparisons and validation
+receipts are in `research/runtime-desktop-20260930/`.

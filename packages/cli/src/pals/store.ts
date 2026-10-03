@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs'
+import { lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 /** CLI storage adapter; reusable identity, revisions and admission live in the SDK. */
 import { DiskPalStore, type PalCreate, type PalDefinition, type PalUpdate } from '@namzu/sdk'
@@ -10,13 +10,66 @@ export type Pal = PalDefinition
 export type { PalAppearance, PalCreate, PalModel, PalUpdate } from '@namzu/sdk'
 export { PalConflictError } from '@namzu/sdk'
 
+interface DirectoryIdentity {
+	readonly dev: bigint
+	readonly ino: bigint
+	readonly birthtimeNs: bigint
+}
+interface InitializedStore {
+	readonly store: DiskPalStore
+	readonly registry: DirectoryIdentity
+	readonly workspaces: DirectoryIdentity
+}
+const initializedStores = new Map<string, InitializedStore>()
+
+function directoryIdentity(path: string): DirectoryIdentity {
+	const entry = lstatSync(path, { bigint: true })
+	if (!entry.isDirectory() || entry.isSymbolicLink() || realpathSync(path) !== path)
+		throw new Error('Pal directory identity changed.')
+	return { dev: entry.dev, ino: entry.ino, birthtimeNs: entry.birthtimeNs }
+}
+function sameDirectory(path: string, expected: DirectoryIdentity): boolean {
+	try {
+		const current = directoryIdentity(path)
+		return (
+			current.dev === expected.dev &&
+			current.ino === expected.ino &&
+			current.birthtimeNs === expected.birthtimeNs
+		)
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+		throw error
+	}
+}
 export function cliPalStore(home?: string): DiskPalStore {
 	const root = resolve(home ?? resolveNamzuHome())
-	return new DiskPalStore({
+	const existing = initializedStores.get(root)
+	if (existing) {
+		try {
+			if (
+				sameDirectory(existing.store.root, existing.registry) &&
+				sameDirectory(existing.store.workspaceRoot, existing.workspaces)
+			)
+				return existing.store
+		} catch (error) {
+			initializedStores.delete(root)
+			throw error
+		}
+		initializedStores.delete(root)
+	}
+	// ACL initialization belongs to this directory allocation, not each keypress.
+	// SDK operations still read current definitions and validate owned paths afresh.
+	const store = new DiskPalStore({
 		root: join(root, 'pals'),
 		workspaceRoot: join(dirname(root), `${basename(root)}-workspaces`, 'pals'),
 		secureDirectory: restrictToOwner,
 	})
+	initializedStores.set(root, {
+		store,
+		registry: directoryIdentity(store.root),
+		workspaces: directoryIdentity(store.workspaceRoot),
+	})
+	return store
 }
 export function getCliPalStore(): DiskPalStore {
 	return cliPalStore()

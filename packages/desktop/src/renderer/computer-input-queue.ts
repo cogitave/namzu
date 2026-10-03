@@ -4,6 +4,8 @@ export interface ComputerInputOwner {
 	readonly id: string
 	readonly generation: string
 	readonly navigation: number
+	/** A new screen connection invalidates pending input even within one allocation. */
+	readonly viewEpoch: number
 }
 
 const maxTextBytes = 32_768
@@ -19,11 +21,15 @@ interface Batch {
 	waiters: Waiter[]
 }
 
-function sameOwner(left: ComputerInputOwner, right: ComputerInputOwner): boolean {
+export function computerInputOwnerMatches(
+	left: ComputerInputOwner,
+	right: Readonly<Partial<ComputerInputOwner>>,
+): boolean {
 	return (
 		left.id === right.id &&
 		left.generation === right.generation &&
-		left.navigation === right.navigation
+		left.navigation === right.navigation &&
+		left.viewEpoch === right.viewEpoch
 	)
 }
 
@@ -75,6 +81,7 @@ export class ComputerInputQueue {
 			id: owner.id,
 			generation: owner.generation,
 			navigation: owner.navigation,
+			viewEpoch: owner.viewEpoch,
 		})
 		const actions =
 			action.type === 'type_text'
@@ -85,7 +92,7 @@ export class ComputerInputQueue {
 				new Promise<void>((resolve, reject) => {
 					const tail = this.batches.at(-1)
 					const waiter = { resolve, reject }
-					if (tail && sameOwner(tail.owner, captured)) {
+					if (tail && computerInputOwnerMatches(tail.owner, captured)) {
 						if (
 							tail.action.type === 'type_text' &&
 							next.type === 'type_text' &&

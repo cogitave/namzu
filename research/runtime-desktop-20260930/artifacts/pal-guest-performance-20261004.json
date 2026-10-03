@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-04",
+  "engine": "native Windows Podman with local Linux guest",
+  "readOnly": true,
+  "displayMutations": 0,
+  "sampleCountPerOperation": 5,
+  "results": [
+    { "operation": "xdotool getdisplaygeometry", "medianMs": 2.32, "medianBytes": 9 },
+    { "operation": "xdotool getmouselocation", "medianMs": 2.74, "medianBytes": 34 },
+    { "operation": "maim PNG default", "medianMs": 38.43, "medianBytes": 33229 },
+    { "operation": "maim PNG quality 1", "medianMs": 38.1, "medianBytes": 4103443 },
+    { "operation": "maim PNG quality 3", "medianMs": 32.86, "medianBytes": 47513 },
+    { "operation": "guest HTTP screenshot", "medianMs": 39.78, "medianBytes": 44375 },
+    { "operation": "guest HTTP cursor_position", "medianMs": 3.86, "medianBytes": 50 }
+  ],
+  "caveats": [
+    "One already-running, explicitly owned guest and one current desktop scene; timings depend on scene, load and display size.",
+    "Commands were timed inside the guest, excluding Podman exec startup, Windows SSH forwarding, CLI authorization and desktop IPC.",
+    "The authenticated HTTP samples use the actual guest worker over guest loopback. No model, input, control transfer or container lifecycle action was performed.",
+    "Screenshot bytes, allocation identifiers, authorization tokens and screen content were discarded; only durations and byte counts are retained.",
+    "These measurements are diagnostics, not a latency threshold test. No PNG setting or worker code was changed."
+  ]
+}

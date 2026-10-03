@@ -1,0 +1,221 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "84a94721f",
+  "environment": {
+    "host": "native Windows Electron",
+    "renderer": "bundled production file page",
+    "guest": "owned local Linux desktop on native Windows Podman",
+    "image": "namzu-local-computer:1",
+    "imageId": "11788ca89db60f3ecd99c7e1aaf7930ca21b4fbbc8dd6ac348a18fa7778a1e9e",
+    "normalUserData": true,
+    "fixtureOverrides": false
+  },
+  "checks": {
+    "nativeWindows": true,
+    "actualRuntime": true,
+    "normalUserData": true,
+    "fixtureOverrides": false,
+    "normalConversationSeparate": true,
+    "appOwnedNormalContext": true,
+    "palDraftRetained": true,
+    "modelCatalogueRows": 8,
+    "actualGuestThumbnail": true,
+    "actualHostRow": true,
+    "fullContentComputerView": true,
+    "actualNoVncCanvas": {
+      "width": 1280,
+      "height": 800,
+      "pointerEvents": "none",
+      "tabIndex": -1
+    },
+    "actualOperatorControl": true,
+    "warmStatusMilliseconds": [
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "nativeMenuShortcutSuppressed": true,
+    "uriInputMilliseconds": 276,
+    "actualKeyboardNavigation": true,
+    "textInputMilliseconds": 66,
+    "actualFastTextInput": true,
+    "actualHomeKey": true,
+    "livePixelsChangedWithoutRefresh": true,
+    "actualLivePointerClick": true,
+    "fullViewScreenshotCalls": 0,
+    "browserCloseKeepsComputer": true,
+    "actualBrowserDockLaunch": true,
+    "browserHomeRestored": true,
+    "chromiumStartupTestType": true,
+    "actualTerminalDockLaunch": true,
+    "actualFilesDockLaunch": true,
+    "actualControlReturned": true,
+    "takeoverKeepsScreenGeometry": true,
+    "sameChatDraftAcrossLayouts": true,
+    "tabCloseKeepsComputer": true,
+    "actualPauseResumeHover": true,
+    "stopHoverKeepsGeometry": true,
+    "normalFromComputer": true,
+    "actualToolbarReboot": true,
+    "rebootNewGeneration": true,
+    "nativeResponsiveLayout": true,
+    "rendererErrorsObserved": 0,
+    "finalRebootCleanupVerified": true,
+    "nativeLayoutVariants": [
+      {
+        "label": "wide",
+        "width": 1360,
+        "height": 900,
+        "frameWidth": 354.40625,
+        "frameHeight": 221.5,
+        "overflow": false
+      },
+      {
+        "label": "narrow",
+        "width": 980,
+        "height": 720,
+        "frameWidth": 612,
+        "frameHeight": 382.5,
+        "overflow": false
+      },
+      {
+        "label": "short",
+        "width": 1250,
+        "height": 560,
+        "frameWidth": 312.890625,
+        "frameHeight": 195.546875,
+        "overflow": false
+      }
+    ],
+    "compactControlFooter": true,
+    "finalDiagnostics": {
+      "records": 7,
+      "errors": 0
+    }
+  },
+  "performance": {
+    "beforeWarmStatusMedianMilliseconds": 819,
+    "afterWarmStatusMedianMilliseconds": 4,
+    "beforeSameTextInputMilliseconds": 945,
+    "afterSameTextInputMilliseconds": 66,
+    "sampleLimit": "One local Windows device; warm status uses five samples. Text measurement uses the same 30 ASCII character sample in the actual owned guest input page; it is not a general throughput benchmark."
+  },
+  "nativeVerification": {
+    "inputPath": "Actual renderer events through native IPC, CLI ACP and SDK operator control",
+    "readback": "Boolean-only CDP inspection of the exact owned test page",
+    "stream": "Actual noVNC canvas at 1280x800; changed pixels without PNG refresh; main IPC screenshot call count 0 during full computer observation/input.",
+    "dock": "Actual browser-close and browser/terminal/files dock clicks through the renderer; browser home restored",
+    "finalView": "Pal chat and computer split",
+    "finalControl": "pal",
+    "externalModelTurnIssued": false,
+    "privateScreenshotsCapturedAndInspected": true,
+    "latestInstanceErrors": 0
+  },
+  "sourceHashes": [
+    {
+      "file": "packages/desktop/dist/main/pal-stream-proxy.js",
+      "sha256": "1030225f8f713f9b26c045a41147171fb81321508e3cd19b91c7a2f61f19264d"
+    },
+    {
+      "file": "packages/desktop/dist/main/operator.js",
+      "sha256": "6e836ec091aeeaa19c8b72bd61d3e092ae1bb5fea284f47aa3d5bcb4954058c5"
+    },
+    {
+      "file": "packages/desktop/dist/main/stream-renderer-policy.js",
+      "sha256": "03ec792a6d5f93a6c51b99dce0e3ae7c3f1547dbce1e0fc79a2d62db226a2b08"
+    },
+    {
+      "file": "packages/cli/dist/pals/store.js",
+      "sha256": "96817235a86fbf9f9a9b160b14d9786c99036b4449491e71933219d190068b21"
+    },
+    {
+      "file": "packages/sdk/dist/pals/runtime.js",
+      "sha256": "f3100d59a3526ea42095ecdfedae762fe593030115432a7126662297868086c1"
+    },
+    {
+      "file": "packages/sandbox/local-computer/entrypoint.sh",
+      "sha256": "785a7ea86e53035692e1855d992b0e7284c9682c21506e9c6c950a65195054df"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/index.html",
+      "sha256": "5d57daa5ec3768a3933c5fb49a50e597558912f931f516e186d28d08ad70ae2e"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-VgYrWxQj.js",
+      "sha256": "4f19ef14098925a1a62e2e82b6d98b0a57b128e51ee3f511ac00b534926f8e8f"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-EN1trvX_.css",
+      "sha256": "4fd09b7a04d974cc90c573f41b591f97ff322652538eb59614d19fc29b19b27c"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/RoundedBoxGeometry-DLLLX26V.js",
+      "sha256": "6c4a2c72d56f7277461ffb934e304a31ba5bdc6b3721eeb453bf89eced49096a"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/rfb-DEarvyZV.js",
+      "sha256": "c5291da851540c128e8cd17d5de8e1bba7f21f1dd4ba96c7c6ac8a0478e9616f"
+    }
+  ],
+  "gates": {
+    "workspaceTypecheck": "pass",
+    "workspaceLint": "pass with 12 existing CLI warnings",
+    "workspaceTests": "pass",
+    "workspacePassedTestsByPackage": {
+      "packages/files": 48,
+      "packages/sdk": 9902,
+      "packages/desktop": 166,
+      "packages/computer-use": 165,
+      "packages/browser": 133,
+      "packages/ag-ui": 189,
+      "packages/live": 25,
+      "packages/providers/anthropic": 251,
+      "packages/lsp": 27,
+      "packages/providers/bedrock": 127,
+      "packages/providers/deepseek": 44,
+      "packages/providers/google": 29,
+      "packages/providers/http": 83,
+      "packages/providers/lmstudio": 29,
+      "packages/providers/ollama": 36,
+      "packages/providers/openrouter": 80,
+      "packages/providers/zen": 234,
+      "packages/providers/openai": 129,
+      "packages/telemetry": 33,
+      "packages/sandbox": 1775,
+      "packages/cli": 4918
+    },
+    "finalDesktopTests": {
+      "files": 24,
+      "passed": 168
+    },
+    "finalScopedGuestThemeAndStreamTests": {
+      "passed": 11
+    },
+    "docsOKF": {
+      "passed": true,
+      "files": 139
+    },
+    "projectReferences": "pass",
+    "signatureExports": "pass",
+    "externalNames": "pass",
+    "logStandard": "pass",
+    "publishMetadata": "pass",
+    "nativeGuestFixtureChecks": 8
+  },
+  "limits": [
+    "Published-package installs/releases and remote hosts are outside this native proof.",
+    "The installed guest applications are Chromium, xterm and Files; other applications in the reference are not installed.",
+    "Delete Pal has no saved-profile deletion API and is explicitly disabled; the computer plus control is disabled while its only actual tab is already open.",
+    "No external model turn or authenticated browser account was exercised.",
+    "Screenshots stay in the private local development folder; device names, credentials, endpoints and page contents are omitted from this receipt.",
+    "Native tests covered wide 1360x900, narrow 980x720 and short 1250x560 windows.",
+    "No push or release is included."
+  ],
+  "rendererBundleManifest": {
+    "assetCount": 401,
+    "sha256": "ff39e98b5d792f6a5aa6cd6d94237535d3e6491c6ea2a67545f175e08f6c5c77",
+    "content": "Sorted paths and SHA256 hashes of files reachable from the built renderer entry, including lazy syntax grammars."
+  }
+}

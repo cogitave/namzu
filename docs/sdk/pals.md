@@ -83,6 +83,24 @@ Docker engine. It does not mount the host control directory or inherit host
 browser accounts. It shares the engine's kernel and is not a dedicated-kernel
 VM. Provider credentials remain with the host's existing model routing.
 
+## Live screen observation
+
+A provider may expose `PalEnvironmentLease.screenStream: PalComputerScreenStream`
+with `protocol: 'rfb'`, a `ws:` or `wss:` URL and an authorization header value.
+`runtime.computerScreenStream(palId, generation)` synchronously captures a frozen
+host-only descriptor for the exact current allocation. Missing, starting,
+stopping, retired, closed or stale computers are refused; providers without
+this optional capability explicitly report unsupported observation.
+
+The descriptor is a transport credential, not a model tool result or a renderer
+payload. The embedding host must keep it private, authenticate the connection,
+and retire viewers with their allocation. It never acquires input authority,
+wakes a Pal or satisfies an admitted agent's fresh-screen requirement. An
+already warm paused Pal and an operator-controlled computer can still be viewed.
+Providers must enforce read-only RFB observation at their server; a viewer's
+`viewOnly` flag alone is insufficient. Existing screenshot and operator control
+APIs retain their contracts.
+
 ## Ownership and lifecycle
 
 `startComputer(palId, signal?)` starts or returns a warm computer.

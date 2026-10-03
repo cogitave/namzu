@@ -135,3 +135,16 @@ Package: three@0.186.1, https://threejs.org/
 The Namzu Pal scene uses the renderer and RoundedBoxGeometry addon. Character
 geometry, SVG fallback and animation are original Namzu implementation.
 Full license: licenses/pal-character-three-MIT.txt
+
+6. noVNC — MPL-2.0 (core), MIT (pako)
+Package: @novnc/novnc@1.7.0, https://github.com/novnc/noVNC/tree/v1.7.0
+Unmodified core viewer renders the Pal guest framebuffer. No noVNC app UI,
+fonts or image assets are used. Corresponding source: the versioned upstream
+repository above. Core and incorporated license notices are retained in
+licenses/pal-novnc-LICENSE.txt, licenses/pal-novnc-MPL-2.0.txt and
+licenses/pal-novnc-pako-MIT.txt; individual source headers remain upstream. The authors list, DES notice and
+BSD license texts are retained alongside those license files.
+
+7. ws — MIT
+Package: ws@8.21.3, https://github.com/websockets/ws/tree/8.21.3
+Used by the native loopback viewer proxy. Full license: licenses/pal-ws-MIT.txt.

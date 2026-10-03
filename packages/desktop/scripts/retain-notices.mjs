@@ -7,6 +7,6 @@ for (const suffix of ['js', 'js.map', 'd.ts', 'd.ts.map']) {
 	rmSync(new URL(`dist/dev/preview.${suffix}`, root), { force: true })
 }
 mkdirSync(new URL('dist/licenses/', root), { recursive: true })
-for (const path of ['THIRD-PARTY-NOTICES.txt', 'licenses/ui-primitives-MIT.txt', 'licenses/ui-layout-Apache-2.0.txt', 'licenses/ui-layout-NOTICE.txt', 'licenses/ui-icons-license.txt', 'licenses/pal-character-three-MIT.txt']) {
+for (const path of ['THIRD-PARTY-NOTICES.txt', 'licenses/ui-primitives-MIT.txt', 'licenses/ui-layout-Apache-2.0.txt', 'licenses/ui-layout-NOTICE.txt', 'licenses/ui-icons-license.txt', 'licenses/pal-character-three-MIT.txt', 'licenses/pal-novnc-LICENSE.txt', 'licenses/pal-novnc-MPL-2.0.txt', 'licenses/pal-novnc-pako-MIT.txt', 'licenses/pal-ws-MIT.txt', 'licenses/pal-novnc-LICENSE.BSD-2-Clause.txt', 'licenses/pal-novnc-LICENSE.BSD-3-Clause.txt', 'licenses/pal-novnc-AUTHORS.txt', 'licenses/pal-novnc-des-notice.txt']) {
 	copyFileSync(fileURLToPath(new URL(path, root)), fileURLToPath(new URL(`dist/${path}`, root)))
 }

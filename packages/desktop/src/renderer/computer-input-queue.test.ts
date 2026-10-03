@@ -1,8 +1,17 @@
 import { expect, it, vi } from 'vitest'
 import type { PalComputerInput } from '../shared/protocol.js'
-import { type ComputerInputOwner, ComputerInputQueue } from './computer-input-queue.js'
+import {
+	type ComputerInputOwner,
+	ComputerInputQueue,
+	computerInputOwnerMatches,
+} from './computer-input-queue.js'
 
-const owner: ComputerInputOwner = { id: 'pal-a', generation: 'allocation-a', navigation: 4 }
+const owner: ComputerInputOwner = {
+	id: 'pal-a',
+	generation: 'allocation-a',
+	navigation: 4,
+	viewEpoch: 1,
+}
 function executor() {
 	return vi.fn<(action: PalComputerInput, captured: Readonly<ComputerInputOwner>) => Promise<void>>(
 		async () => {},
@@ -104,7 +113,7 @@ it('coalesces only adjacent queued mouse moves for the exact same owner', async 
 	])
 })
 
-it('does not merge text across Pal, generation, or navigation ownership boundaries', async () => {
+it('does not merge text across Pal, generation, navigation or screen-view boundaries', async () => {
 	const execute = executor()
 	const queue = new ComputerInputQueue(execute)
 	const owners = [
@@ -112,6 +121,7 @@ it('does not merge text across Pal, generation, or navigation ownership boundari
 		{ ...owner, id: 'pal-b' },
 		{ ...owner, generation: 'allocation-b' },
 		{ ...owner, navigation: 5 },
+		{ ...owner, viewEpoch: 2 },
 	]
 	await Promise.all(
 		owners.map((token, index) => queue.enqueue({ type: 'type_text', text: `${index}` }, token)),
@@ -151,6 +161,7 @@ it('captures immutable action and owner before yielding to execution', async () 
 	token.id = 'pal-b'
 	token.generation = 'allocation-b'
 	token.navigation = 99
+	token.viewEpoch = 99
 	action.to.x = 999
 	await sent
 	expect(execute.mock.calls).toEqual([[{ type: 'mouse_move', to: { x: 10, y: 20 } }, owner]])
@@ -198,4 +209,44 @@ it('rejects every failed batch caller, rechecks later owners, and drains before 
 	expect(confirmed).toEqual(['new computer'])
 	expect(idle).toBe(true)
 	await queue.flush()
+})
+
+it('rejects queued old-view inputs after disconnect and accepts only fresh input after reconnect', async () => {
+	const started = deferred()
+	const reply = deferred()
+	const current = { ...owner }
+	const delivered: PalComputerInput[] = []
+	const failure = new Error('The screen view changed.')
+	const queue = new ComputerInputQueue(async (action, captured) => {
+		if (!computerInputOwnerMatches(captured, current)) throw failure
+		delivered.push(action)
+		if (delivered.length === 1) {
+			started.resolve()
+			await reply.promise
+		}
+	})
+	const first = queue.enqueue({ type: 'type_text', text: 'already dispatched' }, owner)
+	await started.promise
+	const pending = Promise.allSettled([
+		queue.enqueue({ type: 'type_text', text: 'stale text' }, owner),
+		queue.enqueue({ type: 'key', keys: 'ENTER' }, owner),
+		queue.enqueue({ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'left' }, owner),
+	])
+	// Disconnect, then refresh/reconnect within the exact same Pal and allocation.
+	current.viewEpoch += 1
+	current.viewEpoch += 1
+	const fresh = queue.enqueue({ type: 'type_text', text: 'fresh input' }, current)
+	reply.resolve()
+	await first
+	expect(await pending).toEqual([
+		{ status: 'rejected', reason: failure },
+		{ status: 'rejected', reason: failure },
+		{ status: 'rejected', reason: failure },
+	])
+	await fresh
+	await queue.flush()
+	expect(delivered).toEqual([
+		{ type: 'type_text', text: 'already dispatched' },
+		{ type: 'type_text', text: 'fresh input' },
+	])
 })

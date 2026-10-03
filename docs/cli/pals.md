@@ -188,6 +188,7 @@ exact current directory belongs to a Pal.
 | `namzu/pals/computer/status` | `{ palId }` | Computer availability |
 | `namzu/pals/computer/start` | `{ palId }` | Ready computer identity |
 | `namzu/pals/computer/stop` | `{ palId }` | Confirmed stopped state |
+| `namzu/pals/computer/stream` | `{ palId, generation }` | Host-only RFB descriptor, exact geometry and generation |
 | `namzu/pals/computer/screen` | `{ palId, generation? }` | PNG data URL `source`, `width`, `height` |
 | `namzu/pals/computer/take_over` | `{ palId, generation }` | Ready computer identity and operator control |
 | `namzu/pals/computer/return_control` | `{ palId, generation }` | Ready computer identity and Pal control |
@@ -212,6 +213,20 @@ zeros, signs, exponent notation, nonintegers and stale generations are refused.
 Screen requests optionally pin this generation; all captures recheck the
 computer identity and generation afterward, so a replaced guest's old image is
 not returned.
+
+`namzu/pals/computer/stream` is an owning native-host extension. It requires
+that same trusted Pal workspace connection and exact canonical generation,
+then rechecks the lease after reading its geometry. Its response contains
+`protocol`, `url`, `authorization`, `width`, `height` and string `generation`.
+The allocation authorization must never cross into renderer IPC, logs or model
+results. A native host supplies its own read-only viewer ticket instead. The
+method refuses unsupported providers; it does not synthesize a stream from
+periodic screenshots or grant input authority.
+
+The CLI reuses initialized registry stores only while the configured home and
+canonical root identities remain unchanged. This avoids repeated Windows ACL
+subprocesses during input. Pal definitions, revisions, pause state and workspace
+admission remain fresh reads; a changed/replaced root rebuilds initialization.
 
 The desktop host cancels and drains existing Pal work before takeover. The SDK
 then fences new admissions and the local provider independently requires idle

@@ -6,7 +6,8 @@ LABEL org.namzu.local-computer.protocol="1"
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb openbox chromium xdotool maim xterm dbus-x11 \
+    xvfb openbox chromium xdotool maim xterm dbus-x11 x11vnc \
+    tint2 pcmanfm hsetroot adwaita-icon-theme \
     fonts-dejavu fonts-noto-color-emoji ca-certificates \
     bash curl git ripgrep python3 dumb-init \
     && rm -rf /var/lib/apt/lists/* \
@@ -15,11 +16,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /home/namzu/workspace /home/namzu/.config/chromium \
     && chown -R 1001:1001 /home/namzu
 
+# Authenticated binary WebSocket transport only; VNC input remains disabled.
+RUN npm install --prefix /opt/namzu-computer --omit=dev --ignore-scripts \
+    --no-audit --no-fund ws@8.21.3
+
 COPY worker/server.js /opt/namzu-computer/execution-worker.cjs
 COPY local-computer/desktop-worker.cjs /opt/namzu-computer/desktop-worker.cjs
 COPY local-computer/entrypoint.sh /opt/namzu-computer/entrypoint.sh
+COPY local-computer/home.html /opt/namzu-computer/home.html
+COPY local-computer/tint2rc /opt/namzu-computer/tint2rc
+COPY local-computer/openbox-rc.xml /opt/namzu-computer/openbox-rc.xml
 
-ENV HOME=/home/namzu DISPLAY=:99 \
+ENV HOME=/home/namzu DISPLAY=:99 GTK_THEME=Adwaita:dark \
     NAMZU_SANDBOX_WORKSPACE=/home/namzu/workspace \
     NAMZU_SANDBOX_READ_ROOTS=/home/namzu \
     NAMZU_SANDBOX_WRITE_ROOTS=/home/namzu \

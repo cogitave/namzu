@@ -42,6 +42,25 @@ it('serves valid exact dev websocket sources while preserving the production pol
 		expect(productionPolicy.get('connect-src')).toBe("'none'")
 		productionPolicy.delete('connect-src')
 		expect(developmentPolicy).toEqual(productionPolicy)
+		const nativePort = address.port === 23456 ? 23457 : 23456
+		const live = await fetch(`http://127.0.0.1:${address.port}/?namzuStreamPort=${nativePort}`)
+		expect(live.ok).toBe(true)
+		expect(policy(await live.text()).get('connect-src')).toBe(
+			`'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port} ws://127.0.0.1:${nativePort}`,
+		)
+		for (const query of [
+			'namzuStreamPort=0',
+			'namzuStreamPort=65536',
+			'namzuStreamPort=01',
+			'namzuStreamPort=1%3Bconnect-src%20*',
+			`namzuStreamPort=${nativePort}&namzuStreamPort=${nativePort}`,
+		]) {
+			const rejected = await fetch(`http://127.0.0.1:${address.port}/?${query}`)
+			expect(rejected.ok).toBe(true)
+			expect(policy(await rejected.text()).get('connect-src')).toBe(
+				`'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port}`,
+			)
+		}
 
 		const plugin = server.config.plugins.find((item) => item.name === 'namzu-local-development')
 		expect(plugin?.apply).toBe('serve')

@@ -5,6 +5,7 @@ import type {
 	DisplayGeometry,
 	PalComputerControl,
 	PalComputerInput,
+	PalComputerScreenStream,
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxReadFileOptions,
@@ -21,12 +22,15 @@ export interface LocalComputerClientOptions {
 	readonly geometry: DisplayGeometry
 	readonly stop: (signal?: AbortSignal) => Promise<void>
 	readonly detachedWorkerPath?: string
+	/** Set only after the actual guest readiness response advertises RFB. */
+	readonly screenStream?: boolean
 }
 
 export function localComputerClients(options: LocalComputerClientOptions): {
 	sandbox: Sandbox
 	computerUseHost: ComputerUseHost
 	operatorControl: PalComputerControl
+	screenStream?: PalComputerScreenStream
 } {
 	let active = true
 	let busy = 0
@@ -365,5 +369,23 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 			return executeDesktop(input, true)
 		},
 	}
-	return { sandbox, computerUseHost, operatorControl }
+	const screenStream = options.screenStream
+		? (() => {
+				const url = new URL('/stream', options.desktopUrl)
+				if (
+					url.protocol !== 'http:' ||
+					url.hostname !== '127.0.0.1' ||
+					url.username ||
+					url.password
+				)
+					throw new Error('The Pal screen stream must use the owned guest loopback transport')
+				url.protocol = 'ws:'
+				return Object.freeze({
+					protocol: 'rfb' as const,
+					url: url.href,
+					authorization: `Bearer ${options.token}`,
+				})
+			})()
+		: undefined
+	return { sandbox, computerUseHost, operatorControl, ...(screenStream ? { screenStream } : {}) }
 }

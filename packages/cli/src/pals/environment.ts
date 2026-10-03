@@ -186,6 +186,34 @@ export async function cliPalScreen(palId: string, generation?: string) {
 	}
 }
 
+/** Host-only ACP result. Desktop main proxies this credential instead of exposing it. */
+export async function cliPalScreenStream(palId: string, generation: string) {
+	const expected = computerGeneration(generation)
+	const runtime = await getCliPalRuntime()
+	const descriptor = runtime.computerScreenStream(palId, expected)
+	const lease = runtime.computer(palId)
+	if (!lease) throw new Error('This Pal computer generation is unavailable or changed.')
+	const geometry = await lease.computerUseHost.getDisplayGeometry()
+	const current = runtime.computerScreenStream(palId, expected)
+	if (
+		runtime.computer(palId) !== lease ||
+		lease.generation !== expected ||
+		current.url !== descriptor.url ||
+		current.authorization !== descriptor.authorization
+	)
+		throw new Error('This Pal computer generation changed while opening its live screen.')
+	if (
+		!Number.isSafeInteger(geometry.width) ||
+		!Number.isSafeInteger(geometry.height) ||
+		geometry.width < 1 ||
+		geometry.height < 1 ||
+		geometry.width > 4096 ||
+		geometry.height > 3072
+	)
+		throw new Error('The Pal computer returned an invalid live screen size.')
+	return { ...descriptor, width: geometry.width, height: geometry.height, generation }
+}
+
 export async function closeCliPalRuntime(): Promise<void> {
 	const closing = host
 	if (!closing) return

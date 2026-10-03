@@ -9,6 +9,24 @@
 	color: var(--foreground);
 	animation: pal-computer-arrive 180ms var(--motion-ease) both;
 }
+.pal-computer-reconnect {
+	align-self: center;
+	margin-bottom: 12px;
+}
+.pal-computer-view[data-control="operator"] .pal-computer-screen {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px var(--primary);
+}
+.pal-computer-view[data-control="operator"] .pal-computer-control-bar {
+	margin-top: 0;
+	border-radius: 0 0 18px 18px;
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+.pal-computer-view[data-control="operator"] .pal-computer-control-button {
+	background: color-mix(in srgb, var(--primary) 75%, black);
+	color: var(--primary-foreground);
+}
 .pal-computer-view-heading {
 	display: flex;
 	align-items: center;
@@ -44,8 +62,18 @@
 .pal-computer-viewport {
 	display: flex;
 	flex: 1;
+	align-items: center;
+	justify-content: center;
 	min-width: 0;
 	min-height: 0;
+	container-type: size;
+}
+.pal-computer-display {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	width: min(100cqw, max(0px, calc((100cqh - 52px) * var(--computer-aspect-ratio))));
+	max-width: 100%;
 }
 .pal-computer-screen {
 	position: relative;
@@ -53,7 +81,9 @@
 	align-items: center;
 	justify-content: center;
 	width: 100%;
-	height: 100%;
+	height: auto;
+	aspect-ratio: var(--computer-aspect-ratio);
+	flex: none;
 	min-height: 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
@@ -134,22 +164,32 @@
 }
 .pal-computer-control-bar {
 	display: flex;
+	align-self: center;
 	align-items: center;
 	justify-content: center;
 	flex: none;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 10px;
-	min-height: 52px;
-	padding: 16px 0 0;
+	/* A short pane can shrink the desktop below the control button's width. */
+	width: max-content;
+	min-width: min(176px, 100cqw);
+	max-width: 100cqw;
+	height: 52px;
+	padding: 10px 12px;
 }
 .pal-computer-control-bar output {
 	min-width: 0;
+	overflow: hidden;
 	font-size: 13px;
 	font-weight: 500;
 	line-height: 20px;
-	overflow-wrap: anywhere;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .pal-computer-control-bar .pal-computer-control-button {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
 	min-height: 32px;
 	padding: 0 12px;
 	border-color: transparent;

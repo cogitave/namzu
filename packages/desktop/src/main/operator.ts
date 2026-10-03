@@ -16,6 +16,7 @@ import type {
 	ModelCatalogueView,
 	PalChanges,
 	PalComputerInput,
+	PalComputerStreamView,
 	PalComputerView,
 	PalInput,
 	PalScreenView,
@@ -34,6 +35,7 @@ import {
 } from './attachments.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
+import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 
 interface PendingMessage {
@@ -79,6 +81,10 @@ export class Operator {
 	private readonly palRecords = new Map<string, PalView>()
 	private readonly computerAuthorityEpochs = new Map<string, number>()
 	private readonly operatorComputers = new Map<string, string>()
+	private readonly computerViewers = new Map<
+		string,
+		{ palId: string; client: RuntimeClient; onClosed: () => void }
+	>()
 	private readonly changingPals = new Set<string>()
 	private readonly projects = new Map<string, Project>()
 	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
@@ -94,8 +100,13 @@ export class Operator {
 		private readonly publish: (event: DesktopEvent) => void,
 		private readonly registryDirectory?: string,
 		private readonly diagnostics?: DesktopDiagnosticSink,
-	) {}
+		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
+	) {
+		streamProxy?.onClosed((id) => this.closePalComputerStream(id))
+	}
 	private async closeClient(client: RuntimeClient): Promise<void> {
+		for (const [id, viewer] of this.computerViewers)
+			if (viewer.client === client) this.closePalComputerStream(id)
 		await client.close()
 		this.ownedClients.delete(client)
 	}
@@ -205,8 +216,7 @@ export class Operator {
 		}
 	}
 	async palComputer(id: string): Promise<PalComputerView> {
-		const { project } = await this.openPal(id)
-		return this.computerStatus(this.project(project.id).client, id)
+		return this.computerStatus(await this.controlClient(id, true), id)
 	}
 	private advanceComputerAuthority(id: string): void {
 		this.computerAuthorityEpochs.set(id, (this.computerAuthorityEpochs.get(id) ?? 0) + 1)
@@ -358,8 +368,15 @@ export class Operator {
 		if (result?.type !== 'ok') throw new Error('The Pal computer did not confirm this input.')
 	}
 	async startPalComputer(id: string): Promise<PalComputerView> {
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
 		const { project } = await this.openPal(id)
-		return (await this.project(project.id).client.request(
+		if (this.changingPals.has(id) || epoch !== (this.computerAuthorityEpochs.get(id) ?? 0))
+			throw new Error('This Pal computer changed before it could start. Refresh its status.')
+		return this.startOwnedPalComputer(id, this.project(project.id).client)
+	}
+	private async startOwnedPalComputer(id: string, client: RuntimeClient): Promise<PalComputerView> {
+		return (await client.request(
 			'namzu/pals/computer/start',
 			{
 				palId: id,
@@ -367,33 +384,114 @@ export class Operator {
 			120_000,
 		)) as PalComputerView
 	}
+	private assertPalComputerForegroundIdle(id: string): void {
+		if (
+			[...this.conversations.values()].some(
+				(item) =>
+					item.view.palId === id && (item.running || item.queue.length || item.permissions.size),
+			)
+		)
+			throw new Error('Stop this Pal’s active work before stopping its computer.')
+	}
+	private async assertPalComputerIdle(id: string, restarting = false): Promise<void> {
+		const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
+		this.assertPalComputerForegroundIdle(id)
+		for (const item of owned) {
+			const jobs = (
+				restarting
+					? await item.client.request('namzu/jobs/list', { sessionId: item.runtimeSessionId })
+					: await this.jobs(item.view.id)
+			) as JobView[]
+			if (
+				!Array.isArray(jobs) ||
+				jobs.some((job) => job.status === 'running' || (restarting && job.recoveryRequired))
+			)
+				throw new Error('Stop this Pal’s background work before stopping its computer.')
+		}
+		// A review notification can arrive while background jobs are being read.
+		this.assertPalComputerForegroundIdle(id)
+	}
+	private async stopOwnedPalComputer(id: string, client: RuntimeClient): Promise<PalComputerView> {
+		const state = (await client.request('namzu/pals/computer/stop', {
+			palId: id,
+		})) as PalComputerView
+		if (state.status === 'stopped') {
+			this.operatorComputers.delete(id)
+			for (const [viewerId, viewer] of this.computerViewers)
+				if (viewer.palId === id) this.closePalComputerStream(viewerId)
+		}
+		return state
+	}
 	async stopPalComputer(id: string): Promise<PalComputerView> {
 		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
 		this.changingPals.add(id)
 		this.advanceComputerAuthority(id)
 		try {
 			const { project } = await this.openPal(id)
-			const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
-			if (owned.some((item) => item.running || item.queue.length || item.permissions.size))
-				throw new Error('Stop this Pal’s active work before stopping its computer.')
-			for (const item of owned) {
-				const jobs = (await this.jobs(item.view.id)) as JobView[]
-				if (!Array.isArray(jobs) || jobs.some((job) => job.status === 'running'))
-					throw new Error('Stop this Pal’s background work before stopping its computer.')
+			await this.assertPalComputerIdle(id)
+			return await this.stopOwnedPalComputer(id, this.project(project.id).client)
+		} finally {
+			this.advanceComputerAuthority(id)
+			this.changingPals.delete(id)
+		}
+	}
+	async rebootPalComputer(id: string, generation: string): Promise<PalComputerView> {
+		if (
+			typeof generation !== 'string' ||
+			!/^[1-9][0-9]{0,15}$/.test(generation) ||
+			!Number.isSafeInteger(Number(generation))
+		)
+			throw new Error('Invalid Pal computer generation.')
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPals.add(id)
+		this.advanceComputerAuthority(id)
+		try {
+			const { pal, project } = await this.openPal(id)
+			if (pal.paused) throw new Error('Resume this Pal before restarting its computer.')
+			const client = this.project(project.id).client
+			const assertGeneration = async () => {
+				const state = await this.computerStatus(client, id)
+				if (state.status !== 'ready' || state.generation !== generation)
+					throw new Error('This Pal computer changed. Refresh its status before restarting.')
 			}
-			const state = (await this.project(project.id).client.request('namzu/pals/computer/stop', {
-				palId: id,
-			})) as PalComputerView
-			if (state.status === 'stopped') this.operatorComputers.delete(id)
-			return state
+			await assertGeneration()
+			await this.assertPalComputerIdle(id, true)
+			await assertGeneration()
+			// Profile pause may have changed in another process during the idle check.
+			const current = (await (await this.registry()).request('namzu/pals/get', { id })) as PalView
+			if (current?.id !== id || current.workspace !== pal.workspace)
+				throw new Error('This Pal changed before its computer could restart.')
+			this.palRecords.set(id, current)
+			if (current.paused) throw new Error('Resume this Pal before restarting its computer.')
+			this.assertPalComputerForegroundIdle(id)
+			if (this.project(project.id).client !== client || !this.ownedClients.has(client))
+				throw new Error('This Pal’s connection changed before restarting its computer.')
+			const stopped = await this.stopOwnedPalComputer(id, client)
+			if (stopped.status !== 'stopped')
+				throw new Error('The Pal computer did not confirm its stop. Recover it before restarting.')
+			if (this.project(project.id).client !== client || !this.ownedClients.has(client))
+				throw new Error('This Pal’s connection changed before its computer could start.')
+			const started = await this.startOwnedPalComputer(id, client)
+			if (this.project(project.id).client !== client || !this.ownedClients.has(client))
+				throw new Error('This Pal’s connection changed while its computer was starting.')
+			if (
+				started.status !== 'ready' ||
+				typeof started.generation !== 'string' ||
+				!/^[1-9][0-9]{0,15}$/.test(started.generation) ||
+				!Number.isSafeInteger(Number(started.generation)) ||
+				started.generation === generation ||
+				(started.control?.supported && started.control.mode !== 'pal')
+			)
+				throw new Error('The Pal computer did not confirm a new generation. Refresh its status.')
+			return started
 		} finally {
 			this.advanceComputerAuthority(id)
 			this.changingPals.delete(id)
 		}
 	}
 	async palScreen(id: string, generation?: string): Promise<PalScreenView> {
-		const { project } = await this.openPal(id)
-		const screen = (await this.project(project.id).client.request('namzu/pals/computer/screen', {
+		const client = await this.controlClient(id, true)
+		const screen = (await client.request('namzu/pals/computer/screen', {
 			palId: id,
 			...(generation === undefined ? {} : { generation }),
 		})) as PalScreenView
@@ -411,6 +509,35 @@ export class Operator {
 		)
 			throw new Error('The Pal computer returned an invalid screen.')
 		return screen
+	}
+	async openPalComputerStream(id: string, generation: string): Promise<PalComputerStreamView> {
+		if (!this.streamProxy) throw new Error('Update Namzu to enable live computer views.')
+		if (!/^[1-9][0-9]{0,15}$/.test(generation) || !Number.isSafeInteger(Number(generation)))
+			throw new Error('Invalid Pal computer generation.')
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
+		const client = await this.controlClient(id, true)
+		const descriptor = await client.request('namzu/pals/computer/stream', { palId: id, generation })
+		if (
+			this.closing ||
+			this.changingPals.has(id) ||
+			epoch !== (this.computerAuthorityEpochs.get(id) ?? 0) ||
+			!this.ownedClients.has(client)
+		)
+			throw new Error('This Pal computer changed before the view opened.')
+		const view = this.streamProxy.open(descriptor, generation)
+		const onClosed = () => this.closePalComputerStream(view.id)
+		this.computerViewers.set(view.id, { palId: id, client, onClosed })
+		client.once('closed', onClosed)
+		return view
+	}
+	closePalComputerStream(id: string): void {
+		if (typeof id !== 'string') throw new Error('Invalid computer view.')
+		const viewer = this.computerViewers.get(id)
+		if (!viewer) return
+		viewer.client.off('closed', viewer.onClosed)
+		this.computerViewers.delete(id)
+		this.streamProxy?.close(id)
 	}
 	private emit(event: DesktopEvent): void {
 		if (event.kind !== 'connection') {
@@ -1335,6 +1462,7 @@ export class Operator {
 	}
 	async close(): Promise<void> {
 		this.closing = true
+		for (const id of this.computerViewers.keys()) this.closePalComputerStream(id)
 		const closing = await Promise.allSettled(
 			[...this.ownedClients].map((client) => this.closeClient(client)),
 		)

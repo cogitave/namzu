@@ -15,6 +15,7 @@ import {
 import {
 	cliPalComputerStatus,
 	cliPalScreen,
+	cliPalScreenStream,
 	executeCliPalComputerInput,
 	getCliPalRuntime,
 	returnCliPalComputerControl,
@@ -107,6 +108,8 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 				ownedPal(params),
 				params.generation === undefined ? undefined : text(params, 'generation', 16),
 			),
+		'namzu/pals/computer/stream': (params: Record<string, unknown>) =>
+			cliPalScreenStream(ownedPal(params), text(params, 'generation', 16)),
 		'namzu/pals/computer/take_over': (params: Record<string, unknown>) =>
 			takeOverCliPalComputer(ownedPal(params), text(params, 'generation', 16)),
 		'namzu/pals/computer/return_control': (params: Record<string, unknown>) =>

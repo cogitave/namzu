@@ -85,7 +85,7 @@ function engineFixture(
 	return { runner, calls }
 }
 
-function stubReadiness() {
+function stubReadiness(stream?: unknown) {
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(
@@ -93,7 +93,7 @@ function stubReadiness() {
 				new Response(
 					JSON.stringify(
 						url.endsWith('/readyz')
-							? { protocol: 1, width: 1280, height: 800, browserReady: true }
+							? { protocol: 1, width: 1280, height: 800, browserReady: true, stream }
 							: { protocolVersion: 2 },
 					),
 					{ status: 200 },
@@ -192,6 +192,7 @@ describe('local Pal computer admission', () => {
 		expect(run.args).toContain('127.0.0.1::2025')
 		expect(lease.sandbox.rootDir).toBe('/home/namzu/workspace')
 		expect(lease.computerUseHost.capabilities.screenshot).toBe(true)
+		expect(lease.screenStream).toBeUndefined()
 		expect(lease.sandbox.openTerminal).toBeUndefined()
 		expect(lease.sandbox.spawnDetached).toBeTypeOf('function')
 		await expect(provider.acquire({ pal, conversationId: 'other' })).rejects.toThrow(
@@ -207,6 +208,31 @@ describe('local Pal computer admission', () => {
 		await expect(lease.computerUseHost.execute({ type: 'screenshot' })).rejects.toThrow(
 			'lease has ended',
 		)
+	})
+	it('exposes a host-only RFB descriptor from actual readiness through the existing owned desktop port', async () => {
+		stubReadiness({ protocol: 'rfb' })
+		const fixture = engineFixture()
+		const provider = createLocalVirtualComputerProvider({ runner: fixture.runner })
+		const lease = await provider.acquire({ pal, conversationId: 'stream-view' })
+		const run = fixture.calls.find((call) => call.args[2] === 'run')!
+		expect(lease.screenStream).toEqual({
+			protocol: 'rfb',
+			url: 'ws://127.0.0.1:41125/stream',
+			authorization: `Bearer ${run.env!.NAMZU_SANDBOX_TOKEN}`,
+		})
+		expect(Object.isFrozen(lease.screenStream)).toBe(true)
+		expect(run.args).not.toContain('127.0.0.1::5900')
+		await lease.release()
+	})
+	it('does not invent RFB support for another advertised stream protocol', async () => {
+		stubReadiness({ protocol: 'unknown' })
+		const fixture = engineFixture()
+		const lease = await createLocalVirtualComputerProvider({ runner: fixture.runner }).acquire({
+			pal,
+			conversationId: 'not-rfb',
+		})
+		expect(lease.screenStream).toBeUndefined()
+		await lease.release()
 	})
 	it('retains the Pal lane and retries owned forwarding cleanup after guest removal', async () => {
 		stubReadiness()

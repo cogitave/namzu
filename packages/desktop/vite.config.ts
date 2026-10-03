@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import { type Plugin, defineConfig } from 'vite'
+import { readStreamRendererPort } from './src/main/stream-renderer-policy.js'
 
 function localDevelopment(): Plugin {
 	return {
@@ -27,12 +28,14 @@ function localDevelopment(): Plugin {
 				if (!context.server) return html
 				const address = context.server.httpServer?.address()
 				if (!address || typeof address === 'string') return html
+				const streamPort = readStreamRendererPort(context.originalUrl)
+				const streamSource = streamPort ? ` ws://127.0.0.1:${streamPort}` : ''
 				// The production document stays unchanged. Only this listening local
 				// server may provide modules and the renderer's HMR websocket.
 				// Reconnect pings use a local Blob worker.
 				return html.replace(
 					"connect-src 'none'",
-					`connect-src 'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port}; worker-src 'self' blob:`,
+					`connect-src 'self' ws://127.0.0.1:${address.port} ws://localhost:${address.port}${streamSource}; worker-src 'self' blob:`,
 				)
 			},
 		},

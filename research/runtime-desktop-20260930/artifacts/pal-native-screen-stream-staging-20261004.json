@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "image": "namzu-local-computer:stream-20261004",
+  "imageId": "07b8381bfd396681b64bd299740f0a3ddd5d1600d871d028fc681faf907bbddd",
+  "checks": [
+    {
+      "name": "actual-native-RFB-handshake-and-pixels",
+      "passed": true,
+      "width": 1280,
+      "height": 800,
+      "pixelCount": 1024000
+    },
+    {
+      "name": "VNC-pointer-input-ignored-with-operator-control",
+      "passed": true
+    },
+    {
+      "name": "VNC-key-input-ignored-and-owned-SDK-human-input-applied-once",
+      "passed": true
+    },
+    {
+      "name": "readonly-stream-does-not-clear-agent-fresh-screenshot-fence",
+      "passed": true
+    },
+    {
+      "name": "stream-ends-on-owned-stop-and-new-generation-keeps-volume-data",
+      "passed": true
+    }
+  ],
+  "cleanupConfirmed": true,
+  "sourceHashes": [
+    {
+      "file": "packages/p22/dist/pals/runtime.js",
+      "sha256": "f3100d59a3526ea42095ecdfedae762fe593030115432a7126662297868086c1"
+    },
+    {
+      "file": "packages/p77/dist/local-virtual-computer/client.js",
+      "sha256": "b7428d5e3576fed64a85688f72254c18ad2de6dd162f5a9717828ad1f7d1eea8"
+    },
+    {
+      "file": "packages/p77/dist/local-virtual-computer/index.js",
+      "sha256": "edf1a76b4b62f7e225af211cf6591c94159b137ad804e43ee75303ee30950562"
+    },
+    {
+      "file": "private-native-proof/verify-stream.mjs",
+      "sha256": "22c6d31b450077c7f3ea8ef07a51fc9c39e875b2470bf7ed866b3734528b2518"
+    }
+  ],
+  "limitations": [
+    "Private native SDK/worker/RFB integration fixture, not the actual Electron renderer.",
+    "Scripted host SDK actions; no external account, model inference or user profile edits.",
+    "Only fixture-owned runtime containers removed; persistent fixture volume intentionally retained.",
+    "RFB stream is readonly; actual SDK HTTP input remains exclusive."
+  ],
+  "build": {
+    "buildExitCode": 0,
+    "engine": "native Windows Podman",
+    "connection": "explicit existing local WSL machine root connection",
+    "basePull": "never",
+    "previousDefaultImageId": "3a34d95148b3a650fe504567fd9765e075582a32bf24e073589b3efea1a626cf",
+    "stagingImage": "namzu-local-computer:stream-20261004",
+    "stagingImageId": "07b8381bfd396681b64bd299740f0a3ddd5d1600d871d028fc681faf907bbddd",
+    "guestUser": "1001:1001",
+    "exposedPorts": [
+      2024,
+      2025
+    ],
+    "hostVncPortPublished": false
+  },
+  "imageSourceHashes": [
+    {
+      "file": "local-computer/Dockerfile",
+      "sha256": "6af6b1cf49be4b3123d2426dc5d2d3743013f225e5fd65ee0f7e70a602f20519"
+    },
+    {
+      "file": "local-computer/entrypoint.sh",
+      "sha256": "e8e6404c80c193af471f19d846f624d0abeaebd87d65cc26453762f3c0fb081e"
+    },
+    {
+      "file": "local-computer/desktop-worker.cjs",
+      "sha256": "cc01d4cdea400c0b12abd66405ae7b56558a7fd259f3c81cef0f8be73386ee46"
+    },
+    {
+      "file": "worker/server.js",
+      "sha256": "c605fea5186ddda553904ddc50b4936710fc4c285f10a909a84c984242fdb6ae"
+    }
+  ],
+  "defaultTagPromoted": false,
+  "actualAppGuestModified": false
+}

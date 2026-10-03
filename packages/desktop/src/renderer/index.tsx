@@ -1,3 +1,4 @@
+import { MessageSquare, Minus } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
@@ -9,6 +10,7 @@ import type {
 	HumanComputerView,
 	JobView,
 	PalComputerInput,
+	PalComputerStreamView,
 	PalInput,
 	PalScreenView,
 	PalView,
@@ -29,7 +31,8 @@ import {
 	pluginRowId,
 } from './composer-plugins.js'
 import { Composer } from './composer.js'
-import { ComputerInputQueue } from './computer-input-queue.js'
+import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
+import { ComputerWorkspaceToolbar } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
 	ArrowUpIcon,
@@ -135,6 +138,15 @@ function App() {
 	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
 	const [palComputers, setPalComputers] = useState<Record<string, ComputerState>>({})
 	const [palScreen, setPalScreen] = useState<{ palId: string }>()
+	const [computerChat, setComputerChat] = useState<'hidden' | 'split' | 'floating'>('split')
+	const [floatingChatMinimized, setFloatingChatMinimized] = useState(false)
+	const [streamRefresh, setStreamRefresh] = useState(0)
+	const [liveStream, setLiveStream] = useState<{
+		palId: string
+		value?: PalComputerStreamView
+		loading?: boolean
+		error?: string
+	}>()
 	const [palScreens, setPalScreens] = useState<
 		Record<
 			string,
@@ -154,6 +166,12 @@ function App() {
 	const startingComputers = useRef(new Set<string>())
 	const captureFlight = useRef<Promise<PalScreenView> | undefined>(undefined)
 	const inputSequence = useRef(0)
+	const computerInputViewEpoch = useRef(0)
+	const computerInputReadyStream = useRef<string | undefined>(undefined)
+	const invalidateComputerInput = useCallback(() => {
+		computerInputViewEpoch.current += 1
+		computerInputReadyStream.current = undefined
+	}, [])
 	const [inputBusy, setInputBusy] = useState(false)
 	const previousNormalProject = useRef<string | undefined>(undefined)
 	const [projects, setProjects] = useState<ProjectView[]>([])
@@ -958,7 +976,9 @@ function App() {
 		let current = true
 		let timer: ReturnType<typeof setTimeout> | undefined
 		const read = async () => {
+			let ready = false
 			try {
+				if (document.hidden) return
 				if (controlPending.current || startingComputers.current.has(id)) return
 				const computer = await api.palComputer(id)
 				if (
@@ -977,6 +997,10 @@ function App() {
 					return
 				}
 				const generation = computer.generation
+				ready = true
+				// The content route uses a persistent RFB stream. PNG captures are
+				// only for the small card thumbnail while the chat is visible.
+				if (palScreen?.palId === id) return
 				setPalScreens((all) => ({
 					...all,
 					[id]:
@@ -1004,6 +1028,7 @@ function App() {
 					if (current && epoch === computerReadEpoch.current)
 						setPalScreens((all) => ({ ...all, [id]: { generation, screen } }))
 				} catch (failure) {
+					ready = false
 					if (current && epoch === computerReadEpoch.current)
 						setPalScreens((all) => ({
 							...all,
@@ -1026,7 +1051,11 @@ function App() {
 					}))
 				}
 			} finally {
-				if (current) timer = setTimeout(() => void read(), palScreen?.palId === id ? 1200 : 5000)
+				if (current)
+					timer = setTimeout(
+						() => void read(),
+						ready && !document.hidden ? (palScreen?.palId === id ? 1_000 : 5_000) : 5_000,
+					)
 			}
 		}
 		void read()
@@ -1035,6 +1064,13 @@ function App() {
 			if (timer) clearTimeout(timer)
 		}
 	}, [pal?.id, project?.status, palsPage, railSection, palScreen?.palId, screenRefresh])
+	useEffect(() => {
+		const wake = () => {
+			if (!document.hidden) setScreenRefresh((value) => value + 1)
+		}
+		document.addEventListener('visibilitychange', wake)
+		return () => document.removeEventListener('visibilitychange', wake)
+	}, [])
 
 	const startPalComputer = async (value: PalView) => {
 		if (startingComputers.current.has(value.id)) return
@@ -1084,10 +1120,56 @@ function App() {
 			: null
 	const computerPage =
 		!!pal && palScreen?.palId === pal.id && !palsPage && railSection !== 'plugins'
+	const liveViewer = liveStream?.value
+	const activeStream =
+		liveStream?.palId === pal?.id && liveViewer?.generation === palComputer?.generation
+			? (liveViewer ?? null)
+			: null
+	const livePalId = pal?.id
+	const liveGeneration = palComputer?.generation
+	const liveStatus = palComputer?.status
+	useEffect(() => {
+		invalidateComputerInput()
+		if (!computerPage || !livePalId || liveStatus !== 'ready' || !liveGeneration) {
+			setLiveStream(undefined)
+			return
+		}
+		void streamRefresh
+		const id = livePalId
+		const generation = liveGeneration
+		let current = true
+		let viewer: PalComputerStreamView | undefined
+		setLiveStream({ palId: id, loading: true })
+		const open = async () => {
+			try {
+				if (!api.openPalComputerStream || !api.closePalComputerStream)
+					throw new Error('Update the desktop app to enable live computer views.')
+				viewer = await api.openPalComputerStream(id, generation)
+				if (!current) {
+					await api.closePalComputerStream(viewer.id)
+					return
+				}
+				setLiveStream({ palId: id, value: viewer })
+			} catch (failure) {
+				if (current) setLiveStream({ palId: id, error: errorText(failure) })
+			}
+		}
+		void open()
+		return () => {
+			current = false
+			invalidateComputerInput()
+			if (viewer)
+				void api
+					.closePalComputerStream?.(viewer.id)
+					.catch((failure) => setError(errorText(failure)))
+		}
+	}, [computerPage, livePalId, liveStatus, liveGeneration, streamRefresh, invalidateComputerInput])
 	const computerOwner = useRef<{
 		id?: string
 		generation?: string
 		mode?: string
+		status?: ComputerState['status']
+		streamId?: string
 		navigation: number
 		visible: boolean
 	}>({ navigation: 0, visible: false })
@@ -1095,6 +1177,8 @@ function App() {
 		id: pal?.id,
 		generation: palComputer?.generation,
 		mode: palComputer?.control?.mode,
+		status: palComputer?.status,
+		streamId: activeStream?.id,
 		navigation: navigation.current,
 		visible: computerPage,
 	}
@@ -1103,11 +1187,15 @@ function App() {
 		inputQueue.current = new ComputerInputQueue(async (action, owner) => {
 			const current = computerOwner.current
 			if (
-				current.id !== owner.id ||
-				current.generation !== owner.generation ||
-				current.navigation !== owner.navigation ||
+				!computerInputOwnerMatches(owner, {
+					...current,
+					viewEpoch: computerInputViewEpoch.current,
+				}) ||
 				navigation.current !== owner.navigation ||
 				!current.visible ||
+				current.status !== 'ready' ||
+				!current.streamId ||
+				current.streamId !== computerInputReadyStream.current ||
 				current.mode !== 'operator' ||
 				!api.palComputerInput
 			)
@@ -1151,6 +1239,9 @@ function App() {
 			!owner.id ||
 			!owner.generation ||
 			!owner.visible ||
+			owner.status !== 'ready' ||
+			!owner.streamId ||
+			owner.streamId !== computerInputReadyStream.current ||
 			owner.mode !== 'operator' ||
 			controlPending.current ||
 			!api.palComputerInput
@@ -1162,12 +1253,12 @@ function App() {
 			id: owner.id,
 			generation: owner.generation,
 			navigation: owner.navigation,
+			viewEpoch: computerInputViewEpoch.current,
 		})
 		void operation
 			.finally(() => {
 				if (sequence === inputSequence.current) {
 					setInputBusy(false)
-					setScreenRefresh((value) => value + 1)
 				}
 			})
 			.catch(() => {})
@@ -1706,6 +1797,8 @@ function App() {
 			)}
 			<main
 				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
+				data-computer-chat={computerPage ? computerChat : undefined}
+				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
 					railSection === 'plugins'
 						? 'plugins'
@@ -1716,16 +1809,72 @@ function App() {
 								: 'chat'
 				}
 			>
+				{computerPage && pal && (
+					<ComputerWorkspaceToolbar
+						palName={pal.name}
+						paused={pal.paused}
+						busy={palBusy || controlBusy || palsSaving}
+						computerTabOpen
+						chatOpen={computerChat !== 'hidden'}
+						floating={computerChat === 'floating'}
+						onRename={() => showPalEditor(pal)}
+						onPause={palContextProps?.onPause}
+						onReboot={
+							palComputer?.status === 'ready' && !pal.paused && api.rebootPalComputer
+								? () =>
+										void act(async () => {
+											controlPending.current = true
+											setControlBusy(true)
+											computerReadEpoch.current += 1
+											try {
+												await computerInputQueue.flush()
+												const generation = palComputer.generation
+												if (!generation || !api.rebootPalComputer)
+													throw new Error('Computer reboot is unavailable.')
+												const state = await api.rebootPalComputer(pal.id, generation)
+												setPalComputers((all) => ({ ...all, [pal.id]: state }))
+											} finally {
+												controlPending.current = false
+												setControlBusy(false)
+												setScreenRefresh((value) => value + 1)
+											}
+										})
+								: undefined
+						}
+						onOpenComputer={() => setFloatingChatMinimized(false)}
+						onCloseComputer={() => {
+							navigation.current += 1
+							setPalScreen(undefined)
+						}}
+						onToggleChat={() => {
+							setComputerChat((value) => (value === 'hidden' ? 'split' : 'hidden'))
+							setFloatingChatMinimized(false)
+						}}
+						onToggleFloating={() => {
+							setComputerChat((value) => (value === 'floating' ? 'split' : 'floating'))
+							setFloatingChatMinimized(false)
+						}}
+					/>
+				)}
 				{computerPage && pal && palContextProps && (
 					<PalComputerView
 						key={`${pal.id}:${palComputer?.generation ?? 'offline'}`}
 						palName={pal.name}
 						computer={{
 							...palContextProps.computer,
-							notice: computerCapture?.error ?? palContextProps.computer.notice,
+							notice: liveStream?.error ?? palContextProps.computer.notice,
 						}}
-						screen={currentScreen}
-						loading={computerCapture?.loading ?? false}
+						screen={null}
+						stream={activeStream}
+						hideHeader
+						loading={liveStream?.loading ?? false}
+						onStreamReady={(id) => {
+							if (computerOwner.current.streamId === id) computerInputReadyStream.current = id
+						}}
+						onStreamDisconnected={(id) => {
+							if (computerOwner.current.streamId === id) invalidateComputerInput()
+							void api.closePalComputerStream?.(id).catch((failure) => setError(errorText(failure)))
+						}}
 						control={palComputer?.control}
 						controlBusy={controlBusy}
 						inputBusy={inputBusy}
@@ -1733,7 +1882,10 @@ function App() {
 							navigation.current += 1
 							setPalScreen(undefined)
 						}}
-						onRefresh={() => setScreenRefresh((value) => value + 1)}
+						onRefresh={() => {
+							invalidateComputerInput()
+							setStreamRefresh((value) => value + 1)
+						}}
 						onStart={palContextProps.onStartComputer}
 						onTakeOver={
 							api.takeOverPalComputer
@@ -1860,7 +2012,7 @@ function App() {
 						/>
 					</div>
 				)}
-				{computerPage ? null : !project ? (
+				{!project ? (
 					<Empty className="welcome">
 						<Wordmark hero />
 
@@ -1915,12 +2067,40 @@ function App() {
 						className="chat-stage"
 						data-empty={!pal && thread.messages.length === 0}
 						data-context-card={!jobsOpen && !pal && thread.messages.length > 0}
-						data-pal-context={Boolean(palContextProps)}
+						data-pal-context={Boolean(palContextProps) && !computerPage}
 					>
 						{!pal && contextProps && thread.messages.length > 0 && !jobsOpen && (
 							<ProjectContextCard {...contextProps} />
 						)}
-						{palContextProps && <PalContextCard {...palContextProps} />}
+						{palContextProps && !computerPage && <PalContextCard {...palContextProps} />}
+						{computerPage && computerChat === 'floating' && (
+							<header className="computer-floating-chat-heading">
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label={floatingChatMinimized ? 'Restore chat' : 'Minimize chat'}
+									onClick={() => setFloatingChatMinimized((value) => !value)}
+								>
+									{floatingChatMinimized ? (
+										<MessageSquare aria-hidden="true" />
+									) : (
+										<Minus aria-hidden="true" />
+									)}
+								</Button>
+								<span>Chat</span>
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label="Dock chat panel"
+									onClick={() => {
+										setComputerChat('split')
+										setFloatingChatMinimized(false)
+									}}
+								>
+									<PanelLeftIcon />
+								</Button>
+							</header>
+						)}
 						<div className="conversation-lane">
 							<div
 								className="transcript"

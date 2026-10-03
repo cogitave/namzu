@@ -1,0 +1,123 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "image": "namzu-local-computer:desktop-stream-20261004",
+  "imageId": "11788ca89db60f3ecd99c7e1aaf7930ca21b4fbbc8dd6ac348a18fa7778a1e9e",
+  "checks": [
+    {
+      "name": "actual-installed-browser-terminal-files-dock-and-window-manager",
+      "passed": true
+    },
+    {
+      "name": "actual-native-worker-rejects-wrong-bearer-and-browser-origin",
+      "passed": true
+    },
+    {
+      "name": "actual-native-RFB-handshake-and-pixels",
+      "passed": true,
+      "width": 1280,
+      "height": 800,
+      "pixelCount": 1024000
+    },
+    {
+      "name": "VNC-pointer-input-ignored-with-operator-control",
+      "passed": true
+    },
+    {
+      "name": "VNC-key-input-ignored-and-owned-SDK-human-input-applied-once",
+      "passed": true
+    },
+    {
+      "name": "readonly-stream-does-not-clear-agent-fresh-screenshot-fence",
+      "passed": true
+    },
+    {
+      "name": "Chromium-process-exit-and-configured-launcher-reopen-preserve-guest-and-profile-folder",
+      "passed": true
+    },
+    {
+      "name": "stream-ends-on-owned-stop-and-new-generation-keeps-volume-data",
+      "passed": true
+    }
+  ],
+  "cleanupConfirmed": true,
+  "sourceHashes": [
+    {
+      "file": "packages/p22/dist/pals/runtime.js",
+      "sha256": "f3100d59a3526ea42095ecdfedae762fe593030115432a7126662297868086c1"
+    },
+    {
+      "file": "packages/p77/dist/local-virtual-computer/client.js",
+      "sha256": "b7428d5e3576fed64a85688f72254c18ad2de6dd162f5a9717828ad1f7d1eea8"
+    },
+    {
+      "file": "packages/p77/dist/local-virtual-computer/index.js",
+      "sha256": "edf1a76b4b62f7e225af211cf6591c94159b137ad804e43ee75303ee30950562"
+    },
+    {
+      "file": "private-native-proof/verify-stream.mjs",
+      "sha256": "638285c4b84861e78e98173c973c46914f184c3cb5edd006edbd049df7bc62e2"
+    }
+  ],
+  "limitations": [
+    "Private native SDK/worker/RFB integration fixture, not the actual Electron renderer.",
+    "Scripted host SDK actions with fixture-owned Podman terminal setup; no external account, model inference or user profile edits.",
+    "Only fixture-owned runtime containers removed; persistent fixture volume intentionally retained.",
+    "RFB stream is readonly; actual SDK HTTP input remains exclusive.",
+    "Profile proof preserves the guest profile folder and fixture marker; it does not claim an authenticated browser cookie/account migration.",
+    "Browser lifetime proof uses fixture-local process termination and the configured launcher command; actual Electron dock clicking is verified separately by the operator."
+  ],
+  "build": {
+    "buildExitCode": 0,
+    "engine": "native Windows Podman",
+    "connection": "explicit existing local WSL machine root connection",
+    "basePull": "never",
+    "previousDefaultImageId": "3a34d95148b3a650fe504567fd9765e075582a32bf24e073589b3efea1a626cf",
+    "guestUser": "1001:1001",
+    "imageExposedPorts": [
+      2024,
+      2025
+    ],
+    "validation": {
+      "dashEntrypointParse": true,
+      "onyxThemePresent": true,
+      "adwaitaThemePresent": true,
+      "chromiumIconPresent": true,
+      "installedTint2PcmanfmHsetrootXterm": true
+    }
+  },
+  "imageSourceHashes": [
+    {
+      "file": "local-computer/Dockerfile",
+      "sha256": "a1d94e78dbda711a48757906f9fcbfcf83386922887f811463bf10787dfa8f84"
+    },
+    {
+      "file": "local-computer/entrypoint.sh",
+      "sha256": "785a7ea86e53035692e1855d992b0e7284c9682c21506e9c6c950a65195054df"
+    },
+    {
+      "file": "local-computer/home.html",
+      "sha256": "0c6727f2bb7e9e106acccf3d586f0bc76632b083a78d2c1c1d42f63ca30b7fda"
+    },
+    {
+      "file": "local-computer/tint2rc",
+      "sha256": "406a52974dcc264c7dc76d8ac09674475acc3cb06c7bd454f908f786c39c0e0f"
+    },
+    {
+      "file": "local-computer/openbox-rc.xml",
+      "sha256": "78d3c6ae3b2c8431e24741e04e3bf0d40da43a20596888cc25c600bcd0fc2b90"
+    },
+    {
+      "file": "local-computer/desktop-worker.cjs",
+      "sha256": "cc01d4cdea400c0b12abd66405ae7b56558a7fd259f3c81cef0f8be73386ee46"
+    },
+    {
+      "file": "worker/server.js",
+      "sha256": "c605fea5186ddda553904ddc50b4936710fc4c285f10a909a84c984242fdb6ae"
+    }
+  ],
+  "defaultTagPromoted": true,
+  "defaultTagVerifiedImageId": "11788ca89db60f3ecd99c7e1aaf7930ca21b4fbbc8dd6ac348a18fa7778a1e9e",
+  "fixtureModifiedActualUserState": false
+}

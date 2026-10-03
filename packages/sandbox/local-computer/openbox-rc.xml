@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus>
+    <focusNew>yes</focusNew><followMouse>no</followMouse><focusLast>yes</focusLast>
+  </focus>
+  <placement><policy>Smart</policy><center>yes</center><monitor>Primary</monitor></placement>
+  <theme>
+    <name>Onyx</name><titleLayout>NLIMC</titleLayout><keepBorder>yes</keepBorder>
+    <animateIconify>yes</animateIconify>
+    <font place="ActiveWindow"><name>DejaVu Sans</name><size>9</size><weight>normal</weight></font>
+    <font place="InactiveWindow"><name>DejaVu Sans</name><size>9</size><weight>normal</weight></font>
+  </theme>
+  <desktops><number>1</number><firstdesk>1</firstdesk><names><name>Namzu</name></names></desktops>
+  <margins><top>16</top><bottom>86</bottom><left>16</left><right>16</right></margins>
+  <resize><drawContents>yes</drawContents><popupShow>Nonpixel</popupShow></resize>
+  <keyboard>
+    <keybind key="A-F4"><action name="Close"/></keybind>
+    <keybind key="A-Tab"><action name="NextWindow"><finalactions><action name="Focus"/><action name="Raise"/></finalactions></action></keybind>
+    <keybind key="A-S-Tab"><action name="PreviousWindow"><finalactions><action name="Focus"/><action name="Raise"/></finalactions></action></keybind>
+    <keybind key="W-d"><action name="ToggleShowDesktop"/></keybind>
+  </keyboard>
+  <mouse>
+    <context name="Frame">
+      <mousebind button="A-Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="A-Left" action="Drag"><action name="Move"/></mousebind>
+      <mousebind button="A-Right" action="Drag"><action name="Resize"/></mousebind>
+    </context>
+    <context name="Titlebar">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Left" action="Drag"><action name="Move"/></mousebind>
+      <mousebind button="Left" action="DoubleClick"><action name="ToggleMaximize"/></mousebind>
+    </context>
+    <context name="Client"><mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind></context>
+    <context name="Iconify"><mousebind button="Left" action="Click"><action name="Iconify"/></mousebind></context>
+    <context name="Maximize"><mousebind button="Left" action="Click"><action name="ToggleMaximize"/></mousebind></context>
+    <context name="Close"><mousebind button="Left" action="Click"><action name="Close"/></mousebind></context>
+  </mouse>
+  <applications>
+    <application class="Chromium"><decor>yes</decor><maximized>no</maximized><fullscreen>no</fullscreen></application>
+  </applications>
+</openbox_config>

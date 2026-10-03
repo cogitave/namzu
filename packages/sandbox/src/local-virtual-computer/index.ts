@@ -296,6 +296,7 @@ export function createLocalVirtualComputerProvider(
 										width?: number
 										height?: number
 										browserReady?: boolean
+										stream?: { protocol?: unknown }
 									})
 								: undefined
 							const execution = await fetch(`${executionUrl}/healthz`, { signal })
@@ -309,7 +310,11 @@ export function createLocalVirtualComputerProvider(
 								desktop.browserReady === true &&
 								worker?.protocolVersion === 2
 							)
-								return { executionUrl, desktopUrl }
+								return {
+									executionUrl,
+									desktopUrl,
+									screenStream: desktop.stream?.protocol === 'rfb',
+								}
 						} catch {
 							signal.throwIfAborted()
 						}

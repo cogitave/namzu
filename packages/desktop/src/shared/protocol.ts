@@ -125,6 +125,14 @@ export interface PalScreenView {
 	width: number
 	height: number
 }
+/** A native, read-only viewer ticket. The guest allocation credential stays in main. */
+export interface PalComputerStreamView {
+	id: string
+	url: string
+	width: number
+	height: number
+	generation: string
+}
 export interface JobView {
 	id: string
 	command: string
@@ -205,7 +213,10 @@ export interface DesktopApi {
 	palComputer(id: string): Promise<PalComputerView>
 	startPalComputer(id: string): Promise<PalComputerView>
 	stopPalComputer(id: string): Promise<PalComputerView>
+	rebootPalComputer?(id: string, generation: string): Promise<PalComputerView>
 	palScreen(id: string, generation?: string): Promise<PalScreenView>
+	openPalComputerStream?(id: string, generation: string): Promise<PalComputerStreamView>
+	closePalComputerStream?(id: string): Promise<void>
 	humanComputer?(): Promise<HumanComputerView>
 	takeOverPalComputer?(id: string, generation: string): Promise<PalComputerView>
 	returnPalComputerControl?(id: string, generation: string): Promise<PalComputerView>

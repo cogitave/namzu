@@ -1,7 +1,17 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import {
+	net,
+	BrowserWindow,
+	Menu,
+	app,
+	dialog,
+	ipcMain,
+	nativeTheme,
+	session,
+	shell,
+} from 'electron'
 import type {
 	AttachmentInput,
 	DesktopEvent,
@@ -14,7 +24,9 @@ import type {
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { humanComputer } from './host-computer.js'
 import { Operator } from './operator.js'
+import { PalStreamProxy } from './pal-stream-proxy.js'
 import { selectRendererPage } from './renderer-page.js'
+import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import {
 	readWindowMenu,
 	readWindowMenuAnchor,
@@ -40,7 +52,7 @@ diagnostics.record('started', {
 			: 'other',
 })
 process.on('uncaughtExceptionMonitor', (error) => diagnostics.record('unhandled_error', { error }))
-const page = (() => {
+let page = (() => {
 	try {
 		return selectRendererPage({
 			isPackaged: app.isPackaged,
@@ -52,6 +64,9 @@ const page = (() => {
 		throw error
 	}
 })()
+const streamProxy = new PalStreamProxy(() =>
+	diagnostics.record('computer_stream_failed', { severity: 'error' }),
+)
 let window: BrowserWindow | undefined
 const cliEntry = process.env.NAMZU_DESKTOP_CLI
 const command = cliEntry
@@ -73,6 +88,7 @@ const operator = new Operator(
 	},
 	app.getPath('userData'),
 	diagnostics,
+	streamProxy,
 )
 function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
@@ -172,7 +188,14 @@ function register(): void {
 	handle('palComputer', (id: string) => operator.palComputer(id))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))
 	handle('stopPalComputer', (id: string) => operator.stopPalComputer(id))
+	handle('rebootPalComputer', (id: string, generation: string) =>
+		operator.rebootPalComputer(id, generation),
+	)
 	handle('palScreen', (id: string, generation?: string) => operator.palScreen(id, generation))
+	handle('openPalComputerStream', (id: string, generation: string) =>
+		operator.openPalComputerStream(id, generation),
+	)
+	handle('closePalComputerStream', (id: string) => operator.closePalComputerStream(id))
 	handle('humanComputer', () => humanComputer())
 	handle('takeOverPalComputer', (id: string, generation: string) =>
 		operator.takeOverPalComputer(id, generation),
@@ -378,25 +401,35 @@ app.on('before-quit', (event) => {
 	event.preventDefault()
 	if (quitting) return
 	quitting = true
-	void operator.close().then(
-		() => {
+	void operator
+		.close()
+		.then(async () => {
+			await streamProxy.shutdown()
 			stopped = true
 			app.quit()
-		},
-		(error: unknown) => {
+		})
+		.catch((error: unknown) => {
 			quitting = false
 			diagnostics.record('shutdown_failed', { error })
 			dialog.showErrorBox(
 				'Namzu could not stop',
 				error instanceof Error ? error.message : String(error),
 			)
-		},
-	)
+		})
 })
 // Keep module loading independent of Electron's ready event.
 void app
 	.whenReady()
 	.then(async () => {
+		const streamPort = await streamProxy.start()
+		page = withStreamRendererPort(page, streamPort)
+		streamProxy.allowRenderer(page)
+		installStreamRendererPolicy({
+			protocol: session.defaultSession.protocol,
+			fetch: (request, options) => net.fetch(request, options),
+			productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
+			port: streamPort,
+		})
 		Menu.setApplicationMenu(
 			Menu.buildFromTemplate([
 				...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),

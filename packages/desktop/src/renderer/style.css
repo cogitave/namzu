@@ -1261,6 +1261,134 @@ pre {
 	border-radius: 10px;
 }
 
-.workspace[data-page="computer"] > :not(.pal-computer-view):not(.connection-error) {
+.workspace[data-page="computer"]
+	> :not(.pal-computer-view):not(.connection-error):not(.computer-workspace-toolbar):not(
+		.chat-stage
+	) {
 	display: none;
+}
+.workspace[data-page="computer"] {
+	display: grid;
+	grid-template-rows: 48px minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr);
+}
+.workspace[data-page="computer"] > .computer-workspace-toolbar {
+	grid-row: 1;
+	grid-column: 1 / -1;
+}
+.workspace[data-page="computer"] > .pal-computer-view {
+	grid-row: 2;
+	grid-column: 1;
+}
+.workspace[data-page="computer"] > .chat-stage {
+	display: none;
+	width: auto;
+	transition: none;
+}
+.workspace[data-page="computer"][data-computer-chat="split"] {
+	grid-template-columns: minmax(320px, 1.65fr) minmax(300px, 1fr);
+}
+.workspace[data-page="computer"][data-computer-chat="split"] > .pal-computer-view {
+	grid-column: 2;
+	padding: 16px 16px 18px;
+}
+.workspace[data-page="computer"][data-computer-chat="split"] > .chat-stage {
+	display: flex;
+	grid-row: 2;
+	grid-column: 1;
+	border-right: 1px solid var(--border);
+}
+.workspace[data-page="computer"] .chat-stage {
+	--workspace-gutter-start: 16px;
+	--workspace-gutter-end: 16px;
+}
+.workspace[data-page="computer"] .pal-welcome {
+	max-width: 100%;
+}
+.workspace[data-page="computer"][data-computer-chat="floating"] > .chat-stage {
+	position: absolute;
+	bottom: 16px;
+	right: 18px;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	width: min(560px, calc(100% - 36px));
+	height: min(650px, calc(100% - 80px));
+	border: 1px solid var(--border);
+	border-radius: 22px;
+	background: var(--background);
+	box-shadow: 0 16px 48px rgb(0 0 0 / 20%);
+	overflow: hidden;
+	animation: pal-computer-arrive 180ms var(--motion-ease) both;
+}
+.computer-floating-chat-heading {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex: none;
+	min-height: 44px;
+	padding: 6px 12px;
+	background: var(--surface);
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+.computer-floating-chat-heading span {
+	flex: 1;
+}
+.workspace[data-page="computer"][data-computer-chat="floating"][data-chat-minimized="true"]
+	> .chat-stage {
+	width: 140px;
+	height: 46px;
+	border-radius: 16px;
+}
+.workspace[data-page="computer"][data-chat-minimized="true"] .conversation-lane {
+	display: none;
+}
+.workspace[data-page="computer"] > .connection-error {
+	position: absolute;
+	top: 52px;
+	left: 12px;
+	right: 12px;
+	z-index: 6;
+	width: auto;
+}
+@container workspace (max-width: 719px) {
+	.workspace[data-page="computer"][data-computer-chat="split"] > .pal-computer-view {
+		grid-column: 1;
+	}
+	.workspace[data-page="computer"][data-computer-chat="split"] > .chat-stage {
+		position: absolute;
+		bottom: 12px;
+		right: 12px;
+		z-index: 5;
+		width: calc(100% - 24px);
+		height: min(520px, 65%);
+		border: 1px solid var(--border);
+		border-radius: 18px;
+		background: var(--background);
+	}
+}
+@media (max-width: 1080px) {
+	.workspace[data-page="computer"][data-computer-chat="split"] {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.workspace[data-page="computer"][data-computer-chat="split"] > .pal-computer-view {
+		grid-column: 1;
+	}
+	.workspace[data-page="computer"][data-computer-chat="split"] > .chat-stage {
+		position: absolute;
+		bottom: 12px;
+		right: 12px;
+		z-index: 5;
+		width: min(560px, calc(100% - 24px));
+		height: min(520px, 65%);
+		border: 1px solid var(--border);
+		border-radius: 18px;
+		background: var(--background);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.workspace[data-page="computer"] > .chat-stage {
+		animation: none;
+	}
 }

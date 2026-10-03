@@ -7,6 +7,7 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
 	cliPalComputerStatus,
 	cliPalScreen,
+	cliPalScreenStream,
 	closeCliPalRuntime,
 	executeCliPalComputerInput,
 	getCliPalRuntime,
@@ -130,6 +131,7 @@ it('rejects noncanonical and stale wire generations before any input', async () 
 			executeCliPalComputerInput(pal.id, value as string, { type: 'key', keys: 'Return' }),
 		).rejects.toThrow('generation')
 		await expect(cliPalScreen(pal.id, value as string)).rejects.toThrow('generation')
+		await expect(cliPalScreenStream(pal.id, value as string)).rejects.toThrow('generation')
 	}
 	expect(createProvider).not.toHaveBeenCalled()
 	await startCliPalComputer(pal.id)
@@ -224,4 +226,84 @@ it('does not report stopped while owned guest cleanup is still pending', async (
 	pending.resolve()
 	expect(await stopping).toEqual({ status: 'stopped' })
 	expect(await cliPalComputerStatus(pal.id)).toEqual({ status: 'stopped' })
+})
+
+const streamDescriptor = {
+	protocol: 'rfb' as const,
+	url: 'ws://127.0.0.1:19876/stream',
+	authorization: 'host-only-stream-fixture-credential',
+}
+it('returns a host-only live descriptor with guest dimensions without capturing or changing input authority', async () => {
+	const { pal, lease, execute, control } = fixture()
+	Object.assign(lease, { screenStream: streamDescriptor })
+	await startCliPalComputer(pal.id)
+	const runtime = await getCliPalRuntime()
+	const admission = await runtime.admit({ palId: pal.id, conversationId: 'owned-live-view' })
+	expect(await cliPalScreenStream(pal.id, '1')).toEqual({
+		...streamDescriptor,
+		width: 10,
+		height: 10,
+		generation: '1',
+	})
+	admission.assertActive()
+	await admission.release()
+	await takeOverCliPalComputer(pal.id, '1')
+	expect(await cliPalScreenStream(pal.id, '1')).toMatchObject({ generation: '1' })
+	expect(runtime.computerControl(pal.id).mode).toBe('operator')
+	expect(execute).not.toHaveBeenCalled()
+	expect(control.executeInput).not.toHaveBeenCalled()
+})
+
+it('truthfully refuses a provider without live streaming instead of exposing a screenshot fallback', async () => {
+	const { pal, execute, acquire } = fixture()
+	await startCliPalComputer(pal.id)
+	await expect(cliPalScreenStream(pal.id, '1')).rejects.toThrow('does not support a live screen')
+	expect(acquire).toHaveBeenCalledOnce()
+	expect(execute).not.toHaveBeenCalled()
+})
+
+it('rejects a replaced generation after live stream geometry is read asynchronously', async () => {
+	const { pal, lease, acquire } = fixture()
+	Object.assign(lease, { screenStream: streamDescriptor })
+	const pending = deferred<Awaited<ReturnType<ComputerUseHost['getDisplayGeometry']>>>()
+	const entered = deferred<void>()
+	lease.computerUseHost.getDisplayGeometry = () => {
+		entered.resolve()
+		return pending.promise
+	}
+	await startCliPalComputer(pal.id)
+	const opening = cliPalScreenStream(pal.id, '1')
+	await entered.promise
+	await stopCliPalComputer(pal.id)
+	acquire.mockResolvedValueOnce({ ...lease, generation: 2 })
+	await startCliPalComputer(pal.id)
+	pending.resolve({ width: 10, height: 10, scaleFactor: 1 })
+	await expect(opening).rejects.toThrow('generation')
+})
+
+it('refuses rotated host credentials and invalid dimensions without including secrets in errors', async () => {
+	const { pal, lease } = fixture()
+	Object.assign(lease, { screenStream: streamDescriptor })
+	lease.computerUseHost.getDisplayGeometry = async () => {
+		Object.assign(lease, {
+			screenStream: { ...streamDescriptor, authorization: 'changed-private-fixture-credential' },
+		})
+		return { width: 10, height: 10, scaleFactor: 1 }
+	}
+	await startCliPalComputer(pal.id)
+	await expect(cliPalScreenStream(pal.id, '1')).rejects.toThrow('generation changed')
+	for (const geometry of [
+		{ width: 0, height: 10 },
+		{ width: 4097, height: 10 },
+		{ width: 10, height: 3073 },
+		{ width: 1.5, height: 10 },
+	]) {
+		lease.computerUseHost.getDisplayGeometry = async () => ({ ...geometry, scaleFactor: 1 })
+		await expect(cliPalScreenStream(pal.id, '1')).rejects.toThrow('invalid live screen size')
+	}
+	try {
+		await cliPalScreenStream(pal.id, '1')
+	} catch (error) {
+		expect(String(error)).not.toContain('private-fixture-credential')
+	}
 })

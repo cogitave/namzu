@@ -23,7 +23,10 @@ Linux engine. The optional Podman adapter supports an explicitly selected,
 already registered Windows WSL machine. It does not support arbitrary remote
 Podman connections, Linux-native Podman, or macOS Podman machines. The guest
 is a separate Linux container desktop with its own X server, visible Chromium,
-terminal window, workspace and browser profile. It shares the engine's kernel;
+terminal launcher, Files application, workspace and browser profile. The actual
+Openbox desktop has a green/charcoal wallpaper and a tint2 dock containing only
+installed Chromium, Terminal and Files launchers. Chromium starts on a local
+Namzu home page; these controls launch real guest applications. It shares the engine's kernel;
 it is not a dedicated-kernel VM or a remote/cloud computer.
 
 From a source checkout:
@@ -160,6 +163,35 @@ If a state-changing desktop request loses confirmation, the host raises
 `computer_use_outcome_unknown` with unsafe retry metadata. It does not replay
 the input. Loss of an execution-cancellation acknowledgement retires the owned
 computer and reports whether retirement was confirmed.
+
+## Live desktop transport
+
+Closing and reopening Chromium through the dock keeps the computer alive;
+shutdown validates the current profile process before requesting termination
+and flushes the browser while X is still available. The controlled guest uses
+Chromium test startup mode to omit bad-flag infobars; its inner sandbox remains
+disabled under the existing container confinement described below.
+
+The updated guest image runs x11vnc on guest loopback only. VNC port 5900 is
+never published. x11vnc enforces `-viewonly` and disables clipboard/primary
+selection exchange in both directions. The existing authenticated desktop
+worker relays binary RFB bytes over WebSocket `/stream`; it refuses browser
+Origins, missing/wrong bearer credentials, text frames and arbitrary upstream
+targets. It limits viewer count and request size, propagates backpressure
+without dropping framebuffer bytes, and closes owned sockets on guest release.
+
+Readiness advertises `stream: { protocol: 'rfb' }` only after a real local VNC
+banner probe succeeds. The provider then adds the host-only `screenStream`
+descriptor to its lease. Older installed images remain compatible with existing
+capture/input APIs and advertise no live-stream capability. Rebuild the image
+explicitly using the installation commands above, then restart the owning
+computer to use the new transport; running containers retain their old image.
+The persistent volume and browser profile survive this stop/start.
+
+A native viewer can render this byte stream with noVNC. Human input still uses
+`operatorControl.executeInput` and its exact current generation; the RFB stream
+cannot bypass exclusive SDK ownership. Observation neither transfers control
+nor resumes paused work.
 
 ## Exclusive operator control
 

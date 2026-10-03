@@ -1,0 +1,49 @@
+.pal-live-screen {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	pointer-events: none;
+}
+.pal-live-canvas {
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	pointer-events: none;
+}
+.pal-live-canvas canvas {
+	display: block;
+	user-select: none;
+	pointer-events: none;
+}
+.pal-live-screen[data-state="disconnected"] .pal-live-canvas {
+	visibility: hidden;
+}
+.pal-live-state {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 12px;
+	padding: 24px;
+	background: var(--surface);
+	text-align: center;
+}
+.pal-live-state > svg {
+	width: 28px;
+	height: 28px;
+	color: var(--muted-foreground);
+}
+.pal-live-state output {
+	font-size: 14px;
+	line-height: 20px;
+}
+.pal-live-state p {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}

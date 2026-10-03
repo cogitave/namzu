@@ -83,6 +83,14 @@ function PalContextBody({
 	onStopComputer,
 	stopComputerDisabled,
 }: PalContextProps) {
+	const pauseLabel = `${pal.paused ? 'Resume' : 'Pause'} ${pal.name}`
+	const computerStatus =
+		computer.status === 'ready'
+			? 'Connected'
+			: computer.status === 'connecting'
+				? 'Connecting…'
+				: 'Offline'
+	const inlineStop = computer.status === 'ready' && !!onStopComputer
 	return (
 		<div className="pal-context-body">
 			<header className="pal-context-heading">
@@ -101,44 +109,89 @@ function PalContextBody({
 				</div>
 				<div className="pal-context-identity">
 					<h2 title={pal.name}>{pal.name}</h2>
-					<output className="pal-context-status" aria-live="polite">
-						{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
-						{statusLabels[status]}
-					</output>
+					{onPause ? (
+						<>
+							<output className="sr-only" aria-live="polite">
+								{statusLabels[status]}
+							</output>
+							<Button
+								variant="ghost-muted"
+								className="pal-context-status pal-status-action"
+								aria-label={pauseLabel}
+								disabled={pauseDisabled}
+								onClick={onPause}
+							>
+								<span className="pal-status-rest" aria-hidden="true">
+									{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
+									<span>{statusLabels[status]}</span>
+								</span>
+								<span className="pal-status-hover" aria-hidden="true">
+									<span>{pauseLabel}</span>
+								</span>
+							</Button>
+						</>
+					) : (
+						<output className="pal-context-status" aria-live="polite">
+							{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
+							{statusLabels[status]}
+						</output>
+					)}
 				</div>
 			</header>
 			<section className="pal-context-section" aria-label="Pal computers">
 				<h3>Computers</h3>
-				<Button
-					variant="ghost"
-					className="pal-computer-row pal-computer-open"
-					disabled={!onOpenComputer}
-					onClick={onOpenComputer}
-					aria-label={`Open ${computer.name}`}
-				>
-					<span className="pal-computer-icon" data-connected={computer.status === 'ready'}>
-						<MonitorIcon aria-hidden="true" />
-					</span>
-					<span className="pal-context-copy">
-						<strong title={computer.name}>{computer.name}</strong>
-						<span className="pal-computer-status">
-							{computer.status === 'ready'
-								? 'Connected'
-								: computer.status === 'connecting'
-									? 'Connecting…'
-									: 'Offline'}
+				<div className="pal-computer-entry">
+					<Button
+						variant="ghost"
+						className="pal-computer-row pal-computer-open"
+						disabled={!onOpenComputer}
+						onClick={onOpenComputer}
+						aria-label={`Open ${computer.name}`}
+					>
+						<span className="pal-computer-icon" data-connected={computer.status === 'ready'}>
+							<MonitorIcon aria-hidden="true" />
 						</span>
-					</span>
-					<span className="pal-computer-thumbnail" aria-hidden="true">
-						{computer.screen && computer.status === 'ready' ? (
-							<img src={computer.screen.source} alt="" draggable={false} />
-						) : computer.loading || computer.status === 'connecting' ? (
-							<LoaderCircleIcon className="pal-context-loading" />
-						) : (
-							<MonitorIcon />
-						)}
-					</span>
-				</Button>
+						<span className="pal-context-copy">
+							<strong title={computer.name}>{computer.name}</strong>
+							<span
+								className={`pal-computer-status${inlineStop ? ' pal-computer-status-placeholder' : ''}`}
+								aria-hidden={inlineStop || undefined}
+							>
+								{computerStatus}
+							</span>
+						</span>
+						<span className="pal-computer-thumbnail" aria-hidden="true">
+							{computer.screen && computer.status === 'ready' ? (
+								<img src={computer.screen.source} alt="" draggable={false} />
+							) : computer.loading || computer.status === 'connecting' ? (
+								<LoaderCircleIcon className="pal-context-loading" />
+							) : (
+								<MonitorIcon />
+							)}
+						</span>
+					</Button>
+					{inlineStop && (
+						<>
+							<output className="sr-only" aria-live="polite">
+								{computerStatus}
+							</output>
+							<Button
+								variant="ghost-muted"
+								className="pal-status-action pal-computer-stop"
+								aria-label="Stop computer"
+								disabled={stopComputerDisabled}
+								onClick={onStopComputer}
+							>
+								<span className="pal-status-rest" aria-hidden="true">
+									<span>{computerStatus}</span>
+								</span>
+								<span className="pal-status-hover" aria-hidden="true">
+									<span>Stop computer</span>
+								</span>
+							</Button>
+						</>
+					)}
+				</div>
 				{hostComputer?.name.trim() && (
 					<div className="pal-computer-row pal-host-computer">
 						<span className="pal-computer-icon">
@@ -151,9 +204,9 @@ function PalContextBody({
 					</div>
 				)}
 				{computer.notice && <p className="pal-context-note">{computer.notice}</p>}
-				{((onStartComputer && computer.status !== 'ready') || onStopComputer) && (
+				{computer.status !== 'ready' && (onStartComputer || onStopComputer) && (
 					<div className="pal-computer-actions">
-						{onStartComputer && computer.status !== 'ready' && (
+						{onStartComputer && (
 							<Button
 								variant="outline"
 								size="sm"
@@ -221,13 +274,6 @@ function PalContextBody({
 					</ul>
 				)}
 			</section>
-			{onPause && (
-				<footer className="pal-context-footer">
-					<Button variant="ghost-muted" size="sm" disabled={pauseDisabled} onClick={onPause}>
-						{pal.paused ? 'Resume Pal' : 'Pause Pal'}
-					</Button>
-				</footer>
-			)}
 		</div>
 	)
 }
