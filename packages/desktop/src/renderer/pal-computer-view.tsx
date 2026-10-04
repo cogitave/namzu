@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type ComponentProps, useEffect, useRef, useState } from 'react'
 import type {
 	PalComputerView as ComputerState,
 	PalComputerInput,
@@ -15,9 +15,14 @@ import { PalLiveScreen } from './pal-live-screen.js'
 import { Button } from './ui/button.js'
 import './pal-computer-view.css'
 
-export interface PalComputerViewProps {
+export interface PalComputerViewProps
+	extends Pick<ComponentProps<'section'>, 'id' | 'aria-labelledby' | 'role'> {
 	palName: string
-	computer: { name: string; status: 'ready' | 'connecting' | 'error'; notice?: string }
+	computer: {
+		name: string
+		status: 'ready' | 'connecting' | 'error'
+		notice?: string
+	}
 	screen: PalScreenView | null
 	loading: boolean
 	stream?: PalComputerStreamView | null
@@ -42,6 +47,9 @@ export interface PalComputerViewProps {
 
 /** A content route, keyed by its owning Pal and allocation generation by the host. */
 export function PalComputerView({
+	id,
+	'aria-labelledby': labelledBy,
+	role,
 	palName,
 	computer,
 	screen,
@@ -181,8 +189,11 @@ export function PalComputerView({
 	})
 	return (
 		<section
+			id={id}
+			role={role}
 			className="pal-computer-view"
 			aria-label={computer.name}
+			aria-labelledby={labelledBy}
 			data-header={!hideHeader}
 			data-control={control?.mode}
 		>
@@ -276,7 +287,12 @@ export function PalComputerView({
 							if (!to) return
 							forwardInput(
 								Math.hypot(to.x - started.point.x, to.y - started.point.y) > 4
-									? { type: 'mouse_drag', from: started.point, to, button: started.button }
+									? {
+											type: 'mouse_drag',
+											from: started.point,
+											to,
+											button: started.button,
+										}
 									: { type: 'mouse_click', at: to, button: started.button },
 							)
 						}}

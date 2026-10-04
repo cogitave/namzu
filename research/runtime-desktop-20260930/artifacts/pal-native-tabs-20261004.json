@@ -1,0 +1,258 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "ce52b9002393a100ce304fa5176d0b51ab661bb9",
+  "environment": {
+    "host": "native Windows Electron",
+    "renderer": "bundled production file page",
+    "guest": "owned local Linux desktop on native Windows Podman",
+    "normalUserData": true,
+    "fixtureOverrides": false
+  },
+  "reference": {
+    "client": "actual Windows ChatGPT client in Codex mode, Happy workspace",
+    "inspection": "Native UI Automation bounds and screenshots; physical tab, layout and profile navigation",
+    "windowBounds": {
+      "x": 4,
+      "y": 3,
+      "width": 1678,
+      "height": 1008
+    },
+    "peerTabFrames": {
+      "chat": {
+        "width": 238,
+        "height": 32
+      },
+      "computer": {
+        "width": 238,
+        "height": 32
+      }
+    },
+    "observedStates": [
+      "selected full chat with right profile and inactive open computer tab",
+      "selected full computer",
+      "split chat and computer with aligned header divider",
+      "split profile overlay"
+    ],
+    "restoredOriginalView": true,
+    "messagesSent": false,
+    "domAvailable": false
+  },
+  "checks": {
+    "nativeWindows": true,
+    "actualRuntime": true,
+    "tabs": [
+      {
+        "width": 238,
+        "height": 32,
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "fontWeight": "400",
+        "selected": "false",
+        "controls": "pal-chat-panel"
+      },
+      {
+        "width": 238,
+        "height": 32,
+        "fontSize": "13px",
+        "lineHeight": "20px",
+        "fontWeight": "400",
+        "selected": "true",
+        "controls": "pal-computer-panel"
+      }
+    ],
+    "compactHeight": 44,
+    "split": {
+      "headerX": 1310.421875,
+      "paneX": 1310.421875
+    },
+    "models": 8,
+    "keyboardTabs": true,
+    "profileToggle": true,
+    "floatingMinimizeRestoreDock": true,
+    "composerNodeRetained": true,
+    "draftRetained": true,
+    "conversationIdsUnchanged": true,
+    "guestGenerationUnchanged": true,
+    "closeLeavesGuestReady": true,
+    "responsive": [
+      {
+        "normalConversationFromComputerSeparate": true
+      },
+      {
+        "operatorChatSwitchInputIsolated": true,
+        "controlReturned": true
+      },
+      {
+        "size": "narrow",
+        "viewport": [
+          900,
+          620
+        ],
+        "overflow": false,
+        "workspace": {
+          "x": 336,
+          "y": 32,
+          "width": 564,
+          "height": 588
+        },
+        "tabs": [
+          {
+            "width": 217,
+            "height": 32,
+            "right": 565
+          },
+          {
+            "width": 217,
+            "height": 32,
+            "right": 788
+          }
+        ],
+        "composerHeight": 44,
+        "popupWithinViewport": true
+      },
+      {
+        "size": "short",
+        "viewport": [
+          1360,
+          500
+        ],
+        "overflow": false,
+        "workspace": {
+          "x": 336,
+          "y": 32,
+          "width": 1024,
+          "height": 468
+        },
+        "tabs": [
+          {
+            "width": 238,
+            "height": 32,
+            "right": 590
+          },
+          {
+            "width": 238,
+            "height": 32,
+            "right": 834
+          }
+        ],
+        "composerHeight": 44,
+        "popupWithinViewport": true
+      }
+    ],
+    "firstPresentedFrameRequired": true,
+    "rendererErrors": 0,
+    "nativeDiagnosticErrors": 0
+  },
+  "firstFrame": {
+    "beforeFix": "RFB connect could report ready while all five visible canvas alpha samples were zero",
+    "afterFix": "Connecting continues until exact allocation geometry and all five visible canvas alpha samples are opaque",
+    "nativeReadyAlphaSamples": [
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "guestInputDisabledBeforePresentedFrame": true,
+    "reads": "Five one-pixel alpha checks on the public visible canvas; no noVNC private fields"
+  },
+  "nativeVerification": {
+    "inputPath": "Actual renderer through native IPC, CLI ACP and SDK exclusive control",
+    "normalConversation": "New conversation from the computer returns to the ordinary context and ordinary composer",
+    "operatorInputIsolation": "Original native input handler delegated; no guest input IPC while host chat was focused and edited",
+    "finalView": "Pal chat selected, computer open inactive, right profile shown",
+    "finalControl": "pal",
+    "appLeftOpen": true,
+    "originalDraftRestored": true,
+    "guestGenerationRetained": true,
+    "guestBrowserContentPreserved": true,
+    "externalModelTurnIssued": false,
+    "privateScreenshotsCapturedAndInspected": true,
+    "latestInstanceErrors": 0
+  },
+  "verification": {
+    "workspaceTypecheck": "passed",
+    "workspaceLint": "passed with existing SDK and CLI warnings",
+    "workspaceTest": "passed before the final private first-frame helper; all other packages unchanged afterward",
+    "finalDesktopTypecheck": "passed",
+    "finalDesktopLint": "passed, zero warnings",
+    "finalDesktopTests": {
+      "passed": 186,
+      "files": 25,
+      "firstPresentedFrameTests": 15
+    },
+    "finalDesktopBuild": "passed; renderer copied to and reloaded in the actual native app",
+    "docsCheck": "passed"
+  },
+  "sourceHashes": [
+    {
+      "file": "packages/desktop/src/renderer/index.tsx",
+      "sha256": "86ba7e5211cf97bbc4d22659efb88e3705aca7b0b4e6ce92c352ffeea583fd92"
+    },
+    {
+      "file": "packages/desktop/src/renderer/computer-workspace-toolbar.tsx",
+      "sha256": "9eaa613d806f6e15a5d6159ce97d8e76430fadd78bf6da22e1ae7fefdcf4234b"
+    },
+    {
+      "file": "packages/desktop/src/renderer/computer-workspace-toolbar.css",
+      "sha256": "de364930c49f5a27b09f1a3bfa48a6497ac3fe1f96c9b5fc0bb4384047b3c033"
+    },
+    {
+      "file": "packages/desktop/src/renderer/composer.tsx",
+      "sha256": "2eafb05161022a83b90c1b63c29837a4a54cfe320edd2ae0c59452ab9b15f501"
+    },
+    {
+      "file": "packages/desktop/src/renderer/composer.css",
+      "sha256": "ac130e4047f8fc1dbe17777dccb01051b1e8cbdb945b3ad4ef9107e01bb9cadf"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pal-computer-view.tsx",
+      "sha256": "33592ba8fd4057fc019dc4e4f06e59ff794e1e38917236183f1bcb08f9967a20"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pal-live-screen.tsx",
+      "sha256": "39c0daaef25ad9eb125025c797f4c593eee7716ceda3e152d4fb5b0337683ca8"
+    },
+    {
+      "file": "packages/desktop/src/renderer/computer-frame-presented.ts",
+      "sha256": "d4b8efbc2c193893da2d9c44ecd5c2a47cc6fb2f31b438859b2da3b7310359a5"
+    },
+    {
+      "file": "packages/desktop/src/renderer/style.css",
+      "sha256": "a4fd62af3c5398e1cb3b03febe72f98cb5bd680a5106b4d79ca678c7b228b7bb"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/index.html",
+      "sha256": "263f97734ea86346210b18bf04155b4c2a1c17a298616804234b61b77eaa8434"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-BzX6Sqvk.js",
+      "sha256": "b6c8872a04171163897cb77c2f1746b671d072db5f1d1794d28e663b73b1a027"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-BHrBvEt0.css",
+      "sha256": "13e0a67a9c2a49e34699d00b94579c276193ca3f28c7a49a84384a6e72875d86"
+    }
+  ],
+  "privateScreenshots": [
+    "reference-chat-20261004.png",
+    "reference-computer-click-20261004.png",
+    "reference-split-click-20261004.png",
+    "reference-split-profile-click-20261004.png",
+    "reference-restored-20261004.png",
+    "pal-tabs-computer-20261004.png",
+    "pal-tabs-chat-20261004.png",
+    "pal-tabs-floating-20261004.png",
+    "pal-tabs-split-20261004.png",
+    "pal-tabs-narrow-computer-20261004.png",
+    "pal-tabs-narrow-chat-20261004.png",
+    "pal-tabs-short-computer-20261004.png",
+    "pal-tabs-short-chat-20261004.png",
+    "pal-tabs-final-chat-20261004.png"
+  ],
+  "limits": [
+    "Reference inspection used native UI Automation and screenshots; reference DOM and computed styles were unavailable.",
+    "Navigation, layout, draft retention and live-frame/input isolation were checked on one actual Windows device. This task did not issue a new external model turn.",
+    "Screenshots remain private on the local device; account conversation content and guest page URLs are excluded from this receipt."
+  ]
+}

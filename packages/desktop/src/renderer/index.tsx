@@ -137,8 +137,15 @@ function App() {
 	const [editingPal, setEditingPal] = useState<PalView>()
 	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
 	const [palComputers, setPalComputers] = useState<Record<string, ComputerState>>({})
-	const [palScreen, setPalScreen] = useState<{ palId: string }>()
-	const [computerChat, setComputerChat] = useState<'hidden' | 'split' | 'floating'>('split')
+	// A computer tab stays open when its owning chat is selected. Selection is
+	// view state only: it never opens another conversation or changes its draft.
+	const [palScreen, setPalScreen] = useState<{
+		palId: string
+		activeTab: 'chat' | 'computer'
+	}>()
+	const [palProfileOpen, setPalProfileOpen] = useState(true)
+	const [computerProfileOpen, setComputerProfileOpen] = useState(false)
+	const [computerChat, setComputerChat] = useState<'hidden' | 'split' | 'floating'>('hidden')
 	const [floatingChatMinimized, setFloatingChatMinimized] = useState(false)
 	const [streamRefresh, setStreamRefresh] = useState(0)
 	const [liveStream, setLiveStream] = useState<{
@@ -389,7 +396,9 @@ function App() {
 	useEffect(() => {
 		if (project?.id && !project?.palId) previousNormalProject.current = project.id
 	}, [project?.id, project?.palId])
-	const routeKey = JSON.stringify([projectId, sessionId, railSection, palsPage])
+	// Promoting a new Pal conversation keeps its open views. Explicit session
+	// navigation already closes them in openConversation; owner changes do here.
+	const routeKey = JSON.stringify([projectId, railSection, palsPage])
 	const previousRoute = useRef(routeKey)
 	useEffect(() => {
 		if (previousRoute.current !== routeKey) {
@@ -1000,7 +1009,7 @@ function App() {
 				ready = true
 				// The content route uses a persistent RFB stream. PNG captures are
 				// only for the small card thumbnail while the chat is visible.
-				if (palScreen?.palId === id) return
+				if (palScreen?.palId === id && palScreen.activeTab === 'computer') return
 				setPalScreens((all) => ({
 					...all,
 					[id]:
@@ -1054,7 +1063,12 @@ function App() {
 				if (current)
 					timer = setTimeout(
 						() => void read(),
-						ready && !document.hidden ? (palScreen?.palId === id ? 1_000 : 5_000) : 5_000,
+						ready &&
+							!document.hidden &&
+							palScreen?.palId === id &&
+							palScreen.activeTab === 'computer'
+							? 1_000
+							: 5_000,
 					)
 			}
 		}
@@ -1063,7 +1077,15 @@ function App() {
 			current = false
 			if (timer) clearTimeout(timer)
 		}
-	}, [pal?.id, project?.status, palsPage, railSection, palScreen?.palId, screenRefresh])
+	}, [
+		pal?.id,
+		project?.status,
+		palsPage,
+		railSection,
+		palScreen?.palId,
+		palScreen?.activeTab,
+		screenRefresh,
+	])
 	useEffect(() => {
 		const wake = () => {
 			if (!document.hidden) setScreenRefresh((value) => value + 1)
@@ -1096,11 +1118,17 @@ function App() {
 		}
 	}
 	const openPalScreen = (value: PalView) => {
-		navigation.current += 1
+		if (palScreen?.palId === value.id && palScreen.activeTab === 'computer') return
+		invalidateComputerInput()
 		setJobsOpen(false)
 		setSideOpen(false)
-		setPalScreen({ palId: value.id })
+		setPalScreen({ palId: value.id, activeTab: 'computer' })
 	}
+	const showPalChat = useCallback(() => {
+		if (!palScreen || palScreen.activeTab === 'chat') return
+		invalidateComputerInput()
+		setPalScreen({ ...palScreen, activeTab: 'chat' })
+	}, [palScreen, invalidateComputerInput])
 
 	const ownedConversations = pal ? conversations.filter((item) => item.palId === pal.id) : []
 	const palBusy = ownedConversations.some((item) => {
@@ -1118,8 +1146,9 @@ function App() {
 		palComputer?.status === 'ready' && computerCapture?.generation === palComputer.generation
 			? (computerCapture?.screen ?? null)
 			: null
-	const computerPage =
-		!!pal && palScreen?.palId === pal.id && !palsPage && railSection !== 'plugins'
+	const palWorkspace = !!pal && !palsPage && railSection === null
+	const computerTabOpen = palWorkspace && palScreen?.palId === pal.id
+	const computerPage = computerTabOpen && palScreen?.activeTab === 'computer'
 	const liveViewer = liveStream?.value
 	const activeStream =
 		liveStream?.palId === pal?.id && liveViewer?.generation === palComputer?.generation
@@ -1207,6 +1236,7 @@ function App() {
 		const id = pal?.id
 		const generation = palComputer?.generation
 		const viewGeneration = navigation.current
+		const viewEpoch = computerInputViewEpoch.current
 		const operation = takeOver ? api.takeOverPalComputer : api.returnPalComputerControl
 		if (!id || !generation || !operation || controlPending.current) return
 		controlPending.current = true
@@ -1221,6 +1251,7 @@ function App() {
 				computerOwner.current.generation !== generation ||
 				computerOwner.current.navigation !== viewGeneration ||
 				navigation.current !== viewGeneration ||
+				computerInputViewEpoch.current !== viewEpoch ||
 				!computerOwner.current.visible
 			)
 				throw new Error('The computer view changed. Open it again to change control.')
@@ -1367,6 +1398,8 @@ function App() {
 				await openConversation(view)
 			} else {
 				navigation.current += 1
+				invalidateComputerInput()
+				setPalScreen(undefined)
 				setProjectId(destination.projectId)
 				setSessionId('')
 				setRailSection(null)
@@ -1534,8 +1567,7 @@ function App() {
 			if (commandOpen || creatingPal || editingPal) return
 			if (event.key === 'Escape') {
 				if (computerPage) {
-					navigation.current += 1
-					setPalScreen(undefined)
+					showPalChat()
 					return
 				}
 				if (sideOpen || jobsOpen) {
@@ -1587,6 +1619,7 @@ function App() {
 		closeDetails,
 		railSection,
 		computerPage,
+		showPalChat,
 	])
 	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 	const commandItems: CommandPaletteItem[] = [
@@ -1797,6 +1830,7 @@ function App() {
 			)}
 			<main
 				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
+				data-pal-workspace={palWorkspace}
 				data-computer-chat={computerPage ? computerChat : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
@@ -1809,12 +1843,15 @@ function App() {
 								: 'chat'
 				}
 			>
-				{computerPage && pal && (
+				{palWorkspace && pal && (
 					<ComputerWorkspaceToolbar
 						palName={pal.name}
 						paused={pal.paused}
 						busy={palBusy || controlBusy || palsSaving}
-						computerTabOpen
+						activeTab={computerPage ? 'computer' : 'chat'}
+						computerTabOpen={computerTabOpen}
+						profileOpen={computerPage ? computerProfileOpen : palProfileOpen}
+						split={computerPage && computerChat === 'split'}
 						chatOpen={computerChat !== 'hidden'}
 						floating={computerChat === 'floating'}
 						onRename={() => showPalEditor(pal)}
@@ -1841,10 +1878,21 @@ function App() {
 										})
 								: undefined
 						}
-						onOpenComputer={() => setFloatingChatMinimized(false)}
+						onOpenChat={showPalChat}
+						onToggleProfile={() => {
+							if (computerPage) setComputerProfileOpen((value) => !value)
+							else setPalProfileOpen((value) => !value)
+						}}
+						onOpenComputer={() => {
+							openPalScreen(pal)
+							setFloatingChatMinimized(false)
+						}}
 						onCloseComputer={() => {
-							navigation.current += 1
+							invalidateComputerInput()
 							setPalScreen(undefined)
+							requestAnimationFrame(() =>
+								document.getElementById('pal-chat-tab')?.focus({ preventScroll: true }),
+							)
 						}}
 						onToggleChat={() => {
 							setComputerChat((value) => (value === 'hidden' ? 'split' : 'hidden'))
@@ -1858,6 +1906,9 @@ function App() {
 				)}
 				{computerPage && pal && palContextProps && (
 					<PalComputerView
+						id="pal-computer-panel"
+						aria-labelledby="computer-tab"
+						role="tabpanel"
 						key={`${pal.id}:${palComputer?.generation ?? 'offline'}`}
 						palName={pal.name}
 						computer={{
@@ -1878,10 +1929,7 @@ function App() {
 						control={palComputer?.control}
 						controlBusy={controlBusy}
 						inputBusy={inputBusy}
-						onBack={() => {
-							navigation.current += 1
-							setPalScreen(undefined)
-						}}
+						onBack={showPalChat}
 						onRefresh={() => {
 							invalidateComputerInput()
 							setStreamRefresh((value) => value + 1)
@@ -1904,6 +1952,25 @@ function App() {
 								.catch((failure) => setError(errorText(failure)))
 						}}
 					/>
+				)}
+				{computerPage && computerChat === 'hidden' && (
+					<Button
+						variant="glass"
+						size="icon-sm"
+						className="computer-chat-launcher"
+						aria-label="Open floating chat"
+						onClick={() => {
+							setComputerChat('floating')
+							setFloatingChatMinimized(false)
+						}}
+					>
+						<MessageSquare aria-hidden="true" />
+					</Button>
+				)}
+				{computerPage && computerChat === 'hidden' && computerProfileOpen && palContextProps && (
+					<div className="computer-profile-overlay">
+						<PalContextCard {...palContextProps} />
+					</div>
 				)}
 				{railSection === 'plugins' && (
 					<PluginsPage
@@ -2065,14 +2132,27 @@ function App() {
 				) : (
 					<div
 						className="chat-stage"
+						id={palWorkspace ? 'pal-chat-panel' : undefined}
+						role={palWorkspace ? 'tabpanel' : undefined}
+						aria-labelledby={palWorkspace ? 'pal-chat-tab' : undefined}
 						data-empty={!pal && thread.messages.length === 0}
 						data-context-card={!jobsOpen && !pal && thread.messages.length > 0}
-						data-pal-context={Boolean(palContextProps) && !computerPage}
+						data-pal-context={Boolean(palContextProps) && !computerPage && palProfileOpen}
 					>
 						{!pal && contextProps && thread.messages.length > 0 && !jobsOpen && (
 							<ProjectContextCard {...contextProps} />
 						)}
-						{palContextProps && !computerPage && <PalContextCard {...palContextProps} />}
+						{palContextProps && !computerPage && palProfileOpen && (
+							<PalContextCard {...palContextProps} />
+						)}
+						{palContextProps &&
+							computerPage &&
+							computerChat !== 'hidden' &&
+							computerProfileOpen && (
+								<div className="computer-profile-overlay">
+									<PalContextCard {...palContextProps} />
+								</div>
+							)}
 						{computerPage && computerChat === 'floating' && (
 							<header className="computer-floating-chat-heading">
 								<Button
@@ -2199,6 +2279,7 @@ function App() {
 								</div>
 							</div>
 							<Composer
+								variant={pal ? 'pal' : 'default'}
 								inputRef={input}
 								permissions={thread.permissions}
 								onApproval={(permission, approved) =>

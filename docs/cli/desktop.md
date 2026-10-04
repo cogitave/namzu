@@ -197,11 +197,24 @@ the clock and web search. Closing/reopening the browser leaves the desktop
 running; additional applications must actually be installed.
 Guest browser and file tools do not fall back to the operator's device.
 
-The computer workspace has a named computer tab and a close-view button. Closing
-the tab returns to the same Pal chat and leaves the guest running. Layout controls
-show chat beside the computer, hide it, or place that same chat in a small floating
-window. Minimizing/restoring and docking preserve the conversation, composer draft,
-attachments and model choice. These views do not create an ordinary conversation.
+The Pal workspace has a selectable chat tab and a computer tab with equal frames.
+Selecting chat returns to its transcript and profile without closing the computer
+tab. Selecting the computer shows its live desktop; the plus button opens or
+selects that same computer. Closing its tab returns to the same Pal chat and leaves
+the guest running. Keyboard arrows move tab focus and Enter selects; closing the
+computer restores focus to chat. These selections do not change conversation navigation;
+even a pending first send keeps its owning chat when its session is created.
+Changing views invalidates pending guest input and control transfers.
+
+Layout controls show chat beside the computer, hide it, or place that same chat
+in a small floating window. The split header aligns with the two content panes.
+The profile control shows/hides the existing card; in a computer view it opens
+above the selected pane. A compact chat button on the full computer opens the
+floating chat. Minimizing/restoring, docking and tab selection preserve the
+conversation, composer draft, attachments and model choice. These views do not
+create an ordinary conversation. Pal chat uses a compact message composer, with
+attachment, model and tool settings under its plus control. Ordinary conversations
+keep their existing composer.
 The Pal menu provides customization, guarded pause/resume and guarded computer
 reboot. Delete is shown disabled because the saved Pal deletion contract is not
 implemented; it never pretends to delete a profile or persistent volume.
@@ -210,8 +223,10 @@ The native host validates the guest's exact generation and keeps its allocation
 bearer private. An Origin-checked loopback WebSocket proxy exposes only an ephemeral,
 single-view, read-only ticket. The renderer's CSP permits that exact local port.
 noVNC draws changing framebuffer rectangles directly to its canvas without React
-state or JSON IPC per frame. Disconnect immediately disables input and offers a
-reconnect action; route/generation changes close the old viewer. Older images
+state or JSON IPC per frame. The view stays connecting until the visible canvas
+has presented its first frame at the allocation's exact geometry; a successful
+transport handshake alone never enables guest input. Disconnect immediately disables
+input and offers a reconnect action; route/generation changes close the old viewer. Older images
 report live observation as unsupported until explicitly rebuilt and restarted.
 
 **Take over** verifies the allocation generation, fences new Pal work, cancels
@@ -327,14 +342,16 @@ reveals its owning group. Folder glyphs follow the actual open/closed state with
 a short crossfade and panel transition; reduced motion disables
 those transitions. Running work, pending reviews and errors remain visible
 in a reserved area on each conversation row.
-The blank project or conversation centres its composer; the first message docks it with a
-short transition. The composer keeps its project context in a lower strip.
+An ordinary blank project or conversation centres its composer; the first message docks it with a
+short transition. That composer keeps its project context in a lower strip.
 The message box remains expanded, with model selection on the left and Send or
 Stop on the right of its lower row. Send shows a busy indicator while the prompt
 is being admitted. Model popups retain their mounted control while focus moves into
 the menu. The project strip can open the native folder chooser. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
-motion; merely focusing the editor does not change its layout.
+motion; merely focusing the editor does not change its layout. Pal conversations use
+the compact, always-docked composer described above; its plus popup keeps model,
+permission, effort, attachment and plugin controls accessible.
 The Background work, Changes and conversation context controls appear in the
 workspace header only after a conversation exists. Returning to a blank project
 also closes the conversation detail pane.

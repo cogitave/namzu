@@ -1,0 +1,54 @@
+.pal-composer-shell [data-chat-composer-main-surface] {
+	display: grid;
+	grid-template-columns: 32px minmax(0, 1fr) auto;
+	align-items: end;
+	gap: 6px;
+	min-height: 44px;
+	padding: 6px 8px;
+}
+.pal-composer-shell [data-chat-composer-body] {
+	min-width: 0;
+	padding: 0;
+}
+.pal-composer-shell .composer-input textarea {
+	min-height: 28px;
+	max-height: min(144px, 24vh);
+	margin: 0;
+	padding: 4px 0;
+	line-height: 20px;
+}
+.pal-composer-shell [data-chat-composer-footer] {
+	padding: 0;
+}
+.pal-composer-shell .pal-composer-add {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+}
+.pal-composer-shell .pal-composer-add svg {
+	width: 18px;
+	height: 18px;
+}
+.pal-composer-shell .pal-composer-send-actions {
+	gap: 6px;
+}
+.pal-composer-shell .pal-composer-send-actions button {
+	width: 32px;
+	height: 32px;
+}
+.pal-composer-tools .pal-composer-attach {
+	justify-content: flex-start;
+	width: 100%;
+}
+.pal-composer-tool-section {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border);
+}
+.pal-composer-tool-section h2 {
+	margin: 0 0 6px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	font-weight: 400;
+}

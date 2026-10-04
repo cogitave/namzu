@@ -1,6 +1,7 @@
 import type RFB from '@novnc/novnc'
 import { useEffect, useRef, useState } from 'react'
 import type { PalComputerStreamView } from '../shared/protocol.js'
+import { computerFramePresented } from './computer-frame-presented.js'
 import { LoaderCircleIcon, MonitorIcon } from './icons.js'
 import './pal-live-screen.css'
 
@@ -34,7 +35,7 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 		let failed = false
 		let rfbEnded = false
 		let closeRequested = false
-		let frame = 0
+		let frame: number | undefined
 		let confirmedCanvas: HTMLCanvasElement | null = null
 		let rfb: RFB | undefined
 		let socket: WebSocket | undefined
@@ -52,6 +53,8 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 			failed = true
 			connected = false
 			confirmedCanvas = null
+			if (frame !== undefined) cancelAnimationFrame(frame)
+			frame = undefined
 			setConnection({ id: stream.id, generation: stream.generation, state: 'disconnected' })
 			callbacks.current.onDisconnected()
 			close()
@@ -60,10 +63,20 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 			rfbEnded = true
 			fail()
 		}
+		const scheduleCanvasCheck = () => {
+			if (!current || !connected || failed || confirmedCanvas || frame !== undefined) return
+			frame = requestAnimationFrame(() => {
+				frame = undefined
+				confirmCanvas()
+			})
+		}
 		const confirmCanvas = () => {
 			if (!current || !connected || failed) return
 			const canvas = target.querySelector('canvas')
-			if (!canvas || canvas.width <= 0 || canvas.height <= 0) return
+			if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+				scheduleCanvasCheck()
+				return
+			}
 			if (canvas.width !== stream.width || canvas.height !== stream.height) {
 				fail()
 				return
@@ -72,7 +85,13 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 			canvas.setAttribute('aria-hidden', 'true')
 			canvas.style.pointerEvents = 'none'
 			if (confirmedCanvas === canvas) return
+			if (!computerFramePresented(canvas, { width: stream.width, height: stream.height })) {
+				scheduleCanvasCheck()
+				return
+			}
 			confirmedCanvas = canvas
+			if (frame !== undefined) cancelAnimationFrame(frame)
+			frame = undefined
 			clearTimeout(timeout)
 			setConnection({ id: stream.id, generation: stream.generation, state: 'ready' })
 			callbacks.current.onReady(canvas, { width: canvas.width, height: canvas.height })
@@ -87,7 +106,7 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 		const onConnect = () => {
 			if (!current || failed) return
 			connected = true
-			frame = requestAnimationFrame(confirmCanvas)
+			scheduleCanvasCheck()
 		}
 		const timeout = setTimeout(() => {
 			if (!confirmedCanvas) fail()
@@ -119,7 +138,7 @@ export function PalLiveScreen({ stream, name, onReady, onDisconnected }: PalLive
 			current = false
 			connected = false
 			clearTimeout(timeout)
-			cancelAnimationFrame(frame)
+			if (frame !== undefined) cancelAnimationFrame(frame)
 			observer.disconnect()
 			rfb?.removeEventListener('connect', onConnect)
 			rfb?.removeEventListener('disconnect', onDisconnected)
