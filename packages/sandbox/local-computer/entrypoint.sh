@@ -13,9 +13,11 @@ launch_browser() {
     # capability policy cannot provide Chromium's namespace/suid setup.
     # The controlled guest uses Chromium's test mode to avoid startup infobars;
     # it does not alter the host browser, profile or sandbox configuration.
-    exec chromium --no-sandbox --test-type --disable-dev-shm-usage --no-first-run \
+    exec node /opt/namzu-computer/browser-home.cjs \
+        --no-sandbox --test-type --disable-dev-shm-usage --no-first-run \
         --no-default-browser-check --password-store=basic --force-dark-mode \
         --user-data-dir=/home/namzu/.config/chromium \
+        --load-extension=/opt/namzu-computer/new-tab \
         --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
         --window-position=32,24 --window-size="${browser_width},${browser_height}" "$@"
 }
@@ -23,7 +25,7 @@ launch_browser() {
 # X server or any worker. The dock can also reopen a closed browser window.
 if [ "${1:-}" = '--browser' ]; then
     shift
-    if [ "$#" -eq 0 ]; then set -- file:///opt/namzu-computer/home.html; fi
+    if [ "$#" -eq 0 ]; then set -- chrome://newtab/; fi
     launch_browser "$@"
 fi
 
@@ -123,8 +125,19 @@ done
 hsetroot -add '#234732' -add '#17251d' -add '#121614' -gradient 45 >/tmp/wallpaper.log 2>&1
 tint2 -c /opt/namzu-computer/tint2rc >/tmp/tint2.log 2>&1 &
 dock_pid=$!
-launch_browser file:///opt/namzu-computer/home.html >/tmp/chromium.log 2>&1 &
+rm -f -- /tmp/namzu-browser-home-ready
+NAMZU_BROWSER_HOME_READY=1 launch_browser chrome://newtab/ >/tmp/chromium.log 2>&1 &
 browser_pid=$!
+# Warm the trusted extension page, then finish this launcher's own marker tab
+# through Chromium's native New Tab route. No observer or input is admitted
+# before its genuine native catalogue is available.
+home_wait=0
+until [ -f /tmp/namzu-browser-home-ready ]; do
+    kill -0 "$browser_pid" 2>/dev/null || exit 1
+    [ "$home_wait" -lt 200 ] || exit 1
+    home_wait=$((home_wait + 1))
+    sleep 0.1
+done
 
 # VNC is a guest-loopback, view-only framebuffer source. It never receives
 # operator input authority and cannot synchronize either selection direction.

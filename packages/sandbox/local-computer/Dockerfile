@@ -8,6 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb openbox chromium xdotool maim xterm dbus-x11 x11vnc \
     tint2 pcmanfm hsetroot adwaita-icon-theme \
+    blender freecad gimp inkscape libreoffice-draw mousepad libgl1-mesa-dri \
+    openscad kdenlive godot3 aisleriot qgis kicad paraview \
     fonts-dejavu fonts-noto-color-emoji ca-certificates \
     bash curl git ripgrep python3 dumb-init \
     && rm -rf /var/lib/apt/lists/* \
@@ -16,6 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /home/namzu/workspace /home/namzu/.config/chromium \
     && chown -R 1001:1001 /home/namzu
 
+# Kdenlive's real video-effect plug-ins; keep this separate from the large
+# application layer so an existing app-equipped image retains its build cache.
+RUN apt-get update && apt-get install -y --no-install-recommends frei0r-plugins \
+    && rm -rf /var/lib/apt/lists/*
+
 # Authenticated binary WebSocket transport only; VNC input remains disabled.
 RUN npm install --prefix /opt/namzu-computer --omit=dev --ignore-scripts \
     --no-audit --no-fund ws@8.21.3
@@ -23,9 +30,16 @@ RUN npm install --prefix /opt/namzu-computer --omit=dev --ignore-scripts \
 COPY worker/server.js /opt/namzu-computer/execution-worker.cjs
 COPY local-computer/desktop-worker.cjs /opt/namzu-computer/desktop-worker.cjs
 COPY local-computer/entrypoint.sh /opt/namzu-computer/entrypoint.sh
-COPY local-computer/home.html /opt/namzu-computer/home.html
+COPY local-computer/home.html /opt/namzu-computer/new-tab/home.html
+COPY local-computer/new-tab /opt/namzu-computer/new-tab
+COPY local-computer/app-catalog.cjs local-computer/app-native-host.cjs local-computer/prepare-home.cjs local-computer/browser-home.cjs /opt/namzu-computer/
 COPY local-computer/tint2rc /opt/namzu-computer/tint2rc
 COPY local-computer/openbox-rc.xml /opt/namzu-computer/openbox-rc.xml
+
+# Catalogue/icon assets come only from installed Debian desktop entries. The
+# native bridge is accepted solely from the bundled, fixed-id New Tab extension.
+RUN chmod 0755 /opt/namzu-computer/app-native-host.cjs \
+    && node /opt/namzu-computer/prepare-home.cjs
 
 ENV HOME=/home/namzu DISPLAY=:99 GTK_THEME=Adwaita:dark \
     NAMZU_SANDBOX_WORKSPACE=/home/namzu/workspace \

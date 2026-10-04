@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Namzu workspace",
+  "version": "1.0.0",
+  "description": "A local New Tab page and installed application launchers for this Pal computer.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqXoJpqX+TnJeUjITQ6mFH8XMww1XambzeBOR5IJHng5i1GN7sVaKWv2fukjd59blBuW7k3Nu/Yqi+qfp652Zto0nPNCMobZCb/IYJX2xil1JrfOVddSxfJRBK1MMJC6fQpnRB6DZzS+R9yGKH5P4Ivxu070StVDcJ6FBhHZAWM0kyKzqQrYAfCWS1vQeY6Z8oMitNBEQZUKWFmMDBatxJJaXI9bwYJ/IABdf3d+sUiCkFkmXm/LHHNqXSCRCCn0+LPXDgbHjX7MY765+Fk8Ue4rtKkTKISox5xF7wZC/Bm8VkxeRh9xLc8x+jz2nqayU1RNkC52u2QikD4Biafz2KQIDAQAB",
+  "permissions": ["nativeMessaging"],
+  "chrome_url_overrides": { "newtab": "home.html" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  }
+}

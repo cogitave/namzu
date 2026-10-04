@@ -1,0 +1,602 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "269d5c8cefefd2d297625ee868bca543adc9a010",
+  "environment": {
+    "host": "native Windows Electron",
+    "renderer": "bundled production file page",
+    "guest": "owned local Linux desktop on native Windows Podman",
+    "normalUserData": true,
+    "fixtureOverrides": false
+  },
+  "reference": {
+    "client": "actual Windows ChatGPT client in Codex mode, Happy workspace",
+    "inspection": "Native UI Automation and screenshots, guest New Tab and application grid, host new-tab panel and timed chat opening/closing frames",
+    "domAvailable": false,
+    "observedGuestApps": [
+      "3D Slicer",
+      "Blender",
+      "Draw",
+      "FreeCAD",
+      "GIMP",
+      "Go",
+      "Godot",
+      "Inkscape",
+      "Kdenlive",
+      "KiCad",
+      "Mousepad",
+      "OpenSCAD",
+      "ParaView",
+      "QGIS Desktop",
+      "Solitaire"
+    ],
+    "blankBlurredNewTabOmnibox": true,
+    "chatOpening": "Frame grows from bottom-right launcher with content fading in",
+    "chatClosing": "Frame shrinks back to circular launcher",
+    "restoredOriginalViewAndControl": true,
+    "messagesSent": false
+  },
+  "checks": {
+    "motion": {
+      "start": {
+        "left": 1740,
+        "top": 856,
+        "width": 28,
+        "height": 28,
+        "opacity": 0,
+        "transform": "none",
+        "inert": false,
+        "motion": "entering",
+        "layout": "floating"
+      },
+      "middle": {
+        "left": 1469.578125,
+        "top": 541.015625,
+        "width": 297.390625,
+        "height": 342.96875,
+        "opacity": 0.50639,
+        "transform": "none",
+        "inert": false,
+        "motion": "entering",
+        "layout": "floating"
+      },
+      "end": {
+        "left": 1206,
+        "top": 234,
+        "width": 560,
+        "height": 650,
+        "opacity": 1,
+        "transform": "none",
+        "inert": false,
+        "motion": "entering",
+        "layout": "floating"
+      },
+      "reverseStart": {
+        "left": 1469.578125,
+        "top": 541.015625,
+        "width": 297.390625,
+        "height": 342.96875,
+        "opacity": 0.50639,
+        "transform": "none",
+        "inert": true,
+        "motion": "exiting",
+        "layout": "floating"
+      },
+      "restoreStart": {
+        "left": 1578.0625,
+        "top": 667.390625,
+        "width": 189.296875,
+        "height": 216.59375,
+        "opacity": 0.303215,
+        "transform": "none",
+        "inert": false,
+        "motion": "entering",
+        "layout": "floating"
+      },
+      "split": {
+        "head": 1237.578125,
+        "pane": 1237.578125
+      },
+      "reversalContinuous": true,
+      "reducedMotionSettlesImmediately": true,
+      "persistentTextareaAndLane": true,
+      "originalDraftRestored": true,
+      "minimizeInertBeforeExit": true,
+      "responsive": [
+        {
+          "size": {
+            "width": 900,
+            "height": 620
+          },
+          "time": 0,
+          "x": 856,
+          "y": 576,
+          "width": 28,
+          "height": 28,
+          "viewport": [
+            900,
+            620
+          ],
+          "overflow": false
+        },
+        {
+          "size": {
+            "width": 900,
+            "height": 620
+          },
+          "time": 90,
+          "x": 601.78125,
+          "y": 332.921875,
+          "width": 281.1875,
+          "height": 271.0625,
+          "viewport": [
+            900,
+            620
+          ],
+          "overflow": false
+        },
+        {
+          "size": {
+            "width": 900,
+            "height": 620
+          },
+          "time": 260,
+          "x": 354,
+          "y": 96,
+          "width": 528,
+          "height": 508,
+          "viewport": [
+            900,
+            620
+          ],
+          "overflow": false
+        },
+        {
+          "size": {
+            "width": 1360,
+            "height": 500
+          },
+          "time": 0,
+          "x": 1316,
+          "y": 456,
+          "width": 28,
+          "height": 28,
+          "viewport": [
+            1360,
+            500
+          ],
+          "overflow": false
+        },
+        {
+          "size": {
+            "width": 1360,
+            "height": 500
+          },
+          "time": 90,
+          "x": 1045.578125,
+          "y": 273.6875,
+          "width": 297.390625,
+          "height": 210.296875,
+          "viewport": [
+            1360,
+            500
+          ],
+          "overflow": false
+        },
+        {
+          "size": {
+            "width": 1360,
+            "height": 500
+          },
+          "time": 260,
+          "x": 782,
+          "y": 96,
+          "width": 560,
+          "height": 388,
+          "viewport": [
+            1360,
+            500
+          ],
+          "overflow": false
+        }
+      ],
+      "markerDraftMatches": [
+        "project:e29526d5-ab52-4bf7-96e7-667e9e5e1362"
+      ],
+      "testMarkerDraftsRemoved": true
+    },
+    "focus": {
+      "nativeWindows": true,
+      "actualInputDelegated": true,
+      "heldFirstHarmlessPointerMove": true,
+      "queuedMoveRetiredOnChatFocus": true,
+      "returningFocusDoesNotReviveQueue": true,
+      "freshInputWorksWithoutStreamReconnect": true,
+      "expectedRetirementSilent": true
+    },
+    "apps": [
+      {
+        "name": "Blender",
+        "canvasClick": true,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"Blender\", \"Blender\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "FreeCAD",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"freecad\", \"FreeCAD\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "GIMP",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"gimp\", \"Gimp\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Inkscape",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"org.inkscape.Inkscape\", \"Inkscape\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "LibreOffice Draw",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 2,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"libreoffice\", \"libreoffice-draw\"",
+          "WM_CLASS(STRING) = \"libreoffice\", \"libreoffice-draw\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Text Editor",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"mousepad\", \"Mousepad\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Files",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"pcmanfm\", \"Pcmanfm\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Terminal",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"xterm\", \"XTerm\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "OpenSCAD",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"openscad\", \"OpenSCAD\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Godot 3",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"Godot_ProjectList\", \"Godot\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Solitaire",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"sol\", \"Sol\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "QGIS",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"qgis.bin\", \"QGIS3\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "KiCad",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"kicad\", \"KiCad\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "ParaView",
+        "canvasClick": false,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 1,
+        "settledEditorVerified": false,
+        "classes": [
+          "WM_CLASS(STRING) = \"paraview\", \"ParaView\""
+        ],
+        "verifiedImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6"
+      },
+      {
+        "name": "Kdenlive",
+        "canvasClick": true,
+        "nativeMessageAcknowledged": true,
+        "visibleWindows": 2,
+        "settledEditorVerified": true,
+        "classes": [
+          "WM_CLASS(STRING) = \"kdenlive\", \"kdenlive\"",
+          "WM_CLASS(STRING) = \"kdenlive\", \"kdenlive\""
+        ],
+        "verifiedImage": "41bb4c03e51a1d7da1e26bca9ade9e357322f613bbcbe7fd8a4f53a495cc48ec"
+      }
+    ],
+    "image": {
+      "finalImage": "41bb4c03e51a1d7da1e26bca9ade9e357322f613bbcbe7fd8a4f53a495cc48ec",
+      "persistentHomeVolumeRetained": true,
+      "startup": {
+        "apps": 15,
+        "icons": true,
+        "allRowsVisible": true,
+        "overflow": false,
+        "bodyFocused": true
+      },
+      "startupBlankBlurred": true,
+      "ctrlT": {
+        "tabCount": 2,
+        "allApps": 15,
+        "bodyFocused": true
+      },
+      "ctrlTBlankBlurred": true,
+      "browserPlus": {
+        "tabCount": 2,
+        "allApps": 15
+      },
+      "browserPlusBlankBlurred": true,
+      "closedBrowserGuestReady": true,
+      "coldReopen": {
+        "apps": 15,
+        "icons": true,
+        "allRowsVisible": true
+      },
+      "coldReopenBlankBlurred": true,
+      "kdenliveTestProcessStopped": true,
+      "originalBrowserPagesRestored": true,
+      "originalBrowserPageCount": 1,
+      "originalDraftRetained": true,
+      "privateDraftBackupRemoved": true,
+      "testMarkerDraftsRemoved": true,
+      "finalState": {
+        "view": "chat",
+        "control": "pal",
+        "guestReady": true,
+        "generationRetained": true,
+        "appLeftOpen": true
+      }
+    },
+    "diagnostics": {
+      "rendererErrors": 0,
+      "latestInstanceErrors": [
+        {
+          "event": "namzu.desktop.ipc_failed",
+          "operation": "palComputerInput",
+          "type": "Error"
+        }
+      ],
+      "expectedStaleDriverInputRejected": 1
+    }
+  },
+  "motionVerification": {
+    "method": "Paused and sought the actual production WAAPI animation in the native app at start, 90ms and 260ms; compared reversal bounds and node identity, then finished it",
+    "animationId": "namzu-computer-chat-frame",
+    "durationMs": 260,
+    "easing": "cubic-bezier(0.22, 0, 0.36, 1)",
+    "textScaled": false,
+    "exitInertBeforeFinish": true,
+    "minimizeRestoreDockAndReducedMotion": true
+  },
+  "inputVerification": {
+    "method": "Held one harmless native pointer move while delegating the original IPC handler, queued a second, moved focus to chat and back, then released the first; only fresh input reached the guest",
+    "instrumentationRestored": true
+  },
+  "appVerification": {
+    "method": "Real guest home button -> chrome.runtime.sendNativeMessage -> fixed guest native host -> installed binary -> visible mapped X window",
+    "nativeCanvasClicks": [
+      "Blender",
+      "Kdenlive"
+    ],
+    "otherApps": "Actual guest DOM button clicks through the same native-message host, no fabricated replies or windows",
+    "initialAppsImage": "265c37ab2f3eb6d67204d01b42379ce2bdf2306749dbd5b7c50be4aa1c3af0e6",
+    "finalImage": "41bb4c03e51a1d7da1e26bca9ade9e357322f613bbcbe7fd8a4f53a495cc48ec",
+    "kdenliveBeforeFix": "Process spawned, but Chromium native-host DBUS_SESSION_BUS_ADDRESS=disabled: caused exit before a window; unavailable host audio also required SDL dummy audio",
+    "kdenliveAfterFix": "Actual native canvas click opened the complete Untitled editor and timeline; process remained alive at a later inspect",
+    "cleanup": "Only owned audit GUI processes were stopped. The empty Kdenlive audit editor ignored SIGTERM; its recorded PID was retired after the native I/O timeout. Disposable probe containers were removed."
+  },
+  "newTabVerification": {
+    "routing": "Own unique startup marker -> trusted bundled extension activation -> native chrome://newtab route, preserving Chromium virtual URL handling",
+    "firstStartup": true,
+    "nativeCtrlT": true,
+    "nativeBrowserPlusClick": true,
+    "nativeDockColdReopen": true,
+    "blurredOmniboxScreenshotInspectedInAllStates": true,
+    "browserPolicyOrProfileFilesRewritten": false,
+    "normalWebsiteAddressHandlingUnchanged": true,
+    "referenceHostNewTabPanelInspected": true,
+    "referenceHostWebviewLauncherAdded": false
+  },
+  "diagnosticsReview": {
+    "rendererErrors": 0,
+    "nativeErrors": 1,
+    "classification": "One driver input was correctly rejected after control had returned to the Pal and chat was selected; final checks reacquired control and restored that view/control. No other native diagnostic errors.",
+    "hiddenOrClearedDiagnosticLogs": false
+  },
+  "verification": {
+    "workspaceTypecheck": "passed after final source changes",
+    "workspaceLint": "passed with existing SDK/CLI warnings",
+    "workspaceTest": "passed before final guest bootstrap/D-Bus refinements; other workspace packages unchanged afterward",
+    "finalSandboxTest": {
+      "passed": 1798,
+      "skipped": 3,
+      "files": 99
+    },
+    "desktopTest": {
+      "passed": 194,
+      "files": 27
+    },
+    "sandboxFocusedRegressions": "22 startup/catalogue/shell tests and 10 native-host tests passed",
+    "finalNativeImageBuild": "passed",
+    "finalDesktopRendererBuild": "passed, copied and reloaded in the actual native app",
+    "docsCheck": "passed",
+    "logStandard": "passed",
+    "externalNameAudit": "passed"
+  },
+  "sourceHashes": [
+    {
+      "file": "packages/desktop/src/renderer/index.tsx",
+      "sha256": "4be13aee7ca9d4aa67f7d04e74828cd627908aec6b8412ec5ef15ae9342d284c"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pal-computer-view.tsx",
+      "sha256": "4bac25bce55c1804cb9551cd6bd700fa0afa643e908d3a4e712cf64f0ace50da"
+    },
+    {
+      "file": "packages/desktop/src/renderer/style.css",
+      "sha256": "1cdad920a28e2c4fc71ab13911115e1ab72f4bb933eef2fad83f2103f8667033"
+    },
+    {
+      "file": "packages/desktop/src/renderer/computer-chat-motion.ts",
+      "sha256": "f430e4b3af918a1edd805fed8f41d9a4b415bda6f332211c1766337958d1520f"
+    },
+    {
+      "file": "packages/desktop/src/renderer/computer-input-focus.ts",
+      "sha256": "ee1edd95f0899268f988987f3c4d86815315e466d766f45d71f1c46eee42bc28"
+    },
+    {
+      "file": "packages/sandbox/local-computer/Dockerfile",
+      "sha256": "44fb8a0843f4f8c815f373cbbf7fcdcd70cb0c8a7ff6fa1af2f6ef877171da31"
+    },
+    {
+      "file": "packages/sandbox/local-computer/entrypoint.sh",
+      "sha256": "75738febe5fc344cd22b01c5263dcae1e29d38414b11a7babd03cc790ad86bd2"
+    },
+    {
+      "file": "packages/sandbox/local-computer/home.html",
+      "sha256": "c42fb5a6dee1de92a20cb096b95e1d05749fdf8941893f78dd23c85008596d55"
+    },
+    {
+      "file": "packages/sandbox/local-computer/app-catalog.cjs",
+      "sha256": "226c563fe934dfd138cd309df60b170ffa3af2ed744cf7eac54c8083aab8458f"
+    },
+    {
+      "file": "packages/sandbox/local-computer/app-native-host.cjs",
+      "sha256": "dcbdd3b2f601fdc7c903b77f8274a417b8b734482801c075aee1351e1e8d1ec1"
+    },
+    {
+      "file": "packages/sandbox/local-computer/browser-home.cjs",
+      "sha256": "e5b92f76227a40376943671fa32728d623de4247fb48f4eaf89c5486ed46ac70"
+    },
+    {
+      "file": "packages/sandbox/local-computer/prepare-home.cjs",
+      "sha256": "cbee5e03cd5400cb5cbabdb47dc84161846c77f53027a71e0d8bc5686de0f24f"
+    },
+    {
+      "file": "packages/sandbox/local-computer/new-tab/manifest.json",
+      "sha256": "0038bb8a692197a7aa88ea1800d74b1e3f1da90f0f9360ac2026821f84f9dfb1"
+    },
+    {
+      "file": "packages/sandbox/local-computer/new-tab/home.js",
+      "sha256": "f02a64afff158ef99887a0301a93ac14646fa2dba52986a7e37529899a1f71cf"
+    },
+    {
+      "file": "packages/sandbox/local-computer/new-tab/home.css",
+      "sha256": "3402b67354be9bc6b3934c74227c2f8646350d5c872e8e0f07d86bf9f73525bc"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/index.html",
+      "sha256": "13c0fa8c6d3434287ffdec1983adb79da5f21b20e41fa5c667b39edd0b46aaf7"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-DcUjUrBe.js",
+      "sha256": "e07c15707b19ad2587d9c8cf78654aa07d8c5d10d5b76f4c3702a09d27bc5af1"
+    },
+    {
+      "file": "packages/desktop/dist/renderer/assets/index-Bv-3Roq2.css",
+      "sha256": "2c6847d2a59a4a6846d2688d34f29168cc6a3eb92c90daeec1208d51b3220591"
+    }
+  ],
+  "privateScreenshots": [
+    "ref-guest-new-tab-settled-20261004.png",
+    "ref-guest-app-grid-20261004.png",
+    "ref-guest-restored-20261004.png",
+    "ref-host-new-tab-20261004.png",
+    "pal-chat-motion-start-20261004.png",
+    "pal-chat-motion-middle-20261004.png",
+    "pal-chat-motion-end-20261004.png",
+    "pal-chat-motion-900-620-20261004.png",
+    "pal-chat-motion-1360-500-20261004.png",
+    "pal-apps-blender-ready-20261004.png",
+    "pal-apps-kdenlive-settled-20261004.png",
+    "pal-apps-reviewed-startup-20261004.png",
+    "pal-apps-reviewed-new-tab-20261004.png",
+    "pal-apps-reviewed-plus-tab-20261004.png",
+    "pal-apps-reviewed-cold-reopen-20261004.png",
+    "pal-apps-motion-final-chat-20261004.png"
+  ],
+  "limits": [
+    "Reference DOM/computed styles were unavailable; inspection used the actual native client UI Automation and screenshots.",
+    "Fourteen application windows were checked on the earlier app-equipped image; Kdenlive and all final startup, New Tab, browser plus and cold-reopen states were checked on the final image.",
+    "The guest advertises actual Debian applications, including Godot 3. Unavailable 3D Slicer and the reference Go app are not advertised.",
+    "This audit did not issue an external model turn. Screenshots, browser URLs, drafts, computer identity, container IDs and process IDs remain private."
+  ]
+}

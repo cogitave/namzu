@@ -31,6 +31,8 @@ import {
 	pluginRowId,
 } from './composer-plugins.js'
 import { Composer } from './composer.js'
+import { type ComputerChatLayout, useComputerChatMotion } from './computer-chat-motion.js'
+import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerWorkspaceToolbar } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
@@ -145,8 +147,8 @@ function App() {
 	}>()
 	const [palProfileOpen, setPalProfileOpen] = useState(true)
 	const [computerProfileOpen, setComputerProfileOpen] = useState(false)
-	const [computerChat, setComputerChat] = useState<'hidden' | 'split' | 'floating'>('hidden')
-	const [floatingChatMinimized, setFloatingChatMinimized] = useState(false)
+	const [computerChat, setComputerChatState] = useState<ComputerChatLayout>('hidden')
+	const [floatingChatMinimized, setFloatingChatMinimizedState] = useState(false)
 	const [streamRefresh, setStreamRefresh] = useState(0)
 	const [liveStream, setLiveStream] = useState<{
 		palId: string
@@ -175,10 +177,24 @@ function App() {
 	const inputSequence = useRef(0)
 	const computerInputViewEpoch = useRef(0)
 	const computerInputReadyStream = useRef<string | undefined>(undefined)
-	const invalidateComputerInput = useCallback(() => {
+	const retireComputerPendingInput = useCallback(() => {
 		computerInputViewEpoch.current += 1
-		computerInputReadyStream.current = undefined
 	}, [])
+	const invalidateComputerInput = useCallback(() => {
+		retireComputerPendingInput()
+		computerInputReadyStream.current = undefined
+	}, [retireComputerPendingInput])
+	useEffect(() => {
+		const focus = () => {
+			if (!computerSurfaceOwnsFocus(document.activeElement)) retireComputerPendingInput()
+		}
+		document.addEventListener('focusin', focus)
+		window.addEventListener('blur', retireComputerPendingInput)
+		return () => {
+			document.removeEventListener('focusin', focus)
+			window.removeEventListener('blur', retireComputerPendingInput)
+		}
+	}, [retireComputerPendingInput])
 	const [inputBusy, setInputBusy] = useState(false)
 	const previousNormalProject = useRef<string | undefined>(undefined)
 	const [projects, setProjects] = useState<ProjectView[]>([])
@@ -1149,6 +1165,22 @@ function App() {
 	const palWorkspace = !!pal && !palsPage && railSection === null
 	const computerTabOpen = palWorkspace && palScreen?.palId === pal.id
 	const computerPage = computerTabOpen && palScreen?.activeTab === 'computer'
+	const chatMotion = useComputerChatMotion({
+		enabled: computerPage,
+		layout: computerChat,
+		minimized: floatingChatMinimized,
+		owner: pal?.id ?? projectId,
+	})
+	const setComputerChat = (next: React.SetStateAction<ComputerChatLayout>) => {
+		retireComputerPendingInput()
+		chatMotion.capture()
+		setComputerChatState(next)
+	}
+	const setFloatingChatMinimized = (next: React.SetStateAction<boolean>) => {
+		retireComputerPendingInput()
+		chatMotion.capture()
+		setFloatingChatMinimizedState(next)
+	}
 	const liveViewer = liveStream?.value
 	const activeStream =
 		liveStream?.palId === pal?.id && liveViewer?.generation === palComputer?.generation
@@ -1226,9 +1258,11 @@ function App() {
 				!current.streamId ||
 				current.streamId !== computerInputReadyStream.current ||
 				current.mode !== 'operator' ||
+				!document.hasFocus() ||
+				!computerSurfaceOwnsFocus(document.activeElement) ||
 				!api.palComputerInput
 			)
-				throw new Error('Computer input belongs to an earlier view.')
+				throw new ComputerInputRetiredError()
 			await api.palComputerInput(owner.id, owner.generation, action)
 		})
 	const computerInputQueue = inputQueue.current
@@ -1266,6 +1300,8 @@ function App() {
 	}
 	const sendComputerInput = (action: PalComputerInput): Promise<void> => {
 		const owner = { ...computerOwner.current }
+		if (!document.hasFocus() || !computerSurfaceOwnsFocus(document.activeElement))
+			return Promise.reject(new ComputerInputRetiredError())
 		if (
 			!owner.id ||
 			!owner.generation ||
@@ -1831,7 +1867,7 @@ function App() {
 			<main
 				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
 				data-pal-workspace={palWorkspace}
-				data-computer-chat={computerPage ? computerChat : undefined}
+				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
 					railSection === 'plugins'
@@ -1953,20 +1989,21 @@ function App() {
 						}}
 					/>
 				)}
-				{computerPage && computerChat === 'hidden' && (
-					<Button
-						variant="glass"
-						size="icon-sm"
-						className="computer-chat-launcher"
-						aria-label="Open floating chat"
-						onClick={() => {
-							setComputerChat('floating')
-							setFloatingChatMinimized(false)
-						}}
-					>
-						<MessageSquare aria-hidden="true" />
-					</Button>
-				)}
+				{computerPage &&
+					(computerChat === 'hidden' || (computerChat === 'floating' && floatingChatMinimized)) && (
+						<Button
+							variant="glass"
+							size="icon-sm"
+							className="computer-chat-launcher"
+							aria-label={floatingChatMinimized ? 'Restore chat' : 'Open floating chat'}
+							onClick={() => {
+								setComputerChat('floating')
+								setFloatingChatMinimized(false)
+							}}
+						>
+							<MessageSquare aria-hidden="true" />
+						</Button>
+					)}
 				{computerPage && computerChat === 'hidden' && computerProfileOpen && palContextProps && (
 					<div className="computer-profile-overlay">
 						<PalContextCard {...palContextProps} />
@@ -2132,6 +2169,9 @@ function App() {
 				) : (
 					<div
 						className="chat-stage"
+						ref={chatMotion.stageRef}
+						inert={computerPage && !chatMotion.interactive}
+						aria-hidden={computerPage && !chatMotion.interactive ? true : undefined}
 						id={palWorkspace ? 'pal-chat-panel' : undefined}
 						role={palWorkspace ? 'tabpanel' : undefined}
 						aria-labelledby={palWorkspace ? 'pal-chat-tab' : undefined}
@@ -2153,19 +2193,15 @@ function App() {
 									<PalContextCard {...palContextProps} />
 								</div>
 							)}
-						{computerPage && computerChat === 'floating' && (
+						{computerPage && (
 							<header className="computer-floating-chat-heading">
 								<Button
 									variant="ghost-muted"
 									size="icon-xs"
-									aria-label={floatingChatMinimized ? 'Restore chat' : 'Minimize chat'}
-									onClick={() => setFloatingChatMinimized((value) => !value)}
+									aria-label="Minimize chat"
+									onClick={() => setFloatingChatMinimized(true)}
 								>
-									{floatingChatMinimized ? (
-										<MessageSquare aria-hidden="true" />
-									) : (
-										<Minus aria-hidden="true" />
-									)}
+									<Minus aria-hidden="true" />
 								</Button>
 								<span>Chat</span>
 								<Button

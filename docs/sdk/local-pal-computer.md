@@ -25,8 +25,9 @@ Podman connections, Linux-native Podman, or macOS Podman machines. The guest
 is a separate Linux container desktop with its own X server, visible Chromium,
 terminal launcher, Files application, workspace and browser profile. The actual
 Openbox desktop has a green/charcoal wallpaper and a tint2 dock containing only
-installed Chromium, Terminal and Files launchers. Chromium starts on a local
-Namzu home page; these controls launch real guest applications. It shares the engine's kernel;
+installed Chromium, Terminal and Files launchers. Chromium starts on its bundled
+Namzu New Tab page with a blank omnibox, clock, web search and installed app grid.
+These controls launch real guest applications. It shares the engine's kernel;
 it is not a dedicated-kernel VM or a remote/cloud computer.
 
 From a source checkout:
@@ -41,6 +42,34 @@ installed `@namzu/sandbox` package directory as the build context and
 and operating-system packages and is an explicit operator action. The provider
 never installs an engine, starts a machine, changes a default connection,
 builds an image or pulls an image.
+
+The image installs Blender, FreeCAD, GIMP, Inkscape, LibreOffice Draw, Mousepad,
+OpenSCAD, Kdenlive, Godot 3, Solitaire, QGIS, KiCad and ParaView, alongside
+Terminal and Files. Its 15 home launchers and icons are generated from actual
+installed executables and Debian desktop entries; missing entries fail the image
+build. The image does not claim unavailable reference applications such as
+3D Slicer. OpenGL applications use the guest's Mesa software rendering rather
+than host GPU access. Kdenlive includes its Frei0r effects and uses SDL's dummy
+audio driver, keeping preview playback alive without exposing host audio devices.
+
+Normal home and new tabs use a bundled Manifest V3 New Tab page with only
+`nativeMessaging` permission. Startup and a cold dock reopen activate the bundled
+extension, then navigate only their own uniquely marked startup tab through
+`chrome://newtab/` using guest-loopback CDP. This preserves Chromium's normal
+New Tab address handling, including a blank omnibox after it loses focus.
+No browser policy or user profile file is rewritten. The desktop worker starts
+after that page and its real application catalogue are ready. Existing user
+tabs and literal website arguments are retained.
+Its fixed extension ID is the sole allowed origin
+of the guest native host. Bounded length-prefixed messages select a known app ID;
+they cannot supply commands, arguments, paths or environment. The host launches
+fixed argv under the guest user with detached application stdio, preserving the
+native protocol. Application launches discard Chromium's disabled D-Bus sentinel
+while preserving a real guest session bus. No new HTTP endpoint, host computer
+access or SDK control port is introduced. A delivered GUI action can start an ordinary guest process; its
+startup may complete after input authority changes, like other guest workloads.
+The image does not enable the extension in private browsing. Real websites keep their normal address
+bar. The profile path and remote debugging configuration remain unchanged.
 
 ```ts
 import { createLocalVirtualComputerProvider } from '@namzu/sandbox'
@@ -232,12 +261,15 @@ Start an existing machine explicitly; the provider never starts it:
 
 ```powershell
 $podman = 'C:\Users\Arda\AppData\Local\Programs\Podman\podman.exe'
+Set-Location -LiteralPath 'C:\path\to\namzu'
 & $podman machine start --update-connection=false podman-machine-default
 & $podman --connection podman-machine-default-root build --file packages/sandbox/local-computer/Dockerfile --tag namzu-local-computer:1 packages/sandbox
 ```
 
 Use the operator's installed binary path and registered machine/connection
-names; the paths above are examples. For an installed npm package, use its
+names; the paths above are examples. Run native Windows builds from a native
+drive working directory: an inherited WSL UNC working directory can cause Podman
+to resolve a build context into an unreadable `/mnt/c/...` path. For an installed npm package, use its
 `local-computer/Dockerfile` and package root as described above.
 
 ```ts

@@ -13,8 +13,8 @@ it('opens dock browser windows with guest-only flags and literal arguments witho
 	const directory = await mkdtemp(join(tmpdir(), 'namzu-desktop-launcher-'))
 	try {
 		await writeFile(
-			join(directory, 'chromium'),
-			`#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)))\n`,
+			join(directory, 'node'),
+			`#!${process.execPath}\nif(process.argv[2]!=='/opt/namzu-computer/browser-home.cjs')process.exit(99);process.stdout.write(JSON.stringify(process.argv.slice(3)))\n`,
 			{ mode: 0o700 },
 		)
 		// Startup must never reach directory creation, Xvfb or any worker for a dock launch.
@@ -42,11 +42,12 @@ it('opens dock browser windows with guest-only flags and literal arguments witho
 			'--password-store=basic',
 			'--force-dark-mode',
 			'--user-data-dir=/home/namzu/.config/chromium',
+			'--load-extension=/opt/namzu-computer/new-tab',
 			'--remote-debugging-address=127.0.0.1',
 			'--remote-debugging-port=9222',
 			'--window-position=32,24',
 			'--window-size=1216,660',
-			'file:///opt/namzu-computer/home.html',
+			'chrome://newtab/',
 		])
 		const address = 'https://example.test/?query=literal spaces&value=$(exit 97)'
 		expect(await launch(address)).toEqual([...argv.slice(0, -1), address])

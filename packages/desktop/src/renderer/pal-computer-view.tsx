@@ -5,6 +5,7 @@ import type {
 	PalComputerStreamView,
 	PalScreenView,
 } from '../shared/protocol.js'
+import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ArrowLeftIcon, LoaderCircleIcon, MonitorIcon, RefreshIcon } from './icons.js'
 import {
 	computerFrameReady,
@@ -132,11 +133,19 @@ export function PalComputerView({
 		control.mode === 'pal' &&
 		!!onTakeOver
 	const forwardInput = (input: PalComputerInput) => {
-		if (!canInput || !inputReady.current || !onInput) return
-		setInputNotice(null)
-		void onInput(input).catch(() =>
-			setInputNotice('Input could not be sent. Refresh the computer and try again.'),
+		if (
+			!canInput ||
+			!inputReady.current ||
+			!document.hasFocus() ||
+			!computerSurfaceOwnsFocus(document.activeElement) ||
+			!onInput
 		)
+			return
+		setInputNotice(null)
+		void onInput(input).catch((error) => {
+			if (!(error instanceof ComputerInputRetiredError))
+				setInputNotice('Input could not be sent. Refresh the computer and try again.')
+		})
 	}
 	const pointAt = (x: number, y: number) => {
 		const displayed = hasStream ? liveFrame?.canvas : image.current
@@ -175,6 +184,7 @@ export function PalComputerView({
 			const at = pointAt(event.clientX, event.clientY)
 			if (!at || (!event.deltaX && !event.deltaY)) return
 			event.preventDefault()
+			node.focus({ preventScroll: true })
 			const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY)
 			const delta = horizontal ? event.deltaX : event.deltaY
 			forwardInput({

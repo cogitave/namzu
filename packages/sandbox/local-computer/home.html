@@ -4,69 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>Namzu workspace</title>
-    <style>
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100dvh;
-        color: #e7eee8;
-        background: radial-gradient(ellipse at 20% 0%, #2a4933 0%, transparent 56%), #141c17;
-        font-family: "DejaVu Sans", sans-serif;
-      }
-      body::before {
-        position: fixed;
-        inset: 0;
-        background-image: radial-gradient(#a4d5ab 0.7px, transparent 0.8px);
-        background-size: 5px 5px;
-        mask-image: linear-gradient(145deg, #0004, transparent 65%);
-        pointer-events: none;
-        content: "";
-      }
-      header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 28px 36px;
-      }
-      .brand { color: #8ae592; font-size: 14px; font-weight: 700; letter-spacing: 3px; }
-      .workspace-label { color: #9dac9f; font-size: 12px; }
-      main {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
-        min-height: calc(100dvh - 140px);
-        padding: 24px 28px 60px;
-        animation: arrive 240ms ease-out both;
-      }
-      #clock { font-size: clamp(64px, 11vw, 104px); font-weight: 300; letter-spacing: -6px; font-variant-numeric: tabular-nums; }
-      #date { margin: 4px 0 24px; color: #a4b4a6; font-size: 14px; }
-      h1 { margin: 0 0 28px; font-size: clamp(20px, 3vw, 27px); font-weight: 400; letter-spacing: -0.5px; }
-      form {
-        display: flex;
-        align-items: center;
-        width: min(100%, 500px);
-        padding: 7px 9px 7px 18px;
-        border: 1px solid #62816b66;
-        border-radius: 16px;
-        background: #17231ccc;
-        box-shadow: 0 8px 32px #0002;
-        transition: border-color 150ms ease, box-shadow 150ms ease;
-      }
-      form:focus-within { border-color: #7acc84; box-shadow: 0 0 0 3px #7acc841a; }
-      label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-      input { min-width: 0; flex: 1; height: 40px; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: 14px; }
-      input::placeholder { color: #9bad9f; }
-      button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 11px; background: #84d88c; color: #142319; cursor: pointer; transition: background 150ms ease; }
-      button:hover { background: #9be7a2; }
-      button:focus-visible { outline: 2px solid #c1fac8; outline-offset: 3px; }
-      button svg { width: 18px; height: 18px; }
-      .hint { margin: 24px 0 0; color: #8ea493; font-size: 12px; text-align: center; line-height: 20px; }
-      @keyframes arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-      @media (max-width: 500px) { header { padding: 22px; } .workspace-label { display: none; } main { padding-inline: 22px; } }
-      @media (prefers-reduced-motion: reduce) { main { animation: none; } form, button { transition: none; } }
-    </style>
+    <title>New Tab · Namzu</title>
+    <link rel="stylesheet" href="home.css" />
   </head>
   <body>
     <header><span class="brand">NAMZU</span><span class="workspace-label">Pal workspace</span></header>
@@ -81,33 +20,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
       </form>
-      <p class="hint">Use the dock to open your browser, terminal or files.</p>
+      <section class="apps" aria-label="Installed applications" id="apps"></section>
+      <output class="hint" id="app-status" aria-live="polite"></output>
     </main>
-    <script>
-      const clock = document.getElementById('clock');
-      const date = document.getElementById('date');
-      const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-      const dateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-      function updateClock() {
-        const now = new Date();
-        clock.textContent = timeFormat.format(now);
-        clock.dateTime = now.toISOString();
-        date.textContent = dateFormat.format(now);
-      }
-      updateClock();
-      setInterval(updateClock, 1000);
-      document.getElementById('search').addEventListener('submit', (event) => {
-        const value = document.getElementById('query').value.trim();
-        if (!value) { event.preventDefault(); return; }
-        const candidate = /^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`;
-        try {
-          const url = new URL(candidate);
-          if (['https:', 'http:'].includes(url.protocol) && !value.includes(' ') && (url.hostname.includes('.') || url.hostname === 'localhost')) {
-            event.preventDefault();
-            location.assign(url.href);
-          }
-        } catch { /* Ordinary words and phrases go through the web search form. */ }
-      });
-    </script>
+    <script src="home.js"></script>
   </body>
 </html>

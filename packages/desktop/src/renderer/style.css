@@ -1356,10 +1356,9 @@ pre {
 	background: var(--background);
 	box-shadow: 0 16px 48px rgb(0 0 0 / 20%);
 	overflow: hidden;
-	animation: pal-computer-arrive 180ms var(--motion-ease) both;
 }
 .computer-floating-chat-heading {
-	display: flex;
+	display: none;
 	align-items: center;
 	gap: 10px;
 	flex: none;
@@ -1368,18 +1367,20 @@ pre {
 	background: var(--surface);
 	font-size: 12px;
 	color: var(--muted-foreground);
+	overflow: hidden;
+}
+.workspace[data-page="computer"][data-computer-chat="floating"] .computer-floating-chat-heading {
+	display: flex;
 }
 .computer-floating-chat-heading span {
 	flex: 1;
 }
-.workspace[data-page="computer"][data-computer-chat="floating"][data-chat-minimized="true"]
-	> .chat-stage {
-	width: 140px;
-	height: 46px;
-	border-radius: 16px;
+.workspace[data-page="computer"] > .chat-stage[inert] {
+	pointer-events: none;
 }
-.workspace[data-page="computer"][data-chat-minimized="true"] .conversation-lane {
-	display: none;
+.workspace[data-page="computer"] > .chat-stage[data-chat-motion] {
+	overflow: hidden;
+	z-index: 5;
 }
 .workspace[data-page="computer"] > .connection-error {
 	position: absolute;
@@ -1422,10 +1423,5 @@ pre {
 		border: 1px solid var(--border);
 		border-radius: 18px;
 		background: var(--background);
-	}
-}
-@media (prefers-reduced-motion: reduce) {
-	.workspace[data-page="computer"] > .chat-stage {
-		animation: none;
 	}
 }

@@ -191,10 +191,17 @@ from the native device's real hostname. Selecting the guest opens a full content
 view, with a persistent noVNC framebuffer stream. PNG captures are used only
 for the small card thumbnail; the full view does not poll screenshots.
 Offline, capture failure and unsupported control remain explicit states; this
-view does not simulate installed apps. The bundled guest supplies a real Openbox desktop, a themed wallpaper, a tint2
-dock and Chromium, Terminal and Files launchers. A local browser home page shows
-the clock and web search. Closing/reopening the browser leaves the desktop
-running; additional applications must actually be installed.
+view does not simulate installed apps. The bundled guest supplies a real Openbox
+desktop, a themed wallpaper, a tint2 dock and Chromium, Terminal and Files launchers.
+Chromium's bundled New Tab page shows the clock, web search and 15 installed
+application launchers, including Blender, FreeCAD, GIMP, Inkscape and Draw.
+The omnibox is blank on home/new tabs; navigated sites retain their normal address.
+The bundled extension and a scoped startup check select that page without
+rewriting browser policies or the saved guest profile. Short guest
+viewports keep all five-column application rows visible; narrow layouts scroll.
+The launchers use a guest-only native messaging host with a fixed extension origin
+and fixed application commands. Closing/reopening the browser leaves the desktop
+running. Existing images need an explicit rebuild and computer restart for these apps.
 Guest browser and file tools do not fall back to the operator's device.
 
 The Pal workspace has a selectable chat tab and a computer tab with equal frames.
@@ -210,7 +217,11 @@ Layout controls show chat beside the computer, hide it, or place that same chat
 in a small floating window. The split header aligns with the two content panes.
 The profile control shows/hides the existing card; in a computer view it opens
 above the selected pane. A compact chat button on the full computer opens the
-floating chat. Minimizing/restoring, docking and tab selection preserve the
+floating chat. Its frame expands from that same corner and shrinks into the
+circular launcher when minimized; content fades within the changing frame.
+Interrupted transitions continue from their current pixel bounds without scaling
+text, and reduced motion settles immediately. Exiting content becomes inert
+before its animation finishes. Minimizing/restoring, docking and tab selection preserve the
 conversation, composer draft, attachments and model choice. These views do not
 create an ordinary conversation. Pal chat uses a compact message composer, with
 attachment, model and tool settings under its plus control. Ordinary conversations
@@ -238,7 +249,10 @@ the keyboard layout, including Unicode and AltGr; Tab remains host focus navigat
 Rapid input is serialized; adjacent pending text is combined into bounded UTF-8
 batches without crossing key or pointer actions. Native menu accelerators are
 suppressed only while the controlled guest has keyboard focus. Navigation and
-allocation changes invalidate queued input. Worker credentials never enter the
+allocation, chat layout and focus changes invalidate queued input. Host chat and
+popups never own guest input, and returning focus cannot revive retired queued
+actions. Deliberate input retirement is silent; genuine transport errors remain
+visible. Worker credentials never enter the
 renderer. Captures and delayed status
 replies cannot certify another generation or replace a newer control transition.
 
