@@ -1,0 +1,58 @@
+.composer-permission-menu {
+	width: min(280px, var(--available-width));
+	max-width: calc(100vw - 16px);
+	padding: 4px;
+	overscroll-behavior: contain;
+}
+.composer-permission-option {
+	min-height: 48px;
+	padding: 7px 10px;
+	border-radius: 8px;
+	transition: background-color 120ms var(--motion-ease), color 120ms var(--motion-ease);
+}
+.composer-permission-option[data-highlighted] {
+	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
+}
+.composer-permission-option [data-slot="select-item-text"] {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	min-width: 0;
+}
+.composer-permission-copy {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.composer-permission-label {
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 18px;
+}
+.composer-permission-description {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 17px;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+.composer-permission-check {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 16px;
+	height: 18px;
+	color: var(--foreground);
+}
+.composer-permission-check > svg {
+	width: 14px;
+	height: 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.composer-permission-option {
+		transition: none;
+	}
+}

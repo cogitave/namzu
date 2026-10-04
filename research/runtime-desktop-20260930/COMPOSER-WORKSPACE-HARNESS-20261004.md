@@ -271,3 +271,118 @@ typecheck/lint, both affected builds, documentation conformance, external-name
 audit and the log standard. The earlier whole-workspace run passed 18,715 tests;
 the changed packages were rerun after the final fixes. This is local verification,
 not a claim that every CI/release gate ran or that the branch was pushed.
+
+## Composer styling and Windows verification
+
+The folder, permission, model and engine controls now use the existing Namzu
+popup primitives and tokens. The folder menu has bounded search/results, a
+selected-folder check and separated Open folder/Don't work in a project actions.
+Permission rows show a label, policy description and selected check; the captured
+conversation's explicit Full access confirmation remains the admission path.
+Model search, actual catalogue rows, selected state and unavailable notices retain
+their existing ownership. Engine choices retain the actual installed-engine route.
+Short-window menus scroll within the available viewport, focus returns through
+the existing primitives, and reduced-motion styling removes the transitions.
+These are observed interaction and styling changes, not a claim of pixel parity
+with the reference application.
+
+Ordinary tabs now use the pixel Namzu **N** for Namzu conversations, the respective
+native-engine mark for external conversations, and a spinner for running work.
+Thin separators distinguish adjacent tabs. The latest
+[native tab image](artifacts/composer-polish-tabs-20261004.png),
+[folder menu](artifacts/composer-polish-folder-menu-20261004.png) and
+[permission menu](artifacts/composer-polish-permissions-20261004.png) show these
+states. The [native styling receipt](artifacts/composer-polish-native-20261004.json)
+records production Windows Electron, normal user data, keyboard/focus checks,
+short-window fitting, and light/dark and reduced-motion checks without fixture
+catalogues.
+
+The later authenticated native-engine check supersedes the earlier sign-in
+failure reports above: installed Claude Code **2.1.289** supplied **11 models**,
+completed the actual reply “Claude giriş kontrolü tamam.”, and retained it after
+renderer reload. No new login was needed. The
+[Claude reply image](artifacts/composer-polish-claude-reply-20261004.png) is evidence
+of that successful account/runtime check; its older full-wordmark tab styling is
+historical and is not the final tab reference. An actual GPT-5.6-Sol native Codex
+reply was also retained after reload. These inference checks are separate from
+metadata discovery and contain no account or credential payloads.
+
+The supplied AppUI Composer Panel image and its implementation establish the
+selected-model-row Effort trigger. Namzu now uses that flow: the row's Low/Medium
+control opens an Effort panel with a value pill, a discrete slider and the
+Faster/Smarter scale. Only the actual supported effort subset supplies its stops;
+levels are deduplicated and sorted by effort. The model's actual default stays
+implicit until the user changes it, and Use model default restores that omission.
+Unknown defaults show Provider default and actual choices before showing a thumb.
+An actual custom/unlisted model retains its control in a Current model summary.
+
+The control is a sibling of the model radio button. Directional range/trigger
+keys cannot select another model, and Escape closes the inner panel before the
+model browser, restoring each trigger's focus. Stale callbacks recheck the
+conversation, model generation, current capability set, disabled state and latest
+settings callback. A side panel anchors to the complete model row so collision
+flipping keeps the model names visible. Windows at 560 × 460 use a vertical
+fallback; 700 × 460 and the normal window retain bounded side panels. Theme and
+reduced-motion checks exercise the actual portaled controls.
+
+Native Windows verification retained High after reload, restored GPT-5.6-Sol's
+Low default, and changed to GPT-6-Astra's Medium default while keeping the model
+menu open. Both the chip and range arrow keys retained the same model. The final
+[Effort panel](artifacts/composer-polish-model-effort-20261004.png),
+[short window](artifacts/composer-polish-effort-short-20261004.png),
+[minimum window](artifacts/composer-polish-effort-minimum-20261004.png) and
+[light theme](artifacts/composer-polish-effort-light-20261004.png) images record
+settled native catalogues. The earlier top-row Effort layout was replaced.
+
+Final desktop verification passed **327 tests across 38 files**, desktop build,
+workspace typecheck/lint, and scoped Biome. The whole-workspace run before the
+last Effort presentation correction passed **18,763 tests with 116 skipped**;
+the affected desktop package was rerun after that correction. These are local
+results; the branch has not been pushed and this does not claim all release gates.
+
+## Split and detached conversation windows — proposed, not implemented
+
+Read-only primary-source research supports this interaction:
+
+- [Monocode's pinned split tree](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/workspace/model/layout.ts)
+  and [pane-drop state](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/workspace/model/paneDrop.ts)
+  implement nested splits and edge-based pane relocation. This establishes the
+  inspected split behavior, not a verified native detachable-window feature.
+- [VS Code's editor drop targets](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/browser/parts/editor/editorDropTarget.ts)
+  distinguish group merging from edge splitting; its
+  [native auxiliary-window service](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/services/auxiliaryWindow/electron-browser/auxiliaryWindowService.ts)
+  manages registered window identities and window-specific lifecycle.
+- [Dockview](https://github.com/dockview/dockview) provides a candidate MIT layout
+  layer for tab groups, splits and restoration. Its
+  [built-in popout URL requires same-origin HTTP(S)](https://dockview.dev/docs/core/groups/popoutGroups/),
+  whereas Namzu's bundled renderer uses `file://`. Native detachment therefore
+  needs an explicit Namzu integration; it is not a drop-in popout call.
+
+The proposed layout is a recursive tree whose leaves contain tab groups. Dropping
+at an edge splits that target group; dropping centrally adds a tab. Readable
+minimum pixel sizes should govern further splitting, supporting two, four or
+eight visible panes when the display can accommodate them. Resize, focus and empty-group collapse belong to the same
+layout model. [Dockview's group constraints](https://dockview.dev/docs/core/groups/constraints/)
+are not serialized and would need reapplication when restoring its layouts.
+
+Main must retain the existing Operator, ACP connection and native-engine session
+when a view moves. A new native window registry must authenticate each owned
+webContents/main frame, route snapshots and revisioned events, and preserve the
+current preload and navigation restrictions. Detachment should reserve the move,
+load the destination, await its snapshot-ready acknowledgement, then commit the
+view membership; failure leaves the source view intact. Closing a detached window
+should redock its views without stopping conversations. Pending approvals keep
+their exact session/turn/request ownership, and stale source-window actions must
+be refused.
+
+Current implementation boundaries are `main/index.ts`'s single window/event/IPC
+target and Windows close-to-quit behavior, `renderer/index.tsx`'s single active
+session and metadata generations, and `conversation-tabs-state.ts`'s shared
+storage key. A pane-scoped conversation controller and a main-owned versioned
+window/layout record are required. Existing `main/operator.ts` conversation
+ownership and the SDK harness journal's exclusive writer lease provide the
+runtime foundation. Pane moves retain that writer and its already dispatched
+turn. Native Windows dragging across windows, failed-move rollback,
+streaming/approval continuity and multi-monitor bounds remain future validation.
+No dependency was installed and no split/detach implementation was added during
+this research.

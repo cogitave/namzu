@@ -92,9 +92,9 @@ export function ComposerProjectPicker({
 			<PopoverPopup
 				side="top"
 				align="start"
-				width="md"
-				padding="compact"
+				padding="none"
 				aria-label="Project chooser"
+				className="composer-project-popup"
 			>
 				<div className="composer-project-search">
 					<SearchIcon aria-hidden="true" />
@@ -150,14 +150,16 @@ export function ComposerProjectPicker({
 									</small>
 								)}
 							</span>
-							<Radio.Indicator className="composer-project-check">
-								<CheckIcon aria-hidden="true" />
-							</Radio.Indicator>
+							<span className="composer-project-selection" aria-hidden="true">
+								<Radio.Indicator className="composer-project-check">
+									<CheckIcon />
+								</Radio.Indicator>
+							</span>
 						</Radio.Root>
 					))}
 				</RadioGroup>
 				{visible.length === 0 && (
-					<p className="py-2 text-xs text-muted-foreground">
+					<p className="composer-project-empty">
 						{search ? 'No matching projects.' : 'No projects open.'}
 					</p>
 				)}

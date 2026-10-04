@@ -1,0 +1,311 @@
+{
+  "nativeWindows": true,
+  "normalUserData": true,
+  "fixtureOverrides": false,
+  "checks": {
+    "permissionKeyboardAndFocus": true,
+    "nativeModelSearchAndFocus": true,
+    "tabInitial": true,
+    "shortModelsScrollable": true,
+    "minimumWindowToolbarFits": true,
+    "reducedMotion": true,
+    "lightAndDark": true,
+    "effortInlineOnSelectedModel": true,
+    "sidePanelClearsModels": true,
+    "effortKeyboardDoesNotChangeModel": true,
+    "cataloguesSettledInScreenshots": true
+  },
+  "originalBounds": {
+    "x": 593,
+    "y": 249,
+    "width": 1385,
+    "height": 1051
+  },
+  "toolbar": {
+    "project": {
+      "x": 562.5,
+      "y": 533.5,
+      "width": 193.171875,
+      "height": 28,
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "padding": "0px 5px",
+      "gap": "4px",
+      "color": "rgb(245, 245, 245)",
+      "borderRadius": "999px",
+      "transitionDuration": "0.14s, 0.14s, 0.14s, 0.14s",
+      "transitionProperty": "background-color, color, box-shadow, scale",
+      "opacity": "1",
+      "scale": "none"
+    },
+    "permissions": {
+      "x": 581.5,
+      "y": 613.5,
+      "width": 87.59375,
+      "height": 28,
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "padding": "0px 5px",
+      "gap": "5px",
+      "color": "rgb(245, 245, 245)",
+      "borderRadius": "10px",
+      "transitionDuration": "0.14s, 0.14s, 0.14s, 0.14s",
+      "transitionProperty": "background-color, color, box-shadow, scale",
+      "opacity": "1",
+      "scale": "none"
+    },
+    "model": {
+      "x": 1017.71875,
+      "y": 613.5,
+      "width": 113.78125,
+      "height": 28,
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "padding": "0px 6px",
+      "gap": "5px",
+      "color": "rgb(129, 129, 129)",
+      "borderRadius": "999px",
+      "transitionDuration": "0.14s, 0.14s, 0.14s, 0.14s",
+      "transitionProperty": "background-color, color, box-shadow, scale",
+      "opacity": "1",
+      "scale": "none"
+    }
+  },
+  "permissions": {
+    "x": 583.85595703125,
+    "y": 397.4200134277344,
+    "width": 274.4000244140625,
+    "height": 207.75997924804688,
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "padding": "4px",
+    "gap": "normal",
+    "color": "rgb(245, 245, 245)",
+    "borderRadius": "0px",
+    "transitionDuration": "0s",
+    "transitionProperty": "all",
+    "opacity": "1",
+    "scale": "none"
+  },
+  "singleProvider": {
+    "x": 851.5,
+    "y": 322.5,
+    "width": 280,
+    "height": 250,
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "padding": "0px",
+    "gap": "normal",
+    "color": "rgb(245, 245, 245)",
+    "borderRadius": "16px",
+    "transitionDuration": "0.15s",
+    "transitionProperty": "width, height, scale, opacity",
+    "opacity": "1",
+    "scale": "none"
+  },
+  "multiProvider": {
+    "x": 771.5,
+    "y": 224.5,
+    "width": 360,
+    "height": 348,
+    "fontSize": "16px",
+    "lineHeight": "24px",
+    "padding": "0px",
+    "gap": "normal",
+    "color": "rgb(245, 245, 245)",
+    "borderRadius": "16px",
+    "transitionDuration": "0.15s",
+    "transitionProperty": "width, height, scale, opacity",
+    "opacity": "1",
+    "scale": "none"
+  },
+  "shortProject": {
+    "width": 274.40000915527344,
+    "height": 192.0800018310547,
+    "viewport": {
+      "width": 700,
+      "height": 460
+    }
+  },
+  "shortPermissions": {
+    "width": 282,
+    "height": 180,
+    "viewport": {
+      "width": 700,
+      "height": 460
+    }
+  },
+  "shortModel": {
+    "width": 360,
+    "height": 272,
+    "viewport": {
+      "width": 700,
+      "height": 460
+    }
+  },
+  "effort": {
+    "nativeWindows": true,
+    "normalUserData": true,
+    "fixtureOverrides": false,
+    "initialModel": "GPT-5.6-Sol",
+    "initialDefault": "Low",
+    "selectedRowSibling": true,
+    "triggerArrowKeepsModel": true,
+    "normalGeometry": {
+      "x": 670.5,
+      "y": 805,
+      "width": 244,
+      "height": 140,
+      "viewport": {
+        "width": 1385,
+        "height": 1051
+      },
+      "fits": true,
+      "side": "left",
+      "transitionDuration": "0.15s"
+    },
+    "sidePanelClearsModels": true,
+    "fastest": "Low",
+    "smartest": "Ultra",
+    "sliderKeepsModel": true,
+    "innerEscapeFocus": true,
+    "outerEscapeFocus": true,
+    "reloadRetained": true,
+    "modelDefaultReset": true,
+    "modelSelectionKeepsOpen": true,
+    "switchedDefault": {
+      "model": "GPT-6-Astra",
+      "effort": "medium"
+    },
+    "restoredDefault": {
+      "model": "GPT-5.6-Sol",
+      "effort": "low"
+    },
+    "shortGeometry": {
+      "x": 106,
+      "y": 214,
+      "width": 244,
+      "height": 140,
+      "viewport": {
+        "width": 700,
+        "height": 460
+      },
+      "fits": true,
+      "side": "left",
+      "transitionDuration": "0.15s"
+    },
+    "shortModelGeometry": {
+      "x": 351,
+      "y": 141,
+      "width": 280,
+      "height": 250,
+      "viewport": {
+        "width": 700,
+        "height": 460
+      },
+      "fits": true,
+      "side": "top",
+      "transitionDuration": "0.15s"
+    },
+    "minimumGeometry": {
+      "x": 216,
+      "y": 250,
+      "width": 244,
+      "height": 144,
+      "viewport": {
+        "width": 560,
+        "height": 460
+      },
+      "fits": true,
+      "side": "bottom",
+      "transitionDuration": "0.15s"
+    },
+    "minimumModelGeometry": {
+      "x": 215,
+      "y": 140,
+      "width": 280,
+      "height": 253,
+      "viewport": {
+        "width": 560,
+        "height": 460
+      },
+      "fits": true,
+      "side": "top",
+      "transitionDuration": "0.15s"
+    },
+    "noDuplicateInPlus": true,
+    "lightGeometry": {
+      "x": 670.5,
+      "y": 805,
+      "width": 244,
+      "height": 140,
+      "viewport": {
+        "width": 1385,
+        "height": 1051
+      },
+      "fits": true,
+      "side": "left",
+      "transitionDuration": "0.15s"
+    },
+    "reducedMotion": true,
+    "cataloguesSettledInScreenshots": true,
+    "actualModelCount": 5
+  },
+  "checkedAt": "2026-10-04T18:46:00.588143+00:00",
+  "claude": {
+    "replyVerified": true,
+    "reloadRetained": true,
+    "modelCount": 11,
+    "engine": "claude-code",
+    "version": "2.1.289",
+    "model": "opus"
+  },
+  "reference": {
+    "nativeWindowsUIAutomation": true,
+    "referenceDOMUnavailable": true,
+    "projectPopupPixelWidth": 262,
+    "freshPermissionPopupPixels": {
+      "width": 413,
+      "height": 162
+    },
+    "localMenusUseExistingTokens": true
+  },
+  "screenshots": [
+    "composer-polish-native-workspace-20261004.png",
+    "composer-polish-tabs-20261004.png",
+    "composer-polish-folder-menu-20261004.png",
+    "composer-polish-permissions-20261004.png",
+    "composer-polish-model-effort-20261004.png",
+    "composer-polish-effort-short-20261004.png",
+    "composer-polish-effort-light-20261004.png",
+    "composer-polish-claude-reply-20261004.png",
+    "composer-reference-permissions-20261004.png",
+    "composer-polish-effort-minimum-20261004.png"
+  ],
+  "baselineMetricNote": "Permission bounding box was sampled during the opening scale transition; final screenshots and short viewport checks use settled state.",
+  "codexNativeInference": {
+    "engine": "codex-cli",
+    "model": "GPT-5.6-Sol",
+    "replyVerified": true,
+    "historyReloadRetained": true,
+    "verifiedBeforeFinalEffortPresentation": true
+  },
+  "installedRendererByteEqual": true,
+  "verification": {
+    "desktopTests": 327,
+    "desktopTestFiles": 38,
+    "desktopBuild": true,
+    "workspaceTypecheck": true,
+    "workspaceLint": true,
+    "earlierWorkspaceTests": {
+      "passed": 18763,
+      "skipped": 116,
+      "note": "Full workspace run preceded the final Effort presentation correction; the affected desktop package was rerun after it."
+    }
+  },
+  "desktopErrorLog": {
+    "since": "2026-10-04T18:15:00Z",
+    "errorEvents": 0,
+    "checkedAt": "2026-10-04T18:46:43.942858+00:00"
+  }
+}

@@ -1,3 +1,39 @@
+/* One control treatment for project, permission, model and engine selectors. */
+.composer-control {
+	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease), box-shadow
+		140ms var(--motion-ease), scale 140ms var(--motion-ease);
+}
+.composer-control[data-composer-control-size="sm"] {
+	font-size: var(--text-ui-caption, 13px);
+	font-weight: 400;
+	line-height: 18px;
+}
+.composer-control[data-composer-control-size="xs"] {
+	font-size: var(--text-ui-sm, 12px);
+	line-height: 16px;
+}
+.composer-control:is(:hover, [data-highlighted]) {
+	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+	color: var(--foreground);
+}
+.composer-control:is(
+		[aria-expanded="true"],
+		[data-popup-open],
+		[data-pressed],
+		[aria-pressed="true"]
+	) {
+	background: color-mix(in srgb, var(--foreground) 10%, transparent);
+	color: var(--foreground);
+}
+.composer-control [data-composer-control-chevron],
+.composer-control [data-slot="select-icon"] {
+	transition: transform 180ms var(--motion-ease);
+}
+.composer-control:is([aria-expanded="true"], [data-popup-open]) [data-composer-control-chevron],
+.composer-control:is([aria-expanded="true"], [data-popup-open]) [data-slot="select-icon"] {
+	transform: rotate(180deg);
+}
+
 /* The normal composer has an inset context drawer above the message surface. */
 .normal-composer-shell {
 	--chat-composer-drawer-inset: 13px;
@@ -23,15 +59,17 @@
 	border: 1px solid var(--chat-composer-outline);
 	border-radius: 16px 16px 0 0;
 	background: color-mix(in srgb, var(--surface-raised) 65%, var(--background));
-	color: var(--secondary-label);
+	color: var(--foreground);
 }
 .composer-context-above .composer-project-control {
 	flex: 0 1 auto;
 	min-width: 0;
 	max-width: 38%;
 	justify-content: flex-start;
+	height: 28px;
 	padding-inline: 5px;
-	color: inherit;
+	border-radius: 999px;
+	color: var(--foreground);
 }
 .composer-computer-label {
 	display: flex;
@@ -41,6 +79,7 @@
 	font-size: 12px;
 	line-height: 18px;
 	white-space: nowrap;
+	color: var(--foreground);
 }
 .composer-computer-label > svg {
 	flex: none;
@@ -100,11 +139,15 @@
 	min-width: 0;
 	gap: 5px;
 	padding-inline: 5px;
-	font-size: 12px;
+	font-size: var(--text-ui-caption, 13px);
 	font-weight: 400;
+	color: var(--foreground);
 }
 .normal-composer-shell .composer-permission-control[data-composer-permission="auto"] {
 	color: var(--warning-foreground);
+}
+.normal-composer-shell .composer-permission-control > svg {
+	color: currentColor;
 }
 .normal-composer-shell .pal-composer-send-actions {
 	flex: 1 1 auto;
@@ -119,7 +162,7 @@
 	max-width: 100%;
 	gap: 5px;
 	padding-inline: 6px;
-	font-size: 12px;
+	font-size: var(--text-ui-caption, 13px);
 }
 @container composer-surface (max-width: 420px) {
 	.composer-context-above {
@@ -127,9 +170,6 @@
 	}
 	.normal-composer-shell .composer-permission-control {
 		max-width: 116px;
-	}
-	.normal-composer-shell .model-picker-trigger {
-		font-size: 11px;
 	}
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -193,18 +233,39 @@
 	font-weight: 400;
 }
 
-.composer-project-list {
-	max-height: min(280px, var(--available-height));
+.composer-project-popup {
+	width: 280px;
+	max-width: min(280px, var(--available-width), calc(100vw - 24px));
+	max-height: var(--available-height);
+	border-radius: 16px;
+}
+.composer-project-popup [data-slot="popover-viewport"] {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	max-height: var(--available-height);
+	padding: 6px;
+	overflow-x: hidden;
 	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+.composer-project-list {
+	flex: 1 1 auto;
+	min-height: 0;
+	max-height: min(280px, max(64px, calc(var(--available-height) - 124px)));
+	overflow-y: auto;
+	overflow-x: hidden;
 	overscroll-behavior: contain;
 }
 .composer-project-search {
 	display: flex;
 	align-items: center;
+	flex: none;
 	gap: 8px;
-	padding: 0 8px 4px;
+	min-height: 34px;
+	padding: 2px 8px 6px;
 	margin-bottom: 4px;
-	border-bottom: 1px solid var(--border);
+	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
 	color: var(--muted-foreground);
 }
 .composer-project-search > svg {
@@ -218,26 +279,34 @@
 }
 .composer-project-search input {
 	padding: 0;
-	font-size: 13px;
+	font-size: var(--text-ui-caption, 13px);
+	line-height: 20px;
+}
+.composer-project-search:focus-within {
+	color: var(--foreground);
 }
 .composer-project-row {
-	display: flex;
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) 16px;
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	min-height: 30px;
+	min-height: 32px;
 	padding: 6px 8px;
 	border: 0;
-	border-radius: 7px;
+	border-radius: var(--control-radius);
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: var(--text-ui-caption, 13px);
+	font-weight: 400;
+	line-height: 20px;
 	text-align: left;
 	cursor: pointer;
+	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
 }
 .composer-project-row:hover,
-.composer-project-row[data-checked] {
-	background: var(--accent);
+.composer-project-row[data-highlighted] {
+	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
 }
 .composer-project-row:focus-visible {
 	outline: 2px solid var(--ring);
@@ -245,9 +314,12 @@
 }
 .composer-project-row > svg,
 .composer-project-check > svg {
-	width: 15px;
-	height: 15px;
+	width: 16px;
+	height: 16px;
 	flex: none;
+}
+.composer-project-row > svg {
+	color: var(--muted-foreground);
 }
 .composer-project-name {
 	display: flex;
@@ -265,15 +337,64 @@
 	line-height: 16px;
 	color: var(--muted-foreground);
 }
+.composer-project-selection,
 .composer-project-check {
-	flex: none;
+	display: grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	color: var(--foreground);
+}
+.composer-project-empty {
+	margin: 0;
+	padding: 12px 8px;
+	color: var(--muted-foreground);
+	font-size: var(--text-ui-caption, 13px);
+	line-height: 20px;
 }
 .composer-project-actions {
-	margin-top: 6px;
-	padding-top: 6px;
-	border-top: 1px solid var(--border);
+	display: grid;
+	flex: none;
+	gap: 2px;
+	margin-top: 4px;
+	padding-top: 4px;
+	border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 .composer-project-actions button {
 	justify-content: flex-start;
 	width: 100%;
+	min-height: 32px;
+	gap: 8px;
+	padding-inline: 8px;
+	font-size: var(--text-ui-caption, 13px);
+	font-weight: 400;
+	line-height: 20px;
+	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
+}
+.composer-project-actions button:hover {
+	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
+}
+.composer-project-actions button > svg {
+	width: 16px;
+	height: 16px;
+	margin-inline: 0;
+}
+@media (pointer: coarse) {
+	.composer-project-row,
+	.composer-project-actions button {
+		min-height: 44px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.composer-control,
+	.composer-control [data-composer-control-chevron],
+	.composer-control [data-slot="select-icon"],
+	.composer-project-row,
+	.composer-project-actions button {
+		transition: none;
+	}
+	.composer-control:active {
+		scale: 1;
+		transform: none;
+	}
 }

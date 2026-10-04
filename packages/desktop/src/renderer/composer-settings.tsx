@@ -1,10 +1,12 @@
 import { AlertDialog } from '@base-ui/react/alert-dialog'
 import type { ReasoningEffort } from '@namzu/sdk'
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { ComposerControl } from './composer-control.js'
-import { ShieldQuestionIcon } from './icons.js'
+import { CheckIcon, ChevronRightIcon, ShieldQuestionIcon } from './icons.js'
 import { Button } from './ui/button.js'
+import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from './ui/select.js'
+import './composer-settings.css'
 
 export type ComposerPermissionMode = 'prompt' | 'accept-edits' | 'auto' | 'strict' | 'plan'
 export type ComposerPermissionEngine = 'namzu' | 'codex-cli' | 'claude-code'
@@ -59,89 +61,243 @@ function effortLabel(effort: ReasoningEffort): string {
 	}[effort]
 }
 
-/** Controlled per-conversation settings. The host snapshots these with each accepted message. */
-export function ComposerSettings({
+const effortOrder: readonly ReasoningEffort[] = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+]
+
+function stopEffortNavigation(event: KeyboardEvent) {
+	if (
+		event.key.startsWith('Arrow') ||
+		event.key === 'Home' ||
+		event.key === 'End' ||
+		event.key === 'PageUp' ||
+		event.key === 'PageDown' ||
+		event.key === '/'
+	)
+		event.stopPropagation()
+}
+
+/** Model-scoped effort; late callbacks cannot modify a different model or conversation. */
+export function ComposerEffort({
+	scope,
 	effortLevels,
 	effortDefault,
 	effort,
+	disabled,
+	onChange,
+	positionerClassName,
+}: {
+	scope: string
+	effortLevels?: readonly ReasoningEffort[]
+	effortDefault?: ReasoningEffort
+	effort?: ReasoningEffort
+	disabled: boolean
+	onChange: (effort: ReasoningEffort | undefined) => void
+	positionerClassName?: string
+}) {
+	const [openFor, setOpenFor] = useState<{ scope: string; generation: number } | null>(null)
+	const [narrow, setNarrow] = useState(false)
+	const trigger = useRef<HTMLButtonElement>(null)
+	const mounted = useRef(true)
+	const authority = useRef({ scope, generation: 0, disabled, effortLevels, onChange })
+	const generation =
+		authority.current.scope === scope
+			? authority.current.generation
+			: authority.current.generation + 1
+	authority.current = { scope, generation, disabled, effortLevels, onChange }
+	useEffect(() => {
+		mounted.current = true
+		const media =
+			typeof window !== 'undefined' ? window.matchMedia('(max-width: 600px)') : undefined
+		const update = () => setNarrow(media?.matches ?? false)
+		update()
+		media?.addEventListener('change', update)
+		return () => {
+			mounted.current = false
+			media?.removeEventListener('change', update)
+		}
+	}, [])
+	useEffect(() => {
+		if (disabled) setOpenFor(null)
+	}, [disabled])
+	const change = (value: ReasoningEffort | undefined) => {
+		const current = authority.current
+		if (
+			!mounted.current ||
+			current.scope !== scope ||
+			current.generation !== generation ||
+			current.disabled ||
+			(value !== undefined && !current.effortLevels?.includes(value))
+		)
+			return
+		current.onChange(value)
+	}
+	const levels = [...new Set(effortLevels ?? [])].sort(
+		(left, right) => effortOrder.indexOf(left) - effortOrder.indexOf(right),
+	)
+	const knownDefault = effortDefault && levels.includes(effortDefault) ? effortDefault : undefined
+	const defaultLabel = knownDefault ? `Default · ${effortLabel(knownDefault)}` : 'Provider default'
+	const current = effort && levels.includes(effort) ? effort : knownDefault
+	const index = current ? levels.indexOf(current) : undefined
+	const valueLabel = current ? effortLabel(current) : 'Provider default'
+	if (effort && !levels.includes(effort))
+		return (
+			<ComposerControl
+				size="xs"
+				disabled={disabled}
+				onClick={() => change(undefined)}
+				onKeyDown={stopEffortNavigation}
+				aria-label="Reset reasoning effort"
+				className="model-picker-effort-trigger model-picker-effort-reset"
+			>
+				Reset {effortLabel(effort)}
+			</ComposerControl>
+		)
+	if (levels.length === 0) return null
+	return (
+		<Popover
+			open={openFor?.scope === scope && openFor.generation === generation && !disabled}
+			onOpenChange={(next) => setOpenFor(next ? { scope, generation } : null)}
+		>
+			<PopoverTrigger
+				ref={trigger}
+				render={<ComposerControl size="xs" disabled={disabled} />}
+				aria-label="Reasoning effort"
+				className="model-picker-effort-trigger"
+				title={!effort ? defaultLabel : valueLabel}
+				onKeyDown={stopEffortNavigation}
+			>
+				<span>{valueLabel}</span>
+				<ChevronRightIcon aria-hidden="true" />
+			</PopoverTrigger>
+			<PopoverPopup
+				side={narrow ? 'bottom' : 'right'}
+				align={narrow ? 'end' : 'start'}
+				sideOffset={8}
+				padding="none"
+				aria-label="Reasoning effort"
+				className="model-picker-effort-popup"
+				positionerClassName={positionerClassName}
+				anchor={() =>
+					narrow
+						? trigger.current
+						: (trigger.current?.closest('.model-picker-row-wrap') ?? trigger.current)
+				}
+			>
+				<div
+					className="model-picker-effort-panel"
+					// Native range navigation must not select another model through
+					// the parent radio group. Base UI handles Escape dismissal.
+					onKeyDown={stopEffortNavigation}
+				>
+					<div className="model-picker-effort-heading">
+						<span>Effort</span>
+						<output className="model-picker-effort-value">{valueLabel}</output>
+					</div>
+					{index !== undefined ? (
+						<>
+							<div
+								className="model-picker-effort-track"
+								style={
+									{
+										'--effort-progress': `${levels.length > 1 ? (index / (levels.length - 1)) * 100 : 0}%`,
+									} as CSSProperties
+								}
+							>
+								<div className="model-picker-effort-ticks" aria-hidden="true">
+									{levels.map((level) => (
+										<i key={level} />
+									))}
+								</div>
+								<input
+									type="range"
+									min={0}
+									max={levels.length - 1}
+									step={1}
+									value={index}
+									disabled={disabled || levels.length === 1}
+									aria-label="Reasoning effort"
+									aria-valuetext={valueLabel}
+									onChange={(event) => {
+										const next = Number(event.currentTarget.value)
+										if (
+											event.currentTarget.value.trim() &&
+											Number.isInteger(next) &&
+											next >= 0 &&
+											next < levels.length
+										)
+											change(levels[next])
+									}}
+								/>
+							</div>
+							<div className="model-picker-effort-scale" aria-hidden="true">
+								<span>Faster</span>
+								<span>Smarter</span>
+							</div>
+						</>
+					) : (
+						<div className="model-picker-effort-options" aria-label="Choose reasoning effort">
+							{levels.map((level) => (
+								<Button
+									key={level}
+									variant="ghost"
+									size="xs"
+									disabled={disabled}
+									onClick={() => change(level)}
+								>
+									{effortLabel(level)}
+								</Button>
+							))}
+						</div>
+					)}
+					<Button
+						variant="ghost-muted"
+						size="xs"
+						className="model-picker-effort-default"
+						disabled={disabled || effort === undefined}
+						aria-label="Use model default effort"
+						onClick={() => change(undefined)}
+					>
+						{defaultLabel}
+					</Button>
+				</div>
+			</PopoverPopup>
+		</Popover>
+	)
+}
+
+/** Controlled per-conversation permissions in the Pal's message settings. */
+export function ComposerSettings({
 	permissionMode,
 	disabled,
-	onEffortChange,
 	onPermissionModeChange,
-	showPermissions = true,
 	reviewModes,
 	engine,
 	permissionScope,
 }: {
-	effortLevels?: readonly ReasoningEffort[]
-	effortDefault?: ReasoningEffort
-	effort?: ReasoningEffort
 	permissionMode: ComposerPermissionMode
 	disabled: boolean
-	onEffortChange: (effort: ReasoningEffort | undefined) => void
 	onPermissionModeChange: (mode: ComposerPermissionMode) => void
-	showPermissions?: boolean
 	reviewModes?: readonly ComposerPermissionMode[]
 	engine?: ComposerPermissionEngine
 	permissionScope?: string
 }) {
 	return (
-		<>
-			{effort && !effortLevels?.includes(effort) && (
-				<ComposerControl
-					disabled={disabled}
-					onClick={() => onEffortChange(undefined)}
-					aria-label="Reset reasoning effort"
-				>
-					Reset {effortLabel(effort)} effort
-				</ComposerControl>
-			)}
-			{effortLevels && effortLevels.length > 0 && (
-				<Select
-					value={effort && effortLevels.includes(effort) ? effort : 'provider-default'}
-					disabled={disabled}
-					onValueChange={(value) => {
-						if (value === 'provider-default') onEffortChange(undefined)
-						else if (effortLevels.includes(value as ReasoningEffort))
-							onEffortChange(value as ReasoningEffort)
-					}}
-				>
-					<SelectTrigger
-						render={<ComposerControl />}
-						variant="ghost"
-						size="sm"
-						aria-label="Reasoning effort"
-					>
-						{effort && effortLevels.includes(effort) ? effortLabel(effort) : 'Default effort'}
-					</SelectTrigger>
-					<SelectPopup
-						side="top"
-						alignItemWithTrigger={false}
-						matchTriggerWidth={false}
-						className="min-w-44"
-					>
-						<SelectItem value="provider-default">
-							{effortDefault ? `Default · ${effortLabel(effortDefault)}` : 'Provider default'}
-						</SelectItem>
-						{effortLevels.map((level) => (
-							<SelectItem key={level} value={level}>
-								{effortLabel(level)}
-							</SelectItem>
-						))}
-					</SelectPopup>
-				</Select>
-			)}
-			{showPermissions && (
-				<ComposerPermissions
-					engine={engine}
-					permissionScope={permissionScope}
-					reviewModes={reviewModes}
-					permissionMode={permissionMode}
-					disabled={disabled}
-					onChange={onPermissionModeChange}
-				/>
-			)}
-		</>
+		<ComposerPermissions
+			engine={engine}
+			permissionScope={permissionScope}
+			reviewModes={reviewModes}
+			permissionMode={permissionMode}
+			disabled={disabled}
+			onChange={onPermissionModeChange}
+		/>
 	)
 }
 
@@ -256,15 +412,24 @@ export function ComposerPermissions({
 				</SelectTrigger>
 				<SelectPopup
 					side="top"
+					sideOffset={8}
 					alignItemWithTrigger={false}
 					matchTriggerWidth={false}
-					className="w-72"
+					className="composer-permission-menu"
 				>
 					{choices.map(({ value, label, description }) => (
-						<SelectItem key={value} value={value} disabled={!supportedModes.includes(value)}>
-							<span className="block">{label}</span>
-							<span className="block whitespace-normal text-xs text-muted-foreground">
-								{description}
+						<SelectItem
+							key={value}
+							value={value}
+							disabled={!supportedModes.includes(value)}
+							className="composer-permission-option"
+						>
+							<span className="composer-permission-copy">
+								<span className="composer-permission-label">{label}</span>
+								<span className="composer-permission-description">{description}</span>
+							</span>
+							<span className="composer-permission-check" aria-hidden="true">
+								{value === permissionMode && <CheckIcon />}
 							</span>
 						</SelectItem>
 					))}

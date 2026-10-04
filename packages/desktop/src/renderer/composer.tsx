@@ -161,21 +161,19 @@ export function Composer({
 			providers={providers}
 			choice={choice}
 			onChange={onChoiceChange}
-			disabled={running || sending || !modelSelectionReady}
+			disabled={running || sending || !modelSelectionReady || harnessBusy}
+			settings={capabilities}
+			effort={settings.effort}
+			onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
 		/>
 	)
 	const settingsControl = (
 		<ComposerSettings
-			showPermissions={compact}
 			engine={permissionEngine ?? harnessView?.selected}
 			permissionScope={permissionScope}
 			reviewModes={reviewModes}
-			effortLevels={capabilities?.effortLevels}
-			effortDefault={capabilities?.effortDefault}
-			effort={settings.effort}
 			permissionMode={settings.permissionMode ?? 'prompt'}
 			disabled={sending || !connected}
-			onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
 			onPermissionModeChange={(permissionMode) => onSettingsChange({ ...settings, permissionMode })}
 		/>
 	)
@@ -228,20 +226,16 @@ export function Composer({
 						{modelControl}
 					</div>
 				)}
-				<div className="pal-composer-tool-section">
-					<h2>Message settings</h2>
-					<div className="flex flex-wrap gap-2">{settingsControl}</div>
-					{!compact && !capabilities?.effortLevels?.length && !settings.effort && (
-						<p className="text-xs text-muted-foreground">This model uses its default settings.</p>
-					)}
-					<p className="mt-2 text-xs text-muted-foreground">
-						These choices apply to the next message.{' '}
-						{running && 'Running work keeps its current settings.'}
-					</p>
-					{capabilities?.notice && (
-						<p className="mt-2 text-xs text-muted-foreground">{capabilities.notice}</p>
-					)}
-				</div>
+				{compact && (
+					<div className="pal-composer-tool-section">
+						<h2>Message settings</h2>
+						<div className="flex flex-wrap gap-2">{settingsControl}</div>
+						<p className="mt-2 text-xs text-muted-foreground">
+							These choices apply to the next message.{' '}
+							{running && 'Running work keeps its current settings.'}
+						</p>
+					</div>
+				)}
 				<div className="pal-composer-tool-section">{pluginControl}</div>
 			</PopoverPopup>
 		</Popover>

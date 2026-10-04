@@ -6,6 +6,7 @@ import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { CheckIcon, LoaderCircleIcon, ProviderIcons } from './icons.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Wordmark } from './wordmark.js'
+import './harness-picker.css'
 
 export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
 	if (engine === 'namzu')
@@ -48,10 +49,16 @@ export function HarnessPicker({
 				{selected !== 'namzu' && <span className="truncate">{label}</span>}
 				{busy ? <LoaderCircleIcon className="size-3 animate-spin" /> : <ComposerControlChevron />}
 			</PopoverTrigger>
-			<PopoverPopup side="top" align="end" width="md" aria-label="Execution engine">
-				<h2 className="text-sm font-medium">Execution engine</h2>
+			<PopoverPopup
+				side="top"
+				align="end"
+				padding="compact"
+				className="harness-picker-popup"
+				aria-label="Execution engine"
+			>
+				<h2 className="harness-picker-title">Execution engine</h2>
 				<RadioGroup
-					className="mt-2 grid gap-1"
+					className="harness-picker-list"
 					aria-label="Available engines"
 					value={selected}
 					onValueChange={(value) => {
@@ -71,7 +78,7 @@ export function HarnessPicker({
 								key={engine.id}
 								value={engine.id}
 								disabled={!engine.available}
-								className="flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm hover:bg-muted disabled:opacity-50"
+								className="harness-picker-row"
 							>
 								<HarnessMark engine={engine.id} />
 								{engine.id === 'namzu' ? (
@@ -80,15 +87,17 @@ export function HarnessPicker({
 									<span>{engine.label}</span>
 								)}
 								{!engine.available && (
-									<span className="ml-auto text-xs text-muted-foreground">Not installed</span>
+									<span className="harness-picker-unavailable">Not installed</span>
 								)}
-								{selected === engine.id && <CheckIcon className="ml-auto size-4" />}
+								<span className="harness-picker-selection" aria-hidden="true">
+									{selected === engine.id && <CheckIcon />}
+								</span>
 							</Radio.Root>
 						),
 					)}
 				</RadioGroup>
 				{view?.locked && (
-					<p className="mt-2 text-xs text-muted-foreground">
+					<p className="harness-picker-notice">
 						Choosing another engine opens a new conversation tab.
 					</p>
 				)}

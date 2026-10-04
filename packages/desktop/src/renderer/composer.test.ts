@@ -284,7 +284,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 		],
 	})
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Reasoning effort')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Reasoning effort')).toMatch(/\bdisabled=/)
 	expect(button(html, 'Tool permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Select model')).toMatch(/\bdisabled=/)
@@ -298,6 +298,16 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	const offline = render()
 	for (const label of ['Attach files', 'Tool permissions', 'Plugins', 'Send message'])
 		expect(button(offline, label)).toMatch(/\bdisabled=/)
+	const idle = render({
+		connected: true,
+		capabilities: { effortLevels: ['low', 'high'], effortDefault: 'low' },
+	})
+	expect(button(idle, 'Reasoning effort')).not.toMatch(/\bdisabled=/)
+	const tools = idle.slice(
+		idle.indexOf('<div aria-label="Attachments and message settings">'),
+		idle.indexOf('<div aria-label="Model picker">'),
+	)
+	expect(tools).not.toContain('aria-label="Reasoning effort"')
 })
 
 it('offers only actual ordinary projects with current selection and connection/trust hints', () => {

@@ -1,9 +1,11 @@
 import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { Tabs } from '@base-ui/react/tabs'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ModelCatalogueView, ProviderView } from '../shared/protocol.js'
+import type { ReasoningEffort } from '@namzu/sdk'
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import type { ComposerModelSettings, ModelCatalogueView, ProviderView } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
+import { ComposerEffort } from './composer-settings.js'
 import {
 	CheckIcon,
 	CloudIcon,
@@ -57,6 +59,9 @@ export function ModelPicker({
 	sessionId,
 	loadCatalogue,
 	positionerClassName,
+	settings,
+	effort,
+	onEffortChange,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -66,6 +71,9 @@ export function ModelPicker({
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	positionerClassName?: string
+	settings?: ComposerModelSettings | null
+	effort?: ReasoningEffort
+	onEffortChange?: (effort: ReasoningEffort | undefined) => void
 }) {
 	const [open, setOpen] = useState(false)
 	const provider = providers.available.find((item) => item.id === choice.provider)
@@ -74,6 +82,25 @@ export function ModelPicker({
 		if (disabled) setOpen(false)
 	}, [disabled])
 	const scope = `${projectId}:${sessionId ?? ''}`
+	const effortScope = JSON.stringify([
+		projectId,
+		sessionId,
+		choice.provider,
+		choice.model || provider?.defaultModel || '',
+	])
+	const showEffort = Boolean(onEffortChange && (settings?.effortLevels?.length || effort))
+	const effortControl =
+		showEffort && onEffortChange ? (
+			<ComposerEffort
+				scope={effortScope}
+				effortLevels={settings?.effortLevels}
+				effortDefault={settings?.effortDefault}
+				effort={effort}
+				disabled={disabled}
+				onChange={onEffortChange}
+				positionerClassName={positionerClassName}
+			/>
+		) : null
 	const previousScope = useRef(scope)
 	useEffect(() => {
 		if (previousScope.current !== scope) {
@@ -101,26 +128,30 @@ export function ModelPicker({
 			</PopoverTrigger>
 			<PopoverPopup
 				side="top"
-				align="start"
+				align="end"
 				sideOffset={8}
 				padding="none"
 				aria-label="Model picker"
 				className="model-picker-popup"
 				positionerClassName={positionerClassName}
 			>
-				<ModelBrowser
-					key={`${projectId}:${sessionId ?? ''}`}
-					providers={providers}
-					choice={choice}
-					projectId={projectId}
-					sessionId={sessionId}
-					loadCatalogue={loadCatalogue}
-					onChoose={(next, close) => {
-						if (disabled) return
-						onChange(next)
-						if (close) setOpen(false)
-					}}
-				/>
+				<div className="model-picker-body">
+					<ModelBrowser
+						key={`${projectId}:${sessionId ?? ''}`}
+						providers={providers}
+						choice={choice}
+						projectId={projectId}
+						sessionId={sessionId}
+						loadCatalogue={loadCatalogue}
+						effortControl={effortControl}
+						settingsNotice={settings?.notice}
+						onChoose={(next, close) => {
+							if (disabled) return
+							onChange(next)
+							if (close && !onEffortChange) setOpen(false)
+						}}
+					/>
+				</div>
 			</PopoverPopup>
 		</Popover>
 	)
@@ -133,6 +164,8 @@ function ModelBrowser({
 	sessionId,
 	onChoose,
 	loadCatalogue,
+	effortControl,
+	settingsNotice,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -140,6 +173,8 @@ function ModelBrowser({
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	onChoose: (choice: ModelChoice, close?: boolean) => void
+	effortControl?: ReactNode
+	settingsNotice?: string
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
 	const [catalogues, setCatalogues] = useState<Record<string, Catalogue>>({})
@@ -153,6 +188,7 @@ function ModelBrowser({
 	const [customModel, setCustomModel] = useState(choice.model)
 	const active =
 		providers.available.find((provider) => provider.id === providerId) ?? providers.available[0]
+	const multipleProviders = providers.available.length > 1
 	useEffect(() => {
 		mounted.current = true
 		return () => {
@@ -233,6 +269,14 @@ function ModelBrowser({
 		return rows.length ? [{ provider, rows }] : []
 	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
+	const selectedModel =
+		choice.model ||
+		providers.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
+		''
+	const hasSelectedRow = groups.some(
+		({ provider, rows }) =>
+			provider.id === choice.provider && rows.some((row) => row.id === selectedModel),
+	)
 	const lineUp = (
 		<div className="model-lineup">
 			<header className="model-picker-heading">
@@ -285,11 +329,21 @@ function ModelBrowser({
 					</div>
 				) : (
 					<>
-						<span className="model-picker-title" title={active?.label}>
-							{active?.label ?? 'Models'}
-						</span>
-						<Button variant="ghost-muted" size="xs" onClick={() => setSearching(true)}>
-							<span>Quick search</span>
+						<div className="model-picker-heading-copy">
+							<span className="model-picker-title">Select model</span>
+							{multipleProviders && (
+								<span className="model-picker-provider-label" title={active?.label}>
+									{active?.label}
+								</span>
+							)}
+						</div>
+						<Button
+							variant="ghost-muted"
+							size="icon-xs"
+							aria-label="Search models"
+							title="Search models (/)"
+							onClick={() => setSearching(true)}
+						>
 							<SearchIcon aria-hidden="true" />
 						</Button>
 					</>
@@ -325,26 +379,23 @@ function ModelBrowser({
 								<legend className="model-picker-section-title">{provider.label}</legend>
 							)}
 							{rows.map((model) => (
-								<Radio.Root
+								<div
 									key={modelKey(model.provider.id, model.id)}
-									value={modelKey(model.provider.id, model.id)}
-									nativeButton
-									render={<button type="button" />}
-									className="model-picker-row"
-									aria-label={`${model.provider.label} ${model.label}`}
-									onClick={(event) => {
-										event.preventDefault()
-										onChoose(
-											{
-												provider: model.provider.id,
-												model: model.id,
-												label: model.label,
-											},
-											true,
-										)
-									}}
-									onKeyDown={(event) => {
-										if (event.key === 'Enter') {
+									className="model-picker-row-wrap"
+									data-has-effort={
+										(model.provider.id === choice.provider &&
+											model.id === selectedModel &&
+											Boolean(effortControl)) ||
+										undefined
+									}
+								>
+									<Radio.Root
+										value={modelKey(model.provider.id, model.id)}
+										nativeButton
+										render={<button type="button" />}
+										className="model-picker-row"
+										aria-label={`${model.provider.label} ${model.label}`}
+										onClick={(event) => {
 											event.preventDefault()
 											onChoose(
 												{
@@ -354,21 +405,37 @@ function ModelBrowser({
 												},
 												true,
 											)
-										}
-									}}
-								>
-									<span className="model-picker-name">
-										<span title={`${model.label} · ${model.id}`}>{model.label}</span>
-										{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
-											<small>{model.note}</small>
-										)}
-									</span>
-									<span className="model-picker-selection" aria-hidden="true">
-										<Radio.Indicator className="model-picker-checked">
-											<CheckIcon aria-hidden="true" />
-										</Radio.Indicator>
-									</span>
-								</Radio.Root>
+										}}
+										onKeyDown={(event) => {
+											if (event.key === 'Enter') {
+												event.preventDefault()
+												onChoose(
+													{
+														provider: model.provider.id,
+														model: model.id,
+														label: model.label,
+													},
+													true,
+												)
+											}
+										}}
+									>
+										<span className="model-picker-name">
+											<span title={`${model.label} · ${model.id}`}>{model.label}</span>
+											{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
+												<small>{model.note}</small>
+											)}
+										</span>
+										<span className="model-picker-selection" aria-hidden="true">
+											<Radio.Indicator className="model-picker-checked">
+												<CheckIcon aria-hidden="true" />
+											</Radio.Indicator>
+										</span>
+									</Radio.Root>
+									{model.provider.id === choice.provider &&
+										model.id === selectedModel &&
+										effortControl}
+								</div>
 							))}
 						</fieldset>
 					))}
@@ -385,8 +452,20 @@ function ModelBrowser({
 					</output>
 				)}
 			</div>
-			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0) && (
+			{!searching && !hasSelectedRow && effortControl && (
+				<div className="model-picker-current">
+					<span className="model-picker-section-title">Current model</span>
+					<div className="model-picker-current-row model-picker-row-wrap" data-has-effort>
+						<span className="model-picker-name" title={selectedModel}>
+							<span>{choice.label || selectedModel}</span>
+						</span>
+						{effortControl}
+					</div>
+				</div>
+			)}
+			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
 				<div className="model-picker-feedback" aria-label="Model catalogue information">
+					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
 					{errors.map((provider) => (
 						<div key={provider.id} className="model-picker-status" role="alert">
 							<span>
@@ -482,6 +561,18 @@ function ModelBrowser({
 			)}
 		</div>
 	)
+	const searchShortcut = (event: KeyboardEvent) => {
+		if (event.key === '/' && !(event.target instanceof HTMLInputElement)) {
+			event.preventDefault()
+			setSearching(true)
+		}
+	}
+	if (!multipleProviders)
+		return (
+			<div className="model-provider-single" onKeyDown={searchShortcut}>
+				{lineUp}
+			</div>
+		)
 	return (
 		<Tabs.Root
 			orientation="vertical"
@@ -493,12 +584,7 @@ function ModelBrowser({
 				setCustom(false)
 			}}
 			className="model-provider-tabs"
-			onKeyDown={(event) => {
-				if (event.key === '/' && !(event.target instanceof HTMLInputElement)) {
-					event.preventDefault()
-					setSearching(true)
-				}
-			}}
+			onKeyDown={searchShortcut}
 		>
 			<Tabs.List aria-label="Model providers" className="model-provider-list">
 				{providers.available.map((provider) => (

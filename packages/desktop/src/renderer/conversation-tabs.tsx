@@ -3,6 +3,7 @@ import type { ConversationView } from '../shared/protocol.js'
 import { HarnessMark } from './harness-picker.js'
 import { LoaderCircleIcon, PlusIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
+import { WordmarkInitial } from './wordmark.js'
 import './conversation-tabs.css'
 
 /** Views are peers; closing a tab does not stop or delete its owned conversation. */
@@ -42,11 +43,15 @@ export function ConversationTabs({
 							className="conversation-tab-label"
 							aria-label={`${view.harness === 'codex-cli' ? 'Codex CLI' : view.harness === 'claude-code' ? 'Claude Code' : 'Namzu'}: ${view.title}`}
 						>
-							{running(view.id) ? (
-								<LoaderCircleIcon className="size-3 animate-spin" />
-							) : (
-								<HarnessMark engine={view.harness ?? 'namzu'} />
-							)}
+							<span className="conversation-tab-mark" aria-hidden="true">
+								{running(view.id) ? (
+									<LoaderCircleIcon className="size-3 animate-spin" />
+								) : !view.harness || view.harness === 'namzu' ? (
+									<WordmarkInitial />
+								) : (
+									<HarnessMark engine={view.harness} />
+								)}
+							</span>
 							<span className="truncate" title={view.title}>
 								{view.title}
 							</span>
