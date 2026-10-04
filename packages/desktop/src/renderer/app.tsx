@@ -58,9 +58,11 @@ import { JobRow } from './job-row.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
+import { PalActivity, palToolActivity } from './pal-activity.js'
+import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
-import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './pals-page.js'
+import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
@@ -81,6 +83,7 @@ import { WorkspacePageHeader } from './workspace-page-header.js'
 import { createWorkspacePaneApi } from './workspace-pane-api.js'
 import type { WorkspacePaneProps } from './workspace-pane-types.js'
 import { readWorkspacePresentation, writeWorkspacePresentation } from './workspace-presentation.js'
+import { WorkspaceSessionCache } from './workspace-session-cache.js'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 'close' }) {
@@ -156,6 +159,16 @@ export function App({
 	const activation = useRef<string | null>(null)
 	const missingActivation = useRef<string | null>(null)
 	const hydratedSession = useRef<string | null>(null)
+	const warmSessions = useRef(
+		new WorkspaceSessionCache<{
+			providers: ProviderView
+			harness?: HarnessView
+			modelSettings: Map<string, ComposerModelSettings>
+		}>(),
+	)
+	const [metadataEpoch, setMetadataEpoch] = useState(0)
+	warmSessions.current.synchronizeMembers([...group.tabs, ...createdSessions.current])
+	const openFlights = useRef(new Map<string, { generation: number; promise: Promise<void> }>())
 	const previousMembership = useRef(group.tabs)
 	if (
 		hydratedSession.current &&
@@ -268,6 +281,8 @@ export function App({
 		view: HarnessView
 	}>()
 	const [harnessBusy, setHarnessBusy] = useState(false)
+	const harnessChoicePending = useRef(false)
+	const harnessChoiceFailure = useRef<{ sessionId: string; message: string } | null>(null)
 	const [conversationSelection, setConversationSelection] = useState<{
 		sessionId: string
 		collection: ConversationCollection
@@ -475,9 +490,10 @@ export function App({
 	useEffect(() => {
 		if (previousRoute.current !== routeKey) {
 			previousRoute.current = routeKey
-			setPalScreen(undefined)
+			if (railSection !== null || palsPage || palScreen?.palId !== project?.palId)
+				setPalScreen(undefined)
 		}
-	}, [routeKey])
+	}, [routeKey, railSection, palsPage, palScreen?.palId, project?.palId])
 	useEffect(() => {
 		if (!api.humanComputer) return
 		let current = true
@@ -574,6 +590,12 @@ export function App({
 		Boolean(sending[draftOwner]) ||
 		thread.running
 	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
+	const warmSession = warmSessions.current.read(sessionId, projectId)
+	if (warmSession) {
+		if (providerReady) warmSession.providers = providers
+		if (harnessView) warmSession.harness = harnessView
+		if (capabilities) warmSession.modelSettings.set(modelSettingsKey, capabilities)
+	}
 	const pluginsKey = modelSettingsKey
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
 	if (pluginOwner.current.key !== pluginsKey) {
@@ -615,6 +637,7 @@ export function App({
 		const view = pluginStates[pluginsKey]?.value
 		if (
 			!sessionId ||
+			pal ||
 			!project?.trusted ||
 			!palCanWork ||
 			project.status !== 'ready' ||
@@ -691,6 +714,15 @@ export function App({
 	}
 	useEffect(() => {
 		if (!projectId || !providerReady || !choice.provider || !modelId || modelSettingsBusy) return
+		const remembered = warmSessions.current
+			.read(sessionId, projectId)
+			?.modelSettings.get(modelSettingsKey)
+		if (remembered) {
+			if (modelSettings?.key !== modelSettingsKey || modelSettings.value !== remembered)
+				setModelSettings({ key: modelSettingsKey, value: remembered })
+			return
+		}
+		if (modelSettings?.key === modelSettingsKey) return
 		let current = true
 		void api
 			.modelSettings(projectId, choice.provider, modelId, sessionId || undefined)
@@ -718,6 +750,7 @@ export function App({
 		modelId,
 		modelSettingsKey,
 		modelSettingsBusy,
+		modelSettings,
 		api,
 	])
 	const updateProject = useCallback(
@@ -727,6 +760,7 @@ export function App({
 	)
 	const act = useCallback(async (action: () => Promise<unknown>) => {
 		if (context.current.frozen) return
+		harnessChoiceFailure.current = null
 		setError('')
 		const pending = Promise.resolve().then(action)
 		operations.current.add(pending)
@@ -743,6 +777,8 @@ export function App({
 		const owner = providerKey
 		const epoch = ++providerGeneration.current
 		const harnessEpoch = ++harnessGeneration.current
+		warmSessions.current.read(sessionId, projectId)?.modelSettings.clear()
+		setModelSettings(null)
 		savedSettings.retry()
 		await Promise.all([
 			api.providers(project.id, sessionId || undefined).then((available) => {
@@ -784,6 +820,18 @@ export function App({
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'workspace') return
 			if (event.kind === 'connection') {
+				warmSessions.current.invalidateProject(event.project.id)
+				if (
+					providerReadOwner.current === JSON.stringify([event.project.id, activeSession.current])
+				) {
+					providerGeneration.current++
+					harnessGeneration.current++
+					hydratedSession.current = null
+					activation.current = null
+					setProviderOwner('')
+					setHarnessState(undefined)
+					setModelSettings(null)
+				}
 				updateProject(event.project)
 				return
 			}
@@ -832,29 +880,17 @@ export function App({
 		})
 	}, [updateProject, attached.reload, api])
 	useEffect(() => {
+		// Choice settlement resumes metadata admission even for the same active ID.
+		void metadataEpoch
 		if (!project || project.status === 'connecting' || !project.trusted) return
-		let current = true
-		void api
-			.conversations(project.id)
-			.then((rows) => {
-				if (!current) return
-				setConversations((all) => {
-					const returned = new Set(rows.map((row) => row.id))
-					return [
-						...all.filter((item) => item.projectId !== project.id || !returned.has(item.id)),
-						...rows,
-					]
-				})
-			})
-			.catch((failure) => {
-				if (current) setError(errorText(failure))
-			})
-		return () => {
-			current = false
+		if (warmSessions.current.mutating(sessionId)) return
+		const remembered = warmSessions.current.read(sessionId, project.id)
+		if (remembered) {
+			setProviders(remembered.providers)
+			setProviderOwner(JSON.stringify([project.id, sessionId]))
+			return
 		}
-	}, [project, api])
-	useEffect(() => {
-		if (!project || project.status === 'connecting' || !project.trusted) return
+		if (openingHistory.current !== null) return
 		let current = true
 		const owner = JSON.stringify([project.id, sessionId])
 		const epoch = ++providerGeneration.current
@@ -872,11 +908,12 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [project, sessionId, api])
+	}, [project, sessionId, api, metadataEpoch])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
 		const owner = `project:${projectId}:workspace:${windowId}:${group.id}`
+		if (draftsRef.current[owner] !== undefined) return
 		void api
 			.draft(owner)
 			.then((saved) => {
@@ -957,7 +994,14 @@ export function App({
 			setOpenTabIds((all) => (all.includes(sessionId) ? all : [...all, sessionId]))
 	}, [sessionId, pal, conversations])
 	useEffect(() => {
+		void metadataEpoch
 		if (!api.harnesses || !project || pal || !project.trusted || project.status !== 'ready') return
+		if (warmSessions.current.mutating(sessionId)) return
+		const remembered = warmSessions.current.read(sessionId, project.id)?.harness
+		if (remembered) {
+			setHarnessState({ owner: providerKey, view: remembered })
+			return
+		}
 		let current = true
 		const owner = providerKey
 		const epoch = ++harnessGeneration.current
@@ -973,7 +1017,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [project, pal, sessionId, providerKey, api])
+	}, [project, pal, sessionId, providerKey, api, metadataEpoch])
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
@@ -1020,6 +1064,7 @@ export function App({
 			!project ||
 			pal ||
 			harnessBusy ||
+			harnessChoicePending.current ||
 			thread.running ||
 			loading ||
 			restoringTabs
@@ -1031,6 +1076,8 @@ export function App({
 		const sourceOwner = draftOwner
 		const capturedDraft = draftsRef.current[sourceOwner] ?? ''
 		let target = sessionId
+		let finishMutation: (() => void) | undefined
+		harnessChoicePending.current = true
 		setHarnessBusy(true)
 		try {
 			const create = !target || harnessView?.locked || thread.messages.length > 0
@@ -1055,6 +1102,8 @@ export function App({
 				}
 				if (generation === navigation.current) setSessionId(target)
 			}
+			finishMutation = warmSessions.current.beginMutation(target)
+			setMetadataEpoch((epoch) => epoch + 1)
 			const view = await api.selectHarness(target, engine)
 			setConversations((all) =>
 				all.map((item) => (item.id === target ? { ...item, harness: view.selected } : item)),
@@ -1077,8 +1126,30 @@ export function App({
 			if (generation !== navigation.current) return
 			setProviders(available)
 			setProviderOwner(owner)
+		} catch (failure) {
+			if (finishMutation)
+				harnessChoiceFailure.current = { sessionId: target, message: errorText(failure) }
+			throw failure
 		} finally {
+			harnessChoicePending.current = false
 			setHarnessBusy(false)
+			if (finishMutation) {
+				// A user may return to this owner while its choice ACK is pending.
+				// Retire visible metadata before waking that activation, regardless
+				// of the navigation generation which initiated the mutation.
+				if (activeSession.current === target || context.current.group.activeTabId === target) {
+					providerGeneration.current++
+					harnessGeneration.current++
+					hydratedSession.current = null
+					activation.current = null
+					setProviderOwner('')
+					setHarnessState(undefined)
+					setModelSettings(null)
+					setRestoringTabs(true)
+				}
+				setMetadataEpoch((epoch) => epoch + 1)
+				finishMutation()
+			}
 		}
 	}
 
@@ -1165,103 +1236,145 @@ export function App({
 		}
 	}
 	const openConversation = useCallback(
-		async (
+		(
 			view: ConversationView,
 			collection: ConversationCollection = 'projects',
 			restoring = false,
 		) => {
-			if (!restoring) {
-				if (context.current.frozen) return
-				const next = await onAction({
-					kind: 'open',
-					tabId: view.id,
-					groupId: context.current.group.id,
-				})
-				const destination = next.layout.windows.find((item) => item.id === windowId)
-				if (destination?.focusedGroupId !== context.current.group.id) return
-				abandonTabRestore()
-			}
-			writePresentation.current()
+			const flight = openFlights.current.get(view.id)
+			if (flight?.generation === navigation.current) return flight.promise
 			const generation = ++navigation.current
-			openingHistory.current = generation
-			closedTabs.current.delete(view.id)
-			setPalScreen(undefined)
-			if (snapshotRead.current) snapshotRead.current.events.length = 0
-			const read = {
-				generation,
-				sessionId: view.id,
-				events: [] as DesktopEvent[],
-				characters: 0,
-				overflow: false,
-			}
-			snapshotRead.current = read
-			try {
-				const history = await api.openConversation(view.projectId, view.id)
-				if (generation !== navigation.current) return
-				if (read.overflow)
-					throw new Error(
-						'This conversation changed while opening. Open it again for its latest history.',
-					)
-				const replay = [...read.events]
-				if (snapshotRead.current === read) snapshotRead.current = null
-				setThreads((all) => {
-					let restored: ThreadState = {
-						...emptyThread(),
-						...history.thread,
-						messages: history.messages,
-						partial: history.partial,
-					}
-					if (!history.thread) restored = restoreMessages(restored, history.messages)
-					for (const event of replay) restored = applyEvent(restored, event)
-					return (all[view.id]?.revision ?? 0) > restored.revision
-						? all
-						: { ...all, [view.id]: restored }
-				})
-				const [status, savedDraft] = await Promise.all([
-					api.providers(view.projectId, view.id),
-					api.draft(view.id),
-				])
-				if (restoring || draftsRef.current[view.id] === undefined) {
-					draftsRef.current[view.id] = savedDraft
-					setDrafts((all) => ({ ...all, [view.id]: savedDraft }))
-				}
-				if (generation !== navigation.current) return
-				if (restoring) await Promise.all([savedSettings.refresh(view.id), attached.reload(view.id)])
-				if (generation !== navigation.current) return
-				hydratedSession.current = view.id
-				setError('')
-				setProviders(status)
-				setProviderOwner(JSON.stringify([view.projectId, view.id]))
-				setSessionId(view.id)
-				setConversationSelection({ sessionId: view.id, collection })
-				setProjectId(view.projectId)
-				setRailSection(null)
-				setPalsPage(false)
-				setSideOpen(false)
-				const presentation = restoring
-					? readWorkspacePresentation(localStorage, view.id, view.palId)
-					: null
-				if (presentation) {
-					setPalScreen(presentation.palScreen)
-					setComputerChatState(presentation.computerChat)
-					setFloatingChatMinimizedState(presentation.floatingChatMinimized)
-					setPalProfileOpen(presentation.palProfileOpen)
-					setComputerProfileOpen(presentation.computerProfileOpen)
-					setJobsOpen(presentation.jobsOpen)
-					setPanelTab(presentation.panelTab)
-					follow.current = presentation.follow
-					requestAnimationFrame(() => {
-						if (generation === navigation.current && transcript.current)
-							transcript.current.scrollTop = presentation.scrollTop
+			const pending = (async () => {
+				writePresentation.current()
+				if (!restoring) {
+					if (context.current.frozen) return
+					const next = await onAction({
+						kind: 'open',
+						tabId: view.id,
+						groupId: context.current.group.id,
 					})
-				} else follow.current = true
-				if (context.current.focused && !context.current.frozen) input.current?.focus()
-			} catch (failure) {
-				if (generation === navigation.current) throw failure
-			} finally {
-				if (snapshotRead.current === read) snapshotRead.current = null
-				if (openingHistory.current === generation) openingHistory.current = null
+					const destination = next.layout.windows.find((item) => item.id === windowId)
+					if (
+						generation !== navigation.current ||
+						destination?.focusedGroupId !== context.current.group.id
+					)
+						return
+					abandonTabRestore()
+				}
+				closedTabs.current.delete(view.id)
+				setPalScreen(undefined)
+				if (snapshotRead.current) snapshotRead.current.events.length = 0
+				await warmSessions.current.whenSettled(view.id)
+				if (generation !== navigation.current) return
+				openingHistory.current = generation
+				const remembered = warmSessions.current.read(view.id, view.projectId)
+				const ticket = warmSessions.current.ticket(view.id, view.projectId)
+				const read = {
+					generation,
+					sessionId: view.id,
+					events: [] as DesktopEvent[],
+					characters: 0,
+					overflow: false,
+				}
+				snapshotRead.current = remembered ? null : read
+				try {
+					let status = remembered?.providers
+					if (!remembered) {
+						const history = await api.openConversation(view.projectId, view.id)
+						if (generation !== navigation.current) return
+						if (read.overflow)
+							throw new Error(
+								'This conversation changed while opening. Open it again for its latest history.',
+							)
+						const replay = [...read.events]
+						if (snapshotRead.current === read) snapshotRead.current = null
+						setThreads((all) => {
+							let restored: ThreadState = {
+								...emptyThread(),
+								...history.thread,
+								messages: history.messages,
+								partial: history.partial,
+							}
+							if (!history.thread) restored = restoreMessages(restored, history.messages)
+							for (const event of replay) restored = applyEvent(restored, event)
+							return (all[view.id]?.revision ?? 0) > restored.revision
+								? all
+								: { ...all, [view.id]: restored }
+						})
+						const [available, savedDraft] = await Promise.all([
+							api.providers(view.projectId, view.id),
+							api.draft(view.id),
+						])
+						status = available
+						if (restoring || draftsRef.current[view.id] === undefined) {
+							draftsRef.current[view.id] = savedDraft
+							setDrafts((all) => ({ ...all, [view.id]: savedDraft }))
+						}
+						if (generation !== navigation.current) return
+						await Promise.all([savedSettings.refresh(view.id), attached.reload(view.id)])
+						if (generation !== navigation.current) return
+						if (
+							!warmSessions.current.remember(ticket, {
+								providers: available,
+								modelSettings: new Map(),
+							})
+						)
+							throw new Error(
+								'This conversation’s connection or pane changed while opening. Try again.',
+							)
+					}
+					if (!status) return
+					hydratedSession.current = view.id
+					setError(
+						harnessChoiceFailure.current?.sessionId === view.id
+							? harnessChoiceFailure.current.message
+							: '',
+					)
+					setProviders(status)
+					setProviderOwner(JSON.stringify([view.projectId, view.id]))
+					setSessionId(view.id)
+					setConversationSelection({ sessionId: view.id, collection })
+					setProjectId(view.projectId)
+					setRailSection(null)
+					setPalsPage(false)
+					setSideOpen(false)
+					const presentation =
+						restoring || remembered
+							? readWorkspacePresentation(localStorage, view.id, view.palId)
+							: null
+					if (presentation) {
+						setPalScreen(
+							!restoring && presentation.palScreen
+								? { ...presentation.palScreen, activeTab: 'chat' }
+								: presentation.palScreen,
+						)
+						setComputerChatState(presentation.computerChat)
+						setFloatingChatMinimizedState(presentation.floatingChatMinimized)
+						setPalProfileOpen(presentation.palProfileOpen)
+						setComputerProfileOpen(presentation.computerProfileOpen)
+						setJobsOpen(presentation.jobsOpen)
+						setPanelTab(presentation.panelTab)
+						follow.current = presentation.follow
+						requestAnimationFrame(() => {
+							if (generation === navigation.current && transcript.current)
+								transcript.current.scrollTop = presentation.scrollTop
+						})
+					} else follow.current = true
+					if (context.current.focused && !context.current.frozen) input.current?.focus()
+				} catch (failure) {
+					if (generation === navigation.current) throw failure
+				} finally {
+					if (snapshotRead.current === read) snapshotRead.current = null
+					if (openingHistory.current === generation) openingHistory.current = null
+				}
+			})()
+			const current = { generation, promise: pending }
+			openFlights.current.set(view.id, current)
+			const settled = () => {
+				if (openFlights.current.get(view.id) === current) openFlights.current.delete(view.id)
 			}
+			void pending.then(settled, settled)
+			return pending
 		},
 		[abandonTabRestore, api, onAction, windowId, savedSettings.refresh, attached.reload],
 	)
@@ -1306,6 +1419,7 @@ export function App({
 		}
 	}, [api, projects, catalogueTabsKey, tabRestoreAttempt])
 	useEffect(() => {
+		void metadataEpoch
 		setOpenTabIds([...group.tabs])
 		const target = group.activeTabId || ''
 		if (!target) {
@@ -1374,20 +1488,32 @@ export function App({
 		projectsLoaded,
 		conversations,
 		projects,
+		metadataEpoch,
 		openConversation,
 		sessionId,
 		onLoadFailure,
 	])
 	useEffect(() => {
+		void metadataEpoch
 		if (
 			!group.activeTabId ||
+			warmSessions.current.mutating(sessionId) ||
 			sessionId !== group.activeTabId ||
 			hydratedSession.current !== sessionId ||
 			restoringTabs ||
 			!providerReady ||
-			savedSettings.loading
+			savedSettings.loading ||
+			savedSettings.error ||
+			!attached.loaded ||
+			project?.status !== 'ready'
 		)
 			return
+		if (!warmSessions.current.read(sessionId, projectId))
+			warmSessions.current.remember(warmSessions.current.ticket(sessionId, projectId), {
+				providers,
+				harness: harnessView,
+				modelSettings: new Map(),
+			})
 		onReady(group.id, sessionId)
 	}, [
 		group.id,
@@ -1396,6 +1522,13 @@ export function App({
 		restoringTabs,
 		providerReady,
 		savedSettings.loading,
+		savedSettings.error,
+		attached.loaded,
+		project?.status,
+		projectId,
+		metadataEpoch,
+		providers,
+		harnessView,
 		onReady,
 	])
 	useEffect(
@@ -1466,8 +1599,16 @@ export function App({
 			setJobsOpen(false)
 			setProjectId(opened.project.id)
 			setSessionId('')
-			const latest = [...opened.conversations].sort(compareConversationRecency)[0]
-			if (latest) await openConversation(latest)
+			let latest = [...opened.conversations].sort(compareConversationRecency)[0]
+			if (!latest) {
+				// Claim an owned conversation without starting inference or its computer.
+				const created = await api.newConversation(opened.project.id)
+				latest = created
+				setConversations((all) => [created, ...all.filter((item) => item.id !== created.id)])
+				setThreads((all) => ({ ...all, [created.id]: emptyThread() }))
+				if (generation !== navigation.current) return
+			}
+			await openConversation(latest)
 		} finally {
 			setLoading(false)
 		}
@@ -1659,6 +1800,7 @@ export function App({
 		(!pal.paused &&
 			palComputer?.status === 'ready' &&
 			(!palComputer.control?.supported || palComputer.control.mode === 'pal'))
+	const palCanChat = !pal || !pal.paused
 	const computerCapture = pal ? palScreens[pal.id] : undefined
 	const currentScreen =
 		palComputer?.status === 'ready' && computerCapture?.generation === palComputer.generation
@@ -1907,7 +2049,7 @@ export function App({
 							? thread.permissions.length
 								? 'approval'
 								: 'working'
-							: project?.status !== 'ready' || palComputer?.status !== 'ready'
+							: project?.status !== 'ready'
 								? 'offline'
 								: 'idle',
 				computer: {
@@ -1924,15 +2066,20 @@ export function App({
 					notice:
 						palComputer?.notice ??
 						(palComputer?.status === 'stopped'
-							? 'Start your Pal’s local computer to begin.'
+							? 'Start your Pal’s local computer to use apps and tools.'
 							: undefined),
 				},
 				hostComputer: humanComputer,
-				activity: [...ownedConversations].sort(compareConversationRecency).map((item) => ({
-					id: item.id,
-					title: item.title,
-					status: threads[item.id]?.running ? 'working' : undefined,
-				})),
+				activity: palToolActivity(thread)
+					.reverse()
+					.map(({ id, tool }) => ({
+						id,
+						title: tool.title,
+						status:
+							tool.status === 'pending' && thread.activeToolIds.includes(id)
+								? 'working'
+								: undefined,
+					})),
 				outputs: changes
 					? [
 							{
@@ -1943,9 +2090,9 @@ export function App({
 					: [],
 				onCustomize: () => showPalEditor(pal),
 				customizeDisabled: palBusy || palsSaving,
-				onActivity: (id) => {
-					const view = ownedConversations.find((item) => item.id === id)
-					if (view) void act(() => openConversation(view))
+				onActivity: () => {
+					setPanelTab('jobs')
+					setJobsOpen(true)
 				},
 				onOutput: () => {
 					setPanelTab('changes')
@@ -2082,7 +2229,7 @@ export function App({
 			restoringTabs ||
 			(!draft.trim() && attached.get(draftOwner).length === 0) ||
 			!project?.trusted ||
-			(pal && (pal.paused || palComputer?.status !== 'ready')) ||
+			!palCanChat ||
 			project.status !== 'ready' ||
 			!choice.provider ||
 			!providerReady ||
@@ -2538,7 +2685,76 @@ export function App({
 								: 'chat'
 				}
 			>
-				{palWorkspace && normalTabs.length > 0 && groupTabs}
+				<WorkspacePageHeader
+					className="topbar workspace-conversation-header"
+					aria-label="Conversation workspace"
+				>
+					{normalTabs.length > 0 ? (
+						groupTabs
+					) : (
+						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
+							<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
+								<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
+									{pal?.name ?? project?.name ?? 'Workspace'}
+								</WorkspaceBreadcrumbText>
+							</WorkspaceBreadcrumbItem>
+							<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
+								<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+							</WorkspaceBreadcrumbSeparator>
+							<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+								<h2 className="min-w-0 flex-1">
+									<WorkspaceBreadcrumbText data-conversation-title>
+										{conversation?.title ?? 'Start a conversation'}
+									</WorkspaceBreadcrumbText>
+								</h2>
+							</WorkspaceBreadcrumbItem>
+						</WorkspaceBreadcrumb>
+					)}
+					{!pal && sessionId && thread.messages.length > 0 && !externalHarness && (
+						<>
+							<Button
+								ref={jobsTrigger}
+								type="button"
+								variant="ghost-muted"
+								size="sm"
+								className="jobs-button"
+								aria-label="Background work"
+								aria-description={
+									jobsSessionId !== sessionId || jobsLoading || jobsError
+										? 'Background work has not been confirmed'
+										: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
+								}
+								onClick={() => {
+									setPanelTab('jobs')
+									setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
+								}}
+							>
+								<TerminalIcon aria-hidden="true" className="size-4" />
+								<span className="jobs-button-label">Background work</span>
+								{visibleJobs.some((job) => job.status === 'running') && (
+									<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
+								)}
+							</Button>
+							<Button
+								ref={changesTrigger}
+								type="button"
+								variant="ghost-muted"
+								size="icon-sm"
+								aria-label="Show changes"
+								aria-pressed={jobsOpen && panelTab === 'changes'}
+								onClick={() => {
+									setPanelTab('changes')
+									setJobsOpen(panelTab !== 'changes' || !jobsOpen)
+								}}
+							>
+								<FileDiffIcon className="size-4" />
+							</Button>
+							{!pal && contextProps && thread.messages.length > 0 && (
+								<ProjectContextMenu {...contextProps} />
+							)}
+						</>
+					)}
+				</WorkspacePageHeader>
 				{computerPage && pal && palContextProps && (
 					<PalComputerView
 						id={computerIds.computerPanel}
@@ -2634,73 +2850,7 @@ export function App({
 						loadModels={api.palModels}
 					/>
 				)}
-				<WorkspacePageHeader className="topbar">
-					{!pal && normalTabs.length > 0 ? (
-						groupTabs
-					) : (
-						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
-							<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
-								<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
-									{pal?.name ?? project?.name ?? 'Workspace'}
-								</WorkspaceBreadcrumbText>
-							</WorkspaceBreadcrumbItem>
-							<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
-								<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-							</WorkspaceBreadcrumbSeparator>
-							<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-								<h2 className="min-w-0 flex-1">
-									<WorkspaceBreadcrumbText data-conversation-title>
-										{conversation?.title ?? 'Start a conversation'}
-									</WorkspaceBreadcrumbText>
-								</h2>
-							</WorkspaceBreadcrumbItem>
-						</WorkspaceBreadcrumb>
-					)}
-					{sessionId && thread.messages.length > 0 && !externalHarness && (
-						<>
-							<Button
-								ref={jobsTrigger}
-								type="button"
-								variant="ghost-muted"
-								size="sm"
-								className="jobs-button"
-								aria-label="Background work"
-								aria-description={
-									jobsSessionId !== sessionId || jobsLoading || jobsError
-										? 'Background work has not been confirmed'
-										: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
-								}
-								onClick={() => {
-									setPanelTab('jobs')
-									setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
-								}}
-							>
-								<TerminalIcon aria-hidden="true" className="size-4" />
-								<span className="jobs-button-label">Background work</span>
-								{visibleJobs.some((job) => job.status === 'running') && (
-									<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
-								)}
-							</Button>
-							<Button
-								ref={changesTrigger}
-								type="button"
-								variant="ghost-muted"
-								size="icon-sm"
-								aria-label="Show changes"
-								aria-pressed={jobsOpen && panelTab === 'changes'}
-								onClick={() => {
-									setPanelTab('changes')
-									setJobsOpen(panelTab !== 'changes' || !jobsOpen)
-								}}
-							>
-								<FileDiffIcon className="size-4" />
-							</Button>
-							{!pal && contextProps && thread.messages.length > 0 && (
-								<ProjectContextMenu {...contextProps} />
-							)}
-						</>
-					)}
-				</WorkspacePageHeader>
+
 				{(error || project?.error || savedSettings.error) && (
 					<div className="connection-error">
 						<ChatErrorBanner
@@ -2853,27 +3003,31 @@ export function App({
 								}}
 							>
 								<div className="conversation-body">
-									{pal && thread.messages.length === 0 && (
-										<PalWelcome
-											pal={pal}
-											disabled={palBusy}
-											onCustomize={() => showPalEditor(pal)}
-										/>
-									)}
 									{thread.partial && (
 										<p className="notice">
 											Showing the latest part of this conversation. The full record remains on this
 											device.
 										</p>
 									)}
-									<Transcript key={sessionId || 'blank'} thread={thread} />
-									<ChangedFilesCard
-										tools={thread.tools}
-										onOpen={() => {
-											setPanelTab('changes')
-											setJobsOpen(true)
-										}}
-									/>
+									{pal ? (
+										<PalChatTranscript
+											key={sessionId}
+											thread={thread}
+											name={pal.name}
+											intro={conversation?.palGreeting}
+										/>
+									) : (
+										<>
+											<Transcript key={sessionId || 'blank'} thread={thread} />
+											<ChangedFilesCard
+												tools={thread.tools}
+												onOpen={() => {
+													setPanelTab('changes')
+													setJobsOpen(true)
+												}}
+											/>
+										</>
+									)}
 									{thread.error && (
 										<p className="inline-error" role="alert">
 											{thread.error}
@@ -2883,6 +3037,8 @@ export function App({
 							</div>
 							<Composer
 								variant={pal ? 'pal' : 'default'}
+								pluginsSupported={!pal}
+								toolsAvailable={palCanWork}
 								draftDisabled={
 									loading ||
 									restoringTabs ||
@@ -2924,7 +3080,7 @@ export function App({
 								}
 								connected={
 									project.status === 'ready' &&
-									palCanWork &&
+									palCanChat &&
 									providerReady &&
 									project.trusted &&
 									!savedSettings.loading &&
@@ -2974,7 +3130,7 @@ export function App({
 					data-open={jobsOpen}
 					inert={!jobsOpen}
 					aria-hidden={!jobsOpen}
-					aria-label={panelTab === 'jobs' ? 'Background work' : 'Changes'}
+					aria-label={panelTab === 'jobs' ? (pal ? 'Activity' : 'Background work') : 'Changes'}
 				>
 					<div className="section-heading">
 						<div className="flex items-center gap-1">
@@ -2994,7 +3150,7 @@ export function App({
 								onClick={() => setPanelTab('jobs')}
 							>
 								<TerminalIcon className="size-3.5" />
-								Background work
+								{pal ? 'Activity' : 'Background work'}
 							</Button>
 						</div>
 						<Button
@@ -3002,7 +3158,13 @@ export function App({
 							variant="ghost-muted"
 							size="icon-sm"
 							className="icon-button"
-							aria-label={panelTab === 'jobs' ? 'Close background work' : 'Close changes'}
+							aria-label={
+								panelTab === 'jobs'
+									? pal
+										? 'Close activity'
+										: 'Close background work'
+									: 'Close changes'
+							}
 							onClick={closeDetails}
 						>
 							<Icon name="close" />
@@ -3019,6 +3181,7 @@ export function App({
 						/>
 					) : (
 						<div className="panel-scroll">
+							{pal && <PalActivity thread={thread} />}
 							{jobsError ? (
 								<p role="alert" className="jobs-error">
 									{jobsError}
@@ -3026,7 +3189,7 @@ export function App({
 							) : jobsLoading ? (
 								<p className="quiet">Loading background work…</p>
 							) : visibleJobs.length === 0 ? (
-								<p className="quiet">No background shells in this conversation.</p>
+								!pal && <p className="quiet">No background shells in this conversation.</p>
 							) : (
 								visibleJobs.map((job) => (
 									<JobRow

@@ -99,6 +99,13 @@ warning. INFO/debug output has no failure attributes; the words `JSON` or
 are reassembled with a bounded buffer, and a final partial line is recorded on
 stream closure. Raw body and attribute content still remain excluded.
 
+A model settings read superseded by an owned provider or engine selection is
+still rejected by the metadata fence. It records `ipc_superseded` at INFO with
+the method, request correlation and fixed `conversation-settings-superseded`
+reason. Only the main process's typed selection invalidation receives this
+classification; connection, project, authorization and provider failures remain
+errors, including wire errors with a matching name or message.
+
 Each file is bounded to 512 KiB; rotation retains one previous file. A burst
 above 200 records of one event per second produces one rate-limit record, then resumes in
 the next second. Files/directories request owner-only POSIX permissions;
@@ -157,8 +164,9 @@ actual provider catalogue. Give work and preferences through the conversation;
 customization does not require a purpose form. Customize uses the saved revision to reject
 conflicting edits. Definitions and
 conversation ownership come from the [shared CLI and SDK](pals.md), rather than
-renderer storage. Existing conversations keep their original profile revision;
-profile edits apply to new conversations. A conversation's model choice remains
+renderer storage. Existing conversations keep their original profile revision
+for model, purpose and execution policy. Authenticated name and appearance edits
+update the next turn's display identity. A conversation's model choice remains
 local to that conversation.
 
 Setup begins inside the conversation with a character, greeting, model picker
@@ -173,9 +181,33 @@ Older profiles without appearance display Pixel in green without changing the
 stored revision. An unavailable model catalogue leaves setup and customization
 usable; the Pal may use the host's configured model when its own model is null.
 
-The saved Pal view explains its saved purpose and offers customization. Its chat
-uses the existing transcript, composer, approvals and tool events. Once setup
-saves the profile, the central character disappears. A persistent card on the
+Save opens an owned conversation with a stable English introduction from the
+original profile revision. It starts no paid inference or guest computer, and
+the introduction remains visible through later messages, reloads and renames.
+Pal chat presents user messages and completed public replies as chat bubbles.
+Explicit final answers supersede unphased parts of the same identified message;
+reasoning, commentary and tool narration stay outside the public chat. Actual
+Typing, Working and approval-waiting states provide concise progress, and real
+errors remain visible. Tool receipts belong to Activity and changed files remain
+in Changes. Live and moved panes preserve the admitted tool timeline. Current
+cold history restores public messages, not old tool receipts, so the empty
+Activity label describes only the retained view. Ordinary transcripts retain
+their existing presentation.
+
+The [native Windows Pal receipt](../../research/runtime-desktop-20260930/artifacts/pal-chat-native-windows-safe-20261005.json)
+records two real Zen replies from `space-bunny-free`, saved-name identity,
+English introduction, Turkish language follow-up, actual Typing and Working
+states, matching messages through full restart and aligned composer centers.
+It used a separate owned conversation and retained the existing Pal profile and
+draft. Fresh profile customization remains covered by regression tests; this
+native run did not start a guest or exercise tools/control. Final native
+diagnostics reported no errors. The shared header remained 52px across ordinary
+and Pal views; repeat warm samples were 41–62ms, while first cold external-engine
+loads took about 1.2s. These are observations from that run, not latency guarantees.
+
+The composer keeps text and its placeholder vertically aligned with its buttons.
+Approvals remain readable; their decisions require actual current guest authority.
+Once setup saves the profile, the central character disappears. A persistent card on the
 right shows its live 3D character, computer, owned recent conversations and
 current completed change receipts. The pencil beside the character opens
 customization. The card has no menu trigger and reserves its own layout space,
@@ -188,14 +220,24 @@ conversation. Its default model applies to future conversations.
 The customization preview and saved Pal card use locally generated Three.js
 geometry, loaded only when needed, with idle motion, blinking and pointer
 tracking. Pausing freezes the card's scene; resuming restarts it. Hidden or
-offscreen scenes stop rendering. Unmount and failed initialization release the renderer, WebGL
-context, geometry, materials, textures, listeners and observers. Reduced motion
-or unavailable WebGL uses a static character with the same selected appearance.
+offscreen scenes stop rendering. Each visible character holds an exclusive
+scene lease. A renderer retains at most two idle scenes for reuse with the same
+character, color and size. Detaching a view removes its canvas, stops animation
+frames and disconnects its listeners and observers; its idle scene may retain
+the WebGL context without drawing. Eviction, invalid contexts and failed
+initialization dispose the scene's renderer, geometry, materials and textures.
+Reduced motion discards active and idle decorative scenes and uses a static
+character with the same selected appearance, as does unavailable WebGL. This
+decorative cache does not retain a guest computer connection.
 
-Each Pal requires its own [local guest computer](../sdk/local-pal-computer.md).
+Each Pal requires its own [local guest computer](../sdk/local-pal-computer.md) for tools.
 Start computer uses the owning Pal runtime; a missing engine or image produces
-an unavailable state with the setup reason. The composer admits work only after
-that computer is ready and the Pal is not paused. The card's **Computers** section
+an unavailable state with the setup reason. An unpaused Pal can still exchange
+text while offline or while the operator controls its computer. These turns
+expose no tools or host execution fallback. A later turn can use the actual
+ready guest after explicit startup or returned control. Pausing still refuses
+new model requests, and checkpoint continuation requires guest authority.
+The card's **Computers** section
 shows an actual guest thumbnail beside the Pal computer and a separate host row
 from the native device's real hostname. Selecting the guest opens a full content
 view, with a persistent noVNC framebuffer stream. PNG captures are used only
@@ -215,7 +257,10 @@ running. Existing images need an explicit rebuild and computer restart for these
 Guest browser and file tools do not fall back to the operator's device.
 
 The owning pane places ordinary conversations, Pal chat and the Pal's computer
-in one tab row. All use equal 220px by 32px frames inside the same 48px toolbar.
+in one tab row. All use equal 220px by 32px frames inside the shared outer header.
+That header stays in place when switching between ordinary chat, Pal chat and
+computer content. Its height follows the canonical 52px workspace-header token,
+with common gutters, so changing the selected view does not move the tab row.
 Selecting chat returns to its transcript and profile without closing the computer
 tab. Selecting the computer shows its live desktop; the plus button opens or
 selects that same computer. Closing its tab returns to the same Pal chat and leaves
@@ -225,10 +270,14 @@ even a pending first send keeps its owning chat when its session is created.
 Changing views invalidates pending guest input and control transfers.
 
 The [native Windows unified-tab receipt](../../research/runtime-desktop-20260930/artifacts/pal-unified-tabs-native-safe-20261004.json)
-verified one tab list with these equal frames on the same row. Opening an
+verified one tab list with these equal frames on the same row before the common
+header-height correction. Opening an
 offline computer view and clicking back to Pal chat preserved the actual
 conversation identity without errors. That check did not start the computer
-or verify its live stream.
+or verify its live stream. The later [native header and activation receipt](../../research/runtime-desktop-20260930/artifacts/workspace-tabs-layout-latency-native-safe-20261005.json)
+verified the same header node and stable 52px bounds across ordinary, Pal and
+offline computer views. At a 900px viewport the tab list scrolled while New tab
+and Pal controls stayed inside the header; native bounds were restored afterward.
 
 Layout controls show chat beside the computer, hide it, or place that same chat
 in a small floating window. The split header aligns with the two content panes.
@@ -496,6 +545,30 @@ appropriate arrow keys; Shift makes a larger step, and Home/End reach the
 readable bounds. Keyboard and pointer changes preserve both branches' minimums.
 Group controllers keep stable identities when the tree gains or loses a split.
 
+Returning to a fully loaded tab in the same pane reuses its current transcript,
+draft, settings and files, together with confirmed provider, engine and model
+metadata. Repeated requests to open the same tab share its pending load. This
+reuse is valid only while the tab remains in its canonical group and its runtime
+connection generation is unchanged. First opens, incoming transfers, cold
+restarts, tabs returning after removal, and reconnects load authoritative state
+again. An engine change invalidates affected confirmed runtime metadata and
+requires an authoritative refresh. Model capability metadata stays keyed to
+the exact session, provider and model choice; choosing another model cannot
+reuse a different model's capabilities. Reusing display state does not bypass
+the current ownership checks.
+
+The [native Windows activation receipt](../../research/runtime-desktop-20260930/artifacts/workspace-tabs-layout-latency-native-safe-20261005.json)
+verified that the same canonical tabs survived cold start and retained their
+drafts, settings, files and selected model. With normal motion and an actual
+WebGL character, the same scene canvas was reused; its idle canvas was detached,
+its context retained and its draws stopped. Observed warm click-to-ready samples
+were 37–46ms for the ordinary conversation and 44–56ms for Pal chat, compared
+with earlier 406–1129ms and 734–1040ms samples respectively. These are local
+observations for existing tabs in one pane, not timing assertions or guarantees
+for first loads, transfers or reconnects. No messages were sent by this check,
+the computer remained offline, and final native service diagnostics reported
+no errors.
+
 One main-process Operator continues to own all runtime connections across these
 views. Moving a tab does not start another SDK loop, restart its engine or replay
 its prompt. The main-owned layout grants each conversation one writable window.
@@ -527,6 +600,11 @@ owner-only permissions on POSIX; Windows uses the application's user-data access
 controls. Provider credentials, queued prompts, pending approvals and running
 activity are not stored here. A second application launch focuses the existing
 native instance so one main process owns the profile.
+
+An unchanged metadata snapshot skips another atomic write and filesystem sync
+only after an identical snapshot has committed successfully. Failed writes are
+retried; this optimization does not acknowledge an unsaved draft or change the
+attachment-before-metadata commit order.
 
 A cold restart reopens durable history using its saved runtime ID, including
 conversations outside the recent catalogue. An unsubmitted conversation has no

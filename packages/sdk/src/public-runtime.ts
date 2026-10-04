@@ -1726,6 +1726,7 @@ export {
 } from './peers/index.js'
 export { DiskPalStore, PalConflictError } from './pals/store.js'
 export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
+export { buildPalSystemPrompt, palConversationGreeting } from './pals/prompt.js'
 
 export { isInboundDeliveryRef } from './types/message/inbound-delivery.js'
 

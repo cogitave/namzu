@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-05",
+  "environment": {
+    "nativeWindows": true,
+    "productionRenderer": true,
+    "actualInstalledCLI": true,
+    "normalUserData": true,
+    "fixtureOverrides": false
+  },
+  "scope": {
+    "freshOwnedConversationCreatedThroughActualDesktopAPI": true,
+    "messagesSentThroughNativeComposer": true,
+    "existingPalProfileNotRecreated": true,
+    "virtualComputerNotStarted": true,
+    "nativeCustomizeSaveNotRepeated": true
+  },
+  "model": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "chat": {
+    "englishIntroBeforeInference": true,
+    "introCount": 1,
+    "deliveredCurrentSavedName": true,
+    "offlineRealReplySucceeded": true,
+    "followedTurkishMessageLanguage": true,
+    "observedStatuses": [
+      "idle",
+      "Working\u2026",
+      "Typing\u2026"
+    ],
+    "deliveredMessageCountAfterTwoTurns": 5,
+    "publicPendingAssistantCountAtFirstWorkingState": 0,
+    "errors": 0
+  },
+  "coldRestart": {
+    "introAndDeliveredMessagesEqual": true,
+    "originalDraftRetained": true,
+    "computerStatus": "stopped",
+    "visibleErrors": 0
+  },
+  "composer": {
+    "height": 32,
+    "lineHeight": "20px",
+    "paddingTop": "6px",
+    "paddingBottom": "6px",
+    "inputToSendCenterDifference": 0
+  },
+  "workspaceRegression": {
+    "switches": [
+      {
+        "pal": false,
+        "ms": 1187,
+        "height": 52,
+        "sameHeader": true
+      },
+      {
+        "pal": true,
+        "ms": 62,
+        "height": 52,
+        "sameHeader": true
+      },
+      {
+        "pal": false,
+        "ms": 1172,
+        "height": 52,
+        "sameHeader": true
+      },
+      {
+        "pal": true,
+        "ms": 49,
+        "height": 52,
+        "sameHeader": true
+      },
+      {
+        "pal": false,
+        "ms": 41,
+        "height": 52,
+        "sameHeader": true
+      },
+      {
+        "pal": true,
+        "ms": 57,
+        "height": 52,
+        "sameHeader": true
+      }
+    ],
+    "originalTabCountRestored": 3,
+    "nativeWindowCount": 1,
+    "originalDraftRetained": true,
+    "timingsAreObservationsNotThresholds": true
+  },
+  "diagnostics": {
+    "eventCount": 14,
+    "errorCount": 0,
+    "supersededCount": 0
+  },
+  "verification": {
+    "rootTypecheck": "pass",
+    "rootLint": "pass with existing CLI warnings",
+    "workspaceBuild": "pass",
+    "workspaceTests": "pass",
+    "sdkTests": 9983,
+    "cliTests": 5018,
+    "desktopTestsAfterDiagnosticFollowup": 541,
+    "docsOKF": "pass",
+    "docsFences": "pass",
+    "signatureTypes": "pass"
+  },
+  "limits": [
+    "The native run did not start a guest, exercise guest tools or take over control.",
+    "Current cold history restores public messages, not earlier tool receipts.",
+    "Fresh profile customization and renamed identity are covered by regression tests; native verification retained the existing profile."
+  ]
+}

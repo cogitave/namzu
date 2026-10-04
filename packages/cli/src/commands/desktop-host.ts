@@ -24,6 +24,7 @@ import {
 	stopCliPalComputer,
 	takeOverCliPalComputer,
 } from '../pals/environment.js'
+import { palPublicAssistantText } from '../pals/public-transcript.js'
 import { createPal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
@@ -197,12 +198,20 @@ export function createDesktopHostExtensions(
 			const id = await ownedSession(params)
 			return withState(async (state) => {
 				const messages = await loadConversation(state, asSessionId(id))
-				const shown = messages.filter(
-					(message) =>
-						message.role === 'assistant' ||
-						(message.role === 'user' &&
+				const ownedPal = Boolean(pal())
+				const shown = messages.flatMap<{ role: 'user' | 'assistant'; content: string | null }>(
+					(message) => {
+						if (message.role === 'assistant') {
+							if (!ownedPal) return [{ role: message.role, content: message.content }]
+							const content = palPublicAssistantText(message)
+							return content === undefined ? [] : [{ role: message.role, content }]
+						}
+						return message.role === 'user' &&
 							(!message.source ||
-								(message.source.type === 'runtime-context' && message.source.kind === 'steering'))),
+								(message.source.type === 'runtime-context' && message.source.kind === 'steering'))
+							? [{ role: message.role, content: message.content }]
+							: []
+					},
 				)
 				let remaining = 200_000
 				let partial = false

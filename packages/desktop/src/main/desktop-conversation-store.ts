@@ -108,7 +108,9 @@ function settings(input: unknown): DraftSettings {
 		result.options = {
 			...(options.effort === undefined
 				? {}
-				: { effort: options.effort as NonNullable<DraftSettings['options']>['effort'] }),
+				: {
+						effort: options.effort as NonNullable<DraftSettings['options']>['effort'],
+					}),
 			...(options.permissionMode === undefined
 				? {}
 				: {
@@ -129,7 +131,18 @@ function conversation(input: unknown): SavedDesktopConversation {
 		'draftSettings',
 		'providerSelection',
 	])
-	const view = record(value.view, ['id', 'projectId', 'title', 'updatedAt', 'palId', 'harness'])
+	const view = record(value.view, [
+		'id',
+		'projectId',
+		'title',
+		'updatedAt',
+		'palId',
+		'harness',
+		'palGreeting',
+	])
+	const greeting =
+		view.palGreeting === undefined ? undefined : record(view.palGreeting, ['id', 'text'])
+	if (greeting && view.palId === undefined) throw new Error('A greeting must belong to a Pal.')
 	const updatedAt = string(view.updatedAt, 100)
 	if (!Number.isFinite(Date.parse(updatedAt))) throw new Error('Invalid saved conversation date.')
 	if (
@@ -145,6 +158,9 @@ function conversation(input: unknown): SavedDesktopConversation {
 			title: string(view.title, 4000, false),
 			updatedAt,
 			...(view.palId === undefined ? {} : { palId: id(view.palId) }),
+			...(greeting
+				? { palGreeting: { id: id(greeting.id), text: string(greeting.text, 4000) } }
+				: {}),
 			...(view.harness === undefined
 				? {}
 				: { harness: view.harness as ConversationView['harness'] }),
@@ -380,8 +396,12 @@ function atomicWrite(path: string, data: string): void {
 export class DesktopConversationStore {
 	private cachedAttachments: SavedDesktopAttachment[] = []
 	private cachedAttachmentFile?: string
+	private committedMetadata?: string
 	constructor(private readonly directory: string) {}
 	read(): DesktopConversationSnapshot | undefined {
+		// Any explicit read retires the last commit assumption, even if the
+		// current file is missing or invalid and needs to be repaired.
+		this.committedMetadata = undefined
 		let input: unknown
 		try {
 			input = readJson(join(this.directory, METADATA_FILE))
@@ -450,10 +470,12 @@ export class DesktopConversationStore {
 			} else attachmentFile = undefined
 		}
 		const { attachments: _attachments, ...saved } = snapshot
-		atomicWrite(
-			join(this.directory, METADATA_FILE),
-			`${JSON.stringify({ ...saved, ...(attachmentFile ? { attachmentFile } : {}) })}\n`,
-		)
+		const content = `${JSON.stringify({ ...saved, ...(attachmentFile ? { attachmentFile } : {}) })}\n`
+		if (content !== this.committedMetadata) {
+			atomicWrite(join(this.directory, METADATA_FILE), content)
+			// Only a completed atomic commit can authorize skipping an identical write.
+			this.committedMetadata = content
+		}
 		const previousFile = this.cachedAttachmentFile
 		this.cachedAttachments = cloneAttachments(attachments)
 		this.cachedAttachmentFile = attachmentFile

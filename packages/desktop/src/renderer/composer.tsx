@@ -52,6 +52,8 @@ export function Composer({
 	onDraftChange,
 	providers,
 	connected,
+	toolsAvailable = connected,
+	pluginsSupported = true,
 	modelSelectionReady = connected,
 	providersLoading = false,
 	choice,
@@ -103,6 +105,9 @@ export function Composer({
 	onDraftChange: (draft: string) => void
 	providers: ProviderView
 	connected: boolean
+	/** Chat admission does not imply that guest tools are available. */
+	toolsAvailable?: boolean
+	pluginsSupported?: boolean
 	/** Catalogue access does not require a Pal's execution computer. */
 	modelSelectionReady?: boolean
 	providersLoading?: boolean
@@ -152,6 +157,7 @@ export function Composer({
 }) {
 	const compact = variant === 'pal'
 	const centered = empty && !compact
+	const approvalDisabled = !connected || !toolsAvailable || draftDisabled || harnessBusy
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
 	const importDisabled =
@@ -175,7 +181,7 @@ export function Composer({
 			permissionScope={permissionScope}
 			reviewModes={reviewModes}
 			permissionMode={settings.permissionMode ?? 'prompt'}
-			disabled={sending || !connected}
+			disabled={sending || !connected || !toolsAvailable}
 			onPermissionModeChange={(permissionMode) => onSettingsChange({ ...settings, permissionMode })}
 		/>
 	)
@@ -238,7 +244,7 @@ export function Composer({
 						</p>
 					</div>
 				)}
-				<div className="pal-composer-tool-section">{pluginControl}</div>
+				{pluginsSupported && <div className="pal-composer-tool-section">{pluginControl}</div>}
 			</PopoverPopup>
 		</Popover>
 	)
@@ -450,12 +456,20 @@ export function Composer({
 							</ComposerSurface.ContextStrip>
 						)}
 						{permissions[0] && (
-							<ComposerApproval
-								key={permissions[0].id}
-								permission={permissions[0]}
-								count={permissions.length}
-								onRespond={onApproval}
-							/>
+							<fieldset
+								className="m-0 min-w-0 border-0 p-0"
+								disabled={approvalDisabled}
+								aria-label="Action approval controls"
+							>
+								<ComposerApproval
+									key={permissions[0].id}
+									permission={permissions[0]}
+									count={permissions.length}
+									onRespond={(permission, approved) => {
+										if (!approvalDisabled) onApproval(permission, approved)
+									}}
+								/>
+							</fieldset>
 						)}
 						<ComposerSurface.Host>
 							<ComposerSurface.Main>

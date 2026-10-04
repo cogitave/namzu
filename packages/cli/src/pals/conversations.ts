@@ -1,5 +1,12 @@
 /** Pal conversation membership is recorded in the session log's first record. */
-import { type SessionId, asSessionId, generateSessionId, isEntityId } from '@namzu/sdk'
+import {
+	type PalConversationGreeting,
+	type SessionId,
+	asSessionId,
+	generateSessionId,
+	isEntityId,
+	palConversationGreeting,
+} from '@namzu/sdk'
 import {
 	type RecentConversation,
 	closeSessions,
@@ -80,7 +87,12 @@ export async function claimPalConversation(
 	palId: string,
 	sessionId: string,
 	pinnedRevision?: number,
-): Promise<{ sessionId: string; palId: string; revision: number }> {
+): Promise<{
+	sessionId: string
+	palId: string
+	revision: number
+	palGreeting: PalConversationGreeting
+}> {
 	const pal = getPal(palId)
 	if (!pal || pal.workspace !== cwd || palAtWorkspace(cwd)?.id !== palId)
 		throw new Error('This Pal does not own the current workspace.')
@@ -97,7 +109,12 @@ export async function claimPalConversation(
 				throw new Error('This conversation is not claimed by this Pal.')
 			if (pinnedRevision !== undefined && binding.definition.revision !== pinnedRevision)
 				throw new Error('This conversation belongs to another Pal profile revision.')
-			return { sessionId, palId, revision: binding.definition.revision }
+			return {
+				sessionId,
+				palId,
+				revision: binding.definition.revision,
+				palGreeting: palConversationGreeting(binding.definition, sessionId),
+			}
 		}
 		await startConversation(state, {
 			id: asSessionId(sessionId),
@@ -106,7 +123,12 @@ export async function claimPalConversation(
 				externalSessionId: tag(pal.id, definition.revision, sessionId),
 			},
 		})
-		return { sessionId, palId, revision: definition.revision }
+		return {
+			sessionId,
+			palId,
+			revision: definition.revision,
+			palGreeting: palConversationGreeting(definition, sessionId),
+		}
 	} finally {
 		closeSessions(state)
 	}
@@ -116,7 +138,12 @@ export async function claimPalConversation(
 export async function listPalConversations(
 	cwd: string,
 	palId: string,
-): Promise<(RecentConversation & { readonly hasPrompted: boolean })[]> {
+): Promise<
+	(RecentConversation & {
+		readonly hasPrompted: boolean
+		readonly palGreeting: PalConversationGreeting
+	})[]
+> {
 	const pal = palAtWorkspace(cwd)
 	if (!pal || pal.id !== palId) throw new Error('This Pal does not own the current workspace.')
 	const state = await openSessions(cwd)
@@ -127,7 +154,7 @@ export async function listPalConversations(
 		)
 			.filter((row) => row.projectId === state.projectId && !row.archived)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-		const owned: (RecentConversation & { readonly hasPrompted: boolean })[] = []
+		const owned: Awaited<ReturnType<typeof listPalConversations>> = []
 		for (const row of rows) {
 			try {
 				const binding = await palConversationBinding(cwd, row.id)
@@ -145,6 +172,7 @@ export async function listPalConversations(
 					named: facts.named,
 					count: messages.length,
 					hasPrompted: messages.length > 0,
+					palGreeting: palConversationGreeting(binding.definition, row.id),
 				})
 				if (owned.length === 100) break
 			} catch {

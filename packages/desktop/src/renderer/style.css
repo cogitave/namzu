@@ -1325,12 +1325,6 @@ pre {
 	border-radius: 10px;
 }
 
-.workspace[data-pal-workspace="true"] > .topbar {
-	display: none;
-}
-.workspace[data-pal-workspace="true"] > .computer-workspace-toolbar {
-	height: 48px;
-}
 .computer-chat-launcher {
 	position: absolute;
 	bottom: 16px;
@@ -1339,13 +1333,13 @@ pre {
 }
 .computer-profile-overlay {
 	position: absolute;
-	top: 48px;
+	top: var(--workspace-topbar-height);
 	bottom: 0;
 	right: 0;
 	z-index: 6;
 	width: 324px;
 	max-width: 100%;
-	max-height: calc(100% - 48px);
+	max-height: calc(100% - var(--workspace-topbar-height));
 	display: flex;
 	min-height: 0;
 }
@@ -1363,17 +1357,17 @@ pre {
 	max-width: calc(100% - 24px);
 }
 .workspace[data-page="computer"]
-	> :not(.pal-computer-view):not(.connection-error):not(.computer-workspace-toolbar):not(
+	> :not(.pal-computer-view):not(.connection-error):not(.workspace-conversation-header):not(
 		.chat-stage
 	):not(.computer-chat-launcher):not(.computer-profile-overlay) {
 	display: none;
 }
 .workspace[data-page="computer"] {
 	display: grid;
-	grid-template-rows: 48px minmax(0, 1fr);
+	grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
 	grid-template-columns: minmax(0, 1fr);
 }
-.workspace[data-page="computer"] > .computer-workspace-toolbar {
+.workspace[data-page="computer"] > .workspace-conversation-header {
 	grid-row: 1;
 	grid-column: 1 / -1;
 }

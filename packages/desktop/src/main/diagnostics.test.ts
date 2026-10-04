@@ -19,6 +19,7 @@ import {
 	observeRendererConsole,
 } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
+import { SupersededConversationSettingsError } from './superseded-settings.js'
 
 const roots: string[] = []
 function create(now?: () => number) {
@@ -66,6 +67,40 @@ it('records a caught IPC rejection with its method and correlation without retai
 	const text = readFileSync(sink.path, 'utf8')
 	for (const privateText of ['SECRET_TOKEN', 'private user body', 'Private', 'keys.txt', 'Bearer'])
 		expect(text).not.toContain(privateText)
+})
+
+it('records only typed superseded settings reads as informational without hiding lookalike failures', async () => {
+	const { sink } = create()
+	const superseded = new SupersededConversationSettingsError()
+	const observe = (error: Error, request: number) =>
+		observeDesktopIpc(
+			sink,
+			'modelSettings',
+			async () => {
+				throw error
+			},
+			request,
+		)
+	await expect(observe(superseded, 117)).rejects.toBe(superseded)
+	const lookalike = Object.assign(new Error(superseded.message), { name: superseded.name })
+	await expect(observe(lookalike, 118)).rejects.toBe(lookalike)
+	expect(records(sink)).toMatchObject([
+		{
+			eventName: 'namzu.desktop.ipc_superseded',
+			severityText: 'info',
+			attributes: {
+				'namzu.desktop.request': 117,
+				'namzu.desktop.operation': 'modelSettings',
+				'namzu.desktop.failure.reason': 'conversation-settings-superseded',
+			},
+		},
+		{
+			eventName: 'namzu.desktop.ipc_failed',
+			severityText: 'error',
+			attributes: { 'namzu.desktop.request': 118, 'namzu.desktop.failure.reason': 'unclassified' },
+		},
+	])
+	expect(readFileSync(sink.path, 'utf8')).not.toContain(superseded.message)
 })
 
 it('recognizes actionable catalogue, machine and OS failures without persisting arbitrary attributes', () => {

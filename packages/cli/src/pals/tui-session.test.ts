@@ -15,7 +15,18 @@ import {
 
 const startComputer = vi.hoisted(() => vi.fn())
 const admit = vi.hoisted(() => vi.fn())
-vi.mock('./environment.js', () => ({ getCliPalRuntime: async () => ({ startComputer, admit }) }))
+const admitConversation = vi.hoisted(() => vi.fn())
+const computer = vi.hoisted(() => vi.fn())
+const computerControl = vi.hoisted(() => vi.fn())
+vi.mock('./environment.js', () => ({
+	getCliPalRuntime: async () => ({
+		startComputer,
+		admit,
+		admitConversation,
+		computer,
+		computerControl,
+	}),
+}))
 let home = ''
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), 'namzu-pal-terminal-'))
@@ -23,6 +34,9 @@ beforeEach(() => {
 	vi.stubEnv('NAMZU_HOME', join(home, 'state'))
 	startComputer.mockReset()
 	admit.mockReset()
+	admitConversation.mockReset()
+	computer.mockReset().mockReturnValue(null)
+	computerControl.mockReset().mockReturnValue({ supported: false, mode: 'unavailable' })
 })
 afterEach(() => {
 	vi.unstubAllEnvs()
@@ -82,28 +96,37 @@ it('checks current pause state while retaining the historical profile', async ()
 	await expect(tuiPalDefinition(pal.workspace, id, pal.id)).rejects.toThrow('paused')
 })
 
-it('pins every admission to the exact conversation and revision while reusing its computer', async () => {
+it('pins conversation admission without requiring or starting a computer', async () => {
 	const pal = createPal({ name: 'One' })
 	const id = newPalSessionId()
-	const lease = { palId: pal.id, environmentId: 'guest-one' } as PalEnvironmentLease
-	startComputer.mockResolvedValue(lease)
-	admit.mockResolvedValue({ lease })
+	admitConversation.mockResolvedValue({ definition: pal })
 	const signal = new AbortController().signal
 	const binding = await tuiPalEnvironment(pal, id, signal)
-	expect(binding.lease).toBe(lease)
-	expect(startComputer).toHaveBeenCalledWith(pal.id, signal)
-	await binding.admit(signal)
-	await binding.admit()
-	expect(admit.mock.calls).toEqual([
+	expect(binding.lease).toBeUndefined()
+	expect(binding.readyComputer?.()).toBeUndefined()
+	await binding.admitConversation?.(signal)
+	await binding.admitConversation?.()
+	expect(admitConversation.mock.calls).toEqual([
 		[{ palId: pal.id, revision: pal.revision, conversationId: id, signal }],
 		[{ palId: pal.id, revision: pal.revision, conversationId: id }],
 	])
-	expect(startComputer).toHaveBeenCalledOnce()
+	expect(startComputer).not.toHaveBeenCalled()
+	expect(admit).not.toHaveBeenCalled()
 })
 
-it('refuses a missing computer instead of producing a host session environment', async () => {
+it('observes newly ready guest authority at each turn and excludes operator-held guests', async () => {
 	const pal = createPal({ name: 'One' })
-	startComputer.mockRejectedValue(new Error('Local computer engine unavailable'))
-	await expect(tuiPalEnvironment(pal, newPalSessionId())).rejects.toThrow('engine unavailable')
-	expect(admit).not.toHaveBeenCalled()
+	const binding = await tuiPalEnvironment(pal, newPalSessionId())
+	expect(binding.readyComputer?.()).toBeUndefined()
+	const lease = { palId: pal.id, environmentId: 'guest-one' } as PalEnvironmentLease
+	computer.mockReturnValue(lease)
+	computerControl.mockReturnValue({ supported: true, mode: 'pal' })
+	expect(binding.readyComputer?.()).toBe(lease)
+	computerControl.mockReturnValue({ supported: true, mode: 'operator' })
+	expect(binding.readyComputer?.()).toBeUndefined()
+	computerControl.mockReturnValue({ supported: true, mode: 'transitioning' })
+	expect(binding.readyComputer?.()).toBeUndefined()
+	computerControl.mockReturnValue({ supported: true, mode: 'pal' })
+	expect(binding.readyComputer?.()).toBe(lease)
+	expect(startComputer).not.toHaveBeenCalled()
 })

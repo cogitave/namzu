@@ -191,10 +191,10 @@
 	padding: 0;
 }
 .pal-composer-shell .composer-input textarea {
-	min-height: 28px;
+	min-height: 32px;
 	max-height: min(144px, 24vh);
 	margin: 0;
-	padding: 4px 0;
+	padding: 6px 0;
 	line-height: 20px;
 }
 .pal-composer-shell [data-chat-composer-footer] {

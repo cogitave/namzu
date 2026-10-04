@@ -307,10 +307,7 @@ export function ConversationTabs({
 		currentPal?.computerTabOpen && currentPal.activeTab === 'computer' ? computerValue : active
 	return (
 		<Tabs.Root
-			className={`conversation-tabs${palWorkspace ? ' computer-workspace-toolbar conversation-workspace-toolbar' : ''}`}
-			render={
-				palWorkspace ? <header aria-label={`${palWorkspace.palName} workspace`} /> : undefined
-			}
+			className="conversation-tabs"
 			value={selected}
 			onValueChange={(id) => {
 				if (busy) return

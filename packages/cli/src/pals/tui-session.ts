@@ -1,7 +1,7 @@
 /** Pal conversation admission shared by the terminal's startup and navigation. */
 import type { Preferences, ProviderId } from '../integrations/providers/index.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/index.js'
-import type { PalSessionEnvironment } from './agent-session.js'
+import { type PalSessionEnvironment, palSessionEnvironment } from './agent-session.js'
 import { palConversationBinding } from './conversations.js'
 import { getCliPalRuntime } from './environment.js'
 import { type Pal, palAtWorkspace } from './store.js'
@@ -48,16 +48,18 @@ export async function tuiPalEnvironment(
 	signal?: AbortSignal,
 ): Promise<PalSessionEnvironment> {
 	const runtime = await getCliPalRuntime()
+	signal?.throwIfAborted()
+	return palSessionEnvironment(runtime, definition, sessionId)
+}
+
+/** Directed work retains mandatory guest admission; ordinary chat uses the path above. */
+export async function tuiPalWorkEnvironment(
+	definition: Pal,
+	sessionId: string,
+	signal?: AbortSignal,
+): Promise<PalSessionEnvironment> {
+	const runtime = await getCliPalRuntime()
 	const lease = await runtime.startComputer(definition.id, signal)
-	return {
-		definition,
-		lease,
-		admit: (turnSignal) =>
-			runtime.admit({
-				palId: definition.id,
-				revision: definition.revision,
-				conversationId: sessionId,
-				...(turnSignal ? { signal: turnSignal } : {}),
-			}),
-	}
+	const binding = palSessionEnvironment(runtime, definition, sessionId)
+	return { definition: binding.definition, lease, admit: binding.admit }
 }

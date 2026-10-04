@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PalComputerStreamView, PalView } from '../shared/protocol.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
+import { SupersededConversationSettingsError } from './superseded-settings.js'
 
 const transport = vi.hoisted(() => ({
 	pal: undefined as PalView | undefined,
@@ -690,7 +691,9 @@ it('fences new work, waits for cancelled foreground completion, stops owned jobs
 	)
 	stopDone.resolve()
 	expect((await takeover).control?.mode).toBe('operator')
-	expect(() => owner.send(conversation.id, 'Blocked')).toThrow('Return this Pal computer')
+	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
+		'Return this Pal computer',
+	)
 	expect(transport.calls.find((call) => call.method === 'namzu/jobs/stop')?.params).toEqual({
 		sessionId: conversation.id,
 		jobId: 'owned-job',
@@ -761,9 +764,90 @@ it('clears native control admission fencing only after a confirmed computer stop
 		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
 	}
 	await owner.palComputer(pal.id)
-	expect(() => owner.send(conversation.id, 'Still owned')).toThrow('Return this Pal computer')
+	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
+		'Return this Pal computer',
+	)
 	await owner.stopPalComputer(pal.id)
 	expect(() => owner.send(conversation.id, 'Fresh admission')).not.toThrow()
+})
+it('admits operator-held conversation text while keeping guest tool approvals fenced', async () => {
+	const settled = deferred()
+	const { owner, pal } = fixture((event) => {
+		if (event.kind === 'state' && !event.running) settled.resolve()
+	})
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+		if (method === 'session/prompt') return { stopReason: 'end_turn' }
+	}
+	await owner.palComputer(pal.id)
+	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
+		'Return this Pal computer',
+	)
+	owner.send(conversation.id, 'Just chat with me')
+	await settled.promise
+	expect(transport.calls.filter((call) => call.method === 'session/prompt')).toHaveLength(1)
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/return_control')).toBe(
+		false,
+	)
+	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
+		'Return this Pal computer',
+	)
+})
+
+it('rejects stale model settings after an owned same-route selection and admits a fresh read', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const entered = deferred()
+	const response = deferred()
+	const settings = { effortLevels: ['low', 'high'], effortDefault: 'low' }
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/providers/settings') {
+			entered.resolve()
+			await response.promise
+			return settings
+		}
+	}
+	const stale = owner.modelSettings(opened.project.id, 'zen', 'selected', conversation.id)
+	const rejected = expect(stale).rejects.toBeInstanceOf(SupersededConversationSettingsError)
+	await entered.promise
+	await owner.selectProvider(conversation.id, 'zen', 'selected')
+	response.resolve()
+	await rejected
+	await expect(
+		owner.modelSettings(opened.project.id, 'zen', 'selected', conversation.id),
+	).resolves.toEqual(settings)
+})
+
+it('keeps connection closure a genuine failure even if settings also changed during a metadata read', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const entered = deferred()
+	const response = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/providers/settings') {
+			entered.resolve()
+			await response.promise
+			return {}
+		}
+	}
+	const outcome = owner.modelSettings(opened.project.id, 'zen', 'selected', conversation.id).then(
+		(value) => ({ value, error: undefined }),
+		(error: unknown) => ({ value: undefined, error }),
+	)
+	await entered.promise
+	await owner.selectProvider(conversation.id, 'zen', 'selected')
+	await owner.close()
+	response.resolve()
+	const result = await outcome
+	expect(result.value).toBeUndefined()
+	expect(result.error).toBeInstanceOf(Error)
+	expect(result.error).not.toBeInstanceOf(SupersededConversationSettingsError)
 })
 it('does not let an earlier Pal status response clear newly confirmed operator authority', async () => {
 	const { owner, pal } = fixture()
@@ -789,7 +873,7 @@ it('does not let an earlier Pal status response clear newly confirmed operator a
 	await owner.takeOverPalComputer(pal.id, '1')
 	oldStatusDone.resolve()
 	await stale
-	expect(() => owner.send(conversation.id, 'No concurrent Pal work')).toThrow(
+	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
 		'Return this Pal computer',
 	)
 })
@@ -1180,7 +1264,7 @@ it.each(['failed', 'unconfirmed'])(
 		)
 		expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
 		expect(views.has(view.id)).toBe(true)
-		expect(() => owner.send(conversation.id, 'Still operator owned')).toThrow(
+		expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
 			'Return this Pal computer',
 		)
 	},

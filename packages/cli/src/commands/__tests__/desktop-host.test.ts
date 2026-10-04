@@ -13,6 +13,9 @@ import {
 	createToolPresenter,
 	createUserMessage,
 	drainQuery,
+	generateSessionId,
+	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
@@ -22,10 +25,12 @@ import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
 import {
 	archiveConversation,
 	closeSessions,
+	loadConversation,
 	openSessions,
 	startConversation,
 } from '../../integrations/sessions/store.js'
-import { getPalRevision, listPals } from '../../pals/store.js'
+import { claimPalConversation } from '../../pals/conversations.js'
+import { createPal, getPalRevision, listPals } from '../../pals/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 import { createDesktopHostExtensions } from '../desktop-host.js'
@@ -258,6 +263,66 @@ it('marks history partial when a single message exceeds the display ceiling', as
 		expect(result.partial).toBe(true)
 		expect(result.messages[0]?.text).toHaveLength(32_000)
 		expect(result.messages[1]?.text).toBe('Stored answer')
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('restores Pal delivered replies while retaining tool narration in the original journal', async () => {
+	const pal = createPal({ name: 'Chat fixture' })
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	const state = await openSessions(pal.workspace)
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	try {
+		await drainQuery({
+			provider: new MockLLMProvider({
+				turns: [
+					{
+						text: 'Internal pre-tool narration',
+						toolCalls: [{ name: 'fixture_guest', args: { path: 'fixture.txt' } }],
+					},
+					{ text: 'Your requested result is ready.' },
+				],
+			}),
+			messages: [createUserMessage('Prepare the result')],
+			toolsets: [
+				toolset('fixture', [
+					{
+						...getBuiltinTools().find((tool) => tool.name === 'read')!,
+						name: 'fixture_guest',
+						description: 'Fixture operation',
+						execute: async () => ({ success: true, output: 'Completed' }),
+					},
+				]),
+			],
+			agentId: 'fixture',
+			agentName: pal.name,
+			sessionLog: DiskSessionLog.at(state.paths, { sessionId }),
+			sessionId,
+			tenantId: state.tenantId,
+			projectId: state.projectId,
+			topicId: state.topicId,
+			turnConfig: { model: 'mock', maxIterations: 3, tokenBudget: 100_000, timeoutMs: 30_000 },
+		})
+		const projection = await host['namzu/conversations/history']({ sessionId })
+		expect(projection.messages).toEqual([
+			{ role: 'user', text: 'Prepare the result' },
+			{ role: 'assistant', text: 'Your requested result is ready.' },
+		])
+		expect(projection.partial).toBe(false)
+		const original = await loadConversation(state, sessionId)
+		expect(
+			original.some(
+				(message) =>
+					message.role === 'assistant' &&
+					message.content === 'Internal pre-tool narration' &&
+					message.toolCalls?.length,
+			),
+		).toBe(true)
+		expect(original.some((message) => message.role === 'tool')).toBe(true)
 	} finally {
 		closeSessions(state)
 		await owner.close()

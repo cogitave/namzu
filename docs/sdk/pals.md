@@ -52,11 +52,39 @@ Definitions and host control directories survive process restart. The optional
 `secureDirectory(path)` hook lets hosts enforce user-specific Windows ACLs;
 the default sets owner-only permissions on POSIX systems.
 
+## Conversational identity
+
+`buildPalSystemPrompt(definition, options?)` builds shared model instructions from
+an already owned, pinned profile's name, purpose and optional appearance. It
+distinguishes the saved Pal identity from its model provider, starts in English
+until the user uses or requests another language, and favors short, natural
+conversation. Ordinary chat does not require a report or an artifact. Public
+answers should omit internal reasoning and raw tool logs, explain real failures
+clearly, and describe completed outputs only with confirming tool evidence.
+
+`PalSystemPromptOptions.computer` is either `{ status: 'ready', workingDirectory }`
+or `{ status: 'unavailable' }`; omission describes no current computer access.
+The host supplies only authority actually confirmed for the turn. An optional
+`greeting` supplies the pinned host introduction as system context, explicitly
+separate from prior model turns. `systemNote` appends trusted host instructions.
+The helper does not admit a query, acquire a computer, create a greeting, grant
+permissions or read files.
+It leaves the supplied profile unchanged.
+
+`palConversationGreeting(definition, conversationId)` reconstructs a stable
+English greeting from the original owned conversation claim's Pal ID, profile
+revision and name. It returns `PalConversationGreeting` (`{ id, text }`) as
+host-authored onboarding content. Hosts may keep this intro visible before the
+real transcript through reloads and later profile edits. It creates no model
+request, user prompt, journal message or artificial turn; normal journal
+messages still require an admitted real turn.
+
 ## A required virtual computer
 
-`PalRuntime({ store, environments? })` admits execution only through an injected
-`PalEnvironmentProvider`. An absent provider refuses execution. A plain host
-folder is never an execution fallback.
+`PalRuntime({ store, environments? })` admits computer work only through an injected
+`PalEnvironmentProvider`. An absent provider refuses computer work. Model-only
+conversation can use `admitConversation` without a computer. A plain host folder
+is never an execution fallback.
 
 `PalEnvironmentProvider.acquire({ pal, conversationId, signal? })` returns a
 `PalEnvironmentLease` with the same `palId`, an opaque `environmentId`, a
@@ -105,14 +133,36 @@ APIs retain their contracts.
 
 `startComputer(palId, signal?)` starts or returns a warm computer.
 `computer(palId)` returns its ready lease or null; `computerError(palId)` returns
-an unavailable notice. `busy(palId)` reports an active controller, pending start
+an unavailable notice. `busy(palId)` reports an active model or guest controller, pending start
 or pending stop, operator ownership, or an outstanding control operation.
+`computerChanging(palId)` reports only actual pending computer startup, stop or
+control operations; ordinary model-only conversation does not imply startup.
 `computerControl(palId)` reports `{ supported, mode }`, where `mode` also includes
 `unavailable` when no usable control port exists. It exposes a runtime-reserved
 transition before the provider begins the transfer.
 
+`admitConversation({ palId, revision?, conversationId, signal? })` returns
+`PalConversationAdmission` with its captured `definition`, `assertActive()`,
+`acquireComputer()` and `release()`. It reserves one exclusive model controller
+for that Pal without starting a computer or granting tool authority. Text may
+continue while its computer is unavailable or under operator control. The host
+must check `assertActive()` before each paid request, including retries and
+compaction; pause, cancellation, closure or changed workspace identity refuses
+the next request.
+
+`acquireComputer()` separately admits a real guest with the captured profile
+revision and the existing generation/control guards. Concurrent calls share one
+pending acquisition. Operator-held or transitioning guests refuse work. Releasing
+the conversation revokes model authority immediately and settles any pending
+guest acquisition before releasing its owned guest controller. It never grants
+host execution or manufactures an environment lease. The host must compose
+tool definitions from the actual guest admission; a text-only admission is not
+a filesystem or command execution fallback.
+
 `admit({ palId, revision?, conversationId, signal? })` returns `PalAdmission`:
 its pinned `definition`, `lease`, `assertActive()` and `release()`.
+This existing method retains mandatory computer acquisition and refusal when
+the guest is unavailable or operator-held.
 One runtime allows one active controller for each Pal. Another conversation
 receives an explicit busy refusal. The local provider also uses a deterministic
 container name to refuse a second host process trying to own the same computer.

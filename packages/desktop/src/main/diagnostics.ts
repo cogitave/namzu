@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path'
 import type { DesktopDiagnosticsView } from '../shared/protocol.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
+import { SupersededConversationSettingsError } from './superseded-settings.js'
 
 const LIMIT = 512 * 1024
 const EVENTS = {
@@ -19,6 +20,7 @@ const EVENTS = {
 	unhandled_error: 'Desktop host reported an unhandled error',
 	shutdown_failed: 'Desktop host shutdown failed',
 	ipc_failed: 'Desktop operation failed',
+	ipc_superseded: 'Desktop settings read was superseded',
 	cli_started: 'Desktop CLI connection started',
 	cli_stderr: 'Desktop CLI wrote diagnostic output',
 	cli_notice: 'Desktop CLI reported an unavailable capability',
@@ -199,7 +201,9 @@ export function desktopFailure(error: unknown): {
 							? 'Error'
 							: 'Unknown'
 		let reason = 'unclassified'
-		if (/local Docker engine.*required|local Docker.*required/i.test(message))
+		if (error instanceof SupersededConversationSettingsError)
+			reason = 'conversation-settings-superseded'
+		else if (/local Docker engine.*required|local Docker.*required/i.test(message))
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))
 			reason = 'podman-engine-or-image-required'
@@ -447,7 +451,9 @@ export async function observeDesktopIpc<T>(
 	} catch (error) {
 		if (error instanceof ExpectedRuntimeCloseError) throw error
 		try {
-			sink.record('ipc_failed', { operation, request, error })
+			if (error instanceof SupersededConversationSettingsError)
+				sink.record('ipc_superseded', { operation, request, error, severity: 'info' })
+			else sink.record('ipc_failed', { operation, request, error })
 		} catch {
 			/* Preserve the original operation failure. */
 		}

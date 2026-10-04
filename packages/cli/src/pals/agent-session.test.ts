@@ -30,6 +30,7 @@ import {
 	type PalReviewAction,
 	createCliPalReviewActions,
 } from './actions.js'
+import { palSessionEnvironment } from './agent-session.js'
 import { claimPalConversation } from './conversations.js'
 import { readPalWaitingReview } from './review.js'
 import { createPal, getCliPalStore, updatePal } from './store.js'
@@ -91,7 +92,11 @@ function lease(palId: string, generation = 1): PalEnvironmentLease {
 		release: vi.fn(async () => {}),
 	}
 }
-async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: SessionEvent) => void) {
+async function fixture(
+	provider: MockLLMProvider,
+	onSessionEvent?: (event: SessionEvent) => void,
+	conversationOnly = false,
+) {
 	const pal = createPal({
 		name: 'News researcher',
 		purpose: 'Separate AI news by model.\nUse primary sources.',
@@ -107,7 +112,7 @@ async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: Sessi
 		store: getCliPalStore(),
 		environments: { acquire },
 	})
-	await runtime.startComputer(pal.id)
+	if (!conversationOnly) await runtime.startComputer(pal.id)
 	const construct = vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const scope = {
 		sessionId: id,
@@ -135,17 +140,19 @@ async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: Sessi
 				scope,
 				conversationSessions: state,
 				permissionMode,
-				palEnvironment: {
-					definition: pal,
-					lease: original,
-					admit: (signal) =>
-						runtime.admit({
-							palId: pal.id,
-							revision: 1,
-							conversationId: id,
-							signal,
-						}),
-				},
+				palEnvironment: conversationOnly
+					? palSessionEnvironment(runtime, pal, id)
+					: {
+							definition: pal,
+							lease: original,
+							admit: (signal) =>
+								runtime.admit({
+									palId: pal.id,
+									revision: 1,
+									conversationId: id,
+									signal,
+								}),
+						},
 			},
 		)
 	const agent = await reopen()
@@ -159,6 +166,7 @@ async function fixture(provider: MockLLMProvider, onSessionEvent?: (event: Sessi
 		original,
 		replacement,
 		construct,
+		acquire,
 		scope,
 	}
 }
@@ -167,6 +175,7 @@ it('puts the pinned model and purpose into the actual provider request and keeps
 	const f = await fixture(provider)
 	writeFileSync(join(f.pal.workspace, 'AGENTS.md'), 'HOST_ONLY_POLICY')
 	updatePal(f.pal.id, 1, {
+		name: 'Updated researcher',
 		purpose: 'New purpose',
 		model: { provider: 'openai', model: 'changed-model' },
 	})
@@ -183,6 +192,12 @@ it('puts the pinned model and purpose into the actual provider request and keeps
 		const request = provider.requests[0]
 		expect(request?.model).toBe('pinned-model')
 		expect(JSON.stringify(request)).toContain('Separate AI news by model.')
+		expect(JSON.stringify(request)).toContain('News researcher')
+		expect(JSON.stringify(request)).toContain('You are \\"Updated researcher\\"')
+		expect(JSON.stringify(request)).toContain('host-authored onboarding greeting')
+		expect(JSON.stringify(request)).toContain('persistent Namzu Pal')
+		expect(JSON.stringify(request)).toContain('follow their language and conversational tone')
+		expect(JSON.stringify(request)).toContain('raw tool results, command logs')
 		expect(JSON.stringify(request)).not.toContain('New purpose')
 		expect(JSON.stringify(request)).not.toContain('HOST_ONLY_POLICY')
 		expect(JSON.stringify(request)).not.toContain('host-provider-secret')
@@ -190,6 +205,100 @@ it('puts the pinned model and purpose into the actual provider request and keeps
 		expect(f.agent.mcpConnected).toEqual([])
 		expect(f.agent.toolNames()).not.toContain('schedule_task')
 		expect(f.original.sandbox.destroy).not.toHaveBeenCalled()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+it('answers offline with pinned identity and zero guest or host tool definitions', async () => {
+	const provider = new MockLLMProvider({ responseText: "I'm your Pal. Let's chat." })
+	const f = await fixture(provider, undefined, true)
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Who are you?')])) {
+		}
+		expect(provider.requests).toHaveLength(1)
+		expect(provider.requests[0]?.tools ?? []).toEqual([])
+		expect(JSON.stringify(provider.requests[0])).toContain('You can still chat.')
+		expect(f.acquire).not.toHaveBeenCalled()
+		expect(f.runtime.computer(f.pal.id)).toBeNull()
+		expect(f.agent.toolNames()).toEqual([])
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+it('refuses hallucinated guest tools offline without executing on the host or starting a computer', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] },
+			{ text: 'Computer access is unavailable.' },
+		],
+	})
+	const f = await fixture(provider, undefined, true)
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Run a command')])) {
+		}
+		expect(provider.requests.every((request) => (request.tools?.length ?? 0) === 0)).toBe(true)
+		expect(f.acquire).not.toHaveBeenCalled()
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.original.sandbox.readFile).not.toHaveBeenCalled()
+		expect(f.runtime.computer(f.pal.id)).toBeNull()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+it('updates capabilities after explicit guest start, takeover and return without recreating the chat session', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ text: 'Offline chat' },
+			{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] },
+			{ text: 'Guest work completed' },
+			{ text: 'Chat while you control the guest' },
+			{ toolCalls: [{ name: 'read', args: { path: 'notes.txt' } }] },
+			{ text: 'Guest control returned' },
+		],
+	})
+	const f = await fixture(provider, undefined, true)
+	let mode: 'pal' | 'operator' = 'pal'
+	const control = {
+		get mode() {
+			return mode
+		},
+		takeOver: async () => {
+			mode = 'operator'
+		},
+		returnControl: async () => {
+			mode = 'pal'
+		},
+		executeInput: vi.fn(async () => ({ type: 'ok' as const })),
+	}
+	f.acquire.mockReset().mockResolvedValue({ ...f.original, operatorControl: control })
+	const chat = async (text: string) => {
+		for await (const _event of f.agent.send([createUserMessage(text)])) {
+		}
+	}
+	try {
+		await chat('Hi')
+		await f.runtime.startComputer(f.pal.id)
+		await chat('Show guest cwd')
+		expect(f.original.sandbox.exec).toHaveBeenCalledTimes(1)
+		await f.runtime.takeOver(f.pal.id, 1)
+		await chat('Keep chatting')
+		expect(provider.requests[3]?.tools ?? []).toEqual([])
+		expect(f.original.sandbox.exec).toHaveBeenCalledTimes(1)
+		await f.runtime.returnControl(f.pal.id, 1)
+		await chat('Read guest notes')
+		expect(f.original.sandbox.readFile).toHaveBeenCalledTimes(1)
+		expect(provider.requests[0]?.tools ?? []).toEqual([])
+		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).toContain('bash')
+		expect(provider.requests[4]?.tools?.map((tool) => tool.function.name)).toContain('read')
+		expect(f.acquire).toHaveBeenCalledTimes(1)
+		expect(f.runtime.busy(f.pal.id)).toBe(false)
 	} finally {
 		await f.agent.close()
 		await f.runtime.close()

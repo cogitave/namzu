@@ -47,6 +47,7 @@ import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-worksp
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
+import { SupersededConversationSettingsError } from './superseded-settings.js'
 
 interface PendingMessage {
 	id: string
@@ -834,6 +835,7 @@ export class Operator {
 			title: string
 			updatedAt: string
 			harness?: ConversationView['harness']
+			palGreeting?: ConversationView['palGreeting']
 		}[]
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
 		const views = rows.map((row) => ({
@@ -847,6 +849,7 @@ export class Operator {
 					? { harness: this.runtimeSession(project, row.id)?.view.harness }
 					: {}),
 			...(project.view.palId ? { palId: project.view.palId } : {}),
+			...(project.view.palId && row.palGreeting ? { palGreeting: row.palGreeting } : {}),
 		}))
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
@@ -875,17 +878,19 @@ export class Operator {
 		})) as {
 			sessionId: string
 		}
-		if (project.view.palId)
-			await project.client.request('namzu/pals/conversations/claim', {
-				palId: project.view.palId,
-				sessionId: result.sessionId,
-			})
+		const claim = project.view.palId
+			? ((await project.client.request('namzu/pals/conversations/claim', {
+					palId: project.view.palId,
+					sessionId: result.sessionId,
+				})) as { palGreeting?: ConversationView['palGreeting'] })
+			: undefined
 		const view: ConversationView = {
 			id: result.sessionId,
 			title: 'New conversation',
 			projectId,
 			updatedAt: new Date().toISOString(),
 			...(project.view.palId ? { palId: project.view.palId } : {}),
+			...(claim?.palGreeting ? { palGreeting: claim.palGreeting } : {}),
 		}
 		this.conversations.set(view.id, {
 			view,
@@ -979,13 +984,15 @@ export class Operator {
 				this.closing ||
 				this.projects.get(project.view.id) !== project ||
 				project.view.status !== 'ready' ||
-				(session &&
-					(session.client !== client ||
-						session.runtimeSessionId !== runtimeId ||
-						(session.selectionRevision ?? 0) !== revision ||
-						Boolean(session.selectionPending) !== selecting))
+				(session && (session.client !== client || session.runtimeSessionId !== runtimeId))
 			)
 				throw new Error('The conversation settings changed while loading. Retry this request.')
+			if (
+				session &&
+				((session.selectionRevision ?? 0) !== revision ||
+					Boolean(session.selectionPending) !== selecting)
+			)
+				throw new SupersededConversationSettingsError()
 		}
 		assertCurrent()
 		return assertCurrent
@@ -1446,10 +1453,10 @@ export class Operator {
 		this.persistDesktop()
 		return this.attachments(toSessionId)
 	}
-	private assertPalAdmission(palId?: string): void {
+	private assertPalAdmission(palId?: string, computerWork = false): void {
 		if (!palId) return
 		if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
-		if (this.operatorComputers.has(palId))
+		if (computerWork && this.operatorComputers.has(palId))
 			throw new Error('Return this Pal computer’s control before sending a message.')
 		if (this.palRecords.get(palId)?.paused)
 			throw new Error('Resume this Pal before sending a message.')
@@ -1814,12 +1821,7 @@ export class Operator {
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			this.state(session)
 		}
-		if (
-			completed &&
-			(!session.view.palId ||
-				(!this.changingPals.has(session.view.palId) &&
-					!this.operatorComputers.has(session.view.palId)))
-		) {
+		if (completed && (!session.view.palId || !this.changingPals.has(session.view.palId))) {
 			const next = session.queue.shift()
 			if (next) this.startRun(session, next)
 		}
@@ -1866,7 +1868,7 @@ export class Operator {
 	}
 	approve(sessionId: string, requestId: string, approved: boolean): void {
 		const session = this.session(sessionId)
-		this.assertPalAdmission(session.view.palId)
+		this.assertPalAdmission(session.view.palId, true)
 		if (typeof approved !== 'boolean') throw new Error('Invalid approval.')
 		const wireId = session.permissions.get(requestId)
 		if (wireId === undefined || !session.running)

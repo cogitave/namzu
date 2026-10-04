@@ -33,6 +33,7 @@ export function useAttachments(
 	)
 	useEffect(() => {
 		if (!connected || !owner) return
+		if (values.current[owner] !== undefined) return
 		let active = true
 		const revision = revisions.current[owner] ?? 0
 		const read = (reads.current[owner] ?? 0) + 1
@@ -74,6 +75,7 @@ export function useAttachments(
 	}
 	return {
 		files: all[owner] ?? [],
+		loaded: all[owner] !== undefined,
 		busy: busy[owner] ?? false,
 		isBusy: (target: string) => pending.current.has(target),
 		get: (target: string) => values.current[target] ?? [],

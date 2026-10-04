@@ -70,6 +70,35 @@ is selected before provider construction, and provider settings report the
 conversation's actual selection. A model change in a conversation is local to
 that conversation; customizing the saved Pal affects newly created conversations.
 
+Pal sessions use the SDK's shared conversational system instructions: the saved
+name and visual character identify the Pal, while the selected model powers it.
+They start in English until the user uses or requests another language. Normal
+chat favors short, friendly replies; raw tool logs and internal reasoning are
+not public answers. Substantive outputs require actual confirming tool evidence.
+An authenticated rename or appearance edit updates the next turn's display
+identity; the conversation's purpose, model, workspace and permissions remain
+pinned to their original revision.
+
+ACP and admitted manual chat turns use exclusive SDK conversation admission independently of computer
+readiness. An offline or operator-controlled computer supplies zero tool
+definitions: no guest or host files, shell, browser, GUI, messaging or plugins.
+The desktop's explicit Start computer or Return control enables the actual guest toolset
+on the next turn without recreating the chat session. These turn admissions do
+not start a computer. The standalone `pal chat` command retains its existing
+computer-startup preflight before launching the terminal interface; unavailable
+setup still refuses that command's startup. Directed dispatch and checkpoint resume retain their mandatory
+guest admission and refuse unavailable or operator-held computers.
+
+Owned Pal conversation claims and listings also return `palGreeting` with a
+stable display ID and English introduction from their original immutable
+profile revision. This onboarding prelude is separate from recorded model
+messages and does not start a paid turn or a computer. Renaming a saved Pal does
+not rewrite an existing conversation's original introduction.
+The first real turn receives that host introduction as system context, not as
+a fictional earlier model turn. Pal desktop history projects delivered public
+assistant text and excludes explicit commentary and assistant tool-call rows;
+the original messages remain intact in the durable journal for replay.
+
 A Pal's computer stays warm between turns and conversations in the same host
 process. One conversation controls it at a time. Closing the host releases the
 container and retains the Pal data volume. Unknown execution cancellation can
@@ -183,7 +212,7 @@ exact current directory belongs to a Pal.
 | `namzu/pals/get` | `{ id }` | Definition or null |
 | `namzu/pals/create` | `{ name, purpose?, model?, appearance? }` | New definition |
 | `namzu/pals/update` | `{ id, expectedRevision, name?, purpose?, model?, appearance?, paused? }` | Next immutable definition |
-| `namzu/pals/conversations/claim` | `{ palId, sessionId }` | `{ sessionId, palId, revision }` |
+| `namzu/pals/conversations/claim` | `{ palId, sessionId }` | `{ sessionId, palId, revision, palGreeting }` |
 | `namzu/pals/conversations/list` | `{ palId }` | Owned recent conversation rows, including empty ones |
 | `namzu/pals/computer/status` | `{ palId }` | Computer availability |
 | `namzu/pals/computer/start` | `{ palId }` | Ready computer identity |

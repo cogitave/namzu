@@ -17,7 +17,7 @@ import {
 } from './communication.js'
 import { closeCliPalRuntime, getCliPalRuntime } from './environment.js'
 import { getCliPalStore } from './store.js'
-import { tuiPalEnvironment, tuiPalPreferences } from './tui-session.js'
+import { tuiPalPreferences, tuiPalWorkEnvironment } from './tui-session.js'
 
 async function closeAfterWork(
 	workFailure: unknown,
@@ -92,7 +92,7 @@ export async function dispatchCliPalMessages(
 					projectId: state.projectId,
 					topicId: state.topicId,
 				},
-				palEnvironment: await tuiPalEnvironment(definition, binding.sessionId, runSignal),
+				palEnvironment: await tuiPalWorkEnvironment(definition, binding.sessionId, runSignal),
 				rules: permission.rules,
 				permissionMode: 'strict',
 				...(ctx.config.limits ? { limits: ctx.config.limits } : {}),

@@ -90,6 +90,19 @@ function deferred<T>() {
 	return { promise, resolve }
 }
 
+it('reports an idle guest truthfully during model-only chat without implying startup', async () => {
+	const { pal, acquire } = fixture()
+	const runtime = await getCliPalRuntime()
+	const chat = await runtime.admitConversation({ palId: pal.id, conversationId: 'owned-chat' })
+	try {
+		expect(runtime.busy(pal.id)).toBe(true)
+		expect(await cliPalComputerStatus(pal.id)).toEqual({ status: 'stopped' })
+		expect(acquire).not.toHaveBeenCalled()
+	} finally {
+		await chat.release()
+	}
+})
+
 it('composes actual runtime authority and narrow input without generic computer fallback or inference', async () => {
 	const { pal, control, execute, acquire } = fixture()
 	expect(await startCliPalComputer(pal.id)).toMatchObject({

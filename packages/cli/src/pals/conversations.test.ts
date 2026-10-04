@@ -7,6 +7,7 @@ import { recordTurn } from '../__fixtures__/session-log.js'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
 	closeSessions,
+	loadConversation,
 	openSessions,
 	setTitle,
 	startConversation,
@@ -33,15 +34,25 @@ afterEach(() => {
 it('retains empty claimed conversations after reopening and pins the original revision', async () => {
 	const pal = createPal({ name: 'Research', purpose: 'Original' })
 	const id = generateSessionId()
-	expect(await claimPalConversation(pal.workspace, pal.id, id)).toMatchObject({ revision: 1 })
-	updatePal(pal.id, 1, { purpose: 'Changed' })
-	expect(await claimPalConversation(pal.workspace, pal.id, id)).toMatchObject({ revision: 1 })
+	const first = await claimPalConversation(pal.workspace, pal.id, id)
+	expect(first).toMatchObject({ revision: 1 })
+	expect(first.palGreeting.text).toContain("I'm Research.")
+	updatePal(pal.id, 1, { purpose: 'Changed', name: 'Renamed' })
+	const reopened = await claimPalConversation(pal.workspace, pal.id, id)
+	expect(reopened).toMatchObject({ revision: 1, palGreeting: first.palGreeting })
 	expect((await palConversationBinding(pal.workspace, id))?.definition.purpose).toBe('Original')
 	const state = await openSessions(pal.workspace)
 	expect(state.projectRoot).toBe(pal.workspace)
+	expect(await loadConversation(state, id)).toEqual([])
 	closeSessions(state)
 	expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
-		expect.objectContaining({ id, hasPrompted: false, named: false, count: 0 }),
+		expect.objectContaining({
+			id,
+			hasPrompted: false,
+			named: false,
+			count: 0,
+			palGreeting: first.palGreeting,
+		}),
 	])
 })
 it('creates a new route at an explicit prior revision and refuses another revision on that root', async () => {

@@ -124,6 +124,15 @@ export interface PalAdmission {
 	assertActive(): void
 	release(): Promise<void>
 }
+/** Exclusive model conversation authority; it does not grant computer access. */
+export interface PalConversationAdmission {
+	readonly definition: PalDefinition
+	/** Reread current pause, ownership and workspace before every paid request. */
+	assertActive(): void
+	/** Acquire a real, separately guarded guest admission only when work needs it. */
+	acquireComputer(): Promise<PalAdmission>
+	release(): Promise<void>
+}
 export interface PalRuntimeOptions {
 	readonly store: PalStore
 	readonly environments?: PalEnvironmentProvider

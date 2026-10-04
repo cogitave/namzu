@@ -11,6 +11,7 @@ import type {
 	PalComputerControlState,
 	PalComputerInput,
 	PalComputerScreenStream,
+	PalConversationAdmission,
 	PalEnvironmentLease,
 	PalRuntimeOptions,
 } from './types.js'
@@ -144,6 +145,7 @@ export class PalRuntime {
 		string,
 		{ readonly conversationId: string; generation?: number }
 	>()
+	private readonly conversations = new Map<string, { readonly conversationId: string }>()
 	private readonly lifecycle = new PalLifecycleEmitter()
 	private readonly stopping = new Set<string>()
 	private readonly freshScreenRequired = new Set<string>()
@@ -231,6 +233,7 @@ export class PalRuntime {
 	}
 	busy(palId: string): boolean {
 		return (
+			this.conversations.has(palId) ||
 			this.controllers.has(palId) ||
 			this.starting.has(palId) ||
 			this.stopping.has(palId) ||
@@ -238,6 +241,10 @@ export class PalRuntime {
 			(this.computers.get(palId)?.operatorControl?.mode !== undefined &&
 				this.computers.get(palId)?.operatorControl?.mode !== 'pal')
 		)
+	}
+	/** Actual guest lifecycle/control transition, independent of model-only chat. */
+	computerChanging(palId: string): boolean {
+		return this.starting.has(palId) || this.stopping.has(palId) || this.controlOperations.has(palId)
 	}
 	private ownedControl(palId: string, generation: number) {
 		if (this.closed) throw new PalUnavailableError('The Pal runtime is closed.')
@@ -428,13 +435,97 @@ export class PalRuntime {
 			this.stopping.delete(palId)
 		}
 	}
-	async admit(request: PalAdmissionRequest): Promise<PalAdmission> {
+	/** Admit model conversation without starting or borrowing any computer. */
+	async admitConversation(input: PalAdmissionRequest): Promise<PalConversationAdmission> {
+		const request = { ...input }
 		request.signal?.throwIfAborted()
 		if (!request.conversationId.trim()) throw new Error('A Pal conversation id is required.')
 		if (this.closed) throw new PalUnavailableError('The Pal runtime is closed.')
 		const current = this.options.store.get(request.palId)
 		if (!current || current.paused)
 			throw new PalUnavailableError('This Pal is paused or unavailable.')
+		if (this.conversations.has(current.id) || this.controllers.has(current.id))
+			throw new PalUnavailableError('This Pal is busy in another conversation.')
+		const definition = structuredClone(
+			request.revision === undefined
+				? current
+				: this.options.store.getRevision(current.id, request.revision),
+		)
+		const controller = { conversationId: request.conversationId }
+		this.conversations.set(current.id, controller)
+		let released = false
+		let computer: PalAdmission | undefined
+		let acquiring: Promise<PalAdmission> | undefined
+		const assertActive = () => {
+			request.signal?.throwIfAborted()
+			if (released || this.closed || this.conversations.get(current.id) !== controller)
+				throw new PalUnavailableError('This Pal conversation admission is no longer owned.')
+			const latest = this.options.store.get(current.id)
+			if (!latest || latest.paused)
+				throw new PalUnavailableError('This Pal is paused or unavailable.')
+			if (latest.workspace !== definition.workspace)
+				throw new PalUnavailableError('Pal workspace identity changed.')
+		}
+		return {
+			definition,
+			assertActive,
+			acquireComputer: async () => {
+				assertActive()
+				if (computer) {
+					computer.assertActive()
+					return computer
+				}
+				if (acquiring) return acquiring
+				const pending = (async () => {
+					const guest = await this.admitComputer(
+						{ ...request, revision: definition.revision },
+						controller,
+					)
+					try {
+						assertActive()
+						computer = {
+							...guest,
+							assertActive: () => {
+								assertActive()
+								guest.assertActive()
+							},
+						}
+						return computer
+					} catch (error) {
+						await guest.release()
+						throw error
+					}
+				})()
+				acquiring = pending
+				try {
+					return await pending
+				} finally {
+					if (acquiring === pending) acquiring = undefined
+				}
+			},
+			release: async () => {
+				released = true
+				if (this.conversations.get(current.id) === controller) this.conversations.delete(current.id)
+				await acquiring?.catch(() => undefined)
+				await computer?.release()
+			},
+		}
+	}
+	async admit(request: PalAdmissionRequest): Promise<PalAdmission> {
+		return this.admitComputer({ ...request })
+	}
+	private async admitComputer(
+		request: PalAdmissionRequest,
+		conversation?: { readonly conversationId: string },
+	): Promise<PalAdmission> {
+		request.signal?.throwIfAborted()
+		if (!request.conversationId.trim()) throw new Error('A Pal conversation id is required.')
+		if (this.closed) throw new PalUnavailableError('The Pal runtime is closed.')
+		const current = this.options.store.get(request.palId)
+		if (!current || current.paused)
+			throw new PalUnavailableError('This Pal is paused or unavailable.')
+		if (this.conversations.has(current.id) && this.conversations.get(current.id) !== conversation)
+			throw new PalUnavailableError('This Pal is busy in another conversation.')
 		const definition =
 			request.revision === undefined
 				? current
@@ -518,6 +609,7 @@ export class PalRuntime {
 	async close(): Promise<void> {
 		if (this.closing) return this.closing
 		this.closed = true
+		this.conversations.clear()
 		const closing = (async () => {
 			await Promise.allSettled(this.starting.values())
 			await Promise.allSettled([...this.controlOperations.values()].map(({ promise }) => promise))

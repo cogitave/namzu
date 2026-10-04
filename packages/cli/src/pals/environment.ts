@@ -87,7 +87,7 @@ export async function cliPalComputerStatus(palId: string) {
 		if (failure) return { status: 'unavailable' as const, notice: failure, requiresStop: true }
 		const held = readyComputer(runtime, palId)
 		if (held) return held
-		if (runtime.busy(palId))
+		if (runtime.computerChanging(palId))
 			return {
 				status: 'unavailable' as const,
 				notice: 'This Pal computer is still changing state. Wait for the operation to finish.',

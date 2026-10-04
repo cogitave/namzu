@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-05",
+  "sourceBaseCommit": "b83bdb8c1",
+  "environment": {
+    "host": "native Windows Electron",
+    "renderer": "bundled production file page",
+    "normalUserData": true,
+    "actualCLI": true,
+    "fixtureOverrides": false,
+    "animation": "normal motion, actual WebGL scene"
+  },
+  "checks": {
+    "nativeWindows": true,
+    "actualCLI": true,
+    "fixtureOverrides": false,
+    "sameCanonicalTabsAfterColdStart": true,
+    "sameHeaderNode": true,
+    "stableHeaderRects": true,
+    "headerHeight": 52,
+    "sceneCanvasReused": true,
+    "idleSceneDetached": true,
+    "idleContextRetained": true,
+    "idleSceneDrawsStopped": true,
+    "privateDraftSettingsFilesPreserved": true,
+    "selectedModelPreserved": true,
+    "tabFrameWidth": 220,
+    "tabFrameHeight": 32
+  },
+  "computerView": {
+    "sameHeader": true,
+    "oneSelected": true,
+    "panelLinked": true
+  },
+  "narrowViewport": {
+    "checks": [
+      {
+        "view": "pal",
+        "viewport": 900,
+        "headerWidth": 564,
+        "headerHeight": 52,
+        "oneTablist": true,
+        "listOverflow": "auto",
+        "scrollable": true,
+        "newTabInside": true,
+        "controls": [
+          {
+            "inside": true,
+            "height": 28
+          }
+        ]
+      },
+      {
+        "view": "normal",
+        "viewport": 900,
+        "headerWidth": 564,
+        "headerHeight": 52,
+        "oneTablist": true,
+        "listOverflow": "auto",
+        "scrollable": true,
+        "newTabInside": true,
+        "controls": []
+      }
+    ],
+    "boundsRestored": true
+  },
+  "observedClickToReadyMilliseconds": {
+    "scope": "Existing ordinary native-engine conversation and Pal chat in the same owning pane; Playwright click until selected view and enabled editor. These are observational samples, not timing assertions or a performance guarantee.",
+    "before": [
+      {
+        "to": "normal",
+        "ms": 406
+      },
+      {
+        "to": "pal",
+        "ms": 734
+      },
+      {
+        "to": "normal",
+        "ms": 1129
+      },
+      {
+        "to": "pal",
+        "ms": 1040
+      }
+    ],
+    "after": [
+      {
+        "to": "pal",
+        "ms": 56
+      },
+      {
+        "to": "normal",
+        "ms": 46
+      },
+      {
+        "to": "pal",
+        "ms": 44
+      },
+      {
+        "to": "normal",
+        "ms": 42
+      },
+      {
+        "to": "pal",
+        "ms": 47
+      },
+      {
+        "to": "normal",
+        "ms": 37
+      }
+    ]
+  },
+  "diagnostics": {
+    "finalNativeServiceErrors": 0
+  },
+  "limits": [
+    "Computer view remained offline; this does not verify guest startup or streaming.",
+    "No messages were sent by this verification.",
+    "Does not claim real-time timing guarantees for first loads, transfers or reconnects."
+  ]
+}

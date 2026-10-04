@@ -35,6 +35,7 @@ import {
 	openSessions,
 } from '../integrations/sessions/store.js'
 import { cliLogger } from '../logging.js'
+import { palSessionEnvironment } from '../pals/agent-session.js'
 import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -417,27 +418,13 @@ export function createCliAcpRuntime(
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
 				conversationState = await deps.openSessions?.(cwd)
 				const palRuntime = palBinding ? await deps.palRuntime?.() : undefined
-				if (palBinding && !palRuntime)
-					throw new Error('This Pal needs a ready local virtual computer.')
-				const palLease = palBinding
-					? await palRuntime?.startComputer(palBinding.pal.id, signal)
-					: undefined
+				if (palBinding && !palRuntime) throw new Error('This Pal runtime is unavailable.')
 				signal.throwIfAborted()
 				const routeOwner: { current?: AcpRuntimeRecord } = {}
 				candidate = await deps.createSession(prefs, probe.detected, {
-					...(palBinding && palRuntime && palLease
+					...(palBinding && palRuntime
 						? {
-								palEnvironment: {
-									definition: palBinding.definition,
-									lease: palLease,
-									admit: (signal?: AbortSignal) =>
-										palRuntime.admit({
-											palId: palBinding.pal.id,
-											revision: palBinding.definition.revision,
-											conversationId: sessionId,
-											...(signal ? { signal } : {}),
-										}),
-								},
+								palEnvironment: palSessionEnvironment(palRuntime, palBinding.definition, sessionId),
 							}
 						: {}),
 					cwd,

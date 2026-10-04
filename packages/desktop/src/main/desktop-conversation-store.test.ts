@@ -5,6 +5,7 @@ import {
 	rmSync,
 	statSync,
 	truncateSync,
+	unlinkSync,
 	writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,12 +19,22 @@ import {
 	parseDesktopConversationSnapshot,
 } from './desktop-conversation-store.js'
 
-const io = vi.hoisted(() => ({ failMetadataRename: false, attachmentRenames: 0 }))
+const io = vi.hoisted(() => ({
+	failMetadataRename: false,
+	attachmentRenames: 0,
+	metadataRenameAttempts: 0,
+	syncs: 0,
+}))
 vi.mock('node:fs', async () => {
 	const fs = await vi.importActual<typeof import('node:fs')>('node:fs')
 	return {
 		...fs,
+		fsyncSync(descriptor: number) {
+			io.syncs += 1
+			return fs.fsyncSync(descriptor)
+		},
 		renameSync(from: string, to: string) {
+			if (to.endsWith('desktop-conversations.json')) io.metadataRenameAttempts += 1
 			if (io.failMetadataRename && to.endsWith('desktop-conversations.json'))
 				throw new Error('fixture metadata commit failure')
 			if (/desktop-draft-attachments\.[a-f0-9]{64}\.json$/.test(to)) io.attachmentRenames += 1
@@ -35,6 +46,8 @@ const directories: string[] = []
 afterEach(() => {
 	io.failMetadataRename = false
 	io.attachmentRenames = 0
+	io.metadataRenameAttempts = 0
+	io.syncs = 0
 	for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 function directory(): string {
@@ -66,7 +79,10 @@ function snapshot(): DesktopConversationSnapshot {
 			},
 		],
 		projectDrafts: [
-			{ ownerId: 'project:project:workspace:window:home-window', draft: 'Landing draft' },
+			{
+				ownerId: 'project:project:workspace:window:home-window',
+				draft: 'Landing draft',
+			},
 		],
 		attachments: [],
 	}
@@ -82,13 +98,35 @@ function image(
 	ownerId = 'empty-session',
 	bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
 ): SavedDesktopAttachment {
-	return { ...admitAttachment({ name: 'image.png', bytes }), ownerId, draft: true }
+	return {
+		...admitAttachment({ name: 'image.png', bytes }),
+		ownerId,
+		draft: true,
+	}
 }
 function metadata(directory: string): Record<string, unknown> {
 	return JSON.parse(readFileSync(join(directory, 'desktop-conversations.json'), 'utf8'))
 }
 
 describe('durable desktop conversation schema', () => {
+	it('preserves the original claim greeting across reload without adding a recorded model turn', () => {
+		const saved = snapshot()
+		const conversation = saved.conversations[0]!
+		conversation.view.palId = 'pal'
+		conversation.view.palGreeting = {
+			id: 'pal-intro:pal:1:runtime-session',
+			text: "Hey! I'm Kiro. Ready when you are. What's on your mind?",
+		}
+		const store = new DesktopConversationStore(directory())
+		store.write(saved)
+		expect(store.read()?.conversations[0]?.view.palGreeting).toEqual(conversation.view.palGreeting)
+		expect(store.read()?.conversations[0]?.hasPrompted).toBe(false)
+		const parsed = parseDesktopConversationSnapshot(saved)
+		conversation.view.palGreeting.text = 'Changed after admission'
+		expect(parsed?.conversations[0]?.view.palGreeting?.text).toContain("I'm Kiro.")
+		conversation.view.palId = undefined
+		expect(parseDesktopConversationSnapshot(saved)).toBeNull()
+	})
 	it('keeps empty UI sessions, runtime aliases, model settings and pane-scoped landing drafts', () => {
 		const original = snapshot()
 		original.attachments = [text(), image('project:project:workspace:window:home-window')]
@@ -101,17 +139,28 @@ describe('durable desktop conversation schema', () => {
 	})
 	it.each([
 		(input: DesktopConversationSnapshot) => ({ ...input, version: 2 }),
-		(input: DesktopConversationSnapshot) => ({ ...input, queue: ['replay me'] }),
+		(input: DesktopConversationSnapshot) => ({
+			...input,
+			queue: ['replay me'],
+		}),
 		(input: DesktopConversationSnapshot) => {
-			input.conversations[0] = { ...input.conversations[0]!, running: true } as never
+			input.conversations[0] = {
+				...input.conversations[0]!,
+				running: true,
+			} as never
 			return input
 		},
 		(input: DesktopConversationSnapshot) => {
-			input.conversations[0] = { ...input.conversations[0]!, permissions: ['approved'] } as never
+			input.conversations[0] = {
+				...input.conversations[0]!,
+				permissions: ['approved'],
+			} as never
 			return input
 		},
 		(input: DesktopConversationSnapshot) => {
-			input.conversations[0]!.draftSettings = { options: { effort: 'infinite' } } as never
+			input.conversations[0]!.draftSettings = {
+				options: { effort: 'infinite' },
+			} as never
 			return input
 		},
 		(input: DesktopConversationSnapshot) => {
@@ -121,7 +170,9 @@ describe('durable desktop conversation schema', () => {
 			return input
 		},
 		(input: DesktopConversationSnapshot) => {
-			input.conversations[0]!.draftSettings = { options: { attachmentIds: ['foreign'] } } as never
+			input.conversations[0]!.draftSettings = {
+				options: { attachmentIds: ['foreign'] },
+			} as never
 			return input
 		},
 		(input: DesktopConversationSnapshot) => {
@@ -148,7 +199,10 @@ describe('durable desktop conversation schema', () => {
 		duplicateSession.conversations.push(structuredClone(duplicateSession.conversations[0]!))
 		expect(parseDesktopConversationSnapshot(duplicateSession)).toBeNull()
 		const duplicateProject = snapshot()
-		duplicateProject.projects.push({ id: 'other', path: duplicateProject.projects[0]!.path })
+		duplicateProject.projects.push({
+			id: 'other',
+			path: duplicateProject.projects[0]!.path,
+		})
 		expect(parseDesktopConversationSnapshot(duplicateProject)).toBeNull()
 		const foreign = snapshot()
 		foreign.conversations[0]!.view.projectId = 'missing'
@@ -191,7 +245,10 @@ describe('durable desktop conversation schema', () => {
 		const original = snapshot()
 		original.attachments = [
 			{
-				...admitAttachment({ name: 'bom.txt', bytes: Buffer.from([239, 187, 191]) }),
+				...admitAttachment({
+					name: 'bom.txt',
+					bytes: Buffer.from([239, 187, 191]),
+				}),
 				ownerId: 'empty-session',
 				draft: true,
 			},
@@ -291,6 +348,67 @@ describe('atomic private desktop persistence', () => {
 		expect(metadata(location).attachmentFile).not.toBe(blob)
 		expect(new DesktopConversationStore(location).read()).toEqual(original)
 	})
+	it('skips identical committed metadata without another disk flush while preserving changed drafts', () => {
+		const location = directory()
+		const store = new DesktopConversationStore(location)
+		const original = snapshot()
+		original.attachments = [text()]
+		store.write(original)
+		expect(io.metadataRenameAttempts).toBe(1)
+		expect(io.attachmentRenames).toBe(1)
+		expect(io.syncs).toBe(2)
+		store.write(structuredClone(original))
+		store.write(structuredClone(original))
+		expect(io.metadataRenameAttempts).toBe(1)
+		expect(io.attachmentRenames).toBe(1)
+		expect(io.syncs).toBe(2)
+		const changed = structuredClone(original)
+		changed.conversations[0]!.draft = 'Durable changed draft'
+		store.write(changed)
+		expect(io.metadataRenameAttempts).toBe(2)
+		expect(io.syncs).toBe(3)
+		expect(new DesktopConversationStore(location).read()).toEqual(changed)
+	})
+	it.each(['missing', 'invalid'])(
+		'repairs %s metadata after a read retires the last commit assumption',
+		(state) => {
+			const location = directory()
+			const store = new DesktopConversationStore(location)
+			const original = snapshot()
+			store.write(original)
+			const file = join(location, 'desktop-conversations.json')
+			if (state === 'missing') {
+				unlinkSync(file)
+				expect(store.read()).toBeUndefined()
+			} else {
+				writeFileSync(file, '{invalid metadata')
+				expect(() => store.read()).toThrow()
+			}
+			store.write(structuredClone(original))
+			expect(io.metadataRenameAttempts).toBe(2)
+			expect(new DesktopConversationStore(location).read()).toEqual(original)
+		},
+	)
+	it('retries failed changed metadata instead of caching an uncommitted candidate', () => {
+		const location = directory()
+		const store = new DesktopConversationStore(location)
+		const original = snapshot()
+		store.write(original)
+		const changed = structuredClone(original)
+		changed.conversations[0]!.draft = 'Retry this authored change'
+		io.failMetadataRename = true
+		expect(() => store.write(changed)).toThrow('fixture metadata commit failure')
+		expect(io.metadataRenameAttempts).toBe(2)
+		expect(new DesktopConversationStore(location).read()).toEqual(original)
+		io.failMetadataRename = false
+		store.write(changed)
+		expect(io.metadataRenameAttempts).toBe(3)
+		expect(io.syncs).toBe(3)
+		expect(new DesktopConversationStore(location).read()).toEqual(changed)
+		store.write(structuredClone(changed))
+		expect(io.metadataRenameAttempts).toBe(3)
+		expect(io.syncs).toBe(3)
+	})
 	it('does not overwrite the committed state when an invalid new snapshot is supplied', () => {
 		const location = directory()
 		const store = new DesktopConversationStore(location)
@@ -312,10 +430,12 @@ describe('atomic private desktop persistence', () => {
 		later.conversations[0]!.draft = 'later'
 		io.failMetadataRename = true
 		expect(() => store.write(later)).toThrow('fixture metadata commit failure')
+		expect(io.metadataRenameAttempts).toBe(2)
 		expect(new DesktopConversationStore(location).read()).toEqual(original)
 		expect(readdirSync(location).some((file) => file.endsWith('.tmp'))).toBe(false)
 		io.failMetadataRename = false
 		store.write(later)
+		expect(io.metadataRenameAttempts).toBe(3)
 		expect(new DesktopConversationStore(location).read()).toEqual(later)
 	})
 	it('rejects a missing referenced attachment file and an escaping blob path', () => {
@@ -347,7 +467,10 @@ describe('atomic private desktop persistence', () => {
 		original.attachments = [image()]
 		store.write(original)
 		const result = store.read()!
-		result.attachments[0]!.image = { ...result.attachments[0]!.image!, data: 'not base64' }
+		result.attachments[0]!.image = {
+			...result.attachments[0]!.image!,
+			data: 'not base64',
+		}
 		expect(() => store.write(result)).toThrow()
 		store.write(original)
 		expect(new DesktopConversationStore(location).read()).toEqual(original)

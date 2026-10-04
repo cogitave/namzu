@@ -5,10 +5,6 @@
 	min-width: 0;
 	flex: 1;
 }
-.conversation-tabs.conversation-workspace-toolbar {
-	flex: none;
-	width: 100%;
-}
 .conversation-tab-list {
 	display: flex;
 	align-items: center;

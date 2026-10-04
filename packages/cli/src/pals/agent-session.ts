@@ -5,8 +5,10 @@ import {
 	DiskSessionLog,
 	type LLMProvider,
 	type PalAdmission,
+	type PalConversationAdmission,
 	type PalDefinition,
 	type PalEnvironmentLease,
+	type PalRuntime,
 	type QueryParams,
 	type ReasoningEffort,
 	type ResumeOutcome,
@@ -14,14 +16,17 @@ import {
 	type SessionEvent,
 	type SessionLease,
 	ToolManager,
+	type Toolset,
 	asCheckpointId,
 	asTurnId,
 	bindOwner,
+	buildPalSystemPrompt,
 	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
 	createToolPresenter,
 	getBuiltinTools,
+	palConversationGreeting,
 	query,
 	resumeSession,
 	toolset,
@@ -59,8 +64,36 @@ import { assertPalReviewDecision, readPalWaitingReview } from './review.js'
 
 export interface PalSessionEnvironment {
 	readonly definition: PalDefinition
-	readonly lease: PalEnvironmentLease
+	readonly lease?: PalEnvironmentLease
+	/** Observe actual ready Pal-controlled guest authority; never starts a computer. */
+	readyComputer?(): PalEnvironmentLease | undefined
+	admitConversation?(signal?: AbortSignal): Promise<PalConversationAdmission>
 	admit(signal?: AbortSignal): Promise<PalAdmission>
+}
+
+/** Shared terminal/ACP composition, with no guest allocation at session startup. */
+export function palSessionEnvironment(
+	runtime: PalRuntime,
+	definition: PalDefinition,
+	conversationId: string,
+): PalSessionEnvironment {
+	const { id, revision } = definition
+	const request = (signal?: AbortSignal) => ({
+		palId: id,
+		revision,
+		conversationId,
+		...(signal ? { signal } : {}),
+	})
+	return {
+		definition: structuredClone(definition),
+		readyComputer: () => {
+			const lease = runtime.computer(id)
+			const control = runtime.computerControl(id)
+			return lease && (!control.supported || control.mode === 'pal') ? lease : undefined
+		},
+		admit: (signal) => runtime.admit(request(signal)),
+		admitConversation: (signal) => runtime.admitConversation(request(signal)),
+	}
 }
 
 /** Every entry checks the current admission; a pause prevents the next guest operation. */
@@ -145,13 +178,19 @@ export async function createPalAgentSession(
 				...suppliedBinding,
 				definition: structuredClone(suppliedBinding.definition),
 				admit: suppliedBinding.admit.bind(suppliedBinding),
+				admitConversation: suppliedBinding.admitConversation?.bind(suppliedBinding),
+				readyComputer: suppliedBinding.readyComputer?.bind(suppliedBinding),
 			}
 		: undefined
 	const scope = options.scope ? { ...options.scope } : undefined
 	const conversations = options.conversationSessions
 	if (!binding || !scope || !conversations)
 		throw new Error('Pal execution requires its owned computer and claimed conversation scope.')
-	if (options.cwd !== binding.definition.workspace || binding.lease.palId !== binding.definition.id)
+	if (
+		options.cwd !== binding.definition.workspace ||
+		(binding.lease && binding.lease.palId !== binding.definition.id) ||
+		(!binding.admitConversation && !binding.lease)
+	)
 		throw new Error('This Pal does not own the conversation or computer.')
 	const primary = { ...primaryProvider(prefs) }
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -164,6 +203,11 @@ export async function createPalAgentSession(
 		sessionId: scope.sessionId,
 	})
 	let admission: PalAdmission | undefined
+	let conversationAdmission: PalConversationAdmission | undefined
+	let identity = {
+		name: binding.definition.name,
+		appearance: binding.definition.appearance,
+	}
 	let writer:
 		| {
 				log: DiskSessionLog
@@ -181,90 +225,114 @@ export async function createPalAgentSession(
 	let settleSend: (() => void) | undefined
 	let sendSettled = Promise.resolve()
 	const assertActive = () => {
-		if (closed || !admission) throw new Error('This Pal does not own an active computer admission.')
+		if (closed || (!conversationAdmission && !admission))
+			throw new Error('This Pal does not own an active conversation admission.')
+		if (conversationAdmission) conversationAdmission.assertActive()
+		else admission?.assertActive()
+		if (conversationAdmission && admission) admission.assertActive()
+	}
+	const assertComputerActive = () => {
+		assertActive()
+		if (!admission) throw new Error('This Pal turn has no computer authority.')
 		admission.assertActive()
 	}
 	const releaseAdmission = async (workFailure?: unknown) => {
 		try {
-			await admission?.release()
+			if (conversationAdmission) await conversationAdmission.release()
+			else await admission?.release()
 			admission = undefined
+			conversationAdmission = undefined
 		} catch (error) {
 			if (workFailure !== undefined)
 				throw new AggregateError([workFailure, error], 'Pal work and admission cleanup failed.')
 			throw error
 		}
 	}
-	const guest = guardHost(
-		binding.lease.sandbox,
-		assertActive,
-		true,
-		() => admission?.lease.sandbox ?? binding.lease.sandbox,
-		async () => {
-			await renewWriter()
-			await assertExecutionAllowed?.()
-		},
-	)
-	const computer = guardHost(
-		binding.lease.computerUseHost,
-		assertActive,
-		false,
-		() => admission?.lease.computerUseHost ?? binding.lease.computerUseHost,
-		async () => {
-			await renewWriter()
-			await assertExecutionAllowed?.()
-		},
-	)
-	const sandboxProvider: SandboxProvider = {
-		id: `pal:${binding.definition.id}`,
-		name: 'Pal virtual computer',
-		environment: guest.environment,
-		workspaceModes: ['working-directory'],
-		create: async () => {
-			assertActive()
-			return guest
-		},
-	}
-	const allTools = getBuiltinTools()
+	let sandboxProvider: SandboxProvider | undefined
+	let tools: ReturnType<typeof getBuiltinTools> = []
+	let sets: Toolset[] = []
+	let manager = new ToolManager({ toolsets: sets, messages: () => [] })
+	const presenter = createToolPresenter({ get: (name) => manager.get(name) })
 	const messaging = createCliPalMessagingContext(binding.definition, scope, assertActive)
-	const computerTool = createComputerUseTool(computer, {
-		unavailableReason: computerUseUnavailableReason(provider),
-	})
-	const tools = [
-		...allTools,
-		...messaging.tools,
-		computerTool,
-		...(binding.lease.browserHost
-			? createBrowserTools(
-					guardHost(binding.lease.browserHost, assertActive, false, () => {
-						const browser = admission?.lease.browserHost ?? binding.lease.browserHost
-						if (!browser) throw new Error('This Pal computer does not support browser operations.')
-						return browser
-					}),
-				)
-			: []),
-	]
 	let assertExecutionAllowed: (() => void | Promise<void>) | undefined
 	let activePermissionMode: (() => PermissionMode) | undefined
-	const guardedTools = tools.map((tool) => ({
-		...tool,
-		async execute(input: unknown, context: Parameters<typeof tool.execute>[1]) {
-			assertActive()
-			await renewWriter()
-			await assertExecutionAllowed?.()
-			assertActive()
-			// Durable replay applies its answer before entering the ordinary review
-			// handler. The host's current plan mode still governs the actual call.
-			if (
-				activePermissionMode?.() === 'plan' &&
-				!reviewExemptionFor('plan', manager, () => false)(tool.name, input)
+	const configureComputer = async (lease?: PalEnvironmentLease) => {
+		await manager.dispose()
+		tools = []
+		sets = []
+		sandboxProvider = undefined
+		if (lease) {
+			const guest = guardHost(
+				lease.sandbox,
+				assertComputerActive,
+				true,
+				() => admission?.lease.sandbox ?? lease.sandbox,
+				async () => {
+					await renewWriter()
+					await assertExecutionAllowed?.()
+				},
 			)
-				throw new Error(PLAN_MODE_REFUSAL)
-			return tool.execute(input, context)
-		},
-	}))
-	const sets = [toolset('pal-computer', guardedTools)]
-	const manager = new ToolManager({ toolsets: sets, messages: () => [] })
-	const presenter = createToolPresenter(manager)
+			const computer = guardHost(
+				lease.computerUseHost,
+				assertComputerActive,
+				false,
+				() => admission?.lease.computerUseHost ?? lease.computerUseHost,
+				async () => {
+					await renewWriter()
+					await assertExecutionAllowed?.()
+				},
+			)
+			sandboxProvider = {
+				id: `pal:${binding.definition.id}`,
+				name: 'Pal virtual computer',
+				environment: guest.environment,
+				workspaceModes: ['working-directory'],
+				create: async () => {
+					assertComputerActive()
+					return guest
+				},
+			}
+			const allTools = getBuiltinTools()
+			const computerTool = createComputerUseTool(computer, {
+				unavailableReason: computerUseUnavailableReason(provider),
+			})
+			tools = [
+				...allTools,
+				...messaging.tools,
+				computerTool,
+				...(lease.browserHost
+					? createBrowserTools(
+							guardHost(lease.browserHost, assertComputerActive, false, () => {
+								const browser = admission?.lease.browserHost ?? lease.browserHost
+								if (!browser)
+									throw new Error('This Pal computer does not support browser operations.')
+								return browser
+							}),
+						)
+					: []),
+			]
+			const guardedTools = tools.map((tool) => ({
+				...tool,
+				async execute(input: unknown, context: Parameters<typeof tool.execute>[1]) {
+					assertComputerActive()
+					await renewWriter()
+					await assertExecutionAllowed?.()
+					assertComputerActive()
+					// Durable replay applies its answer before entering the ordinary review
+					// handler. The host's current plan mode still governs the actual call.
+					if (
+						activePermissionMode?.() === 'plan' &&
+						!reviewExemptionFor('plan', manager, () => false)(tool.name, input)
+					)
+						throw new Error(PLAN_MODE_REFUSAL)
+					return tool.execute(input, context)
+				},
+			}))
+			sets = [toolset('pal-computer', guardedTools)]
+		}
+		manager = new ToolManager({ toolsets: sets, messages: () => [] })
+	}
+	await configureComputer(binding.readyComputer?.() ?? binding.lease)
 	const jobs = new BackgroundJobRegistry()
 	const ownedJobs = bindOwner(jobs, scope.sessionId)
 	const approval = { all: false }
@@ -289,7 +357,7 @@ export async function createPalAgentSession(
 	) => {
 		if (closed) throw new Error('This Pal conversation is closed.')
 		if (activeAbort) throw new Error('This Pal conversation already has active work.')
-		if (admission || writer)
+		if (admission || conversationAdmission || writer)
 			throw new Error('This Pal admission needs cleanup before further work.')
 		if (options.scope?.sessionId !== scope.sessionId)
 			throw new Error('Reopen this Pal conversation after switching its session.')
@@ -388,6 +456,8 @@ export async function createPalAgentSession(
 			owner.definition.workspace !== binding.definition.workspace
 		)
 			throw new Error('This Pal does not own the pinned conversation revision.')
+		// Display identity follows an authenticated rename; execution policy stays pinned.
+		identity = { name: owner.pal.name, appearance: owner.pal.appearance }
 	}
 	const prepareProvider = async (controller: AbortController) => {
 		if (current?.entry.id === 'codex' && current.codex?.origin === 'stored') {
@@ -429,13 +499,27 @@ export async function createPalAgentSession(
 			},
 		)
 	}
-	const enterComputer = async (controller: AbortController) => {
+	const enterConversation = async (controller: AbortController, requireComputer = false) => {
 		controller.signal.throwIfAborted()
 		await assertExecutionAllowed?.()
 		controller.signal.throwIfAborted()
 		await assertOwnedConversation()
-		admission = await binding.admit(controller.signal)
+		if (binding.admitConversation) {
+			conversationAdmission = await binding.admitConversation(controller.signal)
+			assertActive()
+			const ready = binding.readyComputer?.()
+			if (requireComputer || ready) {
+				admission = await conversationAdmission.acquireComputer()
+				if (
+					ready &&
+					(admission.lease.environmentId !== ready.environmentId ||
+						admission.lease.generation !== ready.generation)
+				)
+					throw new Error('This Pal computer changed before its turn was admitted.')
+			}
+		} else admission = await binding.admit(controller.signal)
 		assertActive()
+		await configureComputer(admission?.lease)
 		await prepareProvider(controller)
 	}
 	const queryOptions = (
@@ -461,20 +545,21 @@ export async function createPalAgentSession(
 			paths: conversations.paths,
 			...scope,
 			agentId: `pal:${binding.definition.id}`,
-			agentName: binding.definition.name,
-			workingDirectory: admission?.lease.sandbox.rootDir ?? guest.rootDir,
-			sandboxProvider,
+			agentName: identity.name,
+			...(admission ? { workingDirectory: admission.lease.sandbox.rootDir, sandboxProvider } : {}),
 			sandboxEscape: 'refuse',
 			outsideRootAccess: 'refuse',
 			toolsets: sets,
-			systemPrompt: [
-				`You are ${binding.definition.name}, a Namzu Pal.`,
-				binding.definition.purpose,
-				`Your own local virtual computer is available. All file paths and terminal commands refer to its filesystem at ${admission?.lease.sandbox.rootDir ?? guest.rootDir}. Use computer_use for its desktop. You do not have access to the operator's host files, desktop, browser accounts or other Pals.`,
-				opts?.systemNote,
-			]
-				.filter(Boolean)
-				.join('\n\n'),
+			systemPrompt: buildPalSystemPrompt(
+				{ ...binding.definition, ...identity },
+				{
+					greeting: palConversationGreeting(binding.definition, scope.sessionId),
+					computer: admission
+						? { status: 'ready', workingDirectory: admission.lease.sandbox.rootDir }
+						: { status: 'unavailable' },
+					...(opts?.systemNote ? { systemNote: opts.systemNote } : {}),
+				},
+			),
 			beforeStep: async () => {
 				assertActive()
 				await renewWriter()
@@ -585,7 +670,7 @@ export async function createPalAgentSession(
 					throw new Error('This Pal decision changed before its writer was admitted.')
 				assertPalReviewDecision(lockedWaiting.request, params.pendingDecision)
 			}
-			await enterComputer(work.controller)
+			await enterConversation(work.controller, true)
 			return await resumeSession({
 				...queryOptions(params),
 				scope: { ...scope, turnId },
@@ -689,12 +774,16 @@ export async function createPalAgentSession(
 		documentAttachmentsSupported: provider.capabilities?.supportsDocuments,
 		reasoningEffortLevels: provider.reasoningEffortLevelsFor?.(model),
 		reasoningEffortDefault: provider.reasoningEffortDefaultFor?.(model),
-		sandbox: {
-			unconfined: false,
-			environment: guest.environment,
-			enforced: ['filesystem', 'process'],
-			required: ['filesystem', 'process'],
-			workspace: 'working-directory',
+		get sandbox() {
+			return sandboxProvider
+				? {
+						unconfined: false,
+						environment: sandboxProvider.environment,
+						enforced: ['filesystem', 'process'] as const,
+						required: ['filesystem', 'process'] as const,
+						workspace: 'working-directory' as const,
+					}
+				: { unconfined: false, enforced: [], required: [] }
 		},
 		toolNames: () => tools.map((tool) => tool.name),
 		presenter,
@@ -728,7 +817,7 @@ export async function createPalAgentSession(
 			const { controller } = work
 			let sendFailure: unknown
 			try {
-				await enterComputer(controller)
+				await enterConversation(controller)
 				const events = query({
 					...queryOptions(opts),
 					sessionLog: DiskSessionLog.at(conversations.paths, {
@@ -740,7 +829,7 @@ export async function createPalAgentSession(
 					turnConfig: {
 						model,
 						...resolveTurnGuards(options.limits, opts?.limits),
-						sandbox: { workspace: 'working-directory' },
+						...(admission ? { sandbox: { workspace: 'working-directory' as const } } : {}),
 						permissionMode: 'auto',
 						...(opts?.effort ? { effort: opts.effort } : {}),
 					},

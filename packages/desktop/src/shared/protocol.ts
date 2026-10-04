@@ -124,6 +124,8 @@ export interface ConversationView {
 	updatedAt: string
 	palId?: string
 	harness?: 'namzu' | 'codex-cli' | 'claude-code'
+	/** Host-authored prelude from the durable claim's original profile revision. */
+	palGreeting?: { id: string; text: string }
 }
 export interface HarnessView {
 	selected: 'namzu' | 'codex-cli' | 'claude-code'

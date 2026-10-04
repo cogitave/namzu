@@ -134,6 +134,65 @@ it('keeps the Pal Plus menu and actual model available while computer execution 
 		).toMatch(/\bdisabled=/)
 })
 
+it('admits Pal chat and model attachments without granting unavailable guest tools or host plugins', () => {
+	const html = render({
+		variant: 'pal',
+		connected: true,
+		modelSelectionReady: true,
+		toolsAvailable: false,
+		pluginsSupported: false,
+	})
+	for (const label of ['Send message', 'Attach files', 'Select model'])
+		expect(button(html, label)).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Tool permissions')).toMatch(/\bdisabled=/)
+	expect(html).not.toContain('aria-label="Plugins"')
+	const standard = render({ connected: true })
+	expect(button(standard, 'Plugins')).not.toMatch(/\bdisabled=/)
+	const online = render({
+		variant: 'pal',
+		connected: true,
+		toolsAvailable: true,
+		pluginsSupported: false,
+	})
+	expect(button(online, 'Tool permissions')).not.toMatch(/\bdisabled=/)
+})
+
+it('keeps approval details readable but disables action decisions when guest authority is absent', () => {
+	const permission: ComponentProps<typeof Composer>['permissions'][number] = {
+		id: 'approval',
+		sessionId: 'conversation',
+		projectId: 'pal-control',
+		calls: [{ id: 'call', name: 'guest.bash', input: { command: 'pwd' }, isDestructive: false }],
+	}
+	const unavailable = render({
+		variant: 'pal',
+		connected: true,
+		toolsAvailable: false,
+		permissions: [permission],
+	})
+	expect(
+		unavailable.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0],
+	).toMatch(/\bdisabled=/)
+	for (const detail of ['guest.bash', 'pwd', 'Allow once', 'Decline', 'Review'])
+		expect(unavailable).toContain(detail)
+	expect(button(unavailable, 'Send message')).not.toMatch(/\bdisabled=/)
+	for (const guard of [
+		{ toolsAvailable: false },
+		{ connected: false },
+		{ draftDisabled: true },
+		{ harnessBusy: true },
+	]) {
+		const html = render({ connected: true, permissions: [permission], ...guard })
+		expect(html.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0]).toMatch(
+			/\bdisabled=/,
+		)
+	}
+	const admitted = render({ connected: true, toolsAvailable: true, permissions: [permission] })
+	expect(
+		admitted.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0],
+	).not.toMatch(/\bdisabled=/)
+})
+
 it('retains Pal attachments, queue editing and complete approval while composing the next turn', () => {
 	const html = render({
 		variant: 'pal',
