@@ -1,0 +1,423 @@
+{
+  "schema": "namzu.native-normal-conversation.v1",
+  "date": "2026-10-04",
+  "platform": "win32",
+  "nativeElectron": true,
+  "normalUserData": true,
+  "actualCli": true,
+  "modelFixtures": false,
+  "runtime": {
+    "electron": "44.4.5",
+    "node": "24.21.0"
+  },
+  "before": {
+    "firstMessageModelSelectionError": "This conversation does not belong to this project.",
+    "zenModels": 8,
+    "codexSyntheticFallbackRows": 1,
+    "anthropicSyntheticDefaultWasAdded": true
+  },
+  "diagnosis": {
+    "firstMessage": "ACP publishes a connection-owned session before its first durable journal; the desktop host wrongly required a journal to select its model.",
+    "providerBaseline": [
+      {
+        "id": "anthropic",
+        "detected": true,
+        "source": "claude-file",
+        "alternatives": [],
+        "oauthOrigin": "claude-file",
+        "expiry": "expired",
+        "accountRoutingPresent": false,
+        "catalogue": {
+          "kind": "failed",
+          "error": [
+            {
+              "class": "CredentialRefreshRejectedError",
+              "code": "invalid_grant"
+            }
+          ]
+        }
+      },
+      {
+        "id": "codex",
+        "detected": true,
+        "source": "codex-file",
+        "alternatives": [],
+        "oauthOrigin": "codex-file",
+        "expiry": "future",
+        "accountRoutingPresent": true,
+        "catalogue": {
+          "kind": "failed",
+          "error": [
+            {
+              "class": "APIConnectionError"
+            },
+            {
+              "class": "TypeError"
+            },
+            {
+              "class": "Error",
+              "code": "SELF_SIGNED_CERT_IN_CHAIN"
+            }
+          ]
+        }
+      },
+      {
+        "id": "zen",
+        "detected": true,
+        "source": "public",
+        "alternatives": [],
+        "oauthOrigin": null,
+        "expiry": "unknown",
+        "accountRoutingPresent": false,
+        "catalogue": {
+          "kind": "ok",
+          "rows": 8,
+          "strict": false
+        }
+      }
+    ],
+    "systemCaComparison": {
+      "extraCaConfigured": false,
+      "sslCertFileConfigured": false,
+      "tlsVerificationDisabled": false,
+      "ca": {
+        "get": true,
+        "set": true,
+        "defaultCount": 121,
+        "systemCount": 142,
+        "combinedCount": 203,
+        "enabled": true
+      },
+      "native": true,
+      "electron": "44.4.5",
+      "node": "24.21.0",
+      "credentialValuesLogged": false,
+      "remoteBodiesLogged": false,
+      "inferenceRequests": 0,
+      "externalHarnessesStarted": false,
+      "providers": [
+        {
+          "id": "codex",
+          "detected": true,
+          "source": "codex-file",
+          "alternatives": [],
+          "oauthOrigin": "codex-file",
+          "expiry": "future",
+          "accountRoutingPresent": true,
+          "catalogue": {
+            "kind": "ok",
+            "rows": 8,
+            "strict": false
+          }
+        }
+      ]
+    }
+  },
+  "after": {
+    "catalogues": {
+      "zen": {
+        "rows": 8,
+        "notice": null,
+        "models": [
+          {
+            "id": "big-pickle",
+            "label": "Big Pickle"
+          },
+          {
+            "id": "muse-spark-1.3-contributor-free",
+            "label": "Muse Spark 1.3 Contributor Free"
+          },
+          {
+            "id": "space-bunny-free",
+            "label": "Space Bunny Free"
+          },
+          {
+            "id": "longcat-2.5-preview-free",
+            "label": "LongCat 2.5 Preview Free"
+          },
+          {
+            "id": "mimo-v2.5-free",
+            "label": "MiMo-V2.5 Free"
+          },
+          {
+            "id": "ling-3.0-flash-fin-free",
+            "label": "Ling 3.0 Flash Fin Free"
+          },
+          {
+            "id": "nemotron-3-ultra-free",
+            "label": "Nemotron 3 Ultra Free"
+          },
+          {
+            "id": "nemotron-3.5-lightning-free",
+            "label": "Nemotron 3.5 Lightning Free"
+          }
+        ]
+      },
+      "anthropic": {
+        "rows": 0,
+        "notice": "The provider catalogue could not be loaded. Refresh the list to retry.",
+        "models": []
+      },
+      "codex": {
+        "rows": 8,
+        "notice": null,
+        "models": [
+          {
+            "id": "gpt-6.1-sol",
+            "label": "GPT-6.1-Sol"
+          },
+          {
+            "id": "gpt-6-astra",
+            "label": "GPT-6-Astra"
+          },
+          {
+            "id": "gpt-6-sol",
+            "label": "GPT-6-Sol"
+          },
+          {
+            "id": "gpt-6-luna",
+            "label": "GPT-6-Luna"
+          },
+          {
+            "id": "gpt-5.6-sol",
+            "label": "GPT-5.6-Sol"
+          },
+          {
+            "id": "gpt-5.6-terra",
+            "label": "GPT-5.6-Terra"
+          },
+          {
+            "id": "gpt-5.6-luna",
+            "label": "GPT-5.6-Luna"
+          },
+          {
+            "id": "gpt-5.5",
+            "label": "GPT-5.5"
+          }
+        ]
+      }
+    },
+    "claudeAuthenticationNoticeObserved": true,
+    "claudePickerLatestNotice": "The provider catalogue could not be loaded. Refresh the list to retry.\nRetry",
+    "ownedRuntimeTrust": {
+      "count": 2,
+      "allUseSystemCa": true,
+      "tlsBypass": false
+    },
+    "zen": {
+      "realInference": true,
+      "sessionId": "01a10712-d628-77c3-b345-f1f9b910c658",
+      "answer": "Namzu yeni sohbet doğrulandı.",
+      "assistantRows": 1,
+      "stopReason": "end_turn",
+      "streamMessageId": "01a10712-dae8-7281-b972-e50c5643080b",
+      "settledMessageId": "01a10712-dae8-7281-b972-e50c5643080b",
+      "recordedMessageId": "01a10712-dae8-7281-b972-e50c5643080b",
+      "updateKinds": [
+        "agent_message_chunk",
+        "agent_message_chunk",
+        "agent_message_chunk",
+        "agent_message",
+        "turn_ended"
+      ],
+      "hadStateError": false,
+      "reopenAssistantRows": 1
+    },
+    "composer": {
+      "newConversationClearedPreviousSession": true,
+      "projectPickerRows": 1,
+      "palExcluded": true,
+      "currentChecked": true,
+      "engine": "Namzu",
+      "attachmentsEnabled": true,
+      "permissionsChangedAndRestored": true,
+      "narrow": {
+        "viewport": {
+          "width": 640,
+          "height": 620
+        },
+        "scrollWidth": 640,
+        "shell": {
+          "x": 68,
+          "y": 280,
+          "width": 552,
+          "height": 124,
+          "right": 620,
+          "bottom": 404
+        },
+        "strip": {
+          "x": 81,
+          "y": 280,
+          "width": 526,
+          "height": 50,
+          "right": 607,
+          "bottom": 330
+        },
+        "body": {
+          "x": 68,
+          "y": 316,
+          "width": 552,
+          "height": 88,
+          "right": 620,
+          "bottom": 404
+        },
+        "reducedMotion": true
+      },
+      "narrowModelMenu": {
+        "x": 211,
+        "y": 7,
+        "width": 360,
+        "height": 348
+      },
+      "palToOrdinaryNavigation": true
+    },
+    "wordmarkOnlyNamzuTrigger": true,
+    "rendererFailuresSinceFinalBoot": 0,
+    "unhandledErrorsSinceFinalBoot": 0
+  },
+  "verification": {
+    "workspaceTypecheck": "passed",
+    "workspaceLint": "passed; existing warnings",
+    "workspaceTest": "passed",
+    "packageTestCounts": [
+      {
+        "package": "packages/files",
+        "passed": 48,
+        "skipped": 11
+      },
+      {
+        "package": "packages/sdk",
+        "passed": 9933,
+        "skipped": 0
+      },
+      {
+        "package": "packages/desktop",
+        "passed": 244,
+        "skipped": 0
+      },
+      {
+        "package": "packages/computer-use",
+        "passed": 165,
+        "skipped": 0
+      },
+      {
+        "package": "packages/browser",
+        "passed": 133,
+        "skipped": 42
+      },
+      {
+        "package": "packages/ag-ui",
+        "passed": 189,
+        "skipped": 0
+      },
+      {
+        "package": "packages/live",
+        "passed": 25,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/anthropic",
+        "passed": 259,
+        "skipped": 44
+      },
+      {
+        "package": "packages/lsp",
+        "passed": 27,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/bedrock",
+        "passed": 127,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/deepseek",
+        "passed": 44,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/google",
+        "passed": 29,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/http",
+        "passed": 83,
+        "skipped": 10
+      },
+      {
+        "package": "packages/providers/lmstudio",
+        "passed": 29,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/ollama",
+        "passed": 36,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/openrouter",
+        "passed": 80,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/zen",
+        "passed": 234,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/openai",
+        "passed": 129,
+        "skipped": 0
+      },
+      {
+        "package": "packages/telemetry",
+        "passed": 33,
+        "skipped": 0
+      },
+      {
+        "package": "packages/sandbox",
+        "passed": 1799,
+        "skipped": 3
+      },
+      {
+        "package": "packages/cli",
+        "passed": 4927,
+        "skipped": 6
+      }
+    ],
+    "sdkProcessTests": {
+      "files": 46,
+      "passed": 278
+    },
+    "changedPackageBuilds": [
+      "@namzu/sdk",
+      "@namzu/cli",
+      "@namzu/anthropic",
+      "@namzu/desktop"
+    ],
+    "docsOkfFiles": 139,
+    "compiledDocsFences": 114,
+    "compiledPackageReadmes": 21
+  },
+  "scope": {
+    "ordinaryProjectPicker": true,
+    "nativeFolderDialogSelectionTested": false,
+    "nativeProviderInference": "Zen space-bunny-free",
+    "paidCodexOrClaudeInferenceTested": false,
+    "engineNow": "Namzu",
+    "externalEngineIntegration": "separate subsequent work authorized in the current conversation",
+    "conversationOwnedWorktree": false
+  },
+  "reference": {
+    "monocodeCommit": "271b66ded71e795e0569db77c9bbf599219c8cdc",
+    "audit": "../COMPOSER-WORKSPACE-HARNESS-20261004.md",
+    "screenshot": "composer-context-native-20261004.png"
+  },
+  "privacy": {
+    "credentialValues": false,
+    "accountIdentifiers": false,
+    "certificateBodies": false,
+    "privateWholeWindowCaptures": false
+  }
+}

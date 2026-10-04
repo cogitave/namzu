@@ -2,6 +2,12 @@
 	border-radius: 999px;
 	font-weight: 400;
 }
+.model-picker-trigger .selected-model-icon {
+	width: 15px;
+	height: 15px;
+	margin-inline: 0;
+	color: currentColor;
+}
 .model-picker-popup {
 	width: 360px;
 	max-width: min(360px, var(--available-width), calc(100vw - 24px));

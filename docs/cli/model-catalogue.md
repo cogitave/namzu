@@ -85,6 +85,31 @@ A model name that carries a control, format or line-separator character is a
 source the refresh refuses, as is a last-good copy holding one, so no upstream
 text can write terminal escape sequences through the picker.
 
+## Desktop catalogue and selection
+
+The desktop ACP catalogue projects the driver's listed models through the
+same access and wire checks. It never inserts the CLI's registry default or a
+saved model absent from those rows. An unavailable selected model stays in
+provider status and receives a catalogue notice, so a refresh cannot silently
+change the conversation's route. Failed, unsupported and timed-out listings
+return an empty row list with distinct notices; credential rejection uses a
+fixed authentication notice without exposing the remote diagnostic.
+The strict account-listing method is used when a driver provides one. In
+particular, the account driver no longer turns an API rejection into its
+bundled offline menu on this desktop path. A refreshable admitted credential
+is read from its exact owner and renewed within the listing's existing budget.
+A typed rejected subscription refresh grant receives the same authentication
+notice as an explicit provider credential rejection. TLS and other transport
+failures do not establish that the login is invalid and retain a catalogue
+loading notice.
+
+Provider selection is checked before replacing an existing model session.
+Selecting a paid Zen model without a Zen account credential is refused while
+the previous conversation remains usable. A fresh ACP conversation can select
+an eligible free Zen model before any unavailable saved provider is prepared.
+The anonymous route remains experimental; successful selection does not verify
+that the gateway will accept inference.
+
 ## Turning it off
 
 ```yaml

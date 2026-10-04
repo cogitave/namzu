@@ -26,6 +26,7 @@ import { humanComputer } from './host-computer.js'
 import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { selectRendererPage } from './renderer-page.js'
+import { desktopRuntimeNodeArgs } from './runtime-node-args.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import {
 	readWindowMenu,
@@ -72,7 +73,7 @@ const cliEntry = process.env.NAMZU_DESKTOP_CLI
 const command = cliEntry
 	? {
 			program: process.execPath,
-			args: [cliEntry, 'acp', '--desktop'],
+			args: desktopRuntimeNodeArgs(cliEntry),
 			env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
 		}
 	: process.platform === 'win32'

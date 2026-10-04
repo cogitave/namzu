@@ -104,7 +104,9 @@ function fixture() {
 		{
 			probe: async () => ({
 				preferences,
-				detected: [{ entry: { id: 'zen', label: 'Zen', defaultModel: 'selected' } }],
+				detected: [
+					{ entry: { id: 'zen', label: 'Zen', defaultModel: 'selected' }, apiKey: 'synthetic' },
+				],
 				needsRepickReason: null,
 			}),
 			createSession,

@@ -4841,7 +4841,12 @@ export type ModelListing =
 	/** The driver does not implement `listModels`. */
 	| { readonly kind: 'unsupported' }
 	| { readonly kind: 'timeout' }
-	| { readonly kind: 'failed'; readonly reason: string }
+	| {
+			readonly kind: 'failed'
+			readonly reason: string
+			/** Safe classification for native callers; never the driver's raw diagnostic. */
+			readonly failure?: 'authentication'
+	  }
 
 /**
  * The price pair, and only the halves the driver gave a number for.
@@ -4897,6 +4902,8 @@ export async function describeProviderReasoning(
 	}
 }
 
+const readCatalogueCredential = createCurrentCredentialReader()
+
 /**
  * Ask a detected provider what models it has.
  *
@@ -4916,13 +4923,18 @@ export async function describeProviderModels(
 		// listing path must do the same or every provider returns nothing.
 		await ensureRegistered(id)
 		signal?.throwIfAborted()
-		const provider = constructProvider(id, det, det.entry.defaultModel)
-		if (typeof provider.listModels !== 'function') return { kind: 'unsupported' }
-
-		const models = await runPickerProviderOperation(
-			signal,
-			(operationSignal) => provider.listModels?.(operationSignal) ?? Promise.resolve([]),
-		)
+		const models = await runPickerProviderOperation(signal, async (operationSignal) => {
+			// Renewal belongs to the same bounded operation as its catalogue.
+			const current = await readCatalogueCredential(det, operationSignal)
+			const provider = constructProvider(id, current, det.entry.defaultModel) as LLMProvider & {
+				listModelsStrict?(signal?: AbortSignal): Promise<ModelInfo[]>
+			}
+			if (typeof provider.listModelsStrict === 'function')
+				return provider.listModelsStrict(operationSignal)
+			if (typeof provider.listModels === 'function') return provider.listModels(operationSignal)
+			return undefined
+		})
+		if (models === undefined) return { kind: 'unsupported' }
 
 		return {
 			kind: 'ok',
@@ -4948,6 +4960,7 @@ export async function describeProviderModels(
 		return {
 			kind: 'failed',
 			reason: err instanceof Error ? err.message : String(err),
+			...(isCredentialRejection(err) ? { failure: 'authentication' as const } : {}),
 		}
 	}
 }
@@ -5013,6 +5026,7 @@ function describeError(err: unknown): string {
  * working key into a rotation request.
  */
 export function isCredentialRejection(err: unknown): boolean {
+	if (err instanceof CredentialRefreshRejectedError) return true
 	const status =
 		(err as { status?: unknown; statusCode?: unknown } | null)?.status ??
 		(err as { statusCode?: unknown } | null)?.statusCode

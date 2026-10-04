@@ -1492,37 +1492,62 @@ export class AnthropicProvider implements LLMProvider {
 	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
 		signal?.throwIfAborted()
 		try {
-			// Models API shipped in SDK ~0.32+. Feature-detect via unknown cast so we
-			// don't depend on the SDK's surface-level shape in a version-brittle way.
-			const clientLike = this.client as unknown as {
-				models?: {
-					list?: (opts: { limit: number }, request?: { signal?: AbortSignal }) => Promise<unknown>
-				}
-			}
-			const models = clientLike.models
-			if (typeof models?.list !== 'function') {
-				return this.knownModels()
-			}
-			// Called ON the namespace, not pulled out and invoked bare. Detached,
-			// it lost `this` and the SDK's own `this._client` read threw a
-			// TypeError on EVERY call — which the catch below swallowed, so this
-			// listing never once reached the network and the hardcoded models
-			// were not a fallback but the only answer this method could give.
-			const page = (await models.list({ limit: 100 }, signal ? { signal } : undefined)) as {
-				data?: Array<{ id?: string; display_name?: string; type?: string }>
-			}
-			signal?.throwIfAborted()
-			const data = page?.data ?? []
-			if (data.length === 0) return this.knownModels()
-			return data.map((m) => ({
-				id: m.id ?? '',
-				name: m.display_name ?? m.id ?? '',
-				supportsToolUse: true,
-				supportsStreaming: true,
-			}))
+			const models = await this.listModelsStrict(signal)
+			return models.length ? models : this.knownModels()
 		} catch {
 			if (signal?.aborted) throw signal.reason
 			return this.knownModels()
+		}
+	}
+
+	/** Actual Models API rows and errors, without the legacy offline menu fallback. */
+	async listModelsStrict(signal?: AbortSignal): Promise<ModelInfo[]> {
+		signal?.throwIfAborted()
+		type ModelPage = {
+			data?: Array<{ id?: string; display_name?: string; type?: string }>
+			hasNextPage?: () => boolean
+			getNextPage?: () => Promise<ModelPage>
+		}
+		const clientLike = this.client as unknown as {
+			models?: {
+				list?: (opts: { limit: number }, request?: { signal?: AbortSignal }) => Promise<unknown>
+			}
+		}
+		const models = clientLike.models
+		if (typeof models?.list !== 'function')
+			throw new Error('This SDK version cannot publish an actual model catalogue.')
+		try {
+			// Keep the namespace receiver. SDK pages carry the original request options,
+			// including this signal, into getNextPage; rebuilding the request loses them.
+			let page = (await models.list({ limit: 100 }, signal ? { signal } : undefined)) as ModelPage
+			const catalogue: ModelInfo[] = []
+			let rows = 0
+			for (let pages = 1; ; pages++) {
+				signal?.throwIfAborted()
+				const data = page?.data ?? []
+				rows += data.length
+				if (rows > 10_000) throw new Error('The actual model catalogue exceeded its row limit.')
+				for (const model of data) {
+					if (typeof model.id !== 'string' || !model.id.length) continue
+					catalogue.push({
+						id: model.id,
+						name: model.display_name || model.id,
+						supportsToolUse: true,
+						supportsStreaming: true,
+					})
+				}
+				if (!page?.hasNextPage?.()) return catalogue
+				if (pages >= 100) throw new Error('The actual model catalogue exceeded its page limit.')
+				if (typeof page.getNextPage !== 'function')
+					throw new Error('This SDK version cannot read the next actual model catalogue page.')
+				signal?.throwIfAborted()
+				page = await page.getNextPage()
+			}
+		} catch (error) {
+			// The vendor SDK replaces an aborted HTTP request with its own error.
+			// Preserve the caller's reason even when cancellation happens on a later page.
+			if (signal?.aborted) throw signal.reason
+			throw error
 		}
 	}
 

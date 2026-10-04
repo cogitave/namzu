@@ -22,9 +22,19 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { CredentialRefreshRejectedError } from '../../integrations/providers/oauth.js'
 import { isCredentialRejection } from '../agent.js'
 
 describe('isCredentialRejection', () => {
+	it('recognizes a typed rejected refresh grant without inferring it from arbitrary codes', () => {
+		const rejected = new CredentialRefreshRejectedError()
+		rejected.message = 'The owner cannot renew this session.'
+		expect(isCredentialRejection(rejected)).toBe(true)
+		expect(
+			isCredentialRejection(Object.assign(new Error('opaque'), { code: 'invalid_grant' })),
+		).toBe(false)
+	})
+
 	it('treats an explicit 401 or 403 as the server refusing the key', () => {
 		expect(isCredentialRejection(Object.assign(new Error('nope'), { status: 401 }))).toBe(true)
 		expect(isCredentialRejection(Object.assign(new Error('nope'), { status: 403 }))).toBe(true)
@@ -45,6 +55,10 @@ describe('isCredentialRejection', () => {
 		expect(isCredentialRejection(new TypeError('fetch failed'))).toBe(false)
 		expect(isCredentialRejection(new Error('getaddrinfo ENOTFOUND api.example.com'))).toBe(false)
 		expect(isCredentialRejection(new Error('connect ETIMEDOUT'))).toBe(false)
+		const tls = Object.assign(new Error('certificate chain could not be verified'), {
+			code: 'SELF_SIGNED_CERT_IN_CHAIN',
+		})
+		expect(isCredentialRejection(new TypeError('fetch failed', { cause: tls }))).toBe(false)
 	})
 
 	it('reads the message only when no status is present', () => {

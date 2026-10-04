@@ -39,7 +39,11 @@ function session(params: Record<string, unknown>): string {
 	return value
 }
 
-export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: string) {
+export function createDesktopHostExtensions(
+	runtime: CliAcpRuntime,
+	directory: string,
+	publishedSessionCwd?: (sessionId: string) => string | undefined,
+) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
 	const withState = async <T>(
@@ -55,10 +59,24 @@ export function createDesktopHostExtensions(runtime: CliAcpRuntime, directory: s
 	}
 	const ownedSession = async (params: Record<string, unknown>) => {
 		const id = session(params)
-		await withState(async (state) => {
-			if (!(await state.store.getSession(asSessionId(id), state.tenantId)))
-				throw new Error('This conversation does not belong to this project.')
-		})
+		const durable = await withState(async (state) =>
+			Boolean(await state.store.getSession(asSessionId(id), state.tenantId)),
+		)
+		if (!durable) {
+			// New ordinary ACP sessions have no journal until their first turn.
+			// Only a published slot on this connection can authorize preparation;
+			// a client-supplied UUID or another workspace is never sufficient.
+			let publishedHere = false
+			const publishedCwd = publishedSessionCwd?.(id)
+			if (!pal() && publishedCwd !== undefined) {
+				try {
+					publishedHere = canonicalProjectPath(publishedCwd) === cwd
+				} catch {
+					/* A missing or redirected workspace grants no transient ownership. */
+				}
+			}
+			if (!publishedHere) throw new Error('This conversation does not belong to this project.')
+		}
 		if (pal()) await palConversationBinding(cwd, id)
 		return id
 	}

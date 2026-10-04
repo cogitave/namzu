@@ -164,3 +164,165 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 })
+
+it('keeps real context above the normal editor and permissions beside Plus below it', () => {
+	const html = render({
+		connected: true,
+		projectName: 'namzu',
+		computerLabel: 'This computer',
+		choice: { provider: 'zen', model: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+	})
+	const context = html.indexOf('data-slot="composer-context-strip"')
+	const editor = html.indexOf('<textarea')
+	const footer = html.indexOf('data-chat-composer-footer')
+	const plus = html.indexOf('aria-label="Attachments and message settings"', footer)
+	const permission = html.indexOf('aria-label="Tool permissions"', footer)
+	const model = html.indexOf('aria-label="Select model"', footer)
+	const submit = html.indexOf('aria-label="Send message"', footer)
+	expect(context).toBeGreaterThan(0)
+	expect(context).toBeLessThan(editor)
+	expect(html.slice(context, editor)).toContain('This computer')
+	expect(html.slice(context, editor)).toContain('Choose project folder')
+	expect(editor).toBeLessThan(footer)
+	expect(footer).toBeLessThan(plus)
+	expect(plus).toBeLessThan(permission)
+	expect(permission).toBeLessThan(model)
+	expect(model).toBeLessThan(submit)
+	expect(html.match(/aria-label="Tool permissions"/g)).toHaveLength(1)
+	expect(html.match(/aria-label="Select model"/g)).toHaveLength(1)
+	expect(html.match(/<textarea\b/g)).toHaveLength(1)
+	const trigger = html.slice(model, html.indexOf('</button>', model))
+	expect(trigger).toMatch(
+		/data-selected-model-icon="anthropic".*<span class="truncate">Claude Sonnet 4.5/s,
+	)
+	expect(html.match(/data-selected-model-icon=/g)).toHaveLength(1)
+})
+
+it('shows the actual Namzu engine separately from the model without unsupported switches', () => {
+	const html = render({ connected: true })
+	expect(html).toContain('aria-label="Execution engine"')
+	expect(html).toContain('Namzu runs this conversation and its tools.')
+	expect(html).toContain('The selected model supplies the responses.')
+	expect(html).toContain('composer-harness-mark')
+	expect(html).not.toContain('Codex CLI')
+	expect(html).not.toContain('Claude Code')
+	expect(html).not.toContain('Worktree')
+	expect(html).not.toContain('type="checkbox"')
+	const supplied = render({
+		harness: {
+			label: 'An owned route',
+			status: 'unavailable',
+			detail: 'Reconnect this execution route.',
+		},
+	})
+	expect(supplied).toContain('data-harness-status="unavailable"')
+	expect(supplied).toContain('Reconnect this execution route.')
+	expect(supplied).toContain('This execution route is unavailable.')
+	expect(supplied).not.toContain('composer-harness-mark')
+})
+
+it('retains functional normal attachment, plugin, effort, queue and approval controls', () => {
+	const html = render({
+		connected: true,
+		running: true,
+		settings: { permissionMode: 'auto', effort: 'high' },
+		capabilities: { effortLevels: ['low', 'high'], effortDefault: 'low' },
+		queued: ['Next request'],
+		queuedItems: [{ id: 'next', prompt: 'Next request' }],
+		attachments: [
+			{ id: 'notes', name: 'notes.txt', kind: 'text', size: 20, mediaType: 'text/plain' },
+		],
+		permissions: [
+			{
+				id: 'review',
+				projectId: 'pal-control',
+				sessionId: 'owned',
+				calls: [{ id: 'call', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
+			},
+		],
+	})
+	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Reasoning effort')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Tool permissions')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Select model')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
+	expect(html).toContain('aria-label="Tool approval"')
+	expect(html).toContain('Allow once')
+	expect(html).toContain('data-composer-permission="auto"')
+	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
+	const offline = render()
+	for (const label of ['Attach files', 'Tool permissions', 'Plugins', 'Send message'])
+		expect(button(offline, label)).toMatch(/\bdisabled=/)
+})
+
+it('offers only actual ordinary projects with current selection and connection/trust hints', () => {
+	const html = render({
+		connected: true,
+		projectId: 'ordinary',
+		projectName: 'namzu',
+		projects: [
+			{ id: 'ordinary', name: 'namzu', path: '/owned/namzu', trusted: true, status: 'ready' },
+			{
+				id: 'other',
+				name: 'Needs approval',
+				path: '/owned/other',
+				trusted: false,
+				status: 'connecting',
+			},
+			{
+				id: 'failed',
+				name: 'A disconnected project',
+				path: '/owned/failed',
+				trusted: true,
+				status: 'error',
+				error: 'Private transport detail',
+			},
+			{
+				id: 'chat',
+				name: 'An ordinary chat',
+				path: '/owned/chat',
+				trusted: true,
+				status: 'ready',
+				isChat: true,
+			},
+			{
+				id: 'pal-project',
+				name: 'Private Pal workspace',
+				path: '/owned/private',
+				trusted: true,
+				status: 'ready',
+				palId: 'private-pal',
+			},
+		],
+		onSelectProject: () => {},
+	})
+	expect(html).toContain('aria-label="Project chooser"')
+	expect(html).toContain('aria-label="Available projects"')
+	expect(html).toMatch(/aria-checked="true"[^>]*aria-label="namzu"/)
+	expect(html).toContain('Approval required · Connecting…')
+	expect(html).toContain('Connection error')
+	expect(html).toContain('An ordinary chat')
+	expect(html).toContain('Open folder…')
+	expect(html).not.toContain('Private Pal workspace')
+	expect(html).not.toContain('/owned/private')
+	expect(html).not.toContain('Private transport detail')
+	expect(html).toContain('data-selected-model-icon="remote"')
+})
+
+it('retains the folder handler without a supplied project navigation contract', () => {
+	const project = {
+		id: 'ordinary',
+		name: 'namzu',
+		path: '/owned/namzu',
+		trusted: true,
+		status: 'ready' as const,
+	}
+	for (const override of [{}, { projects: [project] }, { onSelectProject: () => {} }]) {
+		const html = render(override)
+		expect(html).toContain('aria-label="Choose project folder"')
+		expect(html).not.toContain('aria-label="Project chooser"')
+	}
+})

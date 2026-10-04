@@ -826,6 +826,18 @@ function App() {
 			setLoading(false)
 		}
 	}, [updateProject])
+	const selectProject = (id: string) => {
+		if (!projects.some((item) => item.id === id)) return
+		navigation.current += 1
+		setProjectId(id)
+		setSessionId('')
+		setConversationSelection(null)
+		setPalScreen(undefined)
+		setRailSection(null)
+		setPalsPage(false)
+		setSideOpen(false)
+		setJobsOpen(false)
+	}
 	const openConversation = async (
 		view: ConversationView,
 		collection: ConversationCollection = 'projects',
@@ -1779,14 +1791,7 @@ function App() {
 				onOpenProject={() => void act(openProject)}
 				onNewConversation={() => void act(newConversation)}
 				onSearch={openCommands}
-				onProject={(id) => {
-					navigation.current += 1
-					setProjectId(id)
-					setSessionId('')
-					setRailSection(null)
-					setPalsPage(false)
-					setJobsOpen(false)
-				}}
+				onProject={selectProject}
 				onConversation={(view, collection) => void act(() => openConversation(view, collection))}
 			/>
 			{railSection === 'plugins' && (
@@ -2235,6 +2240,16 @@ function App() {
 								projectId={project.id}
 								sessionId={sessionId || undefined}
 								projectPath={project.path}
+								harness={{
+									label: 'Namzu',
+									status: project.status === 'ready' ? 'ready' : 'unavailable',
+									detail:
+										project.status === 'ready'
+											? 'Namzu runs this conversation with your selected model provider.'
+											: 'Reconnect this project to use Namzu.',
+								}}
+								projects={projects.filter((item) => !item.palId)}
+								onSelectProject={(item) => selectProject(item.id)}
 								onOpenProject={() => void act(openProject)}
 								empty={!pal && thread.messages.length === 0}
 								draft={draft}

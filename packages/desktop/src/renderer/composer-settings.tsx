@@ -51,6 +51,7 @@ export function ComposerSettings({
 	disabled,
 	onEffortChange,
 	onPermissionModeChange,
+	showPermissions = true,
 }: {
 	effortLevels?: readonly ReasoningEffort[]
 	effortDefault?: ReasoningEffort
@@ -59,9 +60,8 @@ export function ComposerSettings({
 	disabled: boolean
 	onEffortChange: (effort: ReasoningEffort | undefined) => void
 	onPermissionModeChange: (mode: ComposerPermissionMode) => void
+	showPermissions?: boolean
 }) {
-	const selectedMode =
-		permissionChoices.find(({ value }) => value === permissionMode) ?? permissionChoices[0]
 	return (
 		<>
 			{effort && !effortLevels?.includes(effort) && (
@@ -108,40 +108,65 @@ export function ComposerSettings({
 					</SelectPopup>
 				</Select>
 			)}
-			<Select
-				value={permissionMode}
-				disabled={disabled}
-				onValueChange={(value) => {
-					const selected = permissionChoices.find((choice) => choice.value === value)
-					if (selected) onPermissionModeChange(selected.value)
-				}}
-			>
-				<SelectTrigger
-					render={<ComposerControl />}
-					variant="ghost"
-					size="sm"
-					aria-label="Tool permissions"
-					title={selectedMode?.description}
-				>
-					<ShieldQuestionIcon className="size-4" />
-					{selectedMode?.label}
-				</SelectTrigger>
-				<SelectPopup
-					side="top"
-					alignItemWithTrigger={false}
-					matchTriggerWidth={false}
-					className="w-72"
-				>
-					{permissionChoices.map(({ value, label, description }) => (
-						<SelectItem key={value} value={value}>
-							<span className="block">{label}</span>
-							<span className="block whitespace-normal text-xs text-muted-foreground">
-								{description}
-							</span>
-						</SelectItem>
-					))}
-				</SelectPopup>
-			</Select>
+			{showPermissions && (
+				<ComposerPermissions
+					permissionMode={permissionMode}
+					disabled={disabled}
+					onChange={onPermissionModeChange}
+				/>
+			)}
 		</>
+	)
+}
+
+/** Uses the same controlled permission policy in the footer and message settings. */
+export function ComposerPermissions({
+	permissionMode,
+	disabled,
+	onChange,
+}: {
+	permissionMode: ComposerPermissionMode
+	disabled: boolean
+	onChange: (mode: ComposerPermissionMode) => void
+}) {
+	const selectedMode =
+		permissionChoices.find(({ value }) => value === permissionMode) ?? permissionChoices[0]
+	return (
+		<Select
+			value={permissionMode}
+			disabled={disabled}
+			onValueChange={(value) => {
+				const selected = permissionChoices.find((choice) => choice.value === value)
+				if (selected) onChange(selected.value)
+			}}
+		>
+			<SelectTrigger
+				render={<ComposerControl />}
+				variant="ghost"
+				size="sm"
+				aria-label="Tool permissions"
+				data-composer-permission={permissionMode}
+				className="composer-permission-control"
+				title={selectedMode?.description}
+			>
+				<ShieldQuestionIcon className="size-4" />
+				<span className="truncate">{selectedMode?.label}</span>
+			</SelectTrigger>
+			<SelectPopup
+				side="top"
+				alignItemWithTrigger={false}
+				matchTriggerWidth={false}
+				className="w-72"
+			>
+				{permissionChoices.map(({ value, label, description }) => (
+					<SelectItem key={value} value={value}>
+						<span className="block">{label}</span>
+						<span className="block whitespace-normal text-xs text-muted-foreground">
+							{description}
+						</span>
+					</SelectItem>
+				))}
+			</SelectPopup>
+		</Select>
 	)
 }

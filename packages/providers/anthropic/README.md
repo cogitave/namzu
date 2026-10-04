@@ -82,6 +82,21 @@ Set exactly one of `apiKey` or `authToken`. The kernel's credential vault can
 hold the key instead, so it never reaches the driver's config as a plain
 string.
 
+## Model catalogue
+
+`AnthropicProvider.listModelsStrict(signal?)` returns only rows supplied by the
+account's Models API. An empty response remains empty; authentication, network
+and unsupported-SDK failures reject rather than substituting bundled models.
+Use this method when presenting current account availability. It is a side call,
+not an inference request, and follows every API page with the same caller's
+cancellation signal. It rejects catalogues exceeding 100 pages or 10,000 rows
+instead of presenting a partial list.
+
+The existing `listModels(signal?)` retains its offline-menu behavior: on failure
+or an empty response it returns `OFFLINE_MODEL_CATALOGUE`. Those fallback rows
+are known model definitions, not evidence of current credential or account
+access. The CLI's desktop catalogue uses the strict method.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

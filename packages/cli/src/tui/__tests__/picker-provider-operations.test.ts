@@ -3,7 +3,9 @@
 import { type LLMProvider, ProviderRegistry } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { desktopModelCatalogue } from '../../commands/desktop-model-catalogue.js'
 import { type DetectedProvider, PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
+import { CredentialRefreshRejectedError } from '../../integrations/providers/oauth.js'
 
 vi.mock('../../integrations/providers/register.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../integrations/providers/register.js')>()
@@ -48,6 +50,50 @@ afterEach(() => {
 })
 
 describe('picker provider operations', () => {
+	it('routes a rejected refresh to a fixed authentication notice without publishing its diagnostic', async () => {
+		const rejected = new CredentialRefreshRejectedError()
+		rejected.message = 'SYNTHETIC_CREDENTIAL_DIAGNOSTIC_MUST_NOT_REACH_UI'
+		provider = base({
+			listModels: async () => {
+				throw rejected
+			},
+		})
+		const listing = await describeProviderModels(providerId, detected)
+		expect(listing).toMatchObject({ kind: 'failed', failure: 'authentication' })
+		const result = desktopModelCatalogue(
+			listing,
+			detected.entry.defaultModel,
+			undefined,
+			() => true,
+		)
+		expect(result.models).toEqual([])
+		expect(result.notice).toContain('rejected its credential')
+		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_CREDENTIAL')
+	})
+
+	it('keeps a TLS transport failure distinct from credential rejection', async () => {
+		const tls = Object.assign(new Error('SYNTHETIC_TLS_DIAGNOSTIC_MUST_NOT_REACH_UI'), {
+			code: 'SELF_SIGNED_CERT_IN_CHAIN',
+		})
+		provider = base({
+			listModels: async () => {
+				throw new TypeError('fetch failed', { cause: tls })
+			},
+		})
+		const listing = await describeProviderModels(providerId, detected)
+		expect(listing.kind).toBe('failed')
+		expect(listing).not.toHaveProperty('failure')
+		const result = desktopModelCatalogue(
+			listing,
+			detected.entry.defaultModel,
+			undefined,
+			() => true,
+		)
+		expect(result.models).toEqual([])
+		expect(result.notice).toContain('could not be loaded')
+		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_TLS')
+	})
+
 	it('preserves model input modalities for the picker', async () => {
 		provider = base({
 			listModels: async () => [

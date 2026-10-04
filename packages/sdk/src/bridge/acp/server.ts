@@ -239,6 +239,11 @@ export class ACPServer {
 		return [...Object.keys(this.handlers), ...Object.keys(this.options.extensions ?? {})].sort()
 	}
 
+	/** Published connection-owned workspace, absent while loading or after shutdown. */
+	getSessionCwd(sessionId: string): string | undefined {
+		return this.stopped ? undefined : this.sessions.get(sessionId)?.cwd
+	}
+
 	async start(): Promise<void> {
 		if (this.stopped) throw new Error('An ACP server cannot be restarted after it has stopped.')
 		this.options.transport.onMessage((message) => {

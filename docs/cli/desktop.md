@@ -45,6 +45,14 @@ $env:NAMZU_DESKTOP_CLI = (Resolve-Path .\packages\cli\dist\bin.js).Path
 pnpm --filter @namzu/desktop start
 ```
 
+On Windows, the desktop-owned Node child selected by `NAMZU_DESKTOP_CLI` adds
+`--use-system-ca` before the entry point when its embedded Node supports that
+flag. This includes Windows trusted roots alongside Node's bundled roots and
+inherited `NODE_EXTRA_CA_CERTS`; certificate and hostname verification stay
+enabled. An explicit CA option in inherited `NODE_OPTIONS` is preserved, and
+unsupported runtimes keep their existing trust behavior. The installed `namzu`
+command and standalone CLI trust defaults are unchanged.
+
 Pal computers inherit the CLI's local-engine settings from this native host.
 The default is Docker. If this device uses an existing local Podman machine,
 set `NAMZU_PAL_COMPUTER_ENGINE=podman` and its verified local machine/connection
@@ -361,11 +369,16 @@ a short crossfade and panel transition; reduced motion disables
 those transitions. Running work, pending reviews and errors remain visible
 in a reserved area on each conversation row.
 An ordinary blank project or conversation centres its composer; the first message docks it with a
-short transition. That composer keeps its project context in a lower strip.
-The message box remains expanded, with model selection on the left and Send or
-Stop on the right of its lower row. Send shows a busy indicator while the prompt
-is being admitted. Model popups retain their mounted control while focus moves into
-the menu. The project strip can open the native folder chooser. The first-message
+short transition. Its inset upper strip shows the project, local computer and
+actual execution engine. The project menu switches among ordinary project
+contexts or opens the native folder chooser; it never adopts a Pal's managed
+workspace. The message box remains expanded. The lower row places attachment,
+plugin and settings access beside the permission control on the left, with the
+selected model and Send or Stop on the right. Only the selected model trigger
+has a model glyph: known model identity wins over its gateway, and an opaque
+route uses a provider or generic local/remote symbol. Model rows stay textual.
+Send shows a busy indicator while the prompt is being admitted. Model popups
+retain their mounted control while focus moves into the menu. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout. Pal conversations use
 the compact, always-docked composer described above; its plus popup keeps model,
@@ -507,16 +520,28 @@ The kernel loads the full admitted history for the model independently.
 
 Provider and model choices use existing CLI credential discovery. Set up missing
 credentials in Namzu. The desktop receives provider IDs, labels and default
-model names, never keys or token objects. Opening the model menu asks the selected
+model names, never keys or token objects. The execution runtime is Namzu:
+selecting a Codex subscription or Claude credential changes the provider used
+by Namzu, rather than launching or switching to either external CLI harness.
+An installed executable does not prove that a usable account session was found.
+See [provider credentials](credentials.md#existing-claude-sessions) for the
+native Windows credential locations and explicit profile overrides.
+Opening the model menu asks the selected
 configured provider for its real catalogue through `namzu/providers/models`.
-This uses the terminal picker's existing bounded listing and access filter;
+This uses the CLI's existing bounded listing and access filter;
 anonymous routes do not offer models that require an account credential.
-The result contains only model IDs, labels, optional notes and a notice. A failed
-or unsupported listing keeps permitted default and current choices with an
-explicit notice, and the exact-model field remains available. A published model
+The result contains only actual listed model IDs, labels, optional notes and a
+notice. Registry defaults and saved choices absent from that list are not added
+as available rows. The current choice remains visible in provider status, with
+an explicit notice when the catalogue omits it. A failed, timed-out or unsupported
+listing returns no invented rows; its notice explains the failure and the
+exact-model field remains available. Credential rejection has a distinct safe
+notice without the driver's raw diagnostic. A published model
 list is not proof that the account can run every listed model. Listings are read
 on demand rather than delaying project startup, shared while one request is in
 flight, and cancelled when the CLI connection closes.
+The account catalogue uses the driver's strict listing when available, keeping
+an authentication or network failure distinct from its legacy bundled menu.
 The menu has a provider column and selectable model rows with their catalogue
 labels. It opens from the start of the model control, with collision handling
 at the window edges. Provider glyphs stay in their navigation column; model rows
@@ -547,7 +572,16 @@ an edited Pal default.
 
 Sending an idle turn applies the shown
 choice before submitting the prompt. Failed selection is visible and prevents
-sending on an unintended route. A model change cannot silently kill active work.
+sending on an unintended route. The CLI checks the chosen access path and
+supported wire before closing the old model session; an anonymous Zen choice
+that needs a credential leaves the previous conversation intact. New session
+creation itself does not require a provider credential, so an unavailable saved
+provider can be replaced before the first prompt is prepared.
+Before that turn creates its journal, scoped model preparation accepts only
+the normal session actually published on the current ACP connection with this
+exact canonical workspace. Unknown IDs, foreign workspaces and stopped slots
+remain refused; Pals still require their explicit durable claim.
+A model change cannot silently kill active work.
 Choices last for this connection and survive window reload, rather than editing
 global CLI preferences. Existing fallback and delegation preferences remain in
 force. Reload also restores live messages, pending reviews and queued prompts
@@ -657,8 +691,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages and `partial` |
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
-| `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 rows; default and current choices remain labelled |
-| `namzu/providers/select` | `sessionId`, `provider`, optional `model` | acknowledges a session-local choice; active work blocks changes |
+| `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 actual listed rows; unavailable selections and failed lists have explicit notices |
+| `namzu/providers/select` | `sessionId`, `provider`, optional `model` | checks access and supported wire before replacing a session-local choice; active work blocks changes |
 | `namzu/providers/settings` | `provider`, `model`, optional `sessionId` | exact supported effort choices/default or a safe notice, without creating a session |
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |

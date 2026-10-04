@@ -10,6 +10,7 @@ import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
 	STRUCTURED_OUTPUT_REPROMPT,
 } from '../../../constants/tools/index.js'
+import { withStreamedMessageIdentity } from '../../../manager/session/streamed-message-identity.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
@@ -1002,22 +1003,25 @@ export class IterationOrchestrator {
 					// with the turn they belong to. Trimming therefore removes both;
 					// retaining them gives the target adapter enough evidence to
 					// validate native replay against the exact serving route.
-					const assistantMsg = createAssistantMessage(
-						response.message.content,
-						forceFinalize ? undefined : response.message.toolCalls,
-						response.message.reasoning,
-						// Rides with the turn it belongs to, like reasoning does, so
-						// trimming or compacting the turn takes its evidence with it
-						// rather than leaving citations pointing at prose that is gone.
-						response.message.citations,
-						{
-							type: 'model',
-							...servedBy,
-							...(response.message.replayState !== undefined
-								? { replayState: response.message.replayState }
-								: {}),
-						},
-						response.message.textParts,
+					const assistantMsg = withStreamedMessageIdentity(
+						createAssistantMessage(
+							response.message.content,
+							forceFinalize ? undefined : response.message.toolCalls,
+							response.message.reasoning,
+							// Rides with the turn it belongs to, like reasoning does, so
+							// trimming or compacting the turn takes its evidence with it
+							// rather than leaving citations pointing at prose that is gone.
+							response.message.citations,
+							{
+								type: 'model',
+								...servedBy,
+								...(response.message.replayState !== undefined
+									? { replayState: response.message.replayState }
+									: {}),
+							},
+							response.message.textParts,
+						),
+						messageId,
 					)
 					recorder.pushMessage(assistantMsg)
 					if (this.ctx.advisoryCtx && requestMessages) {
@@ -2431,23 +2435,25 @@ export class IterationOrchestrator {
 				model: servedBy.model,
 			})
 
-			const assistantMsg = createAssistantMessage(
-				response.message.content,
-				undefined,
-				response.message.reasoning,
-				response.message.citations,
-				{
-					type: 'model',
-					...servedBy,
-					...(response.message.replayState !== undefined
-						? { replayState: response.message.replayState }
-						: {}),
-				},
-				response.message.textParts,
+			const finalMessageId = generateMessageId()
+			const assistantMsg = withStreamedMessageIdentity(
+				createAssistantMessage(
+					response.message.content,
+					undefined,
+					response.message.reasoning,
+					response.message.citations,
+					{
+						type: 'model',
+						...servedBy,
+						...(response.message.replayState !== undefined
+							? { replayState: response.message.replayState }
+							: {}),
+					},
+					response.message.textParts,
+				),
+				finalMessageId,
 			)
 			this.ctx.recorder.pushMessage(assistantMsg)
-
-			const finalMessageId = generateMessageId()
 			await this.ctx.emitEvent({
 				type: 'message_started',
 				turnId: this.ctx.recorder.turnId,

@@ -52,7 +52,12 @@ Completed messages optionally retain their ordered public `textParts` and their
 selected `content`. The selected content excludes intermediate commentary when
 the provider supplied explicit final-answer parts. Use the actual identity to
 settle that message; a tool row between chunks must not redirect its completion.
-These message boundaries do not mean the whole turn finished.
+These message boundaries do not mean the whole turn finished. The runtime
+keeps the same message ID in streamed deltas, the completed message, its durable
+`message` record and the final `turn_ended.messageId` that selects that answer.
+This also applies to a forced closing summary. Distinct model messages retain
+distinct IDs even when their text is identical; clients reconcile by identity,
+not by matching answer text.
 
 `turn_ended.result`, when present, is the authoritative answer after guardrail,
 review and structured-output corrections. Replace the preview rather than
@@ -136,6 +141,15 @@ The bridge does not grant a generic shell or filesystem API through extensions.
 A host owns each handler's validation and scope. `namzu acp --desktop` opts into the
 CLI's [desktop operator methods](../cli/desktop.md). Ordinary `namzu acp` retains
 its core method set and does not grant folder trust through protocol messages.
+
+`ACPServer.getSessionCwd(sessionId)` provides a read-only lookup of the absolute
+workspace bound to a session published on that connection. It returns `undefined`
+for unknown IDs, reserved in-flight loads and stopped servers. A newly published
+ordinary session need not have a durable journal yet: hosts can use this exact
+binding to authorize provider/model preparation before its first turn. This
+lookup does not grant filesystem trust, prove persisted history or bypass Pal
+claims. The CLI retains durable ownership checks and admits an unrecorded
+ordinary session only through this connection-owned, exact canonical workspace.
 
 Stdout is reserved for JSON-RPC lines. Human logs go to stderr. Disconnect cancels
 owned prompts and rejects pending permission requests.

@@ -54,6 +54,7 @@ import {
 import { asCheckpointId, generateAuditEventId, generateMessageId } from '../../utils/id.js'
 import { childSessionEnded } from '../agent/child-session.js'
 import { assertSessionLogAttribution } from './attribution.js'
+import { takeStreamedMessageIdentity } from './streamed-message-identity.js'
 
 /** Which provider and model a cost is priced against. */
 export interface PricingSubject {
@@ -1057,7 +1058,7 @@ export class TurnRecorder {
 	#idFor(message: Message): MessageId {
 		let id = this.#ids.get(message)
 		if (!id) {
-			id = generateMessageId()
+			id = takeStreamedMessageIdentity(message) ?? generateMessageId()
 			this.#ids.set(message, id)
 		}
 		this.#recorded.set(message, id)

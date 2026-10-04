@@ -57,16 +57,12 @@ it('projects real configured model rows without credential envelopes or a model 
 	try {
 		const result = await runtime.models('anthropic')
 		expect(result).toEqual({
-			models: [
-				{
-					id: detected.entry.defaultModel,
-					label: detected.entry.defaultModel,
-					note: '(namzu default)',
-				},
-				{ id: 'listed-model', label: 'Listed model', note: '(image input)' },
-				{ id: 'custom-pinned', label: 'custom-pinned', note: '(current)' },
-			],
-			notice: null,
+			models: [{ id: 'listed-model', label: 'Listed model', note: '(image input)' }],
+			notice:
+				'The selected model is not in this catalogue. Choose a listed model or another provider.',
+		})
+		expect(await runtime.providerStatus()).toMatchObject({
+			selected: { id: 'anthropic', model: 'custom-pinned' },
 		})
 		expect(describe).toHaveBeenCalledWith('anthropic', detected, expect.any(AbortSignal))
 		expect(JSON.stringify(result)).not.toContain(detected.apiKey)
@@ -92,8 +88,9 @@ it('filters credential-required Zen models and an inaccessible saved pin from an
 	)
 	try {
 		expect(await runtime.models('zen')).toEqual({
-			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', note: '(namzu default)' }],
-			notice: null,
+			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', note: '(Namzu default)' }],
+			notice:
+				'The selected model is not in this catalogue. Choose a listed model or another provider.',
 		})
 	} finally {
 		await runtime.close()
@@ -116,7 +113,7 @@ it('exposes the bounded desktop wire method and validates provider and session p
 	try {
 		const host = createDesktopHostExtensions(runtime, process.cwd())
 		expect(await host['namzu/providers/models']({ provider: 'openai' })).toMatchObject({
-			models: [{ id: 'gpt-4o', label: 'gpt-4o' }],
+			models: [],
 			notice: expect.any(String),
 		})
 		expect(() => host['namzu/providers/models']({ provider: '' })).toThrow('Invalid provider')
@@ -129,7 +126,7 @@ it('exposes the bounded desktop wire method and validates provider and session p
 	}
 })
 
-it('keeps a known choice with an honest fallback notice and excludes raw driver diagnostics', async () => {
+it('does not invent a catalogue on failure and excludes raw driver diagnostics', async () => {
 	const { runtime } = runtimeFor(
 		[
 			{
@@ -143,7 +140,7 @@ it('keeps a known choice with an honest fallback notice and excludes raw driver 
 	)
 	try {
 		const result = await runtime.models('openai')
-		expect(result.models).toEqual([{ id: 'gpt-4o', label: 'gpt-4o', note: '(namzu default)' }])
+		expect(result.models).toEqual([])
 		expect(result.notice).toContain('could not be loaded')
 		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_SECRET_MUST_NOT_REACH_UI')
 	} finally {
@@ -176,8 +173,8 @@ it('shares an in-flight catalogue and reads it freshly on the next open without 
 		resolve({ kind: 'unsupported' })
 		const [selected, general] = await Promise.all([first, second])
 		expect(describe).toHaveBeenCalledOnce()
-		expect(selected.models.at(-1)?.id).toBe('current-for-this-session')
-		expect(general.models).toHaveLength(1)
+		expect(selected.models).toEqual([])
+		expect(general.models).toEqual([])
 		await runtime.models('openai')
 		expect(describe).toHaveBeenCalledTimes(2)
 		expect(await runtime.providerStatus(sessionId)).toMatchObject({
@@ -210,7 +207,7 @@ it('bounds a large catalogue and reports the omitted rows instead of implying a 
 	try {
 		const result = await runtime.models('openai')
 		expect(result.models).toHaveLength(4_096)
-		expect(result.models[0]?.id).toBe('gpt-4o')
+		expect(result.models[0]?.id).toBe('model-0')
 		expect(result.models[1]?.label).toHaveLength(400)
 		expect(result.notice).toContain('first 4,096')
 	} finally {

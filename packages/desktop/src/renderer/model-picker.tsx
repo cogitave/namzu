@@ -13,6 +13,7 @@ import {
 	ServerIcon,
 	XIcon,
 } from './icons.js'
+import { SelectedModelIcon } from './selected-model-icon.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -82,6 +83,10 @@ export function ModelPicker({
 					/>
 				}
 			>
+				<SelectedModelIcon
+					model={choice.model || provider?.defaultModel || ''}
+					provider={choice.provider}
+				/>
 				<span className="truncate">{model}</span>
 				<ComposerControlChevron />
 			</PopoverTrigger>

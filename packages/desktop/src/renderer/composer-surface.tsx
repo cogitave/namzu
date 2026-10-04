@@ -6,13 +6,15 @@ import { cn } from './lib/utils.js'
 /** One glass backdrop until a top attachment needs the composer to cover its overlap. */
 function Shell({
 	contextStrip = false,
+	contextPlacement = 'bottom',
 	className,
 	...props
-}: ComponentProps<'div'> & { contextStrip?: boolean }) {
+}: ComponentProps<'div'> & { contextStrip?: boolean; contextPlacement?: 'top' | 'bottom' }) {
 	return (
 		<div
 			data-slot="composer-shell"
-			data-with-context={contextStrip || undefined}
+			data-with-context={(contextStrip && contextPlacement === 'bottom') || undefined}
+			data-context-placement={contextStrip ? contextPlacement : undefined}
 			className={cn(
 				'@container/composer-surface group/composer-surface relative isolate mx-auto w-full max-w-(--chat-max-width)',
 				'[--chat-composer-drawer-inset:1.375rem] [--chat-composer-glass-surface:var(--card)] [--chat-composer-outline:rgb(0_0_0/8%)]',
@@ -20,13 +22,15 @@ function Shell({
 				'before:pointer-events-none before:absolute before:inset-0 before:z-0 before:rounded-3xl before:bg-(--chat-composer-glass-surface)/(--glass-opacity) before:backdrop-blur-(--glass-blur) before:backdrop-saturate-(--glass-saturation)',
 				'not-supports-[((backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px)))]:before:bg-(--chat-composer-glass-surface)',
 				'has-data-[composer-banner-surface=attached]:before:hidden',
-				contextStrip && [
-					'[--chat-composer-context-extension:2.25rem] sm:[--chat-composer-context-extension:2rem]',
-					// Keep one continuous backdrop around the fixed-pixel corners and rem-sized strip inset.
-					'supports-[clip-path:shape(from_0_0,line_to_1px_1px)]:before:rounded-none',
-					'before:[clip-path:shape(from_0_22px,curve_to_22px_0_with_0_9.85px/9.85px_0,line_to_calc(100%-22px)_0,curve_to_100%_22px_with_calc(100%-9.85px)_0/100%_9.85px,line_to_100%_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)),curve_to_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-var(--chat-composer-context-extension))_with_100%_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)*0.4477)/calc(100%-var(--chat-composer-drawer-inset)*0.4477)_calc(100%-var(--chat-composer-context-extension)),line_to_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-16px),curve_to_calc(100%-var(--chat-composer-drawer-inset)-16px)_100%_with_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-7.16px)/calc(100%-var(--chat-composer-drawer-inset)-7.16px)_100%,line_to_calc(var(--chat-composer-drawer-inset)+16px)_100%,curve_to_var(--chat-composer-drawer-inset)_calc(100%-16px)_with_calc(var(--chat-composer-drawer-inset)+7.16px)_100%/var(--chat-composer-drawer-inset)_calc(100%-7.16px),line_to_var(--chat-composer-drawer-inset)_calc(100%-var(--chat-composer-context-extension)),curve_to_0_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset))_with_calc(var(--chat-composer-drawer-inset)*0.4477)_calc(100%-var(--chat-composer-context-extension))/0_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)*0.4477),line_to_0_22px,close)]',
-					'not-supports-[clip-path:shape(from_0_0,line_to_1px_1px)]:before:bottom-(--chat-composer-context-extension)',
-				],
+				contextStrip && contextPlacement === 'top' && 'before:hidden',
+				contextStrip &&
+					contextPlacement === 'bottom' && [
+						'[--chat-composer-context-extension:2.25rem] sm:[--chat-composer-context-extension:2rem]',
+						// Keep one continuous backdrop around the fixed-pixel corners and rem-sized strip inset.
+						'supports-[clip-path:shape(from_0_0,line_to_1px_1px)]:before:rounded-none',
+						'before:[clip-path:shape(from_0_22px,curve_to_22px_0_with_0_9.85px/9.85px_0,line_to_calc(100%-22px)_0,curve_to_100%_22px_with_calc(100%-9.85px)_0/100%_9.85px,line_to_100%_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)),curve_to_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-var(--chat-composer-context-extension))_with_100%_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)*0.4477)/calc(100%-var(--chat-composer-drawer-inset)*0.4477)_calc(100%-var(--chat-composer-context-extension)),line_to_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-16px),curve_to_calc(100%-var(--chat-composer-drawer-inset)-16px)_100%_with_calc(100%-var(--chat-composer-drawer-inset))_calc(100%-7.16px)/calc(100%-var(--chat-composer-drawer-inset)-7.16px)_100%,line_to_calc(var(--chat-composer-drawer-inset)+16px)_100%,curve_to_var(--chat-composer-drawer-inset)_calc(100%-16px)_with_calc(var(--chat-composer-drawer-inset)+7.16px)_100%/var(--chat-composer-drawer-inset)_calc(100%-7.16px),line_to_var(--chat-composer-drawer-inset)_calc(100%-var(--chat-composer-context-extension)),curve_to_0_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset))_with_calc(var(--chat-composer-drawer-inset)*0.4477)_calc(100%-var(--chat-composer-context-extension))/0_calc(100%-var(--chat-composer-context-extension)-var(--chat-composer-drawer-inset)*0.4477),line_to_0_22px,close)]',
+						'not-supports-[clip-path:shape(from_0_0,line_to_1px_1px)]:before:bottom-(--chat-composer-context-extension)',
+					],
 				className,
 			)}
 			{...props}
@@ -77,7 +81,21 @@ function Main({ className, ...props }: ComponentProps<'div'>) {
 	)
 }
 
-function ContextStrip({ className, ...props }: ComponentProps<'div'>) {
+function ContextStrip({
+	placement = 'bottom',
+	className,
+	...props
+}: ComponentProps<'div'> & { placement?: 'top' | 'bottom' }) {
+	if (placement === 'top') {
+		return (
+			<div
+				data-slot="composer-context-strip"
+				data-placement="top"
+				className={cn('composer-context-above', className)}
+				{...props}
+			/>
+		)
+	}
 	return (
 		<div
 			data-slot="composer-context-strip"

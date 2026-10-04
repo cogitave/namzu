@@ -4,6 +4,7 @@ import type {
 	ComposerModelSettings,
 	DesktopSendOptions,
 	PermissionView,
+	ProjectView,
 	ProviderView,
 	QueuedMessageView,
 } from '../shared/protocol.js'
@@ -15,17 +16,17 @@ import {
 	type ComposerPluginInventory,
 	ComposerPlugins,
 } from './composer-plugins.js'
-import { ComposerSettings } from './composer-settings.js'
+import { ComposerProjectPicker } from './composer-project-picker.js'
+import { ComposerPermissions, ComposerSettings } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
 import {
 	ArrowUpIcon,
 	ChevronDownIcon,
 	FileDiffIcon,
-	FolderIcon,
 	ListPlusIcon,
 	ListTodoIcon,
 	LoaderCircleIcon,
-	MoreHorizontalIcon,
+	MonitorIcon,
 	PaperclipIcon,
 	PlusIcon,
 	SearchIcon,
@@ -36,6 +37,7 @@ import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
+import { Wordmark } from './wordmark.js'
 import './composer.css'
 
 export function Composer({
@@ -62,6 +64,10 @@ export function Composer({
 	projectId,
 	sessionId,
 	projectPath,
+	projects,
+	onSelectProject,
+	computerLabel = 'This computer',
+	harness,
 	onOpenProject,
 	empty,
 	permissions,
@@ -103,6 +109,11 @@ export function Composer({
 	projectId: string
 	sessionId?: string
 	projectPath: string
+	projects?: readonly ProjectView[]
+	onSelectProject?: (project: ProjectView) => void
+	computerLabel?: string
+	/** Display-only identity of the actual host execution route. */
+	harness?: { label: string; status?: 'ready' | 'unavailable'; detail?: string }
 	onOpenProject: () => void
 	empty: boolean
 	permissions: PermissionView[]
@@ -125,13 +136,6 @@ export function Composer({
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
 	const importDisabled = sending || attachmentsBusy || editingQueued || !connected
-	const permissionLabel = {
-		prompt: 'Ask first',
-		'accept-edits': 'Allow edits',
-		auto: 'Allow tools',
-		strict: 'Preapproved',
-		plan: 'Plan',
-	}[settings.permissionMode ?? 'prompt']
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -144,6 +148,7 @@ export function Composer({
 	)
 	const settingsControl = (
 		<ComposerSettings
+			showPermissions={compact}
 			effortLevels={capabilities?.effortLevels}
 			effortDefault={capabilities?.effortDefault}
 			effort={settings.effort}
@@ -167,6 +172,58 @@ export function Composer({
 			onOpen={onOpenPlugins}
 			onSetEnabled={onSetPluginEnabled}
 		/>
+	)
+	const plusControl = (
+		<Popover>
+			<PopoverTrigger
+				render={<Button variant="ghost-muted" size="icon-sm" />}
+				className={compact ? 'pal-composer-add' : 'composer-add'}
+				aria-label="Attachments and message settings"
+				disabled={editingQueued}
+			>
+				<PlusIcon />
+			</PopoverTrigger>
+			<PopoverPopup
+				side="top"
+				align="start"
+				width="md"
+				padding="compact"
+				aria-label="Attachments and message settings"
+				className="pal-composer-tools"
+			>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="pal-composer-attach"
+					aria-label="Attach files"
+					disabled={importDisabled}
+					onClick={onAttach}
+				>
+					<PaperclipIcon /> Attach images or files
+				</Button>
+				{compact && (
+					<div className="pal-composer-tool-section">
+						<h2>Model</h2>
+						{modelControl}
+					</div>
+				)}
+				<div className="pal-composer-tool-section">
+					<h2>Message settings</h2>
+					<div className="flex flex-wrap gap-2">{settingsControl}</div>
+					{!compact && !capabilities?.effortLevels?.length && !settings.effort && (
+						<p className="text-xs text-muted-foreground">This model uses its default settings.</p>
+					)}
+					<p className="mt-2 text-xs text-muted-foreground">
+						These choices apply to the next message.{' '}
+						{running && 'Running work keeps its current settings.'}
+					</p>
+					{capabilities?.notice && (
+						<p className="mt-2 text-xs text-muted-foreground">{capabilities.notice}</p>
+					)}
+				</div>
+				<div className="pal-composer-tool-section">{pluginControl}</div>
+			</PopoverPopup>
+		</Popover>
 	)
 	const overlay = useRef<HTMLDivElement>(null)
 	const previous = useRef<{ top: number; empty: boolean } | null>(null)
@@ -315,7 +372,8 @@ export function Composer({
 					)}
 					<ComposerSurface.Shell
 						contextStrip={!compact}
-						className={compact ? 'pal-composer-shell' : undefined}
+						contextPlacement="top"
+						className={compact ? 'pal-composer-shell' : 'normal-composer-shell'}
 						onDragEnter={(event) => {
 							if (!event.dataTransfer.types.includes('Files')) return
 							event.preventDefault()
@@ -339,6 +397,52 @@ export function Composer({
 							if (!importDisabled) onAddFiles(Array.from(event.dataTransfer.files))
 						}}
 					>
+						{!compact && (
+							<ComposerSurface.ContextStrip placement="top">
+								<ComposerProjectPicker
+									projectId={projectId}
+									projectName={projectName}
+									projectPath={projectPath}
+									projects={projects}
+									onSelectProject={onSelectProject}
+									onOpenProject={onOpenProject}
+								/>
+								<span className="composer-computer-label" title={computerLabel}>
+									<MonitorIcon aria-hidden="true" />
+									<span>{computerLabel}</span>
+								</span>
+								<Popover>
+									<PopoverTrigger
+										render={<ComposerControl size="xs" />}
+										className="composer-harness-control"
+										aria-label="Execution engine"
+										title={harness?.label ?? 'Namzu'}
+										data-harness-status={harness?.status ?? 'ready'}
+									>
+										{(!harness || harness.label === 'Namzu') && (
+											<span className="composer-harness-mark" aria-hidden="true">
+												<Wordmark />
+											</span>
+										)}
+										{harness && harness.label !== 'Namzu' && (
+											<span className="truncate">{harness.label}</span>
+										)}
+									</PopoverTrigger>
+									<PopoverPopup side="top" align="end" width="md" aria-label="Execution engine">
+										<h2 className="text-sm font-medium">{harness?.label ?? 'Namzu'} execution</h2>
+										<p className="mt-2 text-xs text-muted-foreground">
+											{harness?.detail ??
+												'Namzu runs this conversation and its tools. The selected model supplies the responses.'}
+										</p>
+										{harness?.status === 'unavailable' && (
+											<p className="mt-2 text-xs text-muted-foreground">
+												This execution route is unavailable.
+											</p>
+										)}
+									</PopoverPopup>
+								</Popover>
+							</ComposerSurface.ContextStrip>
+						)}
 						{permissions[0] && (
 							<ComposerApproval
 								key={permissions[0].id}
@@ -349,56 +453,7 @@ export function Composer({
 						)}
 						<ComposerSurface.Host>
 							<ComposerSurface.Main>
-								{compact && (
-									<Popover>
-										<PopoverTrigger
-											render={<Button variant="ghost-muted" size="icon-sm" />}
-											className="pal-composer-add"
-											aria-label="Attachments and message settings"
-											disabled={editingQueued}
-										>
-											<PlusIcon />
-										</PopoverTrigger>
-										<PopoverPopup
-											side="top"
-											align="start"
-											width="md"
-											padding="compact"
-											aria-label="Attachments and message settings"
-											className="pal-composer-tools"
-										>
-											<Button
-												variant="ghost"
-												size="sm"
-												className="pal-composer-attach"
-												aria-label="Attach files"
-												disabled={importDisabled}
-												onClick={onAttach}
-											>
-												<PaperclipIcon /> Attach images or files
-											</Button>
-											<div className="pal-composer-tool-section">
-												<h2>Model</h2>
-												{modelControl}
-											</div>
-											<div className="pal-composer-tool-section">
-												<h2>Message settings</h2>
-												<div className="flex flex-wrap gap-2">{settingsControl}</div>
-												{capabilities?.notice && (
-													<p className="mt-2 text-xs text-muted-foreground">
-														{capabilities.notice}
-													</p>
-												)}
-												{running && (
-													<p className="mt-2 text-xs text-muted-foreground">
-														Running work keeps its current settings.
-													</p>
-												)}
-											</div>
-											<div className="pal-composer-tool-section">{pluginControl}</div>
-										</PopoverPopup>
-									</Popover>
-								)}
+								{compact && plusControl}
 								<div
 									data-chat-composer-body
 									data-resting={false}
@@ -456,58 +511,19 @@ export function Composer({
 									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4"
 								>
 									{!compact && (
-										<div className="flex min-w-0 flex-1 items-center gap-1">
-											<div className="min-w-0 max-w-full">{modelControl}</div>
-											<Popover>
-												<PopoverTrigger
-													render={<ComposerControl size="xs" />}
-													aria-label="Model and tool settings"
-													disabled={sending || !connected}
-												>
-													<MoreHorizontalIcon className="size-4" />
-													{settings.effort && (
-														<span>
-															{settings.effort === 'xhigh'
-																? 'Extra high'
-																: settings.effort[0]?.toUpperCase() + settings.effort.slice(1)}
-														</span>
-													)}
-												</PopoverTrigger>
-												<PopoverPopup
-													side="top"
-													align="start"
-													width="md"
-													aria-label="Model and tool settings"
-												>
-													<h2 className="mb-3 text-sm font-medium">Message settings</h2>
-													<div className="flex flex-wrap items-center gap-2">{settingsControl}</div>
-													<p className="mt-3 text-xs text-muted-foreground">
-														These choices apply to this message.{' '}
-														{running && 'Running work keeps its current settings.'}
-													</p>
-													{capabilities?.notice && (
-														<p className="mt-2 text-xs text-muted-foreground">
-															{capabilities.notice}
-														</p>
-													)}
-												</PopoverPopup>
-											</Popover>
+										<div className="composer-footer-options">
+											{plusControl}
+											<ComposerPermissions
+												permissionMode={settings.permissionMode ?? 'prompt'}
+												disabled={sending || !connected}
+												onChange={(permissionMode) =>
+													onSettingsChange({ ...settings, permissionMode })
+												}
+											/>
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										{!compact && (
-											<Tooltip>
-												<TooltipTrigger
-													render={<ComposerControl />}
-													aria-label="Attach files"
-													disabled={importDisabled}
-													onClick={onAttach}
-												>
-													<PaperclipIcon className="size-4" />
-												</TooltipTrigger>
-												<TooltipPopup>Attach images or text files</TooltipPopup>
-											</Tooltip>
-										)}
+										{!compact && <div className="composer-selected-model">{modelControl}</div>}
 										{running && (
 											<Tooltip>
 												<TooltipTrigger
@@ -569,31 +585,6 @@ export function Composer({
 								</div>
 							</ComposerSurface.Main>
 						</ComposerSurface.Host>
-						{!compact && (
-							<ComposerSurface.ContextStrip>
-								<ComposerControl
-									size="xs"
-									onClick={onOpenProject}
-									aria-label="Choose project folder"
-									className="min-w-0 shrink flex-1 justify-start overflow-hidden"
-									title={projectPath}
-								>
-									<FolderIcon className="size-3.5" />
-									<span className="truncate">{projectName}</span>
-								</ComposerControl>
-								<ComposerControl size="xs" onClick={onAttach} disabled={importDisabled}>
-									<PaperclipIcon className="size-3.5" />
-									<span>Files</span>
-								</ComposerControl>
-								{pluginControl}
-								<span
-									data-composer-permission={settings.permissionMode ?? 'prompt'}
-									className="ml-auto shrink-0 pe-1 text-xs text-muted-foreground/70"
-								>
-									{permissionLabel}
-								</span>
-							</ComposerSurface.ContextStrip>
-						)}
 					</ComposerSurface.Shell>
 					{empty &&
 						!compact &&

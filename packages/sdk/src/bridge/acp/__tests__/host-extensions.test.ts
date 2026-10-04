@@ -44,6 +44,42 @@ function harness(extensions: Record<string, (params: Record<string, unknown>) =>
 }
 
 describe('explicit ACP host extensions', () => {
+	it('exposes only published session workspaces and clears them on shutdown', async () => {
+		const h = harness({})
+		await h.server.start()
+		expect(h.server.getSessionCwd('unpublished')).toBeUndefined()
+		await h.request('initialize', { capabilities: ['permission'] })
+		const created = await h.request('session/new', { cwd: process.cwd() })
+		const id = (created.result as { sessionId: string }).sessionId
+		expect(h.server.getSessionCwd(id)).toBe(process.cwd())
+		expect(h.load).not.toHaveBeenCalled()
+		await h.server.stop()
+		expect(h.server.getSessionCwd(id)).toBeUndefined()
+	})
+	it('does not expose a reserved loading slot as a published session', async () => {
+		const h = harness({})
+		let began!: () => void
+		const started = new Promise<void>((resolve) => {
+			began = resolve
+		})
+		let finish!: (value: never[]) => void
+		const pending = new Promise<never[]>((resolve) => {
+			finish = resolve
+		})
+		h.load.mockImplementationOnce(async () => {
+			began()
+			return pending
+		})
+		await h.server.start()
+		await h.request('initialize', { capabilities: ['permission'] })
+		const loading = h.request('session/load', { sessionId: 'loading', cwd: process.cwd() })
+		await started
+		expect(h.server.getSessionCwd('loading')).toBeUndefined()
+		finish([])
+		await loading
+		expect(h.server.getSessionCwd('loading')).toBe(process.cwd())
+		await h.server.stop()
+	})
 	it('requires initialized permission negotiation and advertises installed methods', async () => {
 		const action = vi.fn(() => ({ ready: true }))
 		const h = harness({ 'namzu/project/status': action })

@@ -28,6 +28,7 @@ import {
 	validateComposerSendSettings,
 } from '../integrations/providers/composer-settings.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import {
 	closeSessions,
 	loadResumableConversation,
@@ -45,8 +46,8 @@ import {
 	describeProviderReasoning,
 	probeAgentSession,
 } from '../tui/agent.js'
-import { modelStep } from '../tui/model-choices.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
+import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
@@ -805,31 +806,19 @@ export function createCliAcpRuntime(
 			const listing = await request
 			if (closed) throw new Error('The connection is closed.')
 			const choice = (await preferencesFor(sessionId, probe))?.providers[0]
-			const step = modelStep(
+			return desktopModelCatalogue(
+				listing,
 				detected.entry.defaultModel,
-				// Driver errors can contain remote diagnostic text. Only this safe,
-				// fixed notice enters the desktop wire; credential envelopes never do.
-				listing.kind === 'failed'
-					? { kind: 'failed', reason: 'The provider catalogue could not be loaded' }
-					: listing,
 				choice?.id === provider ? choice.model : undefined,
-				{ allowModel: (model) => canSelectModel(detected.entry, detected.apiKey, model) },
+				(model) =>
+					canSelectModel(detected.entry, detected.apiKey, model) &&
+					isOfferableModel(provider, model),
 			)
-			const models = step.choices.slice(0, 4096).map(({ id, label, note }) => ({
-				id,
-				label: label.slice(0, 400),
-				...(note ? { note: note.slice(0, 500) } : {}),
-			}))
-			return {
-				models,
-				notice:
-					step.choices.length > models.length
-						? 'Showing the first 4,096 models. Enter an exact model ID to use another.'
-						: step.notice,
-			}
 		},
 		selectProvider: async (sessionId, provider, model) => {
 			if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
+			if (model !== undefined && (typeof model !== 'string' || !model.trim() || model.length > 400))
+				throw new Error('Invalid model.')
 			if (constructing.has(sessionId) || selecting.has(sessionId))
 				throw new Error('Wait for this conversation to finish connecting.')
 			selecting.add(sessionId)
@@ -838,6 +827,13 @@ export function createCliAcpRuntime(
 				if (closed) throw new Error('The connection is closed.')
 				const detected = probe.detected.find(({ entry }) => entry.id === provider)
 				if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
+				const selectedModel = model ?? detected.entry.defaultModel
+				if (!isOfferableModel(provider, selectedModel))
+					throw new Error('This model has no supported wire format. Choose a listed model.')
+				if (!canSelectModel(detected.entry, detected.apiKey, selectedModel))
+					throw new Error(
+						'This model requires a credential for the selected provider. Configure it or choose a listed free model.',
+					)
 				const preferences = await preferencesFor(sessionId, probe)
 				const previous = preferences?.providers[0]
 				if (
@@ -924,7 +920,7 @@ export async function closeAcpResources(
 
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const runtime = createCliAcpRuntime(ctx)
-	const server = new ACPServer({
+	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
 		transport: new ServerStdioTransport(),
@@ -932,7 +928,13 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		commands: new HostCommandRegistry(),
 		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
-		...(desktop ? { extensions: createDesktopHostExtensions(runtime, process.cwd()) } : {}),
+		...(desktop
+			? {
+					extensions: createDesktopHostExtensions(runtime, process.cwd(), (id) =>
+						server.getSessionCwd(id),
+					),
+				}
+			: {}),
 	})
 
 	await server.start()
