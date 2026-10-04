@@ -102,6 +102,10 @@ A typed rejected subscription refresh grant receives the same authentication
 notice as an explicit provider credential rejection. TLS and other transport
 failures do not establish that the login is invalid and retain a catalogue
 loading notice.
+A credential removed or cleared in its admitted owner receives a distinct
+sign-in-unavailable notice before any account request. This does not imply that
+the provider rejected a fresh request; refresh provider discovery or choose
+another configured route.
 
 Provider selection is checked before replacing an existing model session.
 Selecting a paid Zen model without a Zen account credential is refused while

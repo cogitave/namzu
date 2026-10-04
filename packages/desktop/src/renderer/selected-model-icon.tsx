@@ -1,6 +1,11 @@
 import { CloudIcon, ProviderIcons, ServerIcon } from './icons.js'
 
 export type ModelBrand = 'anthropic' | 'openai' | 'google' | 'deepseek'
+const modelFamilyBrands: ReadonlyMap<string, ModelBrand> = new Map([
+	['claude', 'anthropic'],
+	['gemini', 'google'],
+	['deepseek', 'deepseek'],
+])
 
 /** Model identity takes precedence over the service routing its requests. */
 export function selectedModelBrand(model: string): ModelBrand | undefined {
@@ -14,10 +19,9 @@ export function selectedModelBrand(model: string): ModelBrand | undefined {
 	)
 		return namespace
 	const name = id.split('/').at(-1) ?? ''
-	if (/^claude(?:-|$)/.test(name)) return 'anthropic'
+	const familyBrand = modelFamilyBrands.get(name.split('-')[0] ?? '')
+	if (familyBrand) return familyBrand
 	if (/^(?:gpt(?:-|$)|o[134](?:-|$))/.test(name)) return 'openai'
-	if (/^gemini(?:-|$)/.test(name)) return 'google'
-	if (/^deepseek(?:-|$)/.test(name)) return 'deepseek'
 	return undefined
 }
 
@@ -25,7 +29,12 @@ export function selectedModelBrand(model: string): ModelBrand | undefined {
 export function SelectedModelIcon({ model, provider }: { model: string; provider?: string }) {
 	if (!model.trim()) return null
 	const brand = selectedModelBrand(model)
-	const providerId = provider === 'codex' ? 'openai' : provider
+	const providerId =
+		provider === 'codex' || provider === 'codex-cli'
+			? 'openai'
+			: provider === 'claude-code'
+				? 'anthropic'
+				: provider
 	const providerIcon = providerId ? ProviderIcons.get(providerId) : undefined
 	const local = providerId === 'ollama' || providerId === 'lmstudio'
 	const Icon =

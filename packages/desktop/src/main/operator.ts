@@ -16,6 +16,7 @@ import type {
 	DesktopEvent,
 	DesktopSendOptions,
 	DraftSettings,
+	HarnessView,
 	JobView,
 	ModelCatalogueView,
 	PalChanges,
@@ -712,6 +713,7 @@ export class Operator {
 			id: string
 			title: string
 			updatedAt: string
+			harness?: ConversationView['harness']
 		}[]
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
 		const views = rows.map((row) => ({
@@ -719,6 +721,11 @@ export class Operator {
 			title: row.title,
 			updatedAt: row.updatedAt,
 			projectId: id,
+			...(row.harness
+				? { harness: row.harness }
+				: this.runtimeSession(project, row.id)?.view.harness
+					? { harness: this.runtimeSession(project, row.id)?.view.harness }
+					: {}),
 			...(project.view.palId ? { palId: project.view.palId } : {}),
 		}))
 		const returned = new Set(views.map((row) => row.id))
@@ -771,6 +778,42 @@ export class Operator {
 			permissions: new Map(),
 		})
 		return view
+	}
+	async harnesses(projectId: string, sessionId?: string): Promise<HarnessView> {
+		const project = this.project(projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		const session = sessionId ? this.session(sessionId) : undefined
+		if (session && session.view.projectId !== projectId)
+			throw new Error('This conversation belongs to another project.')
+		if (session?.needsLoad) await this.openConversation(projectId, sessionId as string)
+		const view = (await project.client.request(
+			'namzu/harnesses/list',
+			session ? { sessionId: session.runtimeSessionId } : {},
+		)) as HarnessView
+		if (session) session.view.harness = view.selected
+		return view
+	}
+	async selectHarness(sessionId: string, engine: HarnessView['selected']): Promise<HarnessView> {
+		const session = this.session(sessionId)
+		if (session.view.palId)
+			throw new Error('External engines are available in normal conversations only.')
+		if (!['namzu', 'codex-cli', 'claude-code'].includes(engine))
+			throw new Error('Unknown execution engine.')
+		if (session.running || session.queue.length || this.changingPlugins.has(sessionId))
+			throw new Error('Stop this conversation before changing its engine.')
+		if (session.needsLoad) await this.openConversation(session.view.projectId, sessionId)
+		this.changingPlugins.add(sessionId)
+		try {
+			const view = (await session.client.request('namzu/harnesses/select', {
+				sessionId: session.runtimeSessionId,
+				engine,
+			})) as HarnessView
+			session.view.harness = view.selected
+			session.providers = undefined
+			return view
+		} finally {
+			this.changingPlugins.delete(sessionId)
+		}
 	}
 	async openConversation(
 		projectId: string,
@@ -1081,6 +1124,14 @@ export class Operator {
 		)
 			throw new Error('Invalid message options.')
 		const ids = options?.attachmentIds ?? []
+		if (session.view.harness && session.view.harness !== 'namzu') {
+			if (ids.length)
+				throw new Error(
+					'This engine connection does not support attachments yet. Your draft is retained.',
+				)
+			if (options?.permissionMode && !['prompt', 'plan'].includes(options.permissionMode))
+				throw new Error('This engine supports Ask first and Plan only.')
+		}
 		if (
 			!Array.isArray(ids) ||
 			ids.length > MAX_ATTACHMENT_COUNT ||

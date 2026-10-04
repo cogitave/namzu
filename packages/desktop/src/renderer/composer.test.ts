@@ -140,7 +140,13 @@ it('retains Pal attachments, queue editing and complete approval while composing
 		connected: true,
 		running: true,
 		attachments: [
-			{ id: 'file', name: 'notes.txt', kind: 'text', size: 20, mediaType: 'text/plain' },
+			{
+				id: 'file',
+				name: 'notes.txt',
+				kind: 'text',
+				size: 20,
+				mediaType: 'text/plain',
+			},
 		],
 		queued: ['Later request'],
 		queuedItems: [{ id: 'queued', prompt: 'Later request' }],
@@ -149,7 +155,14 @@ it('retains Pal attachments, queue editing and complete approval while composing
 				id: 'approval',
 				projectId: 'pal-control',
 				sessionId: 'owned',
-				calls: [{ id: 'call', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
+				calls: [
+					{
+						id: 'call',
+						name: 'bash',
+						input: { command: 'pwd' },
+						isDestructive: false,
+					},
+				],
 			},
 		],
 	})
@@ -170,7 +183,11 @@ it('keeps real context above the normal editor and permissions beside Plus below
 		connected: true,
 		projectName: 'namzu',
 		computerLabel: 'This computer',
-		choice: { provider: 'zen', model: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+		choice: {
+			provider: 'zen',
+			model: 'claude-sonnet-4-5',
+			label: 'Claude Sonnet 4.5',
+		},
 	})
 	const context = html.indexOf('data-slot="composer-context-strip"')
 	const editor = html.indexOf('<textarea')
@@ -192,32 +209,44 @@ it('keeps real context above the normal editor and permissions beside Plus below
 	expect(html.match(/aria-label="Select model"/g)).toHaveLength(1)
 	expect(html.match(/<textarea\b/g)).toHaveLength(1)
 	const trigger = html.slice(model, html.indexOf('</button>', model))
-	expect(trigger).toMatch(
-		/data-selected-model-icon="anthropic".*<span class="truncate">Claude Sonnet 4.5/s,
+	expect(trigger.indexOf('data-selected-model-icon="anthropic"')).toBeGreaterThan(0)
+	expect(trigger.indexOf('data-selected-model-icon="anthropic"')).toBeLessThan(
+		trigger.indexOf('<span class="truncate">Claude Sonnet 4.5'),
 	)
 	expect(html.match(/data-selected-model-icon=/g)).toHaveLength(1)
 })
 
-it('shows the actual Namzu engine separately from the model without unsupported switches', () => {
-	const html = render({ connected: true })
+it('shows the wordmark once and only offers installed conversation engines', () => {
+	const html = render({
+		connected: true,
+		harnessView: {
+			selected: 'namzu',
+			locked: false,
+			engines: [
+				{ id: 'namzu', label: 'Namzu', available: true },
+				{ id: 'codex-cli', label: 'Codex CLI', available: true },
+				{ id: 'claude-code', label: 'Claude Code', available: false },
+			],
+		},
+	})
 	expect(html).toContain('aria-label="Execution engine"')
-	expect(html).toContain('Namzu runs this conversation and its tools.')
-	expect(html).toContain('The selected model supplies the responses.')
 	expect(html).toContain('composer-harness-mark')
-	expect(html).not.toContain('Codex CLI')
-	expect(html).not.toContain('Claude Code')
+	expect(html).toContain('Codex CLI')
+	expect(html).toContain('Not installed')
 	expect(html).not.toContain('Worktree')
 	expect(html).not.toContain('type="checkbox"')
 	const supplied = render({
-		harness: {
-			label: 'An owned route',
-			status: 'unavailable',
-			detail: 'Reconnect this execution route.',
+		connected: true,
+		harnessView: {
+			selected: 'claude-code',
+			locked: true,
+			engines: [{ id: 'claude-code', label: 'Claude Code', available: true }],
 		},
+		attachmentsSupported: false,
+		reviewModes: ['prompt', 'plan'],
 	})
-	expect(supplied).toContain('data-harness-status="unavailable"')
-	expect(supplied).toContain('Reconnect this execution route.')
-	expect(supplied).toContain('This execution route is unavailable.')
+	expect(supplied).toContain('Choosing another engine opens a new conversation tab.')
+	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
 
@@ -230,14 +259,27 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 		queued: ['Next request'],
 		queuedItems: [{ id: 'next', prompt: 'Next request' }],
 		attachments: [
-			{ id: 'notes', name: 'notes.txt', kind: 'text', size: 20, mediaType: 'text/plain' },
+			{
+				id: 'notes',
+				name: 'notes.txt',
+				kind: 'text',
+				size: 20,
+				mediaType: 'text/plain',
+			},
 		],
 		permissions: [
 			{
 				id: 'review',
 				projectId: 'pal-control',
 				sessionId: 'owned',
-				calls: [{ id: 'call', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
+				calls: [
+					{
+						id: 'call',
+						name: 'bash',
+						input: { command: 'pwd' },
+						isDestructive: false,
+					},
+				],
 			},
 		],
 	})
@@ -264,7 +306,13 @@ it('offers only actual ordinary projects with current selection and connection/t
 		projectId: 'ordinary',
 		projectName: 'namzu',
 		projects: [
-			{ id: 'ordinary', name: 'namzu', path: '/owned/namzu', trusted: true, status: 'ready' },
+			{
+				id: 'ordinary',
+				name: 'namzu',
+				path: '/owned/namzu',
+				trusted: true,
+				status: 'ready',
+			},
 			{
 				id: 'other',
 				name: 'Needs approval',

@@ -371,7 +371,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	// The preflight refuses an already foreign log before opening a budget or
 	// draining queued topic messages. Repeat after claiming the writer lease:
 	// another process may have opened a log that was empty at preflight time.
-	await assertSessionLogAttribution(storage.log, params)
+	await assertSessionLogAttribution(storage.log, params, { execution: 'kernel' })
 	const preludeLease = await PreludeSessionLease.acquire(
 		storage.log,
 		params.sessionId,
@@ -381,7 +381,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	let releaseOwnedLease = () => preludeLease.release()
 	try {
 		await preludeLease.assertCurrent()
-		await assertSessionLogAttribution(storage.log, params)
+		await assertSessionLogAttribution(storage.log, params, { execution: 'kernel' })
 		const savedBudget = await savedBudgetReference(params, turnId, storage, selectedResumeState)
 		const budget = await resolveQueryBudget(params, turnId, storage.tokenBudget, savedBudget)
 		const log = TurnContextFactory.buildLogger({

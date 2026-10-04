@@ -74,6 +74,8 @@ const OS_CODES = new Set([
 	'ERR_MODULE_NOT_FOUND',
 ])
 const OPERATIONS = new Set([
+	'harnesses',
+	'selectHarness',
 	'windowChrome',
 	'setComputerKeyboardCapture',
 	'setWindowAppearance',
@@ -137,6 +139,8 @@ const OPERATIONS = new Set([
 	'namzu/project/trust',
 	'namzu/conversations/list',
 	'namzu/conversations/history',
+	'namzu/harnesses/list',
+	'namzu/harnesses/select',
 	'namzu/providers/status',
 	'namzu/providers/models',
 	'namzu/providers/settings',
@@ -163,7 +167,11 @@ const OPERATIONS = new Set([
 ])
 
 /** Arbitrary errors can contain prompts, headers and paths. Only fixed reasons survive. */
-export function desktopFailure(error: unknown): { reason: string; code?: string; type: string } {
+export function desktopFailure(error: unknown): {
+	reason: string
+	code?: string
+	type: string
+} {
 	try {
 		const message = (
 			error instanceof Error ? error.message : typeof error === 'string' ? error : ''
@@ -269,7 +277,10 @@ export function desktopStderrDetails(
 			body = pretty[2].split(' {')[0]
 		}
 	}
-	return { severity, ...(severity === 'warn' || severity === 'error' ? { error: body } : {}) }
+	return {
+		severity,
+		...(severity === 'warn' || severity === 'error' ? { error: body } : {}),
+	}
 }
 
 /** Synchronous bounded sink also survives a main-process fatal error. Never throws. */
@@ -447,7 +458,10 @@ export function observeRendererConsole(
 ): void {
 	if (details.level !== 'error') return
 	try {
-		sink.record('renderer_failed', { error: details.message, line: details.lineNumber })
+		sink.record('renderer_failed', {
+			error: details.message,
+			line: details.lineNumber,
+		})
 	} catch {
 		/* Diagnostics must not change renderer behavior. */
 	}

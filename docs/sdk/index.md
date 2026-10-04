@@ -1,5 +1,7 @@
 # SDK
 
+* [External harness sessions](harness-sessions.md) - Immutable native engine bindings, durable prompts, current admission and confirmed review/cancellation/recovery.
+
 * [Shared Pal input ledger](pal-ingress.md) - One durable recipient queue and exact receipts for Pal, host-observation and channel inputs.
 * [Persistent Pals and computer admission](pals.md) - SDK identity, immutable profile revisions and required local-computer admission.
 * [Authenticated Pal channel ingress](pal-channels.md) - Per-event actor authentication, immutable native targets and exact recorded response/action routes.

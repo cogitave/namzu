@@ -2,7 +2,10 @@
 
 ## 2026-10-04
 
-- **Fix** [Desktop Windows runtime](cli/desktop.md): use the supported Node system-CA option for the desktop-owned Windows CLI process while retaining bundled/configured roots and certificate/hostname verification. A native private-process comparison reproduced Codex's TLS chain refusal and restored its actual model catalogue with existing Windows trust. Expired Claude refresh grants receive an authentication notice; TLS failures remain separate.
+- **Creation** [External harness sessions](sdk/harness-sessions.md) and [native CLI engines](cli/native-engines.md): host installed `codex-cli` and `claude-code` through a vendor-neutral SDK lifecycle, durable exact engine/profile/native-session bindings, native approvals and confirmed cancellation. Add independent ordinary desktop tabs and a wordmark engine picker; retain Namzu provider choices separately.
+- **Update** [Desktop](cli/desktop.md) and [model catalogue](cli/model-catalogue.md): preserve separate tab drafts, enforce native engine capabilities and distinguish locally withdrawn credentials from remote authentication failures. Coalesce composer-height and transcript-scroll writes after resize delivery; native Windows approval banners were verified without the reproduced undelivered resize notifications.
+
+- **Fix** [Desktop Windows runtime](cli/desktop.md): use the supported Node system-CA option for the desktop-owned Windows CLI process while retaining bundled/configured roots and certificate/hostname verification. A native private-process comparison reproduced Codex's TLS chain refusal and restored its actual model catalogue with existing Windows trust. Expired `anthropic` refresh grants receive an authentication notice; TLS failures remain separate.
 
 - **Fix** [Streamed assistant identity](sdk/agent-client-protocol.md#streamed-reasoning-and-message-lifecycle): preserve the runtime-minted message ID when recording the assistant answer, including forced finalization. Stream completion and durable turn settlement now identify the same answer, preventing duplicate desktop messages without comparing text or suppressing legitimate repeated answers. Caller-supplied message IDs remain untrusted. `.changeset/streamed-assistant-message-identity.md`, **patch** for `@namzu/sdk`.
 

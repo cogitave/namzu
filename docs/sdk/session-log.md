@@ -168,8 +168,8 @@ session hook, task and sandbox bookkeeping — may omit it.
 
 | Type | Payload |
 |---|---|
-| `session_started` | `projectId`, `tenantId?`, `topicId?`, `cwd`, `agent {id, name, type?}`, `parent?` (`{sessionId, turnId, toolCallId, rootSessionId, depth, kind}` for a child session), `forkedFrom?` (`{sessionId, turnId, checkpointId}`), `origin?` |
-| `session_updated` | `title?`, `titleSource?` (`derived`/`named`), `archived?`, `approvalPolicy?`, `externalRefs? {add?, remove?}` |
+| `session_started` | `projectId`, `tenantId?`, `topicId?`, `cwd`, `agent {id, name, type?}`, `parent?` (`{sessionId, turnId, toolCallId, rootSessionId, depth, kind}` for a child session), `forkedFrom?` (`{sessionId, turnId, checkpointId}`), `origin?`, `harness?` (immutable external execution binding) |
+| `session_updated` | `title?`, `titleSource?` (`derived`/`named`), `archived?`, `approvalPolicy?`, `externalRefs? {add?, remove?}`, `harness?` (typed external dispatch/item/review/recovery receipt) |
 | `message` | `messageId`, `role`, `kind?` (`prompt`, `steering`, `auto-continuation`, `context`), `content` (the message), `spill?` |
 | `message_replaced` | `targetMessageId`, `content`, `reason` (`pin-slot`, `guardrail_blocked`, `guardrail_rewritten`, `review`, `outstanding_work`, `structured_output`, `history-repair`), `spill?` |
 | `checkpoint_written` | `checkpointId`, `iteration`, `throughSeq`, `throughSha256`, `path`, `docSha256` |

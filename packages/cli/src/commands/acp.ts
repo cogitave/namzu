@@ -46,6 +46,7 @@ import {
 	describeProviderReasoning,
 	probeAgentSession,
 } from '../tui/agent.js'
+import { withCliHarnesses } from './acp-harness.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import type { CommandContext, CommandDef } from './types.js'
@@ -693,7 +694,9 @@ export function createCliAcpRuntime(
 				effortLevels: result.effortLevels,
 				effortDefault: result.effortDefault,
 				...(result.notice
-					? { notice: 'Reasoning choices could not be fully established for this model.' }
+					? {
+							notice: 'Reasoning choices could not be fully established for this model.',
+						}
 					: {}),
 			}
 		},
@@ -919,7 +922,7 @@ export async function closeAcpResources(
 }
 
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
-	const runtime = createCliAcpRuntime(ctx)
+	const runtime = withCliHarnesses(createCliAcpRuntime(ctx), process.cwd())
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,

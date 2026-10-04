@@ -14,6 +14,7 @@
 // ─── per-domain shape surfaces ────────────────────────────────────────────
 
 export type * from './types/ids/index.js'
+export type * from './types/harness/session.js'
 export type * from './pals/types.js'
 export type * from './types/message/index.js'
 export type * from './types/message/inbound-delivery.js'

@@ -13,6 +13,7 @@ import type {
 	PalComputerView as ComputerState,
 	ConversationView,
 	DesktopEvent,
+	HarnessView,
 	HumanComputerView,
 	JobView,
 	PalComputerInput,
@@ -41,6 +42,7 @@ import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerWorkspaceToolbar } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
+import { ConversationTabs } from './conversation-tabs.js'
 import {
 	ArrowUpIcon,
 	FileDiffIcon,
@@ -165,6 +167,15 @@ function App() {
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
 	const [sessionId, setSessionId] = useState('')
+	const [openTabIds, setOpenTabIds] = useState<string[]>([])
+	const closedTabs = useRef(new Set<string>())
+	const providerGeneration = useRef(0)
+	const harnessGeneration = useRef(0)
+	const [harnessState, setHarnessState] = useState<{
+		owner: string
+		view: HarnessView
+	}>()
+	const [harnessBusy, setHarnessBusy] = useState(false)
 	const [conversationSelection, setConversationSelection] = useState<{
 		sessionId: string
 		collection: ConversationCollection
@@ -432,6 +443,12 @@ function App() {
 	const activeProviders: ProviderView = providerReady
 		? providers
 		: { available: [], selected: null }
+	const harnessView = harnessState?.owner === providerKey ? harnessState.view : undefined
+	const externalHarness =
+		!pal && (harnessView?.selected ?? conversation?.harness ?? 'namzu') !== 'namzu'
+	const normalTabs = openTabIds
+		.map((id) => conversations.find((item) => item.id === id && !item.palId))
+		.filter((item): item is ConversationView => Boolean(item))
 	const draftOwner = sessionId || `project:${projectId}`
 	const draft = drafts[draftOwner] ?? ''
 	const attached = useAttachments(draftOwner, Boolean(project), (failure) =>
@@ -695,10 +712,12 @@ function App() {
 		if (!project || project.status === 'connecting' || !project.trusted) return
 		let current = true
 		const owner = JSON.stringify([project.id, sessionId])
+		const epoch = ++providerGeneration.current
 		void api
 			.providers(project.id, sessionId || undefined)
 			.then((available) => {
-				if (!current || providerReadOwner.current !== owner) return
+				if (!current || providerReadOwner.current !== owner || providerGeneration.current !== epoch)
+					return
 				setProviders(available)
 				setProviderOwner(owner)
 			})
@@ -766,13 +785,50 @@ function App() {
 	useEffect(() => {
 		const node = transcript.current
 		if (!node || !sessionId) return
+		let scrollFrame: number | undefined
 		const observer = new ResizeObserver(() => {
-			if (follow.current) node.scrollTop = node.scrollHeight
+			if (scrollFrame !== undefined) return
+			scrollFrame = requestAnimationFrame(() => {
+				scrollFrame = undefined
+				if (!follow.current) return
+				const bottom = Math.max(0, node.scrollHeight - node.clientHeight)
+				if (Math.abs(node.scrollTop - bottom) > 0.5) node.scrollTop = bottom
+			})
 		})
 		observer.observe(node)
 		if (node.firstElementChild) observer.observe(node.firstElementChild)
-		return () => observer.disconnect()
+		return () => {
+			observer.disconnect()
+			if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+		}
 	}, [sessionId])
+	useEffect(() => {
+		if (
+			!pal &&
+			sessionId &&
+			!closedTabs.current.has(sessionId) &&
+			conversations.some((view) => view.id === sessionId && !view.palId)
+		)
+			setOpenTabIds((all) => (all.includes(sessionId) ? all : [...all, sessionId]))
+	}, [sessionId, pal, conversations])
+	useEffect(() => {
+		if (!api.harnesses || !project || pal || !project.trusted || project.status !== 'ready') return
+		let current = true
+		const owner = providerKey
+		const epoch = ++harnessGeneration.current
+		void api
+			.harnesses(project.id, sessionId || undefined)
+			.then((view) => {
+				if (current && providerReadOwner.current === owner && harnessGeneration.current === epoch)
+					setHarnessState({ owner, view })
+			})
+			.catch((failure) => {
+				if (current) setError(errorText(failure))
+			})
+		return () => {
+			current = false
+		}
+	}, [project, pal, sessionId, providerKey])
 	const newConversation = useCallback(async () => {
 		const generation = ++navigation.current
 		setLoading(true)
@@ -791,7 +847,14 @@ function App() {
 			if (destination.palId) throw new Error('A normal conversation cannot use a Pal workspace.')
 			previousNormalProject.current = destination.id
 			setProjectId(destination.id)
-			setSessionId('')
+			if (destination.trusted && destination.status === 'ready') {
+				const view = await api.newConversation(destination.id)
+				setConversations((all) => [view, ...all.filter((item) => item.id !== view.id)])
+				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
+				setOpenTabIds((all) => [...all, view.id])
+				if (generation !== navigation.current) return
+				setSessionId(view.id)
+			} else setSessionId('')
 			setConversationSelection(null)
 			setPalScreen(undefined)
 			setRailSection(null)
@@ -803,6 +866,64 @@ function App() {
 			setLoading(false)
 		}
 	}, [projects, projectId, updateProject])
+
+	const selectHarness = async (engine: HarnessView['selected']) => {
+		if (!api.selectHarness || !project || pal || harnessBusy || thread.running || loading) return
+		if ((harnessView?.selected ?? 'namzu') === engine) return
+		const generation = navigation.current
+		const sourceProject = project
+		const sourceOwner = draftOwner
+		const capturedDraft = draftsRef.current[sourceOwner] ?? ''
+		let target = sessionId
+		setHarnessBusy(true)
+		try {
+			const create = !target || harnessView?.locked || thread.messages.length > 0
+			if (create) {
+				const view = await api.newConversation(sourceProject.id)
+				target = view.id
+				setConversations((all) => [view, ...all.filter((item) => item.id !== view.id)])
+				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
+				setOpenTabIds((all) => (all.includes(view.id) ? all : [...all, view.id]))
+				if (!sessionId) {
+					const current = generation === navigation.current
+					const text = current ? (draftsRef.current[sourceOwner] ?? capturedDraft) : capturedDraft
+					draftsRef.current[target] = text
+					setDrafts((all) => ({ ...all, [target]: text }))
+					if (current) {
+						setSessionId(target)
+						draftsRef.current[sourceOwner] = ''
+						setDrafts((all) => ({ ...all, [sourceOwner]: '' }))
+						await Promise.all([api.saveDraft(target, text), api.saveDraft(sourceOwner, '')])
+						await attached.promote(sourceOwner, target)
+					} else await api.saveDraft(target, text)
+				}
+				if (generation === navigation.current) setSessionId(target)
+			}
+			const view = await api.selectHarness(target, engine)
+			if (generation === navigation.current) {
+				harnessGeneration.current++
+				providerGeneration.current++
+			}
+			const available = await api.providers(sourceProject.id, target)
+			await savedSettings.save(target, {
+				options: { permissionMode: 'prompt' },
+			})
+			setConversations((all) =>
+				all.map((item) => (item.id === target ? { ...item, harness: view.selected } : item)),
+			)
+			if (generation !== navigation.current) return
+			const owner = JSON.stringify([sourceProject.id, target])
+			setHarnessState({ owner, view })
+			setProviders(available)
+			setProviderOwner(owner)
+			setSessionId(target)
+			setConversationSelection({ sessionId: target, collection: 'projects' })
+			setRailSection(null)
+			setJobsOpen(false)
+		} finally {
+			setHarnessBusy(false)
+		}
+	}
 
 	const openProject = useCallback(async () => {
 		const generation = ++navigation.current
@@ -843,6 +964,7 @@ function App() {
 		collection: ConversationCollection = 'projects',
 	) => {
 		const generation = ++navigation.current
+		closedTabs.current.delete(view.id)
 		setPalScreen(undefined)
 		if (snapshotRead.current) snapshotRead.current.events.length = 0
 		const read = {
@@ -1495,6 +1617,7 @@ function App() {
 			!choice.provider ||
 			!providerReady ||
 			savedSettings.loading ||
+			harnessBusy ||
 			sendingRef.current.has(draftOwner) ||
 			attached.isBusy(draftOwner)
 		)
@@ -1779,7 +1902,10 @@ function App() {
 						onOpen={(value) => void act(() => openPal(value))}
 					/>
 				}
-				conversations={conversations}
+				conversations={conversations.filter(
+					(view) =>
+						view.palId || view.title !== 'New conversation' || threads[view.id]?.messages.length,
+				)}
 				projectId={palsPage ? '' : projectId}
 				sessionId={palsPage ? '' : sessionId}
 				conversationCollection={conversationCollection}
@@ -2010,24 +2136,49 @@ function App() {
 					/>
 				)}
 				<WorkspacePageHeader className="topbar">
-					<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
-						<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
-							<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
-								{pal?.name ?? project?.name ?? 'Workspace'}
-							</WorkspaceBreadcrumbText>
-						</WorkspaceBreadcrumbItem>
-						<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
-							<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-						</WorkspaceBreadcrumbSeparator>
-						<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-							<h2 className="min-w-0 flex-1">
-								<WorkspaceBreadcrumbText data-conversation-title>
-									{conversation?.title ?? 'Start a conversation'}
+					{!pal && normalTabs.length > 0 ? (
+						<ConversationTabs
+							tabs={normalTabs}
+							active={sessionId}
+							busy={loading || harnessBusy}
+							running={(id) => threads[id]?.running ?? false}
+							onNew={() => void act(newConversation)}
+							onSelect={(view) => void act(() => openConversation(view))}
+							onClose={(view) => {
+								closedTabs.current.add(view.id)
+								const remaining = normalTabs.filter((item) => item.id !== view.id)
+								setOpenTabIds((all) => all.filter((id) => id !== view.id))
+								if (sessionId === view.id) {
+									const next = remaining.at(-1)
+									if (next) void act(() => openConversation(next))
+									else {
+										navigation.current++
+										setSessionId('')
+										setConversationSelection(null)
+									}
+								}
+							}}
+						/>
+					) : (
+						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
+							<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
+								<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
+									{pal?.name ?? project?.name ?? 'Workspace'}
 								</WorkspaceBreadcrumbText>
-							</h2>
-						</WorkspaceBreadcrumbItem>
-					</WorkspaceBreadcrumb>
-					{sessionId && (
+							</WorkspaceBreadcrumbItem>
+							<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
+								<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+							</WorkspaceBreadcrumbSeparator>
+							<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+								<h2 className="min-w-0 flex-1">
+									<WorkspaceBreadcrumbText data-conversation-title>
+										{conversation?.title ?? 'Start a conversation'}
+									</WorkspaceBreadcrumbText>
+								</h2>
+							</WorkspaceBreadcrumbItem>
+						</WorkspaceBreadcrumb>
+					)}
+					{sessionId && thread.messages.length > 0 && !externalHarness && (
 						<>
 							<Button
 								ref={jobsTrigger}
@@ -2240,14 +2391,11 @@ function App() {
 								projectId={project.id}
 								sessionId={sessionId || undefined}
 								projectPath={project.path}
-								harness={{
-									label: 'Namzu',
-									status: project.status === 'ready' ? 'ready' : 'unavailable',
-									detail:
-										project.status === 'ready'
-											? 'Namzu runs this conversation with your selected model provider.'
-											: 'Reconnect this project to use Namzu.',
-								}}
+								harnessView={harnessView}
+								harnessBusy={harnessBusy}
+								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
+								attachmentsSupported={!externalHarness}
+								reviewModes={externalHarness ? ['prompt', 'plan'] : undefined}
 								projects={projects.filter((item) => !item.palId)}
 								onSelectProject={(item) => selectProject(item.id)}
 								onOpenProject={() => void act(openProject)}

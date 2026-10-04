@@ -22,7 +22,7 @@ export interface SessionLogAttribution {
 export async function assertSessionLogAttribution(
 	log: SessionLog,
 	scope: SessionLogAttribution,
-	options: { readonly requireStarted?: boolean } = {},
+	options: { readonly requireStarted?: boolean; readonly execution?: 'kernel' } = {},
 ): Promise<boolean> {
 	const requiredFields = ['sessionId', 'projectId', 'tenantId', 'topicId'] as const
 	const missingFields = requiredFields.filter(
@@ -69,7 +69,17 @@ export async function assertSessionLogAttribution(
 	if (opened.topicId === undefined || opened.topicId !== scope.topicId) {
 		fields.push('topicId')
 	}
-	if (fields.length === 0) return true
+	if (fields.length === 0) {
+		if (options.execution === 'kernel' && opened.harness !== undefined) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message:
+					'This session is bound to an external execution engine. Continue it through its harness adapter or start a new Namzu session.',
+				details: { fields: ['harness'] },
+			})
+		}
+		return true
+	}
 
 	throw new NamzuError({
 		code: 'invalid_config',

@@ -3,6 +3,7 @@ import type {
 	AttachmentView,
 	ComposerModelSettings,
 	DesktopSendOptions,
+	HarnessView,
 	PermissionView,
 	ProjectView,
 	ProviderView,
@@ -10,15 +11,19 @@ import type {
 } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
-import { ComposerControl } from './composer-control.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
 	ComposerPlugins,
 } from './composer-plugins.js'
 import { ComposerProjectPicker } from './composer-project-picker.js'
-import { ComposerPermissions, ComposerSettings } from './composer-settings.js'
+import {
+	type ComposerPermissionMode,
+	ComposerPermissions,
+	ComposerSettings,
+} from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
+import { HarnessPicker } from './harness-picker.js'
 import {
 	ArrowUpIcon,
 	ChevronDownIcon,
@@ -37,7 +42,6 @@ import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
-import { Wordmark } from './wordmark.js'
 import './composer.css'
 
 export function Composer({
@@ -67,7 +71,11 @@ export function Composer({
 	projects,
 	onSelectProject,
 	computerLabel = 'This computer',
-	harness,
+	harnessView,
+	harnessBusy = false,
+	onHarnessChange,
+	attachmentsSupported = true,
+	reviewModes,
 	onOpenProject,
 	empty,
 	permissions,
@@ -112,8 +120,11 @@ export function Composer({
 	projects?: readonly ProjectView[]
 	onSelectProject?: (project: ProjectView) => void
 	computerLabel?: string
-	/** Display-only identity of the actual host execution route. */
-	harness?: { label: string; status?: 'ready' | 'unavailable'; detail?: string }
+	harnessView?: HarnessView
+	harnessBusy?: boolean
+	onHarnessChange?: (engine: HarnessView['selected']) => void
+	attachmentsSupported?: boolean
+	reviewModes?: readonly ComposerPermissionMode[]
 	onOpenProject: () => void
 	empty: boolean
 	permissions: PermissionView[]
@@ -135,7 +146,8 @@ export function Composer({
 	const centered = empty && !compact
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
-	const importDisabled = sending || attachmentsBusy || editingQueued || !connected
+	const importDisabled =
+		sending || attachmentsBusy || editingQueued || !connected || !attachmentsSupported
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -149,6 +161,7 @@ export function Composer({
 	const settingsControl = (
 		<ComposerSettings
 			showPermissions={compact}
+			reviewModes={reviewModes}
 			effortLevels={capabilities?.effortLevels}
 			effortDefault={capabilities?.effortDefault}
 			effort={settings.effort}
@@ -231,11 +244,21 @@ export function Composer({
 		const node = overlay.current
 		const stage = node?.parentElement
 		if (!node || !stage) return
-		const update = () =>
-			stage.style.setProperty(
-				'--composer-height',
-				`${centered ? 0 : node.getBoundingClientRect().height}px`,
-			)
+		const update = () => {
+			const height = `${centered ? 0 : node.getBoundingClientRect().height}px`
+			if (stage.style.getPropertyValue('--composer-height') !== height)
+				stage.style.setProperty('--composer-height', height)
+		}
+		let resizeFrame: number | undefined
+		const scheduleResize = () => {
+			if (resizeFrame !== undefined) return
+			// Transcript padding also uses this height. Write after resize delivery
+			// so mounting an approval banner cannot dirty a sibling observer mid-loop.
+			resizeFrame = requestAnimationFrame(() => {
+				resizeFrame = undefined
+				update()
+			})
+		}
 		const stack = node.querySelector<HTMLElement>('[data-chat-composer-stack]')
 		const nextTop = stack?.getBoundingClientRect().top
 		let transition: Animation | undefined
@@ -256,11 +279,12 @@ export function Composer({
 			transition.id = 'namzu-composer-transition'
 		}
 		if (nextTop !== undefined) previous.current = { top: nextTop, empty: centered }
-		const observer = new ResizeObserver(update)
+		const observer = new ResizeObserver(scheduleResize)
 		observer.observe(node)
 		update()
 		return () => {
 			observer.disconnect()
+			if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
 			transition?.cancel()
 		}
 	}, [centered])
@@ -411,36 +435,12 @@ export function Composer({
 									<MonitorIcon aria-hidden="true" />
 									<span>{computerLabel}</span>
 								</span>
-								<Popover>
-									<PopoverTrigger
-										render={<ComposerControl size="xs" />}
-										className="composer-harness-control"
-										aria-label="Execution engine"
-										title={harness?.label ?? 'Namzu'}
-										data-harness-status={harness?.status ?? 'ready'}
-									>
-										{(!harness || harness.label === 'Namzu') && (
-											<span className="composer-harness-mark" aria-hidden="true">
-												<Wordmark />
-											</span>
-										)}
-										{harness && harness.label !== 'Namzu' && (
-											<span className="truncate">{harness.label}</span>
-										)}
-									</PopoverTrigger>
-									<PopoverPopup side="top" align="end" width="md" aria-label="Execution engine">
-										<h2 className="text-sm font-medium">{harness?.label ?? 'Namzu'} execution</h2>
-										<p className="mt-2 text-xs text-muted-foreground">
-											{harness?.detail ??
-												'Namzu runs this conversation and its tools. The selected model supplies the responses.'}
-										</p>
-										{harness?.status === 'unavailable' && (
-											<p className="mt-2 text-xs text-muted-foreground">
-												This execution route is unavailable.
-											</p>
-										)}
-									</PopoverPopup>
-								</Popover>
+								<HarnessPicker
+									view={harnessView}
+									busy={harnessBusy}
+									disabled={!connected || running || sending}
+									onSelect={onHarnessChange ?? (() => {})}
+								/>
 							</ComposerSurface.ContextStrip>
 						)}
 						{permissions[0] && (
@@ -515,6 +515,7 @@ export function Composer({
 											{plusControl}
 											<ComposerPermissions
 												permissionMode={settings.permissionMode ?? 'prompt'}
+												reviewModes={reviewModes}
 												disabled={sending || !connected}
 												onChange={(permissionMode) =>
 													onSettingsChange({ ...settings, permissionMode })

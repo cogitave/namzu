@@ -140,7 +140,11 @@ function register(): void {
 		)
 			return
 		if (!report || typeof report !== 'object') return
-		const value = report as { reason?: unknown; line?: unknown; column?: unknown }
+		const value = report as {
+			reason?: unknown
+			line?: unknown
+			column?: unknown
+		}
 		const reason =
 			value.reason === 'type-error' ||
 			value.reason === 'reference-error' ||
@@ -241,6 +245,12 @@ function register(): void {
 	})
 	handle('conversations', (id: string) => operator.listConversations(id))
 	handle('newConversation', (id: string) => operator.newConversation(id))
+	handle('harnesses', (id: string, sessionId?: string) => operator.harnesses(id, sessionId))
+	handle(
+		'selectHarness',
+		(id: string, engine: import('../shared/protocol.js').HarnessView['selected']) =>
+			operator.selectHarness(id, engine),
+	)
 	handle('openConversation', (project: string, id: string) =>
 		operator.openConversation(project, id),
 	)

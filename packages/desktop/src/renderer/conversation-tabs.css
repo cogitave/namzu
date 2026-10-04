@@ -1,0 +1,48 @@
+.conversation-tabs {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 1;
+}
+.conversation-tab-list {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+.conversation-tab {
+	display: flex;
+	align-items: center;
+	width: 220px;
+	min-width: 140px;
+	height: 32px;
+	flex: 0 0 auto;
+	padding-right: 4px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	transition: background-color 140ms ease, border-color 140ms ease;
+}
+.conversation-tab[data-active="true"] {
+	background: var(--color-muted);
+	border-color: var(--color-border);
+}
+.conversation-tab-label {
+	min-width: 0;
+	flex: 1;
+	justify-content: flex-start;
+	gap: 8px;
+}
+.conversation-tab-label .composer-harness-mark {
+	flex: none;
+}
+.conversation-tab-label .namzu-wordmark {
+	font-size: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.conversation-tab {
+		transition: none;
+	}
+}

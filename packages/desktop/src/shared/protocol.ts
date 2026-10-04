@@ -73,6 +73,17 @@ export interface ConversationView {
 	title: string
 	updatedAt: string
 	palId?: string
+	harness?: 'namzu' | 'codex-cli' | 'claude-code'
+}
+export interface HarnessView {
+	selected: 'namzu' | 'codex-cli' | 'claude-code'
+	locked: boolean
+	engines: {
+		id: HarnessView['selected']
+		label: string
+		available: boolean
+		notice?: string
+	}[]
 }
 export interface ChatMessage {
 	role: 'user' | 'assistant'
@@ -232,6 +243,8 @@ export interface DesktopApi {
 	trustProject(projectId: string): Promise<ProjectView>
 	conversations(projectId: string): Promise<ConversationView[]>
 	newConversation(projectId: string): Promise<ConversationView>
+	harnesses?(projectId: string, sessionId?: string): Promise<HarnessView>
+	selectHarness?(sessionId: string, engine: HarnessView['selected']): Promise<HarnessView>
 	openConversation(
 		projectId: string,
 		sessionId: string,

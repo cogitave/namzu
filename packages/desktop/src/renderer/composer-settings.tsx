@@ -10,7 +10,11 @@ const permissionChoices: readonly {
 	label: string
 	description: string
 }[] = [
-	{ value: 'prompt', label: 'Ask first', description: 'Ask before changes and commands.' },
+	{
+		value: 'prompt',
+		label: 'Ask first',
+		description: 'Ask before changes and commands.',
+	},
 	{
 		value: 'accept-edits',
 		label: 'Allow edits',
@@ -26,7 +30,11 @@ const permissionChoices: readonly {
 		label: 'Preapproved only',
 		description: 'Use preapproved tools; refuse other calls.',
 	},
-	{ value: 'plan', label: 'Plan', description: 'Read and plan; do not make changes.' },
+	{
+		value: 'plan',
+		label: 'Plan',
+		description: 'Read and plan; do not make changes.',
+	},
 ]
 
 function effortLabel(effort: ReasoningEffort): string {
@@ -52,6 +60,7 @@ export function ComposerSettings({
 	onEffortChange,
 	onPermissionModeChange,
 	showPermissions = true,
+	reviewModes,
 }: {
 	effortLevels?: readonly ReasoningEffort[]
 	effortDefault?: ReasoningEffort
@@ -61,6 +70,7 @@ export function ComposerSettings({
 	onEffortChange: (effort: ReasoningEffort | undefined) => void
 	onPermissionModeChange: (mode: ComposerPermissionMode) => void
 	showPermissions?: boolean
+	reviewModes?: readonly ComposerPermissionMode[]
 }) {
 	return (
 		<>
@@ -110,6 +120,7 @@ export function ComposerSettings({
 			)}
 			{showPermissions && (
 				<ComposerPermissions
+					reviewModes={reviewModes}
 					permissionMode={permissionMode}
 					disabled={disabled}
 					onChange={onPermissionModeChange}
@@ -121,10 +132,12 @@ export function ComposerSettings({
 
 /** Uses the same controlled permission policy in the footer and message settings. */
 export function ComposerPermissions({
+	reviewModes,
 	permissionMode,
 	disabled,
 	onChange,
 }: {
+	reviewModes?: readonly ComposerPermissionMode[]
 	permissionMode: ComposerPermissionMode
 	disabled: boolean
 	onChange: (mode: ComposerPermissionMode) => void
@@ -158,14 +171,16 @@ export function ComposerPermissions({
 				matchTriggerWidth={false}
 				className="w-72"
 			>
-				{permissionChoices.map(({ value, label, description }) => (
-					<SelectItem key={value} value={value}>
-						<span className="block">{label}</span>
-						<span className="block whitespace-normal text-xs text-muted-foreground">
-							{description}
-						</span>
-					</SelectItem>
-				))}
+				{permissionChoices
+					.filter(({ value }) => !reviewModes || reviewModes.includes(value))
+					.map(({ value, label, description }) => (
+						<SelectItem key={value} value={value}>
+							<span className="block">{label}</span>
+							<span className="block whitespace-normal text-xs text-muted-foreground">
+								{description}
+							</span>
+						</SelectItem>
+					))}
 			</SelectPopup>
 		</Select>
 	)

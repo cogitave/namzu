@@ -24,6 +24,7 @@ The operator application.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
+* [Native conversation engines](native-engines.md) - Installed native execution, engine catalogues, exact durable continuation, live reviews and confirmed shutdown.
 
 * [Context and compaction in the CLI](context-and-compaction.md) - The file-only compaction key that picks the kernel's strategy or overrides the model's window, and the /context command that shows what compaction has done in a session.
 * [Where the CLI stands against its peers](competitive-gaps.md) - What `Claude Code`, `Codex CLI`, `Gemini CLI` and `OpenCode` offer that namzu does not, what namzu does better, and the backlog that follows.

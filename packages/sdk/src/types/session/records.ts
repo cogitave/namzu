@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { type EntityIdKind, isEntityId } from '../../utils/id.js'
+import { HarnessBindingSchema, HarnessJournalTransitionSchema } from '../harness/schema.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../hitl/index.js'
 import type {
 	CheckpointId,
@@ -327,6 +328,7 @@ function inTurn<T extends string, S extends z.ZodRawShape>(type: T, shape: S) {
 // Session
 
 export const SessionStartedRecordSchema = recordSchema('session_started', {
+	harness: HarnessBindingSchema.optional(),
 	projectId,
 	tenantId: tenantId.optional(),
 	topicId: topicId.optional(),
@@ -348,6 +350,7 @@ export const SessionStartedRecordSchema = recordSchema('session_started', {
 })
 
 export const SessionUpdatedRecordSchema = recordSchema('session_updated', {
+	harness: HarnessJournalTransitionSchema.optional(),
 	title: text.optional(),
 	titleSource: z.enum(['derived', 'named']).optional(),
 	archived: z.boolean().optional(),

@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { desktopModelCatalogue } from '../../commands/desktop-model-catalogue.js'
 import { type DetectedProvider, PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
-import { CredentialRefreshRejectedError } from '../../integrations/providers/oauth.js'
+import {
+	CredentialRefreshRejectedError,
+	CredentialWithdrawnError,
+} from '../../integrations/providers/oauth.js'
 
 vi.mock('../../integrations/providers/register.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../integrations/providers/register.js')>()
@@ -50,6 +53,29 @@ afterEach(() => {
 })
 
 describe('picker provider operations', () => {
+	it('distinguishes a withdrawn credential from a remote rejection and hides its diagnostic', async () => {
+		provider = base({
+			listModels: async () => {
+				throw new CredentialWithdrawnError('SYNTHETIC_OWNER_DETAIL_MUST_NOT_REACH_UI')
+			},
+		})
+		const listing = await describeProviderModels(providerId, detected)
+		expect(listing).toMatchObject({
+			kind: 'failed',
+			failure: 'credential-unavailable',
+		})
+		const result = desktopModelCatalogue(
+			listing,
+			detected.entry.defaultModel,
+			undefined,
+			() => true,
+		)
+		expect(result.models).toEqual([])
+		expect(result.notice).toContain('no longer available on this device')
+		expect(result.notice).not.toContain('rejected')
+		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_OWNER_DETAIL')
+	})
+
 	it('routes a rejected refresh to a fixed authentication notice without publishing its diagnostic', async () => {
 		const rejected = new CredentialRefreshRejectedError()
 		rejected.message = 'SYNTHETIC_CREDENTIAL_DIAGNOSTIC_MUST_NOT_REACH_UI'
@@ -59,7 +85,10 @@ describe('picker provider operations', () => {
 			},
 		})
 		const listing = await describeProviderModels(providerId, detected)
-		expect(listing).toMatchObject({ kind: 'failed', failure: 'authentication' })
+		expect(listing).toMatchObject({
+			kind: 'failed',
+			failure: 'authentication',
+		})
 		const result = desktopModelCatalogue(
 			listing,
 			detected.entry.defaultModel,

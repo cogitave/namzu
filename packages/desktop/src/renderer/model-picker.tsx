@@ -26,12 +26,21 @@ export interface ModelChoice {
 	label?: string
 }
 type Provider = ProviderView['available'][number]
-type Catalogue = { loading: boolean; value?: ModelCatalogueView; error?: string }
+type Catalogue = {
+	loading: boolean
+	value?: ModelCatalogueView
+	error?: string
+}
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
-		ProviderIcons.get(provider.id === 'codex' ? 'openai' : provider.id) ??
-		(['ollama', 'lmstudio'].includes(provider.id) ? ServerIcon : CloudIcon)
+		ProviderIcons.get(
+			provider.id === 'codex' || provider.id === 'codex-cli'
+				? 'openai'
+				: provider.id === 'claude-code'
+					? 'anthropic'
+					: provider.id,
+		) ?? (['ollama', 'lmstudio'].includes(provider.id) ? ServerIcon : CloudIcon)
 	return (
 		<span className="model-provider-mark" aria-hidden="true">
 			<Icon />
@@ -162,7 +171,10 @@ function ModelBrowser({
 			)
 				.then((value) => {
 					if (mounted.current)
-						setCatalogues((all) => ({ ...all, [provider.id]: { loading: false, value } }))
+						setCatalogues((all) => ({
+							...all,
+							[provider.id]: { loading: false, value },
+						}))
 				})
 				.catch(() => {
 					if (mounted.current)
@@ -186,7 +198,10 @@ function ModelBrowser({
 	}, [searching])
 	const shownProviders = searching ? providers.available : active ? [active] : []
 	const models = shownProviders.flatMap((provider) =>
-		(catalogues[provider.id]?.value?.models ?? []).map((model) => ({ ...model, provider })),
+		(catalogues[provider.id]?.value?.models ?? []).map((model) => ({
+			...model,
+			provider,
+		})),
 	)
 	const filtered = models.filter((model) =>
 		`${model.label} ${model.id} ${model.provider.label}`
@@ -245,7 +260,14 @@ function ModelBrowser({
 								} else if (event.key === 'Enter' && filtered[0]) {
 									event.preventDefault()
 									const next = filtered[0]
-									onChoose({ provider: next.provider.id, model: next.id, label: next.label }, true)
+									onChoose(
+										{
+											provider: next.provider.id,
+											model: next.id,
+											label: next.label,
+										},
+										true,
+									)
 								}
 							}}
 						/>
@@ -285,7 +307,12 @@ function ModelBrowser({
 					)}
 					onValueChange={(value: string) => {
 						const next = filtered.find((model) => modelKey(model.provider.id, model.id) === value)
-						if (next) onChoose({ provider: next.provider.id, model: next.id, label: next.label })
+						if (next)
+							onChoose({
+								provider: next.provider.id,
+								model: next.id,
+								label: next.label,
+							})
 					}}
 				>
 					{groups.map(({ provider, rows }) => (
@@ -308,7 +335,11 @@ function ModelBrowser({
 									onClick={(event) => {
 										event.preventDefault()
 										onChoose(
-											{ provider: model.provider.id, model: model.id, label: model.label },
+											{
+												provider: model.provider.id,
+												model: model.id,
+												label: model.label,
+											},
 											true,
 										)
 									}}
@@ -316,7 +347,11 @@ function ModelBrowser({
 										if (event.key === 'Enter') {
 											event.preventDefault()
 											onChoose(
-												{ provider: model.provider.id, model: model.id, label: model.label },
+												{
+													provider: model.provider.id,
+													model: model.id,
+													label: model.label,
+												},
 												true,
 											)
 										}

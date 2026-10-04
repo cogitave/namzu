@@ -79,7 +79,7 @@ export async function resumeSession(params: ResumeSessionParams): Promise<Resume
 	// A caller-chosen checkpoint scope is not proof that the source log belongs
 	// to it. Refuse foreign attribution before reading any checkpoint or park.
 	assertResumeRequestAttribution(params, scope)
-	if (!(await assertSessionLogAttribution(sessionLog, scope))) {
+	if (!(await assertSessionLogAttribution(sessionLog, scope, { execution: 'kernel' }))) {
 		return { resumed: false, reason: 'no-checkpoint' }
 	}
 	const checkpointStore =

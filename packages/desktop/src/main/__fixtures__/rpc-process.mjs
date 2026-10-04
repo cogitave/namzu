@@ -2,9 +2,10 @@
 import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
 const pending = new Map()
+const harnesses = new Map()
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
 const reply = (id, result) => send({ id, result })
-const methods = ['namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -18,6 +19,13 @@ lines.on('line', (line) => {
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'turn_ended', stopReason: 'end_turn' } } })
 		reply(prompt.id, { stopReason: 'end_turn' })
 	} else if (method === 'initialize') reply(id, { agentInfo: { name: 'namzu' }, promptAttachments: process.env.FIXTURE_NO_ATTACHMENTS ? undefined : true, promptOptions: process.env.FIXTURE_NO_OPTIONS ? undefined : true, extensions: process.env.FIXTURE_INCOMPATIBLE ? [] : methods })
+	else if (method === 'namzu/harnesses/list' || method === 'namzu/harnesses/select') {
+		if (method.endsWith('/select')) harnesses.set(params.sessionId, params.engine)
+		reply(id, {
+			selected: harnesses.get(params.sessionId) ?? 'namzu', locked: false,
+			engines: ['namzu', 'codex-cli', 'claude-code'].map((id) => ({ id, label: id, available: true })),
+		})
+	}
 	else if (method === 'namzu/project/status') reply(id, { cwd: process.cwd(), trusted: true })
 	else if (method === 'namzu/conversations/list') reply(id, [])
 	else if (method === 'namzu/conversations/history') reply(id, { messages: [], partial: false })

@@ -31,6 +31,8 @@ const api: DesktopApi = {
 	trustProject: (id) => invoke('trustProject', id),
 	conversations: (id) => invoke('conversations', id),
 	newConversation: (id) => invoke('newConversation', id),
+	harnesses: (id, sessionId) => invoke('harnesses', id, sessionId),
+	selectHarness: (id, engine) => invoke('selectHarness', id, engine),
 	openConversation: (project, id) => invoke('openConversation', project, id),
 	providers: (id, sessionId) => invoke('providers', id, sessionId),
 	models: (id, provider, sessionId) => invoke('models', id, provider, sessionId),
@@ -77,5 +79,7 @@ window.addEventListener('error', (event) => {
 	})
 })
 window.addEventListener('unhandledrejection', () =>
-	ipcRenderer.send('namzu:rendererDiagnostic', { reason: 'unhandled-rejection' }),
+	ipcRenderer.send('namzu:rendererDiagnostic', {
+		reason: 'unhandled-rejection',
+	}),
 )

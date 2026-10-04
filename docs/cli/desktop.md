@@ -506,8 +506,13 @@ canonical path and a native confirmation before allowing project access. A new
 protocol session alone never grants trust. Cancel keeps the folder untrusted.
 
 Choose a saved conversation, or type directly in the selected project’s blank
-composer. New conversation and Home open a blank ordinary composer; a runtime
-conversation is created only when its first prompt is sent. Suggestions fill the
+composer. New conversation, Home and the tab plus button create a blank ACP
+conversation slot in a ready trusted ordinary project; neither a model nor an
+external engine starts until a prompt is sent. Disconnected or untrusted contexts
+show the blank landing composer until preparation is possible. Ordinary peer tabs
+retain separate drafts, models, queues and approvals. Closing a tab only hides its
+view; reopening a recent conversation restores it. Empty tabs are omitted from
+the sidebar recent list. Suggestions fill the
 editor for review rather than submitting a prompt. Navigation during creation
 leaves the submitted prompt bound to its captured project and model; it cannot
 redirect that prompt or switch the newly selected conversation. A failed provider
@@ -520,9 +525,20 @@ The kernel loads the full admitted history for the model independently.
 
 Provider and model choices use existing CLI credential discovery. Set up missing
 credentials in Namzu. The desktop receives provider IDs, labels and default
-model names, never keys or token objects. The execution runtime is Namzu:
-selecting a Codex subscription or Claude credential changes the provider used
-by Namzu, rather than launching or switching to either external CLI harness.
+model names, never keys or token objects. The top composer strip chooses the
+execution engine. Namzu uses its wordmark without a duplicate text label and keeps
+its own provider/tool runtime. `codex-cli` and `claude-code` use the installed native
+engine and its actual model catalogue, surfaced under separate engine IDs. An
+existing conversation keeps its durable engine; choosing another engine opens a
+new peer tab. Native engine connections currently offer Ask first and Plan, and
+disable attachments and Namzu plugin toggles rather than discarding inputs.
+See [native engines](native-engines.md) for installation, sign-in, cancellation
+and recovery limits.
+Composer height and transcript follow-scroll writes are coalesced into animation
+frames and skipped when unchanged. Resize callbacks do not immediately change
+the sibling transcript layout, so native approval banners can appear and close
+without undelivered resize notifications. Pending writes are cancelled when the
+view is replaced.
 An installed executable does not prove that a usable account session was found.
 See [provider credentials](credentials.md#existing-claude-sessions) for the
 native Windows credential locations and explicit profile overrides.

@@ -61,6 +61,10 @@
 .composer-harness-mark .namzu-wordmark {
 	font-size: 5px;
 	line-height: 1;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	overflow: visible;
 }
 .composer-harness-control[data-harness-status="unavailable"] {
 	color: var(--muted-foreground);
@@ -118,9 +122,6 @@
 	font-size: 12px;
 }
 @container composer-surface (max-width: 420px) {
-	.composer-harness-mark {
-		display: none;
-	}
 	.composer-context-above {
 		gap: 4px;
 	}

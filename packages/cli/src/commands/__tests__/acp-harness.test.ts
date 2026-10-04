@@ -1,0 +1,491 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+	type HarnessAdapter,
+	type HarnessEventSink,
+	type HarnessModel,
+	type HarnessNativeTurn,
+	generateSessionId,
+} from '@namzu/sdk'
+import { afterEach, expect, it, vi } from 'vitest'
+import {
+	closeSessions,
+	openConversationLog,
+	openSessions,
+	readConversationFacts,
+} from '../../integrations/sessions/store.js'
+import { type CliHarnessRuntime, withCliHarnesses } from '../acp-harness.js'
+import type { CliAcpRuntime } from '../acp.js'
+
+const directories: string[] = []
+const runtimes: CliHarnessRuntime[] = []
+function deferred<T>() {
+	let resolve!: (value: T) => void
+	const promise = new Promise<T>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+afterEach(async () => {
+	await Promise.all(runtimes.splice(0).map((runtime) => runtime.close()))
+	await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
+async function fixture() {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-harness-acp-'))
+	directories.push(root)
+	const sessionId = generateSessionId()
+	const base: CliAcpRuntime = {
+		gateway: {
+			prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
+			load: vi.fn(async () => []),
+		},
+		providerStatus: vi.fn(async () => ({ available: [], selected: null })),
+		models: vi.fn(async () => ({ models: [], notice: null })),
+		modelSettings: vi.fn(async () => ({})),
+		selectProvider: vi.fn(async () => {}),
+		plugins: vi.fn(async () => ({
+			plugins: [],
+			canChange: false,
+			live: false,
+		})),
+		setPluginEnabled: vi.fn(async () => ({
+			plugins: [],
+			canChange: false,
+			live: false,
+		})),
+		jobs: () => [],
+		readJob: () => null,
+		stopJob: async () => null,
+		presenter: {
+			presentCall: () => ({ kind: 'generic', label: '' }),
+			presentResult: () => ({ kind: 'generic', label: '' }),
+		},
+		close: vi.fn(async () => {}),
+	}
+	let reviewed = false
+	let emit!: HarnessEventSink
+	let native!: HarnessNativeTurn
+	let turns = 0
+	const terminal = async () => {
+		const nativeItemId = `answer-${turns}`
+		await emit({ kind: 'message-started', ...native, nativeItemId })
+		await emit({
+			kind: 'message-completed',
+			...native,
+			nativeItemId,
+			content: 'Native engine answer',
+			stopReason: 'end_turn',
+		})
+		await emit({
+			kind: 'turn-completed',
+			...native,
+			status: 'completed',
+			finalItemId: nativeItemId,
+			result: 'Native engine answer',
+		})
+	}
+	const adapter: HarnessAdapter = {
+		engineId: 'codex',
+		profileRef: 'host-owned-fixture-route',
+		open: vi.fn<HarnessAdapter['open']>(async ({ cwd, model, resume }, onEvent) => {
+			emit = onEvent
+			const binding = resume ?? {
+				v: 1 as const,
+				engineId: 'codex',
+				profileRef: adapter.profileRef,
+				nativeSessionId: 'opaque-native-thread',
+				cwd,
+				initialModel: model as string,
+			}
+			return {
+				binding,
+				capabilities: {
+					persistentSessions: true,
+					history: 'snapshot',
+					models: 'discover',
+					permissions: 'interactive',
+					interrupt: 'native-terminal',
+					attachments: [],
+					reviewModes: ['prompt', 'plan'],
+				},
+				models: async () => [
+					{ id: 'actual-model', label: 'Actual model' },
+					{ id: 'other-model', label: 'Other model' },
+				],
+				dispatch: async () => {
+					native = {
+						nativeSessionId: binding.nativeSessionId,
+						nativeTurnId: `turn-${++turns}`,
+					}
+					await emit({ kind: 'turn-started', ...native })
+					if (reviewed)
+						await emit({
+							kind: 'review-requested',
+							request: {
+								...native,
+								requestId: `review-${turns}`,
+								kind: 'command',
+								title: 'Proposed command',
+								input: { command: 'example' },
+								decisions: ['approve-once', 'reject'],
+							},
+						})
+					else await terminal()
+					return native
+				},
+				interrupt: async () => {
+					await emit({
+						kind: 'turn-completed',
+						...native,
+						status: 'cancelled',
+					})
+					return { requested: true }
+				},
+				respond: async () => {
+					await terminal()
+					return { sent: true }
+				},
+				readHistory: async () => ({
+					binding,
+					events: [],
+					pendingReviews: [],
+					complete: true,
+				}),
+				close: async () => ({ stopped: true }),
+			}
+		}),
+	}
+	const dependencies = {
+		adapter: vi.fn(async () => adapter),
+		models: vi.fn(async () => [
+			{ id: 'actual-model', label: 'Actual model' },
+			{ id: 'other-model', label: 'Other model' },
+		]),
+		installed: vi.fn(async () => true),
+		openSessions: (cwd: string) =>
+			openSessions(cwd, {
+				stateRoot: join(root, 'state'),
+				indexBackend: 'scan',
+			}),
+		decideTrust: ({ cwd }: { cwd: string }) => ({
+			allowed: true as const,
+			cwd,
+		}),
+		isPal: () => false,
+	}
+	const runtime = withCliHarnesses(base, root, dependencies)
+	runtimes.push(runtime)
+	const prompt = (
+		text = 'First external prompt',
+		ask: Parameters<CliAcpRuntime['gateway']['prompt']>[0]['ask'] = vi.fn(async () => ({
+			kind: 'approve' as const,
+		})),
+	) =>
+		runtime.gateway.prompt({
+			sessionId,
+			cwd: root,
+			prompt: text,
+			filesystem: undefined,
+			history: [],
+			signal: new AbortController().signal,
+			onEvent: vi.fn(),
+			ask,
+		})
+	return {
+		root,
+		runtime,
+		dependencies,
+		adapter,
+		base,
+		sessionId,
+		prompt,
+		review: () => {
+			reviewed = true
+		},
+	}
+}
+
+it('uses a separate native catalogue and durable engine without constructing a Namzu provider', async () => {
+	const f = await fixture()
+	expect((await f.runtime.harnesses(f.sessionId)).selected).toBe('namzu')
+	expect(f.adapter.open).not.toHaveBeenCalled()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+		selected: { id: 'codex-cli', model: 'actual-model' },
+	})
+	expect(f.adapter.open).not.toHaveBeenCalled()
+	await expect(f.prompt()).resolves.toMatchObject({ stopReason: 'end_turn' })
+	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+	expect(f.base.selectProvider).not.toHaveBeenCalled()
+	const state = await f.dependencies.openSessions(f.root)
+	try {
+		expect((await readConversationFacts(state, f.sessionId))?.started.harness).toMatchObject({
+			engineId: 'codex',
+			nativeSessionId: 'opaque-native-thread',
+			cwd: f.root,
+		})
+	} finally {
+		closeSessions(state)
+	}
+	await expect(f.runtime.selectHarness(f.sessionId, 'namzu')).rejects.toThrow('keeps its engine')
+})
+
+it('uses the current turn asker for successive native approval requests', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	f.review()
+	const first = vi.fn(async () => ({ kind: 'approve' as const }))
+	const second = vi.fn(async () => ({
+		kind: 'reject' as const,
+		feedback: 'Declined',
+	}))
+	await f.prompt('First', first)
+	await f.prompt('Second', second)
+	expect(first).toHaveBeenCalledTimes(1)
+	expect(second).toHaveBeenCalledTimes(1)
+})
+
+it('rejects fabricated engine models, Namzu provider aliases and unsupported settings before native dispatch', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await expect(f.runtime.selectProvider(f.sessionId, 'zen', 'space-bunny-free')).rejects.toThrow(
+		'own engine model catalogue',
+	)
+	await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'invented')).rejects.toThrow(
+		'listed by this engine',
+	)
+	await expect(
+		f.runtime.gateway.prompt({
+			sessionId: f.sessionId,
+			cwd: f.root,
+			prompt: 'No send',
+			filesystem: undefined,
+			history: [],
+			options: { permissionMode: 'auto' },
+			signal: new AbortController().signal,
+			onEvent: () => {},
+			ask: async () => ({ kind: 'approve' }),
+		}),
+	).rejects.toThrow('Ask first and Plan')
+	expect(f.adapter.open).not.toHaveBeenCalled()
+})
+
+it('preserves normal conversations on their original kernel path', async () => {
+	const f = await fixture()
+	await f.prompt()
+	expect(f.base.gateway.prompt).toHaveBeenCalledOnce()
+	expect(f.adapter.open).not.toHaveBeenCalled()
+})
+
+it('reads a completed native conversation after reconnect without starting its engine', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.prompt()
+	await f.runtime.close()
+	const next = withCliHarnesses(f.base, f.root, f.dependencies)
+	runtimes.push(next)
+	expect(await next.gateway.load?.(f.sessionId, f.root)).toHaveLength(2)
+	expect((await next.harnesses(f.sessionId)).selected).toBe('codex-cli')
+	expect(f.adapter.open).toHaveBeenCalledOnce()
+	await expect(next.selectHarness(f.sessionId, 'claude-code')).rejects.toThrow('keeps its engine')
+})
+
+it('refuses untrusted folders and Pal workspaces before metadata or adapter access', async () => {
+	const f = await fixture()
+	const denied = withCliHarnesses(f.base, f.root, {
+		...f.dependencies,
+		decideTrust: () => ({
+			allowed: false,
+			cwd: f.root,
+			message: 'Not trusted',
+		}),
+	})
+	runtimes.push(denied)
+	await expect(denied.selectHarness(f.sessionId, 'codex-cli')).rejects.toThrow('Not trusted')
+	const pal = withCliHarnesses(f.base, f.root, {
+		...f.dependencies,
+		isPal: () => true,
+	})
+	runtimes.push(pal)
+	await expect(pal.selectHarness(f.sessionId, 'codex-cli')).rejects.toThrow(
+		'normal conversations only',
+	)
+	expect(f.dependencies.models).not.toHaveBeenCalled()
+	expect(f.dependencies.adapter).not.toHaveBeenCalled()
+})
+
+it('reserves an engine selection before awaited metadata and rejects overlapping sends or selectors', async () => {
+	const f = await fixture()
+	const metadata = deferred<readonly HarnessModel[]>()
+	const entered = deferred<void>()
+	f.dependencies.models.mockImplementationOnce(async () => {
+		entered.resolve()
+		return [...(await metadata.promise)]
+	})
+	const selecting = f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await entered.promise
+	await expect(f.prompt()).rejects.toThrow('already connecting')
+	await expect(f.runtime.selectHarness(f.sessionId, 'claude-code')).rejects.toThrow(
+		'before changing its engine',
+	)
+	await expect(f.runtime.selectProvider(f.sessionId, 'zen', 'foreign')).rejects.toThrow(
+		'before changing its model',
+	)
+	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+	expect(f.dependencies.adapter).not.toHaveBeenCalled()
+	metadata.resolve([{ id: 'actual-model', label: 'Actual model' }])
+	expect((await selecting).selected).toBe('codex-cli')
+	await expect(f.prompt()).resolves.toMatchObject({ stopReason: 'end_turn' })
+	expect(f.dependencies.adapter).toHaveBeenCalledWith('codex-cli')
+})
+
+it('keeps a model selection exclusive while it awaits refreshed engine metadata', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	const metadata = deferred<readonly HarnessModel[]>()
+	const entered = deferred<void>()
+	f.dependencies.models.mockImplementationOnce(async () => {
+		entered.resolve()
+		return [...(await metadata.promise)]
+	})
+	const refreshing = f.runtime.models('codex-cli', f.sessionId)
+	await entered.promise
+	const selecting = f.runtime.selectProvider(f.sessionId, 'codex-cli', 'other-model')
+	await expect(f.prompt()).rejects.toThrow('already connecting')
+	await expect(f.runtime.selectHarness(f.sessionId, 'claude-code')).rejects.toThrow(
+		'before changing its engine',
+	)
+	await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'actual-model')).rejects.toThrow(
+		'before changing its model',
+	)
+	expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+		selected: { id: 'codex-cli', model: 'actual-model' },
+	})
+	metadata.resolve([
+		{ id: 'actual-model', label: 'Actual model' },
+		{ id: 'other-model', label: 'Other model' },
+	])
+	await refreshing
+	await selecting
+	await f.prompt()
+	expect(f.adapter.open).toHaveBeenCalledWith(
+		expect.objectContaining({ model: 'other-model' }),
+		expect.any(Function),
+	)
+	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+})
+
+it('reserves a prompt before awaited metadata and prevents a competing engine or model change', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	const metadata = deferred<readonly HarnessModel[]>()
+	const entered = deferred<void>()
+	f.dependencies.models.mockImplementationOnce(async () => {
+		entered.resolve()
+		return [...(await metadata.promise)]
+	})
+	const refreshing = f.runtime.models('codex-cli', f.sessionId)
+	await entered.promise
+	const sending = f.prompt()
+	await expect(f.prompt('Duplicate')).rejects.toThrow('already connecting')
+	await expect(f.runtime.selectHarness(f.sessionId, 'claude-code')).rejects.toThrow(
+		'before changing its engine',
+	)
+	await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'other-model')).rejects.toThrow(
+		'before changing its model',
+	)
+	expect(f.adapter.open).not.toHaveBeenCalled()
+	metadata.resolve([{ id: 'actual-model', label: 'Actual model' }])
+	await refreshing
+	await expect(sending).resolves.toMatchObject({ stopReason: 'end_turn' })
+	expect(f.adapter.open).toHaveBeenCalledWith(
+		expect.objectContaining({ model: 'actual-model' }),
+		expect.any(Function),
+	)
+	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+})
+
+it('retains the reservation until the original Namzu prompt has actually completed', async () => {
+	const f = await fixture()
+	const completion = deferred<{ stopReason: 'end_turn' }>()
+	const entered = deferred<void>()
+	vi.mocked(f.base.gateway.prompt).mockImplementationOnce(async () => {
+		entered.resolve()
+		return completion.promise
+	})
+	const sending = f.prompt()
+	await entered.promise
+	await expect(f.runtime.selectHarness(f.sessionId, 'codex-cli')).rejects.toThrow(
+		'before changing its engine',
+	)
+	await expect(f.runtime.selectProvider(f.sessionId, 'zen', 'foreign')).rejects.toThrow(
+		'before changing its model',
+	)
+	await expect(f.prompt('Duplicate')).rejects.toThrow('already connecting')
+	expect(f.dependencies.models).not.toHaveBeenCalled()
+	completion.resolve({ stopReason: 'end_turn' })
+	await sending
+	expect((await f.runtime.selectHarness(f.sessionId, 'codex-cli')).selected).toBe('codex-cli')
+	expect(f.adapter.open).not.toHaveBeenCalled()
+})
+
+it('releases a failed selection and refreshes model metadata before allowing a removed model', async () => {
+	const f = await fixture()
+	f.dependencies.models.mockRejectedValueOnce(new Error('Native metadata unavailable'))
+	await expect(f.runtime.selectHarness(f.sessionId, 'codex-cli')).rejects.toThrow(
+		'Native metadata unavailable',
+	)
+	await f.prompt()
+	expect(f.base.gateway.prompt).toHaveBeenCalledOnce()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	f.dependencies.models.mockResolvedValueOnce([{ id: 'other-model', label: 'Other model' }])
+	expect(await f.runtime.models('codex-cli', f.sessionId)).toMatchObject({
+		models: [{ id: 'other-model', label: 'Other model' }],
+	})
+	await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'actual-model')).rejects.toThrow(
+		'listed by this engine',
+	)
+	await expect(f.prompt()).rejects.toThrow('listed by this engine')
+	expect(f.adapter.open).not.toHaveBeenCalled()
+	await f.runtime.selectProvider(f.sessionId, 'codex-cli', 'other-model')
+	await expect(f.prompt()).resolves.toMatchObject({ stopReason: 'end_turn' })
+})
+
+it('refuses an external draft if another writer binds its disk journal to Namzu before dispatch', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	const state = await f.dependencies.openSessions(f.root)
+	try {
+		const log = openConversationLog(state, f.sessionId)
+		const lease = await log.claim({ holder: 'concurrent-namzu-writer', ttlMs: 10_000 })
+		if (!lease) throw new Error('Expected an uncontested fixture journal lease.')
+		try {
+			await log.append(lease, {
+				type: 'session_started',
+				projectId: state.projectId,
+				tenantId: state.tenantId,
+				topicId: state.topicId,
+				cwd: state.projectRoot,
+				agent: { id: 'namzu', name: 'Namzu' },
+				origin: { protocol: 'cli' },
+			})
+		} finally {
+			await log.release(lease)
+		}
+	} finally {
+		closeSessions(state)
+	}
+	await expect(f.prompt()).rejects.toThrow('already bound to the Namzu engine')
+	await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'actual-model')).rejects.toThrow(
+		'already bound to the Namzu engine',
+	)
+	await expect(f.runtime.providerStatus(f.sessionId)).rejects.toThrow(
+		'already bound to the Namzu engine',
+	)
+	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+	expect(f.base.selectProvider).not.toHaveBeenCalled()
+	expect(f.base.providerStatus).not.toHaveBeenCalled()
+	expect(f.dependencies.adapter).not.toHaveBeenCalled()
+	expect(f.adapter.open).not.toHaveBeenCalled()
+})

@@ -4845,7 +4845,7 @@ export type ModelListing =
 			readonly kind: 'failed'
 			readonly reason: string
 			/** Safe classification for native callers; never the driver's raw diagnostic. */
-			readonly failure?: 'authentication'
+			readonly failure?: 'authentication' | 'credential-unavailable'
 	  }
 
 /**
@@ -4960,7 +4960,11 @@ export async function describeProviderModels(
 		return {
 			kind: 'failed',
 			reason: err instanceof Error ? err.message : String(err),
-			...(isCredentialRejection(err) ? { failure: 'authentication' as const } : {}),
+			...(err instanceof CredentialWithdrawnError
+				? { failure: 'credential-unavailable' as const }
+				: isCredentialRejection(err)
+					? { failure: 'authentication' as const }
+					: {}),
 		}
 	}
 }

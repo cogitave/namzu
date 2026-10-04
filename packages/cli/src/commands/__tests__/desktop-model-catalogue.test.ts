@@ -32,6 +32,23 @@ it('distinguishes credential rejection without exposing a remote error or invent
 	expect(JSON.stringify(result)).not.toContain('SYNTHETIC_CREDENTIAL')
 })
 
+it('reports a missing admitted credential without treating it as a server rejection', () => {
+	const result = desktopModelCatalogue(
+		{
+			kind: 'failed',
+			failure: 'credential-unavailable',
+			reason: 'SYNTHETIC_PRIVATE_OWNER_PATH',
+		},
+		'default',
+		undefined,
+		() => true,
+	)
+	expect(result.models).toEqual([])
+	expect(result.notice).toContain('no longer available on this device')
+	expect(result.notice).not.toContain('rejected')
+	expect(JSON.stringify(result)).not.toContain('SYNTHETIC_PRIVATE_OWNER_PATH')
+})
+
 it('filters inaccessible and malformed identities, retaining honest free and image notes', () => {
 	expect(
 		desktopModelCatalogue(
@@ -56,7 +73,13 @@ it('filters inaccessible and malformed identities, retaining honest free and ima
 			(id) => id !== 'paid',
 		),
 	).toEqual({
-		models: [{ id: 'free', label: 'Free model', note: '(Namzu default · image input)' }],
+		models: [
+			{
+				id: 'free',
+				label: 'Free model',
+				note: '(Namzu default · image input)',
+			},
+		],
 		notice: null,
 	})
 })

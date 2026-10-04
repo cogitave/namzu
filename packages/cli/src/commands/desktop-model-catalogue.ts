@@ -18,7 +18,9 @@ export function desktopModelCatalogue(
 					? 'The provider catalogue did not answer in time. Refresh the list to retry.'
 					: listing.failure === 'authentication'
 						? 'The provider rejected its credential. Sign in or configure this provider, then refresh the list.'
-						: 'The provider catalogue could not be loaded. Refresh the list to retry.'
+						: listing.failure === 'credential-unavailable'
+							? 'The selected sign-in is no longer available on this device. Refresh provider discovery or choose another provider.'
+							: 'The provider catalogue could not be loaded. Refresh the list to retry.'
 		return { models: [], notice }
 	}
 	const seen = new Set<string>()

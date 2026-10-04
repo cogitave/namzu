@@ -1,0 +1,230 @@
+{
+  "schema": "namzu.native-harness-engines.v1",
+  "date": "2026-10-04",
+  "platform": "win32",
+  "nativeElectron": true,
+  "normalUserData": true,
+  "actualCLI": true,
+  "fixtureOverrides": false,
+  "nativeCompiledSourceMatched": true,
+  "runtime": {
+    "electron": "44.4.5",
+    "node": "24.21.0"
+  },
+  "catalogues": {
+    "codex-cli": {
+      "rows": 5,
+      "notice": null
+    },
+    "claude-code": {
+      "rows": 4,
+      "notice": null
+    }
+  },
+  "codex": {
+    "actualInstalledCLI": true,
+    "realPrompt": true,
+    "durableBinding": true,
+    "engine": "codex",
+    "terminal": "end_turn",
+    "reopenHistory": true,
+    "continuedSameJournal": true,
+    "continuedTerminal": "end_turn",
+    "windowsToolObserved": true,
+    "approvalUI": true,
+    "version": "0.154.0",
+    "model": "gpt-6-astra",
+    "bindingVersion": 1,
+    "nativeProfileAndCwdPersisted": true,
+    "namzuProviderFallback": false
+  },
+  "claude": {
+    "actualInstalledCLI": true,
+    "actualCatalogue": true,
+    "attemptedPrompt": true,
+    "selected": "claude-code",
+    "terminal": "error",
+    "authenticationNoticeShown": true,
+    "retainedEngineBinding": true,
+    "successfulInference": false,
+    "version": "2.1.278",
+    "notice": "The native engine cannot use its current sign-in. Check its sign-in or choose another engine.",
+    "namzuProviderFallback": false
+  },
+  "tabs": {
+    "separateDrafts": true,
+    "actualNewConversation": true,
+    "equalWidth": true,
+    "wordmarkOnly": true,
+    "wordmarkUnclipped": true,
+    "lockedEngineOpensNewTab": true,
+    "originalEngineRetained": true,
+    "measuredWidthPx": 220,
+    "normalComposerSelectedModelIcon": true
+  },
+  "resizeObserver": {
+    "reproducedErrorsBefore": 4,
+    "resizeObserverErrorsAfter": 0,
+    "realApprovalAndToolRunAfter": true,
+    "rendererDiagnosticsAfter": 0,
+    "unhandledHostErrorsAfter": 0,
+    "diagnosticSuppression": false
+  },
+  "verification": {
+    "workspaceTypecheck": "passed",
+    "workspaceLint": "passed; existing warnings",
+    "workspaceTests": {
+      "passed": 18671,
+      "skipped": 116,
+      "packages": [
+        {
+          "package": "packages/files",
+          "passed": 48,
+          "skipped": 11
+        },
+        {
+          "package": "packages/sdk",
+          "passed": 9961,
+          "skipped": 0
+        },
+        {
+          "package": "packages/desktop",
+          "passed": 247,
+          "skipped": 0
+        },
+        {
+          "package": "packages/computer-use",
+          "passed": 165,
+          "skipped": 0
+        },
+        {
+          "package": "packages/browser",
+          "passed": 133,
+          "skipped": 42
+        },
+        {
+          "package": "packages/ag-ui",
+          "passed": 189,
+          "skipped": 0
+        },
+        {
+          "package": "packages/live",
+          "passed": 25,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/anthropic",
+          "passed": 259,
+          "skipped": 44
+        },
+        {
+          "package": "packages/lsp",
+          "passed": 27,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/bedrock",
+          "passed": 127,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/deepseek",
+          "passed": 44,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/google",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/http",
+          "passed": 83,
+          "skipped": 10
+        },
+        {
+          "package": "packages/providers/lmstudio",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/ollama",
+          "passed": 36,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/openrouter",
+          "passed": 80,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/zen",
+          "passed": 234,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/openai",
+          "passed": 129,
+          "skipped": 0
+        },
+        {
+          "package": "packages/telemetry",
+          "passed": 33,
+          "skipped": 0
+        },
+        {
+          "package": "packages/sandbox",
+          "passed": 1799,
+          "skipped": 3
+        },
+        {
+          "package": "packages/cli",
+          "passed": 4994,
+          "skipped": 6
+        }
+      ]
+    },
+    "finalDesktopTests": {
+      "files": 32,
+      "passed": 247
+    },
+    "sdkProcessTests": {
+      "files": 46,
+      "passed": 278
+    },
+    "builds": [
+      "@namzu/sdk",
+      "@namzu/cli",
+      "@namzu/desktop"
+    ],
+    "docsOkfFiles": 141,
+    "compiledDocsFences": 114,
+    "compiledReadmes": 21,
+    "signatureTypes": {
+      "signatures": 1007,
+      "packages": 20
+    },
+    "externalNameAndLogGates": "passed"
+  },
+  "limits": {
+    "conversationOwnedWorktree": false,
+    "nativeAttachments": false,
+    "nativeModes": [
+      "prompt",
+      "plan"
+    ],
+    "claudeEffortControl": false,
+    "claudeSuccessfulInference": false
+  },
+  "artifacts": {
+    "composer": "native-harness-composer-final-20261004.png",
+    "tabs": "native-harness-tabs-final-20261004.png"
+  },
+  "privacy": {
+    "credentialValues": false,
+    "accountIdentifiers": false,
+    "nativeProfileReferences": false,
+    "privateWholeWindowCaptures": false,
+    "rawNativeFrames": false
+  }
+}

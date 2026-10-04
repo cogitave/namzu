@@ -5,6 +5,7 @@ import {
 	listRecent,
 	loadConversation,
 	openSessions,
+	readConversationFacts,
 } from '../integrations/sessions/store.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import {
@@ -25,6 +26,7 @@ import {
 } from '../pals/environment.js'
 import { createPal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
+import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
@@ -87,6 +89,29 @@ export function createDesktopHostExtensions(
 		return id
 	}
 	return {
+		'namzu/harnesses/list': async (params: Record<string, unknown>) => {
+			if (pal())
+				return {
+					selected: 'namzu',
+					locked: true,
+					engines: [{ id: 'namzu', label: 'Namzu', available: true }],
+				}
+			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			const harness = runtime as Partial<CliHarnessRuntime>
+			return harness.harnesses
+				? harness.harnesses(id)
+				: {
+						selected: 'namzu',
+						locked: false,
+						engines: [{ id: 'namzu', label: 'Namzu', available: true }],
+					}
+		},
+		'namzu/harnesses/select': async (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('External engines are available in normal conversations only.')
+			const harness = runtime as Partial<CliHarnessRuntime>
+			if (!harness.selectHarness) throw new Error('Update Namzu to use external engines.')
+			return harness.selectHarness(await ownedSession(params), text(params, 'engine'))
+		},
 		'namzu/project/status': () => ({
 			cwd,
 			trusted: isTrusted(cwd),
@@ -151,9 +176,22 @@ export function createDesktopHostExtensions(
 			return { cwd, trusted: true }
 		},
 		'namzu/conversations/list': () =>
-			withState((state) => {
+			withState(async (state) => {
 				const currentPal = pal()
-				return currentPal ? listPalConversations(cwd, currentPal.id) : listRecent(state, 100)
+				if (currentPal) return listPalConversations(cwd, currentPal.id)
+				return Promise.all(
+					(await listRecent(state, 100)).map(async (row) => {
+						const engine = (await readConversationFacts(state, row.id))?.started.harness?.engineId
+						return {
+							...row,
+							...(engine === 'codex'
+								? { harness: 'codex-cli' }
+								: engine === 'claude'
+									? { harness: 'claude-code' }
+									: {}),
+						}
+					}),
+				)
 			}),
 		'namzu/conversations/history': async (params: Record<string, unknown>) => {
 			const id = await ownedSession(params)
