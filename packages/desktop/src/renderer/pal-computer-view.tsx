@@ -423,7 +423,7 @@ export function PalComputerView({
 								variant="outline"
 								size="sm"
 								className="pal-computer-control-button"
-								disabled={!connected || changingControl || inputBusy}
+								disabled={!connected || changingControl}
 								onClick={onRelease}
 							>
 								Return control

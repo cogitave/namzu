@@ -25,10 +25,9 @@ header {
 	padding: 28px 36px;
 }
 .brand {
-	color: #8ae592;
-	font-size: 14px;
-	font-weight: 700;
-	letter-spacing: 3px;
+	display: block;
+	width: 126px;
+	height: 24px;
 }
 .workspace-label {
 	color: #9dac9f;
@@ -196,6 +195,10 @@ button svg {
 	header {
 		padding-block: 8px;
 		line-height: 20px;
+	}
+	.brand {
+		width: 105px;
+		height: 20px;
 	}
 	main {
 		min-height: calc(100dvh - 36px);

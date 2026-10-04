@@ -26,6 +26,11 @@ function takeOver(html: string) {
 	if (!tag) throw new Error('No Take over button')
 	return tag
 }
+function returnControl(html: string) {
+	const tag = html.match(/<button\b[^>]*>Return control<\/button>/)?.[0]
+	if (!tag) throw new Error('No Return control button')
+	return tag
+}
 
 it('reports only actual control support and never enables takeover while offline or transitioning', () => {
 	expect(takeOver(render())).not.toContain('disabled=')
@@ -56,6 +61,26 @@ it('shows only captured guest pixels, and treats an offline frame as unavailable
 	const missingFrame = render({ screen: null })
 	expect(missingFrame).toContain('Screen unavailable')
 	expect(missingFrame).not.toContain('Computer is offline')
+})
+
+it('keeps Return control available across ordinary guest input while retaining offline and transfer fences', () => {
+	const operator = { supported: true, mode: 'operator' as const }
+	const idle = returnControl(render({ control: operator, inputBusy: false }))
+	const sending = returnControl(render({ control: operator, inputBusy: true }))
+	expect(idle).not.toContain('disabled=')
+	expect(sending).toBe(idle)
+	for (const state of [
+		{ controlBusy: true },
+		{ computer: { name: 'Palu’s computer', status: 'connecting' as const } },
+		{ computer: { name: 'Palu’s computer', status: 'error' as const } },
+	])
+		expect(returnControl(render({ control: operator, inputBusy: true, ...state }))).toContain(
+			'disabled=',
+		)
+	const changing = render({ control: { supported: true, mode: 'transitioning' } })
+	expect(changing).not.toContain('Return control')
+	expect(takeOver(changing)).toContain('disabled=')
+	expect(render({ control: operator, inputBusy: true })).toContain('data-interactive="false"')
 })
 
 it('shows the host row only for actual supplied metadata, and puts the real capture in the thumbnail', () => {

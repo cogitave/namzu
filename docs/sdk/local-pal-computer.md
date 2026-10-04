@@ -27,6 +27,8 @@ terminal launcher, Files application, workspace and browser profile. The actual
 Openbox desktop has a green/charcoal wallpaper and a tint2 dock containing only
 installed Chromium, Terminal and Files launchers. Chromium starts on its bundled
 Namzu New Tab page with a blank omnibox, clock, web search and installed app grid.
+Its bundled SVG wordmark uses the exact desktop and CLI block-letter geometry,
+without loading a host font or importing either application at runtime.
 These controls launch real guest applications. It shares the engine's kernel;
 it is not a dedicated-kernel VM or a remote/cloud computer.
 
@@ -57,6 +59,10 @@ Normal home and new tabs use a bundled Manifest V3 New Tab page with only
 extension, then navigate only their own uniquely marked startup tab through
 `chrome://newtab/` using guest-loopback CDP. This preserves Chromium's normal
 New Tab address handling, including a blank omnibox after it loses focus.
+The guest launcher disables Chromium's separate stock New Tab footer with
+`--disable-features=NtpFooter`, removing its **Customize Chromium** button from
+the bundled home. Startup, native new tabs and dock reopen use the same browser
+configuration; normal website address bars and the application grid remain.
 No browser policy or user profile file is rewritten. The desktop worker starts
 after that page and its real application catalogue are ready. Existing user
 tabs and literal website arguments are retained.

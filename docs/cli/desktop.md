@@ -245,8 +245,9 @@ report live observation as unsupported until explicitly rebuilt and restarted.
 owned foreground turns and confirms background job termination before requesting
 exclusive operator control. A failed or uncertain stop keeps the control change
 refused. The view then forwards mouse, drag, scroll, text and keys through native
-IPC into that exact guest. Coordinates exclude letterboxing. Text input follows
-the keyboard layout, including Unicode and AltGr; Tab remains host focus navigation.
+IPC into that exact guest. The host pointer keeps its normal arrow. Coordinates
+exclude letterboxing. Text input follows the keyboard layout, including Unicode
+and AltGr; Tab remains host focus navigation.
 Rapid input is serialized; adjacent pending text is combined into bounded UTF-8
 batches without crossing key or pointer actions. Native menu accelerators are
 suppressed only while the controlled guest has keyboard focus. Navigation and
@@ -258,7 +259,9 @@ renderer. Captures and delayed status
 replies cannot certify another generation or replace a newer control transition.
 
 **Return control** restores Pal authority explicitly. Queued work remains parked;
-returning control does not start a model turn. A later admitted Pal must capture
+the button stays available during ordinary input and drains queued input before
+handoff. Offline states and actual control transitions still disable it.
+Returning control does not start a model turn. A later admitted Pal must capture
 a fresh screen before GUI mutations. An already warm paused Pal can be controlled
 by the operator without allowing model work. Providers without the optional
 arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal-computer.md#exclusive-operator-control)

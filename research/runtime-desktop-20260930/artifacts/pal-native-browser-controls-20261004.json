@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "efb7b06cd5c24043dc71cb2fad8110906dc24696",
+  "environment": {
+    "host": "native Windows Electron",
+    "renderer": "production bundled file page",
+    "guest": "owned local Linux desktop on native Windows Podman",
+    "normalUserData": true,
+    "actualCLIAndSDK": true,
+    "fixtureOverrides": false,
+    "modelPromptsSent": false
+  },
+  "diagnosis": {
+    "chromiumFooter": {
+      "homeAlreadyLoadedRealApps": 15,
+      "separateTargetType": "browser_ui",
+      "targetKind": "chrome://newtab-footer",
+      "visibleButton": "Customize Chromium",
+      "primarySourceCommit": "f944233df11d0ed7beaef976919b6df3bf95e23d",
+      "primarySource": "https://chromium.googlesource.com/chromium/src/+/f944233df11d0ed7beaef976919b6df3bf95e23d/chrome/browser/resources/new_tab_footer/app.ts#251"
+    },
+    "pointer": "Host interactive-surface CSS explicitly selected crosshair; restored default arrow.",
+    "returnControl": "Every ordinary input toggled inputBusy, disabling the mounted Return control button and applying its disabled opacity. Remove that condition from the handoff button; retain actual transition/offline disabling and queued-input draining."
+  },
+  "guestUpdate": {
+    "newImage": "75cbf5a5635ac1285e99368f9ca5b861a74d7d672eca3db3e188cb450a83361f",
+    "lifecycle": "SDK ownership-checked reboot of the single owned idle computer",
+    "ready": true,
+    "newGeneration": true,
+    "persistentWorkspaceAndBrowserProfileVolumeRetained": true,
+    "hostBrowserPolicyOrProfileModified": false
+  },
+  "nativeBrowserAfter": {
+    "chromium": "Chrome/154.0.8037.92",
+    "pageCount": 1,
+    "nativeFooterTargets": 0,
+    "homePages": [
+      {
+        "apps": 15,
+        "clock": true,
+        "brand": {
+          "complete": true,
+          "naturalWidth": 126,
+          "naturalHeight": 24,
+          "svg": true,
+          "alt": "Namzu",
+          "width": 105,
+          "height": 20
+        }
+      }
+    ],
+    "customizeButtons": [],
+    "wordmarkSha256": "0c150e421e9b55bfe7f2a0ad2fb0abf47e69697e923256cfe323acd1856460fc"
+  },
+  "nativeNewTab": {
+    "nativeCtrlT": true,
+    "newHomeApps": 15,
+    "wordmarkLoaded": true,
+    "nativeFooterTargets": 0,
+    "appReadiness": "awaited DOM mutation from native catalog response",
+    "restoredOriginalTabCount": true
+  },
+  "nativeControl": {
+    "nativeWindows": true,
+    "productionApp": true,
+    "fixtureOverrides": false,
+    "cursor": "default",
+    "returnButtonSameNodeDuringInput": true,
+    "returnButtonEnabledDuringInput": true,
+    "returnButtonOpacityStable": true,
+    "returnDisabledDuringActualHandoff": true,
+    "handoffWaitedForPendingInput": true,
+    "actualInputDelegated": true,
+    "controlReturnedToPal": true,
+    "originalControlRestored": "operator"
+  },
+  "nativeControlMethod": "Hold the first harmless pointer move in the production Electron IPC input handler, then delegate it to the original SDK handler. Assert stable mounted/enabled/opaque Return control button while input is pending; click Return control, assert operator authority remains until that input finishes, release the gate, await the real input result and Pal handoff. Restore the original IPC handler and operator control.",
+  "restored": {
+    "originalControl": "operator",
+    "finalControl": "operator",
+    "originalRoute": "Plugins",
+    "nativeWindowBoundsUnchanged": true,
+    "originalGuestTabCount": true
+  },
+  "verification": {
+    "workspaceTypecheck": "passed",
+    "workspaceLint": "passed with existing warnings",
+    "workspaceTests": {
+      "passed": 18523,
+      "sdkPassed": 9926,
+      "desktopPassed": 218,
+      "sandboxPassed": 1799,
+      "cliPassed": 4918
+    },
+    "desktopProductionBuild": "passed",
+    "nativeLocalImageBuild": "passed",
+    "guestDashSyntax": "passed",
+    "docsOKF": "passed, 139 files",
+    "diffCheck": "passed",
+    "readOnlyCombinedDiffAudit": "no concrete defects found"
+  },
+  "notes": [
+    "The installed-app grid is populated asynchronously by the native message response. The Ctrl+T proof awaited its DOM mutation; document load alone can precede the catalogue.",
+    "Only the guest and control bar are included in the retained screenshot. Account data, drafts, allocation identifiers, debug target URLs and authorization tokens are omitted.",
+    "This records the checks run for these fixes; release and publish gates were not run and no push was made."
+  ],
+  "sourceSha256": {
+    "packages/desktop/src/renderer/pal-computer-view.tsx": "397edd99a56a2cf1e595531d2eb057f2380c8362cc0b7657ab2c4d72639cbe97",
+    "packages/desktop/src/renderer/pal-computer-view.css": "caaf31827557059c8783e291156403e8fca52b852ce10f83c8a9f035c20e2d60",
+    "packages/desktop/src/renderer/pal-computer-view.test.ts": "2ead082a3e29748b3073877747905a31761ffcd9e5eff2f851ab3c77b9b087be",
+    "packages/sandbox/local-computer/entrypoint.sh": "0f9701bf96666d94f770c253e5aa66401e059214d47da15fec1eb609ba91f730",
+    "packages/sandbox/local-computer/home.html": "d0b7216a1892bf838841c74a3d53ad726a2671bb215b9e9331a27c33f29567d5",
+    "packages/sandbox/local-computer/new-tab/home.css": "ecd1d3c82f244603c3178c4ffbf12f10d58073630f018e0d1ddc88398d404035",
+    "packages/sandbox/local-computer/new-tab/wordmark.svg": "0c150e421e9b55bfe7f2a0ad2fb0abf47e69697e923256cfe323acd1856460fc",
+    "packages/sandbox/src/local-virtual-computer/__tests__/desktop-shell.test.ts": "50e21b692ce91da401c3360b9b5c130a4a6b2a6cf5142c8bb027edb2d9ad15c4",
+    "packages/sandbox/src/local-virtual-computer/__tests__/guest-wordmark.test.ts": "9b43905caa50cb90a4d488db58d8843f2e9938cdcd017a84f4e4a5b64b1904cd"
+  },
+  "screenshot": "pal-native-browser-controls-20261004.png"
+}

@@ -98,7 +98,7 @@
 	box-shadow: 0 0 0 2px var(--ring);
 }
 .pal-computer-screen[data-interactive="true"] {
-	cursor: crosshair;
+	cursor: default;
 	touch-action: none;
 }
 .pal-computer-screen > img {

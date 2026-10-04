@@ -16,6 +16,7 @@ launch_browser() {
     exec node /opt/namzu-computer/browser-home.cjs \
         --no-sandbox --test-type --disable-dev-shm-usage --no-first-run \
         --no-default-browser-check --password-store=basic --force-dark-mode \
+        --disable-features=NtpFooter \
         --user-data-dir=/home/namzu/.config/chromium \
         --load-extension=/opt/namzu-computer/new-tab \
         --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \

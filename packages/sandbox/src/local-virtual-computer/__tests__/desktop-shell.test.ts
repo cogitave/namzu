@@ -41,6 +41,7 @@ it('opens dock browser windows with guest-only flags and literal arguments witho
 			'--no-default-browser-check',
 			'--password-store=basic',
 			'--force-dark-mode',
+			'--disable-features=NtpFooter',
 			'--user-data-dir=/home/namzu/.config/chromium',
 			'--load-extension=/opt/namzu-computer/new-tab',
 			'--remote-debugging-address=127.0.0.1',
