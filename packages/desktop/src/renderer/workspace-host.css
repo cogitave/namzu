@@ -1,0 +1,52 @@
+.workspace-shell {
+	display: contents;
+}
+.workspace-stage {
+	grid-column: 3;
+	grid-row: 2;
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	overflow: clip;
+	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
+}
+.workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar) {
+	display: none;
+}
+.workspace-window-error {
+	position: absolute;
+	top: 8px;
+	left: 16px;
+	right: 16px;
+	z-index: 50;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 10px 14px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--popover);
+	color: var(--popover-foreground);
+	font-size: 12px;
+}
+.workspace-window-error button {
+	white-space: nowrap;
+}
+@container workspace (max-width: 640px) {
+	.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+		width: 100%;
+	}
+	.workspace.jobs-open > .jobs-panel {
+		width: min(100%, 380px);
+		z-index: 15;
+		box-shadow: -12px 0 30px rgb(0 0 0 / 18%);
+	}
+	.workspace[data-page="computer"][data-computer-chat="split"] {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.workspace-host[data-sidebar-collapsed="true"] .workspace-canvas-pane > .workspace {
+	border-radius: 0;
+}

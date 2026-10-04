@@ -1,0 +1,12 @@
+{
+  "nativeWindows": true,
+  "normalUserData": true,
+  "actualCLI": true,
+  "promptCount": 2,
+  "noReplay": true,
+  "completedHistoryRestored": true,
+  "draftPreserved": true,
+  "exactModelPreserved": true,
+  "nativeBoundsRestored": true,
+  "errors": []
+}

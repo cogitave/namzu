@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AttachmentView } from '../shared/protocol.js'
+import type { AttachmentView, DesktopApi } from '../shared/protocol.js'
 
 /** Draft ownership is captured before a chooser or file read yields. */
 export function useAttachments(
 	owner: string,
 	connected: boolean,
 	onError: (error: unknown) => void,
+	api: DesktopApi = window.namzu,
 ) {
 	const report = useRef(onError)
 	report.current = onError
@@ -24,11 +25,11 @@ export function useAttachments(
 			const revision = revisions.current[target] ?? 0
 			const read = (reads.current[target] ?? 0) + 1
 			reads.current[target] = read
-			const files = await window.namzu.attachments(target)
+			const files = await api.attachments(target)
 			if (read === reads.current[target] && revision === (revisions.current[target] ?? 0))
 				put(target, files)
 		},
-		[put],
+		[put, api],
 	)
 	useEffect(() => {
 		if (!connected || !owner) return
@@ -36,7 +37,7 @@ export function useAttachments(
 		const revision = revisions.current[owner] ?? 0
 		const read = (reads.current[owner] ?? 0) + 1
 		reads.current[owner] = read
-		void window.namzu
+		void api
 			.attachments(owner)
 			.then((files) => {
 				if (
@@ -54,7 +55,7 @@ export function useAttachments(
 		return () => {
 			active = false
 		}
-	}, [owner, connected])
+	}, [owner, connected, api])
 	const change = async (target: string, operation: () => Promise<AttachmentView[]>) => {
 		if (pending.current.has(target)) return
 		pending.current.add(target)
@@ -77,7 +78,7 @@ export function useAttachments(
 		isBusy: (target: string) => pending.current.has(target),
 		get: (target: string) => values.current[target] ?? [],
 		reload,
-		pick: () => change(owner, () => window.namzu.pickAttachments(owner)),
+		pick: () => change(owner, () => api.pickAttachments(owner)),
 		add: (files: File[]) =>
 			change(owner, async () => {
 				if (
@@ -92,17 +93,17 @@ export function useAttachments(
 						bytes: new Uint8Array(await file.arrayBuffer()),
 					})),
 				)
-				return window.namzu.addAttachments(owner, uploads)
+				return api.addAttachments(owner, uploads)
 			}),
 		remove: (id: string) =>
 			change(owner, async () => {
-				await window.namzu.removeAttachment(owner, id)
-				return window.namzu.attachments(owner)
+				await api.removeAttachment(owner, id)
+				return api.attachments(owner)
 			}),
 		promote: async (from: string, to: string) => {
 			revisions.current[from] = (revisions.current[from] ?? 0) + 1
 			revisions.current[to] = (revisions.current[to] ?? 0) + 1
-			const files = await window.namzu.moveAttachments(from, to)
+			const files = await api.moveAttachments(from, to)
 			revisions.current[from] = (revisions.current[from] ?? 0) + 1
 			revisions.current[to] = (revisions.current[to] ?? 0) + 1
 			put(from, [])

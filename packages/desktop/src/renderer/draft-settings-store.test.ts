@@ -161,4 +161,88 @@ describe('saved draft settings admission', () => {
 			error: undefined,
 		})
 	})
+	it('reacquires the actual main choices after another pane has owned the conversation', async () => {
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockResolvedValueOnce(choice)
+			.mockResolvedValueOnce(otherChoice)
+		const store = new DraftSettingsStore(
+			read,
+			async () => {},
+			() => {},
+			() => {},
+		)
+		await store.load('session')
+		expect(store.get('session')).toEqual(choice)
+		await store.reload('session')
+		expect(store.get('session')).toEqual(otherChoice)
+		expect(store.snapshot('session')).toEqual({
+			value: otherChoice,
+			loading: false,
+			error: undefined,
+		})
+		expect(read).toHaveBeenCalledTimes(2)
+	})
+	it('waits for a pending local save before reloading authoritative choices', async () => {
+		const started = deferred<void>()
+		const saved = deferred<void>()
+		const read = vi.fn(async () => choice)
+		const store = new DraftSettingsStore(
+			read,
+			async () => {
+				started.resolve()
+				await saved.promise
+			},
+			() => {},
+			() => {},
+		)
+		const saving = store.save('session', choice)
+		await started.promise
+		const reloading = store.reload('session')
+		expect(read).not.toHaveBeenCalled()
+		saved.resolve()
+		await Promise.all([saving, reloading])
+		expect(read).toHaveBeenCalledExactlyOnceWith('session')
+		expect(store.get('session')).toEqual(choice)
+	})
+	it('preserves a failed local save instead of replacing it with an older main choice on reacquisition', async () => {
+		const read = vi.fn(async () => otherChoice)
+		const failure = new Error('write failed')
+		const write = vi
+			.fn<(_owner: string, _value: DraftSettings) => Promise<void>>()
+			.mockRejectedValueOnce(failure)
+			.mockResolvedValue(undefined)
+		const store = new DraftSettingsStore(
+			read,
+			write,
+			() => {},
+			() => {},
+		)
+		await expect(store.save('session', choice)).rejects.toBe(failure)
+		await expect(store.reload('session')).rejects.toBe(failure)
+		expect(read).not.toHaveBeenCalled()
+		expect(store.get('session')).toEqual(choice)
+		expect(store.snapshot('session').error).toBe('Message settings could not be saved. Try again.')
+		await store.retry('session')
+		await store.reload('session')
+		expect(read).toHaveBeenCalledExactlyOnceWith('session')
+	})
+	it('refuses transfer readiness when the authoritative settings refresh fails', async () => {
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockResolvedValueOnce(choice)
+			.mockRejectedValueOnce(new Error('read failed'))
+		const failed = vi.fn()
+		const store = new DraftSettingsStore(
+			read,
+			async () => {},
+			() => {},
+			failed,
+		)
+		await store.load('session')
+		await expect(store.reload('session')).rejects.toThrow('could not be loaded')
+		expect(store.snapshot('session').loading).toBe(true)
+		expect(store.get('session')).toEqual(choice)
+		expect(failed).toHaveBeenCalledOnce()
+	})
 })

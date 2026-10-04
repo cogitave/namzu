@@ -475,6 +475,35 @@ it('keeps project landing drafts separate from conversations without creating a 
 	expect(() => owner.saveDraft(landing, 'x'.repeat(50_001))).toThrow('50,000')
 })
 
+it('keeps blank composer drafts, models and attachments separate for every workspace pane', async () => {
+	const { owner } = harness()
+	const project = await owner.openProject(process.cwd())
+	const a = `project:${project.id}:workspace:window-a:group-a`
+	const b = `project:${project.id}:workspace:window-b:group-b`
+	owner.saveDraft(a, 'Window A unsent prompt')
+	owner.saveDraft(b, 'Window B unsent prompt')
+	owner.saveDraftSettings(a, {
+		choice: { provider: 'fixture', model: 'model-a' },
+		options: { effort: 'high' },
+	})
+	owner.saveDraftSettings(b, { choice: { provider: 'fixture', model: 'model-b' } })
+	const files = owner.addAttachments(a, [
+		{ name: 'pane-a.txt', bytes: Buffer.from('Pane A attachment') },
+	])
+	expect(owner.draft(a)).toBe('Window A unsent prompt')
+	expect(owner.draft(b)).toBe('Window B unsent prompt')
+	expect(owner.draftSettings(a).choice?.model).toBe('model-a')
+	expect(owner.draftSettings(b).choice?.model).toBe('model-b')
+	expect(owner.attachments(b)).toEqual([])
+	const session = await owner.newConversation(project.id)
+	expect(owner.moveAttachments(a, session.id)).toEqual(files)
+	expect(owner.attachments(a)).toEqual([])
+	expect(owner.draft(b)).toBe('Window B unsent prompt')
+	expect(() =>
+		owner.saveDraft(`project:${project.id}:workspace:window-a:group-a:forged`, 'Invalid'),
+	).toThrow('Invalid project draft owner')
+})
+
 it('promotes files without rereading bytes, preserves them on refusal and restores queued edits', async () => {
 	const { owner, permission, wait } = harness()
 	const project = await owner.openProject(process.cwd())

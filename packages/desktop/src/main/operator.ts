@@ -38,9 +38,14 @@ import {
 	readChosenFile,
 	validateAttachmentBatch,
 } from './attachments.js'
+import {
+	type DesktopConversationSnapshot,
+	DesktopConversationStore,
+} from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
+import { projectDraftOwner } from './project-draft-owner.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 
 interface PendingMessage {
@@ -81,6 +86,8 @@ interface Conversation {
 	providers?: ProviderView
 	projection: ThreadState
 	needsLoad?: boolean
+	needsHistory?: boolean
+	restorePending?: boolean
 	permissions: Map<string, string | number>
 }
 export class Operator {
@@ -107,6 +114,8 @@ export class Operator {
 	>()
 	private readonly attachmentFiles = new Map<string, OwnedAttachment>()
 	private readonly changingPlugins = new Set<string>()
+	private readonly desktopStore?: DesktopConversationStore
+	private savedDesktop?: DesktopConversationSnapshot
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -115,6 +124,75 @@ export class Operator {
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 	) {
 		streamProxy?.onClosed((id) => this.closePalComputerStream(id))
+		if (registryDirectory) {
+			this.desktopStore = new DesktopConversationStore(registryDirectory)
+			try {
+				this.savedDesktop = this.desktopStore.read()
+				for (const item of this.savedDesktop?.projectDrafts ?? [])
+					this.projectDrafts.set(item.ownerId, {
+						draft: item.draft,
+						...(item.draftSettings ? { draftSettings: structuredClone(item.draftSettings) } : {}),
+					})
+				for (const item of this.savedDesktop?.attachments ?? [])
+					this.attachmentFiles.set(item.view.id, structuredClone(item))
+			} catch (error) {
+				diagnostics?.record('project_restore_failed', { error })
+			}
+		}
+	}
+	/** Private desktop metadata restores view/draft identities; submitted prompts are never replayed. */
+	private persistDesktop(reportOnly = false): void {
+		if (!this.desktopStore) return
+		const projects = new Map((this.savedDesktop?.projects ?? []).map((item) => [item.id, item]))
+		for (const { view } of this.projects.values())
+			projects.set(view.id, { id: view.id, path: view.path })
+		const conversations = new Map(
+			(this.savedDesktop?.conversations ?? []).map((item) => [item.view.id, item]),
+		)
+		for (const item of this.conversations.values())
+			conversations.set(item.view.id, {
+				view: { ...item.view },
+				runtimeSessionId: item.runtimeSessionId,
+				hasPrompted:
+					!!item.needsHistory ||
+					(item.hasPrompted &&
+						(!item.view.palId ||
+							item.projection.messages.some((message) => message.role === 'user'))),
+				draft: item.draft,
+				...(item.draftSettings ? { draftSettings: structuredClone(item.draftSettings) } : {}),
+				...(item.providerSelection ? { providerSelection: { ...item.providerSelection } } : {}),
+			})
+		const snapshot: DesktopConversationSnapshot = {
+			version: 1,
+			projects: [...projects.values()],
+			conversations: [...conversations.values()],
+			projectDrafts: [...this.projectDrafts].map(([ownerId, item]) => ({
+				ownerId,
+				...structuredClone(item),
+			})),
+			attachments: [...this.attachmentFiles.values()]
+				.filter((item) => item.draft)
+				.map((item) => ({ ...item, draft: true as const })),
+		}
+		try {
+			this.desktopStore.write(snapshot)
+			this.savedDesktop = snapshot
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'saveDraft', error })
+			if (reportOnly) return
+			throw new Error('Namzu could not save desktop drafts. Check diagnostic storage and retry.')
+		}
+	}
+	restoredProjectPaths(tabIds: readonly string[]): string[] {
+		const selected = new Set(tabIds)
+		const projects = new Set(
+			(this.savedDesktop?.conversations ?? [])
+				.filter((item) => selected.has(item.view.id))
+				.map((item) => item.view.projectId),
+		)
+		return (this.savedDesktop?.projects ?? [])
+			.filter((item) => projects.has(item.id))
+			.map((item) => item.path)
 	}
 	private async closeClient(client: RuntimeClient): Promise<void> {
 		for (const [id, viewer] of this.computerViewers)
@@ -557,7 +635,7 @@ export class Operator {
 		this.streamProxy?.close(id)
 	}
 	private emit(event: DesktopEvent): void {
-		if (event.kind !== 'connection') {
+		if (event.kind !== 'connection' && event.kind !== 'workspace') {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
 			if (session) {
@@ -571,6 +649,18 @@ export class Operator {
 					revision: session.projection.revision + 1,
 				}
 				session.projection = applyEvent(session.projection, versioned)
+				if (
+					versioned.kind === 'prompt' ||
+					versioned.kind === 'permission' ||
+					(versioned.kind === 'state' && !versioned.running) ||
+					(versioned.kind === 'update' &&
+						(versioned.update.kind === 'turn_ended' ||
+							(session.hasPrompted &&
+								!this.savedDesktop?.conversations.some(
+									(item) => item.view.id === session.view.id && item.hasPrompted,
+								))))
+				)
+					this.persistDesktop(true)
 				this.publish(versioned)
 				return
 			}
@@ -625,7 +715,10 @@ export class Operator {
 		}
 		const isChat = await isNormalChatWorkspace(cwd, this.registryDirectory)
 		const view: ProjectView = {
-			id: existing?.view.id ?? randomUUID(),
+			id:
+				existing?.view.id ??
+				this.savedDesktop?.projects.find((item) => item.path === cwd)?.id ??
+				randomUUID(),
 			path: cwd,
 			name: isChat ? 'Chat' : basename(cwd),
 			...(isChat ? { isChat: true } : {}),
@@ -635,6 +728,25 @@ export class Operator {
 		const client = new RuntimeClient(cwd, this.command, this.diagnostics)
 		this.ownedClients.add(client)
 		const project = { view, client }
+		for (const saved of this.savedDesktop?.conversations ?? []) {
+			if (saved.view.projectId !== view.id || this.conversations.has(saved.view.id)) continue
+			this.conversations.set(saved.view.id, {
+				view: { ...saved.view },
+				runtimeSessionId: saved.runtimeSessionId,
+				hasPrompted: saved.hasPrompted,
+				client,
+				running: false,
+				queue: [],
+				draft: saved.draft,
+				projection: emptyThread(),
+				permissions: new Map(),
+				needsLoad: true,
+				needsHistory: saved.hasPrompted,
+				restorePending: true,
+				...(saved.draftSettings ? { draftSettings: structuredClone(saved.draftSettings) } : {}),
+				...(saved.providerSelection ? { providerSelection: { ...saved.providerSelection } } : {}),
+			})
+		}
 		for (const session of this.conversations.values()) {
 			if (session.view.projectId !== view.id) continue
 			session.client = client
@@ -679,6 +791,7 @@ export class Operator {
 			if (this.closing) throw error
 		}
 		this.emit({ kind: 'connection', project: { ...view } })
+		this.persistDesktop()
 		return { ...view }
 	}
 	private project(id: unknown): Project {
@@ -740,6 +853,7 @@ export class Operator {
 			if (session.view.projectId !== id || returned.has(session.view.id)) continue
 			if (
 				!session.needsLoad ||
+				session.restorePending ||
 				session.running ||
 				session.queue.length ||
 				session.draft.length ||
@@ -784,6 +898,7 @@ export class Operator {
 			projection: emptyThread(),
 			permissions: new Map(),
 		})
+		this.persistDesktop()
 		return view
 	}
 	async harnesses(projectId: string, sessionId?: string): Promise<HarnessView> {
@@ -799,7 +914,10 @@ export class Operator {
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as HarnessView
 		assertCurrent()
-		if (session) session.view.harness = view.selected
+		if (session) {
+			session.view.harness = view.selected
+			this.persistDesktop()
+		}
 		return view
 	}
 	async selectHarness(sessionId: string, engine: HarnessView['selected']): Promise<HarnessView> {
@@ -845,6 +963,7 @@ export class Operator {
 						'The selected engine’s model settings could not be read. Retry model discovery or choose a model. Your draft is retained.'
 				}
 			}
+			this.persistDesktop()
 			return view
 		} finally {
 			session.selectionPending = false
@@ -885,6 +1004,7 @@ export class Operator {
 				...(providers.selected.model ? { model: providers.selected.model } : {}),
 			}
 		session.providerSetupFailure = undefined
+		this.persistDesktop()
 	}
 	async openConversation(
 		projectId: string,
@@ -943,6 +1063,7 @@ export class Operator {
 				...restoreMessages(record.projection, history.messages),
 				partial: history.partial,
 			}
+		this.persistDesktop()
 		return { ...history, thread: record?.projection }
 	}
 	private runtimeSession(project: Project, runtimeId: string): Conversation | undefined {
@@ -955,7 +1076,11 @@ export class Operator {
 	}
 	private async reattach(
 		session: Conversation,
-		requested?: { engine: HarnessView['selected']; model?: string },
+		requested?: {
+			engine: HarnessView['selected']
+			provider?: string
+			model?: string
+		},
 	): Promise<void> {
 		if (!session.needsLoad) return
 		if (session.reattaching) return await session.reattaching
@@ -968,9 +1093,15 @@ export class Operator {
 		const choice =
 			requested !== undefined
 				? requested.model
-					? { provider: requested.engine, model: requested.model }
+					? {
+							provider: requested.provider ?? requested.engine,
+							model: requested.model,
+						}
 					: undefined
-				: draftChoice?.provider !== undefined && draftChoice.provider === engine
+				: draftChoice?.provider !== undefined &&
+						(draftChoice.provider === engine ||
+							((!engine || engine === 'namzu') &&
+								!['codex-cli', 'claude-code'].includes(draftChoice.provider)))
 					? draftChoice
 					: session.providerSelection
 		const stillOwned = () => {
@@ -985,6 +1116,17 @@ export class Operator {
 					sessionId: session.runtimeSessionId,
 					cwd: project.view.path,
 				})
+				if (session.needsHistory) {
+					const history = (await client.request('namzu/conversations/history', {
+						sessionId: session.runtimeSessionId,
+					})) as { messages: ChatMessage[]; partial: boolean }
+					stillOwned()
+					session.projection = {
+						...restoreMessages(session.projection, history.messages),
+						partial: history.partial,
+					}
+					session.needsHistory = false
+				}
 			} else {
 				// A never-started session has no durable CLI history to load. Keep
 				// its UI/draft owner and create only its replacement runtime slot.
@@ -1021,7 +1163,10 @@ export class Operator {
 							model: choice.model,
 						})
 						stillOwned()
-						session.providerSelection = { provider: choice.provider, model: choice.model }
+						session.providerSelection = {
+							provider: choice.provider,
+							model: choice.model,
+						}
 						session.providerSetupFailure = undefined
 					} else if (requested) {
 						// Explicit engine choice is confirmed independently of optional model metadata.
@@ -1043,10 +1188,28 @@ export class Operator {
 						throw new Error('The selected engine could not be restored. Your draft is retained.')
 					session.view.harness = requested.engine
 				}
+				if (
+					(!engine || engine === 'namzu') &&
+					choice?.model &&
+					!['codex-cli', 'claude-code'].includes(choice.provider)
+				) {
+					await client.request('namzu/providers/select', {
+						sessionId: session.runtimeSessionId,
+						provider: choice.provider,
+						model: choice.model,
+					})
+					stillOwned()
+					session.providerSelection = {
+						provider: choice.provider,
+						model: choice.model,
+					}
+				}
 			}
 			stillOwned()
 			session.needsLoad = false
+			session.restorePending = false
 			session.replacement = undefined
+			this.persistDesktop()
 		})()
 		session.reattaching = operation
 		try {
@@ -1186,8 +1349,17 @@ export class Operator {
 				await this.reattach(
 					session,
 					provider === session.view.harness && provider !== 'namzu'
-						? { engine: provider, ...(model?.trim() ? { model: model.trim() } : {}) }
-						: undefined,
+						? {
+								engine: provider,
+								...(model?.trim() ? { model: model.trim() } : {}),
+							}
+						: session.view.harness === undefined || session.view.harness === 'namzu'
+							? {
+									engine: 'namzu',
+									provider,
+									...(model?.trim() ? { model: model.trim() } : {}),
+								}
+							: undefined,
 				)
 			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
 			await session.client.request('namzu/providers/select', {
@@ -1201,6 +1373,7 @@ export class Operator {
 				...(model?.trim() ? { model: model.trim() } : {}),
 			}
 			session.providerSetupFailure = undefined
+			this.persistDesktop()
 		} finally {
 			session.selectionPending = false
 			this.changingPlugins.delete(sessionId)
@@ -1208,9 +1381,7 @@ export class Operator {
 	}
 	private attachmentProject(ownerId: string): string {
 		this.draftOwner(ownerId)
-		return ownerId.startsWith('project:')
-			? ownerId.slice(8)
-			: this.draftSession(ownerId).view.projectId
+		return projectDraftOwner(ownerId)?.projectId ?? this.draftSession(ownerId).view.projectId
 	}
 	attachments(ownerId: string): AttachmentView[] {
 		this.attachmentProject(ownerId)
@@ -1240,6 +1411,7 @@ export class Operator {
 			throw new Error('Attachment storage is full. Remove pending attachments before adding more.')
 		for (const file of incoming)
 			this.attachmentFiles.set(file.view.id, { ...file, ownerId, draft: true })
+		this.persistDesktop()
 		return this.attachments(ownerId)
 	}
 	async addChosenFiles(ownerId: string, paths: string[]): Promise<AttachmentView[]> {
@@ -1256,6 +1428,7 @@ export class Operator {
 		if (!file || file.ownerId !== ownerId || !file.draft)
 			throw new Error('This attachment no longer belongs to this draft.')
 		this.attachmentFiles.delete(id)
+		this.persistDesktop()
 	}
 	moveAttachments(fromOwner: string, toSessionId: string): AttachmentView[] {
 		const projectId = this.attachmentProject(fromOwner)
@@ -1270,6 +1443,7 @@ export class Operator {
 		)
 		validateAttachmentBatch([...new Set([...existing, ...files])])
 		for (const file of files) file.ownerId = toSessionId
+		this.persistDesktop()
 		return this.attachments(toSessionId)
 	}
 	private assertPalAdmission(palId?: string): void {
@@ -1387,8 +1561,9 @@ export class Operator {
 		draft: string
 		draftSettings?: DraftSettings
 	} {
-		if (!ownerId.startsWith('project:')) return this.draftSession(ownerId)
-		if (!this.projects.has(ownerId.slice('project:'.length))) throw new Error('Unknown project.')
+		const projectOwner = projectDraftOwner(ownerId)
+		if (!projectOwner) return this.draftSession(ownerId)
+		if (!this.projects.has(projectOwner.projectId)) throw new Error('Unknown project.')
 		let owner = this.projectDrafts.get(ownerId)
 		if (!owner) {
 			owner = { draft: '' }
@@ -1469,6 +1644,7 @@ export class Operator {
 			}
 		}
 		owner.draftSettings = next
+		this.persistDesktop()
 	}
 	saveDraft(sessionId: string, draft: string): void {
 		const session = this.draftOwner(sessionId)
@@ -1481,6 +1657,7 @@ export class Operator {
 		if (otherCharacters + draft.length > 1_000_000)
 			throw new Error('Draft storage is full. Send or clear another draft before writing more.')
 		session.draft = draft
+		this.persistDesktop()
 	}
 	private state(session: Conversation, error?: string): void {
 		this.emit({
@@ -1507,6 +1684,10 @@ export class Operator {
 	}
 	private async run(session: Conversation, item: PendingMessage): Promise<void> {
 		const { prompt, files, options } = item
+		const hadPrompted =
+			session.hasPrompted &&
+			(!session.view.palId ||
+				session.projection.messages.some((message) => message.role === 'user'))
 		session.running = true
 		if (session.view.title === 'New conversation')
 			session.view.title = (prompt.trim() || files.map((file) => file.view.name).join(', ')).slice(
@@ -1521,9 +1702,15 @@ export class Operator {
 		})
 		this.state(session)
 		let completed = false
+		let failed = false
+		let promptedRuntime: { client: RuntimeClient; id: string } | undefined
 		try {
 			await this.reattach(session)
 			this.assertPalAdmission(session.view.palId)
+			promptedRuntime = {
+				client: session.client,
+				id: session.runtimeSessionId,
+			}
 			session.hasPrompted = true
 			const content = [
 				prompt,
@@ -1560,12 +1747,14 @@ export class Operator {
 					},
 				})
 			completed = result.stopReason === 'end_turn'
+			failed = result.stopReason === 'error'
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
 					session,
 					'Namzu could not finish this turn. Your conversation is retained; check the provider or tool error before retrying.',
 				)
 		} catch (error) {
+			failed = true
 			if (!session.projection.stopReason)
 				this.emit({
 					kind: 'update',
@@ -1575,6 +1764,44 @@ export class Operator {
 				})
 			this.state(session, error instanceof Error ? error.message : String(error))
 		} finally {
+			if (
+				!hadPrompted &&
+				failed &&
+				!this.closing &&
+				promptedRuntime &&
+				session.client === promptedRuntime.client &&
+				session.runtimeSessionId === promptedRuntime.id
+			) {
+				let unstarted = false
+				try {
+					const history = (await promptedRuntime.client.request('namzu/conversations/history', {
+						sessionId: promptedRuntime.id,
+					})) as { messages: ChatMessage[]; partial: boolean }
+					unstarted =
+						Array.isArray(history.messages) &&
+						history.messages.length === 0 &&
+						history.partial === false
+				} catch (error) {
+					// This exact CLI error follows its ownedSession project/published
+					// slot gate. A transport, corrupt journal or foreign-scope error
+					// provides no evidence that durable history is absent.
+					unstarted =
+						error instanceof Error &&
+						error.message ===
+							`Conversation ${promptedRuntime.id} was not found — load conversation history rejected`
+				}
+				if (
+					unstarted &&
+					session.client === promptedRuntime.client &&
+					session.runtimeSessionId === promptedRuntime.id
+				) {
+					// Provider/engine preflight can refuse the first prompt before the
+					// CLI creates a journal. Save its authored text without replaying it
+					// or replacing a newer draft the user wrote while it was running.
+					session.hasPrompted = false
+					if (!session.draft) session.draft = prompt
+				}
+			}
 			for (const file of files) {
 				if (completed) this.attachmentFiles.delete(file.view.id)
 				else {
@@ -1739,6 +1966,7 @@ export class Operator {
 			)
 		}
 		this.registryClient = undefined
+		this.persistDesktop()
 		this.projects.clear()
 		this.conversations.clear()
 		this.attachmentFiles.clear()

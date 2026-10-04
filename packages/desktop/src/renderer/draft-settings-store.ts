@@ -80,6 +80,27 @@ export class DraftSettingsStore {
 		state.reading = pending
 		return pending
 	}
+	/** Reacquiring a pane reloads main's choices, preserving any unconfirmed local write. */
+	async reload(owner: string): Promise<void> {
+		const state = this.state(owner)
+		let write = state.write
+		while (write) {
+			try {
+				await write
+			} catch (error) {
+				if (state.write === write) throw error
+			}
+			if (state.write === write) break
+			write = state.write
+		}
+		if (state.unconfirmed)
+			throw new Error(state.error ?? 'Message settings could not be saved. Try again.')
+		this.cancelRead(owner)
+		state.known = false
+		await this.load(owner)
+		if (!state.known || state.error)
+			throw new Error(state.error ?? 'Saved message settings could not be loaded. Try again.')
+	}
 	save(owner: string, value: DraftSettings): Promise<void> {
 		const state = this.state(owner)
 		const snapshot = structuredClone(value)

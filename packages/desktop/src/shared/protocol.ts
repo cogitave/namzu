@@ -7,6 +7,56 @@ import type {
 	ReviewMode,
 } from '@namzu/sdk'
 export type { PalComputerInput } from '@namzu/sdk'
+import type {
+	WorkspaceDropPosition,
+	WorkspaceLayoutSnapshot,
+	WorkspaceNode,
+	WorkspaceWindowBounds,
+} from './workspace-layout.js'
+
+export interface WorkspaceView {
+	windowId: string
+	/** Includes uncommitted transfer preparation changes as well as layout revisions. */
+	sequence: number
+	/** Stable controller identity for the ordinary empty conversation before its first session. */
+	homeGroupId: string
+	layout: WorkspaceLayoutSnapshot
+	/** Render-only destination. The source retains its writer lease until ready is acknowledged. */
+	pendingTransfer?: {
+		id: string
+		tabId: string
+		sourceWindowId: string
+		destinationWindowId: string
+		sourcePrepared: boolean
+		previewRoot: WorkspaceNode
+	}
+	outgoingTransfer?: { id: string; tabId: string; destinationWindowId: string; prepared: boolean }
+	closingWindow?: { id: string; tabIds: string[] }
+}
+export type WorkspaceAction =
+	| { kind: 'open'; tabId: string; groupId?: string }
+	| { kind: 'cancel-transfer'; transferId: string }
+	| { kind: 'cancel-close'; closeId: string }
+	| { kind: 'focus'; groupId: string }
+	| { kind: 'close' | 'activate'; groupId: string; tabId: string }
+	| {
+			kind: 'move'
+			tabId: string
+			sourceGroupId: string
+			sourceWindowId?: string
+			targetWindowId: string
+			targetGroupId: string
+			position: WorkspaceDropPosition
+			index?: number
+			size?: { width: number; height: number }
+	  }
+	| { kind: 'resize'; splitId: string; ratio: number }
+	| {
+			kind: 'detach'
+			tabId: string
+			sourceGroupId: string
+			bounds?: WorkspaceWindowBounds
+	  }
 
 export interface AttachmentView {
 	id: string
@@ -207,8 +257,13 @@ export type DesktopEvent = (
 			error?: string
 	  }
 	| { kind: 'connection'; project: ProjectView }
+	| { kind: 'workspace'; view: WorkspaceView }
 ) & { readonly revision?: number; readonly at?: number }
 export interface DesktopApi {
+	workspace?(): Promise<WorkspaceView>
+	workspaceAction?(action: WorkspaceAction): Promise<WorkspaceView>
+	workspaceReady?(transferId: string): Promise<WorkspaceView>
+	workspaceCloseReady?(closeId: string): Promise<void>
 	/** Native diagnostic paths and storage status; never journal or raw error payloads. */
 	diagnostics?(): Promise<DesktopDiagnosticsView>
 	setComputerKeyboardCapture?(enabled: boolean): Promise<void>

@@ -74,6 +74,10 @@ const OS_CODES = new Set([
 	'ERR_MODULE_NOT_FOUND',
 ])
 const OPERATIONS = new Set([
+	'workspace',
+	'workspaceAction',
+	'workspaceReady',
+	'workspaceCloseReady',
 	'harnesses',
 	'selectHarness',
 	'windowChrome',

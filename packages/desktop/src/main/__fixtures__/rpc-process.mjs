@@ -52,7 +52,13 @@ lines.on('line', (line) => {
 	}
 	else if (method === 'namzu/project/status') reply(id, { cwd: process.cwd(), trusted: !(process.env.FIXTURE_UNTRUSTED_FILE && existsSync(process.env.FIXTURE_UNTRUSTED_FILE)) })
 	else if (method === 'namzu/conversations/list') reply(id, [])
-	else if (method === 'namzu/conversations/history') reply(id, { messages: [], partial: false })
+	else if (method === 'namzu/conversations/history') {
+		if (process.env.FIXTURE_HISTORY_MODE === 'missing') send({ id, error: { code: -32603, message: `Conversation ${params.sessionId} was not found — load conversation history rejected` } })
+		else if (process.env.FIXTURE_HISTORY_MODE === 'foreign') send({ id, error: { code: -32603, message: `Conversation ${params.sessionId} does not belong to this workspace — load conversation history rejected` } })
+		else if (process.env.FIXTURE_HISTORY_MODE === 'unreadable') send({ id, error: { code: -32603, message: 'The fixture journal could not be read.' } })
+		else if (process.env.FIXTURE_HISTORY_MODE === 'wrong-session') send({ id, error: { code: -32603, message: 'Conversation other-session was not found — load conversation history rejected' } })
+		else reply(id, { messages: [], partial: process.env.FIXTURE_HISTORY_MODE === 'partial' })
+	}
 	else if (method === 'namzu/providers/status' || method === 'namzu/providers/select') {
 		if (process.env.FIXTURE_ENFORCE_PROVIDER_BINDING && params?.sessionId && !sessions.has(params.sessionId)) {
 			 send({ id, error: { code: -32603, message: 'This conversation is not published by this connection.' } }); return

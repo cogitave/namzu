@@ -103,6 +103,12 @@
 	flex: none;
 	margin-left: auto;
 }
+.computer-workspace-view-controls {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: none;
+}
 .computer-workspace-layout-controls [aria-pressed="true"] {
 	background: var(--accent);
 	color: var(--foreground);

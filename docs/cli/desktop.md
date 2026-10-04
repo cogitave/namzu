@@ -1,9 +1,9 @@
 ---
 type: Guide
 title: Desktop application
-description: Local native operator preview, its shared CLI runtime, folder trust, conversations, model choices, approvals and background work.
+description: Local native operator preview, its shared CLI runtime, conversation panes and windows, folder trust, model choices, approvals and background work.
 resource: packages/desktop
-tags: [cli, desktop, sessions, permissions]
+tags: [cli, desktop, sessions, permissions, workspace]
 ---
 
 # Desktop application
@@ -33,7 +33,7 @@ closure. It never kills by executable name. A failed OS stop rejects and can
 be retried; an already-exited wrapper PID is never targeted. Protocol output
 and retained stderr diagnostics use separate UTF-8 stream decoders.
 The desktop retains ownership when shutdown fails, blocks new work and reports
-the failure. On Windows and Linux its window stays open until shutdown succeeds;
+the failure. On Windows and Linux its final window stays open until shutdown succeeds;
 close it again to retry. A disconnected metadata or project client remains in
 the shutdown set until its process closure is confirmed.
 The app is not yet distributed through native installers or auto-update.
@@ -144,8 +144,9 @@ project, never a Pal control directory. With no such project, the native host
 creates a private normal chat context beneath its application data directory.
 Only an app-created, unredirected directory with its exact ownership marker can
 receive implicit folder trust. This context is not listed under Projects; its
-conversations appear in Recents. No conversation is created before the first
-send. Normal and Pal drafts, attachments and model choices retain separate
+conversations appear in Recents. In a ready trusted context, New conversation
+creates an unstarted conversation slot; it starts no model or native engine.
+Normal and Pal drafts, attachments and model choices retain separate
 owners. Choosing an existing Pal returns to its owned chat.
 
 The Home sidebar puts **Create your first Pal** directly below New conversation.
@@ -213,7 +214,8 @@ and fixed application commands. Closing/reopening the browser leaves the desktop
 running. Existing images need an explicit rebuild and computer restart for these apps.
 Guest browser and file tools do not fall back to the operator's device.
 
-The Pal workspace has a selectable chat tab and a computer tab with equal frames.
+The owning pane places ordinary conversations, Pal chat and the Pal's computer
+in one tab row. All use equal 220px by 32px frames inside the same 48px toolbar.
 Selecting chat returns to its transcript and profile without closing the computer
 tab. Selecting the computer shows its live desktop; the plus button opens or
 selects that same computer. Closing its tab returns to the same Pal chat and leaves
@@ -221,6 +223,12 @@ the guest running. Keyboard arrows move tab focus and Enter selects; closing the
 computer restores focus to chat. These selections do not change conversation navigation;
 even a pending first send keeps its owning chat when its session is created.
 Changing views invalidates pending guest input and control transfers.
+
+The [native Windows unified-tab receipt](../../research/runtime-desktop-20260930/artifacts/pal-unified-tabs-native-safe-20261004.json)
+verified one tab list with these equal frames on the same row. Opening an
+offline computer view and clicking back to Pal chat preserved the actual
+conversation identity without errors. That check did not start the computer
+or verify its live stream.
 
 Layout controls show chat beside the computer, hide it, or place that same chat
 in a small floating window. The split header aligns with the two content panes.
@@ -382,7 +390,8 @@ retain their mounted control while focus moves into the menu. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout. Pal conversations use
 the compact, always-docked composer described above; its plus popup keeps model,
-permission, effort, attachment and plugin controls accessible.
+permission, attachment and plugin controls accessible. Effort opens from the
+selected model's row inside the model picker.
 The Background work, Changes and conversation context controls appear in the
 workspace header only after a conversation exists. Returning to a blank project
 also closes the conversation detail pane.
@@ -463,6 +472,110 @@ Escape returns focus to its Background work or Changes control; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
 
+## Conversation panes and windows
+
+Drag an ordinary conversation tab to another group's centre to join its tabs,
+or before/after a tab to change their order. Dropping near the left, right,
+top or bottom edge creates a split when there is enough room for two readable
+panes. A tinted preview shows the admitted destination. Dragging a tab outside
+the native window opens that conversation in a separate registered Namzu window.
+The tab's actions menu also offers Split right, Split down and Move to new window
+for keyboard use; split actions appear when the owning group supports them.
+Each group selects its own conversation, with its own draft, model, attachments,
+queued messages and pending reviews. The sidebar, navigation and application
+shortcuts follow the focused group. Namzu tabs use the canonical wordmark's N;
+native engines keep their engine marks, and thin separators distinguish tabs.
+
+Splits form a recursive layout rather than a fixed two- or four-panel grid.
+Each pane has a minimum width of 380px and height of 300px, with a 4px divider.
+The available area determines how many additional splits fit; there is no
+four- or eight-pane product limit. Existing splits remain readable after a
+window shrinks by retaining the recursive minimum size and allowing workspace
+scrolling. Drag a divider to resize its branches, or focus it and use the
+appropriate arrow keys; Shift makes a larger step, and Home/End reach the
+readable bounds. Keyboard and pointer changes preserve both branches' minimums.
+Group controllers keep stable identities when the tree gains or loses a split.
+
+One main-process Operator continues to own all runtime connections across these
+views. Moving a tab does not start another SDK loop, restart its engine or replay
+its prompt. The main-owned layout grants each conversation one writable window.
+A cross-window move reserves the tab while the source saves pending editor
+changes and the destination loads its history, draft, settings and attachments.
+Both windows acknowledge readiness before main commits the new owner. A failed
+or cancelled transfer leaves the source placement authoritative. Closing a
+detached window returns its tabs to another open Namzu window without cancelling
+their admitted work. Closing the final window uses the normal runtime shutdown.
+
+Main persists the versioned window layout, tab identities, active groups,
+split ratios and window bounds in `workspace-layout.json` beneath the native
+application data directory. Draft text, attachment bytes, provider credentials
+and model prompts are not part of that file. A pending native destination is
+excluded until its transfer commits. Restored window bounds are clamped to an
+available display's work area; missing displays cannot strand a window offscreen.
+Reloading a view reopens its actual main-owned conversations without replaying
+messages.
+
+Private desktop state is separate from admitted CLI history. Main saves stable
+project and conversation identities, their actual runtime IDs, unsent text,
+composer choices and confirmed provider selections in `desktop-conversations.json`
+under the native application data directory. Draft attachment bytes live in a
+referenced `desktop-draft-attachments.<sha256>.json` file. Attachment changes write
+the new blob before atomically replacing its metadata reference; typing updates
+the small metadata file without repeatedly encoding image bytes. Preview images
+are rebuilt from validated bytes instead of being stored twice. New files request
+owner-only permissions on POSIX; Windows uses the application's user-data access
+controls. Provider credentials, queued prompts, pending approvals and running
+activity are not stored here. A second application launch focuses the existing
+native instance so one main process owns the profile.
+
+A cold restart reopens durable history using its saved runtime ID, including
+conversations outside the recent catalogue. An unsubmitted conversation has no
+CLI journal yet: the desktop keeps its UI and draft owner, creates a replacement
+runtime slot, and restores the exact selected Namzu provider/model or native
+CLI engine/model before allowing Send. Saved effort, permissions and files remain
+with that owner. Restoration failures retain the draft for retry; they do not
+substitute another model. Neither reopening nor restoring a draft sends a prompt.
+
+The geometry, ownership and persistence behavior have deterministic coverage.
+Native Windows fixture checks verified four and eight panes, independent drafts,
+pointer and keyboard divider resizing, centre joins, edge splits, menu detach and
+an actual outside-window tab drag. The drag captured mouse-down, drag-start and
+drag-end delivery, then retained the draft, selected model and file across two
+native windows. The eight-pane fixture measured at least 463px by 652px per pane,
+above the product's readable minimums. A full application restart retained empty
+conversation UI IDs, draft settings and files while creating new runtime slots
+without prompt replay. See the [eight-pane capture](../../research/runtime-desktop-20260930/artifacts/workspace-eight-panes-native-20261004.png)
+and [detached-window capture](../../research/runtime-desktop-20260930/artifacts/workspace-detached-native-20261004.png).
+
+A separate native Windows check selected an actual Codex CLI catalogue model
+with its default effort, sent one prompt through the composer, and detached its
+tab while the real CLI thread was running. The source tab disappeared and the
+new native window received live updates while the same main process retained
+the single prompt. A read-only command approval arrived after the transfer;
+allowing it once in the destination led to the expected successful answer with
+no reported errors. The [sanitized running-transfer receipt](../../research/runtime-desktop-20260930/artifacts/workspace-running-native-safe-20261004.json)
+records these results without runtime IDs or raw history.
+
+The same real CLI conversation then received a second read-only command prompt.
+Its approval was already waiting in the source before another cross-window
+move. The destination retained the exact pending approval identity; allowing
+it once there completed the second command successfully. The conversation
+still contained exactly two authored prompts, with no replay or reported
+errors. See the [pending-approval transfer receipt](../../research/runtime-desktop-20260930/artifacts/workspace-approval-native-safe-20261004.json)
+and the [workspace-only capture of both settled turns](../../research/runtime-desktop-20260930/artifacts/workspace-running-native-safe-20261004.png).
+Closing all three extra native windows acknowledged their closes, returned
+their owned conversations to the original window, flushed the latest draft
+and retained that two-prompt history without errors; the [native-close receipt](../../research/runtime-desktop-20260930/artifacts/workspace-native-close-safe-20261004.json)
+records the result. These actual-runtime checks exercised the installed Codex
+CLI; they do not claim equivalent native proof for every provider or engine.
+
+A final cold start of the compiled native app, using normal application data
+and native window bounds restoration, also reopened that completed Codex
+conversation. It retained both authored prompts, the expected second answer,
+the latest unsent draft and the exact selected model, with no replay or reported
+errors. The [completed-history cold-start receipt](../../research/runtime-desktop-20260930/artifacts/workspace-running-cold-safe-20261004.json)
+records this separately from the earlier empty-conversation restoration.
+
 ## Transcript activity and timing
 
 The transcript follows admitted runtime events. Pending approvals show Waiting
@@ -524,8 +637,9 @@ leaves the submitted prompt bound to its captured project and model; it cannot
 redirect that prompt or switch the newly selected conversation. A failed provider
 selection retains the created conversation and its draft for retry. Saved history comes from Namzu's
 existing scoped logs and index; archived conversations cannot be resumed as
-writers. The app stores project paths in its own preferences, not conversation
-records or provider secrets. Historical display is a bounded text
+writers. The app's private records retain project paths, conversation identities
+and acknowledged drafts separately from that history, without provider secrets.
+Historical display is a bounded text
 projection of the latest 200 messages/200,000 characters and marks a partial view.
 The kernel loads the full admitted history for the model independently.
 
@@ -543,9 +657,9 @@ reapplies the exact engine and selected model for an unstarted native draft;
 failure retains that draft and never replays its prompt through Namzu.
 Failed saved-settings reads keep Send and model selection unavailable until
 Retry setup retrieves the actual saved choices, rather than choosing a default.
-Renderer reloads retain ordinary open tabs and the active conversation in window
-session storage. These IDs are revalidated against the main-owned project and
-conversation catalogue before the active history, draft and settings reopen.
+Renderer reloads retain ordinary open tabs, groups and active conversations in
+the main-owned window layout. Tab identities are revalidated against the actual
+project and conversation catalogue before history, drafts and settings reopen.
 Failed or incomplete restoration keeps the previous navigation for Retry setup
 and disables Send/model controls; deliberate navigation starts a fresh view.
 No model choice or draft text is duplicated in browser storage.
@@ -587,9 +701,10 @@ on demand rather than delaying project startup, shared while one request is in
 flight, and cancelled when the CLI connection closes.
 The account catalogue uses the driver's strict listing when available, keeping
 an authentication or network failure distinct from its legacy bundled menu.
-The menu has a provider column and selectable model rows with their catalogue
-labels. It opens from the start of the model control, with collision handling
-at the window edges. Provider glyphs stay in their navigation column; model rows
+The menu has a provider column when more than one provider is available and
+selectable model rows with their catalogue labels. A single provider uses a
+compact list. The menu opens from the end of the model control, with collision
+handling at the window edges. Provider glyphs stay in their navigation column; model rows
 use their names and selected checkmarks. Repeated provider-wide notes appear
 once; distinct model notes remain beside their models. Catalogue notices,
 errors and Retry actions have a separate bounded scroll area above the custom
@@ -598,8 +713,10 @@ Quick search searches model IDs, labels and provider names across the
 configured providers; `/` opens search while the menu has focus. Arrow keys move
 through the model choices, and Escape dismisses the menu and restores focus.
 Typing in Quick search keeps the search field focused. Arrow Down/Up enters the
-first/last matching row; Enter chooses a result and closes the menu. Clicking or
-pressing Space on a row also closes it and restores focus to the model control.
+first/last matching row; Enter, clicking or Space chooses a result. The composer
+keeps the model menu open so its selected row can expose effort. Escape dismisses
+it and restores focus to the model control. Profile-only model pickers close
+after selection because they do not edit a conversation's effort.
 Catalogue errors use a readable message and a provider-specific Retry action;
 they do not expose raw driver diagnostics or imply that the catalogue is empty.
 Fallback notices also remain visible in global search.
@@ -632,19 +749,25 @@ global CLI preferences. Existing fallback and delegation preferences remain in
 force. Reload also restores live messages, pending reviews and queued prompts
 from the main process; it does not restart the running turn.
 
-The adjacent settings menu offers reasoning effort only when the selected model
-has known supported choices. The menu uses the existing provider capability
-resolution, including configured fallbacks; unavailable settings are reported.
-An old explicit choice can be reset to the provider default. Changing the model
-clears its previous explicit effort rather than silently remapping it.
-Tool permissions use the actual runtime modes: Ask first (`prompt`), Allow edits
+The selected model row offers reasoning effort only when the actual model has
+known supported choices. Its effort chip opens a small panel beside the row;
+at window widths of 600px or below, the panel opens below the chip. A discrete
+slider contains only that model's supported levels, ordered from lower to higher
+effort, with the actual level named above it. Default restores the model's
+reported default rather than persisting a guessed slider position. Capability
+resolution includes configured fallbacks, and unavailable settings are reported.
+An old unsupported explicit choice has a Reset action. Changing the model clears
+its previous explicit effort rather than silently remapping it. These controls
+capture the model and conversation owner, so a late interaction cannot modify
+another selection.
+The underlying Namzu permission modes remain Ask first (`prompt`), Allow edits
 (`accept-edits`), Allow tools (`auto`), Preapproved only (`strict`) and Plan
 (`plan`). Allow tools remains subject to configured deny rules; Plan refuses
 changes. Settings are captured with each submitted or queued message and do not
 change the turn already running.
 
-The lower strip exposes Files and Plugins. Files and the paperclip open the
-native chooser. Drop files into the editor or paste an image to add their actual
+The attachment/settings popup exposes Attach images or files and Plugins.
+Attach images or files opens the native chooser. Drop files into the editor or paste an image to add their actual
 bytes. Supported native inputs are PNG, JPEG, GIF, WebP and strict UTF-8 text.
 PDF and other binary files are currently refused in the desktop preview. Image
 thumbnails open a full preview; each file has a removal action. A file-only
@@ -657,8 +780,9 @@ are the renderer's view.
 Files belong to their captured project or conversation. Changing folders during
 a chooser cannot redirect its result. The first Send moves its draft files and
 choices into the created conversation, including a failed route-selection retry.
-Window reload restores the unsent text, files, model and settings while main
-lives. A queued message keeps its original bytes and settings; Edit restores
+Window reload and application restart restore acknowledged unsent text, files,
+model and settings from private desktop storage. A queued message keeps its
+original bytes and settings while main lives; Edit restores
 them, and Remove releases its files. Cancellation or a provider error returns
 active files to the draft for retry. Images reach the actual user-message path;
 text files become labelled authored prompt content. The app checks the CLI's
@@ -694,8 +818,9 @@ latest (Alt+Up) returns an authored queued prompt to the composer; a non-empty
 draft must be sent or cleared first, so editing cannot discard unrelated text.
 A message that has already started cannot be edited or removed from the queue.
 
-Unsent drafts belong to their conversation or blank project in the main process.
-A blank project draft survives renderer reload without creating a session,
+Unsent drafts belong to their conversation or to a blank project composer scoped
+to its window and tab group in the main process. A blank project draft survives
+renderer reload and application restart without creating a session,
 even when its conversation catalogue cannot currently be read. A newly selected
 project waits for its own provider catalogue before allowing Send; the previous
 project’s model route is never used during that load. Suggestions are hidden
@@ -705,11 +830,13 @@ that conversation’s draft and is preserved when the earlier prompt is sent. Re
 conversation after a window reload restores its acknowledged draft, even while
 the runtime connection is unavailable. Each draft accepts at most 50,000
 characters; the application retains at most 1,000,000 draft characters across
-open conversations. A refused save remains visible as an error. Drafts are not
-model messages and are not written to conversation history or disk. Drafts and
-queues are connection-local and end when the application quits.
+open conversations. A refused save remains visible as an error. Acknowledged
+drafts are saved in private desktop storage; they are not model messages or
+admitted CLI history. Queues, pending reviews and running activities remain
+connection-local and end when the application quits; they are never replayed
+from the draft store.
 
-A draft-only conversation remains in the sidebar after reconnecting. Because
+A draft-only conversation keeps its tab after reconnecting or restarting. Because
 an unsubmitted conversation has no durable runtime history yet, the desktop
 recreates its runtime slot while retaining the same conversation and draft
 owner. Its first submitted message, review and answer stay in that conversation.
@@ -746,14 +873,18 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
 
 The native main process owns these methods. Its preload exposes only named UI
-actions, and checks the requesting window and main-frame URL. Node integration
-is disabled, context isolation and renderer sandboxing are enabled, navigation
-and additional windows/webviews are blocked, and the built UI has a restrictive
+actions, and checks the requesting registered window, exact web contents,
+main frame and renderer URL. Node integration is disabled, context isolation
+and renderer sandboxing are enabled. Arbitrary renderer navigation,
+`window.open` and webview attachment remain blocked. Detachable workspace
+windows are created and registered explicitly by main under the same policy.
+The built UI has a restrictive
 content policy. Model and tool text is rendered as text, never executable HTML.
 
 ## Current scope
 
-The preview covers local projects, conversation history, formatted replies,
+The preview covers local projects, conversation history, tab groups, split panes,
+detachable native windows, formatted replies,
 tool review, model settings, attachments, plugin inventory, message queues,
 background shells and persistent Pals with local virtual computers. Each computer
 runs its installed browser, terminal and Files applications; its live desktop

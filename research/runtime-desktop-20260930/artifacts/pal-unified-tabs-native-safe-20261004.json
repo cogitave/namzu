@@ -1,0 +1,11 @@
+{
+  "nativeWindows": true,
+  "oneTabList": true,
+  "ordinaryAndPalSameRow": true,
+  "computerSameRow": true,
+  "tabWidth": 220,
+  "tabHeight": 32,
+  "switchBackToPalChat": true,
+  "conversationIdentityPreserved": true,
+  "errors": []
+}

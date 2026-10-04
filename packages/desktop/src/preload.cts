@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
+	workspace: () => invoke('workspace'),
+	workspaceAction: (action) => invoke('workspaceAction', action),
+	workspaceReady: (transferId) => invoke('workspaceReady', transferId),
+	workspaceCloseReady: (closeId) => invoke('workspaceCloseReady', closeId),
 	diagnostics: () => invoke('diagnostics'),
 	windowChrome: () => invoke('windowChrome'),
 	setComputerKeyboardCapture: (enabled) => invoke('setComputerKeyboardCapture', enabled),

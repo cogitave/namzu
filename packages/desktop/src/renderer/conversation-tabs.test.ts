@@ -7,6 +7,9 @@ import { Wordmark, WordmarkInitial } from './wordmark.js'
 function render(overrides: Partial<ComponentProps<typeof ConversationTabs>> = {}) {
 	return renderToStaticMarkup(
 		createElement(ConversationTabs, {
+			windowId: 'window',
+			groupId: 'group',
+			onDetach: vi.fn(),
 			tabs: [
 				{ id: 'ordinary', projectId: 'project', title: 'First thread', updatedAt: '' },
 				{

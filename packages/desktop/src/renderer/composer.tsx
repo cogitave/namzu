@@ -45,6 +45,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 
 export function Composer({
+	draftDisabled = false,
 	inputRef,
 	variant = 'default',
 	draft,
@@ -136,6 +137,7 @@ export function Composer({
 	permissions: PermissionView[]
 	onApproval: (permission: PermissionView, approved: boolean) => void
 	attachments: AttachmentView[]
+	draftDisabled?: boolean
 	attachmentsBusy: boolean
 	onAttach: () => void
 	onAddFiles: (files: File[]) => void
@@ -489,7 +491,7 @@ export function Composer({
 										ref={inputRef}
 										value={draft}
 										maxLength={50000}
-										disabled={editingQueued}
+										disabled={editingQueued || draftDisabled}
 										placeholder={compact ? 'Send a message' : 'Ask Namzu anything'}
 										onChange={(event) => onDraftChange(event.target.value)}
 										onPaste={(event) => {

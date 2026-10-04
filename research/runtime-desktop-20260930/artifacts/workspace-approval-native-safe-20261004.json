@@ -1,0 +1,14 @@
+{
+  "nativeWindows": true,
+  "actualCLI": true,
+  "fixtureOverrides": false,
+  "alreadyPendingApprovalTransferred": true,
+  "approvalIdentityPreserved": true,
+  "sourceTabRemoved": true,
+  "promptCount": 2,
+  "noReplay": true,
+  "approvedOnceAtDestination": true,
+  "settled": true,
+  "answerVerified": true,
+  "errors": []
+}

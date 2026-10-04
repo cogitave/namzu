@@ -1,0 +1,13 @@
+{
+  "nativeWindows": true,
+  "actualCLI": true,
+  "fixtureOverrides": false,
+  "transferredWhileRunning": true,
+  "sourceTabRemoved": true,
+  "sameMainProcess": true,
+  "promptCount": 1,
+  "destinationLiveUpdates": true,
+  "settled": true,
+  "answerVerified": true,
+  "errors": []
+}

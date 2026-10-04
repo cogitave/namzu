@@ -1,0 +1,9 @@
+{
+  "nativeCloseReturnsConversations": true,
+  "allOwnedNativeClosesAcknowledged": true,
+  "windows": 1,
+  "draftFlushed": true,
+  "promptCount": 2,
+  "historyRetained": true,
+  "errors": []
+}

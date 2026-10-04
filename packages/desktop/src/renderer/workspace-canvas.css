@@ -1,0 +1,79 @@
+.workspace-canvas {
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+	overscroll-behavior: contain;
+	background: var(--sidebar);
+}
+.workspace-canvas-content {
+	position: relative;
+	min-width: 100%;
+	min-height: 100%;
+}
+.workspace-canvas-pane {
+	position: absolute;
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	overflow: clip;
+	background: var(--background);
+}
+.workspace-canvas-pane > .workspace {
+	flex: 1;
+	width: 100%;
+	height: 100%;
+	border-radius: 0;
+}
+.workspace-canvas-divider {
+	position: absolute;
+	z-index: 5;
+	touch-action: none;
+	outline: none;
+	background: color-mix(in srgb, var(--foreground) 9%, var(--background));
+	transition: background-color 120ms var(--motion-ease);
+	-webkit-app-region: no-drag;
+}
+.workspace-canvas-divider[data-direction="horizontal"] {
+	cursor: col-resize;
+}
+.workspace-canvas-divider[data-direction="vertical"] {
+	cursor: row-resize;
+}
+.workspace-canvas-divider:is(:hover, :focus-visible) {
+	background: color-mix(in srgb, var(--primary) 70%, var(--background));
+}
+.workspace-canvas-divider:focus-visible {
+	box-shadow: 0 0 0 1px var(--ring);
+}
+.workspace-canvas-drop-preview {
+	position: absolute;
+	z-index: 20;
+	display: grid;
+	place-items: center;
+	pointer-events: none;
+	border: 2px solid color-mix(in srgb, var(--primary) 72%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--primary) 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background) 80%, transparent);
+	transition: left 120ms var(--motion-ease), top 120ms var(--motion-ease), width 120ms
+		var(--motion-ease), height 120ms var(--motion-ease);
+}
+.workspace-canvas-drop-preview > span {
+	padding: 7px 12px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--popover);
+	color: var(--popover-foreground);
+	font-size: 12px;
+	font-weight: 500;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+}
+@media (prefers-reduced-motion: reduce) {
+	.workspace-canvas-divider,
+	.workspace-canvas-drop-preview {
+		transition: none;
+	}
+}
