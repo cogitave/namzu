@@ -120,6 +120,102 @@ async function open() {
 }
 
 describe('Codex owned external engine adapter', () => {
+	it('resets persistent native effort to the selected model default, including after a model change', async () => {
+		const effective: { model: unknown; effort: unknown }[] = []
+		let retainedEffort: unknown
+		fixture.onWrite = async (frame, emit) => {
+			if (frame.method === 'model/list') {
+				await emit({
+					id: frame.id,
+					result: {
+						data: [
+							{
+								model: 'native-model',
+								isDefault: true,
+								supportedReasoningEfforts: [
+									{ reasoningEffort: 'low' },
+									{ reasoningEffort: 'high' },
+								],
+								defaultReasoningEffort: 'low',
+							},
+							{
+								model: 'other-native-model',
+								supportedReasoningEfforts: [{ reasoningEffort: 'medium' }],
+								defaultReasoningEffort: 'medium',
+							},
+						],
+						nextCursor: null,
+					},
+				})
+				return true
+			}
+			if (frame.method !== 'turn/start') return false
+			const params = frame.params as Record<string, unknown>
+			if (params.effort !== undefined) retainedEffort = params.effort
+			effective.push({ model: params.model, effort: retainedEffort })
+			const turn = { id: `effort-turn-${effective.length}`, status: 'completed' }
+			await emit({
+				method: 'turn/completed',
+				params: { threadId: params.threadId, turn },
+			})
+			await emit({ id: frame.id, result: { turn } })
+			return true
+		}
+		const { connection } = await open()
+		try {
+			await connection.dispatch(prompt)
+			await connection.dispatch({ ...prompt, operationId: 'default-operation', effort: undefined })
+			await connection.dispatch({
+				...prompt,
+				operationId: 'different-model-operation',
+				model: 'other-native-model',
+				effort: undefined,
+			})
+			expect(effective).toEqual([
+				{ model: 'native-model', effort: 'high' },
+				{ model: 'native-model', effort: 'low' },
+				{ model: 'other-native-model', effort: 'medium' },
+			])
+		} finally {
+			await connection.close()
+		}
+	})
+	it.each([undefined, 'unsupported', 'low'])(
+		'refuses unknown or unoffered default effort %s before dispatch while allowing an explicit offered effort',
+		async (defaultReasoningEffort) => {
+			fixture.onWrite = async (frame, emit) => {
+				if (frame.method !== 'model/list') return false
+				await emit({
+					id: frame.id,
+					result: {
+						data: [
+							{
+								model: 'native-model',
+								isDefault: true,
+								supportedReasoningEfforts: [{ reasoningEffort: 'high' }],
+								defaultReasoningEffort,
+							},
+						],
+						nextCursor: null,
+					},
+				})
+				return true
+			}
+			const { connection } = await open()
+			try {
+				await expect(connection.dispatch({ ...prompt, effort: undefined })).rejects.toThrow(
+					'does not report a default reasoning effort',
+				)
+				expect(fixture.frames.filter((frame) => frame.method === 'turn/start')).toHaveLength(0)
+				await connection.dispatch(prompt)
+				expect(fixture.frames.filter((frame) => frame.method === 'turn/start')).toEqual([
+					expect.objectContaining({ params: expect.objectContaining({ effort: 'high' }) }),
+				])
+			} finally {
+				await connection.close()
+			}
+		},
+	)
 	it('projects native reviews and tools through the actual SDK journal without Namzu inference', async () => {
 		const scope = {
 			sessionId: generateSessionId(),
@@ -186,6 +282,24 @@ describe('Codex owned external engine adapter', () => {
 			await session.respond(review, { kind: 'reject', feedback: 'Use a different command.' })
 			expect(fixture.frames.at(-1)).toEqual({ id: 'sdk-review', result: { decision: 'decline' } })
 			await fixture.emit?.({
+				method: 'item/agentMessage/delta',
+				params: {
+					threadId,
+					turnId: nativeTurnId,
+					itemId: 'sdk-answer',
+					delta: 'Command ',
+				},
+			})
+			await fixture.emit?.({
+				method: 'item/agentMessage/delta',
+				params: {
+					threadId,
+					turnId: nativeTurnId,
+					itemId: 'sdk-answer',
+					delta: 'declined.',
+				},
+			})
+			await fixture.emit?.({
 				method: 'item/completed',
 				params: {
 					threadId,
@@ -216,6 +330,19 @@ describe('Codex owned external engine adapter', () => {
 				params: { threadId, turn: { id: nativeTurnId, status: 'completed' } },
 			})
 			expect((await outcome).status).toBe('completed')
+			const completedMessage = published.find((event) => event.type === 'message_completed')
+			expect(completedMessage).toMatchObject({ content: 'Command declined.' })
+			if (completedMessage?.type !== 'message_completed')
+				throw new Error('Expected the completed native assistant message.')
+			expect(published).toContainEqual(
+				expect.objectContaining({
+					type: 'turn_completed',
+					result: 'Command declined.',
+					settlement: expect.objectContaining({
+						resultMessageId: completedMessage.messageId,
+					}),
+				}),
+			)
 			expect(published).toContainEqual(
 				expect.objectContaining({
 					type: 'tool_executing',
@@ -252,6 +379,91 @@ describe('Codex owned external engine adapter', () => {
 			await session.close()
 		}
 	})
+	it.each([
+		{
+			label: 'explicit final answer followed by commentary',
+			items: [
+				{ id: 'final', text: 'Actual answer', phase: 'final_answer' },
+				{ id: 'commentary', text: 'Progress only', phase: 'commentary' },
+			],
+			finalItemId: 'final',
+		},
+		{
+			label: 'older unphased completed assistant',
+			items: [
+				{ id: 'commentary', text: 'Progress only', phase: 'commentary' },
+				{ id: 'final', text: 'Actual answer', phase: null },
+			],
+			finalItemId: 'final',
+		},
+		{
+			label: 'explicit final answer followed by unphased text',
+			items: [
+				{ id: 'final', text: 'Actual answer', phase: 'final_answer' },
+				{ id: 'unphased', text: 'Additional text', phase: null },
+			],
+			finalItemId: 'final',
+		},
+		{
+			label: 'commentary without an answer',
+			items: [{ id: 'commentary', text: 'Progress only', phase: 'commentary' }],
+			finalItemId: undefined,
+		},
+		{
+			label: 'authoritative empty final answer',
+			items: [{ id: 'empty', text: '', phase: 'final_answer' }],
+			finalItemId: 'empty',
+		},
+	])(
+		'binds terminal identity to $label, excluding foreign turns and partial text',
+		async ({ items, finalItemId }) => {
+			const { connection, events } = await open()
+			try {
+				const turn = await connection.dispatch(prompt)
+				await fixture.emit?.({
+					method: 'item/completed',
+					params: {
+						threadId: turn.nativeSessionId,
+						turnId: 'foreign-turn',
+						item: { type: 'agentMessage', id: 'foreign', text: 'Foreign', phase: 'final_answer' },
+					},
+				})
+				for (const item of items)
+					await fixture.emit?.({
+						method: 'item/completed',
+						params: {
+							threadId: turn.nativeSessionId,
+							turnId: turn.nativeTurnId,
+							item: { type: 'agentMessage', ...item },
+						},
+					})
+				await fixture.emit?.({
+					method: 'item/agentMessage/delta',
+					params: {
+						threadId: turn.nativeSessionId,
+						turnId: turn.nativeTurnId,
+						itemId: 'unfinished',
+						delta: 'Uncompleted stream',
+					},
+				})
+				await fixture.emit?.({
+					method: 'turn/completed',
+					params: {
+						threadId: turn.nativeSessionId,
+						turn: { id: turn.nativeTurnId, status: 'completed' },
+					},
+				})
+				expect(events.at(-1)).toEqual({
+					...turn,
+					kind: 'turn-completed',
+					status: 'completed',
+					...(finalItemId ? { finalItemId } : {}),
+				})
+			} finally {
+				await connection.close()
+			}
+		},
+	)
 	it('keeps an unacknowledged sent prompt uncertain instead of admitting a second native turn', async () => {
 		const { connection } = await open()
 		let sent!: () => void
@@ -580,13 +792,21 @@ describe('Codex owned external engine adapter', () => {
 			threadId: binding.nativeSessionId,
 			excludeTurns: true,
 		})
-		expect((await resumed.readHistory()).events).toContainEqual(
+		const history = await resumed.readHistory()
+		expect(history.events).toContainEqual(
 			expect.objectContaining({
 				kind: 'message-completed',
 				nativeItemId: 'historic-answer',
 				content: 'Saved answer',
 			}),
 		)
+		expect(history.events).toContainEqual({
+			kind: 'turn-completed',
+			nativeSessionId: binding.nativeSessionId,
+			nativeTurnId: 'historic-turn',
+			status: 'completed',
+			finalItemId: 'historic-answer',
+		})
 		await resumed.close()
 		await expect(
 			first.adapter.open(

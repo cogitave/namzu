@@ -2,6 +2,10 @@
 
 ## 2026-10-04
 
+- **Update** Desktop renderer reloads restore validated ordinary peer tabs and their active conversation, retaining the main-owned model and draft; incomplete restoration preserves navigation for retry and blocks sending.
+
+- **Fix** [Desktop project and model selection](cli/desktop.md#operator-flow) and [native engines](cli/native-engines.md#codex-session-behavior): retain an unstarted native draft's exact engine/model across reconnect, reflect acknowledged engine changes before metadata lookup, and retry failed saved settings without guessing a model. Resolve Default effort from the current native model on every Codex turn. Preserve the actual completed native final-answer identity at settlement and history reconciliation so terminal notifications do not erase successful streamed replies. Search ordinary projects, separate folder consent from conversation policy, and offer only implemented permission presets with explicit scoped native Full access confirmation. Record the [native Windows selection audit](../research/runtime-desktop-20260930/COMPOSER-WORKSPACE-HARNESS-20261004.md#project-permission-and-model-selection-follow-up).
+
 - **Creation** [External harness sessions](sdk/harness-sessions.md) and [native CLI engines](cli/native-engines.md): host installed `codex-cli` and `claude-code` through a vendor-neutral SDK lifecycle, durable exact engine/profile/native-session bindings, native approvals and confirmed cancellation. Add independent ordinary desktop tabs and a wordmark engine picker; retain Namzu provider choices separately.
 - **Update** [Desktop](cli/desktop.md) and [model catalogue](cli/model-catalogue.md): preserve separate tab drafts, enforce native engine capabilities and distinguish locally withdrawn credentials from remote authentication failures. Coalesce composer-height and transcript-scroll writes after resize delivery; native Windows approval banners were verified without the reproduced undelivered resize notifications.
 

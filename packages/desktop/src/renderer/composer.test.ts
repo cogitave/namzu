@@ -346,14 +346,18 @@ it('offers only actual ordinary projects with current selection and connection/t
 			},
 		],
 		onSelectProject: () => {},
+		onLeaveProject: () => {},
 	})
 	expect(html).toContain('aria-label="Project chooser"')
 	expect(html).toContain('aria-label="Available projects"')
 	expect(html).toMatch(/aria-checked="true"[^>]*aria-label="namzu"/)
-	expect(html).toContain('Approval required · Connecting…')
+	expect(html).toContain('Folder access required')
+	expect(html).toContain('Connecting…')
 	expect(html).toContain('Connection error')
-	expect(html).toContain('An ordinary chat')
+	expect(html).not.toContain('An ordinary chat')
+	expect(html).toContain('Don&#x27;t work in a project')
 	expect(html).toContain('Open folder…')
+	expect(html).toContain('aria-label="Search projects"')
 	expect(html).not.toContain('Private Pal workspace')
 	expect(html).not.toContain('/owned/private')
 	expect(html).not.toContain('Private transport detail')
@@ -373,4 +377,23 @@ it('retains the folder handler without a supplied project navigation contract', 
 		expect(html).toContain('aria-label="Choose project folder"')
 		expect(html).not.toContain('aria-label="Project chooser"')
 	}
+})
+
+it('retains confirmed native engine and permission semantics without optional engine metadata', () => {
+	const codex = render({
+		connected: true,
+		permissionEngine: 'codex-cli',
+		permissionScope: 'native-conversation',
+		settings: { permissionMode: 'auto' },
+	})
+	expect(button(codex, 'Execution engine')).toMatch(/\bdisabled=/)
+	expect(codex).toContain('title="Codex CLI"')
+	expect(codex).toContain('Full access')
+	expect(codex).not.toContain('>Allow tools<')
+	const nativeEngine = render({
+		connected: true,
+		permissionEngine: 'claude-code',
+		settings: { permissionMode: 'prompt' },
+	})
+	expect(nativeEngine).toContain('title="Claude Code"')
 })

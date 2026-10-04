@@ -51,12 +51,25 @@ and thinking replay/signatures do not become public journal output.
 
 ## Codex session behavior
 
+A native terminal receipt retains the actual completed final-answer item identity
+from its own turn. The final result is derived from that completed message,
+so a terminal notification without text does not erase a streamed reply.
+History reconciliation reconstructs the same identity; commentary and
+unfinished or foreign-turn messages cannot become a settled final answer.
+
 Codex runs its installed `app-server` JSON protocol as an owned persistent
 process. Initialization and model discovery use that engine's protocol;
 creating or reopening a conversation binds the exact native thread, profile
 route, canonical execution directory and confirmed initial model. The real
 catalogue default is ordered first. Namzu does not reuse its `codex` provider
 model list for these sessions.
+
+Each Codex turn sends the selected model's current native default reasoning
+effort when no explicit effort is selected. Codex keeps turn overrides on its
+thread, so omitting that value would retain an earlier selection after choosing
+Default effort or changing models. If the native catalogue does not report a
+valid default, dispatch requires an explicitly offered effort; Namzu does not
+guess one.
 
 The adapter subscribes before initialization and dispatch. Native turn/item
 IDs map to stable host message and observed tool identities. Final snapshots
@@ -65,8 +78,13 @@ cannot restart the finished turn. Public reasoning summaries are separate
 from assistant text; private replay material is omitted.
 
 Native command and file reviews retain the original numeric or string RPC
-request ID, exact thread/turn and immutable proposal. The desktop currently
-exposes supervised Ask first and Plan only. A turn interrupt ACK does not
+request ID, exact thread/turn and immutable proposal. The desktop offers
+Ask first, confirmed Full access and Plan. The ACP host admits Codex's declared
+review modes, including retained explicit Allow edits and Preapproved only
+policies; `claude-code` still admits only Ask first and Plan. Codex Full access
+uses the native danger-full-access sandbox with on-request approvals, rather
+than Namzu tool rules. Ask first retains the adapter's conservative untrusted
+approval/read-only mapping. A turn interrupt ACK does not
 establish completion: the matching terminal event or confirmed owned process
 stop is required. Codex history reconciliation pages the exact native thread;
 incomplete or conflicting evidence prevents automatic prompt replay.

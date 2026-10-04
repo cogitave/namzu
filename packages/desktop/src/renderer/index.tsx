@@ -42,6 +42,11 @@ import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerWorkspaceToolbar } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
+import {
+	readConversationTabsState,
+	resolveConversationTabsState,
+	writeConversationTabsState,
+} from './conversation-tabs-state.js'
 import { ConversationTabs } from './conversation-tabs.js'
 import {
 	ArrowUpIcon,
@@ -168,6 +173,16 @@ function App() {
 	const [conversations, setConversations] = useState<ConversationView[]>([])
 	const [sessionId, setSessionId] = useState('')
 	const [openTabIds, setOpenTabIds] = useState<string[]>([])
+	const [loading, setLoading] = useState(false)
+	const [tabsRestored, setTabsRestored] = useState(false)
+	const [restoringTabs, setRestoringTabs] = useState(true)
+	const [tabRestoreAttempt, setTabRestoreAttempt] = useState(0)
+	const abandonTabRestore = useCallback(() => {
+		// Deliberate navigation also retires the previous view's pending load.
+		setLoading(false)
+		setRestoringTabs(false)
+		setTabsRestored(true)
+	}, [])
 	const closedTabs = useRef(new Set<string>())
 	const providerGeneration = useRef(0)
 	const harnessGeneration = useRef(0)
@@ -374,7 +389,6 @@ function App() {
 	const [jobsError, setJobsError] = useState('')
 	const [jobsLoading, setJobsLoading] = useState(false)
 	const [error, setError] = useState('')
-	const [loading, setLoading] = useState(false)
 	const [sending, setSending] = useState<Record<string, boolean>>({})
 	const sendingRef = useRef(new Set<string>())
 	const input = useRef<HTMLTextAreaElement>(null)
@@ -444,8 +458,10 @@ function App() {
 		? providers
 		: { available: [], selected: null }
 	const harnessView = harnessState?.owner === providerKey ? harnessState.view : undefined
-	const externalHarness =
-		!pal && (harnessView?.selected ?? conversation?.harness ?? 'namzu') !== 'namzu'
+	const permissionEngine = pal
+		? 'namzu'
+		: (harnessView?.selected ?? conversation?.harness ?? 'namzu')
+	const externalHarness = permissionEngine !== 'namzu'
 	const normalTabs = openTabIds
 		.map((id) => conversations.find((item) => item.id === id && !item.palId))
 		.filter((item): item is ConversationView => Boolean(item))
@@ -471,6 +487,13 @@ function App() {
 		activeProviders.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
 		''
 	const modelSettingsKey = JSON.stringify([projectId, sessionId, choice.provider, modelId])
+	const modelSettingsBusy =
+		harnessBusy ||
+		loading ||
+		restoringTabs ||
+		savedSettings.loading ||
+		Boolean(sending[draftOwner]) ||
+		thread.running
 	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
 	const pluginsKey = modelSettingsKey
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
@@ -586,7 +609,7 @@ function App() {
 		setPluginStates((all) => ({ ...all, [key]: { loading: false, value } }))
 	}
 	useEffect(() => {
-		if (!projectId || !providerReady || !choice.provider || !modelId) return
+		if (!projectId || !providerReady || !choice.provider || !modelId || modelSettingsBusy) return
 		let current = true
 		void api
 			.modelSettings(projectId, choice.provider, modelId, sessionId || undefined)
@@ -606,7 +629,15 @@ function App() {
 		return () => {
 			current = false
 		}
-	}, [projectId, sessionId, providerReady, choice.provider, modelId, modelSettingsKey])
+	}, [
+		projectId,
+		sessionId,
+		providerReady,
+		choice.provider,
+		modelId,
+		modelSettingsKey,
+		modelSettingsBusy,
+	])
 	const updateProject = useCallback(
 		(item: ProjectView) =>
 			setProjects((items) => [...items.filter((row) => row.id !== item.id), item]),
@@ -620,6 +651,27 @@ function App() {
 			setError(errorText(failure))
 		}
 	}, [])
+	const retryConversationSetup = async () => {
+		if (!project || !project.trusted || project.status !== 'ready' || harnessBusy) return
+		const owner = providerKey
+		const epoch = ++providerGeneration.current
+		const harnessEpoch = ++harnessGeneration.current
+		savedSettings.retry()
+		await Promise.all([
+			api.providers(project.id, sessionId || undefined).then((available) => {
+				if (providerReadOwner.current !== owner || providerGeneration.current !== epoch) return
+				setProviders(available)
+				setProviderOwner(owner)
+			}),
+			!pal && api.harnesses
+				? api.harnesses(project.id, sessionId || undefined).then((view) => {
+						if (providerReadOwner.current !== owner || harnessGeneration.current !== harnessEpoch)
+							return
+						setHarnessState({ owner, view })
+					})
+				: Promise.resolve(),
+		])
+	}
 	useEffect(() => {
 		let current = true
 		void api
@@ -642,13 +694,6 @@ function App() {
 			setError('Open Namzu using the desktop application.')
 			return
 		}
-		void api
-			.projects()
-			.then((items) => {
-				setProjects(items)
-				if (items[0]) setProjectId(items[0].id)
-			})
-			.catch((failure) => setError(errorText(failure)))
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'connection') {
 				updateProject(event.project)
@@ -830,6 +875,7 @@ function App() {
 		}
 	}, [project, pal, sessionId, providerKey])
 	const newConversation = useCallback(async () => {
+		abandonTabRestore()
 		const generation = ++navigation.current
 		setLoading(true)
 		try {
@@ -863,12 +909,21 @@ function App() {
 			setJobsOpen(false)
 			requestAnimationFrame(() => input.current?.focus())
 		} finally {
-			setLoading(false)
+			if (generation === navigation.current) setLoading(false)
 		}
-	}, [projects, projectId, updateProject])
+	}, [projects, projectId, updateProject, abandonTabRestore])
 
 	const selectHarness = async (engine: HarnessView['selected']) => {
-		if (!api.selectHarness || !project || pal || harnessBusy || thread.running || loading) return
+		if (
+			!api.selectHarness ||
+			!project ||
+			pal ||
+			harnessBusy ||
+			thread.running ||
+			loading ||
+			restoringTabs
+		)
+			return
 		if ((harnessView?.selected ?? 'namzu') === engine) return
 		const generation = navigation.current
 		const sourceProject = project
@@ -900,32 +955,34 @@ function App() {
 				if (generation === navigation.current) setSessionId(target)
 			}
 			const view = await api.selectHarness(target, engine)
-			if (generation === navigation.current) {
-				harnessGeneration.current++
-				providerGeneration.current++
-			}
-			const available = await api.providers(sourceProject.id, target)
-			await savedSettings.save(target, {
-				options: { permissionMode: 'prompt' },
-			})
 			setConversations((all) =>
 				all.map((item) => (item.id === target ? { ...item, harness: view.selected } : item)),
 			)
-			if (generation !== navigation.current) return
 			const owner = JSON.stringify([sourceProject.id, target])
-			setHarnessState({ owner, view })
+			if (generation === navigation.current) {
+				harnessGeneration.current++
+				providerGeneration.current++
+				setHarnessState({ owner, view })
+				setProviderOwner('')
+				setSessionId(target)
+				setConversationSelection({ sessionId: target, collection: 'projects' })
+				setRailSection(null)
+				setJobsOpen(false)
+			}
+			await savedSettings.save(target, {
+				options: { permissionMode: 'prompt' },
+			})
+			const available = await api.providers(sourceProject.id, target)
+			if (generation !== navigation.current) return
 			setProviders(available)
 			setProviderOwner(owner)
-			setSessionId(target)
-			setConversationSelection({ sessionId: target, collection: 'projects' })
-			setRailSection(null)
-			setJobsOpen(false)
 		} finally {
 			setHarnessBusy(false)
 		}
 	}
 
 	const openProject = useCallback(async () => {
+		abandonTabRestore()
 		const generation = ++navigation.current
 		setLoading(true)
 		try {
@@ -935,6 +992,8 @@ function App() {
 				if (generation !== navigation.current) return
 				setProjectId(item.id)
 				setSessionId('')
+				setConversationSelection(null)
+				setPalScreen(undefined)
 				setRailSection(null)
 				setPalsPage(false)
 				setSideOpen(false)
@@ -944,11 +1003,34 @@ function App() {
 		} catch (failure) {
 			if (generation === navigation.current) throw failure
 		} finally {
-			setLoading(false)
+			if (generation === navigation.current) setLoading(false)
 		}
-	}, [updateProject])
+	}, [updateProject, abandonTabRestore])
+	const leaveProject = async () => {
+		if (!api.openChat) throw new Error('Restart the desktop app to open a normal conversation.')
+		abandonTabRestore()
+		const generation = ++navigation.current
+		setLoading(true)
+		try {
+			const item = await api.openChat()
+			updateProject(item)
+			if (generation !== navigation.current) return
+			setProjectId(item.id)
+			setSessionId('')
+			setConversationSelection(null)
+			setPalScreen(undefined)
+			setRailSection(null)
+			setPalsPage(false)
+			setSideOpen(false)
+			setJobsOpen(false)
+			requestAnimationFrame(() => input.current?.focus())
+		} finally {
+			if (generation === navigation.current) setLoading(false)
+		}
+	}
 	const selectProject = (id: string) => {
 		if (!projects.some((item) => item.id === id)) return
+		abandonTabRestore()
 		navigation.current += 1
 		setProjectId(id)
 		setSessionId('')
@@ -959,69 +1041,162 @@ function App() {
 		setSideOpen(false)
 		setJobsOpen(false)
 	}
-	const openConversation = async (
-		view: ConversationView,
-		collection: ConversationCollection = 'projects',
-	) => {
-		const generation = ++navigation.current
-		closedTabs.current.delete(view.id)
-		setPalScreen(undefined)
-		if (snapshotRead.current) snapshotRead.current.events.length = 0
-		const read = {
-			generation,
-			sessionId: view.id,
-			events: [] as DesktopEvent[],
-			characters: 0,
-			overflow: false,
-		}
-		snapshotRead.current = read
-		try {
-			const history = await api.openConversation(view.projectId, view.id)
-			if (generation !== navigation.current) return
-			if (read.overflow)
-				throw new Error(
-					'This conversation changed while opening. Open it again for its latest history.',
-				)
-			const replay = [...read.events]
-			if (snapshotRead.current === read) snapshotRead.current = null
-			setThreads((all) => {
-				let restored: ThreadState = {
-					...emptyThread(),
-					...history.thread,
-					messages: history.messages,
-					partial: history.partial,
-				}
-				if (!history.thread) restored = restoreMessages(restored, history.messages)
-				for (const event of replay) restored = applyEvent(restored, event)
-				return (all[view.id]?.revision ?? 0) > restored.revision
-					? all
-					: { ...all, [view.id]: restored }
-			})
-			const [status, savedDraft] = await Promise.all([
-				api.providers(view.projectId, view.id),
-				api.draft(view.id),
-			])
-			if (draftsRef.current[view.id] === undefined) {
-				draftsRef.current[view.id] = savedDraft
-				setDrafts((all) => ({ ...all, [view.id]: all[view.id] ?? savedDraft }))
+	const openConversation = useCallback(
+		async (
+			view: ConversationView,
+			collection: ConversationCollection = 'projects',
+			restoring = false,
+		) => {
+			if (!restoring) abandonTabRestore()
+			const generation = ++navigation.current
+			closedTabs.current.delete(view.id)
+			setPalScreen(undefined)
+			if (snapshotRead.current) snapshotRead.current.events.length = 0
+			const read = {
+				generation,
+				sessionId: view.id,
+				events: [] as DesktopEvent[],
+				characters: 0,
+				overflow: false,
 			}
-			if (generation !== navigation.current) return
-			setProviders(status)
-			setProviderOwner(JSON.stringify([view.projectId, view.id]))
-			setSessionId(view.id)
-			setConversationSelection({ sessionId: view.id, collection })
-			setProjectId(view.projectId)
-			setRailSection(null)
-			setPalsPage(false)
-			setSideOpen(false)
-			follow.current = true
-			input.current?.focus()
-		} catch (failure) {
-			if (generation === navigation.current) throw failure
-		} finally {
-			if (snapshotRead.current === read) snapshotRead.current = null
+			snapshotRead.current = read
+			try {
+				const history = await api.openConversation(view.projectId, view.id)
+				if (generation !== navigation.current) return
+				if (read.overflow)
+					throw new Error(
+						'This conversation changed while opening. Open it again for its latest history.',
+					)
+				const replay = [...read.events]
+				if (snapshotRead.current === read) snapshotRead.current = null
+				setThreads((all) => {
+					let restored: ThreadState = {
+						...emptyThread(),
+						...history.thread,
+						messages: history.messages,
+						partial: history.partial,
+					}
+					if (!history.thread) restored = restoreMessages(restored, history.messages)
+					for (const event of replay) restored = applyEvent(restored, event)
+					return (all[view.id]?.revision ?? 0) > restored.revision
+						? all
+						: { ...all, [view.id]: restored }
+				})
+				const [status, savedDraft] = await Promise.all([
+					api.providers(view.projectId, view.id),
+					api.draft(view.id),
+				])
+				if (draftsRef.current[view.id] === undefined) {
+					draftsRef.current[view.id] = savedDraft
+					setDrafts((all) => ({ ...all, [view.id]: all[view.id] ?? savedDraft }))
+				}
+				if (generation !== navigation.current) return
+				setProviders(status)
+				setProviderOwner(JSON.stringify([view.projectId, view.id]))
+				setSessionId(view.id)
+				setConversationSelection({ sessionId: view.id, collection })
+				setProjectId(view.projectId)
+				setRailSection(null)
+				setPalsPage(false)
+				setSideOpen(false)
+				follow.current = true
+				input.current?.focus()
+			} catch (failure) {
+				if (generation === navigation.current) throw failure
+			} finally {
+				if (snapshotRead.current === read) snapshotRead.current = null
+			}
+		},
+		[abandonTabRestore],
+	)
+	useEffect(() => {
+		if (!api) return
+		// An explicit retry revalidates the retained navigation against main.
+		void tabRestoreAttempt
+		let current = true
+		const generation = navigation.current
+		let restoreGeneration = generation
+		let restoredSuccessfully = false
+		setRestoringTabs(true)
+		const restore = async () => {
+			const items = await api.projects()
+			if (!current || generation !== navigation.current) return
+			setProjects(items)
+			const saved = readConversationTabsState(window.sessionStorage)
+			const savedProject = saved && items.find((item) => item.id === saved.projectId && !item.palId)
+			if (!saved || !savedProject) {
+				if (items[0]) setProjectId(items[0].id)
+				restoredSuccessfully = true
+				return
+			}
+			setProjectId(savedProject.id)
+			if (!savedProject.trusted || savedProject.status !== 'ready')
+				throw new Error('Reconnect or allow folder access before restoring these conversations.')
+			const readableProjects = items.filter(
+				(item) => !item.palId && item.trusted && item.status === 'ready',
+			)
+			const reads = await Promise.allSettled(
+				readableProjects.map(async (item) => ({ rows: await api.conversations(item.id) })),
+			)
+			if (!current || generation !== navigation.current) return
+			const failedRead = reads.find((read) => read.status === 'rejected')
+			if (failedRead?.status === 'rejected') throw failedRead.reason
+			const rows = reads.flatMap((read) => (read.status === 'fulfilled' ? read.value.rows : []))
+			if (
+				saved.openTabIds.some((id) => !rows.some((row) => row.id === id)) &&
+				items.some((item) => !item.palId && (!item.trusted || item.status !== 'ready'))
+			)
+				throw new Error('Reconnect the unavailable projects before restoring their open tabs.')
+			const restored = resolveConversationTabsState(saved, items, rows)
+			setConversations((all) => [
+				...rows,
+				...all.filter((item) => !rows.some((row) => row.id === item.id)),
+			])
+			setProjectId(savedProject.id)
+			if (!restored) {
+				restoredSuccessfully = true
+				return
+			}
+			setOpenTabIds(restored.openTabIds)
+			if (restored.activeSessionId) {
+				const active = rows.find((row) => row.id === restored.activeSessionId)
+				if (active) {
+					const opening = openConversation(active, 'projects', true)
+					restoreGeneration = navigation.current
+					await opening
+				}
+			}
+			restoredSuccessfully = true
 		}
-	}
+		void restore()
+			.catch((failure) => {
+				if (current && restoreGeneration === navigation.current) setError(errorText(failure))
+			})
+			.finally(() => {
+				if (current && restoreGeneration === navigation.current && restoredSuccessfully) {
+					setTabsRestored(true)
+					setRestoringTabs(false)
+				}
+			})
+		return () => {
+			current = false
+		}
+	}, [openConversation, tabRestoreAttempt])
+	useEffect(() => {
+		if (!tabsRestored || restoringTabs || loading || !project || project.palId) return
+		if (
+			sessionId &&
+			!conversations.some(
+				(item) => item.id === sessionId && item.projectId === project.id && !item.palId,
+			)
+		)
+			return
+		writeConversationTabsState(window.sessionStorage, {
+			projectId: project.id,
+			activeSessionId: sessionId,
+			openTabIds,
+		})
+	}, [tabsRestored, restoringTabs, loading, project, sessionId, openTabIds, conversations])
 	const upsertPal = (value: PalView) =>
 		setPals((all) =>
 			all.some((item) => item.id === value.id)
@@ -1029,6 +1204,7 @@ function App() {
 				: [...all, value],
 		)
 	const showPalOnboarding = () => {
+		abandonTabRestore()
 		navigation.current += 1
 		if (!palsPage) setDraftPalModel(null)
 		setEditingPal(undefined)
@@ -1046,6 +1222,7 @@ function App() {
 		setPalsError('')
 	}
 	const openPal = async (value: PalView) => {
+		abandonTabRestore()
 		const generation = ++navigation.current
 		setPalScreen(undefined)
 		setLoading(true)
@@ -1532,6 +1709,7 @@ function App() {
 				if (!view) throw new Error('This conversation is no longer available.')
 				await openConversation(view)
 			} else {
+				abandonTabRestore()
 				navigation.current += 1
 				invalidateComputerInput()
 				setPalScreen(undefined)
@@ -1563,6 +1741,7 @@ function App() {
 		)
 	}
 	const showSpaces = () => {
+		abandonTabRestore()
 		navigation.current += 1
 		setPalScreen(undefined)
 		setPalsPage(false)
@@ -1610,6 +1789,8 @@ function App() {
 	)
 	const send = async () => {
 		if (
+			loading ||
+			restoringTabs ||
 			(!draft.trim() && attached.get(draftOwner).length === 0) ||
 			!project?.trusted ||
 			(pal && (pal.paused || palComputer?.status !== 'ready')) ||
@@ -1801,13 +1982,7 @@ function App() {
 				icon: <FolderIcon aria-hidden="true" />,
 				keywords: [item.path],
 				onAction: () => {
-					navigation.current += 1
-					setProjectId(item.id)
-					setSessionId('')
-					setRailSection(null)
-					setPalsPage(false)
-					setSideOpen(false)
-					setJobsOpen(false)
+					selectProject(item.id)
 					input.current?.focus()
 				},
 			})),
@@ -1880,6 +2055,7 @@ function App() {
 				openProjectDisabled={loading}
 				onToggleSidebar={toggleSidebar}
 				onPlugins={() => {
+					abandonTabRestore()
 					navigation.current += 1
 					setPalScreen(undefined)
 					setPluginSelection(undefined)
@@ -2152,6 +2328,7 @@ function App() {
 									const next = remaining.at(-1)
 									if (next) void act(() => openConversation(next))
 									else {
+										abandonTabRestore()
 										navigation.current++
 										setSessionId('')
 										setConversationSelection(null)
@@ -2223,17 +2400,35 @@ function App() {
 						</>
 					)}
 				</WorkspacePageHeader>
-				{(error || project?.error) && (
+				{(error || project?.error || savedSettings.error) && (
 					<div className="connection-error">
 						<ChatErrorBanner
-							message={error || project?.error || ''}
+							message={savedSettings.error || error || project?.error || ''}
 							onRetry={
-								project?.status === 'error'
+								restoringTabs
 									? () =>
-											void act(async () => updateProject(await api.reconnectProject(project.id)))
+											void act(async () => {
+												const generation = navigation.current
+												if (project?.status === 'error')
+													updateProject(await api.reconnectProject(project.id))
+												if (generation === navigation.current)
+													setTabRestoreAttempt((attempt) => attempt + 1)
+											})
+									: project?.status === 'error'
+										? () =>
+												void act(async () => updateProject(await api.reconnectProject(project.id)))
+										: savedSettings.error ||
+												(project?.trusted &&
+													(!providerReady || (!pal && api.harnesses && !harnessView)))
+											? () => void act(retryConversationSetup)
+											: undefined
+							}
+							retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
+							onDismiss={
+								!restoringTabs && project?.status !== 'error' && !savedSettings.error
+									? () => setError('')
 									: undefined
 							}
-							onDismiss={project?.status !== 'error' ? () => setError('') : undefined}
 						/>
 					</div>
 				)}
@@ -2392,10 +2587,13 @@ function App() {
 								sessionId={sessionId || undefined}
 								projectPath={project.path}
 								harnessView={harnessView}
-								harnessBusy={harnessBusy}
+								permissionEngine={permissionEngine}
+								harnessBusy={harnessBusy || loading || restoringTabs}
 								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
 								attachmentsSupported={!externalHarness}
-								reviewModes={externalHarness ? ['prompt', 'plan'] : undefined}
+								reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
+								permissionScope={draftOwner}
+								onLeaveProject={() => void act(leaveProject)}
 								projects={projects.filter((item) => !item.palId)}
 								onSelectProject={(item) => selectProject(item.id)}
 								onOpenProject={() => void act(openProject)}
@@ -2407,14 +2605,20 @@ function App() {
 									project.status === 'ready' &&
 									providerReady &&
 									project.trusted &&
-									!savedSettings.loading
+									!savedSettings.loading &&
+									!harnessBusy &&
+									!loading &&
+									!restoringTabs
 								}
 								connected={
 									project.status === 'ready' &&
 									palCanWork &&
 									providerReady &&
 									project.trusted &&
-									!savedSettings.loading
+									!savedSettings.loading &&
+									!harnessBusy &&
+									!loading &&
+									!restoringTabs
 								}
 								providersLoading={!providerReady}
 								choice={choice}

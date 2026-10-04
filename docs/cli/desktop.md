@@ -502,8 +502,14 @@ reconstructed reasoning nor an invented duration.
 ## Operator flow
 
 Open a folder. If it is not already trusted by Namzu, the app shows its exact
-canonical path and a native confirmation before allowing project access. A new
-protocol session alone never grants trust. Cancel keeps the folder untrusted.
+canonical path and one native confirmation immediately after folder selection,
+before allowing project access. Existing trusted folders do not ask again.
+A new protocol session alone never grants trust. Cancel keeps the folder
+untrusted, with an explicit action to review access again. Folder trust is
+separate from the selected conversation's tool permissions and execution engine.
+The composer project menu searches existing ordinary projects by name or path;
+Don't work in a project opens the app-owned ordinary chat context. Neither
+project navigation nor opening the permission menu grants folder access.
 
 Choose a saved conversation, or type directly in the selected project’s blank
 composer. New conversation, Home and the tab plus button create a blank ACP
@@ -530,8 +536,31 @@ execution engine. Namzu uses its wordmark without a duplicate text label and kee
 its own provider/tool runtime. `codex-cli` and `claude-code` use the installed native
 engine and its actual model catalogue, surfaced under separate engine IDs. An
 existing conversation keeps its durable engine; choosing another engine opens a
-new peer tab. Native engine connections currently offer Ask first and Plan, and
-disable attachments and Namzu plugin toggles rather than discarding inputs.
+new peer tab. Selection is reflected immediately after the engine acknowledges
+it, even if later model discovery fails. Model, permission and attachment
+controls are disabled while engine selection is pending. A project reconnect
+reapplies the exact engine and selected model for an unstarted native draft;
+failure retains that draft and never replays its prompt through Namzu.
+Failed saved-settings reads keep Send and model selection unavailable until
+Retry setup retrieves the actual saved choices, rather than choosing a default.
+Renderer reloads retain ordinary open tabs and the active conversation in window
+session storage. These IDs are revalidated against the main-owned project and
+conversation catalogue before the active history, draft and settings reopen.
+Failed or incomplete restoration keeps the previous navigation for Retry setup
+and disables Send/model controls; deliberate navigation starts a fresh view.
+No model choice or draft text is duplicated in browser storage.
+
+The ordinary Namzu permission menu offers Ask first, Allow tools and Plan.
+Previously saved Allow edits and Preapproved only policies remain visible without
+changing the stored policy. Codex offers Ask first, Full access and Plan; choosing
+Full access requires an explicit confirmation for the captured conversation.
+Its existing conservative Ask first mapping uses native read-only/untrusted
+policy; it is not the current Codex app's workspace-write approval default.
+Full access is computer-wide native access without tool review. Namzu Allow tools
+continues to respect Namzu's configured tool rules and is not labelled Full access.
+The initial `claude-code` adapter offers Ask first and Plan only. The app does not
+offer Codex's automatic safety reviewer. Native engines disable attachments and
+Namzu plugin toggles rather than discarding inputs.
 See [native engines](native-engines.md) for installation, sign-in, cancellation
 and recovery limits.
 Composer height and transcript follow-scroll writes are coalesced into animation

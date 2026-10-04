@@ -216,6 +216,21 @@ function register(): void {
 		saveProjects()
 		return project
 	})
+	const confirmFolderAccess = async (id: string) => {
+		const project = operator.listProjects().find((item) => item.id === id)
+		if (!project || !window) throw new Error('Unknown project.')
+		if (project.trusted || project.status !== 'ready') return project
+		const answer = await dialog.showMessageBox(window, {
+			type: 'question',
+			title: 'Allow folder access?',
+			message: `Work in ${project.name}?`,
+			detail: `${project.path}\n\nAllow Namzu and your selected conversation engine to read files and run commands in this folder. Each conversation keeps its own tool permissions. Only allow access to a folder you trust.`,
+			buttons: ['Cancel', 'Allow folder access'],
+			defaultId: 0,
+			cancelId: 0,
+		})
+		return answer.response === 1 ? operator.trust(id) : project
+	}
 	handle('openProject', async () => {
 		if (!window) return null
 		const picked = await dialog.showOpenDialog(window, {
@@ -225,24 +240,10 @@ function register(): void {
 		if (picked.canceled || !picked.filePaths[0]) return null
 		const project = await operator.openProject(picked.filePaths[0])
 		saveProjects()
-		return project
+		return await confirmFolderAccess(project.id)
 	})
 	handle('reconnectProject', (id: string) => operator.reconnect(id))
-	handle('trustProject', async (id: string) => {
-		const project = operator.listProjects().find((item) => item.id === id)
-		if (!project || !window) throw new Error('Unknown project.')
-		const answer = await dialog.showMessageBox(window, {
-			type: 'question',
-			title: 'Trust this folder?',
-			message: 'Allow Namzu to work in this folder?',
-			detail: `${project.path}\n\nNamzu can read files and run project commands here. You will be asked before tools need approval.`,
-			buttons: ['Cancel', 'Trust folder'],
-			defaultId: 0,
-			cancelId: 0,
-		})
-		if (answer.response !== 1) return project
-		return await operator.trust(id)
-	})
+	handle('trustProject', confirmFolderAccess)
 	handle('conversations', (id: string) => operator.listConversations(id))
 	handle('newConversation', (id: string) => operator.newConversation(id))
 	handle('harnesses', (id: string, sessionId?: string) => operator.harnesses(id, sessionId))

@@ -169,7 +169,8 @@ proof for that engine. Deterministic protocol
 and SDK-journal integration tests establish ordering, review, identity and
 cleanup behavior without claiming a live authenticated `claude` turn.
 
-The first native-engine surface offers Ask first and Plan. Attachments,
+The initial stream-json surface offers Ask first and Plan. The app-server
+surface also offers explicitly confirmed Full access, as recorded below. Attachments,
 unsupported native question forms and unsupported effort controls remain
 truthfully unavailable; Namzu plugin/grant controls do not govern native-engine
 tool loops. Worktree execution remains unimplemented as described above.
@@ -199,3 +200,74 @@ selection. [Electron's Node launch documentation](https://www.electronjs.org/doc
 permits Node CLI options in this mode, subject to its documented unsupported
 OpenSSL/bundled CA flags. Unsupported runtimes retain their existing strict
 behavior. Native catalogue/TLS results belong in the separate receipt above.
+
+## Project, permission and model selection follow-up
+
+The actual native reference client was inspected in Codex mode: project search,
+New project, name/Source folders, Add folder on This computer, its native Windows
+folder dialog, approval menu, model submenu and reasoning-level control. The
+reference dialogs were cancelled without changing a user project or policy.
+Its named multi-folder project and automatic approval reviewer exceed Namzu's
+current single-folder execution contexts; no placeholder control advertises them.
+The documented [project flow](https://learn.chatgpt.com/docs/projects),
+[permission modes](https://learn.chatgpt.com/docs/permission-modes) and
+[model selection](https://learn.chatgpt.com/docs/model-selection) were checked
+against the native observations. The reference default is workspace-write with
+on-request approval. Namzu retains its conservative native read-only/untrusted
+Ask first mapping and describes that difference explicitly.
+
+The ordinary Namzu menu now exposes Ask first, Allow tools and Plan. Previously
+saved legacy modes remain visible without silently replacing their policy.
+The `codex-cli` surface exposes Ask first, Full access and Plan. Computer-wide
+Full access requires an explicit confirmation scoped to the captured conversation;
+cancelling keeps its previous policy. The `claude-code` surface offers only its
+implemented Ask first and Plan modes. Engine selection does not grant folder access.
+
+Project search filters actual ordinary contexts. Open folder uses the native
+Windows picker and one explicit canonical-folder access decision. Cancelling
+leaves the folder untrusted and offers Review folder access; selecting an
+already trusted project does not ask again. Don't work in a project opens the
+app-owned ordinary chat context, retaining immutable ownership of existing tabs.
+
+Three actual defects were reproduced and corrected during native verification:
+
+- Reloading the renderer lost active/open tab navigation while the main process
+  still held the chosen Space Bunny draft. Window session storage now contains
+  only navigation IDs. Main-owned project/conversation validation precedes history,
+  draft and model restoration. Incomplete reads retain the previous navigation
+  for Retry setup; deliberate navigation retires restoration. Send, including
+  keyboard submission, cannot run while restoration or view loading is pending.
+- Delayed model/engine metadata could overwrite an acknowledged selection.
+  Main guards now capture selection revision, client and runtime ownership.
+  A stale read is refused instead of adopted. Settings discovery pauses during
+  engine selection, dispatch and restoration, then reads the actual settled owner.
+  Native reconnect retains the exact unstarted engine/model without replaying a prompt.
+- A successful native turn streamed a complete final answer, then supplied a
+  terminal receipt without a final item. Its empty settled result erased the
+  displayed answer. The adapter now retains its own completed final-answer identity,
+  including native history reconciliation. Explicit commentary, unfinished streams
+  and foreign-turn items cannot supply the settled answer.
+
+Choosing Default effort resolves the selected native model's actual default on
+every turn. Native source inspection established that omitted effort retains the
+previous server setting. Deterministic native-wire tests cover high-to-default,
+model changes and missing/invalid catalogue defaults; the Windows UI also exercised
+High, Default and a model change.
+
+The [native selection receipt](artifacts/composer-selection-native-20261004.json)
+records production Electron with normal Windows user data and no browser fixtures.
+Namzu sent an actual Space Bunny Free turn and restored its model after reload.
+Installed Codex supplied five selectable models, ran GPT-6-Astra, and preserved
+its final assistant text in both main-owned history and the reloaded transcript.
+The native stream-json engine supplied four selectable models and two permission
+presets, then rejected actual inference with a visible sign-in notice. Its engine
+binding remained intact; no prompt was replayed through Namzu. Successful metadata
+discovery is therefore still separate from native account authentication.
+
+Only the owned test conversation, filtered project picker and permission dialogs
+appear in the saved images. Private reference chats and credential payloads are
+excluded. Latest verification passed 307 desktop and 5,011 CLI tests, workspace
+typecheck/lint, both affected builds, documentation conformance, external-name
+audit and the log standard. The earlier whole-workspace run passed 18,715 tests;
+the changed packages were rerun after the final fixes. This is local verification,
+not a claim that every CI/release gate ran or that the branch was pushed.

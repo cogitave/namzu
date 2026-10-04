@@ -20,22 +20,26 @@ export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
 
 export function HarnessPicker({
 	view,
+	selectedEngine,
 	busy,
 	disabled,
 	onSelect,
 }: {
 	view?: HarnessView
+	selectedEngine?: HarnessView['selected']
 	busy: boolean
 	disabled: boolean
 	onSelect: (engine: HarnessView['selected']) => void
 }) {
 	const [open, setOpen] = useState(false)
-	const selected = view?.selected ?? 'namzu'
-	const label = view?.engines.find((engine) => engine.id === selected)?.label ?? 'Namzu'
+	const selected = view?.selected ?? selectedEngine ?? 'namzu'
+	const label =
+		view?.engines.find((engine) => engine.id === selected)?.label ??
+		{ namzu: 'Namzu', 'codex-cli': 'Codex CLI', 'claude-code': 'Claude Code' }[selected]
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
-				render={<ComposerControl size="xs" disabled={disabled || busy} />}
+				render={<ComposerControl size="xs" disabled={disabled || busy || !view} />}
 				className="composer-harness-control"
 				aria-label="Execution engine"
 				title={label}

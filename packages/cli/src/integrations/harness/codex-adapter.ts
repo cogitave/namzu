@@ -181,6 +181,25 @@ function publicRequestId(id: RpcId): string {
 	return `codex:${JSON.stringify([typeof id, id])}`
 }
 
+interface CompletedAnswer {
+	readonly nativeItemId: string
+	readonly explicit: boolean
+}
+
+function completedAnswer(
+	previous: CompletedAnswer | undefined,
+	event: HarnessEvent,
+): CompletedAnswer | undefined {
+	if (event.kind !== 'message-completed') return previous
+	if (event.parts?.length && event.parts.every((part) => part.phase === 'commentary'))
+		return previous
+	const explicit = event.parts?.some((part) => part.phase === 'final_answer') ?? false
+	// Older engines omit the phase. Their last completed assistant item is the
+	// fallback, but it cannot displace an explicitly identified final answer.
+	if (previous?.explicit && !explicit) return previous
+	return { nativeItemId: event.nativeItemId, explicit }
+}
+
 class CodexConnection implements HarnessConnection {
 	readonly capabilities: HarnessCapabilities = {
 		persistentSessions: true,
@@ -203,6 +222,7 @@ class CodexConnection implements HarnessConnection {
 	private readonly reviews = new Map<string, PendingReview>()
 	private readonly early: (() => Promise<void>)[] = []
 	private readonly emitted = new Set<string>()
+	private readonly finalItems = new Map<string, CompletedAnswer>()
 	private readonly wire: CodexWire
 	constructor(
 		executable: string,
@@ -309,6 +329,10 @@ class CodexConnection implements HarnessConnection {
 			if (this.emitted.has(key)) return
 			this.emitted.add(key)
 		}
+		if ('nativeTurnId' in event) {
+			const answer = completedAnswer(this.finalItems.get(event.nativeTurnId), event)
+			if (answer) this.finalItems.set(event.nativeTurnId, answer)
+		}
 		await this.sink(event)
 	}
 	private async notification(method: string, value: unknown): Promise<void> {
@@ -332,6 +356,7 @@ class CodexConnection implements HarnessConnection {
 		} else if (method === 'turn/completed') {
 			const terminal = codexTerminalEvent(turn, rawTurn)
 			if (!terminal) throw new Error('Codex emitted an invalid terminal turn.')
+			const final = this.finalItems.get(turn.nativeTurnId)
 			if (this.active?.nativeTurnId === nativeTurnId) {
 				if (this.dispatching) this.dispatchTerminal = true
 				this.active = undefined
@@ -348,7 +373,8 @@ class CodexConnection implements HarnessConnection {
 					})
 				}
 			}
-			await this.emit(terminal)
+			await this.emit({ ...terminal, ...(final ? { finalItemId: final.nativeItemId } : {}) })
+			this.finalItems.delete(turn.nativeTurnId)
 		} else if (method === 'item/started' || method === 'item/completed') {
 			for (const event of codexItemEvents(turn, params.item, method === 'item/completed'))
 				await this.emit(event)
@@ -502,7 +528,15 @@ class CodexConnection implements HarnessConnection {
 		let sent = false
 		try {
 			const model = (await this.models(input.signal)).find((row) => row.id === input.model)
-			if (!model || (input.effort !== undefined && !model.effortLevels?.includes(input.effort)))
+			if (!model) throw new Error('The selected Codex model or effort is unavailable.')
+			// Codex retains turn overrides on the thread. Omitting effort would retain an
+			// earlier explicit value, including after switching to another model.
+			const effort = input.effort ?? model.defaultEffort
+			if (effort === undefined)
+				throw new Error(
+					'The selected Codex model does not report a default reasoning effort. Select an available effort explicitly.',
+				)
+			if (!model.effortLevels?.includes(effort))
 				throw new Error('The selected Codex model or effort is unavailable.')
 			if (!this.capabilities.reviewModes.includes(input.permissionMode))
 				throw new Error('Codex does not support this permission mode.')
@@ -518,7 +552,7 @@ class CodexConnection implements HarnessConnection {
 						clientUserMessageId: input.operationId,
 						input: [{ type: 'text', text: input.prompt, text_elements: [] }],
 						model: input.model,
-						...(input.effort ? { effort: input.effort } : {}),
+						effort,
 						...codexPermissionConfig(input.permissionMode, this.cwd),
 						approvalsReviewer: 'user',
 					},
@@ -658,6 +692,7 @@ class CodexConnection implements HarnessConnection {
 				nativeTurnId,
 			}
 			events.push({ ...turn, kind: 'turn-started' })
+			let final: CompletedAnswer | undefined
 			const items = await pages('thread/items/list', {
 				threadId: turn.nativeSessionId,
 				turnId: nativeTurnId,
@@ -676,6 +711,7 @@ class CodexConnection implements HarnessConnection {
 					...codexItemEvents(turn, item.item, false),
 					...(completedItem ? codexItemEvents(turn, item.item, true) : []),
 				]) {
+					final = completedAnswer(final, event)
 					if (
 						event.kind !== 'text-delta' &&
 						event.kind !== 'tool-output' &&
@@ -685,7 +721,8 @@ class CodexConnection implements HarnessConnection {
 				}
 			}
 			const terminal = codexTerminalEvent(turn, native)
-			if (terminal?.kind === 'turn-completed') events.push(terminal)
+			if (terminal?.kind === 'turn-completed')
+				events.push({ ...terminal, ...(final ? { finalItemId: final.nativeItemId } : {}) })
 			else if (native.status === 'inProgress') activeTurn = turn
 			else throw new Error('Codex history turn status is invalid.')
 		}

@@ -1,0 +1,84 @@
+{
+  "platform": "native Windows",
+  "application": "production Electron desktop",
+  "normalUserData": true,
+  "fixtureOverrides": false,
+  "folderFlow": {
+    "nativePicker": true,
+    "cancelDoesNotTrust": true,
+    "explicitConsentAndExistingSelection": true,
+    "projectSearch": true,
+    "noProject": true
+  },
+  "namzu": {
+    "model": "space-bunny-free",
+    "permissionPresets": 3,
+    "modelAndSessionRetainedOnRendererReload": true,
+    "firstTurnEnded": true,
+    "terminalStopReason": "end_turn"
+  },
+  "codex": {
+    "selectableModels": 5,
+    "chosenModel": "gpt-6-astra",
+    "effortReset": true,
+    "modelChangeClearsPreviousEffort": true,
+    "permissions": {
+      "count": 3,
+      "cancelRetainsPrompt": true,
+      "explicitFullAccess": true,
+      "returnedToPrompt": true
+    },
+    "engineAndModelRetainedOnRendererReload": true,
+    "replyRetention": {
+      "terminalResultCorrect": true,
+      "mainHistoryContainsAssistant": true,
+      "reloadContainsAssistant": true
+    }
+  },
+  "streamJsonEngine": {
+    "modelCount": 4,
+    "permissionCount": 2,
+    "stayedOnNativeEngine": true,
+    "stopReason": "error",
+    "error": "The native engine cannot use its current sign-in. Check its sign-in or choose another engine.",
+    "hasAssistant": false
+  },
+  "finalRendererReady": true,
+  "verification": {
+    "workspaceTestSnapshot": {
+      "passed": 18715,
+      "skipped": 116
+    },
+    "latestDesktopTests": 307,
+    "latestCliTests": {
+      "passed": 5011,
+      "skipped": 6
+    },
+    "typecheck": "passed",
+    "lint": "passed",
+    "desktopBuild": "passed",
+    "cliBuild": "passed",
+    "docsConformance": "passed",
+    "externalNameAudit": "passed",
+    "logStandard": "passed"
+  },
+  "evidenceIncludes": [
+    "composer-folder-consent-20261004.png",
+    "composer-permissions-20261004.png",
+    "composer-project-search-20261004.png",
+    "composer-native-models-20261004.png",
+    "composer-full-access-confirmation-20261004.png",
+    "composer-native-reply-retained-20261004.png",
+    "composer-zen-reply-20261004.png"
+  ],
+  "diagnostics": {
+    "rendererErrorsObserved": 0,
+    "recordedNativeSignInFailure": {
+      "event": "namzu.desktop.cli_turn_failed",
+      "operation": "session/prompt",
+      "count": 1
+    },
+    "earlierModelSettingsIpcFailuresDuringEngineTransitions": 2,
+    "finalCodexSettingsDiscovery": "passed"
+  }
+}

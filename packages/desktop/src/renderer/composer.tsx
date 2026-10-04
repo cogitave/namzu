@@ -76,6 +76,9 @@ export function Composer({
 	onHarnessChange,
 	attachmentsSupported = true,
 	reviewModes,
+	permissionEngine,
+	permissionScope,
+	onLeaveProject,
 	onOpenProject,
 	empty,
 	permissions,
@@ -125,6 +128,9 @@ export function Composer({
 	onHarnessChange?: (engine: HarnessView['selected']) => void
 	attachmentsSupported?: boolean
 	reviewModes?: readonly ComposerPermissionMode[]
+	permissionEngine?: HarnessView['selected']
+	permissionScope?: string
+	onLeaveProject?: () => void
 	onOpenProject: () => void
 	empty: boolean
 	permissions: PermissionView[]
@@ -161,6 +167,8 @@ export function Composer({
 	const settingsControl = (
 		<ComposerSettings
 			showPermissions={compact}
+			engine={permissionEngine ?? harnessView?.selected}
+			permissionScope={permissionScope}
 			reviewModes={reviewModes}
 			effortLevels={capabilities?.effortLevels}
 			effortDefault={capabilities?.effortDefault}
@@ -428,6 +436,7 @@ export function Composer({
 									projectName={projectName}
 									projectPath={projectPath}
 									projects={projects}
+									onLeaveProject={onLeaveProject}
 									onSelectProject={onSelectProject}
 									onOpenProject={onOpenProject}
 								/>
@@ -437,6 +446,7 @@ export function Composer({
 								</span>
 								<HarnessPicker
 									view={harnessView}
+									selectedEngine={permissionEngine}
 									busy={harnessBusy}
 									disabled={!connected || running || sending}
 									onSelect={onHarnessChange ?? (() => {})}
@@ -514,6 +524,8 @@ export function Composer({
 										<div className="composer-footer-options">
 											{plusControl}
 											<ComposerPermissions
+												engine={permissionEngine ?? harnessView?.selected}
+												permissionScope={permissionScope}
 												permissionMode={settings.permissionMode ?? 'prompt'}
 												reviewModes={reviewModes}
 												disabled={sending || !connected}

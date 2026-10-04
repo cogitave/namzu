@@ -6,7 +6,8 @@ export function ChatErrorBanner({
 	message,
 	onDismiss,
 	onRetry,
-}: { message: string; onDismiss?: () => void; onRetry?: () => void }) {
+	retryLabel = 'Reconnect',
+}: { message: string; onDismiss?: () => void; onRetry?: () => void; retryLabel?: string }) {
 	return (
 		<div className="flex w-full justify-center" role="alert">
 			<div className="error-banner flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 backdrop-blur-md">
@@ -16,7 +17,7 @@ export function ChatErrorBanner({
 				</div>
 				{onRetry && (
 					<Button variant="outline" size="sm" onClick={onRetry}>
-						Reconnect
+						{retryLabel}
 					</Button>
 				)}
 				{onDismiss && (

@@ -6,6 +6,7 @@ import {
 	type HarnessEventSink,
 	type HarnessModel,
 	type HarnessNativeTurn,
+	type HarnessPrompt,
 	generateSessionId,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -31,7 +32,7 @@ afterEach(async () => {
 	await Promise.all(runtimes.splice(0).map((runtime) => runtime.close()))
 	await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
-async function fixture() {
+async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-harness-acp-'))
 	directories.push(root)
 	const sessionId = generateSessionId()
@@ -67,6 +68,7 @@ async function fixture() {
 	let emit!: HarnessEventSink
 	let native!: HarnessNativeTurn
 	let turns = 0
+	const dispatches: HarnessPrompt[] = []
 	const terminal = async () => {
 		const nativeItemId = `answer-${turns}`
 		await emit({ kind: 'message-started', ...native, nativeItemId })
@@ -86,13 +88,13 @@ async function fixture() {
 		})
 	}
 	const adapter: HarnessAdapter = {
-		engineId: 'codex',
+		engineId: engine === 'codex-cli' ? 'codex' : 'claude',
 		profileRef: 'host-owned-fixture-route',
 		open: vi.fn<HarnessAdapter['open']>(async ({ cwd, model, resume }, onEvent) => {
 			emit = onEvent
 			const binding = resume ?? {
 				v: 1 as const,
-				engineId: 'codex',
+				engineId: adapter.engineId,
 				profileRef: adapter.profileRef,
 				nativeSessionId: 'opaque-native-thread',
 				cwd,
@@ -107,13 +109,17 @@ async function fixture() {
 					permissions: 'interactive',
 					interrupt: 'native-terminal',
 					attachments: [],
-					reviewModes: ['prompt', 'plan'],
+					reviewModes:
+						engine === 'codex-cli'
+							? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+							: ['prompt', 'plan'],
 				},
 				models: async () => [
 					{ id: 'actual-model', label: 'Actual model' },
 					{ id: 'other-model', label: 'Other model' },
 				],
-				dispatch: async () => {
+				dispatch: async (request) => {
+					dispatches.push(request)
 					native = {
 						nativeSessionId: binding.nativeSessionId,
 						nativeTurnId: `turn-${++turns}`,
@@ -181,6 +187,7 @@ async function fixture() {
 		ask: Parameters<CliAcpRuntime['gateway']['prompt']>[0]['ask'] = vi.fn(async () => ({
 			kind: 'approve' as const,
 		})),
+		options?: Parameters<CliAcpRuntime['gateway']['prompt']>[0]['options'],
 	) =>
 		runtime.gateway.prompt({
 			sessionId,
@@ -191,6 +198,7 @@ async function fixture() {
 			signal: new AbortController().signal,
 			onEvent: vi.fn(),
 			ask,
+			...(options ? { options } : {}),
 		})
 	return {
 		root,
@@ -200,6 +208,7 @@ async function fixture() {
 		base,
 		sessionId,
 		prompt,
+		dispatches,
 		review: () => {
 			reviewed = true
 		},
@@ -262,14 +271,42 @@ it('rejects fabricated engine models, Namzu provider aliases and unsupported set
 			prompt: 'No send',
 			filesystem: undefined,
 			history: [],
-			options: { permissionMode: 'auto' },
+			options: { permissionMode: 'unsupported' as never },
 			signal: new AbortController().signal,
 			onEvent: () => {},
 			ask: async () => ({ kind: 'approve' }),
 		}),
-	).rejects.toThrow('Ask first and Plan')
+	).rejects.toThrow('does not support the selected permission mode')
 	expect(f.adapter.open).not.toHaveBeenCalled()
 })
+
+it.each(['prompt', 'plan', 'accept-edits', 'auto', 'strict'] as const)(
+	'admits the actual Codex %s mode without changing it or invoking the kernel',
+	async (permissionMode) => {
+		const f = await fixture()
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await expect(f.prompt('Explicit mode', undefined, { permissionMode })).resolves.toMatchObject({
+			stopReason: 'end_turn',
+		})
+		expect(f.dispatches).toHaveLength(1)
+		expect(f.dispatches[0]?.permissionMode).toBe(permissionMode)
+		expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+	},
+)
+
+it.each(['accept-edits', 'auto', 'strict'] as const)(
+	'refuses unsupported Claude %s mode before native process startup',
+	async (permissionMode) => {
+		const f = await fixture('claude-code')
+		await f.runtime.selectHarness(f.sessionId, 'claude-code')
+		await expect(f.prompt('No send', undefined, { permissionMode })).rejects.toThrow(
+			'Ask first and Plan',
+		)
+		expect(f.adapter.open).not.toHaveBeenCalled()
+		expect(f.dispatches).toEqual([])
+		expect(f.base.gateway.prompt).not.toHaveBeenCalled()
+	},
+)
 
 it('preserves normal conversations on their original kernel path', async () => {
 	const f = await fixture()

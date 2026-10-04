@@ -65,6 +65,13 @@ interface Conversation {
 	runtimeSessionId: string
 	hasPrompted: boolean
 	reattaching?: Promise<void>
+	/** A published replacement slot may need selection retry before it is ready. */
+	replacement?: { client: RuntimeClient; id: string }
+	/** Actual successful runtime choice, independent of unsubmitted composer settings. */
+	providerSelection?: { provider: string; model?: string }
+	providerSetupFailure?: string
+	selectionRevision?: number
+	selectionPending?: boolean
 	client: RuntimeClient
 	running: boolean
 	runSettled?: Promise<void>
@@ -786,10 +793,12 @@ export class Operator {
 		if (session && session.view.projectId !== projectId)
 			throw new Error('This conversation belongs to another project.')
 		if (session?.needsLoad) await this.openConversation(projectId, sessionId as string)
+		const assertCurrent = this.metadataRead(project, session)
 		const view = (await project.client.request(
 			'namzu/harnesses/list',
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as HarnessView
+		assertCurrent()
 		if (session) session.view.harness = view.selected
 		return view
 	}
@@ -801,19 +810,81 @@ export class Operator {
 			throw new Error('Unknown execution engine.')
 		if (session.running || session.queue.length || this.changingPlugins.has(sessionId))
 			throw new Error('Stop this conversation before changing its engine.')
-		if (session.needsLoad) await this.openConversation(session.view.projectId, sessionId)
 		this.changingPlugins.add(sessionId)
+		session.selectionRevision = (session.selectionRevision ?? 0) + 1
+		session.selectionPending = true
 		try {
+			if (session.needsLoad) await this.reattach(session, { engine })
+			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
+			const previousEngine = session.view.harness
+			const previousSelection = session.providerSelection
 			const view = (await session.client.request('namzu/harnesses/select', {
 				sessionId: session.runtimeSessionId,
 				engine,
 			})) as HarnessView
+			assertCurrent()
 			session.view.harness = view.selected
 			session.providers = undefined
+			session.providerSelection =
+				previousEngine === view.selected && previousSelection?.provider === view.selected
+					? previousSelection
+					: undefined
+			session.providerSetupFailure = undefined
+			if (view.selected !== 'namzu') {
+				try {
+					const providers = (await session.client.request('namzu/providers/status', {
+						sessionId: session.runtimeSessionId,
+					})) as ProviderView
+					assertCurrent()
+					this.captureProviderSelection(session, providers)
+					session.providers = providers
+				} catch {
+					assertCurrent()
+					// The engine ACK remains authoritative when follow-up metadata is unavailable.
+					session.providerSetupFailure =
+						'The selected engine’s model settings could not be read. Retry model discovery or choose a model. Your draft is retained.'
+				}
+			}
 			return view
 		} finally {
+			session.selectionPending = false
 			this.changingPlugins.delete(sessionId)
 		}
+	}
+	private metadataRead(project: Project, session?: Conversation, selecting = false): () => void {
+		const client = project.client
+		const runtimeId = session?.runtimeSessionId
+		const revision = session?.selectionRevision ?? 0
+		const assertCurrent = () => {
+			if (
+				this.closing ||
+				this.projects.get(project.view.id) !== project ||
+				project.view.status !== 'ready' ||
+				(session &&
+					(session.client !== client ||
+						session.runtimeSessionId !== runtimeId ||
+						(session.selectionRevision ?? 0) !== revision ||
+						Boolean(session.selectionPending) !== selecting))
+			)
+				throw new Error('The conversation settings changed while loading. Retry this request.')
+		}
+		assertCurrent()
+		return assertCurrent
+	}
+	private captureProviderSelection(session: Conversation, providers: ProviderView): void {
+		const engine = session.view.harness
+		if (
+			engine &&
+			engine !== 'namzu' &&
+			(providers.selected?.id !== engine || !providers.selected.model)
+		)
+			throw new Error('This engine did not report its selected model. Choose a model again.')
+		if (providers.selected)
+			session.providerSelection = {
+				provider: providers.selected.id,
+				...(providers.selected.model ? { model: providers.selected.model } : {}),
+			}
+		session.providerSetupFailure = undefined
 	}
 	async openConversation(
 		projectId: string,
@@ -882,11 +953,32 @@ export class Operator {
 				session.runtimeSessionId === runtimeId,
 		)
 	}
-	private async reattach(session: Conversation): Promise<void> {
+	private async reattach(
+		session: Conversation,
+		requested?: { engine: HarnessView['selected']; model?: string },
+	): Promise<void> {
 		if (!session.needsLoad) return
 		if (session.reattaching) return await session.reattaching
 		const project = this.project(session.view.projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
 		const client = session.client
+		const selectionRevision = session.selectionRevision ?? 0
+		const engine = requested?.engine ?? session.view.harness
+		const draftChoice = session.draftSettings?.choice
+		const choice =
+			requested !== undefined
+				? requested.model
+					? { provider: requested.engine, model: requested.model }
+					: undefined
+				: draftChoice?.provider !== undefined && draftChoice.provider === engine
+					? draftChoice
+					: session.providerSelection
+		const stillOwned = () => {
+			if ((session.selectionRevision ?? 0) !== selectionRevision)
+				throw new Error('The conversation settings changed while loading. Retry this request.')
+			if (session.client !== client || project.view.status !== 'ready')
+				throw new Error('The connection changed while reopening this conversation.')
+		}
 		const operation = (async () => {
 			if (session.hasPrompted) {
 				await client.request('session/load', {
@@ -896,28 +988,65 @@ export class Operator {
 			} else {
 				// A never-started session has no durable CLI history to load. Keep
 				// its UI/draft owner and create only its replacement runtime slot.
-				const result = (await client.request('session/new', {
-					cwd: project.view.path,
-				})) as {
-					sessionId: string
+				if (session.replacement?.client !== client) {
+					const result = (await client.request('session/new', {
+						cwd: project.view.path,
+					})) as { sessionId: string }
+					stillOwned()
+					if (typeof result.sessionId !== 'string' || !result.sessionId)
+						throw new Error('Namzu returned an invalid conversation identity.')
+					const owner = this.runtimeSession(project, result.sessionId)
+					if (owner && owner !== session)
+						throw new Error('Namzu returned an identity owned by another conversation.')
+					session.runtimeSessionId = result.sessionId
+					session.replacement = { client, id: result.sessionId }
 				}
 				if (session.view.palId)
 					await client.request('namzu/pals/conversations/claim', {
 						palId: session.view.palId,
-						sessionId: result.sessionId,
+						sessionId: session.runtimeSessionId,
 					})
-				if (session.client !== client || project.view.status !== 'ready')
-					throw new Error('The connection changed while reopening this conversation.')
-				if (typeof result.sessionId !== 'string' || !result.sessionId)
-					throw new Error('Namzu returned an invalid conversation identity.')
-				const owner = this.runtimeSession(project, result.sessionId)
-				if (owner && owner !== session)
-					throw new Error('Namzu returned an identity owned by another conversation.')
-				session.runtimeSessionId = result.sessionId
+				if (engine && engine !== 'namzu') {
+					const restored = (await client.request('namzu/harnesses/select', {
+						sessionId: session.runtimeSessionId,
+						engine,
+					})) as HarnessView
+					stillOwned()
+					if (restored.selected !== engine)
+						throw new Error('The selected engine could not be restored. Your draft is retained.')
+					if (choice?.provider === engine && choice.model) {
+						await client.request('namzu/providers/select', {
+							sessionId: session.runtimeSessionId,
+							provider: choice.provider,
+							model: choice.model,
+						})
+						stillOwned()
+						session.providerSelection = { provider: choice.provider, model: choice.model }
+						session.providerSetupFailure = undefined
+					} else if (requested) {
+						// Explicit engine choice is confirmed independently of optional model metadata.
+						session.providerSelection = undefined
+					} else {
+						throw new Error(
+							session.providerSetupFailure ??
+								'Choose a model for this engine again. Your draft is retained.',
+						)
+					}
+					session.view.harness = engine
+				} else if (requested) {
+					const restored = (await client.request('namzu/harnesses/select', {
+						sessionId: session.runtimeSessionId,
+						engine: requested.engine,
+					})) as HarnessView
+					stillOwned()
+					if (restored.selected !== requested.engine)
+						throw new Error('The selected engine could not be restored. Your draft is retained.')
+					session.view.harness = requested.engine
+				}
 			}
-			if (session.client !== client || project.view.status !== 'ready')
-				throw new Error('The connection changed while reopening this conversation.')
+			stillOwned()
 			session.needsLoad = false
+			session.replacement = undefined
 		})()
 		session.reattaching = operation
 		try {
@@ -940,12 +1069,17 @@ export class Operator {
 		if (known?.view.status === 'error')
 			return session?.providers ?? known.providers ?? { available: [], selected: null }
 		const project = this.project(id)
+		if (session?.needsLoad) await this.reattach(session)
+		const assertCurrent = this.metadataRead(project, session)
 		const result = (await project.client.request(
 			'namzu/providers/status',
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as ProviderView
-		if (session) session.providers = result
-		else project.providers = result
+		assertCurrent()
+		if (session) {
+			this.captureProviderSelection(session, result)
+			session.providers = result
+		} else project.providers = result
 		return result
 	}
 	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
@@ -955,10 +1089,14 @@ export class Operator {
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
-		return (await project.client.request('namzu/providers/models', {
+		if (session?.needsLoad) await this.reattach(session)
+		const assertCurrent = this.metadataRead(project, session)
+		const result = (await project.client.request('namzu/providers/models', {
 			provider,
 			...(session ? { sessionId: session.runtimeSessionId } : {}),
 		})) as ModelCatalogueView
+		assertCurrent()
+		return result
 	}
 	async modelSettings(
 		id: string,
@@ -979,11 +1117,15 @@ export class Operator {
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
-		return (await project.client.request('namzu/providers/settings', {
+		if (session?.needsLoad) await this.reattach(session)
+		const assertCurrent = this.metadataRead(project, session)
+		const result = (await project.client.request('namzu/providers/settings', {
 			provider,
 			model,
 			...(session ? { sessionId: session.runtimeSessionId } : {}),
 		})) as ComposerModelSettings
+		assertCurrent()
+		return result
 	}
 	async plugins(id: string, sessionId?: string): Promise<PluginInventoryView> {
 		const project = this.project(id)
@@ -991,10 +1133,14 @@ export class Operator {
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
-		return (await project.client.request(
+		if (session?.needsLoad) await this.reattach(session)
+		const assertCurrent = this.metadataRead(project, session)
+		const result = (await project.client.request(
 			'namzu/plugins/list',
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as PluginInventoryView
+		assertCurrent()
+		return result
 	}
 	async setPluginEnabled(
 		sessionId: string,
@@ -1024,20 +1170,41 @@ export class Operator {
 	}
 	async selectProvider(sessionId: string, provider: string, model?: string): Promise<void> {
 		const session = this.session(sessionId)
-		if (session.needsLoad) await this.openConversation(session.view.projectId, sessionId)
-		if (session.running || this.changingPlugins.has(sessionId))
-			throw new Error('Stop this conversation before changing its model.')
 		if (
 			typeof provider !== 'string' ||
 			provider.length > 400 ||
 			(model !== undefined && (typeof model !== 'string' || model.length > 400))
 		)
 			throw new Error('Invalid model choice.')
-		await session.client.request('namzu/providers/select', {
-			sessionId: session.runtimeSessionId,
-			provider,
-			...(model?.trim() ? { model: model.trim() } : {}),
-		})
+		if (session.running || this.changingPlugins.has(sessionId))
+			throw new Error('Stop this conversation before changing its model.')
+		this.changingPlugins.add(sessionId)
+		session.selectionRevision = (session.selectionRevision ?? 0) + 1
+		session.selectionPending = true
+		try {
+			if (session.needsLoad)
+				await this.reattach(
+					session,
+					provider === session.view.harness && provider !== 'namzu'
+						? { engine: provider, ...(model?.trim() ? { model: model.trim() } : {}) }
+						: undefined,
+				)
+			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
+			await session.client.request('namzu/providers/select', {
+				sessionId: session.runtimeSessionId,
+				provider,
+				...(model?.trim() ? { model: model.trim() } : {}),
+			})
+			assertCurrent()
+			session.providerSelection = {
+				provider,
+				...(model?.trim() ? { model: model.trim() } : {}),
+			}
+			session.providerSetupFailure = undefined
+		} finally {
+			session.selectionPending = false
+			this.changingPlugins.delete(sessionId)
+		}
 	}
 	private attachmentProject(ownerId: string): string {
 		this.draftOwner(ownerId)
@@ -1117,7 +1284,7 @@ export class Operator {
 		const session = this.session(sessionId)
 		this.assertPalAdmission(session.view.palId)
 		if (this.changingPlugins.has(sessionId))
-			throw new Error('Wait for this conversation’s plugin change to finish.')
+			throw new Error('Wait for this conversation’s settings change to finish.')
 		if (
 			options !== undefined &&
 			(!options || typeof options !== 'object' || Array.isArray(options))
@@ -1129,8 +1296,16 @@ export class Operator {
 				throw new Error(
 					'This engine connection does not support attachments yet. Your draft is retained.',
 				)
-			if (options?.permissionMode && !['prompt', 'plan'].includes(options.permissionMode))
-				throw new Error('This engine supports Ask first and Plan only.')
+			const supportedReviewModes =
+				session.view.harness === 'codex-cli'
+					? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+					: ['prompt', 'plan']
+			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
+				throw new Error(
+					session.view.harness === 'claude-code'
+						? 'This engine supports Ask first and Plan only.'
+						: 'This engine does not support the selected permission mode.',
+				)
 		}
 		if (
 			!Array.isArray(ids) ||

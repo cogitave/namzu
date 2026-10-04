@@ -246,8 +246,16 @@ export function withCliHarnesses(
 				const model = (await modelsFor(choice.engine, cwd)).find((row) => row.id === choice.model)
 				if (!model) throw new Error('Choose a model listed by this engine.')
 				const mode = request.options?.permissionMode ?? 'prompt'
-				if (mode !== 'prompt' && mode !== 'plan')
-					throw new Error('This engine supports Ask first and Plan only.')
+				const supportedReviewModes =
+					choice.engine === 'codex-cli'
+						? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+						: ['prompt', 'plan']
+				if (!supportedReviewModes.includes(mode))
+					throw new Error(
+						choice.engine === 'claude-code'
+							? 'This engine supports Ask first and Plan only.'
+							: 'This engine does not support the selected permission mode.',
+					)
 				if (request.options?.effort && !model.effortLevels?.includes(request.options.effort))
 					throw new Error('This engine model does not support the selected effort.')
 				if (!record) {

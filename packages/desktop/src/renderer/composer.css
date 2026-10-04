@@ -198,12 +198,34 @@
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
+.composer-project-search {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 8px 4px;
+	margin-bottom: 4px;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+}
+.composer-project-search > svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
+}
+.composer-project-search [data-slot="input-control"] {
+	min-width: 0;
+	flex: 1;
+}
+.composer-project-search input {
+	padding: 0;
+	font-size: 13px;
+}
 .composer-project-row {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	min-height: 44px;
+	min-height: 30px;
 	padding: 6px 8px;
 	border: 0;
 	border-radius: 7px;
