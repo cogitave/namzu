@@ -1,7 +1,13 @@
 import { MessageSquare, Minus } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
+import {
+	type ThreadState,
+	applyEvent,
+	emptyThread,
+	restoreMessages,
+	threadPhase,
+} from '../shared/projection.js'
 import type {
 	ComposerModelSettings,
 	PalComputerView as ComputerState,
@@ -17,7 +23,6 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
-import { AttachmentList } from './attachment-list.js'
 import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
@@ -45,11 +50,9 @@ import {
 	SquareIcon,
 	SquarePenIcon,
 	TerminalIcon,
-	WrenchIcon,
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
-import { Message, MessageContent } from './message.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
@@ -59,7 +62,7 @@ import { PalCustomizeDialog, PalSidebarSection, PalWelcome, PalsPage } from './p
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type Appearance, type ConversationCollection, Sidebar } from './sidebar.js'
-import { ToolView } from './tool-view.js'
+import { Transcript } from './transcript.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { TooltipProvider } from './ui/tooltip.js'
@@ -89,45 +92,6 @@ function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 
 		close: XIcon,
 	}[name]
 	return <Component aria-hidden="true" />
-}
-function ToolRow({ tool, active }: { tool: ThreadState['tools'][string]; active: boolean }) {
-	const Icon =
-		tool.view.kind === 'terminal' || tool.title === 'bash'
-			? TerminalIcon
-			: tool.view.kind === 'diff'
-				? FileDiffIcon
-				: WrenchIcon
-	return (
-		<details
-			className={`tool ${tool.status} ${active ? 'active' : ''}`}
-			data-tool-call-id={tool.toolCallId}
-		>
-			<summary>
-				<span className="tool-icon flex size-6 shrink-0 items-center justify-center">
-					<Icon className="size-4" aria-hidden="true" />
-				</span>
-				<span>{tool.view.kind === 'generic' ? tool.view.label : tool.title}</span>
-				<span className="tool-status">
-					{tool.status === 'pending'
-						? active
-							? 'Working'
-							: 'Interrupted'
-						: tool.status === 'failed'
-							? 'Failed'
-							: 'Done'}
-				</span>
-			</summary>
-			<ToolView view={tool.view} />
-			{tool.progress && (
-				<output className="tool-progress">
-					{tool.progress.message}
-					{tool.progress.fraction !== undefined && (
-						<progress value={tool.progress.fraction} max={1} />
-					)}
-				</output>
-			)}
-		</details>
-	)
 }
 function App() {
 	const [pals, setPals] = useState<PalView[]>([])
@@ -453,6 +417,7 @@ function App() {
 				activeTools: thread.activeToolIds.length,
 				awaitingApproval: thread.permissions.length > 0,
 				running: thread.running,
+				phase: threadPhase(thread),
 				onChanges: () => {
 					setPanelTab('changes')
 					setJobsOpen(true)
@@ -2244,45 +2209,7 @@ function App() {
 											device.
 										</p>
 									)}
-									{thread.timeline.map((entry) => {
-										if (entry.kind === 'tool') {
-											const tool = thread.tools[entry.id]
-											return tool ? (
-												<div
-													className="tool-list"
-													key={`tool-${entry.id}`}
-													data-timeline-turn={entry.turn}
-												>
-													<ToolRow tool={tool} active={thread.activeToolIds.includes(entry.id)} />
-												</div>
-											) : null
-										}
-										const message = thread.messages[entry.index]
-										return message ? (
-											<Message
-												from={message.role}
-												className={`message ${message.role}`}
-												key={`message-${entry.index}`}
-												data-timeline-turn={entry.turn}
-											>
-												<MessageContent
-													text={message.text}
-													markdown={message.role === 'assistant'}
-												/>
-												{message.attachments && (
-													<div className="mt-2">
-														<AttachmentList attachments={message.attachments} />
-													</div>
-												)}
-											</Message>
-										) : null
-									})}
-									{thread.reasoning && (
-										<details className="reasoning">
-											<summary>Thinking</summary>
-											<p>{thread.reasoning}</p>
-										</details>
-									)}
+									<Transcript key={sessionId || 'blank'} thread={thread} />
 									<ChangedFilesCard
 										tools={thread.tools}
 										onOpen={() => {
@@ -2293,23 +2220,6 @@ function App() {
 									{thread.error && (
 										<p className="inline-error" role="alert">
 											{thread.error}
-										</p>
-									)}
-									{thread.running && (
-										<div className="working">
-											<span className="activity" />
-											{thread.permissions.length ? 'Waiting for your decision' : 'Working'}
-										</div>
-									)}
-									{!thread.running && thread.stopReason && thread.stopReason !== 'end_turn' && (
-										<p className="notice">
-											{thread.stopReason === 'cancelled'
-												? 'Stopped. You can continue from here.'
-												: thread.stopReason === 'max_turns'
-													? 'Turn limit reached. Review the work before continuing.'
-													: thread.stopReason === 'refused'
-														? 'The action was not approved.'
-														: 'This turn could not finish.'}
 										</p>
 									)}
 								</div>

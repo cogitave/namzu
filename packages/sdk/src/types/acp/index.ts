@@ -1,7 +1,8 @@
 import type { ReviewMode } from '../../runtime/query/review-policy.js'
 import type { SerializableHostCommand } from '../command/index.js'
-import type { DocumentAttachment, ImageAttachment } from '../message/index.js'
+import type { AssistantTextPart, DocumentAttachment, ImageAttachment } from '../message/index.js'
 import type { ReasoningEffort } from '../provider/chat.js'
+import type { MessageStopReason } from '../session/stop-reason.js'
 import type { ToolCallView } from '../tool/presentation.js'
 
 /**
@@ -137,6 +138,8 @@ export type AcpStopReason = 'end_turn' | 'cancelled' | 'refused' | 'error' | 'ma
 
 export interface AcpSessionPromptResult {
 	readonly stopReason: AcpStopReason
+	/** Exact runtime reason, when available; a cancelled preparation also names cancellation. */
+	readonly reason?: string
 }
 
 export interface AcpSessionCancelParams {
@@ -152,9 +155,45 @@ export interface AcpSessionCancelParams {
  */
 export type AcpSessionUpdate =
 	/** A fragment of the assistant's answer. */
-	| { readonly kind: 'agent_message_chunk'; readonly text: string }
+	| {
+			readonly kind: 'agent_message_chunk'
+			readonly text: string
+			readonly messageId?: string
+			readonly turnId?: string
+			readonly iteration?: number
+			/** Public provider phase only; absent means the provider did not name one. */
+			readonly phase?: AssistantTextPart['phase']
+			readonly textPart?: Omit<AssistantTextPart, 'text'>
+	  }
+	/** A completed message; content selects the provider's explicit final-answer parts. */
+	| {
+			readonly kind: 'agent_message'
+			readonly status: 'completed'
+			readonly messageId?: string
+			readonly turnId?: string
+			readonly iteration?: number
+			readonly content?: string
+			readonly textParts?: readonly AssistantTextPart[]
+			readonly stopReason: MessageStopReason
+	  }
 	/** A fragment of the assistant's reasoning, when the model emits any. */
-	| { readonly kind: 'agent_thought_chunk'; readonly text: string }
+	| {
+			readonly kind: 'agent_thought_chunk'
+			readonly text: string
+			readonly messageId?: string
+			readonly turnId?: string
+			readonly iteration?: number
+			readonly blockId?: string
+	  }
+	/** Reasoning boundaries also represent redacted blocks, without exposing their payload. */
+	| {
+			readonly kind: 'agent_thought'
+			readonly status: 'pending' | 'completed'
+			readonly messageId?: string
+			readonly turnId?: string
+			readonly iteration?: number
+			readonly blockId?: string
+	  }
 	/**
 	 * A tool call, rendered by the TOOL rather than by this bridge.
 	 *
@@ -169,6 +208,8 @@ export type AcpSessionUpdate =
 			readonly title: string
 			readonly status: 'pending' | 'completed' | 'failed'
 			readonly view: ToolCallView
+			/** Runtime-measured execution duration, present on completed calls when known. */
+			readonly durationMs?: number
 			/** Live progress for this call; preserve its prior presentation while updating. */
 			readonly progress?: {
 				readonly message: string
@@ -180,6 +221,13 @@ export type AcpSessionUpdate =
 			readonly kind: 'turn_ended'
 			readonly stopReason: AcpStopReason
 			readonly error?: string
+			readonly turnId?: string
+			/** The settled answer's actual message identity, when the runtime recorded one. */
+			readonly messageId?: string
+			/** Exact runtime reason; for example, paused remains distinct from cancelled. */
+			readonly reason?: string
+			/** Authoritative settled answer. An empty string deliberately clears rejected output. */
+			readonly result?: string
 	  }
 
 export interface AcpSessionUpdateNotification {

@@ -26,6 +26,8 @@ lines.on('line', (line) => {
 	else if (method === 'session/new') reply(id, { sessionId: `session-${randomUUID()}` })
 	else if (method === 'session/prompt') {
 		if (params.prompt === 'Fail turn with fixture') { reply(id, { stopReason: 'error', history: { messages: ['PRIVATE_TURN_HISTORY_FIXTURE'] } }); return }
+		if (params.prompt === 'Reject turn with fixture') { send({ id, error: { code: -32603, message: 'The isolated fixture rejected this prompt.' } }); return }
+		if (params.prompt === 'Pause turn with fixture') { reply(id, { stopReason: 'cancelled', reason: 'paused' }); return }
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })

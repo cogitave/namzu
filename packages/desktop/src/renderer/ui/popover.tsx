@@ -38,6 +38,7 @@ const popoverViewportPaddingClassName = {
 function PopoverPopup({
 	children,
 	className,
+	positionerClassName,
 	padding = 'default',
 	width = 'auto',
 	side = 'bottom',
@@ -49,6 +50,7 @@ function PopoverPopup({
 	anchor,
 	...props
 }: PopoverPrimitive.Popup.Props & {
+	positionerClassName?: string
 	padding?: keyof typeof popoverViewportPaddingClassName
 	side?: PopoverPrimitive.Positioner.Props['side']
 	align?: PopoverPrimitive.Positioner.Props['align']
@@ -68,7 +70,10 @@ function PopoverPopup({
 				align={align}
 				alignOffset={alignOffset}
 				anchor={anchor}
-				className="z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none"
+				className={cn(
+					'z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none',
+					positionerClassName,
+				)}
 				data-slot="popover-positioner"
 				side={side}
 				sideOffset={sideOffset}

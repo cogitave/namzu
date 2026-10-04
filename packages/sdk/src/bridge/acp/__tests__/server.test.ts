@@ -305,7 +305,210 @@ describe('session/prompt', () => {
 			.filter((m) => m.method === 'session/update')
 			.map((m) => (m.params as { update: { text?: string } }).update.text)
 		expect(chunks).toEqual(['hello ', 'peer'])
-		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({ stopReason: 'end_turn' })
+		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
+	})
+
+	it.each([
+		{ label: 'corrected', result: 'Reviewed answer.', reason: 'end_turn', coarse: 'end_turn' },
+		{ label: 'blocked', result: '', reason: 'output_guardrail', coarse: 'refused' },
+	])(
+		'delivers the authoritative $label answer after public stream phases',
+		async ({ result, reason, coarse }) => {
+			const SID = fixtureId.session('wire-final')
+			const TID = fixtureId.turn('wire-final')
+			const MID = fixtureId.message('wire-final')
+			const fixture = build({
+				gateway: {
+					prompt: async ({ onEvent }) => {
+						onEvent({
+							type: 'reasoning_started',
+							sessionId: SID,
+							turnId: TID,
+							iteration: 0,
+							messageId: MID,
+							blockIndex: 0,
+							reasoningType: 'redacted_thinking',
+						})
+						onEvent({
+							type: 'reasoning_completed',
+							sessionId: SID,
+							turnId: TID,
+							iteration: 0,
+							messageId: MID,
+							blockIndex: 0,
+							signed: true,
+						})
+						onEvent({
+							type: 'text_delta',
+							sessionId: SID,
+							turnId: TID,
+							iteration: 0,
+							messageId: MID,
+							text: 'Raw preview.',
+							textPart: { id: 'answer-part', phase: 'final_answer' },
+						})
+						onEvent({
+							type: 'message_completed',
+							sessionId: SID,
+							turnId: TID,
+							iteration: 0,
+							messageId: MID,
+							stopReason: 'end_turn',
+							content: 'Raw preview.',
+						})
+						onEvent({
+							type: 'turn_completed',
+							sessionId: SID,
+							turnId: TID,
+							stopReason: reason,
+							result,
+						} as SessionEvent)
+						return { stopReason: reason }
+					},
+				},
+			})
+			await handshake(fixture)
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'hi' },
+			})
+			await settle()
+			const updates = fixture.sent
+				.filter((frame) => frame.method === 'session/update')
+				.map((frame) => (frame.params as { update: unknown }).update)
+			expect(updates).toEqual([
+				{
+					kind: 'agent_thought',
+					status: 'pending',
+					turnId: TID,
+					messageId: MID,
+					iteration: 0,
+					blockId: `${MID}:0`,
+				},
+				{
+					kind: 'agent_thought',
+					status: 'completed',
+					turnId: TID,
+					messageId: MID,
+					iteration: 0,
+					blockId: `${MID}:0`,
+				},
+				{
+					kind: 'agent_message_chunk',
+					text: 'Raw preview.',
+					turnId: TID,
+					messageId: MID,
+					iteration: 0,
+					phase: 'final_answer',
+					textPart: { id: 'answer-part', phase: 'final_answer' },
+				},
+				{
+					kind: 'agent_message',
+					status: 'completed',
+					turnId: TID,
+					messageId: MID,
+					iteration: 0,
+					stopReason: 'end_turn',
+					content: 'Raw preview.',
+				},
+				{ kind: 'turn_ended', turnId: TID, stopReason: coarse, reason, result },
+			])
+			expect(fixture.sent.at(-1)).toMatchObject({ id: 3, result: { stopReason: coarse, reason } })
+		},
+	)
+
+	it('preserves update order across deferred writes and does not return before final delivery', async () => {
+		const entered = deferred<void>()
+		const release = deferred<void>()
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent }) => {
+					const identity = {
+						sessionId: fixtureId.session('ordered'),
+						turnId: fixtureId.turn('ordered'),
+						messageId: fixtureId.message('ordered'),
+						iteration: 0,
+					}
+					onEvent({ type: 'text_delta', ...identity, text: 'first' })
+					onEvent({ type: 'text_delta', ...identity, text: 'second' })
+					onEvent({
+						type: 'turn_completed',
+						sessionId: identity.sessionId,
+						turnId: identity.turnId,
+						result: 'settled',
+						stopReason: 'end_turn',
+					} as SessionEvent)
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const originalSend = fixture.transport.send
+		let writes = 0
+		fixture.transport.send = async (frame) => {
+			if (frame.method === 'session/update') {
+				writes += 1
+				if (writes === 1) {
+					entered.resolve()
+					await release.promise
+				}
+			}
+			await originalSend(frame)
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'ordered' },
+		})
+		await entered.promise
+		expect(writes).toBe(1)
+		expect(fixture.sent.find((frame) => frame.id === 3)).toBeUndefined()
+		release.resolve()
+		await settle()
+		const updates = fixture.sent
+			.filter((frame) => frame.method === 'session/update')
+			.map((frame) => (frame.params as { update: { text?: string; result?: string } }).update)
+		expect(updates.map((update) => update.text ?? update.result)).toEqual([
+			'first',
+			'second',
+			'settled',
+		])
+		expect(fixture.sent.at(-1)?.id).toBe(3)
+	})
+
+	it('retains an actual parked-segment reason when the gateway returns a coarse error', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent }) => {
+					onEvent({
+						type: 'turn_paused',
+						sessionId: fixtureId.session('parked'),
+						turnId: fixtureId.turn('parked'),
+						checkpointId: fixtureId.checkpoint('parked'),
+						reason: 'awaiting_review',
+					})
+					return { stopReason: 'error' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'review' },
+		})
+		await settle()
+		expect(fixture.sent.at(-1)).toMatchObject({
+			id: 3,
+			result: { stopReason: 'cancelled', reason: 'paused' },
+		})
 	})
 
 	it('refuses a prompt for a session that does not exist', async () => {
@@ -422,7 +625,10 @@ describe('session/prompt', () => {
 		expect(signals[0]?.aborted).toBe(true)
 		release.resolve()
 		await settle()
-		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({ stopReason: 'cancelled' })
+		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({
+			stopReason: 'cancelled',
+			reason: 'cancelled',
+		})
 	})
 })
 
@@ -458,7 +664,10 @@ describe('session/cancel', () => {
 		await settle()
 
 		expect(seen?.aborted).toBe(true)
-		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({ stopReason: 'cancelled' })
+		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({
+			stopReason: 'cancelled',
+			reason: 'cancelled',
+		})
 	})
 
 	it('gives a second turn a fresh signal rather than the aborted one', async () => {
@@ -526,7 +735,11 @@ describe('session/cancel', () => {
 
 		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({
 			stopReason: 'cancelled',
+			reason: 'cancelled',
 		})
+		// Preparation emitted no runtime events: the response still carries
+		// cancellation, without manufacturing an answer or a reasoning block.
+		expect(fixture.sent.filter((frame) => frame.method === 'session/update')).toEqual([])
 	})
 })
 
@@ -615,6 +828,256 @@ describe('this module never compares a tool name', () => {
 })
 
 describe('a transport that fails', () => {
+	it('catches failed updates during a parked gateway, retains the first error and releases the prompt slot', async () => {
+		const gatewayRelease = deferred<void>()
+		const failedWrite = deferred<void>()
+		let prompts = 0
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent }) => {
+					prompts += 1
+					if (prompts > 1) return { stopReason: 'end_turn' }
+					const identity = {
+						sessionId: fixtureId.session('failed-write'),
+						turnId: fixtureId.turn('failed-write'),
+						messageId: fixtureId.message('failed-write'),
+						iteration: 0,
+					}
+					onEvent({ type: 'text_delta', ...identity, text: 'first' })
+					onEvent({ type: 'text_delta', ...identity, text: 'second' })
+					onEvent({ type: 'text_delta', ...identity, text: 'third' })
+					await gatewayRelease.promise
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const originalSend = fixture.transport.send
+		fixture.transport.send = async (frame) => {
+			if (frame.method === 'session/update') {
+				const update = (frame.params as { update: { text?: string } }).update
+				if (update.text === 'first') {
+					failedWrite.resolve()
+					throw new Error('first update rejected')
+				}
+				if (update.text === 'third') throw new Error('later update rejected')
+			}
+			await originalSend(frame)
+		}
+		const rejections: unknown[] = []
+		const onRejection = (error: unknown) => rejections.push(error)
+		process.on('unhandledRejection', onRejection)
+		try {
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'first' },
+			})
+			await failedWrite.promise
+			await settle()
+			expect(rejections).toEqual([])
+			expect(fixture.sent.find((frame) => frame.id === 3)).toBeUndefined()
+			expect(
+				fixture.sent
+					.filter((frame) => frame.method === 'session/update')
+					.map((frame) => (frame.params as { update: { text?: string } }).update.text),
+			).toEqual(['second'])
+			gatewayRelease.resolve()
+			await settle()
+			expect(fixture.sent.find((frame) => frame.id === 3)?.error?.message).toBe(
+				'first update rejected',
+			)
+			fixture.deliver({
+				jsonrpc: '2.0',
+				id: 4,
+				method: 'session/prompt',
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'next' },
+			})
+			await settle()
+			expect(prompts).toBe(2)
+			expect(fixture.sent.find((frame) => frame.id === 4)?.result).toEqual({
+				stopReason: 'end_turn',
+				reason: 'end_turn',
+			})
+			expect(rejections).toEqual([])
+		} finally {
+			gatewayRelease.resolve()
+			process.off('unhandledRejection', onRejection)
+		}
+	})
+
+	it('sends a permission request only after already-admitted asynchronous updates', async () => {
+		const entered = deferred<void>()
+		const release = deferred<void>()
+		let approved = false
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent, ask, sessionId }) => {
+					onEvent({
+						type: 'reasoning_started',
+						sessionId: fixtureId.session('before-review'),
+						turnId: fixtureId.turn('before-review'),
+						messageId: fixtureId.message('before-review'),
+						iteration: 0,
+						blockIndex: 0,
+						reasoningType: 'redacted_thinking',
+					})
+					const outcome = await ask({
+						sessionId,
+						toolCalls: [
+							{
+								id: 'reviewed',
+								name: 'write_file',
+								input: { path: 'owned.txt' },
+								isDestructive: false,
+							},
+						],
+					})
+					approved = outcome.kind === 'approve'
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const originalSend = fixture.transport.send
+		fixture.transport.send = async (frame) => {
+			if (frame.method === 'session/update') {
+				entered.resolve()
+				await release.promise
+			}
+			await originalSend(frame)
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'review' },
+		})
+		await entered.promise
+		expect(fixture.sent.some((frame) => frame.method === 'session/request_permission')).toBe(false)
+		expect(approved).toBe(false)
+		release.resolve()
+		await settle()
+		const question = fixture.sent.find((frame) => frame.method === 'session/request_permission')
+		expect(question?.id).toBeDefined()
+		expect(fixture.sent.findIndex((frame) => frame.method === 'session/update')).toBeLessThan(
+			fixture.sent.findIndex((frame) => frame.method === 'session/request_permission'),
+		)
+		fixture.deliver({ jsonrpc: '2.0', id: question?.id, result: { outcome: 'approve' } })
+		await settle()
+		expect(approved).toBe(true)
+		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
+	})
+
+	it('does not request or assume approval after an admitted update fails', async () => {
+		let approved = false
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent, ask, sessionId }) => {
+					onEvent({
+						type: 'text_delta',
+						sessionId: fixtureId.session('denied-review'),
+						turnId: fixtureId.turn('denied-review'),
+						messageId: fixtureId.message('denied-review'),
+						iteration: 0,
+						text: 'Checking permissions.',
+					})
+					const outcome = await ask({
+						sessionId,
+						toolCalls: [
+							{
+								id: 'denied',
+								name: 'write_file',
+								input: { path: 'owned.txt' },
+								isDestructive: false,
+							},
+						],
+					})
+					approved = outcome.kind === 'approve'
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const originalSend = fixture.transport.send
+		fixture.transport.send = async (frame) => {
+			if (frame.method === 'session/update') throw new Error('review context not delivered')
+			await originalSend(frame)
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'review' },
+		})
+		await settle()
+		expect(approved).toBe(false)
+		expect(fixture.sent.some((frame) => frame.method === 'session/request_permission')).toBe(false)
+		expect(fixture.sent.find((frame) => frame.id === 3)?.error?.message).toBe(
+			'review context not delivered',
+		)
+	})
+
+	it('settles a failed permission send and allows a later prompt instead of parking consent forever', async () => {
+		let prompts = 0
+		let approved = false
+		const fixture = build({
+			gateway: {
+				prompt: async ({ ask, sessionId }) => {
+					prompts += 1
+					if (prompts > 1) return { stopReason: 'end_turn' }
+					const outcome = await ask({
+						sessionId,
+						toolCalls: [
+							{
+								id: 'failed-question',
+								name: 'write_file',
+								input: { path: 'owned.txt' },
+								isDestructive: false,
+							},
+						],
+					})
+					approved = outcome.kind === 'approve'
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		const originalSend = fixture.transport.send
+		fixture.transport.send = async (frame) => {
+			if (frame.method === 'session/request_permission')
+				throw new Error('permission question not delivered')
+			await originalSend(frame)
+		}
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'first' },
+		})
+		await settle()
+		expect(approved).toBe(false)
+		expect(fixture.sent.find((frame) => frame.id === 3)?.error?.message).toBe(
+			'permission question not delivered',
+		)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'next' },
+		})
+		await settle()
+		expect(prompts).toBe(2)
+		expect(fixture.sent.find((frame) => frame.id === 4)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
+	})
+
 	it('does not let a send error escape into a handler', async () => {
 		const wire = pair()
 		const server = new ACPServer({
@@ -663,7 +1126,10 @@ describe('stop reasons', () => {
 
 		// A peer receiving a word its own union does not contain cannot render
 		// it. Saying "error" is more useful than inventing a case for it.
-		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({ stopReason: 'error' })
+		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({
+			stopReason: 'error',
+			reason: 'something_new',
+		})
 	})
 })
 
@@ -1056,7 +1522,10 @@ describe('the session-id namespace', () => {
 			params: { sessionId: generated, prompt: 'independent' },
 		})
 		await settle()
-		expect(wire.sent.find((m) => m.id === 5)?.result).toEqual({ stopReason: 'end_turn' })
+		expect(wire.sent.find((m) => m.id === 5)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
 
 		wire.deliver({
 			jsonrpc: '2.0',
@@ -1066,7 +1535,10 @@ describe('the session-id namespace', () => {
 		})
 		await settle()
 		expect(loadedSignal?.aborted).toBe(true)
-		expect(wire.sent.find((m) => m.id === 4)?.result).toEqual({ stopReason: 'cancelled' })
+		expect(wire.sent.find((m) => m.id === 4)?.result).toEqual({
+			stopReason: 'cancelled',
+			reason: 'cancelled',
+		})
 	})
 
 	it('admits only one concurrent load for the same absent id', async () => {
@@ -1282,7 +1754,10 @@ describe('inline prompt attachment admission', () => {
 		})
 		expect(received?.attachments).toEqual([attachment])
 		expect(received?.prompt).toBe('Look at this')
-		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({ stopReason: 'end_turn' })
+		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
 		await fixture.server.stop()
 	})
 	it('refuses unsupported delivery and opaque store references before running a gateway', async () => {

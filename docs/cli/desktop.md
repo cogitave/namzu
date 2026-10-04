@@ -143,8 +143,9 @@ owners. Choosing an existing Pal returns to its owned chat.
 The Home sidebar puts **Create your first Pal** directly below New conversation.
 After creation it lists each Pal followed by **New Pal**, without a group
 heading for the first three. Four or more Pals appear in a collapsible **Pals**
-group. Create more than one Pal with a name, optional purpose and model from the
-actual provider catalogue. Customize uses the saved revision to reject
+group. Create more than one Pal with a name, appearance and model from the
+actual provider catalogue. Give work and preferences through the conversation;
+customization does not require a purpose form. Customize uses the saved revision to reject
 conflicting edits. Definitions and
 conversation ownership come from the [shared CLI and SDK](pals.md), rather than
 renderer storage. Existing conversations keep their original profile revision;
@@ -445,6 +446,42 @@ context gutters also animate rather than jumping. Closing the panel or pressing
 Escape returns focus to its Background work or Changes control; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
+
+## Transcript activity and timing
+
+The transcript follows admitted runtime events. Pending approvals show Waiting
+for your decision; an active public reasoning block shows Thinking. Tool work
+and answer streaming retain their own phase in the projection. An unspecified
+model phase remains Working. A provider that withholds reasoning can indicate
+an active block without supplying a readable body; the desktop does not expose
+opaque reasoning, signatures or replay material.
+
+Each authored prompt owns one turn. Its public reasoning, tool receipts and
+explicit commentary stay in admission order inside Activity. Activity opens
+while that turn runs and collapses after settlement unless the operator chose
+otherwise. The answer appears below that group only when it is a trailing
+answer; grouping never moves text across a later tool or reasoning event.
+Message and text-part identities preserve distinct responses. Providers without
+phase metadata retain their admitted order without invented commentary labels.
+An authoritative completion replaces its streamed partial text, including an
+explicit empty result that withdraws rejected output.
+
+Cancellation, pause, refusal and error end the live phase without claiming a
+successful answer. The exact runtime reason preserves Paused even when its ACP
+stop category is `cancelled`. When preparation returns without a streamed end,
+the native host admits the prompt response as the missing end once. A streamed
+end followed by its response does not create a second completion. Pending
+reviews are cleared; authored queued messages remain available after a stopped
+turn.
+
+Elapsed time uses the native host's timestamps at prompt admission and turn
+settlement. It includes preparation, model work, tools and approval waits; time
+spent in an unstarted message queue is excluded. This is observed wall-clock
+elapsed time, not provider compute time, billed latency or the sum of tool
+durations. Clock adjustments can affect it. Reattaching the interface preserves
+the same timestamps and settled duration while main lives. A cold text-history
+load has no activity receipts or start/end timestamps, so it supplies neither
+reconstructed reasoning nor an invented duration.
 
 ## Operator flow
 

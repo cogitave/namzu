@@ -34,7 +34,13 @@ describe('what this protocol has a word for', () => {
 				} as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'agent_message_chunk', text: 'hi' })
+		).toEqual({
+			kind: 'agent_message_chunk',
+			text: 'hi',
+			messageId: MID,
+			turnId: TID,
+			iteration: 0,
+		})
 	})
 
 	it('maps a reasoning delta to a THOUGHT chunk, not an assistant one', () => {
@@ -54,7 +60,14 @@ describe('what this protocol has a word for', () => {
 				} as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'agent_thought_chunk', text: 'weighing it' })
+		).toEqual({
+			kind: 'agent_thought_chunk',
+			text: 'weighing it',
+			messageId: MID,
+			turnId: TID,
+			iteration: 0,
+			blockId: `${MID}:0`,
+		})
 	})
 
 	it('maps a tool call to pending, carrying the provider tool-use id', () => {
@@ -180,7 +193,7 @@ describe('what this protocol has a word for', () => {
 				} as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'turn_ended', stopReason: 'end_turn' })
+		).toEqual({ kind: 'turn_ended', stopReason: 'end_turn', reason: 'end_turn', turnId: TID })
 	})
 
 	it('maps a failed turn to a turn boundary of error', () => {
@@ -194,7 +207,13 @@ describe('what this protocol has a word for', () => {
 				} as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'turn_ended', stopReason: 'error', error: 'boom' })
+		).toEqual({
+			kind: 'turn_ended',
+			stopReason: 'error',
+			reason: 'error',
+			turnId: TID,
+			error: 'boom',
+		})
 	})
 })
 
@@ -233,8 +252,184 @@ describe('progress and failure details', () => {
 		).toEqual({
 			kind: 'turn_ended',
 			stopReason: 'error',
+			reason: 'error',
+			turnId: TID,
 			error: 'Provider is unavailable',
 		})
+	})
+})
+
+describe('public message and reasoning lifecycle', () => {
+	it('preserves actual public text-part identities and phases without inventing one', () => {
+		const event = {
+			type: 'text_delta' as const,
+			sessionId: SID,
+			turnId: TID,
+			iteration: 2,
+			messageId: MID,
+			text: 'checking',
+			textPart: { id: 'commentary-1', phase: 'commentary' as const },
+		}
+		expect(toAcpSessionUpdate(event, presenter)).toEqual({
+			kind: 'agent_message_chunk',
+			messageId: MID,
+			turnId: TID,
+			iteration: 2,
+			text: 'checking',
+			textPart: { id: 'commentary-1', phase: 'commentary' },
+			phase: 'commentary',
+		})
+		const unphased = toAcpSessionUpdate({ ...event, textPart: { id: 'unphased' } }, presenter)
+		expect(unphased).not.toHaveProperty('phase')
+		expect(unphased).toHaveProperty('textPart', { id: 'unphased' })
+	})
+
+	it('carries settled final text and ordered original public items independently of raw commentary', () => {
+		const commentary = { id: 'progress', phase: 'commentary' as const, text: 'I will check.' }
+		const textParts = [
+			commentary,
+			{ id: 'answer', phase: 'final_answer' as const, text: 'Verified answer.' },
+		]
+		const update = toAcpSessionUpdate(
+			{
+				type: 'message_completed',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 2,
+				messageId: MID,
+				stopReason: 'end_turn',
+				content: 'Verified answer.',
+				textParts,
+			},
+			presenter,
+		)
+		expect(update).toEqual({
+			kind: 'agent_message',
+			status: 'completed',
+			messageId: MID,
+			turnId: TID,
+			iteration: 2,
+			stopReason: 'end_turn',
+			content: 'Verified answer.',
+			textParts,
+		})
+		commentary.text = 'mutated after mapping'
+		expect(update).toHaveProperty('textParts.0.text', 'I will check.')
+	})
+
+	it('keeps a redacted reasoning block visible through boundaries without copying replay material', () => {
+		const start = toAcpSessionUpdate(
+			{
+				type: 'reasoning_started',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 1,
+				messageId: MID,
+				blockIndex: 3,
+				reasoningType: 'redacted_thinking',
+				encrypted: 'private-encrypted',
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		const end = toAcpSessionUpdate(
+			{
+				type: 'reasoning_completed',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 1,
+				messageId: MID,
+				blockIndex: 3,
+				signed: true,
+				text: 'private-completion',
+				signature: 'private-signature',
+				encrypted: 'private-encrypted',
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect(start).toEqual({
+			kind: 'agent_thought',
+			status: 'pending',
+			messageId: MID,
+			turnId: TID,
+			iteration: 1,
+			blockId: `${MID}:3`,
+		})
+		expect(end).toEqual({ ...start, status: 'completed' })
+		expect(JSON.stringify([start, end])).not.toContain('private')
+	})
+
+	it.each([
+		['guardrail_rewritten', 'Corrected answer.', 'end_turn', 'end_turn'],
+		['guardrail_blocked', '', 'output_guardrail', 'refused'],
+	])(
+		'carries authoritative %s output, including an empty blocked answer',
+		(_source, result, reason, coarse) => {
+			const update = toAcpSessionUpdate(
+				{
+					type: 'turn_completed',
+					sessionId: SID,
+					turnId: TID,
+					result,
+					stopReason: reason,
+				} as SessionEvent,
+				presenter,
+			)
+			expect(update).toEqual({
+				kind: 'turn_ended',
+				turnId: TID,
+				stopReason: coarse,
+				reason,
+				result,
+			})
+		},
+	)
+
+	it('distinguishes a parked segment from an attributed cancellation', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'turn_paused',
+					sessionId: SID,
+					turnId: TID,
+					checkpointId: fixtureId.checkpoint('acp'),
+					reason: 'awaiting_review',
+				},
+				presenter,
+			),
+		).toEqual({ kind: 'turn_ended', turnId: TID, stopReason: 'cancelled', reason: 'paused' })
+	})
+
+	it('identifies the actual settled message rather than guessing from the last chunk', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'turn_completed',
+					sessionId: SID,
+					turnId: TID,
+					result: 'Corrected answer.',
+					stopReason: 'end_turn',
+					settlement: { resultMessageId: MID },
+				} as SessionEvent,
+				presenter,
+			),
+		).toHaveProperty('messageId', MID)
+	})
+
+	it('preserves a measured zero duration rather than treating it as missing', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'tool_completed',
+					sessionId: SID,
+					turnId: TID,
+					toolUseId: 'fast',
+					toolName: 'read_file',
+					result: 'done',
+					durationMs: 0,
+				} as SessionEvent,
+				presenter,
+			),
+		).toHaveProperty('durationMs', 0)
 	})
 })
 
@@ -267,13 +462,21 @@ describe('the stop-reason table', () => {
 		['stop_condition', 'end_turn'],
 		['max_iterations', 'max_turns'],
 		['max_tokens', 'max_turns'],
+		['token_budget', 'max_turns'],
+		['cost_limit', 'max_turns'],
+		['cost_unmeasurable', 'error'],
+		['timeout', 'error'],
 		['cancelled', 'cancelled'],
 		['canceled', 'cancelled'],
 		['aborted', 'cancelled'],
 		['paused', 'cancelled'],
 		['guardrail_blocked', 'refused'],
+		['input_guardrail', 'refused'],
+		['output_guardrail', 'refused'],
+		['step_refused', 'refused'],
 		['plan_rejected', 'refused'],
 		['answer_rejected', 'refused'],
+		['structured_output_failed', 'error'],
 		['error', 'error'],
 		['provider_error', 'error'],
 	])('maps %s to %s', (from, to) => {

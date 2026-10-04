@@ -1,0 +1,246 @@
+{
+  "date": "2026-10-04",
+  "sourceBaseCommit": "81d17219f766025c14ad170f87d6f6a6889c8543",
+  "reference": {
+    "client": "actual native Windows ChatGPT client in Codex mode",
+    "method": "UI Automation, screenshots and existing completed normal-conversation turn expansion; original Happy route restored",
+    "domAvailable": false,
+    "modelPromptsSent": false,
+    "observed": [
+      "completed Worked for 57m 17s disclosure above the answer",
+      "inline ordered public thoughts, commentary and tool aggregates",
+      "bounded command list with real command labels and durations",
+      "normal assistant text and muted public reasoning"
+    ],
+    "liveReferencePhases": "No live reference model turn was induced; Working/Thinking semantics were also checked against pinned official Codex source",
+    "primarySource": {
+      "repository": "https://github.com/openai/codex",
+      "commit": "a44afa527cf11114aed19ec893491bfc8d3931bb",
+      "paths": [
+        "codex-rs/tui/src/chatwidget/turn_runtime.rs",
+        "codex-rs/tui/src/chatwidget/streaming.rs",
+        "codex-rs/tui/src/chatwidget/status_surfaces.rs",
+        "codex-rs/tui/src/history_cell/messages.rs",
+        "codex-rs/tui/src/chatwidget/tests/reasoning_status_tests.rs"
+      ]
+    }
+  },
+  "transcriptNativeProof": {
+    "passed": true,
+    "nativeWindows": true,
+    "productionMainRenderer": true,
+    "modelIo": "controlled ACP transport; SDK mapper covered separately",
+    "userData": "isolated temporary directory",
+    "checks": [
+      "Working before public reasoning",
+      "Actual reasoning lifecycle drives Thinking and ordered summary",
+      "Open command details survive admission of the next grouped command",
+      "Permission priority and live snapshot reload retain exact activity",
+      "Activity frame height animates for 200ms",
+      "Ordered disclosure and actual typed command output",
+      "Follow-up retains past thoughts; authoritative empty result clears blocked output",
+      "Preparation cancellation gets terminal notice without a streamed end",
+      "Reduced motion and narrow/short transcript without horizontal overflow"
+    ],
+    "motion": {
+      "frames": [
+        {
+          "duration": 200,
+          "height": "105.469px",
+          "easing": "cubic-bezier(0.4, 0, 0.2, 1)"
+        }
+      ],
+      "height": "136px"
+    },
+    "rendererErrors": 0,
+    "finalTranscriptComponentSourceUnchangedSinceProof": true
+  },
+  "phaseParity": {
+    "projectCardThinkingMatchesTranscript": true,
+    "projectCardTerminalActivityCleared": true
+  },
+  "implementation": [
+    "Actual reasoning boundaries and public message identity/phase/completion retained by SDK ACP",
+    "Queued updates delivered in order before prompt response; permission questions follow admitted context",
+    "Reasoning, commentary and tools remain in admitted order; trailing answer stays below collapsible activity",
+    "Authoritative answer replaces live draft, including empty blocked output",
+    "Exact cancellation/pause/failure reasons settle live phases; late chunks cannot recreate blocked output",
+    "Completed activity uses real host prompt/settlement timestamps; cold text history invents neither reasoning nor time",
+    "Open tool detail survives transition from singleton to aggregate",
+    "Shared BaseUI collapsible frame motion, reduced-motion override, existing Markdown safety retained"
+  ],
+  "verification": {
+    "workspaceTypecheck": "passed after final source changes",
+    "workspaceLint": "passed after final source changes with existing warnings",
+    "workspaceTest": "all packages ran; one CLI assertion expected the older response shape; corrected and final full CLI suite passed",
+    "sdkACP": {
+      "passed": 124,
+      "finalSource": true
+    },
+    "desktop": {
+      "passed": 217,
+      "files": 28,
+      "finalPalFormSource": true
+    },
+    "cli": {
+      "passed": 4918,
+      "skipped": 6,
+      "files": 538,
+      "finalSource": true
+    },
+    "build": "Final SDK ACP and desktop bundles rebuilt and copied into actual Windows development app/consumer. Final Pal layer/form removal verified natively.",
+    "docsCheck": "passed after final docs/log entries (139 pages)",
+    "nativeFixtures": "Transcript phases verified on production main/renderer/projection with controlled ACP transport. Final Pal customization verified on the real native application and CLI with normal user data and actual model catalogue; no external model prompt."
+  },
+  "sourceHashes": [
+    {
+      "file": "packages/sdk/src/types/acp/index.ts",
+      "sha256": "ecef0217f1ce808e3fdba0039a20783cc4d5ba32e194135becfc1d9dcdef96f4"
+    },
+    {
+      "file": "packages/sdk/src/bridge/acp/update.ts",
+      "sha256": "bca2f1cf042b558271b75ad0ab0ede9402f63ec15acf6d17313226bedb559534"
+    },
+    {
+      "file": "packages/sdk/src/bridge/acp/server.ts",
+      "sha256": "bb546c08e62d33e300a525c17535e5111d3da288c9c3869439bc37ee5daf202c"
+    },
+    {
+      "file": "packages/desktop/src/main/operator.ts",
+      "sha256": "4cafaf0f6dfd96c8c8b74a5bea5ba6b9a538b7ce4455d5402c8e1f7f0d6ac55c"
+    },
+    {
+      "file": "packages/desktop/src/shared/protocol.ts",
+      "sha256": "36a01b7a144008eaf080457d0252e00648de5687572c804765a151007ce9a95e"
+    },
+    {
+      "file": "packages/desktop/src/shared/projection.ts",
+      "sha256": "4b846057b3e915f81f793ccb005c392df80f139d3f1db870fe6d89ce180ca78f"
+    },
+    {
+      "file": "packages/desktop/src/renderer/transcript.tsx",
+      "sha256": "62ca8170f2d0c8a13a36e5738a86e1a60875e1e82c2d1b97e2384a40fd2d7164"
+    },
+    {
+      "file": "packages/desktop/src/renderer/transcript-layout.ts",
+      "sha256": "163e1fe523365d27e4b54f2cb28368453786c6db26b688f88e37bb12749877ee"
+    },
+    {
+      "file": "packages/desktop/src/renderer/message.tsx",
+      "sha256": "a99c37739dea19465bed6dd3863e92a4351f1f33e44a0d6928ef611a1df7f1fc"
+    },
+    {
+      "file": "packages/desktop/src/renderer/index.tsx",
+      "sha256": "8537ae23c2ef1cf9544b6ac112f92a9bbadb11dd203028018f284b2055d47ed6"
+    },
+    {
+      "file": "packages/desktop/src/renderer/project-context.tsx",
+      "sha256": "b7050d74f26da583d80db1205e93b910c2dd2a25f7787778cef32fb6bf62f97b"
+    },
+    {
+      "file": "packages/desktop/src/renderer/style.css",
+      "sha256": "48cc49e6b110b864f0d68ff624f60fc8e35c32d6cfe4259ca88d741aeee031e0"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pals-page.tsx",
+      "sha256": "5f56aa72d80d3ccd886133d96a4479d9eb6c1bf072e14454b0fa103f9108188b"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pals-page.css",
+      "sha256": "c5761235eb6144b9c9e298de6982cd409e34a60b7104d27413c54ab350532ed0"
+    },
+    {
+      "file": "packages/desktop/src/renderer/model-picker.tsx",
+      "sha256": "e90a17916da24a3b35cde13bdc3381aa66db038e1a0f89327a43a8072fc8a722"
+    },
+    {
+      "file": "packages/desktop/src/renderer/ui/popover.tsx",
+      "sha256": "ee54fe49b17b6ede405d1d65172fc8e6492d29fb858c360b1e79732b1c2a8a09"
+    },
+    {
+      "file": "research/runtime-desktop-20260930/windows-pal-model-native-check.cjs",
+      "sha256": "9ba464f5fe57673a8c8b0865942fe0768a14ffe7932ad7a8fd4d0cb4828c06f2"
+    },
+    {
+      "file": "research/runtime-desktop-20260930/windows-transcript-native-proof.mjs",
+      "sha256": "3fab44dcff2c41d5f89d1c8a666c5c04531c016efec0037395df89781aa640ab"
+    }
+  ],
+  "publicScreenshots": [
+    "transcript-native-thinking-20261004.png",
+    "transcript-native-completed-20261004.png",
+    "transcript-native-expanded-20261004.png"
+  ],
+  "limits": [
+    "Reference DOM/computed styles were unavailable. This records inspected native states, not exact pixel parity across all Codex views.",
+    "Native transcript phase verification uses a controlled ACP subprocess; SDK mapping/order is covered separately by final ACP tests.",
+    "Cold durable history currently restores text without tool/reasoning/timing receipts, as documented.",
+    "User account screenshots, identifiers, drafts, process/container IDs and native diagnostic paths are kept private."
+  ],
+  "liveApplication": {
+    "nativeWindows": true,
+    "normalUserData": true,
+    "actualCLI": true,
+    "fixtureOverrides": false,
+    "visibleModelRows": 8,
+    "modelSelection": {
+      "nativePicker": true,
+      "layers": {
+        "actionable": true,
+        "model": "162",
+        "dialog": "161"
+      },
+      "purposeFormRemoved": true,
+      "alternativeSaved": true,
+      "persistedSelectionReopened": true,
+      "currentConversationRouteRetained": true,
+      "existingPurposeMetadataRetained": true,
+      "originalModelRestored": true
+    },
+    "computerReady": true,
+    "controlMode": "pal",
+    "rendererErrors": 0,
+    "appLeftOpen": true,
+    "originalComputerViewRestored": true,
+    "draftRetained": true,
+    "diagnostics": {
+      "available": true,
+      "records": 9,
+      "errors": [
+        {
+          "event": "namzu.desktop.ipc_failed",
+          "operation": "providers",
+          "type": "Error",
+          "reason": "unclassified"
+        }
+      ],
+      "classification": "One controlled driver request asked for providers before opening its conversation and was correctly rejected. The check was corrected to open the owned conversation first. No other native errors in the final instance; logs were neither hidden nor cleared."
+    }
+  },
+  "palCustomization": {
+    "purposeFormRemoved": true,
+    "modelMenuPreviouslyCoveredByDialog": {
+      "modelLayer": 130,
+      "backdropLayer": 160,
+      "dialogLayer": 161,
+      "evidence": "Actual elementsFromPoint hit the dialog before the radio; the menu opened in DOM but remained visually covered."
+    },
+    "fixedScopedLayer": 162,
+    "nativeProof": {
+      "nativePicker": true,
+      "layers": {
+        "actionable": true,
+        "model": "162",
+        "dialog": "161"
+      },
+      "purposeFormRemoved": true,
+      "alternativeSaved": true,
+      "persistedSelectionReopened": true,
+      "currentConversationRouteRetained": true,
+      "existingPurposeMetadataRetained": true,
+      "originalModelRestored": true
+    },
+    "existingSDKPurposeCompatible": true,
+    "externalModelPromptSent": false
+  }
+}

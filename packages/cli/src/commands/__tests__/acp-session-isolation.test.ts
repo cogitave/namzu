@@ -201,8 +201,8 @@ describe('the CLI ACP runtime', () => {
 				send: sendA,
 			})
 		}
-		expect(firstOutcome[0].result).toEqual({ stopReason: 'cancelled' })
-		expect(firstOutcome[1].result).toEqual({ stopReason: 'end_turn' })
+		expect(firstOutcome[0].result).toEqual({ stopReason: 'cancelled', reason: 'cancelled' })
+		expect(firstOutcome[1].result).toEqual({ stopReason: 'end_turn', reason: 'end_turn' })
 		await settle()
 		expect(closeA).toHaveBeenCalledTimes(1)
 		expect(sendA).not.toHaveBeenCalled()

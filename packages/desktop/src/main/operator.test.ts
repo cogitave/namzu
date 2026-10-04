@@ -1,21 +1,26 @@
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PermissionView } from '../shared/protocol.js'
 import { Operator } from './operator.js'
 const operators: Operator[] = []
 afterEach(async () => {
 	await Promise.all(operators.splice(0).map((owner) => owner.close()))
+	vi.restoreAllMocks()
 })
 function harness(env?: NodeJS.ProcessEnv) {
 	const events = new EventEmitter()
+	const recorded: DesktopEvent[] = []
 	const owner = new Operator(
 		{
 			program: process.execPath,
 			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
 			...(env ? { env } : {}),
 		},
-		(event) => events.emit('update', event),
+		(event) => {
+			recorded.push(event)
+			events.emit('update', event)
+		},
 	)
 	operators.push(owner)
 	const wait = (predicate: (event: DesktopEvent) => boolean): Promise<DesktopEvent> =>
@@ -33,7 +38,15 @@ function harness(env?: NodeJS.ProcessEnv) {
 		if (event.kind !== 'permission') throw new Error('Missing review')
 		return event.request
 	}
-	return { owner, permission, wait }
+	return { owner, permission, wait, recorded }
+}
+function turnEndings(recorded: DesktopEvent[], sessionId: string) {
+	return recorded.filter(
+		(event) =>
+			event.kind === 'update' &&
+			event.sessionId === sessionId &&
+			event.update.kind === 'turn_ended',
+	)
 }
 it('loads models through the owned project and rejects a foreign conversation or invalid provider', async () => {
 	const { owner } = harness()
@@ -112,6 +125,150 @@ it('cancels pending permission without discarding an authored queue', async () =
 		queued: ['Retain me'],
 	})
 	expect(owner.takeQueued(a.id)).toBe('Retain me')
+})
+
+it('records a response-only cancellation once with stable host start/end timestamps and retains its pending queue', async () => {
+	let clock = 1_700_000_000_000
+	vi.spyOn(Date, 'now').mockImplementation(() => clock)
+	const { owner, permission, wait, recorded } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const review = permission()
+	owner.send(session.id, 'Cancel before a streamed terminal')
+	await review
+	owner.send(session.id, 'Keep this authored follow-up')
+	const startedAt = clock
+	clock += 4_321
+	const endedAt = clock
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	await owner.cancel(session.id)
+	await stopped
+	expect(turnEndings(recorded, session.id)).toEqual([
+		expect.objectContaining({
+			at: endedAt,
+			update: { kind: 'turn_ended', stopReason: 'cancelled' },
+		}),
+	])
+	const first = (await owner.openConversation(project.id, session.id)).thread
+	expect(first).toMatchObject({
+		running: false,
+		permissions: [],
+		queued: ['Keep this authored follow-up'],
+		messages: [{ role: 'user', text: 'Cancel before a streamed terminal' }],
+		turns: { 1: { startedAt, endedAt, stopReason: 'cancelled' } },
+	})
+	expect(
+		recorded.filter((event) => event.kind === 'prompt' && event.sessionId === session.id),
+	).toHaveLength(1)
+	clock += 123_000
+	const restored = (await owner.openConversation(project.id, session.id)).thread
+	expect(restored?.turns).toEqual(first?.turns)
+	expect((restored?.turns[1]?.endedAt ?? 0) - (restored?.turns[1]?.startedAt ?? 0)).toBe(4_321)
+	expect(owner.takeQueued(session.id)).toBe('Keep this authored follow-up')
+})
+
+it.each(['Fail turn with fixture', 'Reject turn with fixture'])(
+	'records a missing terminal error for %s and preserves its authored message',
+	async (prompt) => {
+		const clock = 1_700_000_001_000
+		vi.spyOn(Date, 'now').mockReturnValue(clock)
+		const { owner, wait, recorded } = harness()
+		const project = await owner.openProject(process.cwd())
+		const session = await owner.newConversation(project.id)
+		const stopped = wait(
+			(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+		)
+		owner.send(session.id, prompt)
+		await stopped
+		expect(turnEndings(recorded, session.id)).toEqual([
+			expect.objectContaining({
+				at: clock,
+				update: { kind: 'turn_ended', stopReason: 'error' },
+			}),
+		])
+		const first = (await owner.openConversation(project.id, session.id)).thread
+		expect(first).toMatchObject({
+			running: false,
+			permissions: [],
+			stopReason: 'error',
+			messages: [{ role: 'user', text: prompt }],
+			turns: { 1: { startedAt: clock, endedAt: clock, stopReason: 'error' } },
+		})
+		expect(first?.error).toEqual(expect.any(String))
+		expect(JSON.stringify(first)).not.toContain('PRIVATE_TURN_HISTORY_FIXTURE')
+		expect((await owner.openConversation(project.id, session.id)).thread?.turns).toEqual(
+			first?.turns,
+		)
+	},
+)
+
+it('retains the exact paused reason from a response without misreporting a completed or cancelled turn', async () => {
+	const clock = 1_700_000_002_000
+	vi.spyOn(Date, 'now').mockReturnValue(clock)
+	const { owner, wait, recorded } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.send(session.id, 'Pause turn with fixture')
+	await stopped
+	expect(turnEndings(recorded, session.id)).toEqual([
+		expect.objectContaining({
+			at: clock,
+			update: { kind: 'turn_ended', stopReason: 'cancelled', reason: 'paused' },
+		}),
+	])
+	const first = (await owner.openConversation(project.id, session.id)).thread
+	expect(first?.turns[1]).toMatchObject({
+		startedAt: clock,
+		endedAt: clock,
+		stopReason: 'cancelled',
+		reason: 'paused',
+	})
+	expect(first?.error).toBeUndefined()
+	expect(first?.messages).toEqual([{ role: 'user', text: 'Pause turn with fixture' }])
+	expect((await owner.openConversation(project.id, session.id)).thread?.turns).toEqual(first?.turns)
+})
+
+it('keeps a streamed completion once when the prompt response follows, without shifting its snapshot timestamp', async () => {
+	let clock = 1_700_000_003_000
+	vi.spyOn(Date, 'now').mockImplementation(() => clock)
+	const { owner, permission, wait, recorded } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const review = permission()
+	owner.send(session.id, 'Complete through the streamed terminal')
+	const request = await review
+	const startedAt = clock
+	clock += 2_100
+	const endedAt = clock
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.approve(session.id, request.id, true)
+	await stopped
+	expect(turnEndings(recorded, session.id)).toEqual([
+		expect.objectContaining({
+			at: endedAt,
+			update: { kind: 'turn_ended', stopReason: 'end_turn' },
+		}),
+	])
+	const first = (await owner.openConversation(project.id, session.id)).thread
+	expect(first).toMatchObject({
+		running: false,
+		permissions: [],
+		messages: [
+			{ role: 'user', text: 'Complete through the streamed terminal' },
+			{ role: 'assistant', text: 'Approved answer' },
+		],
+		turns: { 1: { startedAt, endedAt, stopReason: 'end_turn' } },
+	})
+	clock += 87_654
+	expect((await owner.openConversation(project.id, session.id)).thread?.turns).toEqual(first?.turns)
+	expect(turnEndings(recorded, session.id)).toHaveLength(1)
 })
 
 it('reconnects the same project and reattaches its conversation without replaying a failed prompt', async () => {

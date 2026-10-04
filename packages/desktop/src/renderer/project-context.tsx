@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { threadPhase } from '../shared/projection.js'
 import type { ProjectView } from '../shared/protocol.js'
 import { FileDiffIcon, FolderIcon, PanelRightIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
@@ -15,6 +16,7 @@ export interface ProjectContextProps {
 	activeTools: number
 	awaitingApproval: boolean
 	running: boolean
+	phase?: ReturnType<typeof threadPhase>
 	onChanges: () => void
 	onJobs: () => void
 }
@@ -27,16 +29,22 @@ function ProjectContextBody({
 	activeTools,
 	awaitingApproval,
 	running,
+	phase,
 	onChanges,
 	onJobs,
 }: ProjectContextProps) {
-	const activity = awaitingApproval
-		? 'Waiting for your decision'
-		: activeTools > 0
-			? `${activeTools} ${activeTools === 1 ? 'action' : 'actions'} in progress`
-			: running
-				? 'Working'
-				: null
+	const activity =
+		phase === 'idle'
+			? null
+			: phase === 'thinking'
+				? 'Thinking'
+				: awaitingApproval
+					? 'Waiting for your decision'
+					: activeTools > 0
+						? `${activeTools} ${activeTools === 1 ? 'action' : 'actions'} in progress`
+						: running
+							? 'Working'
+							: null
 	return (
 		<div className="project-context-body">
 			<div className="project-context-heading">

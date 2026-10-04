@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
-import type { AcpRequestPermissionParams, AcpSessionUpdateNotification } from '@namzu/sdk'
+import type {
+	AcpRequestPermissionParams,
+	AcpSessionPromptResult,
+	AcpSessionUpdateNotification,
+} from '@namzu/sdk'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -399,7 +403,9 @@ export class Operator {
 		for (const item of owned) {
 			const jobs = (
 				restarting
-					? await item.client.request('namzu/jobs/list', { sessionId: item.runtimeSessionId })
+					? await item.client.request('namzu/jobs/list', {
+							sessionId: item.runtimeSessionId,
+						})
 					: await this.jobs(item.view.id)
 			) as JobView[]
 			if (
@@ -517,7 +523,10 @@ export class Operator {
 		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
 		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
 		const client = await this.controlClient(id, true)
-		const descriptor = await client.request('namzu/pals/computer/stream', { palId: id, generation })
+		const descriptor = await client.request('namzu/pals/computer/stream', {
+			palId: id,
+			generation,
+		})
 		if (
 			this.closing ||
 			this.changingPals.has(id) ||
@@ -546,6 +555,11 @@ export class Operator {
 			if (session) {
 				const versioned = {
 					...event,
+					...((event.kind === 'prompt' ||
+						(event.kind === 'update' && event.update.kind === 'turn_ended')) &&
+					event.at === undefined
+						? { at: Date.now() }
+						: {}),
 					revision: session.projection.revision + 1,
 				}
 				session.projection = applyEvent(session.projection, versioned)
@@ -1305,7 +1319,20 @@ export class Operator {
 					...(options && session.client.supportsPromptOptions() ? { options } : {}),
 				},
 				0,
-			)) as { stopReason: string }
+			)) as AcpSessionPromptResult
+			// Preparation can stop before the runtime emits a terminal update.
+			// Admit the response once so a cancelled/paused turn has a stable end.
+			if (!session.projection.stopReason)
+				this.emit({
+					kind: 'update',
+					projectId: session.view.projectId,
+					sessionId: session.view.id,
+					update: {
+						kind: 'turn_ended',
+						stopReason: result.stopReason,
+						...(result.reason ? { reason: result.reason } : {}),
+					},
+				})
 			completed = result.stopReason === 'end_turn'
 			if (result.stopReason === 'error' && !session.projection.error)
 				this.state(
@@ -1313,6 +1340,13 @@ export class Operator {
 					'Namzu could not finish this turn. Your conversation is retained; check the provider or tool error before retrying.',
 				)
 		} catch (error) {
+			if (!session.projection.stopReason)
+				this.emit({
+					kind: 'update',
+					projectId: session.view.projectId,
+					sessionId: session.view.id,
+					update: { kind: 'turn_ended', stopReason: 'error' },
+				})
 			this.state(session, error instanceof Error ? error.message : String(error))
 		} finally {
 			for (const file of files) {

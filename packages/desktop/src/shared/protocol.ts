@@ -77,6 +77,11 @@ export interface ConversationView {
 export interface ChatMessage {
 	role: 'user' | 'assistant'
 	text: string
+	messageId?: string
+	textPartId?: string
+	phase?: 'commentary' | 'final_answer'
+	status?: 'pending' | 'completed'
+	stopReason?: import('@namzu/sdk').MessageStopReason
 	attachments?: AttachmentView[]
 }
 export interface ProviderView {
@@ -191,7 +196,7 @@ export type DesktopEvent = (
 			error?: string
 	  }
 	| { kind: 'connection'; project: ProjectView }
-) & { readonly revision?: number }
+) & { readonly revision?: number; readonly at?: number }
 export interface DesktopApi {
 	/** Native diagnostic paths and storage status; never journal or raw error payloads. */
 	diagnostics?(): Promise<DesktopDiagnosticsView>

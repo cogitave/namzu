@@ -301,7 +301,7 @@ export class ACPServer {
 			}
 			this.pending.set(id, entry)
 			signal?.addEventListener('abort', onAbort, { once: true })
-			void this.send({ jsonrpc: '2.0', id, method, params }).catch((err: unknown) => {
+			void this.send({ jsonrpc: '2.0', id, method, params }, true).catch((err: unknown) => {
 				entry.reject(err instanceof Error ? err : new Error(String(err)))
 			})
 		})
@@ -380,24 +380,28 @@ export class ACPServer {
 		await this.send({ jsonrpc: '2.0', id, error: { code, message } })
 	}
 
-	private async send(message: MCPJsonRpcMessage): Promise<void> {
+	private async send(message: MCPJsonRpcMessage, requireDelivery = false): Promise<void> {
 		try {
 			await this.options.transport.send(message)
 		} catch (err) {
-			// The client hung up mid-write. Nothing to recover; a throw here
-			// would escape into whichever handler happened to be running.
+			// Terminal responses have no caller waiting on their delivery. A
+			// request or ordered update does, so its owning promise must fail.
 			this.log.warn('acp send failed', {
 				'namzu.acp.error_message': err instanceof Error ? err.message : String(err),
 			})
+			if (requireDelivery) throw err
 		}
 	}
 
 	private async notifyUpdate(sessionId: string, update: AcpSessionUpdate): Promise<void> {
-		await this.send({
-			jsonrpc: '2.0',
-			method: ACP_CLIENT_NOTIFICATIONS.SESSION_UPDATE,
-			params: { sessionId, update } as unknown as Record<string, unknown>,
-		})
+		await this.send(
+			{
+				jsonrpc: '2.0',
+				method: ACP_CLIENT_NOTIFICATIONS.SESSION_UPDATE,
+				params: { sessionId, update } as unknown as Record<string, unknown>,
+			},
+			true,
+		)
 	}
 
 	private onInitialize(params: AcpInitializeParams): AcpInitializeResult {
@@ -598,6 +602,9 @@ export class ACPServer {
 		// already cancelled.
 		const controller = new AbortController()
 		session.controller = controller
+		let updates = Promise.resolve()
+		let terminalReason: string | undefined
+		let updateFailure: Error | undefined
 
 		try {
 			const outcome = await this.options.gateway.prompt({
@@ -609,9 +616,24 @@ export class ACPServer {
 				signal: controller.signal,
 				onEvent: (event) => {
 					const update = toAcpSessionUpdate(event, this.options.presenter)
-					if (update) void this.notifyUpdate(params.sessionId, update)
+					if (!update) return
+					if (update.kind === 'turn_ended') terminalReason = update.reason
+					// A transport can complete writes asynchronously. Preserve admission
+					// order and finish every update before the prompt response settles.
+					updates = updates
+						.then(() => this.notifyUpdate(params.sessionId, update))
+						.catch((error: unknown) => {
+							// Catch immediately, even while the gateway is still running.
+							// Keep later deliveries ordered without replacing the first failure.
+							updateFailure ??= error instanceof Error ? error : new Error(String(error))
+						})
 				},
-				ask: (request) => this.askPermission(params.sessionId, session, request, controller.signal),
+				ask: async (request) => {
+					const admittedUpdates = updates
+					await admittedUpdates
+					if (updateFailure) throw updateFailure
+					return this.askPermission(params.sessionId, session, request, controller.signal)
+				},
 				filesystem: this.clientFilesystem(),
 				history: session.history,
 			})
@@ -625,11 +647,19 @@ export class ACPServer {
 				session.history = [...outcome.history]
 			}
 
+			await updates
+			if (updateFailure) throw updateFailure
+			const reason = controller.signal.aborted
+				? 'cancelled'
+				: (terminalReason ?? outcome.stopReason)
 			return {
-				stopReason: controller.signal.aborted ? 'cancelled' : toAcpStopReason(outcome.stopReason),
+				stopReason: toAcpStopReason(reason),
+				...(reason === undefined ? {} : { reason }),
 			}
 		} catch (error) {
-			if (controller.signal.aborted) return { stopReason: 'cancelled' }
+			await updates
+			if (updateFailure) throw updateFailure
+			if (controller.signal.aborted) return { stopReason: 'cancelled', reason: 'cancelled' }
 			// The session log refused the turn: another one is active, perhaps
 			// started by another process on the same session. A client error, not
 			// an internal one, and it says what to do.
@@ -641,7 +671,11 @@ export class ACPServer {
 			}
 			throw error
 		} finally {
-			session.promptInFlight = false
+			try {
+				await updates
+			} finally {
+				session.promptInFlight = false
+			}
 		}
 	}
 

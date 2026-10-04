@@ -34,13 +34,21 @@ const STOP_REASONS: Readonly<Record<string, AcpStopReason>> = {
 	stop_condition: 'end_turn',
 	max_iterations: 'max_turns',
 	max_tokens: 'max_turns',
+	token_budget: 'max_turns',
+	cost_limit: 'max_turns',
+	cost_unmeasurable: 'error',
+	timeout: 'error',
 	cancelled: 'cancelled',
 	canceled: 'cancelled',
 	aborted: 'cancelled',
 	paused: 'cancelled',
 	guardrail_blocked: 'refused',
+	input_guardrail: 'refused',
+	output_guardrail: 'refused',
+	step_refused: 'refused',
 	plan_rejected: 'refused',
 	answer_rejected: 'refused',
+	structured_output_failed: 'error',
 	error: 'error',
 	provider_error: 'error',
 }
@@ -48,6 +56,28 @@ const STOP_REASONS: Readonly<Record<string, AcpStopReason>> = {
 export function toAcpStopReason(reason: StopReason | string | undefined): AcpStopReason {
 	if (reason === undefined) return 'end_turn'
 	return STOP_REASONS[reason] ?? 'error'
+}
+
+function messageIdentity(event: { messageId?: string; turnId?: string; iteration?: number }) {
+	return {
+		...(event.messageId === undefined ? {} : { messageId: event.messageId }),
+		...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+		...(event.iteration === undefined ? {} : { iteration: event.iteration }),
+	}
+}
+
+function thoughtIdentity(event: {
+	messageId?: string
+	turnId?: string
+	iteration?: number
+	blockIndex?: number
+}) {
+	return {
+		...messageIdentity(event),
+		...(event.messageId === undefined || event.blockIndex === undefined
+			? {}
+			: { blockId: `${event.messageId}:${event.blockIndex}` }),
+	}
 }
 
 /**
@@ -62,10 +92,48 @@ export function toAcpSessionUpdate(
 ): AcpSessionUpdate | null {
 	switch (event.type) {
 		case 'text_delta':
-			return { kind: 'agent_message_chunk', text: event.text }
+			return {
+				kind: 'agent_message_chunk',
+				text: event.text,
+				...messageIdentity(event),
+				...(event.textPart
+					? {
+							textPart: {
+								id: event.textPart.id,
+								...(event.textPart.phase === undefined ? {} : { phase: event.textPart.phase }),
+							},
+							...(event.textPart.phase === undefined ? {} : { phase: event.textPart.phase }),
+						}
+					: {}),
+			}
+
+		case 'message_completed':
+			return {
+				kind: 'agent_message',
+				status: 'completed',
+				...messageIdentity(event),
+				stopReason: event.stopReason,
+				...(event.content === undefined ? {} : { content: event.content }),
+				...(event.textParts
+					? {
+							textParts: event.textParts.map((part) => ({
+								id: part.id,
+								text: part.text,
+								...(part.phase === undefined ? {} : { phase: part.phase }),
+							})),
+						}
+					: {}),
+			}
+
+		case 'reasoning_started':
+			return { kind: 'agent_thought', status: 'pending', ...thoughtIdentity(event) }
 
 		case 'reasoning_delta':
-			return { kind: 'agent_thought_chunk', text: event.text }
+			return { kind: 'agent_thought_chunk', text: event.text, ...thoughtIdentity(event) }
+
+		case 'reasoning_completed':
+			// Readable text arrived as deltas. Never copy signed or opaque replay material.
+			return { kind: 'agent_thought', status: 'completed', ...thoughtIdentity(event) }
 
 		case 'tool_executing':
 			return {
@@ -97,6 +165,7 @@ export function toAcpSessionUpdate(
 				// The runtime already presented the result with its real input and
 				// data. Older producers may only carry text; keep that fallback.
 				status: event.isError === true ? 'failed' : 'completed',
+				...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
 				view:
 					event.presentation ??
 					presenter.presentResult(event.toolName, undefined, {
@@ -109,10 +178,30 @@ export function toAcpSessionUpdate(
 			return {
 				kind: 'turn_ended',
 				stopReason: toAcpStopReason(event.stopReason),
+				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+				...(event.settlement?.resultMessageId === undefined
+					? {}
+					: { messageId: event.settlement.resultMessageId }),
+				...(event.stopReason === undefined ? {} : { reason: event.stopReason }),
+				...(event.result === undefined ? {} : { result: event.result }),
+			}
+
+		case 'turn_paused':
+			return {
+				kind: 'turn_ended',
+				stopReason: 'cancelled',
+				reason: 'paused',
+				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
 			}
 
 		case 'turn_failed':
-			return { kind: 'turn_ended', stopReason: 'error', error: event.error }
+			return {
+				kind: 'turn_ended',
+				stopReason: 'error',
+				reason: 'error',
+				error: event.error,
+				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+			}
 
 		default:
 			// Everything else: iteration boundaries, token accounting, plan and

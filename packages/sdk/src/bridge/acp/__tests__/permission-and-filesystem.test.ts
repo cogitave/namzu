@@ -369,6 +369,7 @@ describe('approve all', () => {
 		await settle()
 		expect(wire.sent.find((frame) => frame.id === 3)?.result).toEqual({
 			stopReason: 'cancelled',
+			reason: 'cancelled',
 		})
 
 		// The human's old dialog may still exist in a client UI. Its answer is
@@ -529,7 +530,10 @@ describe('a client that errors on a request', () => {
 
 		expect(seen[0]).toBe('first:the editor window closed')
 		// The connection survived: the second prompt was served and answered.
-		expect(wire.sent.find((m) => m.id === 4)?.result).toEqual({ stopReason: 'end_turn' })
+		expect(wire.sent.find((m) => m.id === 4)?.result).toEqual({
+			stopReason: 'end_turn',
+			reason: 'end_turn',
+		})
 	})
 })
 

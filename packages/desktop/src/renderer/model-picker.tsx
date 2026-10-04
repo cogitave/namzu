@@ -46,6 +46,7 @@ export function ModelPicker({
 	projectId,
 	sessionId,
 	loadCatalogue,
+	positionerClassName,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -54,6 +55,7 @@ export function ModelPicker({
 	projectId: string
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
+	positionerClassName?: string
 }) {
 	const [open, setOpen] = useState(false)
 	const provider = providers.available.find((item) => item.id === choice.provider)
@@ -90,6 +92,7 @@ export function ModelPicker({
 				padding="none"
 				aria-label="Model picker"
 				className="model-picker-popup"
+				positionerClassName={positionerClassName}
 			>
 				<ModelBrowser
 					key={`${projectId}:${sessionId ?? ''}`}

@@ -23,6 +23,73 @@ Tool progress uses the existing `tool_call` update with optional `progress`
 presentation while updating progress. `turn_ended` may carry the actual `error`
 message; a host should display that explanation instead of inventing a cause.
 
+## Streamed reasoning and message lifecycle
+
+`AcpSessionUpdate` is a closed exported union. Clients upgrading from the earlier
+chunk-only stream must handle two additional variants: `agent_thought` and
+`agent_message`. Existing kinds and their required fields remain available.
+
+| Update | Meaning |
+| --- | --- |
+| `agent_thought` | A reasoning block started (`status: 'pending'`) or ended (`status: 'completed'`). |
+| `agent_thought_chunk` | A fragment of readable reasoning supplied by the provider. |
+| `agent_message_chunk` | A public assistant text fragment. |
+| `agent_message` | The message completed; `content` is its settled text and `stopReason` is the message's own finish reason. |
+| `turn_ended` | The prompt segment settled or parked; its exact `reason` supplements the coarse `stopReason`. |
+
+Reasoning updates optionally carry the actual `messageId`, `turnId`, `iteration`
+and `blockId`. The block identity combines the message ID with the reasoning
+block index. Retain each block at its admitted transcript position rather than
+joining all reasoning into one turn-wide string. A redacted block still has
+start/end boundaries, but the bridge never exposes its opaque payload, signature
+or encrypted replay material. Completion boundaries contain no reasoning text;
+readable text arrives only through `agent_thought_chunk`.
+
+Message chunks optionally carry `messageId`, `turnId`, `iteration` and the
+provider's public `textPart` identity. `phase` mirrors an explicitly supplied
+`commentary` or `final_answer` phase; it is absent when the provider names none.
+Completed messages optionally retain their ordered public `textParts` and their
+selected `content`. The selected content excludes intermediate commentary when
+the provider supplied explicit final-answer parts. Use the actual identity to
+settle that message; a tool row between chunks must not redirect its completion.
+These message boundaries do not mean the whole turn finished.
+
+`turn_ended.result`, when present, is the authoritative answer after guardrail,
+review and structured-output corrections. Replace the preview rather than
+appending this result as another answer. An empty string is a real correction
+that clears blocked output; absence means the producer did not supply a settled
+answer. Optional `messageId` names the runtime's recorded answer message, and
+`turnId` identifies its turn. Completed tool calls may carry their measured
+`durationMs`, including zero; do not derive execution duration from UI updates.
+
+The coarse `AcpStopReason` vocabulary remains `end_turn`, `cancelled`, `refused`,
+`error` and `max_turns`. Input/output guardrails and step/review refusal map to
+`refused`; iteration/token/cost limits map to `max_turns`. Timeout, unmeasurable
+cost and failed structured output map to `error`. Legacy aliases remain accepted.
+Optional `reason` preserves the exact runtime cause so a client can describe a
+cost limit or output guardrail accurately instead of treating the coarse label
+as a complete diagnosis. `reason: 'paused'` describes a checkpointed segment,
+whose coarse label is `cancelled` for older clients; it does not claim the active
+turn was cancelled.
+
+`AcpSessionPromptResult` also carries optional `reason`. If cancellation occurs
+during preparation, before any runtime event, the response contains
+`stopReason: 'cancelled'` and `reason: 'cancelled'` without manufacturing an answer
+or a runtime event. A client should use this response as a terminal fallback
+when no `turn_ended` update arrived. The server preserves mapped update order
+and finishes sending those updates before returning the prompt response.
+Permission questions wait for updates already admitted at the time of the ask.
+An update-delivery failure prevents that review from being sent or assumed
+approved. Delivery errors are caught immediately, retain the first failure and
+release the prompt's in-flight slot after the queue settles. A failed question
+send also settles its wait instead of leaving consent pending forever. A delivery
+failure does not undo work that already ran; durable session history remains the
+source for what the runtime actually completed.
+
+Retry, fallback, hosted-tool and compaction events remain outside this update
+vocabulary. No raw session event, system prompt or discarded compaction body is
+forwarded as a generic payload.
+
 The gateway loads durable history, not a transport-owned transcript. Its
 `load(sessionId, cwd?)` receives the requested absolute workspace as the second
 argument. Existing one-argument gateways remain valid; hosts with scoped stores

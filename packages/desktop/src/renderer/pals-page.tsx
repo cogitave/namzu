@@ -22,7 +22,6 @@ import { PalAvatar } from './pal-context.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { Input } from './ui/input.js'
-import { Textarea } from './ui/textarea.js'
 import './pals-page.css'
 
 type ModelLoaders = {
@@ -36,10 +35,12 @@ function PalModelChoice({
 	disabled,
 	loadProviders,
 	loadModels,
+	positionerClassName,
 }: ModelLoaders & {
 	value: PalView['model']
 	onChange: (value: PalView['model']) => void
 	disabled: boolean
+	positionerClassName?: string
 }) {
 	const [providers, setProviders] = useState<ProviderView>()
 	const [labels, setLabels] = useState<Record<string, string>>({})
@@ -82,6 +83,7 @@ function PalModelChoice({
 						onChange({ provider: next.provider, model: next.model })
 					}}
 					projectId="pal-profile"
+					positionerClassName={positionerClassName}
 					loadCatalogue={loadModels}
 				/>
 			) : (
@@ -131,7 +133,6 @@ export function PalCustomizeDialog({
 }) {
 	const id = useId()
 	const [name, setName] = useState(editing?.name ?? '')
-	const [purpose, setPurpose] = useState(editing?.purpose ?? '')
 	const [appearance, setAppearance] = useState<PalCharacterAppearance>(
 		editing?.appearance ?? defaultPalAppearance,
 	)
@@ -155,10 +156,7 @@ export function PalCustomizeDialog({
 							onSubmit={(event) => {
 								event.preventDefault()
 								if (!saving && name.trim())
-									void onSave(
-										{ name: name.trim(), purpose: purpose.trim(), model, appearance },
-										editing?.id,
-									)
+									void onSave({ name: name.trim(), model, appearance }, editing?.id)
 							}}
 						>
 							<div className="pal-customize-mobile-heading" aria-hidden="true">
@@ -227,27 +225,11 @@ export function PalCustomizeDialog({
 											disabled={saving}
 											loadProviders={loadProviders}
 											loadModels={loadModels}
+											positionerClassName="pal-customize-model-positioner"
 										/>
 										<p>For new conversations.</p>
 									</div>
 								)}
-								<details className="pal-purpose-field">
-									<summary>
-										What should your Pal help with? <ChevronDownIcon />
-									</summary>
-									<label className="sr-only" htmlFor={`${id}-purpose`}>
-										What should your Pal help with?
-									</label>
-									<Textarea
-										id={`${id}-purpose`}
-										value={purpose}
-										maxLength={4000}
-										rows={3}
-										disabled={saving}
-										placeholder="Research, coding, planning…"
-										onChange={(event) => setPurpose(event.target.value)}
-									/>
-								</details>
 								{error && (
 									<p className="pal-error" role="alert">
 										{error}

@@ -354,6 +354,10 @@
 .pal-customize-model {
 	margin-top: 8px;
 }
+/* The nested model portal must sit above this dialog's viewport (161). */
+.pal-customize-model-positioner {
+	z-index: 162;
+}
 .pal-customize-model .pal-field-label {
 	margin-bottom: 7px;
 }
@@ -361,37 +365,6 @@
 	margin: 7px 0 0;
 	color: var(--muted-foreground);
 	font-size: 12px;
-}
-.pal-purpose-field {
-	margin: 14px 0 0;
-	font-size: 13px;
-	line-height: 20px;
-	color: var(--muted-foreground);
-}
-.pal-purpose-field summary {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	cursor: pointer;
-	list-style: none;
-	border-radius: 6px;
-	padding: 5px 0;
-}
-.pal-purpose-field summary::-webkit-details-marker {
-	display: none;
-}
-.pal-purpose-field summary svg {
-	width: 14px;
-	height: 14px;
-	transition: transform 160ms var(--motion-ease);
-}
-.pal-purpose-field[open] summary svg {
-	transform: rotate(180deg);
-}
-.pal-purpose-field textarea {
-	margin-top: 8px;
-	font-size: 13px;
 }
 .pal-error {
 	margin: 14px 0 0;
@@ -550,8 +523,7 @@
 	.pal-color-choice,
 	.pal-character-choice-option,
 	.sidebar-pal-row,
-	.sidebar-pals-group svg,
-	.pal-purpose-field summary svg {
+	.sidebar-pals-group svg {
 		transition: none;
 	}
 	.pal-color-choice:hover,

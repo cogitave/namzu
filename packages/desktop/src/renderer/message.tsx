@@ -41,7 +41,7 @@ export function MessageContent({
 			{...props}
 		>
 			{markdown && text !== undefined ? (
-				<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80 [overflow-wrap:anywhere] [word-break:break-word]">
+				<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]">
 					<Markdown
 						remarkPlugins={[remarkGfm]}
 						skipHtml
