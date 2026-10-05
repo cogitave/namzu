@@ -356,3 +356,30 @@ where the fixtures are too thin to produce a clean `200`. They are
 `packages/sandbox/worker/__tests__/the-worker-requires-a-token.test.js`,
 `.../an-unauthenticated-worker-refuses-a-routable-bind.test.js` and
 `packages/sandbox/src/backends/docker/__tests__/the-worker-credential-is-minted-per-instance.test.ts`.
+
+
+## Authenticated bounded file reads
+
+`POST /read-file` also supports an additive, authenticated capability probe:
+`{ capabilitiesOnly: true }` returns
+`{ ok: true, readFileRanges: { version: 1, maxBytes: 33554432 } }` without reading
+a file. The public `/healthz` does not expose this capability or authorize a
+read. A host must require the acknowledgment before issuing a bounded request
+to an older worker; it must not silently retry as an unbounded read.
+
+An optional `range: { version: 1, offset?, length? }` on the existing read
+request selects bytes. Offset defaults to zero, and omitted length reads the
+remainder only when that remainder fits within 32 MiB. Invalid versions,
+negative or unsafe integers and oversized lengths are refused. EOF may produce
+a short or empty result. Requests without `range` preserve the existing
+whole-file behavior.
+
+Ranged reads open a regular-file descriptor, reject final symlinks, check the
+current real path and file identity against the admitted guest roots, and read
+only the requested byte count. The response acknowledges the requested
+`range: { version: 1, offset, length }`, with `length: null` when omitted,
+alongside `sizeBytes`, `encoding`, `content` and `ok: true`. This bounds a
+single read; it does not certify the semantic content of the file.
+
+See [local Pal bounded reads](local-pal-computer.md#bounded-artifact-reads)
+and [saved image inspection](pal-work.md#inspecting-saved-image-artifacts).

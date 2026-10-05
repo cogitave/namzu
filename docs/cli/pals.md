@@ -116,6 +116,75 @@ container and retains the Pal data volume. Unknown execution cancellation can
 retire a computer; its current operation is refused until a confirmed stop and
 restart. A failed stop keeps ownership tracked for retry.
 
+## Working with applications and reference images
+
+Ready Pal conversations use the SDK's
+[shared application work guidance](../sdk/pal-work.md). It asks the Pal to
+understand the requested outcome and supplied references, inspect the current
+document, choose a reliable supported API or GUI, and make reversible changes.
+After meaningful work it should observe the actual result, compare it with the
+task and correct mismatches. Delivery should verify the saved native file and
+requested exports, with task-relevant visual, content, data or functional
+checks. These habits apply across applications; ordinary chat does not become
+a form or a checklist.
+
+This is model guidance, not guaranteed quality or a grant of authority. A
+successful command or a file-presence check cannot establish that a drawing,
+document, calculation or exported model is correct. The Pal must distinguish
+what it created, what it actually inspected or tested, and what remains
+uncertain. A conversation checkpoint does not prove that an application saved
+its document. SDK embedding hosts can set `workGuidance: 'basic'` to omit the
+new application guidance; that is an SDK prompt option, not a CLI permission
+preset or a saved Pal field.
+
+An image attached to the current message can be visible to the model before
+it is available to an application. `import_reference_images` takes `{}` and
+copies validated original inline images into the admitted guest, returning a
+manifest that maps one-based attachment positions to verified guest paths.
+The model cannot choose a host file, filename, URL or base64 payload for this
+operation. It does not download images or resolve stored attachment references.
+
+Import is an explicit `file_write` tool call under the normal permission and
+review policy. Attaching an image alone writes nothing. Ask first can require
+approval, preapproved-only mode requires an applicable allowance, and current
+plan mode refuses the write even when an earlier durable approval is replayed.
+Pause, takeover, generation and changing execution authority remain checked
+before guest operations. A stopped or operator-held computer supplies no import
+tool and introduces no host fallback; the Pal can still discuss the image
+through its normal model input when the selected provider supports it.
+
+Imports use the shipped Linux guest's Python 3 filesystem operations. They
+accept at most eight inline PNG, JPEG, WebP or GIF images, each at most 3 MiB
+and together at most 12 MiB. Files live under the guest workspace's
+`.namzu/references/<sha256>.<extension>` and survive its persistent volume's
+restart. Matching bytes are reused, and existing conflicting files are not
+overwritten. A confirmed path establishes file availability; observing an
+application load it and comparing the output with it are separate steps.
+
+The session keeps current input apart from cached history. Sending a new turn
+does not silently import earlier images. A durable reviewed import recovers
+the original attachment bytes from that exact turn's journal and retains its
+recorded manifests. Original user attachments and conversation history are not
+rewritten to insert guest paths. An interrupted import can leave private guest
+scratch without publishing a successful manifest; lost authority does not
+authorize another operation for cleanup.
+
+`view_image` reads a saved PNG, JPEG or WebP artifact through the current guest
+and sends actual image content to a capable model. It is a read-only
+`file_read` operation, available in the admitted Pal toolset. The host disables
+it before reading when the provider cannot receive image tool results. It
+accepts static images up to 16 MiB, 16,384 pixels per edge and 16 million pixels
+total. PNG pixels are decoded and fitted; JPEG/WebP containers are validated
+without decoding or resizing compressed pixels, and must already fit the
+standard vision size. Unsupported or excessive files need a supported export.
+
+Artifact inspection is separate from the live computer viewer. Reading an
+image does not establish current mouse coordinates or prove what is on screen.
+The Pal must acquire a fresh `computer_use` screenshot before GUI input and
+after control returns from the operator. The operator's live preview is not an
+observation delivered to the model. Full tool limits and SDK contracts are in
+[Pal application work and visual evidence](../sdk/pal-work.md).
+
 ## Storage and conversation ownership
 
 Saved definitions are immutable numbered revisions under

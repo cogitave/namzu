@@ -1727,6 +1727,10 @@ export {
 export { DiskPalStore, PalConflictError } from './pals/store.js'
 export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
 export { buildPalSystemPrompt, palConversationGreeting } from './pals/prompt.js'
+export {
+	preparePalReferenceImages,
+	importPalReferenceImages,
+} from './pals/reference-images.js'
 
 export { isInboundDeliveryRef } from './types/message/inbound-delivery.js'
 

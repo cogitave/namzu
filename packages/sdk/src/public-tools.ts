@@ -134,6 +134,11 @@ export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'
 export {
+	ViewImageTool,
+	createViewImageTool,
+} from './tools/builtins/view-image.js'
+export { createPalReferenceImageTool } from './pals/reference-images.js'
+export {
 	createStructuredOutputTool,
 	STRUCTURED_OUTPUT_TOOL_NAME,
 } from './tools/builtins/structuredOutput.js'

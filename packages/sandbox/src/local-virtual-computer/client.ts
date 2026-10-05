@@ -100,7 +100,7 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 					{ refused: true },
 				)
 			}
-			const result = (await response.json()) as { ok?: boolean; content?: string }
+			const result = (await response.json()) as Record<string, unknown>
 			if (route === '/write-file' && result.ok !== true) uncertain = true
 			return result
 		} catch (error) {
@@ -110,6 +110,36 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		} finally {
 			busy -= 1
 		}
+	}
+	let rangeLimit: number | undefined
+	const requireRangeSupport = async (signal?: AbortSignal) => {
+		if (rangeLimit !== undefined) return rangeLimit
+		let result: Record<string, unknown>
+		try {
+			result = await request('/read-file', { capabilitiesOnly: true }, signal)
+		} catch (error) {
+			signal?.throwIfAborted()
+			throw new Error(
+				'This Pal computer worker did not confirm bounded file reads. Rebuild the local Pal image from the same Namzu release before inspecting artifact images.',
+				{ cause: error },
+			)
+		}
+		const capability = result.readFileRanges
+		if (
+			result.ok !== true ||
+			!capability ||
+			typeof capability !== 'object' ||
+			!('version' in capability) ||
+			capability.version !== 1 ||
+			!('maxBytes' in capability) ||
+			typeof capability.maxBytes !== 'number' ||
+			!Number.isSafeInteger(capability.maxBytes) ||
+			capability.maxBytes < 1 ||
+			capability.maxBytes > 32 * 1024 * 1024
+		)
+			throw new Error('This Pal computer worker does not acknowledge bounded file reads.')
+		rangeLimit = capability.maxBytes
+		return rangeLimit
 	}
 	const sandbox: Sandbox = {
 		id: generateSandboxId(),
@@ -170,12 +200,60 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 			if (result.ok !== true) throw new Error('The Pal file worker did not confirm the write')
 		},
 		async readFile(path, readOptions?: SandboxReadFileOptions) {
-			if (readOptions?.offset !== undefined || readOptions?.length !== undefined)
-				throw new Error('The Pal file worker does not support ranged reads')
-			const result = await request('/read-file', { path, encoding: 'base64' }, readOptions?.signal)
+			readOptions?.signal?.throwIfAborted()
+			assertPal()
+			const ranged = readOptions?.offset !== undefined || readOptions?.length !== undefined
+			const offset = readOptions?.offset ?? 0
+			const length = readOptions?.length
+			if (
+				ranged &&
+				(!Number.isSafeInteger(offset) ||
+					offset < 0 ||
+					(length !== undefined &&
+						(!Number.isSafeInteger(length) || length < 0 || length > 32 * 1024 * 1024)))
+			)
+				throw new Error('Invalid or oversized Pal file read range')
+			const limit = ranged ? await requireRangeSupport(readOptions?.signal) : undefined
+			if (length !== undefined && limit !== undefined && length > limit)
+				throw new Error('The requested file range exceeds this Pal worker’s acknowledged limit')
+			const range = {
+				version: 1,
+				offset,
+				...(length === undefined ? {} : { length }),
+			}
+			const result = await request(
+				'/read-file',
+				{ path, encoding: 'base64', ...(ranged ? { range } : {}) },
+				readOptions?.signal,
+			)
 			if (result.ok !== true || typeof result.content !== 'string')
 				throw new Error('The Pal file worker did not return a file')
-			return Buffer.from(result.content, 'base64')
+			if (ranged) {
+				const received = result.range
+				if (
+					!received ||
+					typeof received !== 'object' ||
+					!('version' in received) ||
+					received.version !== 1 ||
+					!('offset' in received) ||
+					received.offset !== offset ||
+					!('length' in received) ||
+					received.length !== (length ?? null)
+				)
+					throw new Error('The Pal file worker did not confirm the requested byte range')
+				const maximum = length ?? limit ?? 0
+				if (result.content.length > Math.ceil(maximum / 3) * 4)
+					throw new Error('The Pal file worker exceeded the requested byte range')
+			}
+			const bytes = Buffer.from(result.content, 'base64')
+			if (
+				ranged &&
+				(bytes.length > (length ?? limit ?? 0) ||
+					result.sizeBytes !== bytes.length ||
+					bytes.toString('base64') !== result.content)
+			)
+				throw new Error('The Pal file worker returned invalid bounded file bytes')
+			return bytes
 		},
 		async listFiles(rootPath) {
 			assertPal()

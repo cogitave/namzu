@@ -18,9 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /home/namzu/workspace /home/namzu/.config/chromium \
     && chown -R 1001:1001 /home/namzu
 
-# Kdenlive's real video-effect plug-ins; keep this separate from the large
+# File inspection and Kdenlive's real video-effect plug-ins; keep this separate from the large
 # application layer so an existing app-equipped image retains its build cache.
-RUN apt-get update && apt-get install -y --no-install-recommends frei0r-plugins \
+RUN apt-get update && apt-get install -y --no-install-recommends file frei0r-plugins \
     && rm -rf /var/lib/apt/lists/*
 
 # Authenticated binary WebSocket transport only; VNC input remains disabled.

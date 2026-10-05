@@ -32,7 +32,11 @@ function engineFixture(
 		cleanupFails?: boolean
 	} = {},
 ) {
-	const calls: { binary: string; args: readonly string[]; env?: NodeJS.ProcessEnv }[] = []
+	const calls: {
+		binary: string
+		args: readonly string[]
+		env?: NodeJS.ProcessEnv
+	}[] = []
 	let allocated = false
 	const runner: LocalComputerCommandRunner = {
 		async run(binary, args, call) {
@@ -469,8 +473,10 @@ describe('computer lease clients', () => {
 			clients.computerUseHost.execute({ type: 'type_text', text: 'hello' }),
 		).rejects.toMatchObject({ code: 'computer_use_outcome_unknown', retrySafety: 'unsafe' })
 	})
-	it('refuses ranged reads without issuing a misleading whole-file read', async () => {
-		const fetch = vi.fn()
+	it('refuses an older worker before any file bytes are requested', async () => {
+		const fetch = vi.fn(
+			async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }),
+		)
 		vi.stubGlobal('fetch', fetch)
 		const clients = localComputerClients({
 			executionUrl: 'http://127.0.0.1:41124',
@@ -479,7 +485,108 @@ describe('computer lease clients', () => {
 			geometry: { width: 1280, height: 800, scaleFactor: 1 },
 			stop: async () => {},
 		})
-		await expect(clients.sandbox.readFile('file', { offset: 2 })).rejects.toThrow('ranged reads')
-		expect(fetch).not.toHaveBeenCalled()
+		await expect(clients.sandbox.readFile('file', { offset: 2 })).rejects.toThrow(
+			'bounded file reads',
+		)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(fetch.mock.calls[0]?.[1]?.body as string)).toEqual({
+			capabilitiesOnly: true,
+		})
+	})
+	it('acknowledges and validates exact bounded reads, retaining ordinary reads', async () => {
+		const bodies: Record<string, unknown>[] = []
+		const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+			const body = JSON.parse(init?.body as string)
+			bodies.push(body)
+			if (body.capabilitiesOnly)
+				return Response.json({
+					ok: true,
+					readFileRanges: { version: 1, maxBytes: 32 * 1024 * 1024 },
+				})
+			return Response.json({
+				ok: true,
+				content: Buffer.from('abc').toString('base64'),
+				sizeBytes: 3,
+				...(body.range ? { range: { ...body.range, length: body.range.length ?? null } } : {}),
+			})
+		})
+		vi.stubGlobal('fetch', fetch)
+		const clients = localComputerClients({
+			executionUrl: 'http://127.0.0.1:41124',
+			desktopUrl: 'http://127.0.0.1:41125',
+			token: 'private-token',
+			geometry: { width: 1280, height: 800, scaleFactor: 1 },
+			stop: async () => {},
+		})
+		expect(await clients.sandbox.readFile('image', { offset: 2, length: 3 })).toEqual(
+			Buffer.from('abc'),
+		)
+		expect(await clients.sandbox.readFile('image', { offset: 0 })).toEqual(Buffer.from('abc'))
+		expect(await clients.sandbox.readFile('image')).toEqual(Buffer.from('abc'))
+		expect(bodies).toEqual([
+			{ capabilitiesOnly: true },
+			{
+				path: 'image',
+				encoding: 'base64',
+				range: { version: 1, offset: 2, length: 3 },
+			},
+			{ path: 'image', encoding: 'base64', range: { version: 1, offset: 0 } },
+			{ path: 'image', encoding: 'base64' },
+		])
+	})
+	it.each([{ offset: -1 }, { offset: 1.5 }, { length: -1 }, { length: 32 * 1024 * 1024 + 1 }])(
+		'refuses invalid range %j without guest I/O',
+		async (range) => {
+			const fetch = vi.fn()
+			vi.stubGlobal('fetch', fetch)
+			const clients = localComputerClients({
+				executionUrl: 'http://127.0.0.1:41124',
+				desktopUrl: 'http://127.0.0.1:41125',
+				token: 'private-token',
+				geometry: { width: 1280, height: 800, scaleFactor: 1 },
+				stop: async () => {},
+			})
+			await expect(clients.sandbox.readFile('image', range)).rejects.toThrow('read range')
+			expect(fetch).not.toHaveBeenCalled()
+		},
+	)
+	it.each([
+		{
+			range: { version: 1, offset: 1, length: 3 },
+			sizeBytes: 3,
+			content: 'YWJj',
+		},
+		{
+			range: { version: 1, offset: 0, length: 3 },
+			sizeBytes: 4,
+			content: 'YWJjZA==',
+		},
+		{
+			range: { version: 1, offset: 0, length: 3 },
+			sizeBytes: 2,
+			content: 'YWJj',
+		},
+	])('refuses an unconfirmed or oversized worker range', async (result) => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init?: RequestInit) =>
+				Response.json(
+					JSON.parse(init?.body as string).capabilitiesOnly
+						? {
+								ok: true,
+								readFileRanges: { version: 1, maxBytes: 32 * 1024 * 1024 },
+							}
+						: { ok: true, ...result },
+				),
+			),
+		)
+		const clients = localComputerClients({
+			executionUrl: 'http://127.0.0.1:41124',
+			desktopUrl: 'http://127.0.0.1:41125',
+			token: 'private-token',
+			geometry: { width: 1280, height: 800, scaleFactor: 1 },
+			stop: async () => {},
+		})
+		await expect(clients.sandbox.readFile('image', { length: 3 })).rejects.toThrow('worker')
 	})
 })

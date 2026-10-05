@@ -30,8 +30,9 @@
  *                         a successful response is sent only after terminal
  *                         state is known; an unconfirmed stop retires worker.
  *   POST /read-file     — read a file from the workspace.
- *                         body: { path, encoding? }
- *                         response: { ok, content, sizeBytes }
+ *                         body: { path, encoding?, range?: { version: 1, offset?, length? } }
+ *                         response: { ok, content, sizeBytes, range? }
+ *                         { capabilitiesOnly: true } probes bounded-read support.
  *   POST /write-file    — write a file inside the workspace.
  *                         body: { path, content, encoding? }
  *                         response: { ok, bytesWritten }
@@ -67,9 +68,11 @@ const http = require('node:http')
 const { spawn } = require('node:child_process')
 const { createHash, randomUUID, timingSafeEqual } = require('node:crypto')
 const fs = require('node:fs/promises')
+const { constants: fileConstants } = require('node:fs')
 const path = require('node:path')
 
 const REMOTE_EXECUTION_PROTOCOL_VERSION = 2
+const FILE_RANGE_BYTES = 32 * 1024 * 1024
 
 /**
  * Prefix every variable this worker reads its own configuration from.
@@ -1123,6 +1126,13 @@ async function handleReadFile(req, res) {
 		writeJson(res, 400, { error: 'invalid_body', message: err.message })
 		return
 	}
+	if (body.capabilitiesOnly === true) {
+		writeJson(res, 200, {
+			ok: true,
+			readFileRanges: { version: 1, maxBytes: FILE_RANGE_BYTES },
+		})
+		return
+	}
 	if (!body.path) {
 		writeJson(res, 400, { error: 'missing_path' })
 		return
@@ -1130,6 +1140,59 @@ async function handleReadFile(req, res) {
 	try {
 		const { target, root } = resolveReadablePath(body.path)
 		const real = await realpathWithinWorkspace(target, root)
+		if (body.range !== undefined) {
+			const range = body.range
+			if (
+				!range ||
+				typeof range !== 'object' ||
+				Array.isArray(range) ||
+				range.version !== 1 ||
+				(range.offset !== undefined && (!Number.isSafeInteger(range.offset) || range.offset < 0)) ||
+				(range.length !== undefined &&
+					(!Number.isSafeInteger(range.length) ||
+						range.length < 0 ||
+						range.length > FILE_RANGE_BYTES))
+			)
+				throw new Error('Invalid or oversized file read range')
+			const offset = range.offset ?? 0
+			const file = await fs.open(
+				real,
+				fileConstants.O_RDONLY | (fileConstants.O_NOFOLLOW ?? 0) | (fileConstants.O_NONBLOCK ?? 0),
+			)
+			try {
+				// The opened descriptor pins the object throughout the read. Recheck
+				// its path and identity before consuming bytes after an ancestor swap.
+				const confirmed = await realpathWithinWorkspace(target, root)
+				const info = await file.stat()
+				const current = await fs.stat(confirmed)
+				if (confirmed !== real || info.dev !== current.dev || info.ino !== current.ino)
+					throw new Error('File identity changed before its bounded read')
+				if (!info.isFile()) throw new Error('Bounded reads require a regular file')
+				const requested = range.length ?? Math.max(0, info.size - offset)
+				if (!Number.isSafeInteger(requested) || requested > FILE_RANGE_BYTES)
+					throw new Error('File read range exceeds the worker limit; specify a bounded length')
+				const length = Math.min(requested, Math.max(0, info.size - offset))
+				const bytes = Buffer.alloc(length)
+				let read = 0
+				while (read < length) {
+					const next = await file.read(bytes, read, length - read, offset + read)
+					if (!next.bytesRead) break
+					read += next.bytesRead
+				}
+				const buf = bytes.subarray(0, read)
+				const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
+				writeJson(res, 200, {
+					ok: true,
+					content: buf.toString(encoding),
+					sizeBytes: buf.length,
+					encoding,
+					range: { version: 1, offset, length: range.length ?? null },
+				})
+			} finally {
+				await file.close()
+			}
+			return
+		}
 		const buf = await fs.readFile(real)
 		const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
 		writeJson(res, 200, {

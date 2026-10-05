@@ -171,6 +171,37 @@ Destroying the computer first removes the guest allocation, then kills and await
 every host bridge. A host crash disconnects IPC and requests guest cancellation;
 an unconfirmed stop still needs operator recovery of the saved allocation.
 
+The image also supplies the standard `file` utility for format inspection.
+A format label is a structural check, not proof that the output meets its task.
+
+### Bounded artifact reads
+
+The Pal sandbox's `readFile(path, { offset, length, signal })` supports byte
+ranges when its authenticated file worker acknowledges range protocol version
+1. The client probes `POST /read-file` with `{ capabilitiesOnly: true }` before
+its first bounded read. An older image is refused before file contents are
+requested; rebuild the local Pal image from the same Namzu release. There is
+no fallback to a whole-file read or the operator's filesystem.
+
+The worker acknowledges `{ readFileRanges: { version: 1, maxBytes: 33554432 } }`
+and accepts `{ path, encoding: "base64", range: { version: 1, offset, length } }`.
+Offsets and lengths are non-negative safe integers. Omitted offset means zero;
+omitted length means the remaining bytes, limited to 32 MiB. A range beyond EOF
+returns fewer bytes or an empty buffer. A zero length is a valid empty read.
+These requests admit regular files only and keep an opened descriptor for the
+read, checking its identity and real path against the configured guest roots.
+
+A success response includes the exact requested `range`, `sizeBytes`, encoding
+and content. The Pal client validates that acknowledgment and the bounded
+base64 bytes. Unbounded `readFile(path)` retains its previous wire shape and
+behavior. Current control authority, cancellation and busy-operation guards
+apply to both forms.
+
+[`view_image`](pal-work.md#inspecting-saved-image-artifacts) uses a bounded read
+of 16 MiB plus one byte to refuse oversized images without loading the whole
+file. This presents saved artifact pixels to a capable model; it does not
+replace a fresh GUI screenshot or certify output quality.
+
 Foreground launchers and registered background jobs have different owners.
 The shipped Pal image permits an application started by a **successfully completed
 foreground launcher** to remain open for the computer's lifetime. The host's

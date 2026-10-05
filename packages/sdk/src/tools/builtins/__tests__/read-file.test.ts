@@ -1,6 +1,7 @@
 import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { encode } from 'fast-png'
 import { describe, expect, it } from 'vitest'
 import { findPortableSchemaViolations } from '../../../registry/tool/portable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
@@ -138,6 +139,33 @@ describe('ReadFileTool', () => {
 		expect(result.output).toContain('DOCX document package')
 		expect(result.output).toContain('python-docx')
 		expect(result.data).toMatchObject({ binary: true })
+	})
+
+	it('directs actual image bytes to visual inspection instead of recording a text observation', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
+		const bytes = Buffer.from(
+			encode({ width: 1, height: 1, channels: 3, data: new Uint8Array([90, 90, 90]) }),
+		)
+		writeFileSync(join(dir, 'reference.txt'), bytes)
+		const tracker = createFileReadTracker()
+		const result = await ReadFileTool.execute(
+			{ path: 'reference.txt' },
+			makeContext(dir, { fileReadTracker: tracker }),
+		)
+		expect(result.success).toBe(false)
+		expect(result.output).toContain('PNG raster image')
+		expect(result.output).toContain('view_image')
+		expect(result.data).toMatchObject({ binary: true })
+		expect(tracker.hasRead(join(dir, 'reference.txt'))).toBe(false)
+	})
+
+	it('does not classify ordinary text as an image just because its extension is .png', async () => {
+		const result = await ReadFileTool.execute(
+			{ path: 'notes.png' },
+			makeContext('/host', { sandbox: sandboxOver('ordinary text') }),
+		)
+		expect(result.success).toBe(true)
+		expect(result.output).toBe('1\tordinary text')
 	})
 })
 

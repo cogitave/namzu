@@ -25,6 +25,8 @@ export { RUN_CODE_TOOL_NAME, buildRunCodeTool } from './run-code.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
 export { VerifyOutputsTool } from './verify-outputs.js'
+export { ViewImageTool, createViewImageTool } from './view-image.js'
+export type { ViewImageToolOptions } from './view-image.js'
 export { createStructuredOutputTool, STRUCTURED_OUTPUT_TOOL_NAME } from './structuredOutput.js'
 export { createComputerUseTool, COMPUTER_USE_TOOL_NAME } from './computer-use.js'
 

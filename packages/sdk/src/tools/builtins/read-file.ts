@@ -153,6 +153,20 @@ function recordObservedRead(
 
 function describeStructuredBinaryRead(path: string, buffer: Buffer): string | null {
 	const ext = extname(path).toLowerCase()
+	const image = buffer.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+		? 'PNG'
+		: buffer[0] === 0xff && buffer[1] === 0xd8
+			? 'JPEG'
+			: buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP'
+				? 'WebP'
+				: null
+	if (image) {
+		return [
+			`The file "${path}" is a ${image} raster image, not UTF-8 text.`,
+			'Use an available view_image tool with this path to inspect the actual pixels. Reading binary bytes as text does not provide visual evidence.',
+			'If image inspection is unavailable, open the file in an application and use an available screenshot tool; report the limitation if neither can show the image.',
+		].join('\n')
+	}
 	if (ext === '.docx') return buildStructuredBinaryGuidance(path, 'DOCX', 'python-docx')
 	if (ext === '.pptx') return buildStructuredBinaryGuidance(path, 'PPTX', 'python-pptx')
 	if (ext === '.xlsx') return buildStructuredBinaryGuidance(path, 'XLSX', 'openpyxl')

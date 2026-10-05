@@ -5,6 +5,7 @@ import {
 	BackgroundJobRegistry,
 	type ComputerUseHost,
 	DiskSessionLog,
+	type Message,
 	MockLLMProvider,
 	PLAN_MODE_REFUSAL,
 	type PalEnvironmentLease,
@@ -18,6 +19,7 @@ import {
 	findPendingCheckpoint,
 	generateSessionId,
 	generateTurnId,
+	preparePalReferenceImages,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -34,6 +36,34 @@ import { palSessionEnvironment } from './agent-session.js'
 import { claimPalConversation } from './conversations.js'
 import { readPalWaitingReview } from './review.js'
 import { createPal, getCliPalStore, updatePal } from './store.js'
+
+const referenceImage = {
+	type: 'image' as const,
+	mediaType: 'image/png',
+	data: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAADUlEQVR4XmOoAAMoBQAnbgWhheklIAAAAABJRU5ErkJggg==',
+}
+
+function installReferenceGuest(computer: PalEnvironmentLease) {
+	vi.mocked(computer.sandbox.exec).mockImplementation(async (command, args) => {
+		if (command !== 'python3' || !args?.[2]) throw new Error('Unexpected reference guest command.')
+		const request = JSON.parse(args[2]) as {
+			phase: string
+			items: { name: string }[]
+		}
+		return {
+			exitCode: 0,
+			stdout:
+				request.phase === 'preflight'
+					? JSON.stringify(request.items.map((item) => item.name))
+					: request.phase === 'commit'
+						? 'references-ready'
+						: '',
+			stderr: '',
+			timedOut: false,
+			durationMs: 0,
+		}
+	})
+}
 
 const fixtureProviderId = 'openai'
 let root: string
@@ -305,6 +335,64 @@ it('updates capabilities after explicit guest start, takeover and return without
 		closeSessions(f.state)
 	}
 })
+it('delivers saved artifact pixels and generic work guidance through the actual Pal provider request', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'view_image', args: { path: 'design.png' } }] },
+			{ text: 'I inspected the saved design.' },
+		],
+	})
+	const f = await fixture(provider)
+	vi.mocked(f.original.sandbox.readFile).mockResolvedValue(
+		Buffer.from(referenceImage.data, 'base64'),
+	)
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Inspect the saved design.')])) {
+		}
+		expect(f.original.sandbox.readFile).toHaveBeenCalledWith(
+			'design.png',
+			expect.objectContaining({ offset: 0, length: 16 * 1024 * 1024 + 1 }),
+		)
+		const request = JSON.stringify(provider.requests[1])
+		expect(request).toContain('"type":"image"')
+		expect(request).toContain('"mediaType":"image/png"')
+		expect(request).toContain('shown at 2x2')
+		expect(request).toContain('saved artifact is not a current computer_use screenshot')
+		expect(request).toContain('graphics, documents, spreadsheets, browsers, code')
+		expect(request).toContain('verify_outputs only as a file presence check')
+		expect(f.original.computerUseHost.execute).not.toHaveBeenCalled()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+it('refuses artifact reads for a provider that accepts attachments but cannot receive tool images', async () => {
+	const provider = new MockLLMProvider({
+		capabilities: {
+			supportsTools: true,
+			supportsStreaming: true,
+			supportsFunctionCalling: true,
+			supportsVision: true,
+			supportsToolResultImages: false,
+		},
+		turns: [
+			{ toolCalls: [{ name: 'view_image', args: { path: 'design.png' } }] },
+			{ text: 'I cannot inspect saved images with this provider.' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Inspect the saved design.')])) {
+		}
+		expect(f.original.sandbox.readFile).not.toHaveBeenCalled()
+		expect(JSON.stringify(provider.requests[1])).toContain('No image was read or shown')
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
 it('routes file reads and shell commands to the current admitted guest after restart', async () => {
 	const provider = new MockLLMProvider({
 		turns: [
@@ -488,6 +576,223 @@ async function records(f: Awaited<ReturnType<typeof fixture>>): Promise<SessionR
 	for await (const { record } of log.read({ mode: 'strict' })) result.push(record)
 	return result
 }
+
+it('imports current inline references only through the admitted guest tool and retains original history', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'import_reference_images', args: {} }] },
+			{ text: 'The reference is ready in my computer.' },
+		],
+	})
+	const f = await fixture(provider)
+	installReferenceGuest(f.original)
+	const message = createUserMessage('Use this reference in the design application.', [
+		referenceImage,
+	])
+	const original = structuredClone(message)
+	try {
+		for await (const _event of f.agent.send([message])) {
+		}
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledTimes(1)
+		expect(f.original.sandbox.writeFile).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\/home\/namzu\/workspace\/\.namzu\/reference-imports\/[a-f0-9-]+\/[a-f0-9]{64}\.png$/,
+			),
+			Buffer.from(referenceImage.data, 'base64'),
+		)
+		const request = JSON.stringify(provider.requests[1])
+		expect(request).toContain('attachmentIndex')
+		expect(request).toContain('/home/namzu/workspace/.namzu/references/')
+		const { id: _recordedId, ...unchangedInput } = message
+		expect(unchangedInput).toEqual(original)
+		const recorded = (await records(f)).find(
+			(record) =>
+				record.type === 'message' && record.content.role === 'user' && !record.content.source,
+		)
+		expect(recorded).toMatchObject({ content: { attachments: [referenceImage] } })
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it.each(['prompt', 'strict', 'plan'] as const)(
+	'does not silently write references in %s mode',
+	async (mode) => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ name: 'import_reference_images', args: {} }] },
+				{ text: 'The image is visible but has not been copied into my computer.' },
+			],
+		})
+		const f = await fixture(provider)
+		const onPermission = vi.fn(async () => ({
+			kind: 'reject' as const,
+			feedback: 'Keep it model-only.',
+		}))
+		try {
+			for await (const _event of f.agent.send(
+				[createUserMessage('Study this image.', [referenceImage])],
+				{
+					permissionMode: mode,
+					onPermission,
+				},
+			)) {
+			}
+			expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+			expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+			expect(onPermission).toHaveBeenCalledTimes(mode === 'prompt' ? 1 : 0)
+			expect(JSON.stringify(provider.requests)).not.toContain('/.namzu/references/')
+		} finally {
+			await f.agent.close()
+			await f.runtime.close()
+			closeSessions(f.state)
+		}
+	},
+)
+
+it('does not copy an attached reference just because ordinary chat has an online computer', async () => {
+	const f = await fixture(new MockLLMProvider({ responseText: 'I can discuss that image.' }))
+	try {
+		for await (const _event of f.agent.send([
+			createUserMessage('What do you see?', [referenceImage]),
+		])) {
+		}
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('does not give a new turn automatic access to historical attached reference bytes', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ text: 'I can see that image.' },
+			{ toolCalls: [{ name: 'import_reference_images', args: {} }] },
+			{ text: 'This new input does not include a reference to import.' },
+		],
+	})
+	const f = await fixture(provider)
+	let history: readonly Message[] = []
+	try {
+		for await (const _event of f.agent.send(
+			[createUserMessage('Discuss this image.', [referenceImage])],
+			{
+				onConversationMessages: (messages) => {
+					history = messages
+				},
+			},
+		)) {
+		}
+		for await (const _event of f.agent.send([
+			...history,
+			createUserMessage('Now keep chatting.'),
+		])) {
+		}
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(JSON.stringify(provider.requests[2])).toContain('no inline reference images')
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('rebuilds exact current reference bytes for a durable approved import on the next guest generation', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ id: 'reference-import-review', name: 'import_reference_images', args: {} }] },
+			{ text: 'The approved reference import completed.' },
+		],
+	})
+	const f = await fixture(provider)
+	let resumed = f.agent
+	try {
+		for await (const _event of f.agent.send(
+			[createUserMessage('Use this exact reference.', [referenceImage])],
+			{
+				permissionMode: 'prompt',
+				reviewHold: { reason: 'Wait for the operator.' },
+			},
+		)) {
+		}
+		const pending = await findPendingCheckpoint(
+			DiskSessionLog.at(f.state.paths, { sessionId: f.id }),
+		)
+		if (!pending) throw new Error('Reference import did not park a durable review.')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		await f.agent.close()
+		await f.runtime.stopComputer(f.pal.id)
+		await f.runtime.startComputer(f.pal.id)
+		installReferenceGuest(f.replacement)
+		resumed = await f.reopen()
+		for await (const _event of resumed.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			permissionMode: 'prompt',
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.replacement.sandbox.writeFile).toHaveBeenCalledWith(
+			expect.any(String),
+			Buffer.from(referenceImage.data, 'base64'),
+		)
+		const expected = preparePalReferenceImages([referenceImage])[0]
+		expect(JSON.stringify(provider.requests[1])).toContain(expected?.sha256)
+		expect(JSON.stringify(provider.requests[1])).toContain(
+			'/home/namzu/workspace/.namzu/references/',
+		)
+		expect((await records(f)).filter((record) => record.type === 'turn_started')).toHaveLength(1)
+	} finally {
+		await resumed.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('keeps current plan mode stricter than an approved durable reference import', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ id: 'reference-plan-review', name: 'import_reference_images', args: {} }] },
+			{ text: 'The reference remains visible to me without guest writes.' },
+		],
+	})
+	const f = await fixture(provider)
+	try {
+		for await (const _event of f.agent.send(
+			[createUserMessage('Use this image.', [referenceImage])],
+			{
+				permissionMode: 'prompt',
+				reviewHold: { reason: 'Wait for approval.' },
+			},
+		)) {
+		}
+		const pending = await findPendingCheckpoint(
+			DiskSessionLog.at(f.state.paths, { sessionId: f.id }),
+		)
+		if (!pending) throw new Error('Reference import did not park a durable review.')
+		for await (const _event of f.agent.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			currentPermissionMode: () => 'plan',
+		})) {
+		}
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(JSON.stringify(provider.requests[1])).toContain(PLAN_MODE_REFUSAL)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
 async function park(f: Awaited<ReturnType<typeof fixture>>) {
 	// These paths are new guest files; an existing unread file must correctly refuse overwrite.
 	for (const computer of [f.original, f.replacement])

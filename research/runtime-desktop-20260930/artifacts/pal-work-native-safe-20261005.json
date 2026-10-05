@@ -1,0 +1,71 @@
+{
+  "nativeWindows": true,
+  "actualSDK": true,
+  "actualPodman": true,
+  "actualApplications": true,
+  "mockedProvider": false,
+  "userPalUntouched": true,
+  "originalReferenceImportedAndVerified": true,
+  "actualWorkerBoundedArtifactImage": true,
+  "actualModelTaskStopReason": "end_turn",
+  "realGraphicsAndDocumentFilesReadBack": true,
+  "modelToolNames": [
+    "import_reference_images",
+    "bash",
+    "view_image"
+  ],
+  "modelSawArtifactPixels": true,
+  "ownedVerificationResourcesRemoved": true,
+  "actualModelProvider": "anthropic",
+  "actualModel": "claude-sonnet-5-5",
+  "confirmedArtifactImageResults": 5,
+  "modelToolCalls": 22,
+  "automaticModelVisualCorrectionObserved": true,
+  "task": "Reference-based Inkscape SVG/PNG diagram and LibreOffice Draw ODG/PDF one-page handoff.",
+  "independentSavedSVGGeometryCheck": true,
+  "independentSavedODGContentAndPageCheck": true,
+  "semanticCorrectnessGuaranteed": false,
+  "remainingLimitations": [
+    "The model noted a PDF font-ligature display difference in the Inkscape reader; no dedicated PDF viewer was available.",
+    "Prompt guidance is not a deterministic guarantee for every application or model."
+  ],
+  "artifacts": [
+    {
+      "name": "workflow.svg",
+      "bytes": 474,
+      "sha256": "d6ceab7ddf5c36e18945b96840bc47bac0ce78ba14e09df140c66519e5609a1c"
+    },
+    {
+      "name": "workflow.png",
+      "bytes": 12097,
+      "sha256": "a0ef951236825bf83273f1b9b344803277bd2af334d22c07331db984955186f2"
+    },
+    {
+      "name": "handoff.odg",
+      "bytes": 13476,
+      "sha256": "eb045a58163a9ea7f766dbd01e49e2454e628b4d78339b3213c05c340a1a8661"
+    },
+    {
+      "name": "handoff.pdf",
+      "bytes": 20474,
+      "sha256": "b8495198aa6b648db246b49e7e0e6e9d348ce7889b88396f918d64d5a3a01bcc"
+    }
+  ],
+  "independentSavedPNGColorAndCanvasCheck": true,
+  "restoredDesktop": {
+    "nativeWindows": true,
+    "actualCLI": true,
+    "realGuestFrame": true,
+    "width": 1280,
+    "height": 800,
+    "computerReady": true,
+    "profilesPreserved": true,
+    "modelPreserved": true,
+    "layoutPreserved": true,
+    "openConversations": 6,
+    "draftsPreserved": true,
+    "previousBlenderFilePreserved": true,
+    "fileInspectionUtilityAvailable": true,
+    "diagnosticWarningsOrErrors": 0
+  }
+}

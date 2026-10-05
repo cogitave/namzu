@@ -4,6 +4,8 @@ import {
 	BackgroundJobRegistry,
 	DiskSessionLog,
 	type LLMProvider,
+	type Message,
+	type MessageAttachment,
 	type PalAdmission,
 	type PalConversationAdmission,
 	type PalDefinition,
@@ -24,7 +26,9 @@ import {
 	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
+	createPalReferenceImageTool,
 	createToolPresenter,
+	createViewImageTool,
 	getBuiltinTools,
 	palConversationGreeting,
 	query,
@@ -256,6 +260,7 @@ export async function createPalAgentSession(
 	const messaging = createCliPalMessagingContext(binding.definition, scope, assertActive)
 	let assertExecutionAllowed: (() => void | Promise<void>) | undefined
 	let activePermissionMode: (() => PermissionMode) | undefined
+	let referenceAttachments: readonly MessageAttachment[] = []
 	const configureComputer = async (lease?: PalEnvironmentLease) => {
 		await manager.dispose()
 		tools = []
@@ -298,7 +303,20 @@ export async function createPalAgentSession(
 			})
 			tools = [
 				...allTools,
+				createViewImageTool({
+					unavailableReason: computerUseUnavailableReason(provider),
+				}),
 				...messaging.tools,
+				createPalReferenceImageTool({
+					attachments: () => referenceAttachments,
+					assertCurrentAdmission: async () => {
+						assertComputerActive()
+						await renewWriter()
+						await assertExecutionAllowed?.()
+						assertComputerActive()
+						if (activePermissionMode?.() === 'plan') throw new Error(PLAN_MODE_REFUSAL)
+					},
+				}),
 				computerTool,
 				...(lease.browserHost
 					? createBrowserTools(
@@ -366,6 +384,7 @@ export async function createPalAgentSession(
 		signal?.addEventListener('abort', onAbort, { once: true })
 		if (signal?.aborted) onAbort()
 		activeAbort = controller
+		referenceAttachments = []
 		assertExecutionAllowed = guard
 		activePermissionMode = mode
 		sendSettled = new Promise<void>((done) => {
@@ -442,6 +461,7 @@ export async function createPalAgentSession(
 			activeAbort = undefined
 			assertExecutionAllowed = undefined
 			activePermissionMode = undefined
+			referenceAttachments = []
 			borrowedWriter = undefined
 			settleSend?.()
 			settleSend = undefined
@@ -555,7 +575,10 @@ export async function createPalAgentSession(
 				{
 					greeting: palConversationGreeting(binding.definition, scope.sessionId),
 					computer: admission
-						? { status: 'ready', workingDirectory: admission.lease.sandbox.rootDir }
+						? {
+								status: 'ready',
+								workingDirectory: admission.lease.sandbox.rootDir,
+							}
 						: { status: 'unavailable' },
 					...(opts?.systemNote ? { systemNote: opts.systemNote } : {}),
 				},
@@ -636,6 +659,16 @@ export async function createPalAgentSession(
 					record.config.model !== model
 				)
 					throw new Error('This Pal turn used another model.')
+				// Recover only the original operator input admitted to this exact
+				// durable turn. The tool result/checkpoint retains its verified
+				// guest manifest; resuming never rewrites prior user attachments.
+				if (
+					record.type === 'message' &&
+					record.turnId === turnId &&
+					record.content.role === 'user' &&
+					!record.content.source
+				)
+					referenceAttachments = structuredClone(record.content.attachments ?? [])
 			}
 			const effort = params.model?.effort
 			if (
@@ -817,6 +850,17 @@ export async function createPalAgentSession(
 			const { controller } = work
 			let sendFailure: unknown
 			try {
+				// send() also receives cached history. Only an unrecorded operator
+				// input after the last model/tool reply belongs to this new turn.
+				// An old attachment is never reimported just because history is sent.
+				for (let index = messages.length - 1; index >= 0; index--) {
+					const message: Message | undefined = messages[index]
+					if (!message || message.role === 'assistant' || message.role === 'tool') break
+					if (message.role === 'user' && !message.source && !message.id) {
+						referenceAttachments = structuredClone(message.attachments ?? [])
+						break
+					}
+				}
 				await enterConversation(controller)
 				const events = query({
 					...queryOptions(opts),

@@ -69,7 +69,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
+			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Do NOT use `cmd &` as a substitute for a registered job: strict execution ownership can retire the allocation when the launcher exits with live descendants. An interactive application may belong to a dedicated computer only when that computer explicitly supports application lifetime; its launch result is not a registered job or proof the application has finished.',
 		),
 	dangerously_disable_sandbox: z
 		.boolean()

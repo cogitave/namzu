@@ -59,4 +59,43 @@ describe('Pal conversational system context', () => {
 		expect(prompt).toContain('only after its tool result confirms it')
 		expect(prompt).toContain('Do not claim computer access')
 	})
+
+	it('scopes common work discipline to an admitted computer, with a compatible basic optout', () => {
+		const definition = { name: 'Pal', purpose: '' }
+		const computer = {
+			status: 'ready' as const,
+			workingDirectory: '/guest/work',
+		}
+		const prompt = buildPalSystemPrompt(definition, { computer })
+		expect(prompt).toContain('observe, act, compare and correct loop')
+		expect(prompt).toContain('graphics, documents, spreadsheets, browsers, code')
+		expect(prompt).toContain('ordinary conversation natural')
+		expect(prompt).toContain('application API or script')
+		expect(prompt).toContain('after human control returns')
+		expect(buildPalSystemPrompt(definition)).not.toContain('observe, act, compare')
+		expect(buildPalSystemPrompt(definition, { computer, workGuidance: 'basic' })).not.toContain(
+			'observe, act, compare',
+		)
+		expect(() => buildPalSystemPrompt(definition, { workGuidance: 'unknown' as never })).toThrow(
+			'work guidance',
+		)
+	})
+
+	it('distinguishes observations, saved outputs and task quality from mere tool success', () => {
+		const prompt = buildPalSystemPrompt(
+			{ name: 'Pal', purpose: '' },
+			{ computer: { status: 'ready', workingDirectory: '/guest/work' } },
+		)
+		expect(prompt).toContain('few meaningful acceptance criteria')
+		expect(prompt).toContain('Do not invent references')
+		expect(prompt).toContain('If import_reference_images is available')
+		expect(prompt).toContain('Do not guess a guest path')
+		expect(prompt).toContain('actual resulting artifact')
+		expect(prompt).toContain('Correct observed mismatches')
+		expect(prompt).toContain('Preserve the original program’s failure status')
+		expect(prompt).toContain('Reopen the native file')
+		expect(prompt).toContain('independently validate requested exports')
+		expect(prompt).toContain('verify_outputs only as a file presence check')
+		expect(prompt).toContain('Never claim a reference comparison')
+	})
 })

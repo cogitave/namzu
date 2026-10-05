@@ -17,6 +17,13 @@ export type * from './types/ids/index.js'
 export type * from './types/harness/session.js'
 export type * from './pals/types.js'
 export type { PalConversationGreeting, PalSystemPromptOptions } from './pals/prompt.js'
+export type {
+	PalReferenceImage,
+	PalReferenceImageImportReceipt,
+	PalReferenceImageImportOptions,
+	PalReferenceImageToolOptions,
+} from './pals/reference-images.js'
+export type { ViewImageToolOptions } from './tools/builtins/view-image.js'
 export type * from './types/message/index.js'
 export type * from './types/message/inbound-delivery.js'
 export type * from './types/common/index.js'
