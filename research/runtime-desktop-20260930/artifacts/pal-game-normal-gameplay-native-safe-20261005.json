@@ -1,0 +1,506 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "executionPath": "Actual Sıtkı Pal query through SDK MCP composition in its allocation-owned guest",
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791206245700",
+  "typedBridgeSha256": "509989127fdde72cb2d7eb0da2be57dc5cb3c327914f038919870e4f2eb21802",
+  "applicationSourcePins": {
+    "godotVersion": "4.7.2",
+    "godotToolkitCommit": "db005fc054155a0f977868fdfa34220b347fa8aa",
+    "godotMcpServerCommit": "581fbcce32337ad98f2229457ac43154001f7efb",
+    "pinScope": "Current deployment manifest reviewed separately; later tool-description source changes were not deployed for these observations."
+  },
+  "evidenceThroughSequence": 3748,
+  "evidenceThrough": "2026-10-05T13:52:51.890Z",
+  "normalWinLossRestartVerified": true,
+  "normalGameplayVerified": true,
+  "completeGameplayVerified": false,
+  "actualGameAssets": {
+    "actualGameRobotGlb": {
+      "bytes": 181776,
+      "sha256": "f2cb6bc72e31db6ff725d5ea5fdd2cfc458398c274fe744809ad4b308a62da1b",
+      "copiedBytesRehashedReadOnly": true,
+      "guestHashReplySequence": 216
+    },
+    "nativeBlenderSource": {
+      "bytes": 913652,
+      "sha256": "964c756d0fea8879aa48300ddee27ab3a738acfc4b921ce982bd1f7e9e4f51b2",
+      "copiedBytesRehashedReadOnly": true,
+      "guestHashReplySequence": 216
+    },
+    "rootExportRobotGlbSha256": "92735aa38ea2ab21cd17f41d9cb67fb82d54764ddbeb37bc1ab3d1a8e12c28c6",
+    "rootExportAndActualGameGlbAreDifferent": true,
+    "weightedWalkAtRuntimeVerifiedByThisReceipt": false
+  },
+  "stateEnum": {
+    "sourceReadSequence": 91,
+    "sourceReadAt": "2026-10-05T13:21:30.393Z",
+    "declaration": "enum State { TITLE, PLAYING, WON, LOST, PAUSED }",
+    "mapping": {
+      "TITLE": 0,
+      "PLAYING": 1,
+      "WON": 2,
+      "LOST": 3,
+      "PAUSED": 4
+    }
+  },
+  "actualLoss": {
+    "startingHealth": {
+      "sequence": 1371,
+      "at": "2026-10-05T13:34:20.221Z",
+      "readonlyExpression": "get_node('/root/Main').get('health')",
+      "observedValue": 3,
+      "isError": false
+    },
+    "finalHealth": {
+      "sequence": 1506,
+      "at": "2026-10-05T13:35:07.803Z",
+      "readonlyExpression": "get_node('/root/Main').get('health')",
+      "observedValue": 0,
+      "isError": false
+    },
+    "finalState": {
+      "sequence": 1542,
+      "at": "2026-10-05T13:35:15.851Z",
+      "readonlyExpression": "get_node('/root/Main').get('state')",
+      "observedValue": 3,
+      "isError": false
+    },
+    "engineLog": {
+      "sequence": 1579,
+      "at": "2026-10-05T13:35:26.509Z",
+      "isError": false,
+      "source": "file",
+      "orderedSelectedLines": [
+        "GAME START",
+        "HIT health=2",
+        "HIT health=1",
+        "HIT health=0",
+        "LOSE"
+      ],
+      "perLineTimestampsAvailable": false,
+      "tailMayOmitEarlierLines": false
+    },
+    "healthThreeToZeroObserved": true,
+    "restartInput": {
+      "toolUseId": "call_01a10c471b2970ffa2108365",
+      "input": {
+        "events": [
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 82
+            },
+            "delay_after_ms": 200
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 82
+            },
+            "delay_after_ms": 200
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 80
+            },
+            "delay_after_ms": 400
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 80
+            },
+            "delay_after_ms": 200
+          },
+          {
+            "event_type": "mouse_motion",
+            "delay_after_ms": 400
+          }
+        ]
+      },
+      "rawSequence": 1591,
+      "rawAt": "2026-10-05T13:35:49.877Z",
+      "executingSequence": 1601,
+      "executingAt": "2026-10-05T13:35:49.903Z",
+      "completedSequence": 1603,
+      "completedAt": "2026-10-05T13:35:51.532Z",
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "durationMs": 1626,
+      "eventsProcessed": 5,
+      "reportedTreePaused": true
+    },
+    "afterRestart": {
+      "state": {
+        "sequence": 1633,
+        "at": "2026-10-05T13:36:03.255Z",
+        "readonlyExpression": "get_node('/root/Main').get('state')",
+        "observedValue": 4,
+        "isError": false
+      },
+      "health": {
+        "sequence": 1638,
+        "at": "2026-10-05T13:36:03.324Z",
+        "readonlyExpression": "get_node('/root/Main').get('health')",
+        "observedValue": 3,
+        "isError": false
+      },
+      "cores": {
+        "sequence": 1643,
+        "at": "2026-10-05T13:36:03.697Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 0,
+        "isError": false
+      },
+      "firstCoreLocked": {
+        "sequence": 1648,
+        "at": "2026-10-05T13:36:03.766Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores')[0].get('locked')",
+        "observedValue": false,
+        "isError": false
+      }
+    },
+    "normalDeathRestartVerified": true
+  },
+  "actualWinningRoute": {
+    "coreCountSamples": [
+      {
+        "sequence": 2589,
+        "at": "2026-10-05T13:44:08.522Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 1,
+        "isError": false
+      },
+      {
+        "sequence": 2659,
+        "at": "2026-10-05T13:44:26.093Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 2,
+        "isError": false
+      },
+      {
+        "sequence": 2797,
+        "at": "2026-10-05T13:45:11.637Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 3,
+        "isError": false
+      },
+      {
+        "sequence": 3005,
+        "at": "2026-10-05T13:46:58.705Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 4,
+        "isError": false
+      },
+      {
+        "sequence": 3075,
+        "at": "2026-10-05T13:47:27.896Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 5,
+        "isError": false
+      },
+      {
+        "sequence": 3143,
+        "at": "2026-10-05T13:47:54.414Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 6,
+        "isError": false
+      },
+      {
+        "sequence": 3283,
+        "at": "2026-10-05T13:49:10.016Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 7,
+        "isError": false
+      },
+      {
+        "sequence": 3633,
+        "at": "2026-10-05T13:52:25.606Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 8,
+        "isError": false
+      }
+    ],
+    "routeUsedRealInputAndPauseBetweenManeuvers": true,
+    "finalMovementInput": {
+      "toolUseId": "call_01a10c5628f2716bb7a5bf3e",
+      "input": {
+        "events": [
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 80
+            },
+            "delay_after_ms": 150
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 80
+            },
+            "delay_after_ms": 150
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "pressed": true,
+              "action": "move_left",
+              "strength": 1
+            },
+            "delay_after_ms": 1000
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "pressed": false,
+              "action": "move_left",
+              "strength": 0
+            },
+            "delay_after_ms": 150
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "pressed": true,
+              "action": "move_up",
+              "strength": 1
+            },
+            "delay_after_ms": 250
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "pressed": false,
+              "action": "move_up",
+              "strength": 0
+            },
+            "delay_after_ms": 250
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 80
+            },
+            "delay_after_ms": 250
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 80
+            },
+            "delay_after_ms": 150
+          }
+        ]
+      },
+      "rawSequence": 3593,
+      "rawAt": "2026-10-05T13:52:16.482Z",
+      "executingSequence": 3603,
+      "executingAt": "2026-10-05T13:52:16.515Z",
+      "completedSequence": 3605,
+      "completedAt": "2026-10-05T13:52:19.201Z",
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "durationMs": 2504,
+      "eventsProcessed": 8,
+      "reportedTreePaused": false
+    },
+    "finalState": {
+      "sequence": 3638,
+      "at": "2026-10-05T13:52:25.700Z",
+      "readonlyExpression": "get_node('/root/Main').get('state')",
+      "observedValue": 2,
+      "isError": false
+    },
+    "remainingHealth": {
+      "sequence": 3643,
+      "at": "2026-10-05T13:52:25.808Z",
+      "readonlyExpression": "get_node('/root/Main').get('health')",
+      "observedValue": 1,
+      "isError": false
+    },
+    "engineLog": {
+      "sequence": 3680,
+      "at": "2026-10-05T13:52:31.816Z",
+      "isError": false,
+      "source": "file",
+      "orderedSelectedLines": [
+        "CORE 2/8",
+        "CORE 3/8",
+        "HIT health=2",
+        "CORE 4/8",
+        "CORE 5/8",
+        "CORE 6/8",
+        "CORE 7/8",
+        "HIT health=1",
+        "CORE 8/8",
+        "WIN"
+      ],
+      "perLineTimestampsAvailable": false,
+      "tailMayOmitEarlierLines": true
+    },
+    "firstCoreProof": "The WIN file-log tail starts at CORE2; the independent actual core-count getter above proves CORE1 before that tail.",
+    "normalVictoryVerified": true
+  },
+  "actualVictoryRestart": {
+    "input": {
+      "toolUseId": "call_01a10c568f1974d5830ce466",
+      "input": {
+        "events": [
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 82
+            },
+            "delay_after_ms": 250
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 82
+            },
+            "delay_after_ms": 250
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": true,
+              "keycode": 80
+            },
+            "delay_after_ms": 400
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "pressed": false,
+              "keycode": 80
+            },
+            "delay_after_ms": 200
+          }
+        ]
+      },
+      "rawSequence": 3693,
+      "rawAt": "2026-10-05T13:52:42.647Z",
+      "executingSequence": 3703,
+      "executingAt": "2026-10-05T13:52:42.675Z",
+      "completedSequence": 3705,
+      "completedAt": "2026-10-05T13:52:43.864Z",
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "durationMs": 1187,
+      "eventsProcessed": 4,
+      "reportedTreePaused": true
+    },
+    "afterRestart": {
+      "cores": {
+        "sequence": 3733,
+        "at": "2026-10-05T13:52:51.696Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores_collected')",
+        "observedValue": 0,
+        "isError": false
+      },
+      "health": {
+        "sequence": 3738,
+        "at": "2026-10-05T13:52:51.760Z",
+        "readonlyExpression": "get_node('/root/Main').get('health')",
+        "observedValue": 3,
+        "isError": false
+      },
+      "state": {
+        "sequence": 3743,
+        "at": "2026-10-05T13:52:51.826Z",
+        "readonlyExpression": "get_node('/root/Main').get('state')",
+        "observedValue": 4,
+        "isError": false
+      },
+      "firstCoreLocked": {
+        "sequence": 3748,
+        "at": "2026-10-05T13:52:51.890Z",
+        "readonlyExpression": "get_node('/root/Main').get('cores')[0].get('locked')",
+        "observedValue": false,
+        "isError": false
+      }
+    },
+    "normalVictoryRestartVerified": true,
+    "interpretation": "R restarts the completed round, followed by P to pause. This is a normal victory restart; it does not establish the active-pickup restart race."
+  },
+  "victoryScreenshot": {
+    "sequence": 3675,
+    "at": "2026-10-05T13:52:31.760Z",
+    "toolUseId": "call_01a10c5663d7731b9a9a2c41",
+    "isError": false,
+    "width": 1132,
+    "height": 637,
+    "bytes": 102594,
+    "artifact": "pal-game-victory-native-20261005.png",
+    "sha256": "3d293c722664c18bf86b9e3da8c29ebbd824da4269cdc75721d00403a6d0b052",
+    "copiedArtifactInspectedReadOnly": true,
+    "visibleText": [
+      "Hull 1 / 3",
+      "CORES 8 / 8",
+      "TIME 0:37",
+      "DELIVERY COMPLETE",
+      "All 8 cores secured in 0:37",
+      "PRESS R OR SPACE TO PLAY AGAIN"
+    ],
+    "runtimeGetterAndLogConsistentWithImage": true
+  },
+  "executionAudit": {
+    "scopeThroughSequence": 3748,
+    "readonlyExecuteCodeArgumentCount": 177,
+    "allExecuteCodeArgumentsAreObservationExpressions": true,
+    "runtimeScoreHealthStatePositionSettersObserved": false,
+    "runtimeCheatMethodInvocationsObserved": false,
+    "toolExecutionCounts": {
+      "bash": 4,
+      "mcp__godot__scene_get_tree": 1,
+      "search_tools": 1,
+      "read": 5,
+      "edit": 4,
+      "mcp__godot__discover_tools": 1,
+      "mcp__godot__script_check": 3,
+      "mcp__godot__game_start": 3,
+      "mcp__godot__runtime_screenshot": 7,
+      "mcp__godot__execute_code": 177,
+      "mcp__godot__input_simulate": 37,
+      "mcp__godot__scene_query": 1,
+      "mcp__godot__editor_get_console": 1,
+      "mcp__godot__game_stop": 1,
+      "mcp__godot__debugger_get_log": 4
+    },
+    "operatorApprovalEventsObserved": 0,
+    "automaticReviewCompleted": 112,
+    "automaticReviewDecisionsAllApproved": true,
+    "unknownOutcomeBarrierMessageSequences": [],
+    "knownToolFailuresPresent": true,
+    "knownToolFailureScope": "An earlier schema refusal and rejected observational getter expressions remain in the journal; this receipt does not claim every attempted call succeeded.",
+    "sourceAuthoring": "The Pal edited Player.gd; after a confirmed game_stop it repaired Core.gd and Main.gd, validated scripts, and relaunched the game before the observed normal loss and winning route. No source edits occurred during the winning route.",
+    "observerAuthoredGameOrReplayedInput": false
+  },
+  "relatedTypedInputReceipt": "pal-godot-input-typed-contract-pal-sdk-native-20261005.json",
+  "excludedClaims": {
+    "activePickupRestartRaceVerified": false,
+    "runtimeWeightedWalkAnimationVerified": false,
+    "currentRuntimeMeshSkinBindingVerified": false,
+    "allPhysicalAndActionKeysReleasedVerified": false,
+    "arrowMovementVerified": false,
+    "finalGameBundleAndDeliveryVerified": false,
+    "interpretation": "These are actual native free-Pal normal-gameplay observations. Further model work was still running after the evidence window. Asset export checks, live weighted walk animation, input cleanup and restart-race QA require their own proof."
+  },
+  "scope": "Actual native Windows free-model Pal normal play through application tools: real health3→2→1→0 loss, normal death restart, all8 core route with health1 WIN, saved victory image, and normal victory restart. Overall game completion, all remaining QA, final bundled delivery, and weighted walk at runtime are not claimed."
+}
