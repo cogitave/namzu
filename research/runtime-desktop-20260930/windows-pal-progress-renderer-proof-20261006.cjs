@@ -4,6 +4,8 @@
 // Run only for an authorized renderer-only update.
 // Usage (native Windows Node):
 //   node.exe windows-pal-progress-renderer-proof-20261006.cjs <built-renderer-dir> <private-receipt.json>
+// --verify-current inspects the deployed build without another reload.
+// --compact checks the title/badge row and count capsule, using separate crops.
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -14,7 +16,8 @@ assert.equal(process.platform, 'win32', 'Run with native Windows Node.');
 const devRoot = path.join(process.env.LOCALAPPDATA, 'Namzu', 'Development');
 const config = JSON.parse(fs.readFileSync(path.join(devRoot, 'launch.json'), 'utf8'));
 const [sourceArg, receiptArg] = process.argv.slice(2);
-const verifyCurrent = process.argv[4] === '--verify-current';
+const verifyCurrent = process.argv.includes('--verify-current');
+const compact = process.argv.includes('--compact');
 assert(sourceArg && receiptArg, 'Arguments: built renderer directory and private receipt path.');
 const source = path.resolve(sourceArg);
 const output = path.resolve(receiptArg);
@@ -24,7 +27,7 @@ assert(fs.existsSync(renderer), 'Stable Development renderer is missing.');
 assert.notEqual(source.toLowerCase(), renderer.toLowerCase());
 const outputRelativeToDev = path.relative(devRoot, output);
 assert(outputRelativeToDev && !outputRelativeToDev.startsWith('..') && !path.isAbsolute(outputRelativeToDev), 'Receipt must stay under the private Development directory.');
-const captureDir = path.join(devRoot, 'proof-artifacts', 'pal-progress-renderer-20261006');
+const captureDir = path.join(devRoot, 'proof-artifacts', compact ? 'pal-progress-compact-renderer-20261006' : 'pal-progress-renderer-20261006');
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 function manifest(root) {
@@ -166,6 +169,7 @@ async function main() {
 	const groupSelector = `[data-workspace-group="${before.dom.activeGroupId.replaceAll(/["\\]/g, '\\$&')}"]`;
 	const pane = page.locator(groupSelector);
 	assert.equal(await pane.count(), 1, 'Focused conversation group is not unique.');
+	if (compact) receipt.originalVisibleRowHeights = await pane.locator('.pal-plan-steps li').evaluateAll(rows => rows.map(row => row.getBoundingClientRect().height));
 	receipt.beforeStateSha256 = hash(JSON.stringify(before));
 	receipt.originalLayoutSha256 = hash(JSON.stringify(before.groups.map(group => ({ id: group.id, tabs: group.tabs, activeTabId: group.activeTabId }))));
 	receipt.originalPage = before.dom.page;
@@ -242,7 +246,7 @@ async function main() {
 	const baselineCardScroll = before.dom.cardScrollTop;
 	await toggle.evaluate(element => element.scrollIntoView({ block: 'nearest' }));
 	await settle(page);
-	assert.match((await toggle.innerText()).trim(), /^\d+ of \d+ steps done(?:\s|$)/);
+	assert.match((await toggle.innerText()).trim(), /^\d+ of \d+ steps(?: done)?(?:\s|$)/);
 	assert.equal(await taskRegion.locator('progress').count(), 0, 'Progress display must not imply measured percentage.');
 	assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'All-completed plan must be collapsed by default after reload.');
 	assert.equal(await taskRegion.locator('.pal-plan-steps').count(), 0, 'Collapsed plan exposes no detailed rows.');
@@ -250,10 +254,23 @@ async function main() {
 	await toggle.click();
 	await settle(page);
 	assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
-	const actualRows = await taskRegion.locator('.pal-plan-steps li').evaluateAll(rows => rows.map(row => ({ status: row.dataset.status, subject: row.querySelector('.pal-step-copy > span')?.innerText.trim(), label: row.querySelector('.pal-step-copy')?.innerText.trim() })));
+	const actualRows = await taskRegion.locator('.pal-plan-steps li').evaluateAll(rows => rows.map(row => ({ status: row.dataset.status, subject: (row.querySelector('.pal-step-subject') ?? row.querySelector('.pal-step-copy > span'))?.innerText.trim(), label: row.querySelector('.pal-step-copy')?.innerText.trim() })));
 	assert(actualRows.length > 0 && actualRows.every(row => row.label), 'Expanded progress must show actual source plan rows.');
 	assert(actualRows.every(row => row.status === 'completed'), 'Focused native source plan is expected to be all-completed.');
 	assert.deepEqual(actualRows.map(({ subject, status }) => ({ subject, status })), activeSession.thread.tasks.map(({ subject, status }) => ({ subject, status })), 'Disclosed plan does not match the actual source rows.');
+	if (compact) {
+		receipt.compactRows = await taskRegion.locator('.pal-plan-steps li').evaluateAll(rows => rows.map(row => {
+			const title = row.querySelector('.pal-step-subject').getBoundingClientRect();
+			const badge = row.querySelector('.pal-step-state').getBoundingClientRect();
+			return { height: row.getBoundingClientRect().height, badgeOnRight: badge.left >= title.right, aligned: Math.abs(badge.top - title.top) < 1, status: row.querySelector('.pal-step-state').textContent };
+		}));
+		assert(receipt.compactRows.every(row => row.height <= 34 && row.badgeOnRight && row.aligned && row.status === 'Done'), 'Compact completed rows must place badges beside their titles within 34px.');
+		const count = taskRegion.locator('.pal-plan-count');
+		assert.equal(await count.count(), 1);
+		assert.match(await count.getAttribute('title'), /^\d+ of \d+ steps done$/);
+		assert.equal(await taskRegion.locator('kbd').count(), 0, 'Counter styling must not claim keyboard-input semantics.');
+		receipt.checks.push('Completed step rows are at most 34px tall with aligned right-hand Done badges, and the count has a styled capsule with its full accessible description.');
+	}
 	await card.screenshot({ path: path.join(captureDir, 'pal-progress-completed-disclosed.png') });
 	const activity = card.getByRole('region', { name: 'Recent activity', exact: true });
 	await activity.waitFor({ state: 'visible' });

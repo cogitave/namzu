@@ -175,12 +175,27 @@
 	outline: 2px solid var(--ring);
 	outline-offset: 4px;
 }
-.pal-plan-toggle > span {
+.pal-plan-summary {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
 	flex: 1;
 	min-width: 0;
 }
-.pal-plan-toggle > span > span {
-	display: block;
+.pal-plan-count {
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+	padding: 2px 7px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--surface);
+	box-shadow: 0 1px 0 var(--border);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 18px;
+	font-variant-numeric: tabular-nums;
 }
 .pal-plan-toggle > svg {
 	width: 15px;
@@ -195,13 +210,13 @@
 	transform: rotate(90deg);
 }
 .pal-plan-progress .pal-plan-steps {
-	margin-top: 8px;
+	margin-top: 4px;
 }
 .pal-plan-steps li {
 	display: flex;
 	align-items: flex-start;
-	gap: 10px;
-	padding: 8px 0;
+	gap: 8px;
+	padding: 6px 0;
 	border: 0;
 }
 .pal-step-mark {
@@ -239,7 +254,34 @@
 	flex-direction: column;
 	gap: 2px;
 }
-.pal-step-copy .task-state,
+.pal-step-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	min-width: 0;
+}
+.pal-step-subject {
+	flex: 1;
+	min-width: 0;
+	line-height: 20px;
+}
+.pal-step-row .pal-step-state {
+	flex: none;
+	padding: 1px 6px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	font-size: 11px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+.pal-plan-steps [data-status="failed"] .pal-step-state {
+	border-color: color-mix(in srgb, var(--error-foreground) 25%, transparent);
+	background: var(--error-surface);
+}
+.pal-plan-steps [data-status="in_progress"] .pal-step-state {
+	color: var(--foreground);
+}
 .pal-step-copy .quiet {
 	font-size: 12px;
 	line-height: 18px;

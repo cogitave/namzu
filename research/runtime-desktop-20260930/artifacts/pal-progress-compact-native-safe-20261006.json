@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "passed": true,
+  "platform": "win32",
+  "rendererOnly": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "Idle preflight passed for every open tab: no unsaved editor, permissions, queued work, active/recovery job, dialog, alert, focused computer control or control transition.",
+    "Two friendly activity labels are backed by completed send/list receipts in the observed open Pal conversation projections; scope is limited to those observed conversations.",
+    "Complete built renderer staged with the prior renderer retained as a timestamped backup.",
+    "Renderer-only reload retained workspace, tabs, messages, drafts/settings/attachments/models, plan state and computer generations/control.",
+    "Completed step rows are at most 34px tall with aligned right-hand Done badges, and the count has a styled capsule with its full accessible description.",
+    "Native card shows Progress, a collapsed all-completed summary, then actual detailed source rows when disclosed; no percentage widget is present.",
+    "Recent activity uses friendly titles/details for the two observed placed conversations and does not display raw tool names.",
+    "Original disclosure, card scroll and session presentation restored; Activity remains closed and all other user state is unchanged."
+  ],
+  "build": {
+    "sourceManifestSha256": "1f91270e177f7974c59ec69116e1a8549a6b5e0068d56db3f00d142fd3f61efa",
+    "sourceAssetRefs": [
+      "assets/index-8JQe4RCu.css",
+      "assets/index-COvcnYtW.js"
+    ]
+  },
+  "actualPlanRows": 3,
+  "actualPlanStatuses": [
+    "completed"
+  ],
+  "originalVisibleRowHeights": [
+    55.5,
+    55.5,
+    55.5
+  ],
+  "compactRows": [
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    },
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    },
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    }
+  ],
+  "nativePidUnchanged": true,
+  "persistentStatePreserved": true,
+  "presentationRestored": true,
+  "pageErrorCount": 0,
+  "actualNativeWindows": true,
+  "observedAt": "2026-10-05T21:52:59.547280+00:00",
+  "computerLifecycleOrControlActions": 0,
+  "observedConversationCount": 2,
+  "deployed": true,
+  "captures": [
+    "pal-progress-compact-collapsed-native-20261006.png",
+    "pal-progress-compact-disclosed-native-20261006.png"
+  ]
+}

@@ -74,12 +74,18 @@ function PalTaskProgress({
 			{thread.tasksNotice && <output className="quiet">{thread.tasksNotice}</output>}
 			{thread.tasks.length > 0 && (
 				<Collapsible defaultOpen={!allDone || Boolean(thread.tasksNotice)}>
-					<CollapsibleTrigger className="pal-plan-toggle" aria-label="View plan steps">
+					<CollapsibleTrigger
+						className="pal-plan-toggle"
+						aria-label="View plan steps"
+						aria-description={`${completed} of ${thread.tasks.length} ${thread.tasks.length === 1 ? 'step' : 'steps'} done`}
+					>
 						{allDone ? <CheckIcon aria-hidden="true" /> : <ListTodoIcon aria-hidden="true" />}
-						<span>
-							<span>
-								{completed} of {thread.tasks.length} {thread.tasks.length === 1 ? 'step' : 'steps'}{' '}
-								done
+						<span className="pal-plan-summary">
+							<span
+								className="pal-plan-count"
+								title={`${completed} of ${thread.tasks.length} ${thread.tasks.length === 1 ? 'step' : 'steps'} done`}
+							>
+								{completed} of {thread.tasks.length} {thread.tasks.length === 1 ? 'step' : 'steps'}
 							</span>
 							{failed > 0 && (
 								<span className="tasks-failed">
@@ -129,8 +135,10 @@ function PalTaskProgress({
 											)}
 										</span>
 										<div className="pal-step-copy">
-											<span>{task.subject}</span>
-											<span className="task-state">{state}</span>
+											<div className="pal-step-row">
+												<span className="pal-step-subject">{task.subject}</span>
+												<span className="task-state pal-step-state">{state}</span>
+											</div>
 											{task.status !== 'completed' && remaining.length > 0 && (
 												<p className="quiet">
 													{waiting ? 'Waiting on: ' : 'Earlier step: '}

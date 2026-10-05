@@ -248,7 +248,11 @@ scrolling in short windows. Narrower desktop windows do not move it into a
 full-width band above the conversation. A small settings icon beside the Pal's
 name opens its communication settings. Planning tasks appear inside this same
 card, between Computers and Recent activity, as **Progress** milestones with
-reported state icons and a completed-step count. A finished plan starts folded;
+reported state icons and a completed-step count in a small keycap-style capsule.
+Step titles and compact state badges share a row; unresolved dependency context
+sits beneath its owning step. Long titles wrap while the state badge keeps its
+own column. The count is ordinary text rather than keyboard-input markup.
+A finished plan starts folded;
 its step titles remain available through the keyboard-accessible disclosure.
 Open or failed steps start visible. Dependency labels resolve task subjects;
 failed prerequisites remain visible as needing attention but do not invent an
@@ -845,9 +849,18 @@ another reload or model turn. Messages, models, drafts, tasks and computer
 generations/control retain their observed state. The initial deployment check
 rejected encoded presentation-preference string equality after verifying the
 UI; the follow-up verifies parsed preferences against the deployed baseline.
-The [native folded card](../../research/runtime-desktop-20260930/artifacts/pal-progress-completed-collapsed-native-20261006.png)
+The [earlier native folded card](../../research/runtime-desktop-20260930/artifacts/pal-progress-completed-collapsed-native-20261006.png)
 and [disclosed steps](../../research/runtime-desktop-20260930/artifacts/pal-progress-completed-disclosed-native-20261006.png)
-show the actual Sıtkı plan and accepted-message summary.
+record the actual Sıtkı plan before the compact row treatment. The
+[compact preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-compact-browser-proof-20261006.json)
+checks right-aligned status badges, the count capsule, long titles and dependency
+context at 240–300px card widths using isolated fixtures. The
+[compact native Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-compact-native-safe-20261006.json)
+records the actual completed rows shrinking from 55.5px to 32px, preserving
+planning records, conversations, drafts, models, presentation and computer
+control during a renderer-only update. The
+[current native steps](../../research/runtime-desktop-20260930/artifacts/pal-progress-compact-disclosed-native-20261006.png)
+show the resulting count capsule and Done badges.
 
 The [native Windows task receipt](../../research/runtime-desktop-20260930/artifacts/task-tracking-desktop-native-windows-safe-20261005.json)
 records two actual Pal composer sends using the existing free model, guest file
