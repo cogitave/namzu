@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- **Update** [Pal workspace controls](cli/desktop.md#persistent-pals): show the computer plus action only while its tab is closed, retaining New conversation beside the tabs. Verify the live native Windows view and isolated header clones for shared/standalone toolbars, narrow widths and independent panes. Apply the stylesheet without reloading or changing the operator's computer control; `research/runtime-desktop-20260930/artifacts/computer-tab-add-native-safe-20261005.json`.
+
 - **Update** [Pal workspace controls](cli/desktop.md#persistent-pals): align the computer and layout controls to the shared header's right gutter while keeping New conversation beside the scrollable tabs. Verify the live native Windows computer at wide and narrow widths, split chat and floating chat; apply the stylesheet without a page reload and preserve profile, conversation, draft, model, viewport and computer control state; `research/runtime-desktop-20260930/artifacts/toolbar-controls-right-native-safe-20261005.json`.
 
 - **Update** [Pal context layout](cli/desktop.md#persistent-pals): keep the profile in a fluid 240–300px right column instead of switching to a truncated full-width band below 720px. Share the activity/output row style with Communication. Verify the reported 706px area, the former breakpoint, a short native Windows window and the existing profile toggle in a narrow pane, preserving conversation state and the running Pal computer; `research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-safe-20261005.json`.

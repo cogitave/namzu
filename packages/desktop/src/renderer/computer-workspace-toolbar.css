@@ -110,6 +110,10 @@
 	flex: none;
 	margin-inline-start: auto;
 }
+:is(.conversation-tabs, .computer-workspace-tabs):has(.computer-workspace-computer-tab)
+	.computer-workspace-tab-add {
+	display: none;
+}
 .computer-workspace-layout-controls [aria-pressed="true"] {
 	background: var(--accent);
 	color: var(--foreground);

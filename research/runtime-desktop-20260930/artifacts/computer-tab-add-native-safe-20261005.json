@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "stylesheetOnlyDeployment": true,
+  "noPageReload": true,
+  "noModelRequest": true,
+  "noComputerStartStopOrRestart": true,
+  "noRealTabOrViewportChange": true,
+  "operatorControlUntouched": true,
+  "nativeFocusAndCanvasIdentityPreserved": true,
+  "profilesConversationsDraftsSettingsModelsAndWorkspacePreserved": true,
+  "fixtureScope": "Real header DOM cloned into an inert offscreen container, using the loaded native stylesheet. Only clones were closed/reopened; no native React click flow was exercised.",
+  "nativeCurrentOpen": {
+    "root": {
+      "x": 356,
+      "y": 41.5,
+      "width": 1293,
+      "height": 32,
+      "right": 1649
+    },
+    "header": {
+      "x": 336,
+      "y": 32,
+      "width": 1333,
+      "height": 52,
+      "right": 1669
+    },
+    "controls": {
+      "x": 1589,
+      "y": 43.5,
+      "width": 60,
+      "height": 28,
+      "right": 1649
+    },
+    "computerTabPresent": true,
+    "computerAddDisplay": "none",
+    "visibleControlLabels": [
+      "Show chat panel",
+      "Show floating chat"
+    ],
+    "route": "computer",
+    "chat": "hidden",
+    "liveState": "ready",
+    "viewport": {
+      "width": 1669,
+      "height": 1367
+    },
+    "canvasCount": 1,
+    "computerAddAccessibleButtonCount": 0,
+    "newConversationAccessibleButtonCount": 1
+  },
+  "isolatedCssCases": [
+    {
+      "name": "shared-open-wide",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": true,
+      "newConversationHasLayout": true,
+      "width": 1293,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "shared-open-narrow",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": true,
+      "newConversationHasLayout": true,
+      "width": 524,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "shared-chat-computer-tab-open",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": true,
+      "newConversationHasLayout": true,
+      "width": 900,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "shared-tab-closed",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": false,
+      "computerAddDisplay": "flex",
+      "computerAddHasLayout": true,
+      "computerAddDisabled": false,
+      "newConversationHasLayout": true,
+      "width": 900,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "shared-tab-reopened",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": false,
+      "newConversationHasLayout": true,
+      "width": 900,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "standalone-tab-open",
+      "rootClass": "computer-workspace-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": true,
+      "newConversationHasLayout": null,
+      "width": 900,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "standalone-tab-closed",
+      "rootClass": "computer-workspace-tabs",
+      "computerTabPresent": false,
+      "computerAddDisplay": "flex",
+      "computerAddHasLayout": true,
+      "computerAddDisabled": false,
+      "newConversationHasLayout": null,
+      "width": 900,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "sibling-pane-open",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": true,
+      "computerAddDisplay": "none",
+      "computerAddHasLayout": false,
+      "computerAddDisabled": true,
+      "newConversationHasLayout": true,
+      "width": 524,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "sibling-pane-closed",
+      "rootClass": "conversation-tabs",
+      "computerTabPresent": false,
+      "computerAddDisplay": "flex",
+      "computerAddHasLayout": true,
+      "computerAddDisabled": false,
+      "newConversationHasLayout": true,
+      "width": 524,
+      "controlsAlignedRight": true,
+      "isolatedClone": true
+    },
+    {
+      "name": "unrelated-controls",
+      "computerAddDisplay": "flex",
+      "isolatedClone": true
+    }
+  ],
+  "rendererBuildFiles": [
+    {
+      "path": "index.html",
+      "sha256": "95c58e04147380cfc8bf2b4d4a6d33f0b8458de2f04a64008f62cb35d0054292",
+      "nativeMatchesBuild": true
+    },
+    {
+      "path": "assets/index-BSoKjapm.js",
+      "sha256": "75219f3df1cf79adcf3260682d5411be5bc83c3337ae1e1cf1bd00fc79337654",
+      "nativeMatchesBuild": true
+    },
+    {
+      "path": "assets/index-7xxrq6va.css",
+      "sha256": "62232e25cb6d81cdc39b6902d54de1bfb6b87088c8b51d58e978fe2b281c0755",
+      "nativeMatchesBuild": true
+    }
+  ],
+  "sourceChecks": {
+    "typecheck": "passed",
+    "lint": "passed with existing warnings",
+    "desktopBuild": "passed",
+    "docsCheck": "passed: 143 files",
+    "unitTests": {
+      "passed": 19439,
+      "skipped": 116,
+      "execution": "The root run ended with SIGTERM after other packages completed; the unfinished sandbox and CLI suites then passed in separate scoped runs."
+    }
+  }
+}

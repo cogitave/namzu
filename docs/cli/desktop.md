@@ -316,8 +316,15 @@ conversation state and original viewport. Its
 [header capture](../../research/runtime-desktop-20260930/artifacts/toolbar-controls-right-native-20261005.png)
 shows the spacing between tab creation and the right controls.
 Selecting chat returns to its transcript and profile without closing the computer
-tab. Selecting the computer shows its live desktop; the plus button opens or
-selects that same computer. Closing its tab returns to the same Pal chat and leaves
+tab. Selecting the computer shows its live desktop. The computer plus button is
+visible only while its tab is closed; an open computer uses its existing tab.
+The separate New conversation action remains beside the conversation tabs.
+The [native visibility receipt](../../research/runtime-desktop-20260930/artifacts/computer-tab-add-native-safe-20261005.json)
+and [header capture](../../research/runtime-desktop-20260930/artifacts/computer-tab-add-native-20261005.png)
+verify the current live view without changing the operator's control. Isolated
+clones of the actual header check open/closed states, both toolbar roots, narrow
+widths and independent panes using the loaded native stylesheet; this check does
+not exercise native tab clicks. Closing its tab returns to the same Pal chat and leaves
 the guest running. Keyboard arrows move tab focus and Enter selects; closing the
 computer restores focus to chat. These selections do not change conversation navigation;
 even a pending first send keeps its owning chat when its session is created.
