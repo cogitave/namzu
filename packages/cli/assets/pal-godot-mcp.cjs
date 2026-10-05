@@ -112,7 +112,15 @@ const INPUT_BOOLEAN_FIELDS = {
   click_node: [],
   send_text: ['submit'],
 }
-const INPUT_BOOLEAN_GUIDANCE = 'Use literal JSON booleans for pressed, modifiers and submit, never strings such as "false". For key, mouse_button and action, omitted pressed defaults to true; release with pressed:false (or numeric 0). action strength:0 does NOT release an action. Example: {"events":[{"event_type":"action","event_data":{"action":"move_right","pressed":true}},{"event_type":"action","event_data":{"action":"move_right","pressed":false}}]}.'
+const INPUT_BOOLEAN_GUIDANCE = [
+  'Use literal JSON booleans for pressed, modifiers and submit, never strings such as "false".',
+  'For key, mouse_button and action, omitted pressed defaults to true; release with pressed:false (or numeric 0). action strength:0 does NOT release an action.',
+  'Events run sequentially: delay_before_ms waits before THIS event is dispatched; delay_after_ms waits after THIS event is dispatched, before the next event.',
+  'To hold key, mouse_button or action, put the hold duration on the PRESS event\'s delay_after_ms (or the RELEASE event\'s delay_before_ms). A RELEASE event\'s delay_after_ms waits with the input already released.',
+  'An empty key event is not a wait event; attach the delay to the intended input event instead.',
+  'click already performs press, internal click_delay_ms (default 50ms), then release. Its delay_after_ms is waiting after the click has released.',
+  'Example, hold move_right for 250ms then release: {"events":[{"event_type":"action","event_data":{"action":"move_right","pressed":true},"delay_after_ms":250},{"event_type":"action","event_data":{"action":"move_right","pressed":false}}]}.',
+].join(' ')
 
 function advertiseInputEvents(schema) {
   if (!dictionary(schema)) return schema

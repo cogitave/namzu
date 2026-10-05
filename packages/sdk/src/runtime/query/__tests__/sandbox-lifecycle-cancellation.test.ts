@@ -245,47 +245,59 @@ describe('sandbox lifecycle belongs to the turn', () => {
 	})
 
 	it('settles a held create on the turn timeout without starting model work', async () => {
-		let markStarted!: () => void
-		const started = new Promise<void>((resolve) => {
-			markStarted = resolve
-		})
-		let createSignal: AbortSignal | undefined
-		const create = vi.fn((config?: SandboxCreateConfig) => {
-			createSignal = config?.signal
-			markStarted()
-			return new Promise<Sandbox>(() => {})
-		})
-		const sandboxProvider = {
-			id: 'run-timeout',
-			name: 'Turn timeout',
-			environment: 'basic',
-			create,
-		} satisfies SandboxProvider
-		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
-		const events: SessionEvent[] = []
-		const pending = drainQuery(
-			await params({ provider: model, sandboxProvider, runTimeoutMs: 100 }),
-			(event) => {
-				events.push(event)
-			},
-		)
+		// Real setup I/O may consume the turn's entire 100ms before create starts.
+		// Freeze its clock until the held allocation exists, then exercise the
+		// actual deadline without depending on how quickly the host starts it.
+		vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+		try {
+			let markStarted!: () => void
+			const started = new Promise<void>((resolve) => {
+				markStarted = resolve
+			})
+			let createSignal: AbortSignal | undefined
+			const create = vi.fn((config?: SandboxCreateConfig) => {
+				createSignal = config?.signal
+				markStarted()
+				return new Promise<Sandbox>(() => {})
+			})
+			const sandboxProvider = {
+				id: 'run-timeout',
+				name: 'Turn timeout',
+				environment: 'basic',
+				create,
+			} satisfies SandboxProvider
+			const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
+			const events: SessionEvent[] = []
+			const pending = drainQuery(
+				await params({ provider: model, sandboxProvider, runTimeoutMs: 100 }),
+				(event) => {
+					events.push(event)
+				},
+			)
 
-		await started
-		const run = await within(pending, 'run timeout did not settle held sandbox create')
+			await started
+			await vi.advanceTimersByTimeAsync(99)
+			expect(createSignal?.aborted).toBe(false)
+			expect(events.some((event) => event.type === 'turn_completed')).toBe(false)
+			await vi.advanceTimersByTimeAsync(1)
+			const run = await within(pending, 'run timeout did not settle held sandbox create')
 
-		expect(run.status).toBe('completed')
-		expect(run.stopReason).toBe('timeout')
-		expect(create).toHaveBeenCalledTimes(1)
-		expect(createSignal).toBeDefined()
-		expect(createSignal?.aborted).toBe(true)
-		expect(createSignal?.reason).toMatchObject({ name: 'TimeoutError' })
-		expect(model.requests).toHaveLength(0)
-		expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
-		expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
-		expect(events.find((event) => event.type === 'turn_completed')).toMatchObject({
-			type: 'turn_completed',
-			stopReason: 'timeout',
-		})
+			expect(run.status).toBe('completed')
+			expect(run.stopReason).toBe('timeout')
+			expect(create).toHaveBeenCalledTimes(1)
+			expect(createSignal).toBeDefined()
+			expect(createSignal?.aborted).toBe(true)
+			expect(createSignal?.reason).toMatchObject({ name: 'TimeoutError' })
+			expect(model.requests).toHaveLength(0)
+			expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
+			expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
+			expect(events.find((event) => event.type === 'turn_completed')).toMatchObject({
+				type: 'turn_completed',
+				stopReason: 'timeout',
+			})
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('destroys exactly once when an abandoned create returns a handle later', async () => {

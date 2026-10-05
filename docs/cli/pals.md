@@ -206,6 +206,34 @@ literal booleans. For `key`, `mouse_button` and `action`, omitted `pressed`
 means `true`: send `"pressed": false` (or numeric `0`) to release. Setting
 action `strength` to `0` does not release the action or reset its pressed edge.
 
+Events run sequentially. `delay_before_ms` waits before its own event is
+dispatched; `delay_after_ms` waits after its own event, before the next event.
+For a bounded `key`, `mouse_button` or `action` hold, put the duration on the
+press event's `delay_after_ms`, or the release event's `delay_before_ms`.
+Waiting after a release leaves the input released throughout that wait. An
+empty key event is not a wait event; attach the delay to the intended input
+event. Composite `click` already presses, waits for its internal
+`event_data.click_delay_ms` (default `50` ms), then releases; its
+`delay_after_ms` waits after that completed click.
+
+For example, hold the registered `move_right` action for `250` ms, then release:
+
+```json
+{
+  "events": [
+    {
+      "event_type": "action",
+      "event_data": { "action": "move_right", "pressed": true },
+      "delay_after_ms": 250
+    },
+    {
+      "event_type": "action",
+      "event_data": { "action": "move_right", "pressed": false }
+    }
+  ]
+}
+```
+
 A batch refused before the original handler returns an error naming its exact field with
 `_meta["namzu/outcome"]: "not_dispatched"`; no event from that batch was sent.
 The model can correct the arguments and make a new call. Validation does not
