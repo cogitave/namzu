@@ -1,12 +1,22 @@
-import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createUserMessage, generateSessionId } from '@namzu/sdk'
+import {
+	ScanSessionIndex,
+	type SessionIndex,
+	SqliteSessionIndex,
+	createUserMessage,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { recordTurn } from '../__fixtures__/session-log.js'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
+	archiveConversation,
 	closeSessions,
+	conversationLogPath,
 	loadConversation,
 	openSessions,
 	setTitle,
@@ -27,10 +37,30 @@ beforeEach(() => {
 	vi.stubEnv('NAMZU_HOME', join(root, 'state'))
 })
 afterEach(() => {
+	vi.restoreAllMocks()
 	vi.unstubAllEnvs()
 	vi.useRealTimers()
 	removeTempDir(root)
 })
+
+/** Keep actual SDK index rows, then change their backing state before membership reads. */
+function afterCandidateSnapshot(mutate: () => void | Promise<void>): void {
+	let mutated = false
+	for (const prototype of [ScanSessionIndex.prototype, SqliteSessionIndex.prototype]) {
+		const original = prototype.listSessions
+		vi.spyOn(prototype, 'listSessions').mockImplementation(async function (
+			this: SessionIndex,
+			options,
+		) {
+			const rows = await original.call(this, options)
+			if (!mutated) {
+				mutated = true
+				await mutate()
+			}
+			return rows
+		})
+	}
+}
 it('retains empty claimed conversations after reopening and pins the original revision', async () => {
 	const pal = createPal({ name: 'Research', purpose: 'Original' })
 	const id = generateSessionId()
@@ -97,9 +127,14 @@ it('filters ownership before applying the recent-conversation cap', async () => 
 		await setTitle(state, id, 'Named research')
 		vi.setSystemTime(new Date('2026-01-02T00:00:00Z'))
 		for (let index = 0; index < 101; index++) await startConversation(state)
+		expect(await state.index.listSessions({ slug: state.slug, rootsOnly: true })).toHaveLength(102)
 	} finally {
 		closeSessions(state)
 	}
+	const scanLoad = vi.spyOn(ScanSessionIndex, 'load')
+	const sqliteOpen = vi.spyOn(SqliteSessionIndex, 'open')
+	const scanSync = vi.spyOn(ScanSessionIndex.prototype, 'sync')
+	const sqliteSync = vi.spyOn(SqliteSessionIndex.prototype, 'sync')
 	expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
 		expect.objectContaining({
 			id,
@@ -109,6 +144,128 @@ it('filters ownership before applying the recent-conversation cap', async () => 
 			hasPrompted: true,
 		}),
 	])
+	expect(scanLoad.mock.calls.length + sqliteOpen.mock.calls.length).toBe(1)
+	expect(scanSync.mock.calls.length + sqliteSync.mock.calls.length).toBe(1)
+})
+
+it('rejects actual stranger, foreign, malformed and mismatched ownership logs with one shared scope', async () => {
+	const pal = createPal({ name: 'Pinned', purpose: 'Original identity' })
+	const foreign = createPal({ name: 'Foreign' })
+	const owned = generateSessionId()
+	const greeting = (await claimPalConversation(pal.workspace, pal.id, owned)).palGreeting
+	updatePal(pal.id, 1, { name: 'Updated', purpose: 'Current identity', paused: true })
+	const state = await openSessions(pal.workspace)
+	try {
+		const stranger = await startConversation(state)
+		const wrongOwner = await startConversation(state, {
+			origin: {
+				protocol: 'desktop',
+				externalSessionId: JSON.stringify(['namzu-pal', foreign.id, 1, generateSessionId()]),
+			},
+		})
+		const malformed = await startConversation(state, {
+			origin: { protocol: 'desktop', externalSessionId: '["namzu-pal"]' },
+		})
+		const mismatched = [stranger, wrongOwner, malformed]
+		for (const mismatch of ['foreign-owner', 'project', 'tenant', 'cwd', 'revision'] as const) {
+			const id = generateSessionId()
+			await startConversation(
+				{
+					...state,
+					...(mismatch === 'project' ? { projectId: generateProjectId() } : {}),
+					...(mismatch === 'tenant' ? { tenantId: generateTenantId() } : {}),
+					...(mismatch === 'cwd' ? { projectRoot: foreign.workspace } : {}),
+				},
+				{
+					id,
+					origin: {
+						protocol: 'desktop',
+						externalSessionId: JSON.stringify([
+							'namzu-pal',
+							mismatch === 'foreign-owner' ? foreign.id : pal.id,
+							mismatch === 'revision' ? 999 : 1,
+							id,
+						]),
+					},
+				},
+			)
+			mismatched.push(id)
+		}
+		for (const id of mismatched) {
+			await expect(palConversationBinding(pal.workspace, id)).rejects.toThrow()
+		}
+		expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
+			expect.objectContaining({ id: owned, palGreeting: greeting }),
+		])
+	} finally {
+		closeSessions(state)
+	}
+})
+
+it('rechecks strict journals, titles and archives after the index snapshot and on later calls', async () => {
+	const pal = createPal({ name: 'Fresh reads' })
+	const owned = generateSessionId()
+	const archived = generateSessionId()
+	const broken = generateSessionId()
+	for (const id of [owned, archived, broken]) await claimPalConversation(pal.workspace, pal.id, id)
+	const writer = await openSessions(pal.workspace)
+	try {
+		await setTitle(writer, owned, 'Before snapshot')
+		afterCandidateSnapshot(async () => {
+			await setTitle(writer, owned, 'After snapshot')
+			await archiveConversation(writer, archived)
+			appendFileSync(conversationLogPath(writer, broken), '{"broken":"journal"}\n')
+		})
+		expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
+			expect.objectContaining({ id: owned, title: 'After snapshot', named: true }),
+		])
+		await setTitle(writer, owned, 'Later invocation')
+		expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
+			expect.objectContaining({ id: owned, title: 'Later invocation', named: true }),
+		])
+	} finally {
+		closeSessions(writer)
+	}
+})
+
+it('pins the authenticated home across awaited listing without caching it for later calls', async () => {
+	const pal = createPal({ name: 'Original home' })
+	const owned = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, owned)
+	const otherHome = join(root, 'other-home')
+	mkdirSync(otherHome)
+	afterCandidateSnapshot(() => {
+		vi.stubEnv('NAMZU_HOME', otherHome)
+	})
+	expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
+		expect.objectContaining({ id: owned }),
+	])
+	await expect(listPalConversations(pal.workspace, pal.id)).rejects.toThrow('does not own')
+	vi.stubEnv('NAMZU_HOME', join(root, 'state'))
+	expect(await listPalConversations(pal.workspace, pal.id)).toEqual([
+		expect.objectContaining({ id: owned }),
+	])
+})
+
+it('refuses a workspace alias before index initialization and rechecks a swap after its snapshot', async () => {
+	const pal = createPal({ name: 'Canonical only' })
+	const owned = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, owned)
+	const alias = join(root, 'alias')
+	symlinkSync(pal.workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+	const scanLoad = vi.spyOn(ScanSessionIndex, 'load')
+	const sqliteOpen = vi.spyOn(SqliteSessionIndex, 'open')
+	await expect(palConversationBinding(alias, owned)).rejects.toThrow('alias')
+	await expect(listPalConversations(alias, pal.id)).rejects.toThrow('alias')
+	expect(await palConversationBinding(join(root, 'ordinary-absent'), owned)).toBeNull()
+	expect(scanLoad).not.toHaveBeenCalled()
+	expect(sqliteOpen).not.toHaveBeenCalled()
+	afterCandidateSnapshot(() => {
+		const original = `${pal.workspace}-original`
+		renameSync(pal.workspace, original)
+		symlinkSync(original, pal.workspace, process.platform === 'win32' ? 'junction' : 'dir')
+	})
+	expect(await listPalConversations(pal.workspace, pal.id)).toEqual([])
 })
 it('ordinary absent directories are not Pal workspaces', () => {
 	expect(palAtWorkspace(join(root, 'ordinary-absent'))).toBeNull()

@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "phase": "before guest input validation fix",
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791203618417",
+  "sdkSourceCommit": "f4b7d1d5",
+  "application": "Godot4.7.2",
+  "tool": "mcp__godot__input_simulate",
+  "toolUseId": "call_function_j2zkd1tv3boq_1",
+  "input": {
+    "events": [
+      {
+        "event_type": "key",
+        "event_data": {
+          "keycode": "82",
+          "physical_keycode": "82",
+          "pressed": "true"
+        },
+        "delay_after_ms": 150
+      },
+      {
+        "event_type": "key",
+        "event_data": {
+          "keycode": "82",
+          "physical_keycode": "82",
+          "pressed": "false"
+        }
+      }
+    ]
+  },
+  "nativeJournal": {
+    "rawSequence": 824,
+    "rawAt": "2026-10-05T12:43:53.790Z",
+    "executingSequence": 834,
+    "executingAt": "2026-10-05T12:43:54.380Z",
+    "rawToExecutingDeepEqual": true,
+    "completedSequence": 836,
+    "completedAt": "2026-10-05T12:44:24.710Z",
+    "durationMs": 30095,
+    "isError": true,
+    "pressedTypes": ["string", "string"],
+    "keycodeTypes": ["string", "string"],
+    "physicalKeycodeTypes": ["string", "string"],
+    "pressedMissing": false,
+    "pressedNull": false
+  },
+  "observedFailure": {
+    "code": "TIMEOUT",
+    "error": "call to input.simulate timed out after 30000ms",
+    "engineError": "Invalid call. Nonexistent 'bool' constructor.",
+    "engineSource": "res://addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd:1197",
+    "commandCompletionConfirmed": false,
+    "trustedShimReportedUnknownOutcome": true,
+    "sdkInputConversionLossObserved": false
+  },
+  "stickyOperationBarrier": {
+    "guestGeneration": "1791203618417",
+    "observedNotice": "The Pal computer operation outcome is unknown. Stop this computer before retrying.",
+    "blockedCalls": [
+      {
+        "sequence": 865,
+        "at": "2026-10-05T12:44:43.799Z",
+        "tool": "read"
+      },
+      {
+        "sequence": 867,
+        "at": "2026-10-05T12:44:43.800Z",
+        "tool": "mcp__godot__execute_code"
+      },
+      {
+        "sequence": 892,
+        "at": "2026-10-05T12:45:01.254Z",
+        "tool": "mcp__godot__game_stop"
+      },
+      {
+        "sequence": 940,
+        "at": "2026-10-05T12:45:34.736Z",
+        "tool": "computer_use"
+      },
+      {
+        "sequence": 964,
+        "at": "2026-10-05T12:45:52.590Z",
+        "tool": "bash"
+      },
+      {
+        "sequence": 1008,
+        "at": "2026-10-05T12:48:28.741Z",
+        "tool": "bash",
+        "subsequentTurn": true
+      }
+    ],
+    "assistantTurnCompletedSequence": 981,
+    "assistantTurnCompletedAt": "2026-10-05T12:46:28.477Z",
+    "assistantTurnCompletionProvesOperationCompletion": false,
+    "barrierStillObservedAfterAssistantTurnCompletion": true
+  },
+  "earlierCorrectlyTypedInputEvidence": {
+    "sameGuestGeneration": true,
+    "pressedTypes": ["boolean", "boolean"],
+    "keycodeType": "number",
+    "successfulCalls": [
+      {
+        "keycode": 32,
+        "completedSequence": 558,
+        "completedAt": "2026-10-05T12:40:29.203Z",
+        "isError": false,
+        "actualEffect": "GAME START confirmed separately by engine log"
+      },
+      {
+        "keycode": 68,
+        "completedSequence": 621,
+        "completedAt": "2026-10-05T12:42:09.798Z",
+        "isError": false
+      },
+      {
+        "keycode": 80,
+        "completedSequence": 646,
+        "completedAt": "2026-10-05T12:42:23.131Z",
+        "isError": false,
+        "actualEffect": "PAUSE confirmed separately by engine log"
+      },
+      {
+        "keycode": 80,
+        "completedSequence": 780,
+        "completedAt": "2026-10-05T12:43:35.122Z",
+        "isError": false,
+        "reportedTreePaused": false
+      }
+    ],
+    "allGodotInputsFailClaimSupported": false,
+    "interpretation": "The failing call supplied strings where earlier successful calls supplied booleans and numeric keycodes. The constructor error does not establish that all input calls fail or that boolean conversion is unavailable in Godot4.7.2."
+  },
+  "nextNativeValidationRegression": {
+    "executed": false,
+    "malformedPressedStringRejectedBeforeApplicationDispatchVerified": false,
+    "validBooleanInputStillWorksVerified": false,
+    "malformedInputLeavesComputerUsableVerified": false,
+    "requiredEvidence": "After the parent safely retires the uncertain generation and loads the validation shim, verify malformed input returns a classified validation rejection before application dispatch, leaves no unknown-operation barrier, and a separate correctly typed input succeeds."
+  },
+  "observerMutatedApplicationOrReplayedCommand": false,
+  "completeGameplayVerified": false,
+  "scope": "Sanitized native input and failure metadata. No authentication data, private prompts, model reasoning, game source, or completion claim is included."
+}

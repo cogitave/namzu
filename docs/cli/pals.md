@@ -185,6 +185,34 @@ The editor addon must be installed, enabled and running in that project.
 Application version compatibility and connectivity require an actual guest
 smoke test; configuration alone does not prove them.
 
+The Godot bridge checks the whole `input_simulate` batch before the original
+MCP handler can issue an editor command, and checks the normalized batch again
+before its runtime WebSocket send. Only fields consumed by the pinned runtime
+are checked. Its [boolean constructor](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/bool.xml)
+accepts booleans and numbers; nested strings such as `"pressed": "false"` are
+invalid. Send real JSON booleans, such as `"pressed": false`. The bridge also
+rejects values that the runtime's numeric constructors cannot consume, without
+changing valid numeric strings, optional defaults, upstream top-level coercion,
+ignored dictionary keys or normal mouse coordinates. No value is coerced by
+the bridge, and the generic SDK dictionary validator remains unchanged.
+
+Each `tools/list` response advertises these boolean constructor fields for its
+specific event type, accepting JSON booleans or numbers. Existing event fields,
+delays, single-event/array inputs and open `event_data` dictionaries remain;
+fields ignored by another event type keep their original values. The bridge
+adds no required fields or injected defaults and also retains upstream's
+JSON-encoded top-level event compatibility. Prefer native JSON objects with
+literal booleans. For `key`, `mouse_button` and `action`, omitted `pressed`
+means `true`: send `"pressed": false` (or numeric `0`) to release. Setting
+action `strength` to `0` does not release the action or reset its pressed edge.
+
+A batch refused before the original handler returns an error naming its exact field with
+`_meta["namzu/outcome"]: "not_dispatched"`; no event from that batch was sent.
+The model can correct the arguments and make a new call. Validation does not
+clear an existing unknown-effect barrier, acknowledge earlier pending commands
+or replay input. After a real timeout or lost application reply, the computer
+still requires confirmed stop before recovery.
+
 The CLI uses the SDK MCP toolsets, retaining server provenance, explicit name
 admission, rich images/resources and live listing updates. A server's
 read-only annotation is not automatically trusted for Plan or approval
@@ -350,7 +378,11 @@ revision. An ordinary existing session cannot be adopted by a later claim.
 History, sends and Pal job access reject unclaimed or foreign conversations.
 Listings validate membership before their output limit and retain an empty
 claimed conversation across restart. A repeated valid claim retains its original
-revision rather than switching it to the Pal's newest profile.
+revision rather than switching it to the Pal's newest profile. Each listing opens
+and reconciles its session index once, then rechecks the current Pal workspace
+and profile and each candidate's strict journal ownership, immutable revision and
+archive state before applying the output limit. The index is local to that call;
+later calls read updated persisted state.
 
 Current pause state blocks the next admission and each next guest operation.
 It does not rewrite a conversation's pinned purpose or model. Pausing is not a

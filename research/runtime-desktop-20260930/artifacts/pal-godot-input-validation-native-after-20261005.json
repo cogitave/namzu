@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindows": true,
+  "actualNativeWindowsPodman": true,
+  "executionPath": "Direct MCP stdio diagnostic in the allocation-owned guest from Windows; not an actual Pal SDK query",
+  "actualPalSDKQueryVerified": false,
+  "guestGeneration": "1791204620913",
+  "shimDeployment": {
+    "sha256": "3e6927593c0bb296ecab2867dc20f2ae0719c7d744562a6c8d395ec44162b209",
+    "installedCLIAssetVerified": true,
+    "guestInstalledAssetVerified": true
+  },
+  "malformedMixedBatch": {
+    "tool": "input_simulate",
+    "arguments": {
+      "events": [
+        {
+          "event_type": "key",
+          "event_data": {
+            "keycode": 82,
+            "physical_keycode": 82,
+            "pressed": true
+          },
+          "delay_after_ms": 100
+        },
+        {
+          "event_type": "key",
+          "event_data": {
+            "keycode": "82",
+            "physical_keycode": "82",
+            "pressed": "false"
+          }
+        }
+      ]
+    },
+    "firstEventPressedType": "boolean",
+    "secondEventPressedType": "string",
+    "isError": true,
+    "trustedOutcome": "not_dispatched",
+    "wholeBatchRejectedBeforeDispatch": true,
+    "validationReply": "Godot input_simulate events[1].event_data.pressed must be a JSON boolean true/false (or a finite number accepted by Godot); received string. No input was dispatched. Correct this field or omit it to use its default, then send a new call."
+  },
+  "subsequentApplicationRead": {
+    "tool": "scene_get_tree",
+    "isError": false,
+    "trustedOutcome": "settled",
+    "editorUsableAfterMalformedBatch": true
+  },
+  "interpretation": "The shim rejected the entire malformed batch before application dispatch and returned a repairable field-specific error. A subsequent application read succeeded in the same new generation. This does not replay or settle the earlier generation's uncertain operation.",
+  "correctlyTypedRealGameplayProofPending": true,
+  "validBooleanInputGameplayVerified": false,
+  "gameSourceEdited": false,
+  "gameplayClaim": false,
+  "completeGameplayVerified": false,
+  "scope": "Sanitized direct Windows guest MCP validation and continued editor usability evidence. No authentication data, private prompts, model reasoning, game source, or gameplay completion claim is included."
+}

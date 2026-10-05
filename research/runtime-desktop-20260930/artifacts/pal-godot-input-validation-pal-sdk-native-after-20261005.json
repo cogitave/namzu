@@ -1,0 +1,219 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "executionPath": "Actual free-model Pal query through SDK MCP composition in the allocation-owned guest",
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791204620913",
+  "evidenceThrough": "2026-10-05T13:02:36.181Z",
+  "sdkSourceCommit": "f4b7d1d5",
+  "sdkDictionaryCompiledModuleSha256": "eb965fd1ecdcf9930e485f1e26b15905ce4fc8c93dbbf091ee06b12b3a914703",
+  "deployedShimSha256": "3e6927593c0bb296ecab2867dc20f2ae0719c7d744562a6c8d395ec44162b209",
+  "application": "Godot4.7.2",
+  "malformedInputRejections": [
+    {
+      "toolUseId": "call_function_ztnifzbnndsz_1",
+      "input": {
+        "events": [
+          {
+            "event_type": "key",
+            "event_data": {
+              "keycode": "32",
+              "physical_keycode": "32",
+              "pressed": "true"
+            },
+            "delay_after_ms": 120
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "keycode": "32",
+              "physical_keycode": "32",
+              "pressed": "false"
+            }
+          }
+        ],
+        "summary": true
+      },
+      "rawSequence": 547,
+      "rawAt": "2026-10-05T13:01:42.343Z",
+      "executingSequence": 557,
+      "executingAt": "2026-10-05T13:01:42.540Z",
+      "completedSequence": 559,
+      "completedAt": "2026-10-05T13:01:42.606Z",
+      "durationMs": 59,
+      "rawToExecutingDeepEqual": true,
+      "isError": true
+    },
+    {
+      "toolUseId": "call_function_8kj0yo3iwdae_1",
+      "input": {
+        "events": [
+          {
+            "event_type": "key",
+            "event_data": {
+              "keycode": "32",
+              "physical_keycode": "32",
+              "pressed": "1"
+            },
+            "delay_after_ms": 120
+          },
+          {
+            "event_type": "key",
+            "event_data": {
+              "keycode": "32",
+              "physical_keycode": "32",
+              "pressed": "0"
+            }
+          }
+        ],
+        "summary": true
+      },
+      "rawSequence": 571,
+      "rawAt": "2026-10-05T13:01:49.603Z",
+      "executingSequence": 581,
+      "executingAt": "2026-10-05T13:01:49.623Z",
+      "completedSequence": 583,
+      "completedAt": "2026-10-05T13:01:49.676Z",
+      "durationMs": 52,
+      "rawToExecutingDeepEqual": true,
+      "isError": true
+    }
+  ],
+  "sharedValidationReply": "Godot input_simulate events[0].event_data.pressed must be a JSON boolean true/false (or a finite number accepted by Godot); received string. No input was dispatched. Correct this field or omit it to use its default, then send a new call.",
+  "sdkDictionaryFidelityVerified": true,
+  "subsequentSuccessfulActionCalls": [
+    {
+      "toolUseId": "call_function_lt8ldpevmch6_1",
+      "input": {
+        "events": [
+          {
+            "event_type": "action",
+            "event_data": {
+              "action": "restart_game",
+              "strength": "1.0"
+            },
+            "delay_after_ms": 120
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "action": "restart_game",
+              "strength": "0.0"
+            }
+          }
+        ],
+        "summary": true
+      },
+      "rawSequence": 595,
+      "rawAt": "2026-10-05T13:02:00.019Z",
+      "executingSequence": 605,
+      "executingAt": "2026-10-05T13:02:00.226Z",
+      "completedSequence": 607,
+      "completedAt": "2026-10-05T13:02:00.537Z",
+      "durationMs": 203,
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "eventsProcessed": 2,
+      "lastEventPressed": true
+    },
+    {
+      "toolUseId": "call_function_amwqk8coiabh_1",
+      "input": {
+        "events": [
+          {
+            "event_type": "action",
+            "event_data": {
+              "action": "move_right",
+              "strength": "1.0"
+            },
+            "delay_after_ms": 700
+          },
+          {
+            "event_type": "action",
+            "event_data": {
+              "action": "move_right",
+              "strength": "0.0"
+            }
+          }
+        ],
+        "summary": true
+      },
+      "rawSequence": 651,
+      "rawAt": "2026-10-05T13:02:35.208Z",
+      "executingSequence": 661,
+      "executingAt": "2026-10-05T13:02:35.243Z",
+      "completedSequence": 663,
+      "completedAt": "2026-10-05T13:02:36.181Z",
+      "durationMs": 776,
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "eventsProcessed": 2,
+      "lastEventPressed": true
+    }
+  ],
+  "actionInputCaveat": {
+    "explicitPressedFieldPresent": false,
+    "strengthValuesTypes": [
+      "string",
+      "string"
+    ],
+    "numericStringStrengthAccepted": true,
+    "pinnedToolkitCommit": "db005fc054155a0f977868fdfa34220b347fa8aa",
+    "source": "addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd",
+    "pressedDefaultSourceLine": 1243,
+    "pressedDefault": true,
+    "strengthConversionSourceLine": 1245,
+    "secondEventPressedFalseVerified": false,
+    "actualInputActionReleasedVerified": false,
+    "interpretation": "The second event supplies strength '0.0' with pressed omitted. The toolkit defaults pressed to true and converts strength separately; actual replies also report pressed:true. These successful calls do not prove an explicit release or current Input.is_action_pressed state."
+  },
+  "actualGameStart": {
+    "confirmedByEngineLog": true,
+    "message": "GAME START",
+    "engineTimestampUnix": 1791205320,
+    "engineBufferLineId": 11,
+    "debuggerLogCompletedSequence": 633,
+    "debuggerLogObservedAt": "2026-10-05T13:02:06.875Z",
+    "debuggerLogIsError": false,
+    "startMatchesSuccessfulRestartActionSecond": true
+  },
+  "automaticReview": {
+    "operatorApprovalEscalationObserved": false,
+    "checks": [
+      {
+        "requestedSequence": 553,
+        "requestedAt": "2026-10-05T13:01:42.535Z",
+        "approvedSequence": 554,
+        "approvedAt": "2026-10-05T13:01:42.537Z"
+      },
+      {
+        "requestedSequence": 577,
+        "requestedAt": "2026-10-05T13:01:49.619Z",
+        "approvedSequence": 578,
+        "approvedAt": "2026-10-05T13:01:49.620Z"
+      },
+      {
+        "requestedSequence": 601,
+        "requestedAt": "2026-10-05T13:02:00.210Z",
+        "approvedSequence": 602,
+        "approvedAt": "2026-10-05T13:02:00.212Z"
+      },
+      {
+        "requestedSequence": 657,
+        "requestedAt": "2026-10-05T13:02:35.239Z",
+        "approvedSequence": 658,
+        "approvedAt": "2026-10-05T13:02:35.240Z"
+      }
+    ],
+    "interpretation": "SDK review audit events completed approved in 1-2ms, with no permission escalation recorded for these calls."
+  },
+  "editorUsableAfterMalformedInputVerified": true,
+  "unknownOperationBarrierObservedAfterTheseValidationRejections": false,
+  "explicitBooleanKeyInputVerified": false,
+  "completeGameplayVerified": false,
+  "observerMutatedApplicationOrReplayedCommand": false,
+  "scope": "Actual Windows Pal SDK input fidelity, repairable malformed-type rejection, subsequent action usability, and engine-confirmed game start. Explicit correctly typed key press/release and complete gameplay remain unverified."
+}

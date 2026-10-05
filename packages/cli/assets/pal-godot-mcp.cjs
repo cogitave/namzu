@@ -15,6 +15,171 @@ const SEAL = '.namzu-build-integrity.json'
 const OUTCOME = 'namzu/outcome'
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex')
+const dictionary = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+
+// The pinned runtime casts dictionary values directly with bool/int/float.
+// Unlike a conditional, bool("false") is not a valid Godot constructor call:
+// it aborts the coroutine after earlier events may already have been injected.
+// Inspect the WHOLE batch before calling upstream, without changing its values
+// or closing arbitrary event_data dictionaries in the generic SDK.
+function validateInputSimulation(input, wire = false) {
+  if (!dictionary(input)) throw new Error('Godot input_simulate arguments must be an object. No input was dispatched.')
+  let events = input.events
+  // Upstream's top-level addStringCoercion accepts JSON-encoded events. Parse
+  // only for inspection; the original handler still receives the original args.
+  if (!wire && typeof events === 'string') {
+    try { events = JSON.parse(events) } catch { /* Original schema reports invalid JSON. */ }
+  }
+  const batch = Array.isArray(events) ? events : [events]
+  if (wire && !Array.isArray(events)) throw new Error('Godot input_simulate normalized events must be an array. No input was dispatched.')
+  if (!batch.length) throw new Error('Godot input_simulate events must not be empty. No input was dispatched.')
+  const constructorValue = (data, field, kind, prefix) => {
+    if (!own(data, field)) return
+    const value = data[field]
+    const valid = typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (kind !== 'bool' && typeof value === 'string')
+    if (valid) return
+    const expected = kind === 'bool'
+      ? 'a JSON boolean true/false (or a finite number accepted by Godot)'
+      : 'a number (or a boolean/string accepted by Godot)'
+    const received = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    throw new Error(`Godot input_simulate ${prefix}.${field} must be ${expected}; received ${received}. No input was dispatched. Correct this field or omit it to use its default, then send a new call.`)
+  }
+  const point = (data, prefix) => {
+    if (!dictionary(data)) return
+    constructorValue(data, 'x', 'float', prefix)
+    constructorValue(data, 'y', 'float', prefix)
+  }
+  const position = (data, prefix) => {
+    if (data.position == null && own(data, 'x')) point(data, prefix)
+    else point(data.position, `${prefix}.position`)
+  }
+  if (wire) constructorValue(input, 'summary', 'bool', 'arguments')
+  for (let index = 0; index < batch.length; index += 1) {
+    const event = batch[index]
+    if (!dictionary(event)) throw new Error(`Godot input_simulate events[${index}] must be an object. No input was dispatched.`)
+    if (!['key', 'mouse_button', 'mouse_motion', 'action', 'click', 'click_node', 'send_text'].includes(event.event_type)) throw new Error(`Godot input_simulate events[${index}].event_type must be key, mouse_button, mouse_motion, action, click, click_node or send_text. No input was dispatched.`)
+    const data = dictionary(event.event_data) ? event.event_data : {}
+    const prefix = `events[${index}].event_data`
+    // Raw MCP delays/summary have legitimate upstream Zod coercion. Only their
+    // normalized wire values are checked here, preserving that public behavior.
+    if (wire) {
+      constructorValue(event, 'delay_before_ms', 'int', `events[${index}]`)
+      constructorValue(event, 'delay_after_ms', 'int', `events[${index}]`)
+    }
+    switch (event.event_type) {
+      case 'key':
+        for (const field of ['keycode', 'physical_keycode', 'unicode']) constructorValue(data, field, 'int', prefix)
+        for (const field of ['pressed', 'shift', 'ctrl', 'alt', 'meta']) constructorValue(data, field, 'bool', prefix)
+        break
+      case 'mouse_button':
+        constructorValue(data, 'pressed', 'bool', prefix)
+        // fall through: clicks use the same button/modifier/position casts.
+      case 'click':
+        constructorValue(data, 'button_index', 'int', prefix)
+        for (const field of ['shift', 'ctrl', 'alt', 'meta']) constructorValue(data, field, 'bool', prefix)
+        if (event.event_type === 'click') constructorValue(data, 'click_delay_ms', 'int', prefix)
+        // fall through: mouse motion shares the same coordinate parser.
+      case 'mouse_motion':
+        position(data, prefix)
+        if (own(data, 'world_position')) point(data.world_position, `${prefix}.world_position`)
+        if (event.event_type === 'mouse_motion' && dictionary(data.relative)) {
+          constructorValue(data.relative, 'x', 'float', `${prefix}.relative`)
+          constructorValue(data.relative, 'y', 'float', `${prefix}.relative`)
+        }
+        break
+      case 'action':
+        constructorValue(data, 'pressed', 'bool', prefix)
+        constructorValue(data, 'strength', 'float', prefix)
+        break
+      case 'send_text':
+        constructorValue(data, 'submit', 'bool', prefix)
+        break
+      // click_node and unknown dictionary keys are left to the pinned server.
+    }
+  }
+}
+
+// Advertise the same per-event bool constructors that the preflight checks.
+// An open event_data record alone gives the model no reason to emit a literal
+// boolean. Keep ignored keys open and do not add defaults: clients must not
+// inject pressed=true into an event that deliberately omitted it.
+const INPUT_BOOLEAN_FIELDS = {
+  key: ['pressed', 'shift', 'ctrl', 'alt', 'meta'],
+  mouse_button: ['pressed', 'shift', 'ctrl', 'alt', 'meta'],
+  mouse_motion: [],
+  action: ['pressed'],
+  click: ['shift', 'ctrl', 'alt', 'meta'],
+  click_node: [],
+  send_text: ['submit'],
+}
+const INPUT_BOOLEAN_GUIDANCE = 'Use literal JSON booleans for pressed, modifiers and submit, never strings such as "false". For key, mouse_button and action, omitted pressed defaults to true; release with pressed:false (or numeric 0). action strength:0 does NOT release an action. Example: {"events":[{"event_type":"action","event_data":{"action":"move_right","pressed":true}},{"event_type":"action","event_data":{"action":"move_right","pressed":false}}]}.'
+
+function advertiseInputEvents(schema) {
+  if (!dictionary(schema)) return schema
+  const properties = schema.properties
+  const kinds = properties?.event_type?.enum
+  if (schema.type === 'object' && dictionary(properties) && Array.isArray(kinds)) {
+    return {
+      ...schema,
+      anyOf: kinds.map((kind) => {
+        const data = properties.event_data
+        const fields = own(INPUT_BOOLEAN_FIELDS, kind) ? INPUT_BOOLEAN_FIELDS[kind] : undefined
+        if (!dictionary(data) || !fields) return schema
+        const typed = { ...(data.properties || {}) }
+        for (const field of fields) typed[field] = {
+          anyOf: [{ type: 'boolean' }, { type: 'number' }],
+          description: field === 'pressed'
+            ? 'JSON boolean, or a number accepted by Godot bool(). Omitted means true; false or 0 releases. For action, strength 0 does not release.'
+            : `JSON boolean, or a number accepted by Godot bool(). Omitted means false for ${field}.`,
+        }
+        return {
+          ...schema,
+          properties: {
+            ...properties,
+            event_type: { ...properties.event_type, enum: [kind] },
+            event_data: { ...data, properties: typed },
+          },
+        }
+      }),
+    }
+  }
+  const value = { ...schema }
+  for (const union of ['anyOf', 'oneOf']) {
+    if (Array.isArray(schema[union])) value[union] = schema[union].map(advertiseInputEvents)
+  }
+  if (schema.type === 'array') value.items = advertiseInputEvents(schema.items)
+  return value
+}
+
+function advertiseInputTool(result) {
+  if (!Array.isArray(result?.tools)) return result
+  return {
+    ...result,
+    tools: result.tools.map((tool) => {
+      if (tool.name !== 'input_simulate' || !dictionary(tool.inputSchema?.properties?.events)) return tool
+      const events = advertiseInputEvents(tool.inputSchema.properties.events)
+      // The pinned registration accepts JSON-encoded top-level events. Keep
+      // that compatibility, but show native objects first for typed fields.
+      const union = Array.isArray(events.anyOf) ? 'anyOf' : Array.isArray(events.oneOf) ? 'oneOf' : undefined
+      const branches = union ? events[union] : [events]
+      const encoded = branches.some((branch) => branch?.type === 'string')
+      const advertisedEvents = encoded ? events : union
+        ? { ...events, [union]: [...branches, { type: 'string', description: 'Compatibility: JSON-encoded event object or array. Prefer native JSON objects with literal boolean values.' }] }
+        : { anyOf: [...branches, { type: 'string', description: 'Compatibility: JSON-encoded event object or array. Prefer native JSON objects with literal boolean values.' }] }
+      return {
+        ...tool,
+        description: [tool.description, INPUT_BOOLEAN_GUIDANCE].filter(Boolean).join('\n\n'),
+        inputSchema: {
+          ...tool.inputSchema,
+          properties: {
+            ...tool.inputSchema.properties,
+            events: advertisedEvents,
+          },
+        },
+      }
+    }),
+  }
+}
 
 class GodotOutcomeGuard {
   constructor() {
@@ -66,6 +231,7 @@ class GodotOutcomeGuard {
     const scope = this.storage.getStore()
     if (this.unknown) throw new Error('The Godot command outcome is unknown; restart this computer before further work.')
     if (!scope || scope.ended) throw new Error('Godot editor commands require an active owned MCP request.')
+    if (rpc.method === 'input.simulate') validateInputSimulation(rpc.params, true)
     let requests = this.requests.get(socket)
     if (!requests) this.requests.set(socket, requests = new Map())
     if (requests.has(rpc.id)) throw new Error('A Godot editor request ID is already active.')
@@ -136,7 +302,11 @@ class GodotOutcomeGuard {
     const guard = this
     const setRequestHandler = Server.prototype.setRequestHandler
     Server.prototype.setRequestHandler = function (schema, handler) {
-      return setRequestHandler.call(this, schema, (request, extra) => guard.run(() => handler(request, extra)))
+      return setRequestHandler.call(this, schema, (request, extra) => guard.run(async () => {
+        if (request?.method === 'tools/call' && request.params?.name === 'input_simulate') validateInputSimulation(request.params.arguments)
+        const result = await handler(request, extra)
+        return request?.method === 'tools/list' ? advertiseInputTool(result) : result
+      }))
     }
     return () => { Server.prototype.setRequestHandler = setRequestHandler }
   }

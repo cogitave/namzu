@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "coldRuntimeReloaded": true,
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791203618417",
+  "sdkCompiledModuleSha256": "eb965fd1ecdcf9930e485f1e26b15905ce4fc8c93dbbf091ee06b12b3a914703",
+  "sdkSourceCommit": "f4b7d1d5",
+  "nativeCompiledModuleFilesVerified": 4,
+  "application": "Godot4.7.2",
+  "input": {
+    "events": [
+      {
+        "event_type": "key",
+        "event_data": {
+          "keycode": 32,
+          "physical_keycode": 32,
+          "pressed": true
+        },
+        "delay_after_ms": 150
+      },
+      {
+        "event_type": "key",
+        "event_data": {
+          "keycode": 32,
+          "physical_keycode": 32,
+          "pressed": false
+        }
+      }
+    ]
+  },
+  "nativeJournal": {
+    "rawSequence": 546,
+    "executingSequence": 556,
+    "completedSequence": 558,
+    "rawToExecutingDeepEqual": true,
+    "completedAt": "2026-10-05T12:40:29.203Z",
+    "eventsProcessed": 2,
+    "isError": false,
+    "operatorApprovalSent": false
+  },
+  "actualGameStart": {
+    "confirmedByEngineLog": true,
+    "message": "GAME START",
+    "engineTimestampUnix": 1791204029,
+    "logObservedAt": "2026-10-05T12:40:36.361Z",
+    "runtimeScreenshotSucceededAt": "2026-10-05T12:40:36.952Z",
+    "rootFramebufferObservedPlaying": true,
+    "framebufferFile": "pal-game-mcp-start-native-20261005.png",
+    "framebufferSha256": "f70fedb6a5714fed253924bd9d5f762c626c19ed9937364bfa160077011a7622"
+  },
+  "gameSourceAuthoredByOperator": false,
+  "completeGameplayVerified": false,
+  "scope": "SDK dictionary input fidelity and actual title-to-play transition through the free-model Pal application tool; complete game rules, animation and delivery remain under test."
+}

@@ -1,0 +1,338 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "executionPath": "Actual Sıtkı Pal query through SDK MCP composition in its allocation-owned guest",
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791206245700",
+  "typedBridgeSha256": "509989127fdde72cb2d7eb0da2be57dc5cb3c327914f038919870e4f2eb21802",
+  "typedNativeToolsListVerifiedSeparately": true,
+  "evidenceThrough": "2026-10-05T13:24:23.236Z",
+  "actualPalLiteralBooleanPressReleaseVerified": true,
+  "sdkDictionaryInputFidelityVerified": true,
+  "successfulInputCalls": [
+    {
+      "toolUseId": "call_01a10c3af69d720fac6ac819",
+      "input": {
+        "events": [
+          {
+            "delay_before_ms": 200,
+            "event_data": {
+              "keycode": 32,
+              "pressed": true
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 150,
+            "event_data": {
+              "keycode": 32,
+              "pressed": false
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 600,
+            "event_type": "key"
+          }
+        ]
+      },
+      "rawSequence": 306,
+      "rawAt": "2026-10-05T13:22:34.003Z",
+      "executingSequence": 316,
+      "executingAt": "2026-10-05T13:22:34.021Z",
+      "completedSequence": 318,
+      "completedAt": "2026-10-05T13:22:35.209Z",
+      "durationMs": 1187,
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "eventsProcessed": 3
+    },
+    {
+      "toolUseId": "call_01a10c3bae1f71b89fd07aa0",
+      "input": {
+        "events": [
+          {
+            "event_data": {
+              "keycode": 80,
+              "pressed": true
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 150,
+            "event_data": {
+              "keycode": 80,
+              "pressed": false
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 900,
+            "event_type": "key"
+          }
+        ]
+      },
+      "rawSequence": 454,
+      "rawAt": "2026-10-05T13:23:21.372Z",
+      "executingSequence": 464,
+      "executingAt": "2026-10-05T13:23:21.621Z",
+      "completedSequence": 466,
+      "completedAt": "2026-10-05T13:23:22.736Z",
+      "durationMs": 1112,
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "eventsProcessed": 3,
+      "reportedTreePaused": true
+    },
+    {
+      "toolUseId": "call_01a10c3c66797574a8c6fbc1",
+      "input": {
+        "events": [
+          {
+            "event_data": {
+              "keycode": 80,
+              "pressed": true
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 150,
+            "event_data": {
+              "keycode": 80,
+              "pressed": false
+            },
+            "event_type": "key"
+          },
+          {
+            "delay_after_ms": 500,
+            "event_data": {
+              "action": "move_right",
+              "pressed": true,
+              "strength": 1
+            },
+            "event_type": "action"
+          },
+          {
+            "delay_after_ms": 900,
+            "event_data": {
+              "action": "move_right",
+              "pressed": false,
+              "strength": 0
+            },
+            "event_type": "action"
+          },
+          {
+            "delay_after_ms": 400,
+            "event_data": {
+              "action": "move_right",
+              "pressed": false,
+              "strength": 0
+            },
+            "event_type": "action"
+          }
+        ]
+      },
+      "rawSequence": 606,
+      "rawAt": "2026-10-05T13:24:08.188Z",
+      "executingSequence": 616,
+      "executingAt": "2026-10-05T13:24:08.209Z",
+      "completedSequence": 618,
+      "completedAt": "2026-10-05T13:24:10.254Z",
+      "durationMs": 2043,
+      "rawToExecutingDeepEqual": true,
+      "isError": false,
+      "eventsProcessed": 5,
+      "lastEventPressed": false,
+      "lastEventAction": "move_right",
+      "reportedTreePaused": false
+    }
+  ],
+  "inputCaveat": {
+    "emptyThirdKeyEventsPresentInSpaceAndPauseCalls": true,
+    "thirdEventHasEventData": false,
+    "toolkitDefaultKeycode": 0,
+    "toolkitDefaultPressed": true,
+    "actualEffectOfUnknownKeycodeZeroVerified": false,
+    "allKeysReleasedVerified": false,
+    "physicalKeyStatesObserved": false,
+    "currentInputActionStatesObserved": false,
+    "interpretation": "SPACE and P calls also contain an empty key event used by the model as a delay. The toolkit defaults that event to keycode0 and pressed:true. This receipt proves the explicit typed press/release rows were preserved and processed; it does not prove all keyboard or action states are released."
+  },
+  "actualEngineState": {
+    "readonlyGetter": "get_node('/root/Main').get('state')",
+    "enumObservedInActualSourceRead": {
+      "sequence": 91,
+      "at": "2026-10-05T13:21:30.393Z",
+      "declaration": "enum State { TITLE, PLAYING, WON, LOST, PAUSED }"
+    },
+    "titleBeforeSpace": {
+      "sequence": 272,
+      "at": "2026-10-05T13:22:12.012Z",
+      "observedValue": 0,
+      "isError": false
+    },
+    "playingAfterSpace": {
+      "sequence": 342,
+      "at": "2026-10-05T13:22:49.880Z",
+      "observedValue": 1,
+      "isError": false
+    },
+    "pausedAfterP": {
+      "sequence": 496,
+      "at": "2026-10-05T13:23:30.296Z",
+      "observedValue": 4,
+      "isError": false
+    },
+    "playingAfterResumeAndMove": {
+      "sequence": 644,
+      "at": "2026-10-05T13:24:22.801Z",
+      "observedValue": 1,
+      "isError": false
+    },
+    "titleToPlayingConfirmedByRuntimeState": true,
+    "gameStartMessageConfirmedByDebuggerLog": false,
+    "runtimeLaunchReadySequence": 241,
+    "runtimeLaunchReadyAt": "2026-10-05T13:22:07.437Z",
+    "screenshotSucceededAfterSpaceSequence": 347,
+    "screenshotSucceededAfterSpaceAt": "2026-10-05T13:22:50.023Z"
+  },
+  "actualPauseFreeze": {
+    "elapsedGetter": "get_node('/root/Main').get('elapsed')",
+    "elapsedSamples": [
+      {
+        "sequence": 501,
+        "at": "2026-10-05T13:23:30.365Z",
+        "observedValue": 47.4020693703709,
+        "isError": false
+      },
+      {
+        "sequence": 586,
+        "at": "2026-10-05T13:23:47.805Z",
+        "observedValue": 47.4020693703709,
+        "isError": false
+      }
+    ],
+    "elapsedExactlyEqual": true,
+    "hazardZeroGetter": "get_node('/root/Main').get('hazards')[0].get('position')",
+    "hazardZeroSamples": [
+      {
+        "sequence": 511,
+        "at": "2026-10-05T13:23:30.506Z",
+        "observedValue": {
+          "type": "Vector3",
+          "x": -6.49244165420532,
+          "y": 0,
+          "z": 0.313367187976837
+        },
+        "isError": false
+      },
+      {
+        "sequence": 576,
+        "at": "2026-10-05T13:23:47.653Z",
+        "observedValue": {
+          "type": "Vector3",
+          "x": -6.49244165420532,
+          "y": 0,
+          "z": 0.313367187976837
+        },
+        "isError": false
+      }
+    ],
+    "hazardZeroExactlyEqual": true,
+    "coreThreeGetter": "get_node('/root/Main').get('cores')[3].get('position')",
+    "coreThreeSamples": [
+      {
+        "sequence": 545,
+        "at": "2026-10-05T13:23:37.900Z",
+        "observedValue": {
+          "type": "Vector3",
+          "x": -9,
+          "y": 0.945465981960297,
+          "z": 9
+        },
+        "isError": false
+      },
+      {
+        "sequence": 581,
+        "at": "2026-10-05T13:23:47.731Z",
+        "observedValue": {
+          "type": "Vector3",
+          "x": -9,
+          "y": 0.945465981960297,
+          "z": 9
+        },
+        "isError": false
+      }
+    ],
+    "coreThreeExactlyEqual": true
+  },
+  "actualMovement": {
+    "playerPositionGetter": "get_node('/root/Main').get('player').get('position')",
+    "before": {
+      "sequence": 506,
+      "at": "2026-10-05T13:23:30.436Z",
+      "observedValue": {
+        "type": "Vector3",
+        "x": 0,
+        "y": 0.200621426105499,
+        "z": 0
+      },
+      "isError": false
+    },
+    "after": {
+      "sequence": 654,
+      "at": "2026-10-05T13:24:23.236Z",
+      "observedValue": {
+        "type": "Vector3",
+        "x": 2.72021913528442,
+        "y": 0.000279620289802551,
+        "z": 0
+      },
+      "isError": false
+    },
+    "positiveXChangeObserved": true,
+    "facingGetter": "get_node('/root/Main').get('player').get('facing')",
+    "facingAfter": {
+      "sequence": 649,
+      "at": "2026-10-05T13:24:22.883Z",
+      "observedValue": {
+        "type": "Vector3",
+        "x": 1,
+        "y": 0,
+        "z": -0.000326241715811193
+      },
+      "isError": false
+    },
+    "releaseEventExplicitAndReportedFalse": true,
+    "currentInputActionReleasedVerified": false
+  },
+  "automaticReview": {
+    "operatorApprovalEscalationObserved": false,
+    "checks": [
+      {
+        "requestedSequence": 312,
+        "requestedAt": "2026-10-05T13:22:34.017Z",
+        "approvedSequence": 313,
+        "approvedAt": "2026-10-05T13:22:34.018Z"
+      },
+      {
+        "requestedSequence": 460,
+        "requestedAt": "2026-10-05T13:23:21.601Z",
+        "approvedSequence": 461,
+        "approvedAt": "2026-10-05T13:23:21.601Z"
+      },
+      {
+        "requestedSequence": 612,
+        "requestedAt": "2026-10-05T13:24:08.206Z",
+        "approvedSequence": 613,
+        "approvedAt": "2026-10-05T13:24:08.207Z"
+      }
+    ]
+  },
+  "observerMutatedApplicationOrReplayedCommand": false,
+  "completeGameplayVerified": false,
+  "scope": "Actual Windows free-model Pal literal boolean input fidelity, runtime title/play/pause states, observed pause freeze, and movement through application tools. Engine debugger GAME START message, all input states released, win/loss rules and complete gameplay are not claimed."
+}

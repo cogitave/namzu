@@ -8,6 +8,8 @@ import {
 	palConversationGreeting,
 } from '@namzu/sdk'
 import {
+	type CliSessions,
+	type ConversationFacts,
 	type RecentConversation,
 	closeSessions,
 	conversationTitle,
@@ -60,25 +62,41 @@ export async function palConversationBinding(
 	if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
 	const state = await openSessions(cwd)
 	try {
-		const facts = await readConversationFacts(state, asSessionId(sessionId))
-		const origin = facts?.started.origin
-		const owner =
-			origin?.protocol === 'desktop' ? parseTag(origin.externalSessionId, sessionId) : null
-		if (
-			!facts ||
-			!owner ||
-			owner.id !== pal.id ||
-			facts.started.projectId !== state.projectId ||
-			facts.started.tenantId !== state.tenantId ||
-			facts.started.cwd !== pal.workspace
-		)
-			throw new Error('This conversation is not claimed by this Pal.')
-		const definition = getPalRevision(pal.id, owner.revision)
-		if (definition.workspace !== pal.workspace) throw new Error('Pal workspace identity changed.')
-		return { pal, definition, sessionId: asSessionId(sessionId) }
+		return (await readPalConversation(state, cwd, pal.id, sessionId))?.binding ?? null
 	} finally {
 		closeSessions(state)
 	}
+}
+
+/** Reuse the authenticated scope, while reading each candidate's ownership from its actual log. */
+async function readPalConversation(
+	state: CliSessions,
+	cwd: string,
+	palId: string,
+	sessionId: string,
+): Promise<{ binding: PalConversationBinding; facts: ConversationFacts } | null> {
+	if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
+	const facts = await readConversationFacts(state, asSessionId(sessionId))
+	// Recheck the live profile and canonical directory after the asynchronous log read.
+	const pal = palAtWorkspace(cwd, state.root)
+	if (!pal) return null
+	if (pal.id !== palId || pal.workspace !== state.projectRoot)
+		throw new Error('This Pal does not own the current workspace.')
+	const origin = facts?.started.origin
+	const owner =
+		origin?.protocol === 'desktop' ? parseTag(origin.externalSessionId, sessionId) : null
+	if (
+		!facts ||
+		!owner ||
+		owner.id !== pal.id ||
+		facts.started.projectId !== state.projectId ||
+		facts.started.tenantId !== state.tenantId ||
+		facts.started.cwd !== pal.workspace
+	)
+		throw new Error('This conversation is not claimed by this Pal.')
+	const definition = getPalRevision(pal.id, owner.revision, state.root)
+	if (definition.workspace !== pal.workspace) throw new Error('Pal workspace identity changed.')
+	return { binding: { pal, definition, sessionId: asSessionId(sessionId) }, facts }
 }
 
 /** Bind an ACP-created, never-started wire session to this Pal and definition revision. */
@@ -157,10 +175,9 @@ export async function listPalConversations(
 		const owned: Awaited<ReturnType<typeof listPalConversations>> = []
 		for (const row of rows) {
 			try {
-				const binding = await palConversationBinding(cwd, row.id)
-				if (!binding) continue
-				const facts = await readConversationFacts(state, row.id)
-				if (!facts || facts.archived) continue
+				const candidate = await readPalConversation(state, cwd, palId, row.id)
+				if (!candidate || candidate.facts.archived) continue
+				const { binding, facts } = candidate
 				const messages = await loadConversation(state, row.id)
 				owned.push({
 					id: row.id,
