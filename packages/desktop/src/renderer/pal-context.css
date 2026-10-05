@@ -33,6 +33,8 @@
 .chat-stage[data-pal-context="true"] > .pal-context-card {
 	grid-column: 2;
 	grid-row: 1 / -1;
+	width: calc(100% - 24px);
+	min-width: 0;
 }
 .pal-context-heading {
 	display: flex;
@@ -270,7 +272,7 @@
 	padding: 0;
 	list-style: none;
 }
-.pal-context-list .pal-context-row {
+.pal-context-row {
 	display: flex;
 	justify-content: flex-start;
 	gap: 10px;
@@ -313,16 +315,6 @@
 	to {
 		opacity: 1;
 		transform: translateY(0);
-	}
-}
-@container pal-chat (max-width: 719px) {
-	.chat-stage[data-pal-context="true"] > .pal-context-card {
-		grid-column: 1 / -1;
-		grid-row: 1;
-		order: 0;
-		width: calc(100% - 24px);
-		margin: 12px;
-		max-height: min(26dvh, 210px);
 	}
 }
 @media (hover: none) {

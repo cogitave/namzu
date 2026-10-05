@@ -1,0 +1,418 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "rendererOnlyUpdate": true,
+  "noModelRequest": true,
+  "noComputerAction": true,
+  "originalViewportAndProfileVisibilityRestored": true,
+  "profilesMessagesDraftsSettingsModelsAndWindowPlacementPreserved": true,
+  "computerAllocationsPreserved": true,
+  "nativePidUnchanged": true,
+  "beforeStateSha256": "df83f893863813e69792ae7eac3cc917602c9835d23569878b3d8803076118ca",
+  "afterStateSha256": "df83f893863813e69792ae7eac3cc917602c9835d23569878b3d8803076118ca",
+  "cases": [
+    {
+      "name": "reported-native-window",
+      "viewport": {
+        "width": 1042,
+        "height": 1367
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 706,
+        "height": 1283,
+        "right": 1042,
+        "bottom": 1367
+      },
+      "card": {
+        "x": 781.734375,
+        "y": 100,
+        "width": 244.265625,
+        "height": 544,
+        "right": 1026,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 437.734375,
+        "height": 1283,
+        "right": 773.734375,
+        "bottom": 1367
+      },
+      "composer": {
+        "x": 336,
+        "y": 1295,
+        "width": 437.734375,
+        "height": 72,
+        "right": 773.734375,
+        "bottom": 1367
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "Sitki-Activity-719px-chat",
+      "viewport": {
+        "width": 1495,
+        "height": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 719,
+        "height": 816,
+        "right": 1055,
+        "bottom": 900
+      },
+      "card": {
+        "x": 789.78125,
+        "y": 100,
+        "width": 249.21875,
+        "height": 460,
+        "right": 1039,
+        "bottom": 560
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 445.78125,
+        "height": 816,
+        "right": 781.78125,
+        "bottom": 900
+      },
+      "composer": {
+        "x": 336,
+        "y": 828,
+        "width": 445.78125,
+        "height": 72,
+        "right": 781.78125,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "Sitki-Activity-wide",
+      "viewport": {
+        "width": 1800,
+        "height": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 1024,
+        "height": 816,
+        "right": 1360,
+        "bottom": 900
+      },
+      "card": {
+        "x": 1044,
+        "y": 100,
+        "width": 300,
+        "height": 460,
+        "right": 1344,
+        "bottom": 560
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 700,
+        "height": 816,
+        "right": 1036,
+        "bottom": 900
+      },
+      "composer": {
+        "x": 336,
+        "y": 828,
+        "width": 700,
+        "height": 72,
+        "right": 1036,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "1055x900",
+      "viewport": {
+        "width": 1055,
+        "height": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 719,
+        "height": 816,
+        "right": 1055,
+        "bottom": 900
+      },
+      "card": {
+        "x": 789.78125,
+        "y": 100,
+        "width": 249.21875,
+        "height": 544,
+        "right": 1039,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 445.78125,
+        "height": 816,
+        "right": 781.78125,
+        "bottom": 900
+      },
+      "composer": {
+        "x": 336,
+        "y": 828,
+        "width": 445.78125,
+        "height": 72,
+        "right": 781.78125,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "1056x900",
+      "viewport": {
+        "width": 1056,
+        "height": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 720,
+        "height": 816,
+        "right": 1056,
+        "bottom": 900
+      },
+      "card": {
+        "x": 790.40625,
+        "y": 100,
+        "width": 249.59375,
+        "height": 544,
+        "right": 1040,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 446.40625,
+        "height": 816,
+        "right": 782.40625,
+        "bottom": 900
+      },
+      "composer": {
+        "x": 336,
+        "y": 828,
+        "width": 446.40625,
+        "height": 72,
+        "right": 782.40625,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "1336x900",
+      "viewport": {
+        "width": 1336,
+        "height": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 1000,
+        "height": 816,
+        "right": 1336,
+        "bottom": 900
+      },
+      "card": {
+        "x": 1020,
+        "y": 100,
+        "width": 300,
+        "height": 544,
+        "right": 1320,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 676,
+        "height": 816,
+        "right": 1012,
+        "bottom": 900
+      },
+      "composer": {
+        "x": 336,
+        "y": 828,
+        "width": 676,
+        "height": 72,
+        "right": 1012,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "1042x400",
+      "viewport": {
+        "width": 1042,
+        "height": 400
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 706,
+        "height": 316,
+        "right": 1042,
+        "bottom": 400
+      },
+      "card": {
+        "x": 781.734375,
+        "y": 100,
+        "width": 244.265625,
+        "height": 284,
+        "right": 1026,
+        "bottom": 384
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 437.734375,
+        "height": 316,
+        "right": 773.734375,
+        "bottom": 400
+      },
+      "composer": {
+        "x": 336,
+        "y": 328,
+        "width": 437.734375,
+        "height": 72,
+        "right": 773.734375,
+        "bottom": 400
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    },
+    {
+      "name": "380px-pane-profile-hidden",
+      "viewport": {
+        "width": 1042,
+        "height": 1367
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 380,
+        "height": 1283,
+        "right": 716,
+        "bottom": 1367
+      },
+      "card": null,
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 380,
+        "height": 1283,
+        "right": 716,
+        "bottom": 1367
+      },
+      "composer": {
+        "x": 336,
+        "y": 1295,
+        "width": 380,
+        "height": 72,
+        "right": 716,
+        "bottom": 1367
+      },
+      "cardOverflow": null,
+      "documentOverflow": false
+    },
+    {
+      "name": "restored-native-window",
+      "viewport": {
+        "width": 1042,
+        "height": 1367
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 706,
+        "height": 1283,
+        "right": 1042,
+        "bottom": 1367
+      },
+      "card": {
+        "x": 781.734375,
+        "y": 100,
+        "width": 244.265625,
+        "height": 544,
+        "right": 1026,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 437.734375,
+        "height": 1283,
+        "right": 773.734375,
+        "bottom": 1367
+      },
+      "composer": {
+        "x": 336,
+        "y": 1295,
+        "width": 437.734375,
+        "height": 72,
+        "right": 773.734375,
+        "bottom": 1367
+      },
+      "cardOverflow": "auto",
+      "communication": {
+        "alignment": "left",
+        "weight": "400",
+        "fontSize": "13px"
+      },
+      "documentOverflow": false
+    }
+  ]
+}

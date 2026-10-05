@@ -526,23 +526,16 @@ pre {
 	min-height: 0;
 }
 .chat-stage[data-pal-context="true"] {
-	/* Measure the remaining chat width after a detail panel reserves its column.
-	   Two row tracks let this container's children reflow without sizing from the outer pane. */
-	container-type: inline-size;
-	container-name: pal-chat;
+	/* Keep the profile beside the conversation, including narrower desktop panes.
+	   Its column includes the card's 24px horizontal margins. */
+	--pal-context-column: clamp(264px, 38%, 324px);
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(0, 324px);
-	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr) minmax(0, var(--pal-context-column));
+	grid-template-rows: minmax(0, 1fr);
 }
 .chat-stage[data-pal-context="true"] > .conversation-lane {
 	grid-column: 1;
 	grid-row: 1 / -1;
-}
-@container pal-chat (max-width: 719px) {
-	.chat-stage[data-pal-context="true"] > .conversation-lane {
-		grid-column: 1 / -1;
-		grid-row: 2;
-	}
 }
 .transcript {
 	min-height: 0;

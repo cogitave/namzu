@@ -208,10 +208,6 @@
 	background: var(--surface);
 	font-size: 13px;
 }
-.pal-communication-entry {
-	width: 100%;
-	justify-content: flex-start;
-}
 @media (max-width: 600px) {
 	.pal-communication-viewport {
 		padding: 12px;

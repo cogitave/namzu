@@ -242,16 +242,24 @@ right shows its live 3D character, computer, owned recent conversations and
 current completed change receipts. The pencil beside the character opens
 customization. The card has no menu trigger and reserves its own layout space,
 so it never overlaps the transcript or composer. The remaining Pal chat width,
-after an open Activity or Changes pane reserves its column, controls the layout.
-At 720px or wider the card stays in its 300px right column; below that width it
-stays visible above the conversation with bounded scrolling. Neither empty
-outputs nor a disconnected computer imply
-completed work. Customizing an existing profile preserves the selected
+after an open Activity or Changes pane reserves its column, sizes the right
+column continuously. The card is 240–300px wide, with its own bounded vertical
+scrolling in short windows. Narrower desktop windows do not move it into a
+full-width band above the conversation. The Communication entry shares the
+left-aligned row style used by recent activity and outputs. In a very narrow
+split pane, the existing profile toggle gives the conversation the full width.
+Neither empty outputs nor a disconnected computer imply completed work.
+Customizing an existing profile preserves the selected
 conversation. Its default model applies to future conversations.
 
-The [native layout receipt](../../research/runtime-desktop-20260930/artifacts/pal-context-layout-native-safe-20261005.json)
-checks Tasks open at four viewport widths, including 720px and 719px of remaining
-chat space, and preserves the viewport, profiles, drafts and workspace. The
+The [native responsive layout receipt](../../research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-safe-20261005.json)
+checks the reported 706px chat area, both sides of the former 720px breakpoint,
+Activity open on Sıtkı, a wider window, a short window and the existing profile
+toggle in a 380px pane.
+It preserves the native viewport, profile visibility, messages, drafts, model
+settings, workspace placement and computer allocations. The
+[current card capture](../../research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-20261005.png)
+shows its compact width and left-aligned Communication entry. The earlier
 [wide capture](../../research/runtime-desktop-20260930/artifacts/pal-context-layout-wide-native-20261005.png)
 shows the separate transcript, Pal card and Tasks columns.
 
