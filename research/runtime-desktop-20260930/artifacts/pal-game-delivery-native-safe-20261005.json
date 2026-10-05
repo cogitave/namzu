@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "model": {
+    "provider": "zen",
+    "model": "space-bunny-free",
+    "paidFallbackUsed": false
+  },
+  "guestGeneration": "1791206245700",
+  "applications": {
+    "godot": "4.7.2.stable.official.ed1daf0bf",
+    "blender": "5.2.2 LTS"
+  },
+  "palAuthoredGameAndReadme": true,
+  "operatorAuthoredGameSource": false,
+  "playableDemoDelivered": true,
+  "bundle": {
+    "name": "Clockwork-Courier-Godot4-Sitki-20261005.zip",
+    "bytes": 1017327,
+    "sha256": "3f84dfa44dbb76ab5a63a0637db2b9a7fe970c7db2fb72efc8fa7ee0966308da",
+    "entries": 30,
+    "crcPassed": true,
+    "safePathsAndNoGeneratedCacheOrAddons": true,
+    "onlyChangedEntrySinceStandaloneTest": "clockwork-courier/README.md",
+    "unchangedNonReadmeEntries": 29,
+    "readmeSha256": "ff41cbe71debfdb7cc91abe6525d4f77f770edf86eb1b3260fd8a0c27ee8f929"
+  },
+  "actualAssets": {
+    "glb": {
+      "bytes": 181776,
+      "sha256": "f2cb6bc72e31db6ff725d5ea5fdd2cfc458398c274fe744809ad4b308a62da1b",
+      "joints": 14,
+      "meshParts": 42,
+      "clips": [
+        "idle",
+        "walk"
+      ]
+    },
+    "blend": {
+      "bytes": 913652,
+      "sha256": "964c756d0fea8879aa48300ddee27ab3a738acfc4b921ce982bd1f7e9e4f51b2",
+      "savedFileFormat": "Blender 3.4",
+      "inspectedApplication": "Blender 5.2.2 LTS"
+    }
+  },
+  "liveEvidence": [
+    "normal physical 8/8 victory with hull1",
+    "normal defeat and R restart",
+    "WASD and Up arrow",
+    "pause/resume",
+    "actual Namzu Take over: Space, held D, P, Return control",
+    "representative loaded mesh SkinReferences and natural idle bone variation"
+  ],
+  "notLiveReproduced": [
+    "R during an active pickup tween",
+    "same-frame lethal hit and eighth core",
+    "continuous weighted WALK cycle",
+    "Left, Right and Down arrow input"
+  ],
+  "standaloneEvidence": {
+    "reference": "pal-game-standalone-native-safe-20261005.json",
+    "originalZipSha256": "2e6a37eb00b2cef7fa051b243b8a18ffa9ae730ed3a17d06e0094b33422c8a60",
+    "coldImportAndFiniteTitleStartup": "both exit0, no errors or warnings",
+    "scope": "Cold runtime evidence applies to the identical 29 non-README members; final archive CRC and documentation separately reviewed."
+  },
+  "finalState": {
+    "palComputerReady": true,
+    "controlMode": "pal",
+    "sameGenerationPreserved": true,
+    "titleStateObserved": 0,
+    "playerVelocityObserved": [
+      0,
+      0,
+      0
+    ],
+    "allThreeTurnsIdle": true,
+    "openTools": 0,
+    "queuedItems": 0,
+    "permissions": 0,
+    "runningJobs": 0,
+    "profilesPreserved": 2,
+    "previousDraftsAndMessagesPreserved": true
+  },
+  "providerFailures": {
+    "earlierGameAndDocumentationTurnsTimedOut": true,
+    "unknownUsageLedgersRetained": true,
+    "noUsageFabricationOrLedgerReset": true,
+    "distinctNarrowCorrectionTaskCompleted": true,
+    "scope": "Two inaccurate README claims corrected via a new public conversation; no prior turn replay or checkpoint/history transfer."
+  },
+  "evidenceFiles": [
+    "pal-game-normal-gameplay-native-safe-20261005.json",
+    "pal-game-human-control-native-safe-20261005.json",
+    "pal-game-live-rig-native-safe-20261005.json",
+    "pal-game-final-title-native-20261005.png"
+  ],
+  "fullGameplayQualification": false
+}
