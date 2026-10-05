@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- **Update** [Pal workspace controls](cli/desktop.md#persistent-pals): align the computer and layout controls to the shared header's right gutter while keeping New conversation beside the scrollable tabs. Verify the live native Windows computer at wide and narrow widths, split chat and floating chat; apply the stylesheet without a page reload and preserve profile, conversation, draft, model, viewport and computer control state; `research/runtime-desktop-20260930/artifacts/toolbar-controls-right-native-safe-20261005.json`.
+
 - **Update** [Pal context layout](cli/desktop.md#persistent-pals): keep the profile in a fluid 240–300px right column instead of switching to a truncated full-width band below 720px. Share the activity/output row style with Communication. Verify the reported 706px area, the former breakpoint, a short native Windows window and the existing profile toggle in a narrow pane, preserving conversation state and the running Pal computer; `research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-safe-20261005.json`.
 
 - **Update** [Pal sidebar activation](cli/desktop.md#conversation-panes-and-windows): use the existing admitted tab route for a warm Pal revisit instead of repeatedly fetching its definition and conversation catalogue. Retain exact Pal/project/pane membership, latest known conversation selection and connection/choice invalidation; keep the full opening path for unadmitted routes. Activity invalidates catalogue freshness, and a stale concurrent list read cannot confirm it. Measure real sidebar and tab clicks in native Windows, preserving profiles and computer allocation without model requests; `research/runtime-desktop-20260930/artifacts/pal-navigation-native-windows-safe-20261005.json`.

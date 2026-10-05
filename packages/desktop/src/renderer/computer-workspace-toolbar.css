@@ -108,6 +108,7 @@
 	align-items: center;
 	gap: 4px;
 	flex: none;
+	margin-inline-start: auto;
 }
 .computer-workspace-layout-controls [aria-pressed="true"] {
 	background: var(--accent);

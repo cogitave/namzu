@@ -307,6 +307,14 @@ in one tab row. All use equal 220px by 32px frames inside the shared outer heade
 That header stays in place when switching between ordinary chat, Pal chat and
 computer content. Its height follows the canonical 52px workspace-header token,
 with common gutters, so changing the selected view does not move the tab row.
+New conversation follows the scrollable tab list. Computer and layout controls
+form a separate group aligned to the header's right gutter, including split and
+floating chat views. They remain visible when the tab list overflows. The
+[native alignment receipt](../../research/runtime-desktop-20260930/artifacts/toolbar-controls-right-native-safe-20261005.json)
+checks these views and a narrow window while preserving the live computer,
+conversation state and original viewport. Its
+[header capture](../../research/runtime-desktop-20260930/artifacts/toolbar-controls-right-native-20261005.png)
+shows the spacing between tab creation and the right controls.
 Selecting chat returns to its transcript and profile without closing the computer
 tab. Selecting the computer shows its live desktop; the plus button opens or
 selects that same computer. Closing its tab returns to the same Pal chat and leaves

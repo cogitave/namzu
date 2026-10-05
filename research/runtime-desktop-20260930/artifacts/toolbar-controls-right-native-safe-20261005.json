@@ -1,0 +1,438 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "stylesheetOnly": true,
+  "noPageReload": true,
+  "noModelRequest": true,
+  "noComputerAction": true,
+  "profilesMessagesDraftsSettingsModelsWorkspaceAndComputerControlPreserved": true,
+  "originalViewAndViewportRestored": true,
+  "cases": [
+    {
+      "name": "current-live-computer",
+      "viewport": {
+        "width": 1669,
+        "height": 1367
+      },
+      "root": {
+        "x": 356,
+        "y": 41.5,
+        "width": 1293,
+        "height": 32,
+        "right": 1649,
+        "bottom": 73.5
+      },
+      "header": {
+        "x": 336,
+        "y": 32,
+        "width": 1333,
+        "height": 52,
+        "right": 1669,
+        "bottom": 84
+      },
+      "controls": {
+        "x": 1557,
+        "y": 43.5,
+        "width": 92,
+        "height": 28,
+        "right": 1649,
+        "bottom": 71.5
+      },
+      "newConversation": {
+        "x": 1028,
+        "y": 43.5,
+        "width": 28,
+        "height": 28,
+        "right": 1056,
+        "bottom": 71.5
+      },
+      "list": {
+        "x": 356,
+        "y": 41.5,
+        "width": 668,
+        "height": 32,
+        "right": 1024,
+        "bottom": 73.5
+      },
+      "listOverflows": false,
+      "buttons": [
+        {
+          "label": "Open computer tab",
+          "box": {
+            "x": 1557,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1585,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show chat panel",
+          "box": {
+            "x": 1589,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1617,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show floating chat",
+          "box": {
+            "x": 1621,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1649,
+            "bottom": 71.5
+          }
+        }
+      ],
+      "chat": "hidden",
+      "liveCanvasCount": 1
+    },
+    {
+      "name": "computer-1800",
+      "viewport": {
+        "width": 1800,
+        "height": 900
+      },
+      "root": {
+        "x": 356,
+        "y": 41.5,
+        "width": 1424,
+        "height": 32,
+        "right": 1780,
+        "bottom": 73.5
+      },
+      "header": {
+        "x": 336,
+        "y": 32,
+        "width": 1464,
+        "height": 52,
+        "right": 1800,
+        "bottom": 84
+      },
+      "controls": {
+        "x": 1688,
+        "y": 43.5,
+        "width": 92,
+        "height": 28,
+        "right": 1780,
+        "bottom": 71.5
+      },
+      "newConversation": {
+        "x": 1028,
+        "y": 43.5,
+        "width": 28,
+        "height": 28,
+        "right": 1056,
+        "bottom": 71.5
+      },
+      "list": {
+        "x": 356,
+        "y": 41.5,
+        "width": 668,
+        "height": 32,
+        "right": 1024,
+        "bottom": 73.5
+      },
+      "listOverflows": false,
+      "buttons": [
+        {
+          "label": "Open computer tab",
+          "box": {
+            "x": 1688,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1716,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show chat panel",
+          "box": {
+            "x": 1720,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1748,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show floating chat",
+          "box": {
+            "x": 1752,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1780,
+            "bottom": 71.5
+          }
+        }
+      ],
+      "chat": "hidden",
+      "liveCanvasCount": 1
+    },
+    {
+      "name": "computer-900",
+      "viewport": {
+        "width": 900,
+        "height": 900
+      },
+      "root": {
+        "x": 356,
+        "y": 41.5,
+        "width": 524,
+        "height": 32,
+        "right": 880,
+        "bottom": 73.5
+      },
+      "header": {
+        "x": 336,
+        "y": 32,
+        "width": 564,
+        "height": 52,
+        "right": 900,
+        "bottom": 84
+      },
+      "controls": {
+        "x": 788,
+        "y": 43.5,
+        "width": 92,
+        "height": 28,
+        "right": 880,
+        "bottom": 71.5
+      },
+      "newConversation": {
+        "x": 756,
+        "y": 43.5,
+        "width": 28,
+        "height": 28,
+        "right": 784,
+        "bottom": 71.5
+      },
+      "list": {
+        "x": 356,
+        "y": 41.5,
+        "width": 396,
+        "height": 32,
+        "right": 752,
+        "bottom": 73.5
+      },
+      "listOverflows": true,
+      "buttons": [
+        {
+          "label": "Open computer tab",
+          "box": {
+            "x": 788,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 816,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show chat panel",
+          "box": {
+            "x": 820,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 848,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show floating chat",
+          "box": {
+            "x": 852,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 880,
+            "bottom": 71.5
+          }
+        }
+      ],
+      "chat": "hidden",
+      "liveCanvasCount": 1
+    },
+    {
+      "name": "split-chat",
+      "viewport": {
+        "width": 1669,
+        "height": 1367
+      },
+      "root": {
+        "x": 356,
+        "y": 41.5,
+        "width": 1292.984375,
+        "height": 32,
+        "right": 1648.984375,
+        "bottom": 73.5
+      },
+      "header": {
+        "x": 336,
+        "y": 32,
+        "width": 1332.984375,
+        "height": 52,
+        "right": 1668.984375,
+        "bottom": 84
+      },
+      "controls": {
+        "x": 1556.984375,
+        "y": 43.5,
+        "width": 92,
+        "height": 28,
+        "right": 1648.984375,
+        "bottom": 71.5
+      },
+      "newConversation": {
+        "x": 1028,
+        "y": 43.5,
+        "width": 28,
+        "height": 28,
+        "right": 1056,
+        "bottom": 71.5
+      },
+      "list": {
+        "x": 356,
+        "y": 41.5,
+        "width": 668,
+        "height": 32,
+        "right": 1024,
+        "bottom": 73.5
+      },
+      "listOverflows": false,
+      "buttons": [
+        {
+          "label": "Open computer tab",
+          "box": {
+            "x": 1556.984375,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1584.984375,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Hide chat panel",
+          "box": {
+            "x": 1588.984375,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1616.984375,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Show floating chat",
+          "box": {
+            "x": 1620.984375,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1648.984375,
+            "bottom": 71.5
+          }
+        }
+      ],
+      "chat": "split",
+      "liveCanvasCount": 1
+    },
+    {
+      "name": "floating-chat",
+      "viewport": {
+        "width": 1669,
+        "height": 1367
+      },
+      "root": {
+        "x": 356,
+        "y": 41.5,
+        "width": 1293,
+        "height": 32,
+        "right": 1649,
+        "bottom": 73.5
+      },
+      "header": {
+        "x": 336,
+        "y": 32,
+        "width": 1333,
+        "height": 52,
+        "right": 1669,
+        "bottom": 84
+      },
+      "controls": {
+        "x": 1557,
+        "y": 43.5,
+        "width": 92,
+        "height": 28,
+        "right": 1649,
+        "bottom": 71.5
+      },
+      "newConversation": {
+        "x": 1028,
+        "y": 43.5,
+        "width": 28,
+        "height": 28,
+        "right": 1056,
+        "bottom": 71.5
+      },
+      "list": {
+        "x": 356,
+        "y": 41.5,
+        "width": 668,
+        "height": 32,
+        "right": 1024,
+        "bottom": 73.5
+      },
+      "listOverflows": false,
+      "buttons": [
+        {
+          "label": "Open computer tab",
+          "box": {
+            "x": 1557,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1585,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Hide chat panel",
+          "box": {
+            "x": 1589,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1617,
+            "bottom": 71.5
+          }
+        },
+        {
+          "label": "Dock chat panel",
+          "box": {
+            "x": 1621,
+            "y": 43.5,
+            "width": 28,
+            "height": 28,
+            "right": 1649,
+            "bottom": 71.5
+          }
+        }
+      ],
+      "chat": "floating",
+      "liveCanvasCount": 1
+    }
+  ]
+}
