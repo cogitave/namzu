@@ -38,6 +38,9 @@ export function createWorkspacePaneApi(
 		takeOverPalComputer,
 		returnPalComputerControl,
 		palComputerInput,
+		updatePalPermission,
+		createPalSubscription,
+		disablePalSubscription,
 		retryTurn,
 	} = base
 	const assertLifetime = (admittedGeneration = generation) => {
@@ -121,6 +124,30 @@ export function createWorkspacePaneApi(
 	// its non-configurable methods would violate JavaScript's Proxy invariants.
 	const api: DesktopApi = {
 		...base,
+		...(updatePalPermission
+			? {
+					updatePalPermission: (owner, palId, change) => {
+						const snapshot = structuredClone(change)
+						return invoke(() => updatePalPermission(owner, palId, snapshot), [owner])
+					},
+				}
+			: {}),
+		...(createPalSubscription
+			? {
+					createPalSubscription: (owner, palId, input) => {
+						const snapshot = structuredClone(input)
+						return invoke(() => createPalSubscription(owner, palId, snapshot), [owner])
+					},
+				}
+			: {}),
+		...(disablePalSubscription
+			? {
+					disablePalSubscription: (owner, palId, input) => {
+						const snapshot = structuredClone(input)
+						return invoke(() => disablePalSubscription(owner, palId, snapshot), [owner])
+					},
+				}
+			: {}),
 		newConversation: (projectId) =>
 			invoke(
 				async (assertCurrent) => {

@@ -7,6 +7,12 @@ import type {
 	ReasoningEffort,
 	ReviewMode,
 } from '@namzu/sdk'
+import type {
+	PalCommunicationView,
+	PalPermissionChange,
+	PalSubscriptionCreate,
+	PalSubscriptionDisable,
+} from './pal-communication-protocol.js'
 export type { PalComputerInput } from '@namzu/sdk'
 import type {
 	WorkspaceDropPosition,
@@ -291,6 +297,22 @@ export interface DesktopApi {
 	palModels(provider: string): Promise<ModelCatalogueView>
 	createPal(input: PalInput): Promise<PalView>
 	updatePal(id: string, expectedRevision: number, changes: Partial<PalChanges>): Promise<PalView>
+	palCommunication?(sessionId: string, palId: string): Promise<PalCommunicationView>
+	updatePalPermission?(
+		sessionId: string,
+		palId: string,
+		change: PalPermissionChange,
+	): Promise<PalCommunicationView>
+	createPalSubscription?(
+		sessionId: string,
+		palId: string,
+		input: PalSubscriptionCreate,
+	): Promise<PalCommunicationView>
+	disablePalSubscription?(
+		sessionId: string,
+		palId: string,
+		input: PalSubscriptionDisable,
+	): Promise<PalCommunicationView>
 	openPal(id: string): Promise<{
 		pal: PalView
 		project: ProjectView

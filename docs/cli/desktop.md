@@ -361,6 +361,41 @@ listed as ordinary projects or persisted in the desktop's project settings.
 The named IPC methods have the same sender checks as ordinary desktop actions;
 the CLI's [ACP extension table](pals.md#acp-host-extensions) describes the wire.
 
+### Pal communication management
+
+The Pal context card opens **Communication** for the currently owned Pal
+conversation. Its Peers, Inbox and Activity subscriptions sections use the
+existing SDK message policies, durable inbox and activity subscription stores.
+Opening or refreshing this panel does not request a model turn or start a
+computer.
+
+Peer permissions are directional. The operator can change this Pal's outgoing
+send and wake permissions; incoming permissions are displayed separately and
+edited from the sending Pal's own view. Disabling sending also disables its wake
+grant. A wake grant permits a host to execute a delivery; it does not install an
+automatic idle dispatcher. Active Pal turns can receive accepted messages at
+their existing safe execution boundaries, and the CLI retains its explicit
+finite dispatch operation.
+
+Inbox entries show pending, claimed or recorded delivery metadata. Recorded
+means the message entered the durable conversation, not that the recipient
+answered or completed a task. Message bodies, private profile context, receipt
+internals and journal cursors are omitted.
+
+An activity subscription selects a known owned source Pal and its exact original
+conversation, plus a recipient. The currently opened Pal must be one participant.
+Creation validates the original tenant and pinned profile, publishes a disabled
+subscription, records explicit observation/disclosure/receive/wake consent, and
+then enables it. A partial setup remains disabled. Disabling uses the displayed
+record revision. Team membership is not implied by either permission type.
+
+Main captures the existing conversation's exact Pal, runtime session and client.
+Mutations consume a loaded snapshot token and carry the original expected record
+revision; replaced connections and stale views must refresh. Failed or incomplete
+reads retain previously confirmed rows with an unavailable notice and disable
+editing that section. Older runtimes report unsupported management. The browser
+design preview does not manufacture message or subscription records.
+
 The browser design preview supports in-memory creation and customization, and
 explicitly reports that a real computer needs the native application. This MVP
 does not yet run a resident autonomous loop, Pal Team or external channel adapter.

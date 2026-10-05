@@ -27,6 +27,7 @@ export interface PalContextProps {
 	activity: readonly { id: string; title: string; status?: string }[]
 	outputs: readonly { id: string; label: string }[]
 	onCustomize: () => void
+	onCommunication?: (trigger: HTMLButtonElement) => void
 	onActivity: (id: string) => void
 	onOutput: (id: string) => void
 	onPause?: () => void
@@ -73,6 +74,7 @@ function PalContextBody({
 	activity,
 	outputs,
 	onCustomize,
+	onCommunication,
 	onActivity,
 	onOutput,
 	onPause,
@@ -138,6 +140,18 @@ function PalContextBody({
 					)}
 				</div>
 			</header>
+			{onCommunication && (
+				<section className="pal-context-section" aria-label="Pal communication">
+					<Button
+						variant="ghost"
+						className="pal-context-row pal-communication-entry"
+						onClick={(event) => onCommunication(event.currentTarget)}
+					>
+						<ConversationIcon aria-hidden="true" />
+						<span>Communication</span>
+					</Button>
+				</section>
+			)}
 			<section className="pal-context-section" aria-label="Pal computers">
 				<h3>Computers</h3>
 				<div className="pal-computer-entry">

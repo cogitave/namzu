@@ -20,6 +20,7 @@ import {
 	listPalConversations,
 	palConversationBinding,
 } from '../pals/conversations.js'
+import { createDesktopPalCommunicationExtensions } from '../pals/desktop-communication.js'
 import {
 	cliPalComputerStatus,
 	cliPalScreen,
@@ -167,6 +168,7 @@ export function createDesktopHostExtensions(
 			trusted: isTrusted(cwd),
 			...(pal() ? { pal: pal() } : {}),
 		}),
+		...createDesktopPalCommunicationExtensions({ cwd, withState }),
 		'namzu/pals/list': () => listPals(),
 		'namzu/pals/get': (params: Record<string, unknown>) => getPal(text(params, 'id')),
 		'namzu/pals/create': (params: Record<string, unknown>) =>

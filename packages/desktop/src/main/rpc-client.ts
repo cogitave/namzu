@@ -12,6 +12,7 @@ import {
 	desktopStderrDetails,
 } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
+import { PAL_COMMUNICATION_METHODS } from './pal-communication.js'
 
 const MAX_FRAME = 8 * 1024 * 1024
 const REQUIRED_EXTENSIONS = [
@@ -35,6 +36,10 @@ export class RuntimeClient extends EventEmitter {
 	private pals = false
 	supportsPals(): boolean {
 		return this.pals
+	}
+	private palCommunication = false
+	supportsPalCommunication(): boolean {
+		return this.palCommunication
 	}
 	private palComputerControl = false
 	supportsPalComputerControl(): boolean {
@@ -155,6 +160,9 @@ export class RuntimeClient extends EventEmitter {
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
 		this.tasks = result.extensions?.includes('namzu/tasks/list') === true
+		this.palCommunication = PAL_COMMUNICATION_METHODS.every((method) =>
+			result.extensions?.includes(method),
+		)
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)

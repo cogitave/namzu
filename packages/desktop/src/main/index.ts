@@ -15,6 +15,11 @@ import {
 	shell,
 } from 'electron'
 import type {
+	PalPermissionChange,
+	PalSubscriptionCreate,
+	PalSubscriptionDisable,
+} from '../shared/pal-communication-protocol.js'
+import type {
 	AttachmentInput,
 	DesktopEvent,
 	DesktopSendOptions,
@@ -207,6 +212,7 @@ function register(): void {
 	>()
 	type WindowContext = { id: string; window: BrowserWindow }
 	const readOwners = new Map<string, number>([
+		['palCommunication', 0],
 		['draft', 0],
 		['draftSettings', 0],
 		['attachments', 0],
@@ -219,6 +225,9 @@ function register(): void {
 		['plugins', 1],
 	])
 	const writeOwners = new Map<string, number>([
+		['updatePalPermission', 0],
+		['createPalSubscription', 0],
+		['disablePalSubscription', 0],
 		['selectHarness', 0],
 		['selectProvider', 0],
 		['setPluginEnabled', 0],
@@ -416,6 +425,22 @@ function register(): void {
 	})
 	handle('projects', () => operator.listProjects())
 	handle('pals', () => operator.listPals())
+	handle('palCommunication', (sessionId: string, palId: string) =>
+		operator.palCommunication(sessionId, palId),
+	)
+	handle('updatePalPermission', (sessionId: string, palId: string, change: PalPermissionChange) =>
+		operator.updatePalPermission(sessionId, palId, change),
+	)
+	handle(
+		'createPalSubscription',
+		(sessionId: string, palId: string, input: PalSubscriptionCreate) =>
+			operator.createPalSubscription(sessionId, palId, input),
+	)
+	handle(
+		'disablePalSubscription',
+		(sessionId: string, palId: string, input: PalSubscriptionDisable) =>
+			operator.disablePalSubscription(sessionId, palId, input),
+	)
 	handle('palProviders', () => operator.palProviders())
 	handle('palModels', (provider: string) => operator.palModels(provider))
 	handle('createPal', (input: PalInput) => operator.createPal(input))

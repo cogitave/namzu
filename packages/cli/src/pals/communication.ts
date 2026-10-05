@@ -38,30 +38,30 @@ import { resolveNamzuHome } from '../integrations/state/home.js'
 import { claimPalConversation } from './conversations.js'
 import { getCliPalStore } from './store.js'
 
-export function cliPalCommunicationPolicy() {
+export function cliPalCommunicationPolicy(home = resolveNamzuHome()) {
 	return new DiskPalMessagePolicy({
-		root: join(resolveNamzuHome(), 'pal-message-policy'),
+		root: join(home, 'pal-message-policy'),
 		secureDirectory: restrictToOwner,
 	})
 }
 
-export function cliPalCommunicationStore() {
+export function cliPalCommunicationStore(home = resolveNamzuHome()) {
 	return new DiskPalCommunicationStore({
-		root: join(resolveNamzuHome(), 'pal-message-inbox'),
+		root: join(home, 'pal-message-inbox'),
 		secureDirectory: restrictToOwner,
 	})
 }
 
-export function cliPalActivitySubscriptionStore() {
+export function cliPalActivitySubscriptionStore(home = resolveNamzuHome()) {
 	return new DiskPalActivitySubscriptionStore({
-		root: join(resolveNamzuHome(), 'pal-activity-subscriptions'),
+		root: join(home, 'pal-activity-subscriptions'),
 		secureDirectory: restrictToOwner,
 	})
 }
-export function cliPalActivitySubscriptionPolicy() {
+export function cliPalActivitySubscriptionPolicy(home = resolveNamzuHome()) {
 	return new DiskPalActivitySubscriptionPolicy({
-		root: join(resolveNamzuHome(), 'pal-activity-subscription-policy'),
-		subscriptions: cliPalActivitySubscriptionStore(),
+		root: join(home, 'pal-activity-subscription-policy'),
+		subscriptions: cliPalActivitySubscriptionStore(home),
 		secureDirectory: restrictToOwner,
 	})
 }

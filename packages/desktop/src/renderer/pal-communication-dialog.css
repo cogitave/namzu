@@ -1,0 +1,238 @@
+.pal-communication-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	background: rgb(0 0 0 / 45%);
+	transition: opacity 180ms var(--motion-ease);
+}
+.pal-communication-viewport {
+	position: fixed;
+	inset: 0;
+	z-index: 81;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+.pal-communication-popup {
+	width: min(760px, 100%);
+	max-height: calc(100dvh - 48px);
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	background: var(--surface-raised);
+	color: var(--foreground);
+	box-shadow: 0 24px 80px rgb(0 0 0 / 24%);
+	transition: opacity 180ms var(--motion-ease), transform 180ms var(--motion-ease);
+}
+.pal-communication-backdrop[data-starting-style],
+.pal-communication-backdrop[data-ending-style] {
+	opacity: 0;
+}
+.pal-communication-popup[data-starting-style],
+.pal-communication-popup[data-ending-style] {
+	opacity: 0;
+	transform: translateY(8px) scale(0.98);
+}
+.pal-communication-heading {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 22px 22px 16px;
+}
+.pal-communication-heading > div {
+	flex: 1;
+	min-width: 0;
+}
+.pal-communication-heading h2 {
+	margin: 0;
+	font-size: 19px;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+.pal-communication-heading p {
+	margin: 5px 0 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.pal-communication-tabs {
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+.pal-communication-tab-list {
+	display: flex;
+	gap: 4px;
+	margin: 0 22px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--border);
+}
+.pal-communication-tab-list button {
+	padding: 7px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	cursor: pointer;
+}
+.pal-communication-tab-list button[data-active] {
+	color: var(--foreground);
+	background: var(--surface);
+}
+.pal-communication-panel {
+	padding: 0 22px 24px;
+	font-size: 13px;
+}
+.pal-communication-help {
+	margin: 16px 0;
+	color: var(--muted-foreground);
+	line-height: 1.6;
+}
+.pal-communication-notice {
+	padding: 10px 12px;
+	margin: 12px 22px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 1.5;
+}
+.pal-communication-panel .pal-communication-notice {
+	margin-inline: 0;
+}
+.pal-communication-loading {
+	display: flex;
+	gap: 7px;
+	align-items: center;
+	padding: 10px 22px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.pal-communication-loading svg {
+	width: 14px;
+	height: 14px;
+	animation: spin 1s linear infinite;
+}
+.pal-communication-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.pal-communication-row {
+	padding: 14px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--surface);
+}
+.pal-communication-row header,
+.pal-communication-row footer,
+.pal-communication-form footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.pal-communication-row header {
+	margin-bottom: 10px;
+}
+.pal-communication-row strong {
+	font-size: 14px;
+	overflow-wrap: anywhere;
+}
+.pal-communication-badge {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: 11px;
+}
+.pal-communication-row p {
+	color: var(--muted-foreground);
+	margin: 7px 0;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+.pal-communication-row footer {
+	margin-top: 10px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.pal-communication-check {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 6px 0;
+	line-height: 1.5;
+}
+.pal-communication-check input {
+	width: 15px;
+	height: 15px;
+	margin: 0;
+	flex: none;
+	accent-color: var(--primary);
+}
+.pal-communication-check:has(input:disabled) {
+	color: var(--muted-foreground);
+}
+.pal-communication-row .pal-communication-incoming {
+	margin: 7px 0 0 24px;
+	font-size: 12px;
+}
+.pal-communication-form {
+	padding: 14px;
+	margin-bottom: 16px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+}
+.pal-communication-selects {
+	display: grid;
+	grid-template-columns: 1fr 1.6fr 1fr;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+.pal-communication-selects label {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.pal-communication-selects select {
+	width: 100%;
+	min-width: 0;
+	padding: 8px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--foreground);
+	background: var(--surface);
+	font-size: 13px;
+}
+.pal-communication-entry {
+	width: 100%;
+	justify-content: flex-start;
+}
+@media (max-width: 600px) {
+	.pal-communication-viewport {
+		padding: 12px;
+	}
+	.pal-communication-popup {
+		max-height: calc(100dvh - 24px);
+	}
+	.pal-communication-selects {
+		grid-template-columns: 1fr;
+	}
+	.pal-communication-tab-list {
+		overflow-x: auto;
+		white-space: nowrap;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pal-communication-popup,
+	.pal-communication-backdrop {
+		transition: none;
+	}
+	.pal-communication-loading svg {
+		animation: none;
+	}
+}

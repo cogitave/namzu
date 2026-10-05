@@ -78,6 +78,24 @@ export class DiskPalActivitySubscriptionStore implements PalActivitySubscription
 		const value = await this.records.read(this.location(id))
 		return value === null ? null : this.checked(value, id)
 	}
+	/** Complete current records for trusted host projection; a bad record rejects the whole list. */
+	async list(): Promise<readonly PalActivitySubscription[]> {
+		try {
+			const entry = lstatSync(this.root)
+			if (!entry.isDirectory() || entry.isSymbolicLink() || realpathSync(this.root) !== this.root)
+				throw new Error('Pal subscriptions require real directories without aliases.')
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return Object.freeze([])
+			throw error
+		}
+		const subscriptions: PalActivitySubscription[] = []
+		for (const name of readdirSync(this.root).sort()) {
+			if (!z.string().uuid().safeParse(name).success) continue
+			const value = await this.get(name)
+			if (value) subscriptions.push(value)
+		}
+		return Object.freeze(subscriptions)
+	}
 	async create(input: Parameters<PalActivitySubscriptionStore['create']>[0]) {
 		const value = subscriptionSchema.parse({
 			...input,

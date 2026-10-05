@@ -7,6 +7,11 @@ import type {
 	AcpSessionUpdateNotification,
 } from '@namzu/sdk'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import type {
+	PalPermissionChange,
+	PalSubscriptionCreate,
+	PalSubscriptionDisable,
+} from '../shared/pal-communication-protocol.js'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -47,6 +52,7 @@ import {
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
+import { PalCommunicationManager } from './pal-communication.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
@@ -102,6 +108,43 @@ interface Conversation {
 	permissions: Map<string, string | number>
 }
 export class Operator {
+	private readonly communication: PalCommunicationManager
+	private communicationScope(sessionId: string, palId: string) {
+		const session = this.session(sessionId)
+		const project = this.project(session.view.projectId)
+		const client = project.client
+		const runtimeSessionId = session.runtimeSessionId
+		const revision = this.palRecords.get(palId)?.revision
+		const assertCurrent = () => {
+			if (
+				this.closing ||
+				this.conversations.get(sessionId) !== session ||
+				session.view.palId !== palId ||
+				project.view.palId !== palId ||
+				this.projects.get(project.view.id) !== project ||
+				project.view.status !== 'ready' ||
+				project.client !== client ||
+				session.client !== client ||
+				session.runtimeSessionId !== runtimeSessionId ||
+				this.palRecords.get(palId)?.revision !== revision
+			)
+				throw new Error('This Pal conversation changed. Open Communication again.')
+		}
+		assertCurrent()
+		return { client, runtimeSessionId, assertCurrent }
+	}
+	palCommunication(sessionId: string, palId: string) {
+		return this.communication.read(sessionId, palId)
+	}
+	updatePalPermission(sessionId: string, palId: string, change: PalPermissionChange) {
+		return this.communication.updatePermission(sessionId, palId, change)
+	}
+	createPalSubscription(sessionId: string, palId: string, input: PalSubscriptionCreate) {
+		return this.communication.createSubscription(sessionId, palId, input)
+	}
+	disablePalSubscription(sessionId: string, palId: string, input: PalSubscriptionDisable) {
+		return this.communication.disableSubscription(sessionId, palId, input)
+	}
 	private closing = false
 	private registryClient?: RuntimeClient
 	private registryStarting?: Promise<RuntimeClient>
@@ -134,6 +177,10 @@ export class Operator {
 		private readonly diagnostics?: DesktopDiagnosticSink,
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 	) {
+		this.communication = new PalCommunicationManager(
+			this.communicationScope.bind(this),
+			diagnostics,
+		)
 		streamProxy?.onClosed((id) => this.closePalComputerStream(id))
 		if (registryDirectory) {
 			this.desktopStore = new DesktopConversationStore(registryDirectory)

@@ -63,6 +63,7 @@ import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { PalActivity, palToolActivity } from './pal-activity.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
+import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
@@ -191,6 +192,11 @@ export function App({
 	const [palsPage, setPalsPage] = useState(false)
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
+	const [communicationOwner, setCommunicationOwner] = useState<{
+		palId: string
+		sessionId: string
+	}>()
+	const communicationTrigger = useRef<HTMLButtonElement | null>(null)
 	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
 	const [palComputers, setPalComputers] = useState<Record<string, ComputerState>>({})
 	// A computer tab stays open when its owning chat is selected. Selection is
@@ -484,6 +490,14 @@ export function App({
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const thread = threads[sessionId] ?? emptyThread()
 	const pal = pals.find((item) => item.id === project?.palId)
+	useEffect(() => {
+		if (
+			!focused ||
+			communicationOwner?.palId !== pal?.id ||
+			communicationOwner?.sessionId !== sessionId
+		)
+			setCommunicationOwner(undefined)
+	}, [focused, pal?.id, sessionId, communicationOwner])
 	useEffect(() => {
 		if (project?.id && !project?.palId) previousNormalProject.current = project.id
 	}, [project?.id, project?.palId])
@@ -2126,6 +2140,12 @@ export function App({
 						]
 					: [],
 				onCustomize: () => showPalEditor(pal),
+				onCommunication: sessionId
+					? (trigger) => {
+							communicationTrigger.current = trigger
+							setCommunicationOwner({ palId: pal.id, sessionId })
+						}
+					: undefined,
 				customizeDisabled: palBusy || palsSaving,
 				onActivity: () => {
 					setPanelTab('jobs')
@@ -2566,6 +2586,20 @@ export function App({
 				shell &&
 				createPortal(
 					<>
+						{communicationOwner &&
+							pal?.id === communicationOwner.palId &&
+							sessionId === communicationOwner.sessionId && (
+								<PalCommunicationDialog
+									key={`${sessionId}:${pal.id}`}
+									api={api}
+									sessionId={sessionId}
+									pal={pal}
+									onClose={() => setCommunicationOwner(undefined)}
+									returnFocus={() =>
+										communicationTrigger.current?.isConnected ? communicationTrigger.current : null
+									}
+								/>
+							)}
 						{(creatingPal || editingPal) && (
 							<PalCustomizeDialog
 								key={editingPal ? `${editingPal.id}:${editingPal.revision}` : 'new'}

@@ -20,6 +20,16 @@ Scope and destination cannot be retargeted. `setEnabled` requires
 the trusted original-journal source. It rejects concurrent changes and backward
 progress. Never supply a remote client's cursor or model-selected offset.
 
+The concrete disk store also provides `list()` for trusted host metadata
+projections. It returns frozen, validated latest records, including disabled
+subscriptions, and an empty list if the root is absent. Empty allocations from
+an earlier missing `get` contain no subscription. A malformed or unreadable
+committed record or aliased directory rejects the whole list; it never returns
+a partial list that a client could mistake for deletion. Hosts must separately
+filter tenant and participant ownership and redact storage errors before exposing
+the result. `list()` is additive on `DiskPalActivitySubscriptionStore`; custom
+`PalActivitySubscriptionStore` implementations do not need to implement it.
+
 ## Independent current permissions
 
 `DiskPalActivitySubscriptionPolicy` provides `get`, `update`,

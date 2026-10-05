@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- **Update** [Desktop Pal communication](cli/desktop.md#pal-communication-management), [Pal host methods](cli/pals.md#acp-host-extensions) and [subscription enumeration](sdk/pal-subscriptions.md): expose existing directed send/wake consent, durable inbox delivery metadata and exact-conversation activity subscriptions through the owning Pal connection. Keep reads free of model/computer execution, retain confirmed rows on incomplete reads, fence mutations by connection/snapshot/revision, and pin the physical application home from the first authenticated communication request until reconnect. Omit message bodies, private profile context and derived conversation titles. Add a strict frozen list on the concrete SDK store without requiring it on custom stores. A wake grant remains consent, not an installed idle dispatcher or a Team membership.
+
 - **Creation** [Task tracking and execution](sdk/task-tracking.md): map the existing planning-task, delegated-invocation, approved-plan and resident-pursuit domains, their distinct IDs and scopes, required host composition and verification boundaries. Link task tracking from the SDK index and tool discovery so a capability comparison starts from the existing implementation.
 
 - **Update** [Session task context](cli/task-context.md): reuse the SDK's canonical turn selector and terminal-status helper, excluding earlier failures from open work while retaining current-turn outcomes and resolving failed blockers without claiming success. Allow `task_update` to report `failed`, expose `stats.failed` and show failures distinctly. Add regressions for old failures crowding current work, resumed outcomes and actual failure tool/schema/store/presentation behavior.

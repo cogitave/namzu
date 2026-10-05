@@ -38,24 +38,35 @@ export function trustFilePath(home?: string): string {
 	return join(namzuHomePath(home), 'trust.json')
 }
 
-export function readTrustedDirs(home?: string): string[] {
+function readTrustedFile(file: string): string[] {
 	try {
-		const parsed = JSON.parse(readFileSync(trustFilePath(home), 'utf8')) as Partial<TrustFile>
+		const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<TrustFile>
 		return Array.isArray(parsed.trusted) ? parsed.trusted.filter((d) => typeof d === 'string') : []
 	} catch {
 		return []
 	}
 }
+export function readTrustedDirs(home?: string): string[] {
+	return readTrustedFile(trustFilePath(home))
+}
 
 /** True when `dir` or any ancestor is in the trusted list. */
 export function isTrusted(dir: string, home?: string): boolean {
+	return trustedByDirectories(dir, readTrustedDirs(home))
+}
+
+/** Same trust decision in an already authenticated application root, without ambient home lookup. */
+export function isTrustedAtStateRoot(dir: string, stateRoot: string): boolean {
+	return trustedByDirectories(dir, readTrustedFile(join(resolve(stateRoot), 'trust.json')))
+}
+function trustedByDirectories(dir: string, directories: readonly string[]): boolean {
 	let target: string
 	try {
 		target = canonicalProjectPath(dir)
 	} catch {
 		return false
 	}
-	const trusted = readTrustedDirs(home).map(canonicalStoredPath)
+	const trusted = directories.map(canonicalStoredPath)
 	for (const t of trusted) {
 		if (target === t || target.startsWith(t.endsWith(sep) ? t : t + sep)) {
 			return true

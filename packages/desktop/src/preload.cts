@@ -17,6 +17,13 @@ const api: DesktopApi = {
 	palModels: (provider) => invoke('palModels', provider),
 	createPal: (input) => invoke('createPal', input),
 	updatePal: (id, revision, changes) => invoke('updatePal', id, revision, changes),
+	palCommunication: (sessionId, palId) => invoke('palCommunication', sessionId, palId),
+	updatePalPermission: (sessionId, palId, change) =>
+		invoke('updatePalPermission', sessionId, palId, change),
+	createPalSubscription: (sessionId, palId, input) =>
+		invoke('createPalSubscription', sessionId, palId, input),
+	disablePalSubscription: (sessionId, palId, input) =>
+		invoke('disablePalSubscription', sessionId, palId, input),
 	openPal: (id) => invoke('openPal', id),
 	palComputer: (id) => invoke('palComputer', id),
 	startPalComputer: (id) => invoke('startPalComputer', id),

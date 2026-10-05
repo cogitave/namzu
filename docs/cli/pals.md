@@ -532,6 +532,75 @@ exact current directory belongs to a Pal.
 | `namzu/pals/computer/take_over` | `{ palId, generation }` | Ready computer identity and operator control |
 | `namzu/pals/computer/return_control` | `{ palId, generation }` | Ready computer identity and Pal control |
 | `namzu/pals/computer/input` | `{ palId, generation, input }` | `{ type: 'ok' }` after confirmed guest input |
+| `namzu/pals/communication/peers` | `{ palId }` | Version 1 known peers with outgoing and incoming directed consent |
+| `namzu/pals/communication/inbox` | `{ palId }` | Version 1 accepted-input delivery metadata, without message bodies |
+| `namzu/pals/communication/permissions/update` | `{ palId, peerPalId, expectedRevision, enabled, allowWake }` | Version 1 updated outgoing permission |
+| `namzu/pals/communication/subscriptions/list` | `{ palId }` | Version 1 participant subscriptions and exact eligible source conversations |
+| `namzu/pals/communication/subscriptions/create` | `{ palId, sourcePalId, sourceSessionId, recipientPalId, wake }` | Version 1 created participant subscription |
+| `namzu/pals/communication/subscriptions/disable` | `{ palId, id, expectedRevision }` | Version 1 disabled participant subscription |
+
+### Native communication management
+
+These six methods are metadata-only operator actions through the authenticated,
+trusted Pal workspace connection. All snapshots contain `v: 1` and `palId`.
+They select the actual installation tenant and application home from one opened
+state; inputs cannot supply a tenant, scope, path, cursor, grant receipt or body.
+Every awaited operation rechecks the captured home and current Pal identity,
+profile revision and trust before publishing its result or taking the next write.
+The exact-root trust helper preserves the existing explicit OS-home trust seam;
+an application root is not interpreted as an OS home or reopened from a changed
+ambient `NAMZU_HOME`.
+The first authenticated communication request also pins the physical application
+home for this host connection. Later reads and mutations refuse a changed home
+path or a replaced directory, even if copied Pal IDs and consent revisions
+match; reconnect the workspace client to use the replacement. This pin starts
+with the first communication request, rather than earlier unrelated session
+claims, and is retained after failed reads.
+
+`peers` contains `{ palId, name, paused, outgoing, incoming }` for the other
+saved Pals in this installation. Each permission is
+`{ revision, enabled, allowWake }`; a missing rule is revision zero, disabled and
+without wake consent. This operator metadata does not widen the executing
+agent's granted-only `list_pals` discovery. Updating consent changes only the
+current Pal's outgoing direction with exact compare-and-set revision. Incoming
+consent is read-only here; a reverse grant is a separate action through that
+peer's own context. Wake requires enabled communication and stays separately
+selected. Revocation must pass `enabled: false, allowWake: false`.
+
+`inbox` contains `{ id, status, conversationId?, sourceKind, ...sourceIdentity }`.
+Status is `pending`, `claimed` or `recorded`; source kind is `pal`,
+`host-observation` or `channel`. Source identity is respectively `sourcePalId`,
+`subscriptionId` with `observedPalId`, or `provider` with `connectionId` and
+`actorId`. Bodies, private transcript, claims, receipts and credentials are not
+returned. Recorded means appended to the original conversation journal, not a
+successful model response or verified work result.
+
+`subscriptions` rows contain `v`, `id`, `revision`, `configurationRevision`,
+`sourcePalId`, `sourceConversationId`, `sourceProfileRevision`, `recipientPalId`,
+`enabled`, `permission` and `progress`. Permission is null or
+`{ revision, observe, disclose, receive, wake }`; progress contains only
+`{ lastSequence: number | null }`, never the host cursor. The list includes
+disabled rows where the current Pal is source or recipient in the same tenant.
+`sources` contains `{ palId, name, conversations }`, with conversation rows
+`{ id, title, profileRevision }` read from exact original Pal roots. Titles are
+bounded metadata; unnamed conversations use `New conversation`, without
+deriving a title from a private prompt. Archived and verified ordinary roots
+are excluded. Incomplete indexed source journals or unreadable subscription
+records reject the entire snapshot with a redacted error; clients retain their
+last known rows rather than replace them with an apparent empty list.
+
+Creation checks the selected source's original conversation, tenant and pinned
+profile; the current Pal must be source or recipient. Setup first saves a
+disabled subscription, then records explicit observation/disclosure/receipt
+consent and separately selected wake consent, and finally enables with its exact
+revision. A partial setup remains available as a disabled row for inspection.
+Disable also requires participant ownership and the exact current subscription
+revision, including progress changes. Unknown write outcomes instruct the user
+to reload; no automatic mutation replay is performed.
+
+These endpoints create no model turn, computer, schedule, background listener,
+publication or dispatch. They use the shared SDK stores directly and neither
+invoke CLI subprocesses nor close the native host's shared `PalRuntime`.
 
 Definitions have the [SDK PalDefinition shape](../sdk/pals.md). The computer
 status has `status: 'ready' | 'stopped' | 'unavailable'`; ready includes

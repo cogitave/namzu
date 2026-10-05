@@ -17,6 +17,53 @@ function deferred<T>() {
 const bridge = (methods: Partial<DesktopApi>): DesktopApi => methods as DesktopApi
 
 describe('pane write admission', () => {
+	it('fences communication consent by its conversation owner and drains admitted metadata writes before transfer', async () => {
+		const started = deferred<void>()
+		const saved = deferred<Awaited<ReturnType<NonNullable<DesktopApi['updatePalPermission']>>>>()
+		const updatePalPermission = vi
+			.fn<NonNullable<DesktopApi['updatePalPermission']>>()
+			.mockImplementation(() => {
+				started.resolve()
+				return saved.promise
+			})
+		let blocked = false
+		const controller = createWorkspacePaneApi(bridge({ updatePalPermission }), {
+			owns: (id) => id === 'owned',
+			blocked: () => blocked,
+		})
+		const change = { snapshotId: 'snapshot', peerPalId: 'peer', enabled: true, allowWake: false }
+		await expect(controller.api.updatePalPermission?.('foreign', 'pal', change)).rejects.toThrow(
+			'another pane',
+		)
+		const pending = controller.api.updatePalPermission?.('owned', 'pal', change)
+		change.allowWake = true
+		await started.promise
+		expect(updatePalPermission).toHaveBeenCalledExactlyOnceWith('owned', 'pal', {
+			...change,
+			allowWake: false,
+		})
+		blocked = true
+		await expect(controller.api.updatePalPermission?.('owned', 'pal', change)).rejects.toThrow(
+			'moving',
+		)
+		const flush = controller.flush()
+		saved.resolve({
+			palId: 'pal',
+			snapshotId: 'fresh',
+			supported: true,
+			peers: [],
+			messages: [],
+			subscriptions: [],
+			sources: [],
+		})
+		await pending
+		await flush
+		controller.invalidate()
+		await expect(controller.api.updatePalPermission?.('owned', 'pal', change)).rejects.toThrow(
+			'closed',
+		)
+		expect(updatePalPermission).toHaveBeenCalledTimes(1)
+	})
 	it('fences an explicit turn retry by pane ownership and transfer admission', async () => {
 		const retryTurn = vi.fn<NonNullable<DesktopApi['retryTurn']>>().mockResolvedValue(undefined)
 		let blocked = false
