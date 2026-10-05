@@ -1,0 +1,143 @@
+{
+  "passed": true,
+  "browserPreview": true,
+  "inMemoryPal": true,
+  "fakeCommunicationApi": true,
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "settings icon remains inside the avatar heading at fluid 240px and 300px card widths",
+    "old full Communication row absent",
+    "accessible Pal settings dialog title and Communication description",
+    "keyboard tabs",
+    "Escape and close button restore exact trigger focus",
+    "failed refresh retains rows, hides private error details and disables edits until a successful refresh",
+    "unsupported runtime notice persists after refresh, peer rows remain and permission controls stay disabled",
+    "Pal transcript hides only its scrollbar while wheel and PageDown scroll the real overflow region and expose its last message",
+    "Pal task fixture stays in the card; summary focuses details without opening Activity or shifting the card column",
+    "hiding profile then activating Pal task summary reopens the card and focuses its task region",
+    "short viewport keeps long dependency details reachable through bounded card scrolling",
+    "ordinary sample conversation still opens Activity with the Conversation tasks region"
+  ],
+  "widths": [
+    {
+      "viewportWidth": 1024,
+      "card": {
+        "x": 768,
+        "y": 100,
+        "width": 240,
+        "height": 685.5,
+        "right": 1008,
+        "bottom": 785.5
+      },
+      "avatar": {
+        "x": 784,
+        "y": 118,
+        "width": 72,
+        "height": 82,
+        "right": 856,
+        "bottom": 200
+      },
+      "settings": {
+        "x": 964,
+        "y": 122,
+        "width": 28,
+        "height": 28,
+        "right": 992,
+        "bottom": 150
+      },
+      "overflow": false
+    },
+    {
+      "viewportWidth": 1188,
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 627,
+        "right": 1172,
+        "bottom": 727
+      },
+      "avatar": {
+        "x": 888.25,
+        "y": 118,
+        "width": 72,
+        "height": 82,
+        "right": 960.25,
+        "bottom": 200
+      },
+      "settings": {
+        "x": 1128,
+        "y": 122,
+        "width": 28,
+        "height": 28,
+        "right": 1156,
+        "bottom": 150
+      },
+      "overflow": false
+    }
+  ],
+  "palTranscriptScroll": {
+    "css": {
+      "overflowY": "auto",
+      "scrollbarWidth": "none",
+      "scrollbarGutter": "auto",
+      "webkitScrollbar": "none"
+    },
+    "scrollRange": 11807,
+    "wheelScrollTop": 420,
+    "pageDownScrollTop": 714,
+    "lastMessageScrollTop": 11807,
+    "outerUnchanged": true,
+    "cardScrollbarWidth": "thin"
+  },
+  "communicationReads": [
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "failed"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "success"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "unsupported"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "unsupported"
+    },
+    {
+      "palId": "sample-pal-1",
+      "mode": "unsupported"
+    }
+  ],
+  "faults": []
+}

@@ -60,6 +60,11 @@
 	min-width: 0;
 	flex: 1;
 }
+.pal-context-settings {
+	flex: none;
+	align-self: flex-start;
+	margin-top: 4px;
+}
 .pal-context-identity h2 {
 	overflow: hidden;
 	margin: 0 0 4px;
@@ -142,6 +147,14 @@
 	font-size: 13px;
 	line-height: 20px;
 	font-weight: 400;
+}
+.pal-context-tasks .conversation-tasks {
+	margin-bottom: 0;
+}
+.pal-context-tasks .conversation-tasks:focus-visible {
+	border-radius: 6px;
+	outline: 2px solid var(--ring);
+	outline-offset: 4px;
 }
 .pal-computer-row {
 	display: flex;

@@ -1,0 +1,85 @@
+{
+  "actualNativeWindows": true,
+  "observedAt": "2026-10-05T21:25:48.211202+00:00",
+  "version": 1,
+  "passed": true,
+  "platform": "win32",
+  "rendererOnly": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "All open tabs idle; no unsaved editor, pending permission, queued item, active/recovery job, dialog, alert, computer canvas, focused computer control or control transition.",
+    "Entire final renderer staged; old JavaScript, CSS and runtime assets retained in a timestamped backup.",
+    "Guarded page reload retained route, layout/tab identities, profiles, messages, drafts/settings/attachments/models, tasks and computer generations/control.",
+    "Pal transcript scrollbar hidden while overflow stays scrollable; real wheel and PageDown reached the last message without outer scrolling, then restored the original scroll position.",
+    "Native Pal settings gear opens the accessible Communication dialog; keyboard tab activation and Escape focus restoration pass.",
+    "Task summary keeps details in the same Pal card, leaves Activity closed, and reopens/focuses the card after its profile toggle hides it.",
+    "All non-presentation state and other session presentation fields remain unchanged; the requested Pal card stays visible and Activity stays closed without a second reload or storage overwrite."
+  ],
+  "pageErrorCount": 0,
+  "build": {
+    "sourceManifestSha256": "02e6328574d87e1bbd99a52b34727db5d7ac34984b6eb7817a264ddcd460937b",
+    "sourceAssetRefs": [
+      "assets/index-BJSg6hQe.css",
+      "assets/index-Dlrl0lZL.js"
+    ]
+  },
+  "originalPage": "chat",
+  "originalPal": "Sıtkı",
+  "originalTaskCount": 3,
+  "transcript": {
+    "overflowY": "auto",
+    "scrollbarWidth": "none",
+    "scrollbarGutter": "auto",
+    "webkitScrollbar": "none",
+    "scrollRange": 1008,
+    "wheelScrollTop": 420,
+    "pageDownScrollTop": 1008,
+    "lastMessageScrollTop": 1008,
+    "originalScrollRestored": true,
+    "outerUnchanged": true
+  },
+  "taskGeometry": {
+    "card": {
+      "x": 1353,
+      "y": 100,
+      "width": 300,
+      "height": 678.5
+    },
+    "lane": {
+      "x": 336,
+      "y": 84,
+      "width": 1009,
+      "height": 1283
+    },
+    "openJobsPanels": 0
+  },
+  "nativePidUnchanged": true,
+  "persistentStatePreserved": true,
+  "otherSessionPresentationPreserved": true,
+  "requestedPalPresentationRetained": true,
+  "deployed": true,
+  "computerLifecycleOrControlActions": 0,
+  "computerGenerationsAndControlPreserved": true,
+  "loadedCommunication": {
+    "activePal": "Sıtkı",
+    "peer": "Kiro",
+    "communicationLoaded": true,
+    "visibleCommunicationNotices": 0,
+    "outgoingEnabled": true,
+    "outgoingEnabledControlAvailable": true,
+    "wakeChecked": true,
+    "wakeControlAvailable": true,
+    "settingsFocusRestored": true,
+    "cardVisible": true,
+    "jobsOpen": false,
+    "statePreserved": true,
+    "checkboxChanges": 0,
+    "sendActions": 0,
+    "modelRequests": 0,
+    "computerLifecycleOrControlActions": 0,
+    "capture": "pal-settings-dialog-native-20261006.png"
+  }
+}

@@ -1,3 +1,10 @@
+.workspace[data-pal-workspace="true"] .transcript {
+	scrollbar-width: none;
+	scrollbar-gutter: auto;
+}
+.workspace[data-pal-workspace="true"] .transcript::-webkit-scrollbar {
+	display: none;
+}
 .pal-chat-transcript {
 	display: flex;
 	flex-direction: column;

@@ -26,13 +26,24 @@ export function TasksProgress({ thread, onOpen }: { thread: ThreadState; onOpen:
 	)
 }
 /** Planning status is authored by the agent; it does not certify an output passed QA. */
-export function ConversationTasks({ thread }: { thread: ThreadState }) {
+export function ConversationTasks({
+	thread,
+	palName,
+}: { thread: Pick<ThreadState, 'tasks' | 'tasksNotice'>; palName?: string }) {
 	if (!thread.tasks.length && !thread.tasksNotice) return null
 	const byId = new Map(thread.tasks.map((task) => [task.taskId, task]))
 	return (
-		<section aria-label="Conversation tasks" className="conversation-tasks">
+		<section
+			aria-label={palName ? `${palName} tasks` : 'Conversation tasks'}
+			className="conversation-tasks"
+			tabIndex={palName ? -1 : undefined}
+		>
 			<h3>Tasks</h3>
-			<p className="quiet">The agent’s plan for this conversation.</p>
+			<p className="quiet">
+				{palName
+					? `${palName}’s plan for this conversation.`
+					: 'The agent’s plan for this conversation.'}
+			</p>
 			{thread.tasksNotice && <output className="quiet">{thread.tasksNotice}</output>}
 			<ul>
 				{thread.tasks.map((task) => (

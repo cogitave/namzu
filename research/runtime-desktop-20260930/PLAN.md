@@ -212,13 +212,24 @@ lifecycle extends beyond having a sandbox; resident hosting remains opt-in.
 - [x] Record the selected delivery sequence and proof gates for isolation,
   credential grants, mixed-provider routing, A2A and workflow recovery.
 
-Future delivery gates, not completed features:
+Delivery gates recorded on 2026-10-01, reconciled against main on 2026-10-06:
 
-- [ ] Saved standalone Pal composition and identity/definition revisions.
-- [ ] Joined environment/browser/credential-grant lifecycle and isolation proof.
+- [x] Saved standalone Pal composition and identity/definition revisions:
+  [persistent Pals](../../docs/cli/desktop.md#persistent-pals) and
+  [shared SDK definitions](../../docs/sdk/pals.md).
+- [x] Owned local computer, browser and filesystem lifecycle, with generation,
+  control and isolation verification:
+  [local Pal computers](../../docs/sdk/local-pal-computer.md).
+- [ ] External account credential-grant lifecycle and connected channel adapters.
 - [ ] Versioned A2A contract repair and official-peer interoperability.
 - [ ] Group/lead assignments and recurring multi-provider execution profiles.
 - [ ] Optional durable workflow admission/dispatch/recovery and UI projection.
 
-The assessment is complete; these implementation items remain explicitly open.
-No live Pal, account, service or scheduled job was created or changed.
+The 2026-10-01 assessment itself created no live Pal, account, service or scheduled
+job. Subsequent implementation delivered the completed items above. Existing
+[task tracking](../../docs/sdk/task-tracking.md), directional durable Pal
+messages, activity subscriptions and finite CLI dispatch are also implemented;
+they are not missing task tracking. The remaining communication host work is an
+opt-in continuous local publisher/dispatcher for idle recipients. Saved Pal
+Teams, Coordinator assignments and an organization chart remain later work.
+The A2A interoperability gate remains unverified by this reconciliation.

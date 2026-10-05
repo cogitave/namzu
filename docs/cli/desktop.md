@@ -245,8 +245,14 @@ so it never overlaps the transcript or composer. The remaining Pal chat width,
 after an open Activity or Changes pane reserves its column, sizes the right
 column continuously. The card is 240–300px wide, with its own bounded vertical
 scrolling in short windows. Narrower desktop windows do not move it into a
-full-width band above the conversation. The Communication entry shares the
-left-aligned row style used by recent activity and outputs. In a very narrow
+full-width band above the conversation. A small settings icon beside the Pal's
+name opens its communication settings. Planning tasks appear inside this same
+card, between Computers and Recent activity. The Tasks summary above the
+composer reveals and focuses that list, closing any open Activity/Changes pane
+instead of adding another column. Ordinary conversations retain their Activity
+task list. Pal conversations hide the transcript scrollbar and its reserved
+gutter while retaining wheel and keyboard scrolling through a named focusable
+conversation region. In a very narrow
 split pane, the existing profile toggle gives the conversation the full width.
 Neither empty outputs nor a disconnected computer imply completed work.
 Customizing an existing profile preserves the selected
@@ -259,9 +265,24 @@ toggle in a 380px pane.
 It preserves the native viewport, profile visibility, messages, drafts, model
 settings, workspace placement and computer allocations. The
 [current card capture](../../research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-20261005.png)
-shows its compact width and left-aligned Communication entry. The earlier
+records its compact width before Communication moved into the settings icon. The earlier
 [wide capture](../../research/runtime-desktop-20260930/artifacts/pal-context-layout-wide-native-20261005.png)
-shows the separate transcript, Pal card and Tasks columns.
+records the former separate transcript, Pal card and Tasks columns. The
+[settings and tasks preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-settings-browser-proof-20261005.json)
+checks the current shared card, hidden-profile reopening, short-window scrolling,
+keyboard focus and ordinary conversation behavior using isolated in-memory
+fixtures. It makes no model requests or computer calls.
+The [native Windows settings and task receipt](../../research/runtime-desktop-20260930/artifacts/pal-card-settings-native-safe-20261006.json)
+verifies the real settings dialog, task summary focus/reopening and hidden
+transcript scrollbar with wheel/PageDown access to the last message. A renderer
+reload preserves the current window, tabs, messages, profiles, model selections,
+drafts and computer generations/control. The final view retains the requested
+Pal card and closes Activity; other conversations' presentation stays unchanged.
+The [current native card](../../research/runtime-desktop-20260930/artifacts/pal-card-tasks-native-20261006.png)
+shows its task list beside the conversation. The
+[loaded native settings dialog](../../research/runtime-desktop-20260930/artifacts/pal-settings-dialog-native-20261006.png)
+shows Sıtkı's existing outgoing message and wake grants for Kiro without changing
+either grant.
 
 The customization preview and saved Pal card use locally generated Three.js
 geometry, loaded only when needed, with idle motion, blinking and pointer
@@ -416,8 +437,9 @@ the CLI's [ACP extension table](pals.md#acp-host-extensions) describes the wire.
 
 ### Pal communication management
 
-The Pal context card opens **Communication** for the currently owned Pal
-conversation. Its Peers, Inbox and Activity subscriptions sections use the
+The small settings icon in the Pal context card opens a settings dialog named
+for the currently owned Pal. Its Communication section contains Peers, Inbox
+and Activity subscriptions, which use the
 existing SDK message policies, durable inbox and activity subscription stores.
 Opening or refreshing this panel does not request a model turn or start a
 computer.
@@ -429,6 +451,14 @@ grant. A wake grant permits a host to execute a delivery; it does not install an
 automatic idle dispatcher. Active Pal turns can receive accepted messages at
 their existing safe execution boundaries, and the CLI retains its explicit
 finite dispatch operation.
+
+The [actual Sıtkı → Kiro Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-producer-native-safe-20261006.json)
+records a free-model desktop turn using `list_pals` and one `send_pal_message`,
+then matches its acceptance receipt to Kiro's durable pending inbox entry.
+It preserves the two observed conversations' models, drafts, profiles, tasks,
+workspace placement and computer generations, and restores the original
+operator control. This producer check does not dispatch Kiro or establish a
+recipient answer.
 
 Inbox entries show pending, claimed or recorded delivery metadata. Recorded
 means the message entered the durable conversation, not that the recipient
@@ -777,8 +807,9 @@ records this separately from the earlier empty-conversation restoration.
 ### Planning tasks
 
 Namzu conversations retain their existing session planning list in the shared
-conversation projection. Task progress opens the Tasks section of Activity;
-subjects, reported statuses and dependency subjects are shown without raw IDs.
+conversation projection. In Pal conversations, task progress reveals the Tasks
+section of the existing Pal card; ordinary conversations open Activity.
+Subjects, reported statuses and dependency subjects are shown without raw IDs.
 Planning state is agent-maintained: a completed item does not independently
 verify an artifact. Failed items remain distinct from completed items. The
 project-context entry for background terminal jobs is labelled Shells.
@@ -792,7 +823,8 @@ storage evidence. The model-facing `task_list` is a narrower current-turn view.
 
 The desktop opts into `namzu/tasks` notifications and reads `namzu/tasks/list`
 when opening durable history, replacing a runtime connection and reconciling
-a settled turn. Opening Activity performs a read-only idle refresh, including
+a settled turn. Opening Activity or showing the Pal card performs a read-only
+idle refresh, including
 background changes that occurred after the query's event subscription ended;
 it starts no model request. No new polling or per-tab read is added. Reads
 authorize and read through the same exact project, tenant and Pal scope where

@@ -1,10 +1,13 @@
+import type { ThreadState } from '../shared/projection.js'
 import type { PalScreenView, PalView } from '../shared/protocol.js'
+import { ConversationTasks } from './conversation-tasks.js'
 import {
 	ConversationIcon,
 	FileTextIcon,
 	LoaderCircleIcon,
 	MonitorIcon,
 	PencilIcon,
+	SettingsIcon,
 } from './icons.js'
 import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
@@ -26,6 +29,7 @@ export interface PalContextProps {
 	hostComputer?: { name: string }
 	activity: readonly { id: string; title: string; status?: string }[]
 	outputs: readonly { id: string; label: string }[]
+	tasks?: Pick<ThreadState, 'tasks' | 'tasksNotice'>
 	onCustomize: () => void
 	onCommunication?: (trigger: HTMLButtonElement) => void
 	onActivity: (id: string) => void
@@ -73,6 +77,7 @@ function PalContextBody({
 	hostComputer,
 	activity,
 	outputs,
+	tasks,
 	onCustomize,
 	onCommunication,
 	onActivity,
@@ -139,19 +144,20 @@ function PalContextBody({
 						</output>
 					)}
 				</div>
-			</header>
-			{onCommunication && (
-				<section className="pal-context-section" aria-label="Pal communication">
+				{onCommunication && (
 					<Button
-						variant="ghost"
-						className="pal-context-row pal-communication-entry"
+						variant="ghost-muted"
+						size="icon-sm"
+						className="pal-context-settings"
+						aria-label={`${pal.name} settings`}
+						title={`${pal.name} settings`}
+						aria-haspopup="dialog"
 						onClick={(event) => onCommunication(event.currentTarget)}
 					>
-						<ConversationIcon aria-hidden="true" />
-						<span>Communication</span>
+						<SettingsIcon aria-hidden="true" />
 					</Button>
-				</section>
-			)}
+				)}
+			</header>
 			<section className="pal-context-section" aria-label="Pal computers">
 				<h3>Computers</h3>
 				<div className="pal-computer-entry">
@@ -243,6 +249,11 @@ function PalContextBody({
 					</div>
 				)}
 			</section>
+			{tasks && (tasks.tasks.length > 0 || tasks.tasksNotice) && (
+				<div className="pal-context-section pal-context-tasks">
+					<ConversationTasks thread={tasks} palName={pal.name} />
+				</div>
+			)}
 			<section className="pal-context-section" aria-label="Recent activity">
 				<h3>Recent activity</h3>
 				{activity.length === 0 ? (

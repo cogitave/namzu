@@ -49,6 +49,11 @@ export function PalCommunicationContent({
 					{state.error}
 				</p>
 			)}
+			{view && !view.supported && !state.loading && (
+				<output className="pal-communication-notice block">
+					Communication settings are unavailable in this runtime.
+				</output>
+			)}
 			{state.loading && (
 				<output className="pal-communication-loading">
 					<LoaderCircleIcon /> Loading communication…
@@ -405,10 +410,8 @@ export function PalCommunicationDialog({
 					>
 						<header className="pal-communication-heading">
 							<div>
-								<Dialog.Title>{pal.name} · Communication</Dialog.Title>
-								<Dialog.Description>
-									Manage peer consent, delivery and activity sharing.
-								</Dialog.Description>
+								<Dialog.Title>{pal.name} settings</Dialog.Title>
+								<Dialog.Description>Communication</Dialog.Description>
 							</div>
 							<Button
 								size="icon-sm"
@@ -421,7 +424,7 @@ export function PalCommunicationDialog({
 							</Button>
 							<Dialog.Close
 								render={<Button size="icon-sm" variant="ghost-muted" disabled={state.busy} />}
-								aria-label="Close communication"
+								aria-label="Close Pal settings"
 							>
 								<XIcon />
 							</Dialog.Close>

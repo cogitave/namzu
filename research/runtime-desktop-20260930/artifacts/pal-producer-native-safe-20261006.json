@@ -1,0 +1,72 @@
+{
+  "actualNativeWindows": true,
+  "modelStub": false,
+  "observedAt": "2026-10-05T21:19:06.859Z",
+  "test": "Sıtkı to Kiro producer acceptance",
+  "source": {
+    "profile": {
+      "provider": "codex",
+      "model": "gpt-6-luna"
+    },
+    "conversationRoute": {
+      "provider": "zen",
+      "model": "space-bunny-free"
+    }
+  },
+  "recipient": {
+    "profile": {
+      "provider": "zen",
+      "model": "space-bunny-free"
+    },
+    "conversationRoute": {
+      "provider": "zen",
+      "model": "space-bunny-free"
+    }
+  },
+  "toolCalls": [
+    {
+      "name": "list_pals",
+      "status": "completed",
+      "inputMatchesExpected": true,
+      "resultConfirmedKiro": true
+    },
+    {
+      "name": "send_pal_message",
+      "status": "completed",
+      "inputMatchesExpected": true,
+      "resultConfirmedAcceptance": true
+    }
+  ],
+  "producer": {
+    "sendCalls": 1,
+    "status": "accepted",
+    "inboxReceiptMatched": true,
+    "inboxStatus": "pending",
+    "recipientDispatchPerformed": false,
+    "recipientReplyObserved": false
+  },
+  "run": {
+    "settled": true,
+    "sawRunning": true,
+    "cancelled": false,
+    "permissionRequested": false,
+    "errorObserved": false
+  },
+  "computerControl": {
+    "originalMode": "operator",
+    "temporarilyReturnedToPal": true,
+    "restoredMode": "operator",
+    "sameGeneration": true
+  },
+  "preserved": {
+    "navigation": true,
+    "profiles": true,
+    "drafts": true,
+    "settings": true,
+    "models": true,
+    "tasks": true,
+    "computerGenerations": true,
+    "originalControlMode": true
+  },
+  "preservationScope": "The two recorded Pal sessions and their postflight snapshots."
+}

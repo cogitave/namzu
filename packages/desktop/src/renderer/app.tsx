@@ -993,8 +993,19 @@ export function App({
 			clearInterval(timer)
 		}
 	}, [sessionId, api])
+	const palTasksVisible = Boolean(
+		pal &&
+			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
+				? computerProfileOpen
+				: palProfileOpen),
+	)
 	useEffect(() => {
-		if (!sessionId || !jobsOpen || panelTab !== 'jobs' || !api?.refreshTasks) return
+		if (
+			!sessionId ||
+			!api?.refreshTasks ||
+			(!palTasksVisible && (!jobsOpen || panelTab !== 'jobs'))
+		)
+			return
 		let current = true
 		void api.refreshTasks(sessionId).catch((failure) => {
 			if (current) setError(errorText(failure))
@@ -1002,7 +1013,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [sessionId, jobsOpen, panelTab, api])
+	}, [sessionId, jobsOpen, panelTab, palTasksVisible, api])
 	useEffect(() => {
 		const node = transcript.current
 		if (!node || !sessionId) return
@@ -2167,6 +2178,7 @@ export function App({
 							},
 						]
 					: [],
+				tasks: thread,
 				onCustomize: () => showPalEditor(pal),
 				onCommunication: sessionId
 					? (trigger) => {
@@ -3098,6 +3110,9 @@ export function App({
 						<div className="conversation-lane">
 							<div
 								className="transcript"
+								role={pal ? 'region' : undefined}
+								aria-label={pal ? `${pal.name} conversation` : undefined}
+								tabIndex={pal ? 0 : undefined}
 								ref={transcript}
 								onScroll={() => {
 									if (transcript.current)
@@ -3137,8 +3152,23 @@ export function App({
 									<TasksProgress
 										thread={thread}
 										onOpen={() => {
-											setPanelTab('jobs')
-											setJobsOpen(true)
+											if (pal) {
+												setJobsOpen(false)
+												if (computerPage) setComputerProfileOpen(true)
+												else setPalProfileOpen(true)
+												const target = sessionId
+												requestAnimationFrame(() => {
+													if (activeSession.current !== target) return
+													const tasks = paneRoot.current?.querySelector<HTMLElement>(
+														'.pal-context-card .conversation-tasks',
+													)
+													tasks?.focus({ preventScroll: true })
+													tasks?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+												})
+											} else {
+												setPanelTab('jobs')
+												setJobsOpen(true)
+											}
 										}}
 									/>
 									{thread.error && (
@@ -3306,7 +3336,7 @@ export function App({
 						/>
 					) : (
 						<div className="panel-scroll">
-							<ConversationTasks thread={thread} />
+							{!pal && <ConversationTasks thread={thread} />}
 							{pal && <PalActivity thread={thread} />}
 							<h3 className="text-sm font-medium">Background shells</h3>
 							{jobsError ? (
