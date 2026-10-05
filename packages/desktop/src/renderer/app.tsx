@@ -61,7 +61,6 @@ import { JobRow } from './job-row.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
-import { PalActivity } from './pal-activity.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
@@ -297,7 +296,10 @@ export function App({
 	}>()
 	const [harnessBusy, setHarnessBusy] = useState(false)
 	const harnessChoicePending = useRef(false)
-	const harnessChoiceFailure = useRef<{ sessionId: string; message: string } | null>(null)
+	const harnessChoiceFailure = useRef<{
+		sessionId: string
+		message: string
+	} | null>(null)
 	const [conversationSelection, setConversationSelection] = useState<{
 		sessionId: string
 		collection: ConversationCollection
@@ -495,6 +497,8 @@ export function App({
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const thread = threads[sessionId] ?? emptyThread()
 	const pal = pals.find((item) => item.id === project?.palId)
+	const palConversation = Boolean(project?.palId || conversation?.palId)
+	const detailsOpen = jobsOpen && !palConversation
 	useEffect(() => {
 		if (
 			!focused ||
@@ -536,29 +540,30 @@ export function App({
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
 	).length
-	const contextProps = project
-		? {
-				project,
-				changes,
-				runningShells:
-					jobsSessionId !== sessionId || jobsLoading || jobsError
-						? null
-						: visibleJobs.filter((job) => job.status === 'running').length,
-				jobsUnavailable: jobsSessionId === sessionId && Boolean(jobsError),
-				activeTools: thread.activeToolIds.length,
-				awaitingApproval: thread.permissions.length > 0,
-				running: thread.running,
-				phase: threadPhase(thread),
-				onChanges: () => {
-					setPanelTab('changes')
-					setJobsOpen(true)
-				},
-				onJobs: () => {
-					setPanelTab('jobs')
-					setJobsOpen(true)
-				},
-			}
-		: null
+	const contextProps =
+		project && !palConversation
+			? {
+					project,
+					changes,
+					runningShells:
+						jobsSessionId !== sessionId || jobsLoading || jobsError
+							? null
+							: visibleJobs.filter((job) => job.status === 'running').length,
+					jobsUnavailable: jobsSessionId === sessionId && Boolean(jobsError),
+					activeTools: thread.activeToolIds.length,
+					awaitingApproval: thread.permissions.length > 0,
+					running: thread.running,
+					phase: threadPhase(thread),
+					onChanges: () => {
+						setPanelTab('changes')
+						setJobsOpen(true)
+					},
+					onJobs: () => {
+						setPanelTab('jobs')
+						setJobsOpen(true)
+					},
+				}
+			: null
 	const providerReady = providerOwner === providerKey
 	const activeProviders: ProviderView = providerReady
 		? providers
@@ -959,7 +964,7 @@ export function App({
 		}
 	}, [projectId, windowId, group.id, api])
 	useEffect(() => {
-		if (!sessionId || !api) {
+		if (!sessionId || !api || palConversation) {
 			setJobs([])
 			return
 		}
@@ -993,7 +998,7 @@ export function App({
 			current = false
 			clearInterval(timer)
 		}
-	}, [sessionId, api])
+	}, [sessionId, palConversation, api])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -1004,7 +1009,7 @@ export function App({
 		if (
 			!sessionId ||
 			!api?.refreshTasks ||
-			(!palTasksVisible && (!jobsOpen || panelTab !== 'jobs'))
+			(!palTasksVisible && (!detailsOpen || panelTab !== 'jobs'))
 		)
 			return
 		let current = true
@@ -1014,7 +1019,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [sessionId, jobsOpen, panelTab, palTasksVisible, api])
+	}, [sessionId, detailsOpen, panelTab, palTasksVisible, api])
 	useEffect(() => {
 		const node = transcript.current
 		if (!node || !sessionId) return
@@ -1179,7 +1184,10 @@ export function App({
 			setProviderOwner(owner)
 		} catch (failure) {
 			if (finishMutation)
-				harnessChoiceFailure.current = { sessionId: target, message: errorText(failure) }
+				harnessChoiceFailure.current = {
+					sessionId: target,
+					message: errorText(failure),
+				}
 			throw failure
 		} finally {
 			harnessChoicePending.current = false
@@ -1410,7 +1418,10 @@ export function App({
 							if (generation === navigation.current && transcript.current)
 								transcript.current.scrollTop = presentation.scrollTop
 						})
-					} else follow.current = true
+					} else {
+						setJobsOpen(false)
+						follow.current = true
+					}
 					if (context.current.focused && !context.current.frozen) input.current?.focus()
 				} catch (failure) {
 					if (generation === navigation.current) throw failure
@@ -1896,7 +1907,7 @@ export function App({
 			floatingChatMinimized,
 			palProfileOpen,
 			computerProfileOpen,
-			jobsOpen,
+			jobsOpen: detailsOpen,
 			panelTab,
 			follow: follow.current,
 			scrollTop: transcript.current?.scrollTop ?? 0,
@@ -1908,7 +1919,7 @@ export function App({
 		floatingChatMinimized,
 		palProfileOpen,
 		computerProfileOpen,
-		jobsOpen,
+		detailsOpen,
 		panelTab,
 	])
 	writePresentation.current = savePresentation
@@ -2167,6 +2178,16 @@ export function App({
 							{
 								id: sessionId,
 								label: `${changes} changed ${changes === 1 ? 'file' : 'files'}`,
+								content: (
+									<ChangesPanel
+										tools={thread.tools}
+										dark={
+											appearance === 'dark' ||
+											(appearance === 'system' &&
+												window.matchMedia('(prefers-color-scheme: dark)').matches)
+										}
+									/>
+								),
 							},
 						]
 					: [],
@@ -2179,14 +2200,6 @@ export function App({
 						}
 					: undefined,
 				customizeDisabled: palBusy || palsSaving,
-				onActivity: () => {
-					setPanelTab('jobs')
-					setJobsOpen(true)
-				},
-				onOutput: () => {
-					setPanelTab('changes')
-					setJobsOpen(true)
-				},
 				onPause: () =>
 					void act(async () => {
 						upsertPal(
@@ -2423,9 +2436,9 @@ export function App({
 					showPalChat()
 					return
 				}
-				if (sideOpen || jobsOpen) {
+				if (sideOpen || detailsOpen) {
 					setSideOpen(false)
-					if (jobsOpen) closeDetails()
+					if (detailsOpen) closeDetails()
 				} else if (thread.running && railSection !== 'plugins')
 					void act(() => api.cancel(sessionId))
 				return
@@ -2457,7 +2470,7 @@ export function App({
 		return () => window.removeEventListener('keydown', onKey)
 	}, [
 		sideOpen,
-		jobsOpen,
+		detailsOpen,
 		sessionId,
 		thread.running,
 		act,
@@ -2606,9 +2619,11 @@ export function App({
 				group.tabs.length > 1 ? (view, position) => onSplit(group.id, view.id, position) : undefined
 			}
 			onClose={(view) =>
-				void onAction({ kind: 'close', groupId: group.id, tabId: view.id }).catch((failure) =>
-					setError(errorText(failure)),
-				)
+				void onAction({
+					kind: 'close',
+					groupId: group.id,
+					tabId: view.id,
+				}).catch((failure) => setError(errorText(failure)))
 			}
 		/>
 	)
@@ -2779,7 +2794,7 @@ export function App({
 				inert={frozen}
 				data-pane-id={group.id}
 				data-moving={frozen}
-				className={`workspace ${jobsOpen ? 'jobs-open' : ''}`}
+				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
 				data-pal-workspace={palWorkspace}
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
@@ -2818,7 +2833,7 @@ export function App({
 							</WorkspaceBreadcrumbItem>
 						</WorkspaceBreadcrumb>
 					)}
-					{!pal && sessionId && thread.messages.length > 0 && !externalHarness && (
+					{!palConversation && sessionId && thread.messages.length > 0 && !externalHarness && (
 						<>
 							<Button
 								ref={jobsTrigger}
@@ -3156,7 +3171,10 @@ export function App({
 														'.pal-context-card .conversation-tasks',
 													)
 													tasks?.focus({ preventScroll: true })
-													tasks?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+													tasks?.scrollIntoView({
+														block: 'nearest',
+														inline: 'nearest',
+													})
 												})
 											} else {
 												setPanelTab('jobs')
@@ -3279,97 +3297,104 @@ export function App({
 						</div>
 					</div>
 				)}
-				<aside
-					className="jobs-panel"
-					data-open={jobsOpen}
-					inert={!jobsOpen}
-					aria-hidden={!jobsOpen}
-					aria-label={panelTab === 'jobs' ? 'Activity' : 'Changes'}
-				>
-					<div className="section-heading">
-						<div className="flex items-center gap-1">
+				{!palConversation && (
+					<aside
+						className="jobs-panel"
+						data-open={jobsOpen}
+						inert={!jobsOpen}
+						aria-hidden={!jobsOpen}
+						aria-label={panelTab === 'jobs' ? 'Activity' : 'Changes'}
+					>
+						<div className="section-heading">
+							<div className="flex items-center gap-1">
+								<Button
+									size="xs"
+									variant="ghost-muted"
+									aria-pressed={panelTab === 'changes'}
+									onClick={() => setPanelTab('changes')}
+								>
+									<FileDiffIcon className="size-3.5" />
+									Changes
+								</Button>
+								<Button
+									size="xs"
+									variant="ghost-muted"
+									aria-pressed={panelTab === 'jobs'}
+									onClick={() => setPanelTab('jobs')}
+								>
+									<TerminalIcon className="size-3.5" />
+									Activity
+								</Button>
+							</div>
 							<Button
-								size="xs"
+								type="button"
 								variant="ghost-muted"
-								aria-pressed={panelTab === 'changes'}
-								onClick={() => setPanelTab('changes')}
+								size="icon-sm"
+								className="icon-button"
+								aria-label={panelTab === 'jobs' ? 'Close activity' : 'Close changes'}
+								onClick={closeDetails}
 							>
-								<FileDiffIcon className="size-3.5" />
-								Changes
-							</Button>
-							<Button
-								size="xs"
-								variant="ghost-muted"
-								aria-pressed={panelTab === 'jobs'}
-								onClick={() => setPanelTab('jobs')}
-							>
-								<TerminalIcon className="size-3.5" />
-								Activity
+								<Icon name="close" />
 							</Button>
 						</div>
-						<Button
-							type="button"
-							variant="ghost-muted"
-							size="icon-sm"
-							className="icon-button"
-							aria-label={panelTab === 'jobs' ? 'Close activity' : 'Close changes'}
-							onClick={closeDetails}
-						>
-							<Icon name="close" />
-						</Button>
-					</div>
-					{panelTab === 'changes' ? (
-						<ChangesPanel
-							tools={thread.tools}
-							dark={
-								appearance === 'dark' ||
-								(appearance === 'system' &&
-									window.matchMedia('(prefers-color-scheme: dark)').matches)
-							}
-						/>
-					) : (
-						<div className="panel-scroll">
-							{!pal && <ConversationTasks thread={thread} />}
-							{pal && <PalActivity thread={thread} />}
-							<h3 className="text-sm font-medium">Background shells</h3>
-							{jobsError ? (
-								<p role="alert" className="jobs-error">
-									{jobsError}
-								</p>
-							) : jobsLoading ? (
-								<p className="quiet">Loading background work…</p>
-							) : visibleJobs.length === 0 ? (
-								!pal && <p className="quiet">No background shells in this conversation.</p>
-							) : (
-								visibleJobs.map((job) => (
-									<JobRow
-										key={job.id}
-										job={job}
-										onRead={() =>
-											void act(async () => {
-												const target = sessionId
-												const generation = navigation.current
-												try {
-													const output = await api.readJob(target, job.id)
-													if (activeSession.current !== target || generation !== navigation.current)
-														return
-													setJobOutput(
-														`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
-													)
-												} catch (failure) {
-													if (activeSession.current === target && generation === navigation.current)
-														throw failure
-												}
-											})
-										}
-										onStop={() => void act(() => api.stopJob(sessionId, job.id))}
-									/>
-								))
-							)}
-							{jobOutput && <pre className="job-output">{jobOutput}</pre>}
-						</div>
-					)}
-				</aside>
+						{panelTab === 'changes' ? (
+							<ChangesPanel
+								tools={thread.tools}
+								dark={
+									appearance === 'dark' ||
+									(appearance === 'system' &&
+										window.matchMedia('(prefers-color-scheme: dark)').matches)
+								}
+							/>
+						) : (
+							<div className="panel-scroll">
+								<ConversationTasks thread={thread} />
+								<h3 className="text-sm font-medium">Background shells</h3>
+								{jobsError ? (
+									<p role="alert" className="jobs-error">
+										{jobsError}
+									</p>
+								) : jobsLoading ? (
+									<p className="quiet">Loading background work…</p>
+								) : visibleJobs.length === 0 ? (
+									<p className="quiet">No background shells in this conversation.</p>
+								) : (
+									visibleJobs.map((job) => (
+										<JobRow
+											key={job.id}
+											job={job}
+											onRead={() =>
+												void act(async () => {
+													const target = sessionId
+													const generation = navigation.current
+													try {
+														const output = await api.readJob(target, job.id)
+														if (
+															activeSession.current !== target ||
+															generation !== navigation.current
+														)
+															return
+														setJobOutput(
+															`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
+														)
+													} catch (failure) {
+														if (
+															activeSession.current === target &&
+															generation === navigation.current
+														)
+															throw failure
+													}
+												})
+											}
+											onStop={() => void act(() => api.stopJob(sessionId, job.id))}
+										/>
+									))
+								)}
+								{jobOutput && <pre className="job-output">{jobOutput}</pre>}
+							</div>
+						)}
+					</aside>
+				)}
 			</main>
 		</>
 	)

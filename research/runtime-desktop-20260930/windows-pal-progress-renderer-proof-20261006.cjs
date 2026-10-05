@@ -6,6 +6,7 @@
 //   node.exe windows-pal-progress-renderer-proof-20261006.cjs <built-renderer-dir> <private-receipt.json>
 // --verify-current inspects the deployed build without another reload.
 // --compact checks the title/badge row and count capsule, using separate crops.
+// --card-only checks numeric keycaps and removes obsolete Pal side panels.
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -17,7 +18,8 @@ const devRoot = path.join(process.env.LOCALAPPDATA, 'Namzu', 'Development');
 const config = JSON.parse(fs.readFileSync(path.join(devRoot, 'launch.json'), 'utf8'));
 const [sourceArg, receiptArg] = process.argv.slice(2);
 const verifyCurrent = process.argv.includes('--verify-current');
-const compact = process.argv.includes('--compact');
+const cardOnly = process.argv.includes('--card-only');
+const compact = process.argv.includes('--compact') || cardOnly;
 assert(sourceArg && receiptArg, 'Arguments: built renderer directory and private receipt path.');
 const source = path.resolve(sourceArg);
 const output = path.resolve(receiptArg);
@@ -27,7 +29,7 @@ assert(fs.existsSync(renderer), 'Stable Development renderer is missing.');
 assert.notEqual(source.toLowerCase(), renderer.toLowerCase());
 const outputRelativeToDev = path.relative(devRoot, output);
 assert(outputRelativeToDev && !outputRelativeToDev.startsWith('..') && !path.isAbsolute(outputRelativeToDev), 'Receipt must stay under the private Development directory.');
-const captureDir = path.join(devRoot, 'proof-artifacts', compact ? 'pal-progress-compact-renderer-20261006' : 'pal-progress-renderer-20261006');
+const captureDir = path.join(devRoot, 'proof-artifacts', cardOnly ? 'pal-progress-card-only-renderer-20261006' : compact ? 'pal-progress-compact-renderer-20261006' : 'pal-progress-renderer-20261006');
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 function manifest(root) {
@@ -165,7 +167,8 @@ async function main() {
 	const activeSession = before.sessions.find(session => session.id === before.dom.activeSessionId);
 	assert(activeSession?.thread?.tasks?.length, 'Focused Pal must contain real plan steps.');
 	assert(activeSession.thread.tasks.every(task => task.status === 'completed'), 'Focused native plan must already be all-completed before deployment.');
-	assert.equal(before.dom.activeJobsPanel, false, 'Close Activity before proof so the narrow card capture is unambiguous.');
+	if (!cardOnly) assert.equal(before.dom.activeJobsPanel, false, 'Close Activity before proof so the narrow card capture is unambiguous.');
+	if (cardOnly) receipt.obsoletePalPanelWasOpen = before.dom.activeJobsPanel;
 	const groupSelector = `[data-workspace-group="${before.dom.activeGroupId.replaceAll(/["\\]/g, '\\$&')}"]`;
 	const pane = page.locator(groupSelector);
 	assert.equal(await pane.count(), 1, 'Focused conversation group is not unique.');
@@ -246,7 +249,7 @@ async function main() {
 	const baselineCardScroll = before.dom.cardScrollTop;
 	await toggle.evaluate(element => element.scrollIntoView({ block: 'nearest' }));
 	await settle(page);
-	assert.match((await toggle.innerText()).trim(), /^\d+ of \d+ steps(?: done)?(?:\s|$)/);
+	assert.match((await toggle.innerText()).replace(/\s+/g, ' ').trim(), /^\d+ of \d+ steps(?: done)?(?:\s|$)/);
 	assert.equal(await taskRegion.locator('progress').count(), 0, 'Progress display must not imply measured percentage.');
 	assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'All-completed plan must be collapsed by default after reload.');
 	assert.equal(await taskRegion.locator('.pal-plan-steps').count(), 0, 'Collapsed plan exposes no detailed rows.');
@@ -269,13 +272,42 @@ async function main() {
 		assert.equal(await count.count(), 1);
 		assert.match(await count.getAttribute('title'), /^\d+ of \d+ steps done$/);
 		assert.equal(await taskRegion.locator('kbd').count(), 0, 'Counter styling must not claim keyboard-input semantics.');
-		receipt.checks.push('Completed step rows are at most 34px tall with aligned right-hand Done badges, and the count has a styled capsule with its full accessible description.');
+		if (cardOnly) {
+			receipt.numericKeycaps = await count.evaluate(element => ({
+				wrapperBorder: getComputedStyle(element).borderTopWidth,
+				wrapperBackground: getComputedStyle(element).backgroundColor,
+				numbers: [...element.querySelectorAll('.pal-plan-number')].map(number => ({
+					text: number.textContent, border: getComputedStyle(number).borderTopWidth,
+					background: getComputedStyle(number).backgroundColor,
+				})),
+			}));
+			assert.equal(receipt.numericKeycaps.wrapperBorder, '0px');
+			assert.equal(receipt.numericKeycaps.wrapperBackground, 'rgba(0, 0, 0, 0)');
+			assert.equal(receipt.numericKeycaps.numbers.length, 2);
+			assert(receipt.numericKeycaps.numbers.every(number => /^\d+$/.test(number.text) && number.border === '1px' && number.background !== 'rgba(0, 0, 0, 0)'), 'Only the two numerical values receive keycap styling.');
+		}
+		receipt.checks.push(cardOnly ? 'Completed rows retain right-hand Done badges; only the two numbers have keycap styling, with unboxed connector text and accessible full count.' : 'Completed step rows are at most 34px tall with aligned right-hand Done badges, and the count has a styled capsule with its full accessible description.');
 	}
 	await card.screenshot({ path: path.join(captureDir, 'pal-progress-completed-disclosed.png') });
 	const activity = card.getByRole('region', { name: 'Recent activity', exact: true });
 	await activity.waitFor({ state: 'visible' });
-	assert(await activity.getByRole('button', { name: /^Message to another Pal\. Sent to inbox\. View details$/ }).count() > 0, 'Friendly sent-message summary is missing.');
-	assert(await activity.getByRole('button', { name: /^Available Pals\. Checked\. View details$/ }).count() > 0, 'Friendly Pal-list summary is missing.');
+	if (cardOnly) {
+		assert(await activity.getByText('Message to another Pal', { exact: true }).count() > 0, 'Friendly sent-message summary is missing.');
+		assert(await activity.getByText('Sent to inbox', { exact: true }).count() > 0);
+		assert(await activity.getByText('Available Pals', { exact: true }).count() > 0, 'Friendly Pal-list summary is missing.');
+		assert.equal(await activity.getByRole('button').count(), 0, 'Recent activity must be a static summary.');
+		await activity.getByText('Available Pals', { exact: true }).click();
+		await settle(page);
+		assert.equal(await pane.locator('.jobs-panel').count(), 0, 'Pal conversation must not mount a technical side pane.');
+		assert.equal(await pane.locator('.workspace.jobs-open').count(), 0, 'Pal conversation must not reserve a technical pane column.');
+		assert.equal(await pane.getByRole('button', { name: 'Background work', exact: true }).count(), 0);
+		assert.equal(await pane.getByRole('button', { name: 'Show changes', exact: true }).count(), 0);
+		receipt.palPanelAbsent = true;
+		receipt.checks.push('Pal Activity/Changes side pane and its reserved column are absent after reload and a recent-activity click; card summaries are noninteractive.');
+	} else {
+		assert(await activity.getByRole('button', { name: /^Message to another Pal\. Sent to inbox\. View details$/ }).count() > 0, 'Friendly sent-message summary is missing.');
+		assert(await activity.getByRole('button', { name: /^Available Pals\. Checked\. View details$/ }).count() > 0, 'Friendly Pal-list summary is missing.');
+	}
 	for (const technical of ['send_pal_message', 'list_pals']) assert.equal(await activity.getByText(technical, { exact: true }).count(), 0, `Recent activity exposes ${technical}.`);
 	await card.screenshot({ path: path.join(captureDir, 'pal-progress-recent-activity.png') });
 	receipt.actualPlanRows = actualRows.length;
@@ -284,7 +316,7 @@ async function main() {
 	receipt.checks.push('Recent activity uses friendly titles/details for the two observed placed conversations and does not display raw tool names.');
 
 	// Restore disclosure, card scroll, and the active session presentation to the
-	// exact pre-proof values. Activity remains closed, as established by preflight.
+	// pre-proof values, except the explicitly requested obsolete Pal pane preference.
 	const currentExpanded = await toggle.getAttribute('aria-expanded');
 	if (currentExpanded !== baselineExpanded) await toggle.click();
 	await settle(page);
@@ -298,7 +330,19 @@ async function main() {
 	assert.equal(hash(JSON.stringify(persistent(postTest))), hash(JSON.stringify(persistent(before))), 'Non-presentation state changed during proof.');
 	const presentationKey = `namzu.workspace.presentation:${before.dom.activeSessionId}`;
 	const decodedPresentations = state => state.presentations.map(([key, value]) => [key, JSON.parse(value)]);
-	assert.deepEqual(decodedPresentations(postTest), decodedPresentations(before), 'Session presentation preferences changed during proof.');
+	const expectedPresentations = decodedPresentations(before);
+	if (cardOnly) {
+		const palKeys = new Set(before.sessions.filter(session => session.palId).map(session => `namzu.workspace.presentation:${session.id}`));
+		const actual = new Map(decodedPresentations(postTest));
+		receipt.migratedPalPanelPreferences = 0;
+		for (const [key, value] of expectedPresentations) {
+			if (palKeys.has(key) && value.jobsOpen === true && actual.get(key)?.jobsOpen === false) {
+				value.jobsOpen = false;
+				receipt.migratedPalPanelPreferences++;
+			}
+		}
+	}
+	assert.deepEqual(decodedPresentations(postTest), expectedPresentations, 'Session presentation preferences changed beyond the requested Pal panel migration.');
 	const presentation = JSON.parse(postTest.presentations.find(([key]) => key === presentationKey)?.[1] ?? '{}');
 	assert.equal(presentation.palProfileOpen, JSON.parse(before.presentations.find(([key]) => key === presentationKey)?.[1] ?? '{}').palProfileOpen, 'Pal card visibility preference was not restored.');
 	assert.equal(presentation.jobsOpen, false, 'Activity must remain closed.');
@@ -311,7 +355,7 @@ async function main() {
 	receipt.persistentStatePreserved = true;
 	receipt.presentationRestored = true;
 	receipt.pageErrorCount = pageErrorCount;
-	receipt.checks.push('Original disclosure, card scroll and session presentation restored; Activity remains closed and all other user state is unchanged.');
+	receipt.checks.push(cardOnly ? 'Original disclosure, card/transcript scroll and other session preferences restored; only obsolete Pal pane visibility is migrated to closed.' : 'Original disclosure, card scroll and session presentation restored; Activity remains closed and all other user state is unchanged.');
 	receipt.passed = true;
 }
 

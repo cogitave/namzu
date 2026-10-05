@@ -18,9 +18,17 @@ function call(
 		toolCallId: id,
 		title,
 		status,
-		view: { kind: 'generic', label: 'private body, recipient ID and receipt metadata' },
+		view: {
+			kind: 'generic',
+			label: 'private body, recipient ID and receipt metadata',
+		},
 	}
-	return applyEvent(thread, { kind: 'update', projectId: 'project', sessionId: 'session', update })
+	return applyEvent(thread, {
+		kind: 'update',
+		projectId: 'project',
+		sessionId: 'session',
+		update,
+	})
 }
 
 it('describes inbox acceptance without claiming reading, reply or exposing tool receipts on the Pal card', () => {
@@ -46,12 +54,14 @@ it('describes inbox acceptance without claiming reading, reply or exposing tool 
 				updatedAt: '2026-10-06',
 			},
 			status: 'idle',
-			computer: { name: 'Palu’s computer', workspace: 'owned', status: 'error' },
+			computer: {
+				name: 'Palu’s computer',
+				workspace: 'owned',
+				status: 'error',
+			},
 			activity,
 			outputs: [],
 			onCustomize: () => {},
-			onActivity: () => {},
-			onOutput: () => {},
 		}),
 	)
 	for (const text of [
@@ -64,7 +74,8 @@ it('describes inbox acceptance without claiming reading, reply or exposing tool 
 	])
 		expect(html).not.toContain(text)
 	expect(html).toContain('Sent to inbox')
-	expect(html).toContain('View details')
+	expect(html).not.toContain('View details')
+	expect(html).toMatch(/<div class="pal-context-row pal-recent-action" data-status="done">/)
 	expect(thread).toEqual(before)
 	expect(palToolActivity(thread)[1].tool.view).toEqual({
 		kind: 'generic',
@@ -74,12 +85,20 @@ it('describes inbox acceptance without claiming reading, reply or exposing tool 
 
 it('distinguishes working, stopped and failed actions and keeps plan failures visible', () => {
 	let thread = call(
-		applyEvent(emptyThread(), { kind: 'state', sessionId: 'session', running: true, queued: [] }),
+		applyEvent(emptyThread(), {
+			kind: 'state',
+			sessionId: 'session',
+			running: true,
+			queued: [],
+		}),
 		'send',
 		'send_pal_message',
 		'pending',
 	)
-	expect(palRecentActivity(thread)[0]).toMatchObject({ status: 'working', detail: 'In progress' })
+	expect(palRecentActivity(thread)[0]).toMatchObject({
+		status: 'working',
+		detail: 'In progress',
+	})
 	expect(palRecentActivity({ ...thread, activeToolIds: [] })[0]).toMatchObject({
 		status: 'stopped',
 		detail: 'Stopped',

@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "passed": true,
+  "platform": "win32",
+  "rendererOnly": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "Idle preflight passed for every open tab: no unsaved editor, permissions, queued work, active/recovery job, dialog, alert, focused computer control or control transition.",
+    "Two friendly activity labels are backed by completed send/list receipts in the observed open Pal conversation projections; scope is limited to those observed conversations.",
+    "Complete built renderer staged with the prior renderer retained as a timestamped backup.",
+    "Renderer-only reload retained workspace, tabs, messages, drafts/settings/attachments/models, plan state and computer generations/control.",
+    "Completed rows retain right-hand Done badges; only the two numbers have keycap styling, with unboxed connector text and accessible full count.",
+    "Pal Activity/Changes side pane and its reserved column are absent after reload and a recent-activity click; card summaries are noninteractive.",
+    "Native card shows Progress, a collapsed all-completed summary, then actual detailed source rows when disclosed; no percentage widget is present.",
+    "Recent activity uses friendly titles/details for the two observed placed conversations and does not display raw tool names.",
+    "Original disclosure, card/transcript scroll and other session preferences restored; only obsolete Pal pane visibility is migrated to closed."
+  ],
+  "build": {
+    "sourceManifestSha256": "2df6a24efdd5eff156abeac0edfe6163444ba61461635fa7d1e0abebac0f44d1",
+    "sourceAssetRefs": [
+      "assets/index-CCD7aull.js",
+      "assets/index-Cs6h24WI.css"
+    ]
+  },
+  "actualPlanRows": 3,
+  "actualPlanStatuses": [
+    "completed"
+  ],
+  "originalVisibleRowHeights": [],
+  "compactRows": [
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    },
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    },
+    {
+      "height": 32,
+      "badgeOnRight": true,
+      "aligned": true,
+      "status": "Done"
+    }
+  ],
+  "numericKeycaps": {
+    "wrapperBorder": "0px",
+    "wrapperBackground": "rgba(0, 0, 0, 0)",
+    "numbers": [
+      {
+        "text": "3",
+        "border": "1px",
+        "background": "rgb(34, 34, 34)"
+      },
+      {
+        "text": "3",
+        "border": "1px",
+        "background": "rgb(34, 34, 34)"
+      }
+    ]
+  },
+  "obsoletePalPanelWasOpen": true,
+  "palPanelAbsent": true,
+  "migratedPalPanelPreferences": 1,
+  "nativePidUnchanged": true,
+  "persistentStatePreserved": true,
+  "presentationRestored": true,
+  "pageErrorCount": 0,
+  "observedConversationCount": 2,
+  "deployed": true,
+  "actualNativeWindows": true,
+  "observedAt": "2026-10-05T22:08:57.019315+00:00",
+  "computerLifecycleOrControlActions": 0,
+  "captures": [
+    "pal-progress-card-only-collapsed-native-20261006.png",
+    "pal-progress-card-only-disclosed-native-20261006.png"
+  ]
+}

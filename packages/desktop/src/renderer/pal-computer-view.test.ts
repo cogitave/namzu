@@ -4,7 +4,11 @@ import { expect, it } from 'vitest'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard } from './pal-context.js'
 
-const screen = { source: 'data:image/png;base64,actual-capture', width: 1280, height: 800 }
+const screen = {
+	source: 'data:image/png;base64,actual-capture',
+	width: 1280,
+	height: 800,
+}
 function render(overrides: Partial<ComponentProps<typeof PalComputerView>> = {}) {
 	return renderToStaticMarkup(
 		createElement(PalComputerView, {
@@ -77,7 +81,9 @@ it('keeps Return control available across ordinary guest input while retaining o
 		expect(returnControl(render({ control: operator, inputBusy: true, ...state }))).toContain(
 			'disabled=',
 		)
-	const changing = render({ control: { supported: true, mode: 'transitioning' } })
+	const changing = render({
+		control: { supported: true, mode: 'transitioning' },
+	})
 	expect(changing).not.toContain('Return control')
 	expect(takeOver(changing)).toContain('disabled=')
 	expect(render({ control: operator, inputBusy: true })).toContain('data-interactive="false"')
@@ -97,12 +103,15 @@ it('shows the host row only for actual supplied metadata, and puts the real capt
 			updatedAt: '2026-10-04',
 		},
 		status: 'idle',
-		computer: { name: 'Palu’s computer', workspace: 'owned', status: 'ready', screen },
+		computer: {
+			name: 'Palu’s computer',
+			workspace: 'owned',
+			status: 'ready',
+			screen,
+		},
 		activity: [],
 		outputs: [],
 		onCustomize: () => {},
-		onActivity: () => {},
-		onOutput: () => {},
 		onOpenComputer: () => {},
 	}
 	const withoutHost = renderToStaticMarkup(createElement(PalContextCard, props))
@@ -111,7 +120,10 @@ it('shows the host row only for actual supplied metadata, and puts the real capt
 	expect(withoutHost).toContain(screen.source)
 	expect(withoutHost).toContain('Open Palu’s computer')
 	const withHost = renderToStaticMarkup(
-		createElement(PalContextCard, { ...props, hostComputer: { name: 'ACTUAL-HOST' } }),
+		createElement(PalContextCard, {
+			...props,
+			hostComputer: { name: 'ACTUAL-HOST' },
+		}),
 	)
 	expect(withHost).toContain('ACTUAL-HOST')
 	expect(withHost).toContain('Your computer')

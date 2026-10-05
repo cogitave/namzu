@@ -85,7 +85,10 @@ function PalTaskProgress({
 								className="pal-plan-count"
 								title={`${completed} of ${thread.tasks.length} ${thread.tasks.length === 1 ? 'step' : 'steps'} done`}
 							>
-								{completed} of {thread.tasks.length} {thread.tasks.length === 1 ? 'step' : 'steps'}
+								<span className="pal-plan-number">{completed}</span>
+								{' of '}
+								<span className="pal-plan-number">{thread.tasks.length}</span>
+								{thread.tasks.length === 1 ? ' step' : ' steps'}
 							</span>
 							{failed > 0 && (
 								<span className="tasks-failed">

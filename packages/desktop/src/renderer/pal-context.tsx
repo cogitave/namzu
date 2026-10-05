@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { PalScreenView, PalView } from '../shared/protocol.js'
 import { ConversationTasks } from './conversation-tasks.js'
 import {
+	ChevronRightIcon,
 	ConversationIcon,
 	FileTextIcon,
 	HistoryIcon,
@@ -16,6 +18,7 @@ import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import './pal-context.css'
 
 export interface PalContextProps {
@@ -32,12 +35,10 @@ export interface PalContextProps {
 	/** Supplied only when the native host has reported its actual identity. */
 	hostComputer?: { name: string }
 	activity: readonly PalRecentAction[]
-	outputs: readonly { id: string; label: string }[]
+	outputs: readonly { id: string; label: string; content?: ReactNode }[]
 	tasks?: Pick<ThreadState, 'tasks' | 'tasksNotice'>
 	onCustomize: () => void
 	onCommunication?: (trigger: HTMLButtonElement) => void
-	onActivity: (id: string) => void
-	onOutput: (id: string) => void
 	onPause?: () => void
 	pauseDisabled?: boolean
 	customizeDisabled?: boolean
@@ -53,7 +54,12 @@ export function PalAvatar({
 	compact = false,
 	appearance,
 	paused,
-}: { name: string; compact?: boolean; appearance?: PalCharacterAppearance; paused?: boolean }) {
+}: {
+	name: string
+	compact?: boolean
+	appearance?: PalCharacterAppearance
+	paused?: boolean
+}) {
 	return (
 		<span
 			className={`pal-avatar${compact ? ' pal-avatar-compact' : ''}`}
@@ -84,8 +90,6 @@ function PalContextBody({
 	tasks,
 	onCustomize,
 	onCommunication,
-	onActivity,
-	onOutput,
 	onPause,
 	pauseDisabled,
 	customizeDisabled,
@@ -281,13 +285,7 @@ function PalContextBody({
 														: HistoryIcon
 							return (
 								<li key={item.id}>
-									<Button
-										variant="ghost"
-										className="pal-context-row pal-recent-action"
-										data-status={item.status}
-										aria-label={`${item.title}. ${item.detail}. View details`}
-										onClick={() => onActivity(item.id)}
-									>
+									<div className="pal-context-row pal-recent-action" data-status={item.status}>
 										<Icon
 											aria-hidden="true"
 											className={item.status === 'working' ? 'pal-context-loading' : undefined}
@@ -296,7 +294,7 @@ function PalContextBody({
 											<span>{item.title}</span>
 											<span className="pal-recent-detail">{item.detail}</span>
 										</span>
-									</Button>
+									</div>
 								</li>
 							)
 						})}
@@ -311,14 +309,25 @@ function PalContextBody({
 					<ul className="pal-context-list">
 						{outputs.slice(0, 5).map((item) => (
 							<li key={item.id}>
-								<Button
-									variant="ghost"
-									className="pal-context-row"
-									onClick={() => onOutput(item.id)}
-								>
-									<FileTextIcon aria-hidden="true" />
-									<span title={item.label}>{item.label}</span>
-								</Button>
+								{item.content ? (
+									<Collapsible>
+										<CollapsibleTrigger
+											render={<Button variant="ghost" className="pal-context-row" />}
+										>
+											<FileTextIcon aria-hidden="true" />
+											<span title={item.label}>{item.label}</span>
+											<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
+										</CollapsibleTrigger>
+										<CollapsiblePanel>
+											<div className="pal-output-details">{item.content}</div>
+										</CollapsiblePanel>
+									</Collapsible>
+								) : (
+									<div className="pal-context-row">
+										<FileTextIcon aria-hidden="true" />
+										<span title={item.label}>{item.label}</span>
+									</div>
+								)}
 							</li>
 						))}
 					</ul>

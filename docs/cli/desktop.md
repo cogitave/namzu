@@ -218,11 +218,12 @@ Pal chat presents user messages and completed public replies as chat bubbles.
 Explicit final answers supersede unphased parts of the same identified message;
 reasoning, commentary and tool narration stay outside the public chat. Actual
 Typing, Working and approval-waiting states provide concise progress, and real
-errors remain visible. Tool receipts belong to Activity and changed files remain
-in Changes. Live and moved panes preserve the admitted tool timeline. Current
-cold history restores public messages, not old tool receipts, so the empty
-Activity label describes only the retained view. Ordinary transcripts retain
-their existing presentation.
+errors remain visible. Pal conversations have no separate Activity or Changes
+pane. The Pal card summarizes recent actions and reveals completed file changes
+inside Outputs. Live and moved panes preserve the admitted tool timeline without
+rendering a technical activity list. Current cold history restores public messages,
+not old tool receipts, so card summaries describe only the retained view.
+Ordinary conversations keep their Activity and Changes panes.
 
 The [native Windows Pal receipt](../../research/runtime-desktop-20260930/artifacts/pal-chat-native-windows-safe-20261005.json)
 records two real Zen replies from `space-bunny-free`, saved-name identity,
@@ -241,14 +242,14 @@ Once setup saves the profile, the central character disappears. A persistent car
 right shows its live 3D character, computer, owned recent conversations and
 current completed change receipts. The pencil beside the character opens
 customization. The card has no menu trigger and reserves its own layout space,
-so it never overlaps the transcript or composer. The remaining Pal chat width,
-after an open Activity or Changes pane reserves its column, sizes the right
-column continuously. The card is 240–300px wide, with its own bounded vertical
+so it never overlaps the transcript or composer. The Pal chat width sizes the right
+column continuously without a separate technical pane. The card is 240–300px wide, with its own bounded vertical
 scrolling in short windows. Narrower desktop windows do not move it into a
 full-width band above the conversation. A small settings icon beside the Pal's
 name opens its communication settings. Planning tasks appear inside this same
 card, between Computers and Recent activity, as **Progress** milestones with
-reported state icons and a completed-step count in a small keycap-style capsule.
+reported state icons and a completed-step count whose two numerical values use
+small keycap-style capsules; the words between and after them remain unboxed.
 Step titles and compact state badges share a row; unresolved dependency context
 sits beneath its owning step. Long titles wrap while the state badge keeps its
 own column. The count is ordinary text rather than keyboard-input markup.
@@ -257,8 +258,12 @@ its step titles remain available through the keyboard-accessible disclosure.
 Open or failed steps start visible. Dependency labels resolve task subjects;
 failed prerequisites remain visible as needing attention but do not invent an
 unresolved wait after the runtime treats them as terminal. The Progress summary above the
-composer reveals and focuses that list, closing any open Activity/Changes pane
-instead of adding another column. Ordinary conversations retain their Activity
+composer reveals and focuses that list. Saved Pal view preferences that previously
+opened Activity or Changes restore with those panes closed. The Pal route excludes
+their DOM and layout column even while its profile catalogue loads.
+Recent activity rows are noninteractive summaries; completed file outputs expand
+within the card. Pal views do not poll for background-shell counts that have no
+visible consumer. Ordinary conversations retain their Activity
 task list. Pal conversations hide the transcript scrollbar and its reserved
 gutter while retaining wheel and keyboard scrolling through a named focusable
 conversation region. In a very narrow
@@ -835,11 +840,12 @@ For example, `send_pal_message` appears as **Message to another Pal · Sent to
 inbox**, and `list_pals` as **Available Pals · Checked**. Inbox acceptance does
 not claim the recipient read or answered. Unknown tool names use a neutral
 action label; arguments, commands, paths and receipt bodies are not mined for
-card titles. Successful planning bookkeeping stays in the plan and technical
-activity history, while failed planning actions remain visible on the card.
-Selecting an activity opens the retained technical receipts for inspection.
+card titles. Successful planning bookkeeping stays in the plan and retained
+tool timeline, while failed planning actions remain visible on the card.
+Recent activity does not open a technical pane. Output details expand inside
+the existing card without adding a Changes column.
 
-The [progress preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-browser-proof-20261006.json)
+The [earlier progress preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-browser-proof-20261006.json)
 checks completed disclosure, active/failed/dependent steps, unavailable reads,
 safe action labels, exact disclosed receipts, error colors and narrow/short
 layouts with synthetic fixtures. The
@@ -859,8 +865,20 @@ context at 240–300px card widths using isolated fixtures. The
 records the actual completed rows shrinking from 55.5px to 32px, preserving
 planning records, conversations, drafts, models, presentation and computer
 control during a renderer-only update. The
-[current native steps](../../research/runtime-desktop-20260930/artifacts/pal-progress-compact-disclosed-native-20261006.png)
-show the resulting count capsule and Done badges.
+[earlier compact native steps](../../research/runtime-desktop-20260930/artifacts/pal-progress-compact-disclosed-native-20261006.png)
+show the former full-count capsule and Done badges.
+
+The [current card preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-card-only-browser-proof-20261006.json)
+checks number-only keycaps, static action summaries, completed diff output
+disclosure inside the card, absent Pal technical panes and ordinary conversation
+panels. The preview store resets on reload; recreating its synthetic Pal with an
+old open-pane preference verifies normalization, not durable history persistence.
+The [native Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-card-only-native-safe-20261006.json)
+verifies an actual renderer reload, migration of the existing Pal's open pane,
+numeric keycaps and the absence of a technical column while preserving messages,
+drafts, models, tasks and computer control. The
+[current native card](../../research/runtime-desktop-20260930/artifacts/pal-progress-card-only-disclosed-native-20261006.png)
+shows the compact rows and two numerical capsules.
 
 The [native Windows task receipt](../../research/runtime-desktop-20260930/artifacts/task-tracking-desktop-native-windows-safe-20261005.json)
 records two actual Pal composer sends using the existing free model, guest file
@@ -871,7 +889,7 @@ storage evidence. The model-facing `task_list` is a narrower current-turn view.
 
 The desktop opts into `namzu/tasks` notifications and reads `namzu/tasks/list`
 when opening durable history, replacing a runtime connection and reconciling
-a settled turn. Opening Activity or showing the Pal card performs a read-only
+a settled turn. Opening ordinary Activity or showing the Pal card performs a read-only
 idle refresh, including
 background changes that occurred after the query's event subscription ended;
 it starts no model request. No new polling or per-tab read is added. Reads
@@ -899,7 +917,7 @@ model phase remains Working. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
 opaque reasoning, signatures or replay material.
 
-Each authored prompt owns one turn. Its public reasoning, tool receipts and
+In ordinary conversations, each authored prompt owns one turn. Its public reasoning, tool receipts and
 explicit commentary stay in admission order inside Activity. Activity opens
 while that turn runs and collapses after settlement unless the operator chose
 otherwise. The answer appears below that group only when it is a trailing

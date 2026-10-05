@@ -1,0 +1,268 @@
+{
+  "passed": true,
+  "browserPreview": true,
+  "inMemoryTasksAndToolReceipts": true,
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "Pal step counter keeps “of” and “steps” unboxed and styles only the two digits as keycaps",
+    "completed state is a Done badge at the right of the subject row; short rows fit within 36px",
+    "long subjects wrap without pushing badges outside row content; dependency text sits below the subject row",
+    "long content fits at 240px and 300px card widths and in a short viewport",
+    "Pal task region is named for the Pal and headed Progress",
+    "all-completed plan is collapsed by default and keyboard Enter opens the actual subjects",
+    "mixed tasks remain visible with active, blocked and failed states; failed prerequisite is terminal for dependency display",
+    "failed and unavailable task states stay visible",
+    "no percentage progress indicator is rendered",
+    "card activity uses safe known intent labels and status; hides successful planning bookkeeping and all raw tool names/arguments/receipts",
+    "recent activity rows are static and clicking them never opens a sidebar",
+    "completed diff output expands inside the Pal card with the fixture file contents",
+    "Pal DOM has no jobs panel, jobs-open class, or background/changes header controls after task/activity transitions and reload with saved jobsOpen=true",
+    "ordinary conversation keeps its background activity panel and navigation sidebar available",
+    "ordinary conversation evidence uses the selected Sample app / Sample draft tab",
+    "layout has no horizontal overflow at 240px, 300px and short height viewports"
+  ],
+  "geometry": [
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "width": 299.75,
+      "height": 784,
+      "scrollWidth": 300,
+      "clientWidth": 300,
+      "scrollHeight": 884,
+      "clientHeight": 784,
+      "documentWidth": 1188,
+      "viewportWidth": 1188
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "width": 240,
+      "height": 784,
+      "scrollWidth": 240,
+      "clientWidth": 240,
+      "scrollHeight": 904,
+      "clientHeight": 784,
+      "documentWidth": 1024,
+      "viewportWidth": 1024
+    },
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 420
+      },
+      "width": 299.75,
+      "height": 304,
+      "scrollWidth": 300,
+      "clientWidth": 300,
+      "scrollHeight": 884,
+      "clientHeight": 304,
+      "documentWidth": 1188,
+      "viewportWidth": 1188
+    }
+  ],
+  "completedMetrics": [
+    {
+      "height": 32,
+      "subjectRight": 1107.859375,
+      "badgeLeft": 1115.859375,
+      "badgeRight": 1156,
+      "rowRight": 1156
+    },
+    {
+      "height": 32,
+      "subjectRight": 1107.859375,
+      "badgeLeft": 1115.859375,
+      "badgeRight": 1156,
+      "rowRight": 1156
+    },
+    {
+      "height": 32,
+      "subjectRight": 1107.859375,
+      "badgeLeft": 1115.859375,
+      "badgeRight": 1156,
+      "rowRight": 1156
+    }
+  ],
+  "longLayout": [
+    {
+      "row": {
+        "left": 888.25,
+        "right": 1156,
+        "top": 454,
+        "bottom": 566
+      },
+      "subject": {
+        "left": 914.25,
+        "right": 1056.015625,
+        "top": 460,
+        "bottom": 560
+      },
+      "badge": {
+        "left": 1064.015625,
+        "right": 1156,
+        "top": 460,
+        "bottom": 480
+      },
+      "dependency": null
+    },
+    {
+      "row": {
+        "left": 888.25,
+        "right": 1156,
+        "top": 566,
+        "bottom": 734
+      },
+      "subject": {
+        "left": 914.25,
+        "right": 1078.796875,
+        "top": 572,
+        "bottom": 652
+      },
+      "badge": {
+        "left": 1086.796875,
+        "right": 1156,
+        "top": 572,
+        "bottom": 592
+      },
+      "dependency": {
+        "left": 914.25,
+        "right": 1156,
+        "top": 656,
+        "bottom": 728
+      }
+    }
+  ],
+  "compactWidths": [
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "width": 208,
+      "scrollWidth": 208,
+      "clientWidth": 208,
+      "steps": [
+        {
+          "rowRight": 992,
+          "badgeRight": 992
+        },
+        {
+          "rowRight": 992,
+          "badgeRight": 992
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "width": 267.75,
+      "scrollWidth": 268,
+      "clientWidth": 268,
+      "steps": [
+        {
+          "rowRight": 1156,
+          "badgeRight": 1156
+        },
+        {
+          "rowRight": 1156,
+          "badgeRight": 1156
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 420
+      },
+      "width": 267.75,
+      "scrollWidth": 268,
+      "clientWidth": 268,
+      "steps": [
+        {
+          "rowRight": 1156,
+          "badgeRight": 1156
+        },
+        {
+          "rowRight": 1156,
+          "badgeRight": 1156
+        }
+      ]
+    }
+  ],
+  "counterStyle": {
+    "background": "rgba(0, 0, 0, 0)",
+    "borderRadius": "0px",
+    "padding": "0px",
+    "numberStyles": [
+      {
+        "text": "3",
+        "background": "rgb(34, 34, 34)",
+        "borderRadius": "6px"
+      },
+      {
+        "text": "3",
+        "background": "rgb(34, 34, 34)",
+        "borderRadius": "6px"
+      }
+    ],
+    "connectorText": "of  steps"
+  },
+  "failureColor": {
+    "actual": "rgb(255, 100, 103)",
+    "expected": "rgb(255, 100, 103)"
+  },
+  "composerSummary": {
+    "text": "Progress · 0 of 2 steps done1 needs attention",
+    "outer": {
+      "left": 356,
+      "right": 696.921875,
+      "top": 181,
+      "bottom": 209
+    },
+    "children": [
+      {
+        "left": 364,
+        "right": 380,
+        "top": 187,
+        "bottom": 203
+      },
+      {
+        "left": 384,
+        "right": 554.828125,
+        "top": 185,
+        "bottom": 205
+      },
+      {
+        "left": 560.828125,
+        "right": 668.921875,
+        "top": 185,
+        "bottom": 205
+      },
+      {
+        "left": 672.921875,
+        "right": 688.921875,
+        "top": 187,
+        "bottom": 203
+      }
+    ],
+    "overlaps": [],
+    "escaped": false
+  },
+  "reducedMotion": {
+    "prefersReduced": true,
+    "spinnerAnimation": "none"
+  },
+  "fixtureVsReal": "All tasks and receipts are synthetic preview fixtures; no runtime/provider was used.",
+  "reloadFixtureBoundary": "The preview in-memory Pal store resets on full page reload. This proof recreates the Pal and seeds a valid presentation with jobsOpen=true before opening it, which verifies presentation normalization after reload; it does not prove Pal or conversation history persistence across reload.",
+  "faults": []
+}

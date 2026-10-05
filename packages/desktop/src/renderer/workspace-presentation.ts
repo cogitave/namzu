@@ -46,6 +46,8 @@ export function readWorkspacePresentation(
 		const screen = value.palScreen as WorkspacePresentation['palScreen']
 		return {
 			...value,
+			// Older Pal views could open the ordinary conversation's technical pane.
+			jobsOpen: palId ? false : value.jobsOpen,
 			palScreen:
 				typeof palId === 'string' &&
 				palId.length > 0 &&

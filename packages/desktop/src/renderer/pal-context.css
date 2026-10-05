@@ -186,8 +186,17 @@
 .pal-plan-count {
 	display: inline-flex;
 	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+	line-height: 18px;
+}
+.pal-plan-number {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 24px;
 	min-height: 24px;
-	padding: 2px 7px;
+	padding: 2px 5px;
 	border: 1px solid var(--border);
 	border-radius: 6px;
 	background: var(--surface);
@@ -461,6 +470,12 @@
 	color: var(--muted-foreground);
 	font-size: 12px;
 	line-height: 18px;
+}
+.pal-output-details {
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 6px;
 }
 .pal-recent-action[data-status="failed"] .pal-recent-detail,
 .pal-recent-action[data-status="failed"] > svg {

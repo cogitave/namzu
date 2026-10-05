@@ -31,16 +31,25 @@ function readRaw(value: unknown, palId?: string) {
 	return readWorkspacePresentation({ getItem: () => JSON.stringify(value) }, 'session', palId)
 }
 
-it('restores the same Pal computer, floating chat, profile, activity and transcript position', () => {
+it('restores the Pal computer, chat and position while dropping an old technical pane', () => {
 	const cache = storage()
-	const original = presentation({ palScreen: { palId: 'pal-happy', activeTab: 'computer' } })
+	const original = presentation({
+		palScreen: { palId: 'pal-happy', activeTab: 'computer' },
+	})
 	writeWorkspacePresentation(cache, 'pal-session', original)
-	expect(readWorkspacePresentation(cache, 'pal-session', 'pal-happy')).toEqual(original)
+	expect(readWorkspacePresentation(cache, 'pal-session', 'pal-happy')).toEqual({
+		...original,
+		jobsOpen: false,
+	})
 })
 
 it('keeps ordinary session view state independent from other conversations', () => {
 	const cache = storage()
-	const first = presentation({ computerChat: 'hidden', jobsOpen: false, scrollTop: 0 })
+	const first = presentation({
+		computerChat: 'hidden',
+		jobsOpen: false,
+		scrollTop: 0,
+	})
 	const second = presentation({ panelTab: 'jobs', scrollTop: 91 })
 	writeWorkspacePresentation(cache, 'first', first)
 	writeWorkspacePresentation(cache, 'second', second)
@@ -50,9 +59,15 @@ it('keeps ordinary session view state independent from other conversations', () 
 })
 
 it('drops stale or malformed Pal identity while preserving the remaining valid view state', () => {
-	const original = presentation({ palScreen: { palId: 'old-pal', activeTab: 'computer' } })
+	const original = presentation({
+		palScreen: { palId: 'old-pal', activeTab: 'computer' },
+	})
 	for (const palId of [undefined, 'new-pal'])
-		expect(readRaw(original, palId)).toEqual({ ...original, palScreen: undefined })
+		expect(readRaw(original, palId)).toEqual({
+			...original,
+			jobsOpen: palId ? false : original.jobsOpen,
+			palScreen: undefined,
+		})
 	for (const palScreen of [
 		{ activeTab: 'computer' },
 		{ palId: 12, activeTab: 'computer' },
@@ -61,6 +76,7 @@ it('drops stale or malformed Pal identity while preserving the remaining valid v
 	]) {
 		expect(readRaw({ ...original, palScreen }, 'new-pal')).toEqual({
 			...original,
+			jobsOpen: false,
 			palScreen: undefined,
 		})
 	}
@@ -90,7 +106,9 @@ it.each([
 	[],
 	'split',
 	{},
-	presentation({ computerChat: 'unknown' as WorkspacePresentation['computerChat'] }),
+	presentation({
+		computerChat: 'unknown' as WorkspacePresentation['computerChat'],
+	}),
 	{ ...presentation(), computerChat: ['split'] },
 	{ ...presentation(), panelTab: ['jobs'] },
 	{ ...presentation(), panelTab: 'unknown' },
