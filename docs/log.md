@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- **Update** [Pal context layout](cli/desktop.md#persistent-pals): measure the remaining chat column when Activity or Changes is open, preserving the 300px right card where space allows instead of forcing a full-width top band. Keep the compact scrolling layout for genuinely narrow chat columns and preserve ordinary conversations and computer profile overlays.
+
 - **Update** [Native Windows development snapshots](cli/desktop.md#native-windows-development-snapshots): consolidate the source checkout and complete local runtime graph after a partial CLI/SDK copy split the provider registry. Preserve branch references and reports before removing unused clean worktrees, retain uncommitted work, include declared CLI MCP assets and verify native dependency links and Zen registration without model requests.
 
 - **Update** [Desktop Pal communication](cli/desktop.md#pal-communication-management), [Pal host methods](cli/pals.md#acp-host-extensions) and [subscription enumeration](sdk/pal-subscriptions.md): expose existing directed send/wake consent, durable inbox delivery metadata and exact-conversation activity subscriptions through the owning Pal connection. Keep reads free of model/computer execution, retain confirmed rows on incomplete reads, fence mutations by connection/snapshot/revision, and pin the physical application home from the first authenticated communication request until reconnect. Omit message bodies, private profile context and derived conversation titles. Add a strict frozen list on the concrete SDK store without requiring it on custom stores. A wake grant remains consent, not an installed idle dispatcher or a Team membership.

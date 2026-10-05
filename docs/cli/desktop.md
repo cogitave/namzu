@@ -241,11 +241,19 @@ Once setup saves the profile, the central character disappears. A persistent car
 right shows its live 3D character, computer, owned recent conversations and
 current completed change receipts. The pencil beside the character opens
 customization. The card has no menu trigger and reserves its own layout space,
-so it never overlaps the transcript or composer. Below 720px of workspace width,
-or while a detail pane is open, it stays visible above the conversation with
-bounded scrolling. Neither empty outputs nor a disconnected computer imply
+so it never overlaps the transcript or composer. The remaining Pal chat width,
+after an open Activity or Changes pane reserves its column, controls the layout.
+At 720px or wider the card stays in its 300px right column; below that width it
+stays visible above the conversation with bounded scrolling. Neither empty
+outputs nor a disconnected computer imply
 completed work. Customizing an existing profile preserves the selected
 conversation. Its default model applies to future conversations.
+
+The [native layout receipt](../../research/runtime-desktop-20260930/artifacts/pal-context-layout-native-safe-20261005.json)
+checks Tasks open at four viewport widths, including 720px and 719px of remaining
+chat space, and preserves the viewport, profiles, drafts and workspace. The
+[wide capture](../../research/runtime-desktop-20260930/artifacts/pal-context-layout-wide-native-20261005.png)
+shows the separate transcript, Pal card and Tasks columns.
 
 The customization preview and saved Pal card use locally generated Three.js
 geometry, loaded only when needed, with idle motion, blinking and pointer
@@ -729,6 +737,13 @@ subjects, reported statuses and dependency subjects are shown without raw IDs.
 Planning state is agent-maintained: a completed item does not independently
 verify an artifact. Failed items remain distinct from completed items. The
 project-context entry for background terminal jobs is labelled Shells.
+
+The [native Windows task receipt](../../research/runtime-desktop-20260930/artifacts/task-tracking-desktop-native-windows-safe-20261005.json)
+records two actual Pal composer sends using the existing free model, guest file
+reads, streamed task changes, a deliberately failed input, dependency removal
+and three completed rows retained after normal process restart. It verifies
+the durable desktop snapshot rather than accepting the provider's prose as
+storage evidence. The model-facing `task_list` is a narrower current-turn view.
 
 The desktop opts into `namzu/tasks` notifications and reads `namzu/tasks/list`
 when opening durable history, replacing a runtime connection and reconciling

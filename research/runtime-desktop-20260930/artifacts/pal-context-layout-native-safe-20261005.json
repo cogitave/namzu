@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "passed": true,
+  "actualNativeWindows": true,
+  "pid": 54412,
+  "noModelRequest": true,
+  "noComputerAction": true,
+  "noNativeWindowBoundsMutation": true,
+  "originalViewportRestored": true,
+  "profilesTasksDraftsSettingsAndWorkspacePreserved": true,
+  "cases": [
+    {
+      "viewport": 2253,
+      "workspace": {
+        "x": 336,
+        "y": 32,
+        "width": 1917,
+        "height": 1335,
+        "right": 2253,
+        "bottom": 1367
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 1477,
+        "height": 1283,
+        "right": 1813,
+        "bottom": 1367
+      },
+      "card": {
+        "x": 1497,
+        "y": 100,
+        "width": 300,
+        "height": 544,
+        "right": 1797,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 1153,
+        "height": 1283,
+        "right": 1489,
+        "bottom": 1367
+      },
+      "cardOverflow": "auto",
+      "screenshot": "wide",
+      "screenshotSha256": "e58c02e1bcfce6c8eda9b3146faf4fae3db230bd75e1a3d69d03ee9e86ec5e96"
+    },
+    {
+      "viewport": 1496,
+      "workspace": {
+        "x": 336,
+        "y": 32,
+        "width": 1160,
+        "height": 868,
+        "right": 1496,
+        "bottom": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 720,
+        "height": 816,
+        "right": 1056,
+        "bottom": 900
+      },
+      "card": {
+        "x": 740,
+        "y": 100,
+        "width": 300,
+        "height": 544,
+        "right": 1040,
+        "bottom": 644
+      },
+      "lane": {
+        "x": 336,
+        "y": 84,
+        "width": 396,
+        "height": 816,
+        "right": 732,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "screenshot": "width-1496",
+      "screenshotSha256": "dbb9885683fd83361c7a6a0e4c90fc55101bb8934b381cf5f8f494ffcc929986"
+    },
+    {
+      "viewport": 1495,
+      "workspace": {
+        "x": 336,
+        "y": 32,
+        "width": 1159,
+        "height": 868,
+        "right": 1495,
+        "bottom": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 719,
+        "height": 816,
+        "right": 1055,
+        "bottom": 900
+      },
+      "card": {
+        "x": 348,
+        "y": 96,
+        "width": 695,
+        "height": 210,
+        "right": 1043,
+        "bottom": 306
+      },
+      "lane": {
+        "x": 336,
+        "y": 318,
+        "width": 719,
+        "height": 582,
+        "right": 1055,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "screenshot": "width-1495",
+      "screenshotSha256": "509e3d1e6e39b3c8ff48e26ec3b443868c03b8219c3f750f8ebdd8655c31082e"
+    },
+    {
+      "viewport": 1336,
+      "workspace": {
+        "x": 336,
+        "y": 32,
+        "width": 1000,
+        "height": 868,
+        "right": 1336,
+        "bottom": 900
+      },
+      "stage": {
+        "x": 336,
+        "y": 84,
+        "width": 600,
+        "height": 816,
+        "right": 936,
+        "bottom": 900
+      },
+      "card": {
+        "x": 348,
+        "y": 96,
+        "width": 576,
+        "height": 210,
+        "right": 924,
+        "bottom": 306
+      },
+      "lane": {
+        "x": 336,
+        "y": 318,
+        "width": 600,
+        "height": 582,
+        "right": 936,
+        "bottom": 900
+      },
+      "cardOverflow": "auto",
+      "screenshot": "width-1336",
+      "screenshotSha256": "0c4311326f308ff1d36dab0da95edc6b56a1cdfbf97df1f50434c8eb5a0fe14d"
+    }
+  ],
+  "before": {
+    "viewport": {
+      "width": 2253,
+      "height": 1367,
+      "dpr": 1
+    },
+    "fonts": "loaded",
+    "panes": [
+      {
+        "jobsOpen": true,
+        "workspace": {
+          "box": {
+            "x": 336,
+            "y": 32,
+            "width": 1917,
+            "height": 1335
+          },
+          "display": "flex",
+          "position": "relative",
+          "flexDirection": "column",
+          "order": "0",
+          "maxHeight": "none",
+          "width": "1917px",
+          "overflowY": "clip",
+          "containerType": "inline-size",
+          "containerName": "workspace"
+        },
+        "chat": {
+          "box": {
+            "x": 336,
+            "y": 84,
+            "width": 1477,
+            "height": 1283
+          },
+          "display": "flex",
+          "position": "relative",
+          "flexDirection": "column",
+          "order": "0",
+          "maxHeight": "none",
+          "width": "1477px",
+          "overflowY": "visible",
+          "containerType": "normal",
+          "containerName": "none"
+        },
+        "lane": {
+          "box": {
+            "x": 336,
+            "y": 318,
+            "width": 1477,
+            "height": 1049
+          },
+          "display": "flex",
+          "position": "relative",
+          "flexDirection": "column",
+          "order": "0",
+          "maxHeight": "none",
+          "width": "1477px",
+          "overflowY": "visible",
+          "containerType": "normal",
+          "containerName": "none"
+        },
+        "card": {
+          "box": {
+            "x": 348,
+            "y": 96,
+            "width": 1453,
+            "height": 210
+          },
+          "display": "block",
+          "position": "static",
+          "flexDirection": "row",
+          "order": "0",
+          "maxHeight": "210px",
+          "width": "1453px",
+          "overflowY": "auto",
+          "containerType": "normal",
+          "containerName": "none"
+        },
+        "tasks": {
+          "box": {
+            "x": 1813,
+            "y": 32,
+            "width": 440,
+            "height": 1335
+          },
+          "display": "flex",
+          "position": "absolute",
+          "flexDirection": "column",
+          "order": "0",
+          "maxHeight": "none",
+          "width": "440px",
+          "overflowY": "visible",
+          "containerType": "normal",
+          "containerName": "none"
+        },
+        "composer": null
+      }
+    ]
+  },
+  "reference": "User-supplied screenshot: persistent Pal card on right; fix full-width band when Activity opens",
+  "limitations": [
+    "Actual native proof covers one Pal chat with Tasks open and four renderer viewport widths.",
+    "Normal conversations, computer profile overlay and reduced motion checked separately with real source CSS."
+  ]
+}

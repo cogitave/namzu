@@ -526,15 +526,23 @@ pre {
 	min-height: 0;
 }
 .chat-stage[data-pal-context="true"] {
-	flex-direction: row;
+	/* Measure the remaining chat width after a detail panel reserves its column.
+	   Two row tracks let this container's children reflow without sizing from the outer pane. */
+	container-type: inline-size;
+	container-name: pal-chat;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 324px);
+	grid-template-rows: auto minmax(0, 1fr);
 }
-@container workspace (max-width: 719px) {
-	.chat-stage[data-pal-context="true"] {
-		flex-direction: column;
+.chat-stage[data-pal-context="true"] > .conversation-lane {
+	grid-column: 1;
+	grid-row: 1 / -1;
+}
+@container pal-chat (max-width: 719px) {
+	.chat-stage[data-pal-context="true"] > .conversation-lane {
+		grid-column: 1 / -1;
+		grid-row: 2;
 	}
-}
-.workspace.jobs-open .chat-stage[data-pal-context="true"] {
-	flex-direction: column;
 }
 .transcript {
 	min-height: 0;

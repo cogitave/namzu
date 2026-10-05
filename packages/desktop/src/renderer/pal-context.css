@@ -30,6 +30,10 @@
 	min-width: 0;
 	padding: 18px 16px 20px;
 }
+.chat-stage[data-pal-context="true"] > .pal-context-card {
+	grid-column: 2;
+	grid-row: 1 / -1;
+}
 .pal-context-heading {
 	display: flex;
 	align-items: center;
@@ -311,19 +315,15 @@
 		transform: translateY(0);
 	}
 }
-@container workspace (max-width: 719px) {
-	.pal-context-card {
+@container pal-chat (max-width: 719px) {
+	.chat-stage[data-pal-context="true"] > .pal-context-card {
+		grid-column: 1 / -1;
+		grid-row: 1;
 		order: 0;
 		width: calc(100% - 24px);
 		margin: 12px;
 		max-height: min(26dvh, 210px);
 	}
-}
-.workspace.jobs-open .pal-context-card {
-	order: 0;
-	width: calc(100% - 24px);
-	margin: 12px;
-	max-height: min(26dvh, 210px);
 }
 @media (hover: none) {
 	.pal-status-action:not(:disabled) .pal-status-rest {

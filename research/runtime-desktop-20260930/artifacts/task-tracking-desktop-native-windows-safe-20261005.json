@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "passed": true,
+  "actualNativeWindows": true,
+  "actualDesktopComposerSends": 2,
+  "existingPalModel": "zen/space-bunny-free",
+  "toolsAndGuestFileReadsExercised": true,
+  "stages": [
+    {
+      "mode": "start",
+      "tasks": [
+        {
+          "subject": "Write proof note",
+          "status": "completed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Verify proof note",
+          "status": "completed",
+          "dependencyCount": 1
+        },
+        {
+          "subject": "Check missing companion",
+          "status": "failed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Await missing companion",
+          "status": "pending",
+          "dependencyCount": 1
+        }
+      ],
+      "taskNotificationCount": 16,
+      "uniqueObservedToolCalls": 18,
+      "errorPresent": false,
+      "coldPidChanged": false,
+      "originalLayoutRestored": false
+    },
+    {
+      "mode": "start-visible",
+      "tasks": [
+        {
+          "subject": "Write proof note",
+          "status": "completed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Verify proof note",
+          "status": "completed",
+          "dependencyCount": 1
+        },
+        {
+          "subject": "Check missing companion",
+          "status": "failed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Await missing companion",
+          "status": "pending",
+          "dependencyCount": 1
+        }
+      ],
+      "taskNotificationCount": 0,
+      "uniqueObservedToolCalls": 0,
+      "errorPresent": false,
+      "coldPidChanged": false,
+      "originalLayoutRestored": false
+    },
+    {
+      "mode": "finish",
+      "tasks": [
+        {
+          "subject": "Write proof note",
+          "status": "completed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Verify proof note",
+          "status": "completed",
+          "dependencyCount": 1
+        },
+        {
+          "subject": "Await missing companion",
+          "status": "completed",
+          "dependencyCount": 0
+        }
+      ],
+      "taskNotificationCount": 4,
+      "uniqueObservedToolCalls": 7,
+      "errorPresent": false,
+      "coldPidChanged": false,
+      "originalLayoutRestored": false
+    },
+    {
+      "mode": "finish-visible",
+      "tasks": [
+        {
+          "subject": "Write proof note",
+          "status": "completed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Verify proof note",
+          "status": "completed",
+          "dependencyCount": 1
+        },
+        {
+          "subject": "Await missing companion",
+          "status": "completed",
+          "dependencyCount": 0
+        }
+      ],
+      "taskNotificationCount": 0,
+      "uniqueObservedToolCalls": 0,
+      "errorPresent": false,
+      "coldPidChanged": false,
+      "originalLayoutRestored": false
+    },
+    {
+      "mode": "reopen-visible",
+      "tasks": [
+        {
+          "subject": "Write proof note",
+          "status": "completed",
+          "dependencyCount": 0
+        },
+        {
+          "subject": "Verify proof note",
+          "status": "completed",
+          "dependencyCount": 1
+        },
+        {
+          "subject": "Await missing companion",
+          "status": "completed",
+          "dependencyCount": 0
+        }
+      ],
+      "taskNotificationCount": 0,
+      "uniqueObservedToolCalls": 0,
+      "errorPresent": false,
+      "coldPidChanged": true,
+      "originalLayoutRestored": false
+    },
+    {
+      "mode": "restore",
+      "tasks": [],
+      "taskNotificationCount": 0,
+      "uniqueObservedToolCalls": 0,
+      "errorPresent": false,
+      "coldPidChanged": false,
+      "originalLayoutRestored": true
+    }
+  ],
+  "scope": "Real tools, task notifications, rendered Activity and exact durable task rows after normal process restart.",
+  "coldNativePidChanged": true,
+  "originalProfilesDraftsModelsAttachmentsAndMessagesPreserved": true,
+  "originalWindowLayoutAndFocusRestored": true,
+  "limitations": [
+    "Copied local CLI/SDK runtime, not an npm installation.",
+    "Exact durable store and UI snapshots establish these task rows; provider prose is not accepted as storage verification.",
+    "The model-facing task_list filters prior-turn terminal records. Its finish narrative wrongly inferred deletion from this narrower view; shared output disclosure correction is tracked separately."
+  ]
+}
