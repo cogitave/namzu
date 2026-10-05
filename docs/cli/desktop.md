@@ -630,6 +630,18 @@ the exact session, provider and model choice; choosing another model cannot
 reuse a different model's capabilities. Reusing display state does not bypass
 the current ownership checks.
 
+The Pal sidebar uses this same activation path when its latest known conversation
+is already an admitted tab in the current pane. It does not fetch the Pal record
+and conversation catalogue again for each revisit. A newer unloaded conversation,
+an ambiguous or unavailable project, a removed/moved tab, a pending model change
+or a replaced runtime connection uses the full opening path. This is navigation
+reuse; it grants no new message, computer or tool authority.
+Authored prompts, streamed conversation updates and retries retire that Pal's
+catalogue freshness without changing the displayed recency merely on selection.
+Its next sidebar open refreshes the authoritative list once. Activity arriving
+during that read cannot certify the returned list as current; other Pals' warm
+routes remain unaffected.
+
 The [native Windows activation receipt](../../research/runtime-desktop-20260930/artifacts/workspace-tabs-layout-latency-native-safe-20261005.json)
 verified that the same canonical tabs survived cold start and retained their
 drafts, settings, files and selected model. With normal motion and an actual
@@ -641,6 +653,16 @@ observations for existing tabs in one pane, not timing assertions or guarantees
 for first loads, transfers or reconnects. No messages were sent by this check,
 the computer remained offline, and final native service diagnostics reported
 no errors.
+
+The [Pal sidebar receipt](../../research/runtime-desktop-20260930/artifacts/pal-navigation-native-windows-safe-20261005.json)
+checks real Sıtkı and Kiro sidebar clicks as well as their tabs. Warm Sıtkı sidebar
+samples fell from 2431–2509ms to 29–31ms; Kiro samples fell from 436–489ms to
+15–18ms. The first Sıtkı open after renderer reload still needed 3475ms for
+uncached history and metadata. The renderer update kept the native process,
+computer allocation, user profiles, messages, drafts, settings, models and
+window placement unchanged. These timings are observations for those existing
+conversations, not thresholds enforced by tests. No inference or guest action
+was requested, and the current native instance had no diagnostic errors.
 
 One main-process Operator continues to own all runtime connections across these
 views. Moving a tab does not start another SDK loop, restart its engine or replay

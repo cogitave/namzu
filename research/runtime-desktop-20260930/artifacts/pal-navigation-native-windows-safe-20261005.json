@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "passed": true,
+  "actualNativeWindows": true,
+  "pid": 72496,
+  "sourceAndDeployedRendererAssets": [
+    {
+      "path": "assets/index-DGe69tyL.js",
+      "sha256": "75219f3df1cf79adcf3260682d5411be5bc83c3337ae1e1cf1bd00fc79337654",
+      "sourceAndDeployedBytesEqual": true
+    },
+    {
+      "path": "assets/index-k_o4mtaE.css",
+      "sha256": "386a3582eb7ec374d394ee7289ad8e1f15919511e140c686f82e619e2bb68f57",
+      "sourceAndDeployedBytesEqual": true
+    }
+  ],
+  "navigation": {
+    "before": [
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 946.6999999880791,
+        "profileMs": 946.6999999880791,
+        "composerMs": 976.7999999523163,
+        "paintedMs": 992.1999999880791
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 469.5,
+        "profileMs": 469.5,
+        "composerMs": 485.5,
+        "paintedMs": 489.2999999523163
+      },
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 2468.199999988079,
+        "profileMs": 2468.199999988079,
+        "composerMs": 2491.800000011921,
+        "paintedMs": 2508.899999976158
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 421.0999999642372,
+        "profileMs": 421.0999999642372,
+        "composerMs": 429.89999997615814,
+        "paintedMs": 436.0999999642372
+      },
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 2400,
+        "profileMs": 2400,
+        "composerMs": 2420.199999988079,
+        "paintedMs": 2430.600000023842
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 455.5999999642372,
+        "profileMs": 455.5999999642372,
+        "composerMs": 464.89999997615814,
+        "paintedMs": 469.5
+      },
+      {
+        "route": "tab",
+        "name": "Sıtkı",
+        "selectedMs": 19.5,
+        "profileMs": 19.5,
+        "composerMs": 19.5,
+        "paintedMs": 23.5
+      },
+      {
+        "route": "tab",
+        "name": "Kiro",
+        "selectedMs": 11.400000035762787,
+        "profileMs": 11.400000035762787,
+        "composerMs": 11.400000035762787,
+        "paintedMs": 20.5
+      },
+      {
+        "route": "tab",
+        "name": "Sıtkı",
+        "selectedMs": 17.899999976158142,
+        "profileMs": 17.899999976158142,
+        "composerMs": 17.899999976158142,
+        "paintedMs": 25.5
+      },
+      {
+        "route": "tab",
+        "name": "Kiro",
+        "selectedMs": 11.800000011920929,
+        "profileMs": 11.800000011920929,
+        "composerMs": 11.800000011920929,
+        "paintedMs": 15.599999964237213
+      }
+    ],
+    "after": [
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 896.0999999642372,
+        "profileMs": 896.0999999642372,
+        "composerMs": 3468.2999999523163,
+        "paintedMs": 3474.699999988079
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 12.699999988079071,
+        "profileMs": 12.699999988079071,
+        "composerMs": 12.699999988079071,
+        "paintedMs": 14.899999976158142
+      },
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 23.100000023841858,
+        "profileMs": 23.100000023841858,
+        "composerMs": 23.100000023841858,
+        "paintedMs": 30.900000035762787
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 10.899999976158142,
+        "profileMs": 10.899999976158142,
+        "composerMs": 10.899999976158142,
+        "paintedMs": 15.5
+      },
+      {
+        "route": "sidebar",
+        "name": "Sıtkı",
+        "selectedMs": 21.69999998807907,
+        "profileMs": 21.69999998807907,
+        "composerMs": 21.69999998807907,
+        "paintedMs": 29.19999998807907
+      },
+      {
+        "route": "sidebar",
+        "name": "Kiro",
+        "selectedMs": 14,
+        "profileMs": 14,
+        "composerMs": 14,
+        "paintedMs": 17.899999976158142
+      },
+      {
+        "route": "tab",
+        "name": "Sıtkı",
+        "selectedMs": 23.799999952316284,
+        "profileMs": 23.799999952316284,
+        "composerMs": 23.799999952316284,
+        "paintedMs": 32.59999996423721
+      },
+      {
+        "route": "tab",
+        "name": "Kiro",
+        "selectedMs": 13.399999976158142,
+        "profileMs": 13.399999976158142,
+        "composerMs": 13.399999976158142,
+        "paintedMs": 17
+      },
+      {
+        "route": "tab",
+        "name": "Sıtkı",
+        "selectedMs": 22.69999998807907,
+        "profileMs": 22.69999998807907,
+        "composerMs": 22.69999998807907,
+        "paintedMs": 31
+      },
+      {
+        "route": "tab",
+        "name": "Kiro",
+        "selectedMs": 13.599999964237213,
+        "profileMs": 13.599999964237213,
+        "composerMs": 13.599999964237213,
+        "paintedMs": 18.599999964237213
+      }
+    ],
+    "modelsPreserved": [
+      {
+        "name": "Kiro",
+        "revision": 7,
+        "model": {
+          "provider": "zen",
+          "model": "space-bunny-free"
+        }
+      },
+      {
+        "name": "Sıtkı",
+        "revision": 4,
+        "model": {
+          "provider": "codex",
+          "model": "gpt-6-luna"
+        }
+      }
+    ],
+    "beforeLongTasks": [],
+    "afterLongTasks": [
+      {
+        "start": 39084.5,
+        "duration": 203
+      },
+      {
+        "start": 39289.80000001192,
+        "duration": 98
+      }
+    ]
+  },
+  "preserved": {
+    "allPalProfiles": true,
+    "windowPlacementAndFocus": true,
+    "existingConversationMessagesDraftsSettingsAndModels": true,
+    "computerStatusAllocationGenerationAndControl": true
+  },
+  "deployment": {
+    "rendererOnly": true,
+    "nativeProcessNotRestarted": true,
+    "palComputersNotRestarted": true
+  },
+  "diagnostics": {
+    "currentInstanceErrorRecords": 0,
+    "visibleAlerts": 0,
+    "historicalRecordsPreserved": true
+  },
+  "noModelRequest": true,
+  "noGuestInputOrLifecycleAction": true,
+  "limitations": [
+    "Click-to-paint measurements are observational samples, not timing test assertions or a performance guarantee.",
+    "The first Sıtkı sample after renderer reload loads uncached history and metadata; it is not a warm-switch measurement.",
+    "Native proof covers two existing Pals in one pane; ownership/connection/choice invalidation and activity/read races have deterministic renderer regressions.",
+    "No provider turn or external Pal/channel message was sent."
+  ]
+}

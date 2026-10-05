@@ -66,6 +66,7 @@ import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
+import { PalCatalogueActivity, warmPalConversation } from './pal-navigation.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
@@ -266,6 +267,9 @@ export function App({
 	const [projects, setProjects] = useState<ProjectView[]>([])
 	const [projectId, setProjectId] = useState('')
 	const [conversations, setConversations] = useState<ConversationView[]>([])
+	const catalogueRows = useRef({ projects, conversations })
+	catalogueRows.current = { projects, conversations }
+	const palCatalogueActivity = useRef(new PalCatalogueActivity())
 	const [sessionId, setSessionId] = useState('')
 	useEffect(() => {
 		if (projectId) return
@@ -852,6 +856,15 @@ export function App({
 				return
 			}
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
+			if (event.kind === 'prompt' || event.kind === 'update' || event.kind === 'retry') {
+				const rows = catalogueRows.current
+				const owner =
+					rows.conversations.find((item) => item.id === id)?.palId ??
+					(event.kind === 'update'
+						? rows.projects.find((item) => item.id === event.projectId)?.palId
+						: undefined)
+				if (owner) palCatalogueActivity.current.changed(owner)
+			}
 			const read = snapshotRead.current
 			if (
 				!context.current.group.tabs.includes(id) &&
@@ -1606,12 +1619,27 @@ export function App({
 		setPalsError('')
 	}
 	const openPal = async (value: PalView) => {
+		const remembered = warmPalConversation(
+			value.id,
+			projects,
+			conversations,
+			context.current.group.tabs,
+			(view) =>
+				palCatalogueActivity.current.current(value.id) &&
+				Boolean(warmSessions.current.read(view.id, view.projectId)),
+		)
+		if (remembered) {
+			setLoading(false)
+			return openConversation(remembered)
+		}
 		abandonTabRestore()
 		const generation = ++navigation.current
 		setPalScreen(undefined)
 		setLoading(true)
 		try {
+			const activity = palCatalogueActivity.current.ticket(value.id)
 			const opened = await api.openPal(value.id)
+			palCatalogueActivity.current.confirm(value.id, activity)
 			upsertPal(opened.pal)
 			updateProject(opened.project)
 			setConversations((all) => [
