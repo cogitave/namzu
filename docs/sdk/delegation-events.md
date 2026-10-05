@@ -70,6 +70,56 @@ Every field is optional and absent by default. A host that groups nothing sends
 nothing, and a consumer written before these fields existed reads exactly the
 event it read before.
 
+## Worker completion and linked planning records
+
+`create_task` returns the delegated worker's `task_id` and, when a
+`TaskStore` is supplied, its separate `plan_task_id`. The first identifies
+one worker invocation; the second identifies the planning record that can
+carry an owner and dependencies. `plan_step_id` names a step in the
+approved, turn-scoped `PlanManager`. These identities keep their existing
+scopes; a completion does not turn them into one record.
+
+Both foreground and background launches settle the linked planning task and
+approved plan step from the same worker outcome. A completed worker with a
+completed turn succeeds; a failed, canceled, rejected or partial outcome
+fails the planning record. A scheduler launch that rejects before returning a
+handle records delegation admission failure and retains the original error;
+this does not establish whether the worker was dispatched or permit a replay.
+A tracking-write failure while recording that admission failure reports both
+errors. Legacy worker results without a turn status retain
+the existing completed-worker contract. An inline wait timing out or being
+abandoned does not cancel this settlement. The launch retains the original
+plan manager and plan id; a newer plan with the same step id is not updated.
+
+Completion delivery waits for the planning write before claiming or announcing
+the result. A rejected tracking write is reported as an error, with the
+completion retained, rather than announcing success over an unchanged plan.
+The tracking promise and inbox belong to the live turn; they do not reconstruct
+worker execution or replay interrupted writes after a process restart.
+
+Hosts composing `CompletionInbox` can register an owned task's persistence
+promise with `deferDelivery(taskId, settlement)` immediately after
+`launched(taskId)`. This accepts only an owned, undelivered task; it does not
+hand a callback another turn's worker output. `drainAsync(signal?)` waits for tracking
+of already queued results and delivers each once. It never waits for a worker
+still running. The synchronous `drain()` remains available: pending gates stay
+queued, and a rejected gate throws without consuming results. A known queued
+tracking failure is reported even if another result's write is still pending.
+Aborting an
+asynchronous drain returns no results and leaves the tracking promise and
+completion queued for a later consumer. Both drains keep
+existing claim and foreign-task filtering rules. Closing the inbox releases
+its delivery state, without cancelling the independent tracking write.
+`query()` awaits tracking at its normal notification points within the
+caller's cancellation signal and existing turn deadline. Its outstanding-work
+hold delivers only ready tracking at the end of the existing arrival, grace or
+inbound-input race; persistence does not extend the hold or delay steering.
+Its terminal exit
+uses the synchronous drain, so pending persistence cannot hold a cancelled or
+finished turn open; a rejected tracking write does not replace an existing
+caller cancellation. Hosts using the synchronous drain with deferred delivery must call it
+again after persistence settles.
+
 ## Continuing a child conversation
 
 `LocalTaskScheduler.createTask({ resumeSessionId, ... })` and the corresponding

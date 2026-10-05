@@ -1,5 +1,6 @@
 import type {
 	AcpSessionUpdate,
+	AcpTask,
 	PalAppearance,
 	PalComputerControlState,
 	PalComputerInput,
@@ -257,6 +258,8 @@ export type DesktopEvent = (
 			update: AcpSessionUpdate
 	  }
 	| { kind: 'permission'; request: PermissionView }
+	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
+	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
@@ -352,6 +355,8 @@ export interface DesktopApi {
 	removeQueued(sessionId: string, itemId: string): Promise<void>
 	approve(sessionId: string, requestId: string, approved: boolean): Promise<void>
 	jobs(sessionId: string): Promise<JobView[]>
+	/** Refresh the existing planning projection without starting a turn. */
+	refreshTasks?(sessionId: string): Promise<void>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	onEvent(listener: (event: DesktopEvent) => void): () => void

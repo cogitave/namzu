@@ -1,0 +1,41 @@
+.tasks-progress {
+	max-width: 100%;
+	margin-top: 12px;
+	white-space: normal;
+	text-align: left;
+}
+.tasks-failed,
+.conversation-tasks [data-status="failed"] .task-state {
+	color: var(--destructive);
+}
+.conversation-tasks {
+	margin-bottom: 24px;
+}
+.conversation-tasks h3 {
+	margin: 0 0 6px;
+	font-size: 14px;
+	font-weight: 500;
+}
+.conversation-tasks ul {
+	list-style: none;
+	margin: 12px 0 0;
+	padding: 0;
+}
+.conversation-tasks li {
+	padding: 10px 0;
+	border-bottom: 1px solid var(--border);
+	font-size: 13px;
+	overflow-wrap: anywhere;
+}
+.conversation-tasks li > div {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+}
+.conversation-tasks .task-state {
+	flex: none;
+	color: var(--muted-foreground);
+}
+.conversation-tasks li p {
+	margin: 6px 0 0;
+}

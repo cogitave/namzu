@@ -26,13 +26,13 @@ export function buildTaskListTool(
 			const all = await taskStore.list({ sessionId: scope.sessionId })
 			// Blockers resolve against every task of the session, shown or not: a
 			// blocker closed in an earlier turn is resolved, not unknown.
-			const completedIds = new Set(
+			const terminalIds = new Set(
 				all.filter((t) => isTerminalTaskStatus(t.status)).map((t) => t.id),
 			)
 			const tasks = selectTaskContext(all, scope)
 
 			const summary = tasks.map((task) => {
-				const unresolvedBlockers = task.blockedBy.filter((bid) => !completedIds.has(bid))
+				const unresolvedBlockers = task.blockedBy.filter((bid) => !terminalIds.has(bid))
 
 				return {
 					id: task.id,
@@ -49,6 +49,7 @@ export function buildTaskListTool(
 				pending: tasks.filter((t) => t.status === 'pending').length,
 				in_progress: tasks.filter((t) => t.status === 'in_progress').length,
 				completed: tasks.filter((t) => t.status === 'completed').length,
+				failed: tasks.filter((t) => t.status === 'failed').length,
 			}
 
 			return {
@@ -56,7 +57,7 @@ export function buildTaskListTool(
 				output:
 					tasks.length === 0
 						? 'No planning tasks yet. This list does not report delegated agent status; use agent_task_list when available.'
-						: `${countTasks(stats.total)}: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending.`,
+						: `${countTasks(stats.total)}: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending${stats.failed ? `, ${stats.failed} failed` : ''}.`,
 				data: { tasks: summary, stats },
 			}
 		},

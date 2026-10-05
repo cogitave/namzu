@@ -8,6 +8,7 @@ import {
 	ACP_METHODS,
 	ACP_PERMISSION_CAPABILITY,
 	ACP_PROTOCOL_VERSION,
+	ACP_TASK_CAPABILITY,
 } from '../../constants/acp/index.js'
 import type { HostCommandRegistry } from '../../registry/command/index.js'
 import type { ToolPresenter } from '../../registry/tool/presentation.js'
@@ -24,6 +25,7 @@ import type {
 	AcpSessionPromptParams,
 	AcpSessionPromptResult,
 	AcpSessionUpdate,
+	AcpTaskUpdate,
 } from '../../types/acp/index.js'
 import type { MCPJsonRpcMessage, MCPTransport } from '../../types/connector/mcp.js'
 import type { SessionEvent } from '../../types/session/events.js'
@@ -36,6 +38,7 @@ import type {
 	AcpPermissionOutcome,
 	AcpPermissionRequest,
 } from './permission.js'
+import { toAcpTaskUpdate } from './tasks.js'
 import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
 
 /**
@@ -139,6 +142,8 @@ export interface AcpServerOptions {
 	readonly supportsPromptAttachments?: boolean
 	/** The host applies optional effort and permission settings to the exact turn. */
 	readonly supportsPromptOptions?: boolean
+	/** Emit planning notifications only to clients declaring namzu/tasks. */
+	readonly supportsTaskNotifications?: boolean
 	readonly transport: MCPTransport
 	readonly gateway: AcpAgentGateway
 	/**
@@ -442,6 +447,17 @@ export class ACPServer {
 		)
 	}
 
+	private async notifyTaskUpdate(update: AcpTaskUpdate): Promise<void> {
+		await this.send(
+			{
+				jsonrpc: '2.0',
+				method: ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE,
+				params: update as unknown as Record<string, unknown>,
+			},
+			true,
+		)
+	}
+
 	private onInitialize(params: AcpInitializeParams): AcpInitializeResult {
 		this.initialized = true
 		this.clientCapabilities = params.capabilities ?? []
@@ -458,7 +474,10 @@ export class ACPServer {
 			// from `required` on purpose: a peer that is not an editor has no
 			// buffers, and demanding this of it would refuse a session that is
 			// perfectly able to run.
-			optionalClientCapabilities: [ACP_FILESYSTEM_CAPABILITY],
+			optionalClientCapabilities: [
+				ACP_FILESYSTEM_CAPABILITY,
+				...(this.options.supportsTaskNotifications ? [ACP_TASK_CAPABILITY] : []),
+			],
 			...(this.options.extensions
 				? { extensions: Object.keys(this.options.extensions).sort() }
 				: {}),
@@ -656,13 +675,22 @@ export class ACPServer {
 				cwd: session.cwd,
 				signal: controller.signal,
 				onEvent: (event) => {
+					const taskUpdate =
+						this.options.supportsTaskNotifications &&
+						this.clientCapabilities.includes(ACP_TASK_CAPABILITY)
+							? toAcpTaskUpdate(event, params.sessionId)
+							: null
 					const update = toAcpSessionUpdate(event, this.options.presenter)
-					if (!update) return
-					if (update.kind === 'turn_ended') terminalReason = update.reason
+					if (!update && !taskUpdate) return
+					if (update?.kind === 'turn_ended') terminalReason = update.reason
 					// A transport can complete writes asynchronously. Preserve admission
 					// order and finish every update before the prompt response settles.
 					updates = updates
-						.then(() => this.notifyUpdate(params.sessionId, update))
+						.then(() => {
+							if (taskUpdate) return this.notifyTaskUpdate(taskUpdate)
+							if (update) return this.notifyUpdate(params.sessionId, update)
+							return undefined
+						})
 						.catch((error: unknown) => {
 							// Catch immediately, even while the gateway is still running.
 							// Keep later deliveries ordered without replacing the first failure.

@@ -28,7 +28,11 @@ function activity(label: string): ToolCallView {
 }
 
 /** A successful receipt: the call row already said it. */
-const HIDDEN_RESULT: ToolResultView = { kind: 'generic', label: '', visibility: 'hidden' }
+const HIDDEN_RESULT: ToolResultView = {
+	kind: 'generic',
+	label: '',
+	visibility: 'hidden',
+}
 
 /** `N task` / `N tasks`. */
 export function countTasks(count: number): string {
@@ -44,7 +48,9 @@ function failure(result: ToolResult, fallback: string): ToolResultView {
 	}
 }
 
-export function presentTaskCreateCall(input: { readonly subject?: unknown }): ToolCallView {
+export function presentTaskCreateCall(input: {
+	readonly subject?: unknown
+}): ToolCallView {
 	const subject = typeof input.subject === 'string' ? oneLine(input.subject) : ''
 	return activity(subject ? `Add task · ${subject}` : 'Add task')
 }
@@ -61,6 +67,8 @@ export function taskUpdateVerb(status: unknown): string {
 			return 'Start task'
 		case 'completed':
 			return 'Complete task'
+		case 'failed':
+			return 'Fail task'
 		case 'deleted':
 			return 'Remove task'
 		case 'pending':
@@ -90,13 +98,20 @@ export function presentTaskListCall(): ToolCallView {
 
 export function presentTaskListResult(_input: unknown, result: ToolResult): ToolResultView {
 	if (!result.success) return { kind: 'generic', label: 'The task list could not be read' }
-	const stats = (result.data as { stats?: { total?: unknown; completed?: unknown } } | undefined)
-		?.stats
+	const stats = (
+		result.data as
+			| { stats?: { total?: unknown; completed?: unknown; failed?: unknown } }
+			| undefined
+	)?.stats
 	const total = typeof stats?.total === 'number' ? stats.total : undefined
 	const completed = typeof stats?.completed === 'number' ? stats.completed : undefined
+	const failed = typeof stats?.failed === 'number' ? stats.failed : 0
 	if (total === undefined || completed === undefined) return HIDDEN_RESULT
 	return {
 		kind: 'generic',
-		label: total === 0 ? 'No tasks yet' : `Tasks · ${completed}/${total} done`,
+		label:
+			total === 0
+				? 'No tasks yet'
+				: `Tasks · ${completed}/${total} done${failed ? ` · ${failed} failed` : ''}`,
 	}
 }

@@ -109,6 +109,28 @@ An authenticated rename or appearance edit updates the next turn's display
 identity; the conversation's purpose, model, workspace and permissions remain
 pinned to their original revision.
 
+### Session planning tasks
+
+An admitted computer-work turn uses the existing durable `DiskTaskStore` for
+that exact conversation and stamps its tenant on new records. It exposes
+`task_create`, `task_update` and `task_list`, with the normal interactive tool
+loading policy, and reads the [bounded task context](task-context.md) before
+each model request. Reopening or resuming the same conversation reconstructs
+the store from `<session-id>/tasks/`; a new conversation has its own plan.
+The context checks session and tenant before including a record and does not
+write reminder messages into durable conversation history.
+
+Task calls use the same tool-authored activity labels in terminal and desktop
+views, including after checkpoint resume. Successful receipts remain compact;
+task IDs and raw argument JSON are not substituted for those labels.
+
+These are agent-maintained planning records, separate from delegated agent
+invocations and from evidence that an artifact passed verification. The Pal
+is guided to track meaningful multi-step work and keep ordinary chat natural.
+Offline conversations retain their zero-tool contract; task tools are mounted
+only when this turn owns computer admission. Planning metadata uses the host's
+conversation storage and grants no host file, shell or computer access.
+
 ### Installed application MCP servers
 
 A Pal can use application tools installed inside its own computer, including

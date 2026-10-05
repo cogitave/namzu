@@ -70,7 +70,7 @@ function ProjectContextBody({
 					onClick={onJobs}
 				>
 					<TerminalIcon className="size-3.5" aria-hidden="true" />
-					<span className="project-context-row-label">Tasks</span>
+					<span className="project-context-row-label">Shells</span>
 					{runningShells !== null && (
 						<span className="project-context-count">{runningShells} running</span>
 					)}

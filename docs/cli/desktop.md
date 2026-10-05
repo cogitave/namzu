@@ -664,6 +664,37 @@ records this separately from the earlier empty-conversation restoration.
 
 ## Transcript activity and timing
 
+### Planning tasks
+
+Namzu conversations retain their existing session planning list in the shared
+conversation projection. Task progress opens the Tasks section of Activity;
+subjects, reported statuses and dependency subjects are shown without raw IDs.
+Planning state is agent-maintained: a completed item does not independently
+verify an artifact. Failed items remain distinct from completed items. The
+project-context entry for background terminal jobs is labelled Shells.
+
+The desktop opts into `namzu/tasks` notifications and reads `namzu/tasks/list`
+when opening durable history, replacing a runtime connection and reconciling
+a settled turn. Opening Activity performs a read-only idle refresh, including
+background changes that occurred after the query's event subscription ended;
+it starts no model request. No new polling or per-tab read is added. Reads
+authorize and read through the same exact project, tenant and Pal scope where
+applicable. A snapshot arriving after a newer live mutation or connection
+replacement cannot overwrite that mutation. Deleted tasks are removed, and
+updates replace the row so cleared owners and dependency lists do not linger.
+Descriptions, task metadata, tenant IDs and storage paths are excluded from
+these projections.
+
+A corrupt or unreadable task list retains previously known rows and shows an
+unavailable notice rather than clearing them as if the tasks were deleted.
+
+Older CLI connections keep their existing behavior without this optional
+extension. External harness transcripts are not silently interpreted as Namzu
+planning tasks. See [task tracking](../sdk/task-tracking.md) for the existing
+planning, delegated-invocation and resident-pursuit contracts.
+
+### Live phases
+
 The transcript follows admitted runtime events. Pending approvals show Waiting
 for your decision; an active public reasoning block shows Thinking. Tool work
 and answer streaming retain their own phase in the projection. An unspecified

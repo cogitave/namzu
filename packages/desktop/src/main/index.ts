@@ -623,6 +623,7 @@ function register(): void {
 		operator.approve(id, request, approved),
 	)
 	handle('jobs', (id: string) => operator.jobs(id))
+	handle('refreshTasks', (id: string) => operator.refreshTasks(id))
 	handle('readJob', (id: string, job: string) => operator.readJob(id, job))
 	handle('stopJob', (id: string, job: string) => operator.stopJob(id, job))
 }

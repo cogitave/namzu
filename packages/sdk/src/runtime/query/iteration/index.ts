@@ -67,7 +67,11 @@ import {
 } from '../request-rich-content.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { parseNativeCandidate } from './native-output.js'
-import { holdForOutstandingWork, settleOutstandingWork } from './outstanding-work.js'
+import {
+	drainArrivedTaskCompletions,
+	holdForOutstandingWork,
+	settleOutstandingWork,
+} from './outstanding-work.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
 import {
@@ -1661,7 +1665,7 @@ export class IterationOrchestrator {
 					// Placed beside the advisory phase deliberately: that is the
 					// established seam for putting a user message in after tool
 					// results and before the next turn.
-					const unheard = this.ctx.completionInbox?.drain() ?? []
+					const unheard = await drainArrivedTaskCompletions(this.ctx)
 					if (unheard.length > 0) {
 						this.ctx.log.info('Delivering unawaited task completions', {
 							[NAMZU.TURN_ID]: recorder.turnId,

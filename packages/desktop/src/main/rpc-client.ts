@@ -43,6 +43,10 @@ export class RuntimeClient extends EventEmitter {
 	private promptAttachments = false
 	private promptOptions = false
 	private turnRetry = false
+	private tasks = false
+	supportsTasks(): boolean {
+		return this.tasks
+	}
 	supportsTurnRetry(): boolean {
 		return this.turnRetry
 	}
@@ -143,13 +147,14 @@ export class RuntimeClient extends EventEmitter {
 			'initialize',
 			{
 				protocolVersion: 1,
-				capabilities: ['permission'],
+				capabilities: ['permission', 'namzu/tasks'],
 				clientInfo: { name: 'namzu-desktop', version: '0.1.0' },
 			},
 			30_000,
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.tasks = result.extensions?.includes('namzu/tasks/list') === true
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)

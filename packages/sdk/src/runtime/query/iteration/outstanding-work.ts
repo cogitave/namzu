@@ -1,6 +1,7 @@
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import { DELEGATION_TIMEOUT_MS } from '../../../tools/coordinator/index.js'
+import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import { createRuntimeContextMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { readPositiveIntEnv } from '../../../utils/env.js'
@@ -207,6 +208,8 @@ export async function* holdForOutstandingWork(
 	}
 	runSignal.throwIfAborted()
 
+	// The arrival/inbound/grace race already decided how long this hold may
+	// wait. Pending tracking is not a reason to extend it or delay steering.
 	const arrived = ctx.completionInbox?.drain() ?? []
 	if (arrived.length > 0) {
 		ctx.recorder.pushMessage(
@@ -265,6 +268,37 @@ export function deliverAwaitedJobExits(ctx: IterationContext): boolean {
 	return true
 }
 
+/** Await arrived tracking writes within the caller's existing turn deadline. */
+export async function drainArrivedTaskCompletions(ctx: IterationContext): Promise<TaskHandle[]> {
+	const inbox = ctx.completionInbox
+	if (!inbox) return []
+	const runSignal = ctx.abortController.signal
+	if (runSignal.aborted) return []
+	const remainingMs = ctx.guard.remainingUntilTimeoutMs()
+	if (remainingMs <= 0) return inbox.drain()
+	const waiting = new AbortController()
+	const abort = (): void => waiting.abort(runSignal.reason)
+	runSignal.addEventListener('abort', abort, { once: true })
+	if (runSignal.aborted) abort()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	const armDeadline = (): void => {
+		const remaining = ctx.guard.remainingUntilTimeoutMs()
+		if (remaining <= 0) waiting.abort()
+		else if (Number.isFinite(remaining)) {
+			// Node timers cannot represent more than a signed 32-bit delay.
+			// Recheck long deadlines instead of truncating the turn's timeout.
+			timer = setTimeout(armDeadline, Math.min(remaining, 2_147_483_647))
+		}
+	}
+	armDeadline()
+	try {
+		return await inbox.drainAsync(waiting.signal)
+	} finally {
+		if (timer !== undefined) clearTimeout(timer)
+		runSignal.removeEventListener('abort', abort)
+	}
+}
+
 /**
  * Account for outstanding work on the way out: deliver what arrived, and
  * say what did not.
@@ -276,10 +310,11 @@ export function deliverAwaitedJobExits(ctx: IterationContext): boolean {
  *  - **What has already arrived is delivered.** It makes no false claim,
  *    and dropping it is pure loss — the message rides out on
  *    `Turn.messages`, so a host reads it and the next turn of a continued
- *    thread starts with it. This does NOT wait: a hold buys the model a
- *    turn in which to USE a result, and on an exit whose answer is already
- *    decided there is no such turn, so waiting would delay a settled answer
- *    to append text this turn will not read. The bounded hold stays where it
+ *    thread starts with it. A hold buys the model a turn in which to USE a
+ *    result; an exit whose answer is already decided has no such turn.
+ *    Pending tracking writes remain queued. The exit delivers only ready
+ *    completions, so it never delays a settled answer to append text this
+ *    turn will not read. The bounded hold stays where it
  *    was, on the exits that do have a turn left.
  *  - **What is still running is NAMED, not cancelled.** Giving up on a wait
  *    is a statement about the waiter, not about the work — the rule
@@ -321,7 +356,19 @@ export function recordAbandonedWork(ctx: IterationContext): void {
 }
 
 export function deliverArrivedCompletions(ctx: IterationContext): void {
-	const unheard = ctx.completionInbox?.drain() ?? []
+	let unheard: TaskHandle[]
+	try {
+		// No finalizer waits for persistence that may ignore cancellation.
+		// Pending gates stay queued and their tracking writes keep running.
+		unheard = ctx.completionInbox?.drain() ?? []
+	} catch (error) {
+		if (!ctx.abortController.signal.aborted) throw error
+		ctx.log.warn('Task tracking failed while the turn was cancelled; its result remains queued', {
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
+			'exception.message': error instanceof Error ? error.message : String(error),
+		})
+		return
+	}
 	if (unheard.length === 0) return
 
 	// Fix the turn's answer BEFORE appending anything after it.

@@ -126,7 +126,11 @@ it('keeps what a resumed turn closed before its pause, in whichever process resu
 })
 
 it('orders active and failed tasks, counts unresolved dependencies, and caps the snapshot', async () => {
-	const done = task({ status: 'completed', completedAt: 0 })
+	const done = task({
+		turnId: earlierTurn,
+		status: 'completed',
+		completedAt: 0,
+	})
 	const failed = task({ status: 'failed' })
 	const active = task({
 		status: 'in_progress',
@@ -143,7 +147,7 @@ it('orders active and failed tasks, counts unresolved dependencies, and caps the
 	const snapshot = data(result?.context ?? '')
 	expect(snapshot.tasks[0]).toMatchObject({
 		id: active.id,
-		unresolvedDependencies: 2,
+		unresolvedDependencies: 1,
 	})
 	expect(snapshot.tasks[1].status).toBe('failed')
 	expect(snapshot.tasks.length).toBeLessThanOrEqual(8)
@@ -152,6 +156,57 @@ it('orders active and failed tasks, counts unresolved dependencies, and caps the
 	expect(result?.context).not.toContain('<instruction>')
 	expect((await step(context(850)))?.context?.length ?? 0).toBeLessThanOrEqual(865)
 	expect(await step(context(699))).toBeUndefined()
+})
+
+it('does not let failures closed before the turn hide current pending work', async () => {
+	const earlierFailures = Array.from({ length: 20 }, () =>
+		task({ turnId: earlierTurn, status: 'failed', completedAt: 500 }),
+	)
+	const firstFailure = earlierFailures[0]
+	if (!firstFailure) throw new Error('Failure fixture is missing')
+	const open = task({
+		blockedBy: [firstFailure.id],
+		subject: 'Current work',
+	})
+	const step = createTaskContextStep(
+		store(async () => [...earlierFailures, open]),
+		tenantId,
+	)
+	const snapshot = data((await step(context(10000, { turnStartedAt: 1000 })))?.context ?? '')
+	expect(snapshot).toMatchObject({ unfinished: 1, omitted: 0 })
+	expect(snapshot.tasks).toEqual([
+		expect.objectContaining({
+			id: open.id,
+			status: 'pending',
+			unresolvedDependencies: 0,
+		}),
+	])
+})
+
+it('retains a failure closed during a resumed turn without counting it as open or successful', async () => {
+	const open = task()
+	const failed = task({
+		turnId: earlierTurn,
+		status: 'failed',
+		completedAt: 150,
+	})
+	const step = createTaskContextStep(
+		store(async () => [open, failed]),
+		tenantId,
+		() => 200,
+	)
+	const snapshot = data((await step(context(10000, { turnStartedAt: 100 })))?.context ?? '')
+	expect(snapshot.unfinished).toBe(1)
+	expect(snapshot.tasks).toEqual([
+		expect.objectContaining({ id: failed.id, status: 'failed' }),
+		expect.objectContaining({ id: open.id, status: 'pending' }),
+	])
+	expect(
+		await createTaskContextStep(
+			store(async () => [failed]),
+			tenantId,
+		)(context(10000, { turnStartedAt: 100 })),
+	).toBeUndefined()
 })
 
 it('bounds waiting without stacking reads or injecting late stale data', async () => {

@@ -2,6 +2,7 @@
 import {
 	type AcpSessionPromptParams,
 	type AcpSessionPromptResult,
+	DiskTaskStore,
 	type PalComputerInput,
 	asSessionId,
 	isEntityId,
@@ -72,18 +73,20 @@ export function createDesktopHostExtensions(
 			closeSessions(state)
 		}
 	}
-	const ownedSession = async (params: Record<string, unknown>) => {
+	const ownedSessionIn = async (
+		params: Record<string, unknown>,
+		state: Awaited<ReturnType<typeof openSessions>>,
+	) => {
 		const id = session(params)
-		const durable = await withState(async (state) =>
-			Boolean(await state.store.getSession(asSessionId(id), state.tenantId)),
-		)
+		const durable = Boolean(await state.store.getSession(asSessionId(id), state.tenantId))
+		const currentPal = palAtWorkspace(cwd, state.root)
 		if (!durable) {
 			// New ordinary ACP sessions have no journal until their first turn.
 			// Only a published slot on this connection can authorize preparation;
 			// a client-supplied UUID or another workspace is never sufficient.
 			let publishedHere = false
 			const publishedCwd = publishedSessionCwd?.(id)
-			if (!pal() && publishedCwd !== undefined) {
+			if (!currentPal && publishedCwd !== undefined) {
 				try {
 					publishedHere = canonicalProjectPath(publishedCwd) === cwd
 				} catch {
@@ -92,9 +95,15 @@ export function createDesktopHostExtensions(
 			}
 			if (!publishedHere) throw new Error('This conversation does not belong to this project.')
 		}
-		if (pal()) await palConversationBinding(cwd, id)
+		if (currentPal) {
+			const binding = await palConversationBinding(cwd, id, state)
+			if (!binding || binding.pal.id !== currentPal.id)
+				throw new Error('This conversation is not claimed by this Pal.')
+		}
 		return id
 	}
+	const ownedSession = (params: Record<string, unknown>) =>
+		withState((state) => ownedSessionIn(params, state))
 	const ownedPal = (params: Record<string, unknown>) => {
 		const id = text(params, 'palId')
 		if (!isTrusted(cwd) || pal()?.id !== id)
@@ -239,20 +248,21 @@ export function createDesktopHostExtensions(
 			return withState(async (state) => {
 				const messages = await loadConversation(state, asSessionId(id))
 				const ownedPal = Boolean(pal())
-				const shown = messages.flatMap<{ role: 'user' | 'assistant'; content: string | null }>(
-					(message) => {
-						if (message.role === 'assistant') {
-							if (!ownedPal) return [{ role: message.role, content: message.content }]
-							const content = palPublicAssistantText(message)
-							return content === undefined ? [] : [{ role: message.role, content }]
-						}
-						return message.role === 'user' &&
-							(!message.source ||
-								(message.source.type === 'runtime-context' && message.source.kind === 'steering'))
-							? [{ role: message.role, content: message.content }]
-							: []
-					},
-				)
+				const shown = messages.flatMap<{
+					role: 'user' | 'assistant'
+					content: string | null
+				}>((message) => {
+					if (message.role === 'assistant') {
+						if (!ownedPal) return [{ role: message.role, content: message.content }]
+						const content = palPublicAssistantText(message)
+						return content === undefined ? [] : [{ role: message.role, content }]
+					}
+					return message.role === 'user' &&
+						(!message.source ||
+							(message.source.type === 'runtime-context' && message.source.kind === 'steering'))
+						? [{ role: message.role, content: message.content }]
+						: []
+				})
 				let remaining = 200_000
 				let partial = false
 				const rows: { role: 'user' | 'assistant'; text: string }[] = []
@@ -271,6 +281,32 @@ export function createDesktopHostExtensions(
 					messages: rows,
 					partial: partial || rows.length < shown.length || remaining <= 0,
 				}
+			})
+		},
+		'namzu/tasks/list': async (params: Record<string, unknown>) => {
+			return withState(async (state) => {
+				const id = asSessionId(await ownedSessionIn(params, state))
+				const store = new DiskTaskStore({
+					paths: state.paths,
+					session: { sessionId: id },
+					tenantId: state.tenantId,
+				})
+				let records: Awaited<ReturnType<DiskTaskStore['listStrict']>>
+				try {
+					records = await store.listStrict({ sessionId: id })
+				} catch {
+					throw new Error('Task list unavailable; its records could not be read completely.')
+				}
+				const tasks = records
+					.filter((task) => task.sessionId === id && task.tenantId === state.tenantId)
+					.map((task) => ({
+						taskId: task.id,
+						subject: task.subject,
+						status: task.status,
+						blockedBy: [...task.blockedBy],
+						...(task.owner === undefined ? {} : { owner: task.owner }),
+					}))
+				return { tasks }
 			})
 		},
 		'namzu/providers/status': async (params: Record<string, unknown>) => {

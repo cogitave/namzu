@@ -56,15 +56,16 @@ function parseTag(value: unknown, sessionId: string): { id: string; revision: nu
 export async function palConversationBinding(
 	cwd: string,
 	sessionId: string,
+	existingState?: CliSessions,
 ): Promise<PalConversationBinding | null> {
-	const pal = palAtWorkspace(cwd)
+	const pal = palAtWorkspace(cwd, existingState?.root)
 	if (!pal) return null
 	if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
-	const state = await openSessions(cwd)
+	const state = existingState ?? (await openSessions(cwd))
 	try {
 		return (await readPalConversation(state, cwd, pal.id, sessionId))?.binding ?? null
 	} finally {
-		closeSessions(state)
+		if (!existingState) closeSessions(state)
 	}
 }
 

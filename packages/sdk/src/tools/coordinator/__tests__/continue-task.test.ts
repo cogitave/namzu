@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -45,8 +46,11 @@ function tools(over: Partial<TaskScheduler> = {}) {
 		...over,
 	} as unknown as TaskScheduler
 
+	const completionInbox = new CompletionInbox()
+	completionInbox.attach(gateway)
 	const built = buildCoordinatorTools({
 		gateway,
+		completionInbox,
 		workingDirectory: '/tmp/test',
 		allowedAgentIds: ['worker'],
 	})

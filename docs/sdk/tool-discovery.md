@@ -127,3 +127,8 @@ tool in it starts from; there is no per-tool override on a shared object to
 flip later. A caller that wants a narrower or wider roster for one turn
 builds a different `toolsets` array for that turn, rather than forking a
 shared one.
+
+Generated planning tools require `query()`'s `taskStore`; caller toolsets alone
+do not enable `task_create`, `task_update` and `task_list`. See
+[task tracking](task-tracking.md) for planning state, delegated invocation
+handles and host composition.

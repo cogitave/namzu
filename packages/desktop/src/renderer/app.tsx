@@ -45,6 +45,7 @@ import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
 import { type ConversationPalWorkspace, ConversationTabs } from './conversation-tabs.js'
+import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
 import {
 	ArrowUpIcon,
 	FileDiffIcon,
@@ -965,6 +966,16 @@ export function App({
 			clearInterval(timer)
 		}
 	}, [sessionId, api])
+	useEffect(() => {
+		if (!sessionId || !jobsOpen || panelTab !== 'jobs' || !api?.refreshTasks) return
+		let current = true
+		void api.refreshTasks(sessionId).catch((failure) => {
+			if (current) setError(errorText(failure))
+		})
+		return () => {
+			current = false
+		}
+	}, [sessionId, jobsOpen, panelTab, api])
 	useEffect(() => {
 		const node = transcript.current
 		if (!node || !sessionId) return
@@ -3061,6 +3072,13 @@ export function App({
 											/>
 										</>
 									)}
+									<TasksProgress
+										thread={thread}
+										onOpen={() => {
+											setPanelTab('jobs')
+											setJobsOpen(true)
+										}}
+									/>
 									{thread.error && (
 										<p className="inline-error" role="alert">
 											{thread.error}
@@ -3181,7 +3199,7 @@ export function App({
 					data-open={jobsOpen}
 					inert={!jobsOpen}
 					aria-hidden={!jobsOpen}
-					aria-label={panelTab === 'jobs' ? (pal ? 'Activity' : 'Background work') : 'Changes'}
+					aria-label={panelTab === 'jobs' ? 'Activity' : 'Changes'}
 				>
 					<div className="section-heading">
 						<div className="flex items-center gap-1">
@@ -3201,7 +3219,7 @@ export function App({
 								onClick={() => setPanelTab('jobs')}
 							>
 								<TerminalIcon className="size-3.5" />
-								{pal ? 'Activity' : 'Background work'}
+								Activity
 							</Button>
 						</div>
 						<Button
@@ -3209,13 +3227,7 @@ export function App({
 							variant="ghost-muted"
 							size="icon-sm"
 							className="icon-button"
-							aria-label={
-								panelTab === 'jobs'
-									? pal
-										? 'Close activity'
-										: 'Close background work'
-									: 'Close changes'
-							}
+							aria-label={panelTab === 'jobs' ? 'Close activity' : 'Close changes'}
 							onClick={closeDetails}
 						>
 							<Icon name="close" />
@@ -3232,7 +3244,9 @@ export function App({
 						/>
 					) : (
 						<div className="panel-scroll">
+							<ConversationTasks thread={thread} />
 							{pal && <PalActivity thread={thread} />}
+							<h3 className="text-sm font-medium">Background shells</h3>
 							{jobsError ? (
 								<p role="alert" className="jobs-error">
 									{jobsError}

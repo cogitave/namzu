@@ -49,6 +49,7 @@ export type AcpMethod = (typeof ACP_METHODS)[keyof typeof ACP_METHODS]
  */
 export const ACP_CLIENT_NOTIFICATIONS = {
 	SESSION_UPDATE: 'session/update',
+	TASK_UPDATE: 'namzu/tasks/update',
 } as const
 
 /**
@@ -102,3 +103,6 @@ export const ACP_PERMISSION_CAPABILITY = 'permission'
  * nobody is looking at.
  */
 export const ACP_FILESYSTEM_CAPABILITY = 'fs'
+
+/** Optional Namzu planning notifications, negotiated separately from core ACP. */
+export const ACP_TASK_CAPABILITY = 'namzu/tasks'

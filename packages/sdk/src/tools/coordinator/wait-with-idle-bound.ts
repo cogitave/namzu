@@ -47,6 +47,8 @@ export interface WaitBounds {
 	 * Omit to bound by the turn clock alone.
 	 */
 	readonly idleMs?: number
+	/** Reuse the launch's completion, including its tracking settlement. */
+	readonly completion?: Promise<TaskHandle>
 }
 
 /**
@@ -77,7 +79,7 @@ export async function waitForTaskWithBounds(
 	const idleBoundArmed = detach !== undefined && bounds.idleMs !== undefined
 
 	try {
-		const completion = gateway.waitForTask(taskId).then(
+		const completion = (bounds.completion ?? gateway.waitForTask(taskId)).then(
 			(handle): WaitOutcome => ({ kind: 'completed', handle }),
 			// A gateway that rejects has answered the question; let it through
 			// rather than reporting a timeout that did not happen.

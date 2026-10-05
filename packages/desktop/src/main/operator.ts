@@ -33,6 +33,7 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
 import {
 	type AdmittedAttachment,
 	MAX_ATTACHMENT_COUNT,
@@ -91,6 +92,10 @@ interface Conversation {
 	draftSettings?: DraftSettings
 	providers?: ProviderView
 	projection: ThreadState
+	/** Full-list reads never overwrite a newer streamed task mutation. */
+	taskRevision?: number
+	taskRead?: Promise<boolean>
+	tasksClient?: RuntimeClient
 	needsLoad?: boolean
 	needsHistory?: boolean
 	restorePending?: boolean
@@ -1066,7 +1071,10 @@ export class Operator {
 		}
 		// Active/transient sessions are rendered from their live UI projection.
 		if (existing) {
-			if (!existing.running && !existing.admitting) await this.refreshRetry(existing)
+			if (!existing.running && !existing.admitting) {
+				await this.readTasksSnapshot(existing)
+				await this.refreshRetry(existing)
+			}
 			return {
 				messages: existing.projection.messages,
 				partial: existing.projection.partial ?? false,
@@ -1082,7 +1090,8 @@ export class Operator {
 				...restoreMessages(record.projection, history.messages),
 				partial: history.partial,
 			}
-		if (record) await this.refreshRetry(record)
+		if (record) await this.readTasksSnapshot(record)
+		if (record && !record.running && !record.admitting) await this.refreshRetry(record)
 		this.persistDesktop()
 		return { ...history, thread: record?.projection }
 	}
@@ -1225,6 +1234,8 @@ export class Operator {
 					}
 				}
 			}
+			stillOwned()
+			await this.readTasksSnapshot(session)
 			stillOwned()
 			session.needsLoad = false
 			session.restorePending = false
@@ -1655,6 +1666,69 @@ export class Operator {
 			this.emit({ kind: 'retry-status', sessionId: session.view.id, retry, notice })
 		return { ...(retry ? { retry } : {}), ...(notice ? { notice } : {}) }
 	}
+	private async readTasksSnapshot(session: Conversation, force = false): Promise<void> {
+		const client = session.client
+		if (
+			this.closing ||
+			this.projects.get(session.view.projectId)?.view.status !== 'ready' ||
+			!client.supportsTasks() ||
+			(session.view.harness && session.view.harness !== 'namzu')
+		)
+			return
+		if (session.taskRead) {
+			const current = await session.taskRead
+			if (force || !current) await this.readTasksSnapshot(session, force)
+			return
+		}
+		if (!force && session.tasksClient === client) return
+		if (!session.hasPrompted) {
+			session.tasksClient = client
+			return
+		}
+		const runtimeId = session.runtimeSessionId
+		const taskRevision = session.taskRevision ?? 0
+		const executionRevision = session.executionRevision ?? 0
+		const current = () =>
+			!this.closing &&
+			this.conversations.get(session.view.id) === session &&
+			session.client === client &&
+			session.runtimeSessionId === runtimeId &&
+			this.projects.get(session.view.projectId)?.client === client &&
+			this.projects.get(session.view.projectId)?.view.status === 'ready' &&
+			(session.taskRevision ?? 0) === taskRevision &&
+			(session.executionRevision ?? 0) === executionRevision
+		const operation = (async () => {
+			try {
+				const result = await client.request('namzu/tasks/list', { sessionId: runtimeId })
+				if (!current()) return false
+				const tasks = readTasks(result)
+				if (!tasks) throw new Error('Invalid task list.')
+				session.tasksClient = client
+				this.emit({ kind: 'tasks', sessionId: session.view.id, tasks })
+				return true
+			} catch (error) {
+				if (current()) {
+					try {
+						this.diagnostics?.record('cli_notice', { operation: 'namzu/tasks/list', error })
+					} catch {
+						/* Diagnostics cannot break task readout or prompt settlement. */
+					}
+					this.emit({
+						kind: 'tasks',
+						sessionId: session.view.id,
+						notice: 'Task list unavailable. Retained task states may be out of date.',
+					})
+				}
+				return current()
+			}
+		})()
+		session.taskRead = operation
+		try {
+			await operation
+		} finally {
+			if (session.taskRead === operation) session.taskRead = undefined
+		}
+	}
 	async retryTurn(
 		sessionId: string,
 		turnId: string,
@@ -1768,6 +1842,7 @@ export class Operator {
 			} catch {
 				/* Original failure remains visible. */
 			}
+			await this.readTasksSnapshot(session, true)
 			this.state(session)
 			if (session.admitting === settlement) session.admitting = undefined
 		}
@@ -1928,6 +2003,7 @@ export class Operator {
 		let promptedRuntime: { client: RuntimeClient; id: string } | undefined
 		try {
 			await this.reattach(session)
+			await this.readTasksSnapshot(session)
 			this.assertPalAdmission(session.view.palId)
 			promptedRuntime = {
 				client: session.client,
@@ -2043,6 +2119,7 @@ export class Operator {
 					/* Original failure remains visible. */
 				}
 			}
+			await this.readTasksSnapshot(session, true)
 			this.state(session)
 			if (session.admitting === settlement) {
 				// Release and hand off in one synchronous span; new admission cannot
@@ -2111,7 +2188,34 @@ export class Operator {
 		this.emit({ kind: 'permission-cleared', sessionId, requestId })
 	}
 	private onFrame(project: Project, frame: Record<string, unknown>): void {
-		if (frame.method === 'session/update') {
+		if (frame.method === 'namzu/tasks/update' && project.client.supportsTasks()) {
+			const params = readTaskUpdate(frame.params)
+			if (!params) {
+				try {
+					this.diagnostics?.record('cli_notice', {
+						operation: 'namzu/tasks/update',
+						error: new Error('Invalid task update.'),
+					})
+				} catch {
+					/* An invalid notification and its diagnostics grant no UI ownership. */
+				}
+				return
+			}
+			const session = params ? this.runtimeSession(project, params.sessionId) : undefined
+			if (
+				session?.running &&
+				(!session.view.harness || session.view.harness === 'namzu') &&
+				params
+			) {
+				session.taskRevision = (session.taskRevision ?? 0) + 1
+				this.emit({
+					kind: 'task',
+					sessionId: session.view.id,
+					task: params.task,
+					...(params.deleted ? { deleted: true } : {}),
+				})
+			}
+		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)
 			if (session?.view.projectId === project.view.id && session.running)
@@ -2154,6 +2258,12 @@ export class Operator {
 		) {
 			project.client.answer(frame.id, { outcome: 'reject' })
 		}
+	}
+	/** Explicit read-only Activity refresh; active runs retain their ordered event stream. */
+	async refreshTasks(sessionId: string): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId)) return
+		await this.readTasksSnapshot(session, true)
 	}
 	async jobs(sessionId: string): Promise<unknown> {
 		const session = this.session(sessionId)

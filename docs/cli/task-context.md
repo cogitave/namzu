@@ -34,17 +34,22 @@ turn is not shown. "The current turn" starts at the kernel's
 before the pause. This is distinct from project memory, which spans
 sessions.
 
-The projection prioritizes in-progress tasks, then failed tasks, then pending
-tasks, with stable creation-time/ID ordering within each class. Completed tasks
-are omitted; dependencies whose records are missing or not completed count as
-unresolved. At most eight rows include a task ID, status, clipped subject and
+The projection uses the SDK's `selectTaskContext` and `isTerminalTaskStatus`,
+as `task_list` does. Both completed and failed tasks are terminal; earlier
+terminal records are omitted, while tasks created or closed during this turn
+remain visible alongside open work. A failed dependency no longer requires
+waiting, but its failure does not establish success or authorize dependent work.
+The projection prioritizes in-progress tasks, then recent failed tasks, then
+pending tasks, with stable creation-time/ID ordering within each class.
+Dependencies whose records are missing or still open count as unresolved.
+At most eight rows include a task ID, status, clipped subject and
 description, and unresolved dependency count. An omitted count makes the
 partial view explicit. Use `task_list` for the full plan.
 
 The added block is at most 2,400 UTF-16 code units, further limited to the
 integer remaining-token estimate treated conservatively as a character
 allowance. This is not an exact tokenizer measurement. Below 700 estimated
-remaining tokens the projection is skipped. Empty and completed plans add
+remaining tokens the projection is skipped. Plans with no open tasks add
 nothing. Existing request context is preserved. The snapshot reaches the provider
 as a user message with `runtime-context` / `step-context` provenance, after static
 host policy. Agent-authored task descriptions never acquire the system role.
@@ -91,7 +96,8 @@ A passing store/protocol regression is not evidence of a long-horizon score gain
 # Verification
 
 Regression tests cover cross-session/tenant exclusion, fresh updates with empty
-history, completed/failed dependencies, ordering and omission, prompt limits,
+history, completed/failed dependencies, earlier failures not hiding current work,
+recent failures retained through resume, ordering and omission, prompt limits,
 read timeout/backpressure and cancellation. A production session adapter test
 executes `task_create` through the SDK and inspects the next provider request,
 then verifies that a new session has no inherited snapshot.

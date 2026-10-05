@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	ACPServer,
 	DiskSessionLog,
+	DiskTaskStore,
 	HostCommandRegistry,
 	type MCPJsonRpcMessage,
 	type MCPTransport,
@@ -14,6 +15,8 @@ import {
 	createUserMessage,
 	drainQuery,
 	generateSessionId,
+	generateTenantId,
+	generateTurnId,
 	getBuiltinTools,
 	toolset,
 } from '@namzu/sdk'
@@ -29,7 +32,9 @@ import {
 	openSessions,
 	startConversation,
 } from '../../integrations/sessions/store.js'
+import * as sessionStorage from '../../integrations/sessions/store.js'
 import { claimPalConversation } from '../../pals/conversations.js'
+import * as palConversations from '../../pals/conversations.js'
 import { createPal, getPalRevision, listPals } from '../../pals/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
@@ -45,8 +50,104 @@ beforeEach(() => {
 	vi.stubEnv('NAMZU_HOME', join(root, 'state'))
 })
 afterEach(() => {
+	vi.restoreAllMocks()
 	vi.unstubAllEnvs()
 	removeTempDir(root)
+})
+
+it('does not treat an unreadable task as a deletion or expose its parse error', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		const store = new DiskTaskStore({
+			paths: state.paths,
+			session: { sessionId },
+			tenantId: state.tenantId,
+		})
+		const task = await store.create({
+			sessionId,
+			turnId: generateTurnId(),
+			subject: 'Important work',
+		})
+		writeFileSync(state.paths.taskFile({ sessionId }, task.id), '{PRIVATE_BROKEN_RECORD')
+		await expect(host['namzu/tasks/list']({ sessionId })).rejects.toThrow(
+			'Task list unavailable; its records could not be read completely.',
+		)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('authorizes and reads tasks through the same state if the application home changes during lookup', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const replacementHome = join(root, 'replacement-state')
+	mkdirSync(replacementHome)
+	try {
+		const store = new DiskTaskStore({
+			paths: state.paths,
+			session: { sessionId },
+			tenantId: state.tenantId,
+		})
+		const originalTask = await store.create({
+			sessionId,
+			turnId: generateTurnId(),
+			subject: 'Authorized work',
+		})
+		vi.stubEnv('NAMZU_HOME', replacementHome)
+		const replacement = await openSessions(cwd)
+		try {
+			await new DiskTaskStore({
+				paths: replacement.paths,
+				session: { sessionId },
+				tenantId: replacement.tenantId,
+			}).create({ sessionId, turnId: generateTurnId(), subject: 'UNAUTHORIZED_REPLACEMENT_RECORD' })
+		} finally {
+			closeSessions(replacement)
+		}
+		vi.stubEnv('NAMZU_HOME', state.root)
+		const actualOpen = sessionStorage.openSessions
+		const opened = vi.spyOn(sessionStorage, 'openSessions').mockImplementation(async (...args) => {
+			const selected = await actualOpen(...args)
+			const get = selected.store.getSession.bind(selected.store)
+			selected.store.getSession = async (...lookup) => {
+				const result = await get(...lookup)
+				vi.stubEnv('NAMZU_HOME', replacementHome)
+				return result
+			}
+			return selected
+		})
+		expect(await host['namzu/tasks/list']({ sessionId })).toMatchObject({
+			tasks: [{ taskId: originalTask.id, subject: 'Authorized work' }],
+		})
+		expect(opened).toHaveBeenCalledTimes(1)
+	} finally {
+		vi.stubEnv('NAMZU_HOME', state.root)
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('refuses a Pal task snapshot when its captured claim disappears during authorization', async () => {
+	const pal = createPal({ name: 'Task ownership fixture' })
+	const owner = runtime()
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	const lookup = vi.spyOn(palConversations, 'palConversationBinding').mockResolvedValueOnce(null)
+	try {
+		await expect(host['namzu/tasks/list']({ sessionId })).rejects.toThrow(
+			'This conversation is not claimed by this Pal.',
+		)
+	} finally {
+		lookup.mockRestore()
+		await owner.close()
+	}
 })
 function runtime() {
 	return createCliAcpRuntime(
@@ -104,6 +205,77 @@ it('requires exact affirmative folder trust before reading conversations', async
 	await owner.close()
 })
 
+it('restores only the owned durable task list without leaking private planning fields', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	await expect(host['namzu/tasks/list']({ sessionId: generateSessionId() })).rejects.toThrow(
+		'Trust this folder',
+	)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		const taskStore = new DiskTaskStore({
+			paths: state.paths,
+			session: { sessionId },
+			tenantId: state.tenantId,
+		})
+		const failed = await taskStore.create({
+			sessionId,
+			turnId: generateTurnId(),
+			subject: 'Source unavailable',
+			owner: 'Researcher',
+			description: 'PRIVATE_DESCRIPTION',
+			metadata: { secret: 'PRIVATE_METADATA' },
+		})
+		await taskStore.update(failed.id, { status: 'failed' })
+		const next = await taskStore.create({
+			sessionId,
+			turnId: generateTurnId(),
+			subject: 'Decide next step',
+		})
+		await taskStore.block(failed.id, next.id)
+		await taskStore.create({
+			sessionId,
+			turnId: generateTurnId(),
+			tenantId: generateTenantId(),
+			subject: 'OTHER_TENANT',
+		})
+		// A newly constructed host reads disk before any model turn has run on
+		// this connection. Its task store is not the current agent's cache.
+		const fresh = createDesktopHostExtensions(owner, cwd)
+		expect(await fresh['namzu/tasks/list']({ sessionId })).toEqual({
+			tasks: [
+				{
+					taskId: failed.id,
+					subject: failed.subject,
+					status: 'failed',
+					blockedBy: [],
+					owner: 'Researcher',
+				},
+				{
+					taskId: next.id,
+					subject: next.subject,
+					status: 'pending',
+					blockedBy: [failed.id],
+				},
+			],
+		})
+		await taskStore.delete(next.id)
+		expect((await fresh['namzu/tasks/list']({ sessionId })).tasks).toHaveLength(1)
+		await expect(fresh['namzu/tasks/list']({ sessionId: generateSessionId() })).rejects.toThrow(
+			'does not belong',
+		)
+		const foreign = join(root, 'foreign-tasks')
+		mkdirSync(join(foreign, '.git'), { recursive: true })
+		const foreignHost = createDesktopHostExtensions(owner, foreign)
+		foreignHost['namzu/project/trust']({ confirmed: true, cwd: foreign })
+		await expect(foreignHost['namzu/tasks/list']({ sessionId })).rejects.toThrow('does not belong')
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('prepares the selected provider on a real fresh ACP slot before its first journal and rejects unpublished, foreign and stopped slots', async () => {
 	const foreign = join(root, 'foreign')
 	mkdirSync(foreign)
@@ -119,13 +291,34 @@ it('prepares the selected provider on a real fresh ACP slot before its first jou
 		},
 	}))
 	const owner = createCliAcpRuntime(
-		{ config: {}, formatter: { name: 'text', print: () => {}, info: () => {}, error: () => {} } },
+		{
+			config: {},
+			formatter: {
+				name: 'text',
+				print: () => {},
+				info: () => {},
+				error: () => {},
+			},
+		},
 		{
 			probe: async () => ({
-				preferences: { version: 3, providers: [{ id: 'anthropic' }], subagents: { active: [] } },
-				detected: [{ entry: PROVIDER_REGISTRY.zen, source: { kind: 'public' }, alternatives: [] }],
+				preferences: {
+					version: 3,
+					providers: [{ id: 'anthropic' }],
+					subagents: { active: [] },
+				},
+				detected: [
+					{
+						entry: PROVIDER_REGISTRY.zen,
+						source: { kind: 'public' },
+						alternatives: [],
+					},
+				],
 				needsRepickReason: null,
-				credentialGap: { providerId: 'anthropic', reason: 'Fixture missing provider.' },
+				credentialGap: {
+					providerId: 'anthropic',
+					reason: 'Fixture missing provider.',
+				},
 			}),
 			createSession,
 			decideTrust: decideHeadlessTrust,
@@ -210,7 +403,11 @@ it('prepares the selected provider on a real fresh ACP slot before its first jou
 					provider: 'zen',
 					model: 'space-bunny-free',
 				}),
-			).toMatchObject({ error: { message: 'This conversation does not belong to this project.' } })
+			).toMatchObject({
+				error: {
+					message: 'This conversation does not belong to this project.',
+				},
+			})
 		await server.stop()
 		await expect(host['namzu/providers/status']({ sessionId })).rejects.toThrow('does not belong')
 	} finally {
@@ -305,7 +502,12 @@ it('restores Pal delivered replies while retaining tool narration in the origina
 			tenantId: state.tenantId,
 			projectId: state.projectId,
 			topicId: state.topicId,
-			turnConfig: { model: 'mock', maxIterations: 3, tokenBudget: 100_000, timeoutMs: 30_000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 3,
+				tokenBudget: 100_000,
+				timeoutMs: 30_000,
+			},
 		})
 		const projection = await host['namzu/conversations/history']({ sessionId })
 		expect(projection.messages).toEqual([

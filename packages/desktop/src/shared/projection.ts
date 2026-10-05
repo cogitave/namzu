@@ -1,4 +1,4 @@
-import type { AcpSessionUpdate } from '@namzu/sdk'
+import type { AcpSessionUpdate, AcpTask } from '@namzu/sdk'
 import type {
 	ChatMessage,
 	DesktopEvent,
@@ -29,6 +29,9 @@ export interface TurnState {
 }
 export interface ThreadState {
 	revision: number
+	/** Agent-maintained planning records; completion is not a verification receipt. */
+	tasks: AcpTask[]
+	tasksNotice?: string
 	messages: ChatMessage[]
 	/** Admission order, independent of clocks and subsequent tool progress. */
 	timeline: TimelineEntry[]
@@ -53,6 +56,7 @@ export interface ThreadState {
 }
 export const emptyThread = (): ThreadState => ({
 	revision: 0,
+	tasks: [],
 	messages: [],
 	timeline: [],
 	turn: 0,
@@ -265,6 +269,16 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if (event.kind === 'connection') return previous
 	if (event.revision !== undefined && event.revision <= previous.revision) return previous
 	let thread = event.revision === undefined ? previous : { ...previous, revision: event.revision }
+	if (event.kind === 'tasks')
+		return { ...thread, tasks: event.tasks ?? thread.tasks, tasksNotice: event.notice }
+	if (event.kind === 'task') {
+		const tasks = thread.tasks.filter((task) => task.taskId !== event.task.taskId)
+		if (event.deleted) return { ...thread, tasks }
+		const index = thread.tasks.findIndex((task) => task.taskId === event.task.taskId)
+		if (index < 0) tasks.push(event.task)
+		else tasks.splice(index, 0, event.task)
+		return { ...thread, tasks }
+	}
 	if (event.kind === 'prompt') {
 		const turn = thread.turn + 1
 		const at = timestamp(event.at)

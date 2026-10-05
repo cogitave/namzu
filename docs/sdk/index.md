@@ -11,6 +11,8 @@
 
 The kernel.
 
+* [Task tracking and execution](task-tracking.md) - Existing planning tasks, delegated invocation handles, resident pursuits and the host wiring that exposes their state.
+
 * [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.

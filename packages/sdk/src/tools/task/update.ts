@@ -9,14 +9,14 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 	return defineTool({
 		name: 'task_update',
 		description:
-			'Update an existing task. Change its status (pending → in_progress → completed), edit its description, transfer ownership, or manage dependencies. Use status "deleted" to remove a task entirely.',
+			'Update an existing planning task. Change its status to pending, in_progress, completed or failed, edit its description, transfer ownership, or manage dependencies. Mark failed work as failed, not completed. A terminal status records the reported outcome, not independent verification. Use status "deleted" to remove a task entirely.',
 		inputSchema: z.object({
 			id: z.string().describe('Task ID (e.g. "task_abc123")'),
 			subject: z.string().optional().describe('Updated title'),
 			description: z.string().optional().describe('Updated description'),
 			activeForm: z.string().optional().describe('Updated present continuous form'),
 			status: z
-				.enum(['pending', 'in_progress', 'completed', 'deleted'])
+				.enum(['pending', 'in_progress', 'completed', 'failed', 'deleted'])
 				.optional()
 				.describe('New status'),
 			owner: z.string().optional().describe('Agent name to assign ownership'),
@@ -76,7 +76,7 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 				subject,
 				description,
 				activeForm,
-				status: status as 'pending' | 'in_progress' | 'completed' | undefined,
+				status,
 				owner,
 				metadata,
 			})

@@ -3,6 +3,7 @@ import type { SerializableHostCommand } from '../command/index.js'
 import type { AssistantTextPart, DocumentAttachment, ImageAttachment } from '../message/index.js'
 import type { ReasoningEffort } from '../provider/chat.js'
 import type { MessageStopReason } from '../session/stop-reason.js'
+import type { TaskStatus } from '../task/index.js'
 import type { ToolCallView } from '../tool/presentation.js'
 
 /**
@@ -233,4 +234,22 @@ export type AcpSessionUpdate =
 export interface AcpSessionUpdateNotification {
 	readonly sessionId: string
 	readonly update: AcpSessionUpdate
+}
+
+/** A full replacement row from the existing session planning-task store. */
+export interface AcpTask {
+	readonly taskId: string
+	readonly subject: string
+	readonly status: TaskStatus
+	/** An explicit empty list clears prior dependencies. */
+	readonly blockedBy: readonly string[]
+	/** Absence clears any previously displayed owner. */
+	readonly owner?: string
+}
+
+/** Optional Namzu planning notification; distinct from delegated worker state. */
+export interface AcpTaskUpdate {
+	readonly sessionId: string
+	readonly task: AcpTask
+	readonly deleted?: true
 }

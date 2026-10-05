@@ -1,0 +1,73 @@
+{
+  "passed": false,
+  "platform": "win32",
+  "node": "v22.20.0",
+  "model": "MockLLMProvider",
+  "networkCalls": 0,
+  "computerCalls": 0,
+  "modelCost": 0,
+  "fixture": "fresh native Windows Temp directory; copied SDK build and existing dependency junction",
+  "checks": [
+    "Strict list accepts a not-yet-created task directory.",
+    "Native Windows disk reopening retains failed status, ownership and dependencies.",
+    "Canonical selector omits an earlier terminal failure and retains unfinished work.",
+    "Deletion removes the actual task file and clears the remaining dependency edge.",
+    "Corrupt task record rejects a strict snapshot while tolerant-list compatibility remains.",
+    "A file occupying the tasks directory rejects an authoritative list on Windows.",
+    "Actual native drainQuery generated and executed planning tools with a local MockLLMProvider; no guest or host computer tools mounted."
+  ],
+  "facts": {},
+  "sourceHashes": [
+    {
+      "file": "sdk/dist/store/task/disk.js",
+      "sha256": "7e56b92e9efe30d8c8d86ee674c6789cc77404f1736776849bfb624b69756ebe"
+    },
+    {
+      "file": "sdk/dist/store/task/context.js",
+      "sha256": "c7ca192f146f73aee6c1b6bf33bb2057d95a28eb2d749fbedce34a86f260075f"
+    },
+    {
+      "file": "sdk/dist/tools/task/update.js",
+      "sha256": "b4b1df12c547c35cf377a06df1a8f0590ca1964d663f94d0690f2658d7449ff4"
+    },
+    {
+      "file": "sdk/dist/runtime/query/index.js",
+      "sha256": "41479f207a171cd42885cff9c8d4045d32bbba42590df4e6f34179b66b6bf88d"
+    },
+    {
+      "file": "sdk/dist/bridge/acp/server.js",
+      "sha256": "5a6e4a588a84f0dbb7be23dba1d07935c4365ae793a4b309df89cb343f8034b0"
+    },
+    {
+      "file": "sdk/dist/bridge/acp/tasks.js",
+      "sha256": "bde0250ce9da21fd18befd9b954395f432b167f0f8959b9a0ff0925cb5c45848"
+    },
+    {
+      "file": "sdk/dist/constants/acp/index.js",
+      "sha256": "32c759da5aa73022e88ad9998cf8c22692eac4d4ec33ec8e9e4d2761b0c967db"
+    },
+    {
+      "file": "sdk/dist/public-runtime.js",
+      "sha256": "5d913556762ddc81d0e768e03a98df1fd6a03c6d57b9eb3b8fe125476a090aa4"
+    },
+    {
+      "file": "sdk/package.json",
+      "sha256": "c4ae9847717e8f216b0d45cfdb35ae7ed081bbca072af16933073771c5060acd"
+    },
+    {
+      "file": "task-tracking-native-windows-20261005.mjs",
+      "sha256": "1b5cf8044a88c8c39bf0cc0f314ead67d2479fed0489404e592744c9e5e07f8d"
+    }
+  ],
+  "error": {
+    "name": "AssertionError",
+    "message": "The expression evaluated to a falsy value:\n\n  assert.ok(updates.length >= 6)\n"
+  },
+  "limitations": [
+    "This is a copied local SDK build, not an npm registry install.",
+    "The model is scripted. Runtime tools, disk writes and ACP server are production SDK code.",
+    "ACP transport is an in-process loopback, not the native desktop UI or stdio process.",
+    "No CLI host authorization, Pal admission, live provider or user computer behavior is asserted.",
+    "No existing application, profile, dependency tree or guest was modified."
+  ]
+}

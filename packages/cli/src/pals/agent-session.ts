@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import {
 	BackgroundJobRegistry,
 	DiskSessionLog,
+	DiskTaskStore,
 	type LLMProvider,
 	type Message,
 	type MessageAttachment,
@@ -17,12 +18,14 @@ import {
 	type SandboxProvider,
 	type SessionEvent,
 	type SessionLease,
+	type ToolDefinition,
 	ToolManager,
 	type Toolset,
 	asCheckpointId,
 	asTurnId,
 	bindOwner,
 	buildPalSystemPrompt,
+	buildTaskTools,
 	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
@@ -47,6 +50,7 @@ import {
 	primaryProvider,
 	readCodexCredentialFile,
 } from '../integrations/providers/index.js'
+import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { createLiveModeControl } from '../permissions/live-mode.js'
 import { PLAN_MODE_REFUSAL, type PermissionMode } from '../permissions/mode.js'
 import {
@@ -262,12 +266,37 @@ export async function createPalAgentSession(
 		failed: [],
 	}
 	let manager = new ToolManager({ toolsets: sets, messages: () => [] })
+	let selectedTaskStore: DiskTaskStore | undefined
+	let taskPresentationTurn: SessionEvent['turnId'] | undefined
+	let taskPresentationTools: readonly ToolDefinition[] = []
+	const taskToolOverrides = {
+		task_create: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+		task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+		task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+	} as const
 	const presenter = createToolPresenter({
 		get: (name) => {
 			manager.refresh()
-			return manager.get(name)
+			return manager.get(name) ?? taskPresentationTools.find((tool) => tool.name === name)
 		},
 	})
+	const observeSessionEvent = (event: SessionEvent): void => {
+		if (
+			selectedTaskStore &&
+			event.sessionId === scope.sessionId &&
+			event.turnId !== undefined &&
+			event.turnId !== taskPresentationTurn
+		) {
+			// The kernel generates these same definitions for the actual turn.
+			// Retain their presentation hooks without mounting a second toolset.
+			taskPresentationTools = buildTaskTools(selectedTaskStore, {
+				sessionId: event.sessionId,
+				turnId: event.turnId,
+			})
+			taskPresentationTurn = event.turnId
+		}
+		options.onSessionEvent?.(event)
+	}
 	const messaging = createCliPalMessagingContext(binding.definition, scope, assertActive)
 	let assertExecutionAllowed: (() => void | Promise<void>) | undefined
 	let activePermissionMode: (() => PermissionMode) | undefined
@@ -441,6 +470,9 @@ export async function createPalAgentSession(
 		signal?.addEventListener('abort', onAbort, { once: true })
 		if (signal?.aborted) onAbort()
 		activeAbort = controller
+		selectedTaskStore = undefined
+		taskPresentationTurn = undefined
+		taskPresentationTools = []
 		referenceAttachments = []
 		assertExecutionAllowed = guard
 		activePermissionMode = mode
@@ -606,6 +638,16 @@ export async function createPalAgentSession(
 		> &
 			Pick<ResumePausedParams, 'rules' | 'systemNote'>,
 	): Omit<QueryParams, 'messages' | 'turnConfig'> => {
+		// Only an owned computer-work turn mounts planning tools. Offline chat
+		// keeps its zero-tool contract; this host metadata never grants host I/O.
+		const taskStore = admission
+			? new DiskTaskStore({
+					paths: conversations.paths,
+					session: { sessionId: scope.sessionId },
+					tenantId: scope.tenantId,
+				})
+			: undefined
+		selectedTaskStore = taskStore
 		const read = activePermissionMode ?? permissionReader(opts)
 		const modeControl = createLiveModeControl({
 			initial: read(),
@@ -627,19 +669,33 @@ export async function createPalAgentSession(
 			sandboxEscape: 'refuse',
 			outsideRootAccess: 'refuse',
 			toolsets: sets,
-			systemPrompt: buildPalSystemPrompt(
-				{ ...binding.definition, ...identity },
-				{
-					greeting: palConversationGreeting(binding.definition, scope.sessionId),
-					computer: admission
-						? {
-								status: 'ready',
-								workingDirectory: admission.lease.sandbox.rootDir,
-							}
-						: { status: 'unavailable' },
-					...(opts?.systemNote ? { systemNote: opts.systemNote } : {}),
-				},
-			),
+			...(taskStore
+				? {
+						taskStore,
+						runtimeToolOverrides: taskToolOverrides,
+						prepareStep: [createTaskContextStep(taskStore, scope.tenantId)],
+					}
+				: {}),
+			systemPrompt: [
+				buildPalSystemPrompt(
+					{ ...binding.definition, ...identity },
+					{
+						greeting: palConversationGreeting(binding.definition, scope.sessionId),
+						computer: admission
+							? {
+									status: 'ready',
+									workingDirectory: admission.lease.sandbox.rootDir,
+								}
+							: { status: 'unavailable' },
+						...(opts?.systemNote ? { systemNote: opts.systemNote } : {}),
+					},
+				),
+				taskStore
+					? 'For genuinely multi-step work, use task_create to track meaningful steps and task_update as their progress changes; use task_list to inspect the plan. These are agent-maintained planning records, not evidence that work succeeded and not delegated agents. Do not create a task list for ordinary chat or a simple single-step request. Mark work complete only when the requested result has been verified.'
+					: undefined,
+			]
+				.filter(Boolean)
+				.join('\n\n'),
 			beforeStep: async () => {
 				assertActive()
 				await renewWriter()
@@ -777,7 +833,7 @@ export async function createPalAgentSession(
 					...(effort ? { effort: effort as ReasoningEffort } : {}),
 				},
 				listener: (event) => {
-					options.onSessionEvent?.(event)
+					observeSessionEvent(event)
 					params.listener?.(event)
 				},
 				signal: work.controller.signal,
@@ -877,7 +933,13 @@ export async function createPalAgentSession(
 		},
 		toolNames: () => {
 			manager.refresh()
-			return manager.listNames()
+			return [...manager.listNames(), ...(selectedTaskStore ? Object.keys(taskToolOverrides) : [])]
+		},
+		currentTaskStore: () => (closed ? undefined : selectedTaskStore),
+		resetTaskStore: () => {
+			selectedTaskStore = undefined
+			taskPresentationTurn = undefined
+			taskPresentationTools = []
 		},
 		presenter,
 		agentIds: [],
@@ -956,7 +1018,7 @@ export async function createPalAgentSession(
 							opts?.onConversationMessages?.(projectTurnConversation(next.value.messages))
 							break
 						}
-						options.onSessionEvent?.(next.value)
+						observeSessionEvent(next.value)
 						const mapped = toAgentEvent(next.value, presenter)
 						if (mapped) yield mapped
 					}

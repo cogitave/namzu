@@ -5,6 +5,7 @@ import {
 	BackgroundJobRegistry,
 	type ComputerUseHost,
 	DiskSessionLog,
+	DiskTaskStore,
 	type Message,
 	MockLLMProvider,
 	PLAN_MODE_REFUSAL,
@@ -26,7 +27,7 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { PROVIDER_REGISTRY, type Preferences } from '../integrations/providers/index.js'
 import { closeSessions, openSessions } from '../integrations/sessions/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
-import { createAgentSession } from '../tui/agent.js'
+import { type AgentEvent, createAgentSession } from '../tui/agent.js'
 import {
 	GUEST_MCP_IMAGE,
 	guestMcpChannel,
@@ -263,8 +264,101 @@ it('answers offline with pinned identity and zero guest or host tool definitions
 		expect(f.acquire).not.toHaveBeenCalled()
 		expect(f.runtime.computer(f.pal.id)).toBeNull()
 		expect(f.agent.toolNames()).toEqual([])
+		expect(
+			f.agent.presenter.presentCall('task_create', { subject: 'An unavailable tool' }),
+		).not.toMatchObject({ presentation: 'activity' })
 		expect(f.runtime.busy(f.pal.id)).toBe(false)
 	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+it('maintains a scoped durable plan through actual task tools and restores fresh context after reopening', async () => {
+	let taskId = ''
+	const events: SessionEvent[] = []
+	const taskCalls: Extract<AgentEvent, { kind: 'tool-start' }>[] = []
+	const provider = new MockLLMProvider({
+		nextTurn: (_request, index) => {
+			if (index === 0)
+				return {
+					toolCalls: [
+						{
+							name: 'task_create',
+							args: { subject: 'Inspect saved model', description: 'Check the actual artifact' },
+						},
+					],
+				}
+			if (index === 1)
+				return { toolCalls: [{ name: 'task_update', args: { id: taskId, status: 'in_progress' } }] }
+			if (index === 2) return { toolCalls: [{ name: 'task_list', args: {} }] }
+			return { text: 'Inspection is still in progress.' }
+		},
+	})
+	const f = await fixture(provider, (event) => {
+		events.push(event)
+		if (event.type === 'task_created') taskId = event.taskId
+	})
+	let reopened = f.agent
+	try {
+		expect(f.agent.currentTaskStore?.()).toBeUndefined()
+		for await (const event of f.agent.send([createUserMessage('Inspect and validate the model')])) {
+			if (event.kind === 'tool-start') taskCalls.push(event)
+		}
+		expect(
+			taskCalls.map(({ toolName, summary, standalone }) => ({ toolName, summary, standalone })),
+		).toEqual([
+			{ toolName: 'task_create', summary: 'Add task · Inspect saved model', standalone: true },
+			{ toolName: 'task_update', summary: 'Start task', standalone: true },
+			{ toolName: 'task_list', summary: 'Check tasks', standalone: true },
+		])
+		expect(
+			f.agent.presenter.presentResult('task_create', {}, { success: true, output: taskId }),
+		).toMatchObject({ visibility: 'hidden' })
+		const store = f.agent.currentTaskStore?.()
+		if (!store) throw new Error('The admitted Pal did not expose its planning store.')
+		const [task] = await store.list({ sessionId: f.id })
+		expect(task).toMatchObject({
+			id: taskId,
+			sessionId: f.id,
+			tenantId: f.scope.tenantId,
+			status: 'in_progress',
+		})
+		expect(events.filter((event) => event.type === 'task_created')).toHaveLength(1)
+		expect(events.filter((event) => event.type === 'task_updated')).toHaveLength(1)
+		expect(provider.requests[0]?.tools?.map((tool) => tool.function.name)).toEqual(
+			expect.arrayContaining(['task_create', 'task_update', 'task_list']),
+		)
+		expect(JSON.stringify(provider.requests[2]?.messages)).toContain(
+			'Current session task snapshot',
+		)
+		expect(JSON.stringify(provider.requests[2]?.messages)).toContain('in_progress')
+		expect(f.agent.toolNames()).toContain('task_create')
+		await store.update(task!.id, { description: 'Fresh saved inspection note' })
+		const otherId = generateSessionId()
+		await new DiskTaskStore({
+			paths: f.state.paths,
+			session: { sessionId: otherId },
+			tenantId: f.scope.tenantId,
+		}).create({
+			sessionId: otherId,
+			turnId: generateTurnId(),
+			subject: 'Foreign conversation plan',
+		})
+		await f.agent.close()
+		reopened = await f.reopen()
+		// No task receipts are supplied in history: recovery reads the actual disk store.
+		for await (const _event of reopened.send([createUserMessage('Continue the inspection')])) {
+		}
+		const restored = provider.requests.at(-1)
+		expect(JSON.stringify(restored?.messages)).toContain('Fresh saved inspection note')
+		expect(JSON.stringify(restored?.messages)).not.toContain('Foreign conversation plan')
+		expect(await reopened.currentTaskStore?.()?.list({ sessionId: f.id })).toHaveLength(1)
+		expect(JSON.stringify(await records(f))).not.toContain('Current session task snapshot')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+	} finally {
+		await reopened.close()
 		await f.agent.close()
 		await f.runtime.close()
 		closeSessions(f.state)
@@ -891,6 +985,75 @@ async function park(f: Awaited<ReturnType<typeof fixture>>) {
 	if (!pending) throw new Error('The actual query did not record its review park.')
 	return pending
 }
+
+it('restores the same planning task and its original turn during an actual checkpoint resume', async () => {
+	let taskId = ''
+	const provider = new MockLLMProvider({
+		nextTurn: (_request, index) => {
+			if (index === 0)
+				return {
+					toolCalls: [{ name: 'task_create', args: { subject: 'Write and inspect notes' } }],
+				}
+			if (index === 1)
+				return { toolCalls: [{ name: 'write', args: { path: 'notes.txt', content: 'approved' } }] }
+			if (index === 2)
+				return { toolCalls: [{ name: 'task_update', args: { id: taskId, status: 'completed' } }] }
+			return { text: 'The saved notes were checked.' }
+		},
+	})
+	const events: SessionEvent[] = []
+	const taskCalls: Extract<AgentEvent, { kind: 'tool-start' }>[] = []
+	const f = await fixture(provider, (event) => {
+		events.push(event)
+		if (event.type === 'task_created') taskId = event.taskId
+	})
+	let resumed = f.agent
+	try {
+		const pending = await park(f)
+		await f.agent.close()
+		await f.runtime.stopComputer(f.pal.id)
+		await f.runtime.startComputer(f.pal.id)
+		resumed = await f.reopen()
+		for await (const event of resumed.resumePaused({
+			turnId: pending.turnId,
+			checkpointId: pending.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+			permissionMode: 'prompt',
+		})) {
+			if (event.kind === 'tool-start' && event.toolName === 'task_update') taskCalls.push(event)
+		}
+		expect(taskCalls).toEqual([
+			expect.objectContaining({
+				summary: 'Complete task',
+				standalone: true,
+				turnId: pending.turnId,
+			}),
+		])
+		const tasks = await resumed.currentTaskStore?.()?.list({ sessionId: f.id })
+		expect(tasks).toEqual([
+			expect.objectContaining({
+				id: taskId,
+				sessionId: f.id,
+				tenantId: f.scope.tenantId,
+				turnId: pending.turnId,
+				status: 'completed',
+			}),
+		])
+		expect(events.filter((event) => event.type === 'task_created')).toHaveLength(1)
+		expect(JSON.stringify(provider.requests[2]?.messages)).toContain(
+			'Current session task snapshot',
+		)
+		expect(JSON.stringify(provider.requests[2]?.messages)).toContain('Write and inspect notes')
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.replacement.sandbox.writeFile).toHaveBeenCalledOnce()
+		expect((await records(f)).filter((record) => record.type === 'turn_started')).toHaveLength(1)
+	} finally {
+		await resumed.close()
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
 
 it('records a real tool review and resumes its exact batch after reopening on a new guest generation', async () => {
 	const provider = new MockLLMProvider({

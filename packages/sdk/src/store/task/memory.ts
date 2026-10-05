@@ -68,8 +68,14 @@ export class InMemoryTaskStore implements TaskStore {
 		if (params.blockedBy) {
 			for (const blockerId of params.blockedBy) {
 				const blocker = this.tasks.get(blockerId)
-				if (blocker) {
+				if (blocker && !blocker.blocks.includes(task.id)) {
 					blocker.blocks.push(task.id)
+					this.emit({
+						type: 'task.updated',
+						taskId: blockerId,
+						task: blocker,
+						timestamp: Date.now(),
+					})
 				}
 			}
 		}
@@ -129,15 +135,19 @@ export class InMemoryTaskStore implements TaskStore {
 		if (!task) return false
 
 		for (const blockerId of task.blockedBy) {
+			if (blockerId === id) continue
 			const blocker = this.tasks.get(blockerId)
-			if (blocker) {
+			if (blocker?.blocks.includes(id)) {
 				blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
+				this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: Date.now() })
 			}
 		}
 		for (const blockedId of task.blocks) {
+			if (blockedId === id) continue
 			const blocked = this.tasks.get(blockedId)
-			if (blocked) {
+			if (blocked?.blockedBy.includes(id)) {
 				blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
+				this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: Date.now() })
 			}
 		}
 

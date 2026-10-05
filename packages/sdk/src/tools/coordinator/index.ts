@@ -3,7 +3,8 @@ import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/question-park.js'
 import type { CompletionInbox } from '../../scheduler/completion-inbox.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
-import type { TaskScheduler } from '../../types/agent/scheduler.js'
+import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
+import { isTerminalAgentTaskState } from '../../types/agent/task.js'
 import type { ResumeHandler } from '../../types/hitl/index.js'
 import type { SessionId, TaskId, TurnId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -451,6 +452,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	 * here. That is the same rule, not an exception to it.
 	 */
 	const launchedHere = new Set<TaskId>()
+	const trackedCompletions = new Map<TaskId, Promise<TaskHandle>>()
 	void opts.onTaskLaunched
 
 	const agentIdEnum = delegateSchema(agentIds)
@@ -573,10 +575,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// could report `failed` or stay `executing` forever but never
 			// `completed`.
 			const planStepId = plan_step_id
-			const planId = planStepId ? getPlanManager?.()?.active?.id : undefined
+			const planManager = planStepId ? getPlanManager?.() : undefined
+			const planId = planManager?.active?.id
 			const reportStep = (status: 'running' | 'completed' | 'failed', error?: string): void => {
-				if (!planStepId) return
-				getPlanManager?.()?.updateStepStatus(planStepId, status, error)
+				// A replacement plan may reuse step ids; it is not this worker's plan.
+				if (!planStepId || !planId || planManager?.active?.id !== planId) return
+				planManager.updateStepStatus(planStepId, status, error)
 			}
 			reportStep('running')
 
@@ -598,49 +602,6 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					resolvedPlanTaskId = planTask.id
 				}
 			}
-
-			const handle = await gateway.createTask({
-				agentId: agent_id,
-				prompt,
-				workingDirectory: cwd,
-				runtimeContext: opts.runtimeContext,
-				...(planStepId ? { planStepId } : {}),
-				...(planId ? { planId } : {}),
-				// Hang the child session off THIS tool's span, so the delegation
-				// shows up inside the turn that asked for it.
-				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
-				// Same as the `Agent` tool: a delegate inherits the environment
-				// its parent was given, or it runs against different services
-				// than the turn that asked for the work — and the turn's screens,
-				// for the same reason: the child's executor installs the shipped
-				// default unless the spawn says otherwise, so a parent that
-				// turned them off had that decision revert behind every
-				// delegation. One merged `configOverrides`, because a second
-				// spread of the key would replace this one.
-				...(Object.keys(_context.env ?? {}).length > 0 || _context.toolResultGuardrails
-					? {
-							configOverrides: {
-								...(_context.env && Object.keys(_context.env).length > 0
-									? { env: _context.env }
-									: {}),
-								...(_context.toolResultGuardrails
-									? { toolResultGuardrails: _context.toolResultGuardrails }
-									: {}),
-							},
-						}
-					: {}),
-			})
-
-			// Whose task this is. The inbox ignores completions for anything it
-			// was not told about, because `onTaskCompleted` is a broadcast and a
-			// gateway shared between two supervisors would otherwise hand each
-			// of them the other's worker output. Said on BOTH paths: the
-			// blocking one needs it too, because the case the inbox exists for
-			// is exactly the blocking launch whose wait was abandoned.
-			completionInbox?.launched(handle.taskId)
-
-			// ...and whose it is for the READ side too. See `launchedHere`.
-			launchedHere.add(handle.taskId)
 
 			// A background launch asked for with nowhere to deliver it is
 			// REFUSED, not quietly turned into a blocking one.
@@ -675,6 +636,114 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					error:
 						'background: true needs a CompletionInbox — without one there is no channel for the notification this launch promises. Pass `completionInbox` to buildCoordinatorTools and the same instance to drainQuery, or omit `background` to wait for the result inline.',
 				}
+			}
+
+			let handle: TaskHandle
+			try {
+				handle = await gateway.createTask({
+					agentId: agent_id,
+					prompt,
+					workingDirectory: cwd,
+					runtimeContext: opts.runtimeContext,
+					...(planStepId ? { planStepId } : {}),
+					...(planId ? { planId } : {}),
+					// Hang the child session off THIS tool's span, so the delegation
+					// shows up inside the turn that asked for it.
+					...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
+					// Same as the `Agent` tool: a delegate inherits the environment
+					// its parent was given, or it runs against different services
+					// than the turn that asked for the work — and the turn's screens,
+					// for the same reason: the child's executor installs the shipped
+					// default unless the spawn says otherwise, so a parent that
+					// turned them off had that decision revert behind every
+					// delegation. One merged `configOverrides`, because a second
+					// spread of the key would replace this one.
+					...(Object.keys(_context.env ?? {}).length > 0 || _context.toolResultGuardrails
+						? {
+								configOverrides: {
+									...(_context.env && Object.keys(_context.env).length > 0
+										? { env: _context.env }
+										: {}),
+									...(_context.toolResultGuardrails
+										? { toolResultGuardrails: _context.toolResultGuardrails }
+										: {}),
+								},
+							}
+						: {}),
+				})
+			} catch (launchError) {
+				// No handle means admission failed from this caller's perspective.
+				// A host scheduler may have dispatched before losing its response;
+				// neither a missing worker nor a safe retry is established here.
+				const failure = `Delegation admission failed: ${toErrorMessage(launchError)}. No task handle was returned; the worker dispatch outcome is not established.`
+				reportStep('failed', failure)
+				if (resolvedPlanTaskId && taskStore) {
+					try {
+						const updated = await taskStore.update(asTaskId(resolvedPlanTaskId), {
+							status: 'failed',
+							description: failure,
+						})
+						if (!updated)
+							throw new Error(
+								`Planning task ${resolvedPlanTaskId} disappeared during failed admission`,
+							)
+					} catch (trackingError) {
+						throw new AggregateError(
+							[launchError, trackingError],
+							`${failure} Planning settlement failed: ${toErrorMessage(trackingError)}`,
+							{ cause: launchError },
+						)
+					}
+				}
+				throw launchError
+			}
+
+			// Whose task this is. The inbox ignores completions for anything it
+			// was not told about, because `onTaskCompleted` is a broadcast and a
+			// gateway shared between two supervisors would otherwise hand each
+			// of them the other's worker output. Said on BOTH paths: the
+			// blocking one needs it too, because the case the inbox exists for
+			// is exactly the blocking launch whose wait was abandoned.
+			completionInbox?.launched(handle.taskId)
+
+			// ...and whose it is for the READ side too. See `launchedHere`.
+			launchedHere.add(handle.taskId)
+
+			// Own one completion for both delivery paths. Neither a background
+			// return nor an abandoned bounded wait discards these tracking writes.
+			if ((resolvedPlanTaskId && taskStore) || (planStepId && planId)) {
+				// A fast worker may already be terminal and forgotten by the gateway.
+				// The returned handle is the exact outcome; do not fetch it again.
+				const workerCompletion = isTerminalAgentTaskState(handle.state)
+					? Promise.resolve(handle)
+					: gateway.waitForTask(handle.taskId)
+				const completion = workerCompletion.then(async (completed) => {
+					const success = taskSucceeded(completed)
+					const resultText =
+						delegatedAnswer(completed.result) ??
+						completed.result?.lastError ??
+						`Task finished with state: ${failureLabel(completed)}`
+					if (resolvedPlanTaskId && taskStore) {
+						const updated = await taskStore.update(asTaskId(resolvedPlanTaskId), {
+							status: success ? 'completed' : 'failed',
+							description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
+						})
+						if (!updated)
+							throw new Error(
+								`Planning task ${resolvedPlanTaskId} disappeared before worker settlement`,
+							)
+					}
+					reportStep(
+						success ? 'completed' : 'failed',
+						success ? undefined : resultText.slice(0, 200),
+					)
+					return completed
+				})
+				trackedCompletions.set(handle.taskId, completion)
+				completionInbox?.deferDelivery(
+					handle.taskId,
+					completion.then(() => {}),
+				)
 			}
 
 			if (background) {
@@ -716,6 +785,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			const outcome = await waitForTaskWithBounds(gateway, handle.taskId, {
 				wallMs: DELEGATION_TIMEOUT_MS,
 				idleMs: DELEGATION_IDLE_MS,
+				completion: trackedCompletions.get(handle.taskId),
 			})
 			if (outcome.kind === 'timeout') {
 				return {
@@ -756,23 +826,6 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				delegatedAnswer(completed.result) ??
 				completed.result?.lastError ??
 				`Task finished with state: ${failureLabel(completed)}`
-
-			if (resolvedPlanTaskId && taskStore) {
-				// The status carries the outcome now, rather than `completed`
-				// with the failure written into prose. A reader scanning
-				// statuses saw work that had been done; only a reader of every
-				// description saw otherwise — and a dependent unit had no way
-				// to tell at all.
-				await taskStore.update(asTaskId(resolvedPlanTaskId), {
-					status: success ? 'completed' : 'failed',
-					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
-				})
-			}
-
-			// The step reports the same outcome, from the same two authorities.
-			// This is the only point in a delegated launch where the answer is
-			// actually known.
-			reportStep(success ? 'completed' : 'failed', success ? undefined : resultText.slice(0, 200))
 
 			return {
 				success,
@@ -870,6 +923,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			const outcome = await waitForTaskWithBounds(gateway, taskId, {
 				wallMs: DELEGATION_TIMEOUT_MS,
 				idleMs: DELEGATION_IDLE_MS,
+				completion: trackedCompletions.get(taskId),
 			})
 			if (outcome.kind === 'timeout') {
 				return {

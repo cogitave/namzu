@@ -103,6 +103,34 @@ Retry, fallback, hosted-tool and compaction events remain outside this update
 vocabulary. No raw session event, system prompt or discarded compaction body is
 forwarded as a generic payload.
 
+## Negotiated planning notifications
+
+An embedding host can set `AcpServerOptions.supportsTaskNotifications: true`
+to advertise the optional `ACP_TASK_CAPABILITY` (`namzu/tasks`). Only clients
+that also declare that capability receive the separate
+`ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE` (`namzu/tasks/update`) notification.
+The closed `AcpSessionUpdate` union and core `session/update` vocabulary remain
+unchanged, and hosts that omit this option retain their earlier wire behavior.
+
+The exported `AcpTaskUpdate` payload is `{ sessionId, task: AcpTask, deleted? }`.
+`AcpTask` contains the existing planning `taskId`, `subject`, `status`, an explicit
+`blockedBy` array, and optional `owner`. Each notification replaces the entire
+row: an empty dependency array clears earlier blockers and an absent owner
+clears an earlier owner. `deleted: true` removes the row. `status` retains the
+existing `TaskStatus`, including `failed`; failure is distinct from completion.
+These notifications describe agent-maintained planning items, not delegated
+worker invocations or proof that work succeeded.
+
+The bridge projects only `task_created` and `task_updated` events whose
+`sessionId` matches the addressed prompt or retry. Child and foreign-session
+tasks are omitted. It sends no descriptions, metadata, tenant identifiers,
+filesystem paths or raw event payloads. Notifications share the prompt's existing
+ordered delivery queue with core updates: admitted deliveries settle before
+permission requests and the prompt response. A failed delivery prevents a later
+review from being sent or assumed approved. This stream does not reconstruct
+tasks on session load; the host must provide a scoped snapshot for cold restore,
+such as the CLI's explicitly installed `namzu/tasks/list` extension.
+
 The gateway loads durable history, not a transport-owned transcript. Its
 `load(sessionId, cwd?)` receives the requested absolute workspace as the second
 argument. Existing one-argument gateways remain valid; hosts with scoped stores

@@ -77,6 +77,11 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
 export class CompletionInbox {
 	private readonly unheard = new Map<TaskId, TaskHandle>()
 	private readonly claimed = new Set<TaskId>()
+	/** Persistence that must settle before an owned result may be delivered. */
+	private readonly deliveryGates = new Map<
+		TaskId,
+		{ settled: Promise<void>; state: 'pending' | 'ready' | 'failed'; error?: unknown }
+	>()
 	/** Launched with nothing waiting on it, and not settled yet. */
 	private readonly outstanding = new Set<TaskId>()
 	/**
@@ -136,6 +141,8 @@ export class CompletionInbox {
 	 */
 	private readonly unowned = new Map<TaskId, TaskHandle>()
 	private readonly arrivals = new Set<() => void>()
+	private readonly drains = new Set<() => void>()
+	private lifecycle = 0
 	private detach?: () => void
 	/** Kept for {@link launched}: the source of truth about a task's state. */
 	private gateway?: TaskScheduler
@@ -173,7 +180,10 @@ export class CompletionInbox {
 			this.markSettled(handle.taskId)
 			if (this.claimed.has(handle.taskId)) return
 			this.unheard.set(handle.taskId, handle)
-			for (const wake of this.arrivals) wake()
+			if (this.hasUnheard) for (const wake of this.arrivals) wake()
+			if (this.deliveryGates.get(handle.taskId)?.state === 'failed') {
+				for (const finish of [...this.drains]) finish()
+			}
 		})
 		return this.detach
 	}
@@ -262,6 +272,47 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Hold delivery until this owned task's tracking writes have settled.
+	 *
+	 * Register synchronously after `launched`, before handing control back to
+	 * a consumer. The promise receives no worker output from this inbox.
+	 * Rejections are retained and reported by either drain; the result stays
+	 * queued rather than being announced with stale tracking state.
+	 */
+	deferDelivery(taskId: TaskId, settlement: Promise<void>): void {
+		if (!this.ours.has(taskId) || this.claimed.has(taskId)) {
+			throw new Error('Delivery may only be deferred for an owned, undelivered task')
+		}
+		if (this.deliveryGates.has(taskId)) {
+			throw new Error('This task already has a delivery settlement')
+		}
+		const gate: {
+			settled: Promise<void>
+			state: 'pending' | 'ready' | 'failed'
+			error?: unknown
+		} = { settled: Promise.resolve(), state: 'pending' }
+		gate.settled = settlement
+			.then(
+				() => {
+					gate.state = 'ready'
+				},
+				(error: unknown) => {
+					gate.state = 'failed'
+					gate.error = error
+				},
+			)
+			.then(() => {
+				if (this.deliveryGates.get(taskId) === gate && this.unheard.has(taskId)) {
+					for (const wake of [...this.arrivals]) wake()
+					// A known tracking failure must not wait behind another row's
+					// stalled write. Drains report it without consuming any result.
+					if (gate.state === 'failed') for (const finish of [...this.drains]) finish()
+				}
+			})
+		this.deliveryGates.set(taskId, gate)
+	}
+
+	/**
 	 * Move an owned task from {@link runningOwned} to {@link settledOwned}.
 	 *
 	 * Idempotent: `claim` and the completion listener can both observe the
@@ -308,8 +359,8 @@ export class CompletionInbox {
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()
-		if (this.unheard.size > 0) return Promise.resolve()
-		if (this.outstanding.size === 0) return Promise.resolve()
+		if (this.hasUnheard) return Promise.resolve()
+		if (!this.hasPendingWork) return Promise.resolve()
 
 		return new Promise((resolve) => {
 			const finish = (): void => {
@@ -338,6 +389,7 @@ export class CompletionInbox {
 	claim(taskId: TaskId): void {
 		this.claimed.add(taskId)
 		this.unheard.delete(taskId)
+		this.deliveryGates.delete(taskId)
 		this.outstanding.delete(taskId)
 		// A tool only claims a result it is already holding, so a claim is
 		// itself proof of settlement — independent of whether the gateway's
@@ -350,7 +402,9 @@ export class CompletionInbox {
 
 	/** Whether anything is waiting to be told. */
 	get hasUnheard(): boolean {
-		return this.unheard.size > 0
+		return [...this.unheard.keys()].some(
+			(taskId) => this.deliveryGates.get(taskId)?.state !== 'pending',
+		)
 	}
 
 	/**
@@ -410,16 +464,22 @@ export class CompletionInbox {
 	}
 
 	/**
-	 * Take every unheard completion, leaving the inbox empty.
+	 * Take unheard completions whose tracking settlement has succeeded.
+	 * Pending gates stay queued; a rejected gate throws without consuming any
+	 * result. Use `drainAsync` to await tracking for results already in hand.
 	 *
 	 * Draining rather than peeking: a notification that stays queued after
 	 * being delivered is the duplicate-delivery bug in a different costume.
 	 */
 	drain(): TaskHandle[] {
 		if (this.unheard.size === 0) return []
-		const handles = [...this.unheard.values()]
-		this.unheard.clear()
+		this.checkDeliveryFailures()
+		const handles = [...this.unheard.values()].filter(
+			(handle) => this.deliveryGates.get(handle.taskId)?.state !== 'pending',
+		)
 		for (const handle of handles) {
+			this.unheard.delete(handle.taskId)
+			this.deliveryGates.delete(handle.taskId)
 			this.claimed.add(handle.taskId)
 			// A delivered result is not pending WORK, and `outstanding` can
 			// still be holding this id — the listener clears it, but only if
@@ -436,6 +496,43 @@ export class CompletionInbox {
 			this.outstanding.delete(handle.taskId)
 		}
 		return handles
+	}
+
+	private checkDeliveryFailures(): void {
+		for (const taskId of this.unheard.keys()) {
+			const gate = this.deliveryGates.get(taskId)
+			if (gate?.state === 'failed') throw gate.error
+		}
+	}
+
+	/**
+	 * Await tracking for completions already queued, then deliver once.
+	 * Running workers are never awaited here. Concurrent drains share gates
+	 * and the existing claim set, so only one consumer receives each result.
+	 * Aborting releases only this wait and returns no results; tracking and
+	 * queued completions remain available for a later drain.
+	 */
+	async drainAsync(signal?: AbortSignal): Promise<TaskHandle[]> {
+		const lifecycle = this.lifecycle
+		if (signal?.aborted) return []
+		this.checkDeliveryFailures()
+		const settlements = [...this.unheard.keys()].flatMap((taskId) => {
+			const gate = this.deliveryGates.get(taskId)
+			return gate ? [gate.settled] : []
+		})
+		if (settlements.length === 0) return this.drain()
+		await new Promise<void>((resolve) => {
+			const finish = (): void => {
+				signal?.removeEventListener('abort', finish)
+				this.drains.delete(finish)
+				resolve()
+			}
+			this.drains.add(finish)
+			signal?.addEventListener('abort', finish, { once: true })
+			void Promise.all(settlements).then(finish)
+			if (signal?.aborted) finish()
+		})
+		return signal?.aborted || lifecycle !== this.lifecycle ? [] : this.drain()
 	}
 
 	/**
@@ -480,10 +577,12 @@ export class CompletionInbox {
 	 * stops it existing.
 	 */
 	close(): void {
+		this.lifecycle++
 		this.detach?.()
 		this.detach = undefined
 		this.gateway = undefined
 		this.unheard.clear()
+		this.deliveryGates.clear()
 		this.outstanding.clear()
 		this.ours.clear()
 		this.runningOwned.clear()
@@ -494,6 +593,8 @@ export class CompletionInbox {
 		// them to their own deadline for a completion that can no longer come.
 		for (const wake of [...this.arrivals]) wake()
 		this.arrivals.clear()
+		for (const finish of [...this.drains]) finish()
+		this.drains.clear()
 	}
 }
 

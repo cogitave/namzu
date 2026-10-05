@@ -34,28 +34,30 @@ export type PlanApprovalHandler = (request: PlanApprovalRequest) => Promise<Plan
  * (`iteration/phases/context.ts` calls `approve` and `startExecution`),
  * translates its events onto the session event stream (`EventTranslator.wirePlanManager`),
  * and settles it on failure (`runtime/query/result.ts` calls `failPlan`). It
- * never reports a step outcome and never settles a plan that succeeded.
+ * does not infer step outcomes from a turn's final text. The coordinator can
+ * report explicitly bound delegated steps; hosts can also report outcomes.
  *
  * That is a split, not an omission — `drainQuery` hands the manager to the host
  * through `onContextCreated({ planManager })` BEFORE the iteration loop starts,
  * precisely so a host can drive the half the kernel does not. So a grep for
- * callers of `updateStepStatus` or `completePlan` inside this package finds
- * none, and that is not evidence the methods are dead: the callers are hosts,
- * and they are outside the repository. `PlanManager` is exported from
+ * callers of `updateStepStatus` or `completePlan` must account for both the
+ * coordinator and application hosts. `PlanManager` is exported from
  * `public-runtime.ts` for this reason.
  *
  * Recorded here because the absence has already been read once as a dead layer
  * and proposed for deletion. What it would have deleted is a working
  * human-in-the-loop approval gate.
  *
- * The one genuine gap in the split is tracked separately: nothing settles a
- * plan that SUCCEEDED, so its status can reach `failed` or stay `executing`
- * but never `completed`. Fixing that needs a decision about what a
- * kernel-built plan's steps mean, not a guessed status — see `completePlan`.
+ * `completePlan` requires reported outcomes for every step. A plan without
+ * those outcomes stays executing until its owner reports them or abandons it;
+ * an ended turn is not evidence that its steps succeeded.
  */
 export class PlanManager {
 	private currentPlan: Plan | null = null
-	private readonly scope: { readonly sessionId: SessionId; readonly turnId: TurnId }
+	private readonly scope: {
+		readonly sessionId: SessionId
+		readonly turnId: TurnId
+	}
 	private listeners: PlanEventListener[] = []
 	private approvalHandler?: PlanApprovalHandler
 

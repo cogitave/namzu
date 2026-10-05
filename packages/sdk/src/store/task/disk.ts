@@ -238,6 +238,12 @@ export class DiskTaskStore implements TaskStore {
 					if (blocker && !blocker.blocks.includes(taskId)) {
 						blocker.blocks.push(taskId)
 						await records.write(this.taskPath(blockerId), blocker)
+						this.emit({
+							type: 'task.updated',
+							taskId: blockerId,
+							task: blocker,
+							timestamp: Date.now(),
+						})
 					}
 					// If blocker is missing, we still write the new task with its
 					// blockedBy reference; the dangling reference is visible to
@@ -324,17 +330,33 @@ export class DiskTaskStore implements TaskStore {
 			if (!task) return false
 
 			for (const blockerId of task.blockedBy) {
+				if (blockerId === id) continue
 				const blocker = await this.readTask(blockerId)
-				if (blocker) {
+				if (blocker?.blocks.includes(id)) {
 					blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
 					await records.write(this.taskPath(blockerId), blocker)
+					// Announce each confirmed write now: a later write or unlink
+					// may fail, leaving this real graph change in place.
+					this.emit({
+						type: 'task.updated',
+						taskId: blockerId,
+						task: blocker,
+						timestamp: Date.now(),
+					})
 				}
 			}
 			for (const blockedId of task.blocks) {
+				if (blockedId === id) continue
 				const blocked = await this.readTask(blockedId)
-				if (blocked) {
+				if (blocked?.blockedBy.includes(id)) {
 					blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
 					await records.write(this.taskPath(blockedId), blocked)
+					this.emit({
+						type: 'task.updated',
+						taskId: blockedId,
+						task: blocked,
+						timestamp: Date.now(),
+					})
 				}
 			}
 
@@ -368,6 +390,26 @@ export class DiskTaskStore implements TaskStore {
 	async list(filter?: { status?: TaskStatus; owner?: string; sessionId?: SessionId }): Promise<
 		Task[]
 	> {
+		return this.readList(filter, false)
+	}
+
+	/**
+	 * Read a complete list or reject an unreadable directory/record. Hosts
+	 * replacing an authoritative projection must not mistake a partial read
+	 * for task deletion. A not-yet-created directory remains an empty list.
+	 */
+	async listStrict(filter?: {
+		status?: TaskStatus
+		owner?: string
+		sessionId?: SessionId
+	}): Promise<Task[]> {
+		return this.readList(filter, true)
+	}
+
+	private async readList(
+		filter: { status?: TaskStatus; owner?: string; sessionId?: SessionId } | undefined,
+		strict: boolean,
+	): Promise<Task[]> {
 		if (filter?.sessionId !== undefined && filter.sessionId !== this.session.sessionId) return []
 		const dir = this.taskDir()
 
@@ -379,6 +421,7 @@ export class DiskTaskStore implements TaskStore {
 				'namzu.store.dir': dir,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
+			if (strict) throw err
 			return []
 		}
 
@@ -393,6 +436,7 @@ export class DiskTaskStore implements TaskStore {
 					'namzu.store.file': file,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
+				if (strict) throw err
 			}
 		}
 

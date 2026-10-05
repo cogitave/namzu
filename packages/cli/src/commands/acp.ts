@@ -1130,6 +1130,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		supportsTaskNotifications: desktop,
 		transport: new ServerStdioTransport(),
 		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),

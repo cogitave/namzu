@@ -62,6 +62,7 @@ const api: DesktopApi = {
 	removeQueued: (id, itemId) => invoke('removeQueued', id, itemId),
 	approve: (id, request, approved) => invoke('approve', id, request, approved),
 	jobs: (id) => invoke('jobs', id),
+	refreshTasks: (id) => invoke('refreshTasks', id),
 	readJob: (id, job) => invoke('readJob', id, job),
 	stopJob: (id, job) => invoke('stopJob', id, job),
 	onEvent: (listener) => {
