@@ -111,6 +111,16 @@ describe('composer send settings validate the session at admission', () => {
 			expect(validateComposerSendSettings({ permissionMode }, {})).toEqual({ permissionMode })
 		}
 	})
+	it('uses the validated host default for omitted modes and retains explicit narrowing', () => {
+		expect(validateComposerSendSettings(undefined, {}, 'auto')).toEqual({ permissionMode: 'auto' })
+		expect(
+			validateComposerSendSettings({ effort: 'high' }, { reasoningEffortLevels: ['high'] }, 'auto'),
+		).toEqual({ permissionMode: 'auto', effort: 'high' })
+		for (const permissionMode of ['prompt', 'accept-edits', 'strict', 'plan'] as const)
+			expect(validateComposerSendSettings({ permissionMode }, {}, 'auto')).toEqual({
+				permissionMode,
+			})
+	})
 
 	it('rejects unsupported effort on a changed, unknown or unsupported route', () => {
 		for (const session of [

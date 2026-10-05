@@ -26,6 +26,7 @@ it.each(['chat', 'responses', 'messages', 'google'] as const)(
 		await expect(async () => {
 			for await (const _ of provider.chatStream({
 				model: 'fixture-model',
+				...(kind === 'messages' ? { maxTokens: 8192 } : {}),
 				messages: [{ role: 'user', content: 'Score' }],
 				responseFormat: {
 					type: 'json_schema',

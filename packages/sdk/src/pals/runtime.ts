@@ -95,6 +95,25 @@ function captureInput(input: PalComputerInput): PalComputerInput {
 			)
 				throw invalid()
 			return { type: input.type, keys: input.keys }
+		case 'key_down':
+		case 'key_up':
+			if (
+				!shape(input, ['type', 'key', 'keyboardId']) ||
+				typeof input.key !== 'string' ||
+				!/^[a-zA-Z0-9_]{1,40}$/.test(input.key) ||
+				typeof input.keyboardId !== 'string' ||
+				!/^[a-zA-Z0-9_-]{16,80}$/.test(input.keyboardId)
+			)
+				throw invalid()
+			return { type: input.type, key: input.key, keyboardId: input.keyboardId }
+		case 'release_keys':
+			if (
+				!shape(input, ['type', 'keyboardId']) ||
+				typeof input.keyboardId !== 'string' ||
+				!/^[a-zA-Z0-9_-]{16,80}$/.test(input.keyboardId)
+			)
+				throw invalid()
+			return { type: input.type, keyboardId: input.keyboardId }
 		default:
 			throw invalid()
 	}
@@ -227,8 +246,10 @@ export class PalRuntime {
 		if (this.controlOperations.get(palId)?.transition)
 			return { supported: true, mode: 'transitioning' }
 		const mode = lease.operatorControl.mode
+		const heldKeyboard =
+			lease.operatorControl.heldKeyboard === true ? { heldKeyboard: true as const } : {}
 		return mode === 'pal' || mode === 'operator' || mode === 'transitioning'
-			? { supported: true, mode }
+			? { supported: true, mode, ...heldKeyboard }
 			: { supported: true, mode: 'unavailable' }
 	}
 	busy(palId: string): boolean {
@@ -319,6 +340,13 @@ export class PalRuntime {
 		return this.controlOperation(palId, generation, false, async (control) => {
 			if (control.mode !== 'operator')
 				throw new PalUnavailableError('Take operator control before sending computer input.')
+			if (
+				(captured.type === 'key_down' ||
+					captured.type === 'key_up' ||
+					captured.type === 'release_keys') &&
+				control.heldKeyboard !== true
+			)
+				throw new PalUnavailableError('This Pal computer does not support held keyboard input.')
 			return control.executeInput(captured)
 		})
 	}

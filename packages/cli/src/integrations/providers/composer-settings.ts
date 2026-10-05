@@ -83,6 +83,7 @@ export interface ComposerSendSettings {
 export function validateComposerSendSettings(
 	value: unknown,
 	session: { readonly reasoningEffortLevels?: readonly ReasoningEffort[] },
+	defaultPermissionMode: PermissionMode = 'prompt',
 ): ComposerSendSettings {
 	if (
 		value !== undefined &&
@@ -93,7 +94,7 @@ export function validateComposerSendSettings(
 	const settings = value as
 		| { readonly effort?: unknown; readonly permissionMode?: unknown }
 		| undefined
-	const permissionMode = settings?.permissionMode ?? 'prompt'
+	const permissionMode = settings?.permissionMode ?? defaultPermissionMode
 	if (!isPermissionMode(permissionMode)) throw new Error('Invalid permission mode.')
 	const effort = settings?.effort
 	if (effort === undefined) return { permissionMode }

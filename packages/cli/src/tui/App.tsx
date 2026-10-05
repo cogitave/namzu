@@ -1090,7 +1090,7 @@ export function App({
 	// typed /permissions command can narrow it back to prompt/strict without
 	// rebuilding the provider, tools, plugins, or sandbox.
 	const [permissionMode, setPermissionModeState] = useState<PermissionMode>(
-		ctx.skipPermissions === true ? 'auto' : 'prompt',
+		ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt',
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
 	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'session'>(
@@ -3848,6 +3848,13 @@ export function App({
 			savedPrefsRef.current = prefs
 			palDefinitionRef.current = definition
 			palRouteSessionRef.current = definition ? scope.sessionId : null
+			// The claimed Pal owns its guest. Only a default follows this route;
+			// an operator's /permissions or Shift+Tab choice remains authoritative.
+			if (permissionModeSourceRef.current === 'default') {
+				const mode = definition ? 'auto' : 'prompt'
+				permissionModeRef.current = mode
+				setPermissionModeState(mode)
+			}
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned

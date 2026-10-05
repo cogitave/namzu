@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-05T10:14:59.770191+00:00",
+  "environment": {
+    "host": "native Windows Electron desktop",
+    "engine": "Podman local Pal container",
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "send": {
+    "entry": "window.namzu.send(conversationId, prompt)",
+    "permissionModeOption": "omitted",
+    "usesOwnedPalConversation": true
+  },
+  "observedOwnedTurn": {
+    "toolCount": 17,
+    "completed": 13,
+    "failed": 4,
+    "pendingApprovalsInStatusSamples": 0,
+    "failures": "Godot 4 API names rejected by installed Godot 3; not authorization failures"
+  },
+  "computer": {
+    "ready": true,
+    "control": "pal",
+    "heldKeyboardNegotiated": true
+  },
+  "scope": "Observed guest tool completion through actual desktop send without permission override. Does not establish universal model correctness or every explicit policy configuration. Saved explicit review choices are preserved."
+}

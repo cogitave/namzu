@@ -1,0 +1,17 @@
+{
+  "nativeWindows": true,
+  "provider": "zen",
+  "model": "space-bunny-free",
+  "actualProvider": true,
+  "actualImageCarrier": true,
+  "source": "saved geometric reference PNG",
+  "response": "A blue circle on the left and an orange square on the right.",
+  "usage": {
+    "promptTokens": 831,
+    "completionTokens": 15,
+    "totalTokens": 846,
+    "cachedTokens": 181,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0
+  }
+}

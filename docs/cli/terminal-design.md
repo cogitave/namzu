@@ -681,6 +681,13 @@ UTF-8 byte count and, when available, the changed-region preview. The diff label
 is independent of the path. Final-newline-only changes are explicitly named.
 This display change does not grant permission to overwrite a file.
 
+Refused or truncated tool arguments can still produce a call row. The CLI
+checks the tool's presentation shape before rendering it in the terminal or
+ACP: an invalid call view uses the tool name, and an invalid result view retains
+the original result or error text. Unreadable arguments are not serialized as a
+replacement label. Presentation cannot interrupt the model's repair attempt
+or turn settlement; tool validation and permissions still decide execution.
+
 A command approval shows the command as it would be typed: quotes and
 backslashes verbatim, never JSON-escaped. Each line of a multi-line command is
 its own row, the first after `$ ` and every later one indented under it, so a

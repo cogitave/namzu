@@ -46,6 +46,23 @@ Pal conversation. Missing local-computer setup produces an explicit refusal.
 
 ## Computer setup and execution
 
+Manual conversations claimed by a Pal default to automatic approval for tools
+on its owned guest across the terminal, ACP and desktop. Having a review UI or
+selecting only reasoning effort does not make the Pal ask about every guest
+operation. Explicit Ask first, accept-edits, strict and Plan selections remain
+effective; saved desktop selections are retained. Use `/permissions prompt`
+in the terminal or `permissionMode: 'prompt'` when sending through ACP to keep
+the earlier asking behavior. Ordinary conversations keep their own defaults.
+
+Automatic guest approval does not grant access to the user's computer or another
+Pal. Host escape and file-tool paths outside the admitted workspace remain refused, and
+configured denials and the dangerous-command floor still apply. Directed Pal
+messaging and activity require their existing explicit grants. Pause, operator
+takeover, generation and exclusive conversation/writer guards are checked before
+guest operations regardless of the selected review mode. SDK embedding hosts
+still compose their own review policy; `PalRuntime` supplies owned admission and
+control, not an implicit grant for host tools.
+
 Install a local Docker engine running Linux containers and explicitly build
 [the Pal computer image](../sdk/local-pal-computer.md). Namzu never silently
 installs Docker, builds or pulls that image. The CLI supports
@@ -145,7 +162,8 @@ The model cannot choose a host file, filename, URL or base64 payload for this
 operation. It does not download images or resolve stored attachment references.
 
 Import is an explicit `file_write` tool call under the normal permission and
-review policy. Attaching an image alone writes nothing. Ask first can require
+review policy, automatically approved in the owned Pal's default mode. Attaching
+an image alone writes nothing. An explicitly selected Ask first can require
 approval, preapproved-only mode requires an applicable allowance, and current
 plan mode refuses the write even when an earlier durable approval is replayed.
 Pause, takeover, generation and changing execution authority remain checked
@@ -345,6 +363,15 @@ readonly screen previews remain available. Human input is limited to the
 [SDK PalComputerInput shapes and bounds](../sdk/pals.md#ownership-and-lifecycle),
 with actual guest geometry checked by the provider. Input, control return and
 stop cannot overlap an outstanding control operation.
+
+Computer control may additionally advertise `heldKeyboard: true`. Only after
+that negotiation can manual input use `{ type: 'key_down' | 'key_up', key,
+keyboardId }` and `{ type: 'release_keys', keyboardId }`. Keyboard IDs identify
+host-created focus lifetimes. Cleanup targets only that lifetime and exact
+computer generation, never all guest keys. The desktop releases held keys on
+blur, hiding and view disposal; the provider confirms releases before returning
+control. Existing `{ type: 'key', keys }` taps, AI `computer_use`, older guest
+images and ordinary chats retain their existing behavior.
 
 Returning control starts no query and restores no approval. On its next explicit
 turn, the Pal must obtain its own fresh screenshot before GUI input; the desktop

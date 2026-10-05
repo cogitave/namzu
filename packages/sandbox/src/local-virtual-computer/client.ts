@@ -25,6 +25,8 @@ export interface LocalComputerClientOptions {
 	readonly detachedWorkerPath?: string
 	/** Set only after the actual guest readiness response advertises RFB. */
 	readonly screenStream?: boolean
+	/** Set only after the owned guest advertises session-scoped held keys. */
+	readonly heldKeyboard?: boolean
 }
 
 export function localComputerClients(options: LocalComputerClientOptions): {
@@ -41,6 +43,7 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 	let needsFreshScreen = false
 	let stopping: Promise<void> | undefined
 	const detached = new Set<OwnedDetachedProcess>()
+	const heldKeyboards = new Map<string, Set<string>>()
 	const assertActive = () => {
 		if (!active) throw new Error('This Pal computer lease has ended')
 	}
@@ -271,16 +274,24 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		destroy: stop,
 	}
 	const executeDesktop = async (
-		action: ComputerUseAction,
+		action: ComputerUseAction | PalComputerInput,
 		operator: boolean,
+		transitionRelease = false,
 	): Promise<ComputerUseResult> => {
 		assertActive()
+		const held =
+			action.type === 'key_down' || action.type === 'key_up' || action.type === 'release_keys'
+		if (held && (!operator || !options.heldKeyboard))
+			throw new Error('This Pal computer does not support operator held keyboard input')
 		const mutation = action.type !== 'screenshot' && action.type !== 'cursor_position'
 		const epoch = screenEpoch
 		if (mutation) {
 			assertCertain()
 			if (operator) {
-				if (mode !== 'operator')
+				if (
+					mode !== 'operator' &&
+					!(transitionRelease && mode === 'transitioning' && action.type === 'release_keys')
+				)
 					throw new Error('The operator does not have control of this Pal computer')
 			} else {
 				assertPal()
@@ -344,6 +355,17 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 					outcome: 'unknown',
 					retrySafety: 'unsafe',
 				})
+			}
+			if (held && result.type === 'ok') {
+				if (action.type === 'key_down') {
+					const keys = heldKeyboards.get(action.keyboardId) ?? new Set<string>()
+					keys.add(action.key)
+					heldKeyboards.set(action.keyboardId, keys)
+				} else if (action.type === 'key_up') {
+					const keys = heldKeyboards.get(action.keyboardId)
+					keys?.delete(action.key)
+					if (!keys?.size) heldKeyboards.delete(action.keyboardId)
+				} else if (action.type === 'release_keys') heldKeyboards.delete(action.keyboardId)
 			}
 			if (
 				action.type === 'screenshot' &&
@@ -418,7 +440,7 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		},
 		execute: (action) => executeDesktop(action, false),
 	}
-	const transfer = (from: 'pal' | 'operator', to: 'pal' | 'operator') => {
+	const transfer = async (from: 'pal' | 'operator', to: 'pal' | 'operator') => {
 		assertActive()
 		assertCertain()
 		if (mode !== from) throw new Error(`This Pal computer is not controlled by ${from}`)
@@ -430,25 +452,42 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 				'Wait for all Pal computer work and background jobs to stop before changing control',
 			)
 		}
-		screenEpoch += 1
-		needsFreshScreen = to === 'pal'
-		mode = to
+		try {
+			if (to === 'pal')
+				for (const keyboardId of heldKeyboards.keys())
+					await executeDesktop({ type: 'release_keys', keyboardId }, true, true)
+			screenEpoch += 1
+			needsFreshScreen = to === 'pal'
+			mode = to
+		} catch (error) {
+			mode = from
+			throw error
+		}
 	}
 	const operatorControl: PalComputerControl = {
+		...(options.heldKeyboard ? { heldKeyboard: true as const } : {}),
 		get mode() {
 			return mode
 		},
 		async takeOver() {
-			transfer('pal', 'operator')
+			await transfer('pal', 'operator')
 		},
 		async returnControl() {
-			transfer('operator', 'pal')
+			await transfer('operator', 'pal')
 		},
 		executeInput(input: PalComputerInput) {
 			if (
-				!['mouse_move', 'mouse_click', 'mouse_drag', 'scroll', 'type_text', 'key'].includes(
-					input.type,
-				)
+				![
+					'mouse_move',
+					'mouse_click',
+					'mouse_drag',
+					'scroll',
+					'type_text',
+					'key',
+					'key_down',
+					'key_up',
+					'release_keys',
+				].includes(input.type)
 			)
 				throw new Error('Only desktop input is supported for operator control')
 			return executeDesktop(input, true)

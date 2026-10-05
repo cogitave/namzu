@@ -212,6 +212,8 @@ interface AcpRuntimeRecord {
 	readonly conversations?: Awaited<ReturnType<typeof openSessions>>
 	readonly cwd: string
 	readonly session: AcpLiveSession
+	/** Host-validated Pal binding, never a wire-supplied scope claim. */
+	readonly ownedPal: boolean
 	route: ((event: SessionEvent) => void) | undefined
 }
 
@@ -488,6 +490,7 @@ export function createCliAcpRuntime(
 				const record: AcpRuntimeRecord = {
 					cwd,
 					session: candidate,
+					ownedPal: !!palBinding,
 					conversations: conversationState,
 					route: undefined,
 				}
@@ -612,7 +615,11 @@ export function createCliAcpRuntime(
 					}
 				}
 				const messages = [...(history as Message[]), createUserMessage(prompt, attachments)]
-				const settings = validateComposerSendSettings(options, record.session)
+				const settings = validateComposerSendSettings(
+					options,
+					record.session,
+					record.ownedPal ? 'auto' : 'prompt',
+				)
 				for await (const event of record.session.send(messages, {
 					...settings,
 					signal,

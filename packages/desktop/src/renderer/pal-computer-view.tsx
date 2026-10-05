@@ -1,10 +1,18 @@
-import { type CSSProperties, type ComponentProps, useEffect, useRef, useState } from 'react'
+import {
+	type CSSProperties,
+	type ComponentProps,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from 'react'
 import type {
 	PalComputerView as ComputerState,
 	PalComputerInput,
 	PalComputerStreamView,
 	PalScreenView,
 } from '../shared/protocol.js'
+import { ComputerHeldKeyboard } from './computer-held-keyboard.js'
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ArrowLeftIcon, LoaderCircleIcon, MonitorIcon, RefreshIcon } from './icons.js'
 import {
@@ -32,6 +40,8 @@ export interface PalComputerViewProps
 	control?: ComputerState['control']
 	controlBusy?: boolean
 	inputBusy?: boolean
+	/** Inactive/frozen panes retain observation but cannot retain keyboard authority. */
+	inputEnabled?: boolean
 	onBack: () => void
 	onRefresh: () => void
 	onStart?: () => void
@@ -39,6 +49,8 @@ export interface PalComputerViewProps
 	onRelease?: () => void
 	/** The host callback captures and validates the owning Pal and computer generation. */
 	onInput?: (input: PalComputerInput) => Promise<void>
+	/** Cleanup is scoped to the identity captured at keydown, even after focus/view loss. */
+	onReleaseKeyboard?: (keyboardId: string) => Promise<void>
 	/** Capture native menu shortcuts only while the live operator surface has keyboard focus. */
 	onKeyboardFocus?: (focused: boolean) => void
 	/** Called only when the owning live canvas has confirmed its actual geometry. */
@@ -60,12 +72,14 @@ export function PalComputerView({
 	control,
 	controlBusy = false,
 	inputBusy = false,
+	inputEnabled = true,
 	onBack,
 	onRefresh,
 	onStart,
 	onTakeOver,
 	onRelease,
 	onInput,
+	onReleaseKeyboard,
 	onKeyboardFocus,
 	onStreamReady,
 	onStreamDisconnected,
@@ -73,6 +87,19 @@ export function PalComputerView({
 	const image = useRef<HTMLImageElement>(null)
 	const surface = useRef<HTMLElement>(null)
 	const keyboardFocused = useRef(false)
+	const heldKeyboard = useRef(new ComputerHeldKeyboard())
+	const releaseKeyboardCallback = useRef(onReleaseKeyboard)
+	releaseKeyboardCallback.current = onReleaseKeyboard
+	const releaseKeyboard = useCallback(() => {
+		const action = heldKeyboard.current.release()
+		if (action)
+			void releaseKeyboardCallback.current?.(action.keyboardId).catch((error) => {
+				if (!(error instanceof ComputerInputRetiredError))
+					setInputNotice(
+						'Keyboard release could not be confirmed. Return control before continuing.',
+					)
+			})
+	}, [])
 	const keyboardFocusCallback = useRef(onKeyboardFocus)
 	keyboardFocusCallback.current = onKeyboardFocus
 	const moveFrame = useRef(0)
@@ -117,6 +144,7 @@ export function PalComputerView({
 	const displayReady = hasStream ? liveReady : computerFrameReady(loadedGeometry, screen)
 	const displayLoading = hasStream ? !liveReady && disconnectedStream !== stream.id : loading
 	const canInput =
+		inputEnabled &&
 		hasScreen &&
 		displayReady &&
 		control?.supported === true &&
@@ -124,6 +152,7 @@ export function PalComputerView({
 		!changingControl &&
 		!!onInput
 	inputReady.current = canInput
+	const canHoldKeys = canInput && control?.heldKeyboard === true && !!onReleaseKeyboard
 	const canTakeOver =
 		hasScreen &&
 		(!hasStream || liveReady) &&
@@ -156,13 +185,24 @@ export function PalComputerView({
 	useEffect(() => {
 		keyboardFocusCallback.current?.(canInput && keyboardFocused.current)
 	}, [canInput])
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		if (!canHoldKeys) releaseKeyboard()
+	}, [canHoldKeys, releaseKeyboard])
+	useEffect(() => {
+		const blur = () => releaseKeyboard()
+		const hidden = () => {
+			if (document.hidden) releaseKeyboard()
+		}
+		window.addEventListener('blur', blur)
+		document.addEventListener('visibilitychange', hidden)
+		return () => {
+			releaseKeyboard()
+			window.removeEventListener('blur', blur)
+			document.removeEventListener('visibilitychange', hidden)
 			keyboardFocused.current = false
 			keyboardFocusCallback.current?.(false)
-		},
-		[],
-	)
+		}
+	}, [releaseKeyboard])
 	useEffect(() => {
 		if (
 			!canInput ||
@@ -249,6 +289,7 @@ export function PalComputerView({
 							keyboardFocusCallback.current?.(canInput)
 						}}
 						onBlur={() => {
+							releaseKeyboard()
 							keyboardFocused.current = false
 							keyboardFocusCallback.current?.(false)
 						}}
@@ -308,15 +349,30 @@ export function PalComputerView({
 						}}
 						onKeyDown={(event) => {
 							if (!canInput) return
-							const input = computerKeyboardInput({
+							const keyboardEvent = {
 								...event,
+								code: event.code,
 								isComposing: event.nativeEvent.isComposing,
 								altGraph: event.getModifierState('AltGraph'),
-							})
-							if (!input) return
+							}
+							const inputs = canHoldKeys
+								? heldKeyboard.current.down(keyboardEvent)
+								: (() => {
+										const input = computerKeyboardInput(keyboardEvent)
+										return input ? [input] : null
+									})()
+							if (!inputs) return
 							event.preventDefault()
 							event.stopPropagation()
-							forwardInput(input)
+							for (const input of inputs) forwardInput(input)
+						}}
+						onKeyUp={(event) => {
+							if (!canHoldKeys) return
+							const inputs = heldKeyboard.current.up(event)
+							if (!inputs) return
+							event.preventDefault()
+							event.stopPropagation()
+							for (const input of inputs) forwardInput(input)
 						}}
 					>
 						{hasStream ? (
@@ -334,6 +390,7 @@ export function PalComputerView({
 									})
 								}}
 								onDisconnected={() => {
+									releaseKeyboard()
 									inputReady.current = false
 									gesture.current = null
 									cancelAnimationFrame(moveFrame.current)

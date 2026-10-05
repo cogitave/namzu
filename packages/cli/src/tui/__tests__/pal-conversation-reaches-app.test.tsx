@@ -1,7 +1,7 @@
 /** The terminal keeps Pal execution and profile authority across navigation. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Pal } from '../../pals/store.js'
-import type { AgentSessionOptions } from '../agent.js'
+import type { AgentSessionOptions, SendOptions } from '../agent.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import { renderToScreen, type Screen } from './support/screen.js'
@@ -14,6 +14,8 @@ const fixture = vi.hoisted(() => ({
 	computerError: undefined as Error | undefined,
 	probe: vi.fn(),
 	claim: vi.fn(),
+	sent: [] as (SendOptions | undefined)[],
+	nextSend: undefined as (() => void) | undefined,
 }))
 const first = '83d74bb0-f9a6-4edb-958c-3c254e7a7196'
 
@@ -61,7 +63,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 			fixture.constructed.push({ prefs, options })
 			fixture.nextHydration?.()
 			fixture.nextHydration = undefined
-			return fakeAgentSession({ providerSummary: 'Pal provider', modelSummary: prefs.providers[0]!.model, configNotices: ['Pal computer ready'] })
+			return fakeAgentSession({ providerSummary: 'Pal provider', modelSummary: prefs.providers[0]!.model, configNotices: ['Pal computer ready'],
+				send: (_messages, options) => (async function* () {
+					fixture.sent.push(options)
+					fixture.nextSend?.()
+					fixture.nextSend = undefined
+					yield { kind: 'done', stopReason: 'end_turn' } as const
+				})(),
+			})
 		},
 	}
 })
@@ -76,6 +85,8 @@ beforeEach(() => {
 	fixture.probe.mockClear()
 	fixture.computerError = undefined
 	fixture.claim.mockClear()
+	fixture.sent.length = 0
+	fixture.nextSend = undefined
 })
 afterEach(async () => {
 	for (const screen of screens.splice(0)) await screen.unmount()
@@ -116,6 +127,38 @@ it('pins the Pal model and forwards only its owned execution environment', async
 	expect(fixture.claim).toHaveBeenCalledOnce()
 	expect(fixture.constructed[1]!.prefs.providers).toEqual([{ id: 'anthropic', model: 'pal-model-two' }])
 	expect(fixture.constructed[1]!.options.palEnvironment?.definition).toMatchObject({ revision: 2, purpose: 'Edited purpose' })
+})
+
+it('sends owned Pal work automatically and retains a chosen asking mode across hydration', async () => {
+	const hydrated = nextHydration()
+	const screen = await terminal()
+	await hydrated
+	await screen.waitForRender()
+	const sent = new Promise<void>((resolve) => { fixture.nextSend = resolve })
+	screen.press('Check your computer')
+	await screen.waitForRender()
+	screen.press('\r')
+	await sent
+	await screen.waitForRender()
+	expect(fixture.sent[0]?.permissionMode).toBe('auto')
+	expect(fixture.sent[0]?.currentPermissionMode?.()).toBe('auto')
+	screen.press('/permissions prompt')
+	await screen.waitForRender()
+	screen.press('\r')
+	await screen.waitForRender()
+	const next = nextHydration()
+	screen.press('/new')
+	await screen.waitForRender()
+	screen.press('\r')
+	await next
+	await screen.waitForRender()
+	const nextSent = new Promise<void>((resolve) => { fixture.nextSend = resolve })
+	screen.press('Review the next operation')
+	await screen.waitForRender()
+	screen.press('\r')
+	await nextSent
+	expect(fixture.sent[1]?.permissionMode).toBe('prompt')
+	expect(fixture.sent[1]?.currentPermissionMode?.()).toBe('prompt')
 })
 
 it('refuses unclaimed resume history before discovering or constructing a provider', async () => {

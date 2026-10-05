@@ -387,10 +387,22 @@ the service's current [Zen](https://opencode.ai/docs/zen/) and
 
 The common SDK fields map to the selected wire: text and tools, tool choice,
 output token limit, supported sampling controls, JSON output requests and
-per-call cancellation. The default output allowance is 4096 tokens when a
-call does not set `maxTokens`. On Messages, this is the total output limit,
-including manual thinking tokens; a thinking budget must leave room for an
-answer within that limit. Reasoning controls are explicit:
+per-call cancellation. When `maxTokens` is omitted, the driver requests the
+known model's advertised output ceiling; for example, the bundled Space Bunny
+ceiling is 524,288 tokens. Omitting this wire field can select a smaller service
+default, so known ceilings are sent explicitly. For unknown Chat, Responses
+and Google models without catalogue metadata, the output field is omitted.
+Namzu does not add a 4096-token ceiling. The service still enforces its model
+and account limits. Set `maxTokens: 4096` explicitly to keep the earlier
+per-call ceiling. SDK turns pass this setting through `maxResponseTokens`.
+
+Messages requires `max_tokens`. With no caller limit, the driver uses the
+known catalogue or native model ceiling, respecting both when available.
+An unknown Messages model with no known output ceiling requires an explicit
+`maxTokens`; configure its catalogue metadata or supply the setting rather than
+relying on the native adapter's conservative fallback. On Messages, this is
+the total output limit, including manual thinking tokens; a thinking budget
+must leave room for an answer within that limit. Reasoning controls are explicit:
 
 | Protocol | Thinking and effort behavior |
 | --- | --- |
@@ -433,14 +445,30 @@ the SDK before model delivery. Valid persisted `modelOmission` verdicts
 skip rejected images while leaving their durable bytes intact.
 
 Rich successful tool results preserve content order on supported native
-wires. Chat Completions refuses rich tool results; Messages accepts PDF
+wires. For Chat Completions, tool messages retain their text and original
+call IDs; image bytes become real image parts in a separate, attributed user
+content carrier after the entire adjacent tool-result batch. This conversion
+changes only the model request, never the durable history, operator messages,
+tool receipts or permissions. A carrier identifies its tool and call and says
+that its images are tool-supplied data. Valid persisted omission verdicts still
+omit rejected images. Text-only histories acquire no extra message.
+
+The pinned OpenAI Compatible adapter serializes rich tool content as JSON
+text, so putting an image inside that native tool message does not show pixels
+to the model. Moving supported media into a user content carrier is also the
+approach in [OpenCode's message conversion](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/message-v2.ts).
+An exact-adapter wire regression checks real `image_url` parts after matching
+tool results. The selected model still needs image input support.
+
+Chat tool documents remain explicitly unsupported; Messages accepts PDF
 tool documents. Failed text results use native `is_error` on Messages and
 an explicit failure marker on the other wires, whose adapters otherwise
-serialize error text identically to successful text.
-Failed rich results are refused because the V3 result union cannot retain
-both rich content and failure status. Document citation requests,
-provider-executed tools, tool approval requests and generated-file outputs
-are unsupported.
+serialize error text identically to successful text. Chat image results retain
+that failure marker in their tool text while their images remain attributed
+data. Failed rich results on the other protocols are refused because the V3
+result union cannot retain both rich content and failure status. Document
+citation requests, provider-executed tools, tool approval requests and
+generated-file outputs are unsupported.
 
 Completed native assistant parts are saved as lossless JSON in the SDK's
 opaque `source.replayState`. This retains Anthropic thinking signatures and

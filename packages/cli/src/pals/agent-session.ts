@@ -365,7 +365,9 @@ export async function createPalAgentSession(
 		const fallback =
 			opts?.permissionMode ??
 			options.permissionMode ??
-			(opts?.onPermission || opts?.reviewHold ? 'prompt' : 'auto')
+			// Supplying a review UI does not opt an owned guest into prompting.
+			// Explicit modes and a durable review hold still narrow this default.
+			(opts?.reviewHold ? 'prompt' : 'auto')
 		return () => read?.() ?? fallback
 	}
 	const beginWork = (

@@ -318,6 +318,39 @@ requires a fresh screenshot before subsequent agent GUI input. The SDK also
 requires that the newly admitted agent itself captures a fresh screenshot;
 a native preview cannot satisfy that admission's requirement.
 
+### Held operator keyboard
+
+The authenticated desktop readiness response may advertise
+`heldKeyboard: { version: 1 }`. Only that acknowledged version enables
+`operatorControl.heldKeyboard: true`; older images retain complete key taps.
+Rebuild the local image alongside the runtime to enable held movement keys.
+The optional input actions are `key_down` and `key_up` with one `key` and a
+host-created `keyboardId`, or `release_keys` with only that `keyboardId`.
+The worker validates exact shapes and a supported X keysym allowlist before
+invoking `xdotool` with argv. Command words are refused because xdotool also
+supports command chaining.
+
+Each allocated worker tracks at most 16 simultaneous keyboard lifetimes and
+32 held keys per lifetime. Duplicate press/release events are harmless;
+cleanup releases only the named lifetime and retains keys held by another
+lifetime. The client records confirmed held input and `returnControl()` reserves
+the transition while it confirms all of its scoped releases. Failed or unknown
+release outcomes retain operator authority and the existing stop-for-recovery
+fence. There is no global key reset, host desktop input or automatic replay.
+
+The desktop sends press/release events for ASCII keys, navigation keys and
+modifiers, relying on the guest's repeat behavior rather than queuing browser
+repeats. Shifted punctuation remains on the complete text/shortcut port because
+xdotool would otherwise generate implicit Shift press/release events outside
+the held lifetime. It preserves non-ASCII and AltGraph text through the existing
+text port; IME composition and Tab remain in the host focus flow. On blur, hidden
+window, stream loss, inactive pane or view disposal, cleanup uses the exact
+Pal/generation captured at keydown, including when focus has already retired
+pending new input. The host and SDK still require current operator authority;
+cleanup cannot target a new allocation or another focus lifetime. Abrupt loss
+of the host or transport is not a confirmed release and requires the existing
+owned-computer recovery path.
+
 An unconfirmed desktop mutation or remote file write fences further effects
 and control changes until the owned computer is stopped. An unknown outcome
 is not proof of idle state. These are host-admitted control guarantees over

@@ -78,6 +78,7 @@ describe('authenticated guest desktop worker', () => {
 			width: 1280,
 			height: 800,
 			browserReady: true,
+			heldKeyboard: { version: 1 },
 		})
 		expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
 	})
@@ -140,5 +141,72 @@ describe('authenticated guest desktop worker', () => {
 			body: JSON.stringify({ type: 'key', keys: 'CTRL+L' }),
 		})
 		expect(await response.json()).toEqual({ outcome: 'unknown' })
+	})
+	it('holds simultaneous keys and makes repeat and unknown releases harmless', async () => {
+		const run = guestRunner()
+		const url = await listen({ token: TOKEN, run })
+		const send = async (input: unknown) => {
+			const response = await fetch(`${url}/action`, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${TOKEN}` },
+				body: JSON.stringify(input),
+			})
+			expect(response.status).toBe(200)
+			expect(await response.json()).toEqual({ type: 'ok' })
+		}
+		const keyboardId = 'operator-keyboard-lifetime'
+		await send({ type: 'key_down', key: 'w', keyboardId })
+		await send({ type: 'key_down', key: 'w', keyboardId })
+		await send({ type: 'key_down', key: 'd', keyboardId })
+		await send({ type: 'key_up', key: 'w', keyboardId: 'unknown-keyboard-lifetime' })
+		await send({ type: 'key_up', key: 'w', keyboardId })
+		await send({ type: 'release_keys', keyboardId })
+		await send({ type: 'release_keys', keyboardId })
+		expect(run.mock.calls).toEqual([
+			['xdotool', ['keydown', '--', 'w']],
+			['xdotool', ['keydown', '--', 'd']],
+			['xdotool', ['keyup', '--', 'w']],
+			['xdotool', ['keyup', '--', 'd']],
+		])
+	})
+	it('does not release a newer focus lifetime holding the same key, including modifier aliases', async () => {
+		const run = guestRunner()
+		const url = await listen({ token: TOKEN, run })
+		const send = async (input: unknown) => {
+			const response = await fetch(`${url}/action`, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${TOKEN}` },
+				body: JSON.stringify(input),
+			})
+			expect(await response.json()).toEqual({ type: 'ok' })
+		}
+		const old = 'old-keyboard-lifetime'
+		const current = 'new-keyboard-lifetime'
+		await send({ type: 'key_down', key: 'CTRL', keyboardId: old })
+		await send({ type: 'key_down', key: 'Control_L', keyboardId: current })
+		await send({ type: 'release_keys', keyboardId: old })
+		expect(run.mock.calls).toEqual([['xdotool', ['keydown', '--', 'Control_L']]])
+		await send({ type: 'release_keys', keyboardId: current })
+		expect(run.mock.calls.at(-1)).toEqual(['xdotool', ['keyup', '--', 'Control_L']])
+	})
+	it('rejects chords, command words and malformed keyboard ownership before any guest command', async () => {
+		const run = guestRunner()
+		const url = await listen({ token: TOKEN, run })
+		for (const input of [
+			{ type: 'key_down', key: 'CTRL+w', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: 'exec', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: 'plus', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: 'keydown', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: 'w', keyboardId: 'short' },
+			{ type: 'release_keys', keyboardId: 'operator-keyboard-lifetime', generation: 2 },
+		]) {
+			const response = await fetch(`${url}/action`, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${TOKEN}` },
+				body: JSON.stringify(input),
+			})
+			expect(response.status).toBe(400)
+		}
+		expect(run).not.toHaveBeenCalled()
 	})
 })

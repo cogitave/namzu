@@ -156,6 +156,14 @@ creates an unstarted conversation slot; it starts no model or native engine.
 Normal and Pal drafts, attachments and model choices retain separate
 owners. Choosing an existing Pal returns to its owned chat.
 
+Owned Pal drafts default to automatic approval for their guest tools, including
+when only reasoning effort is selected. Ordinary conversation drafts retain Ask
+first. An explicitly saved mode remains selected, including Ask first or Plan;
+queued message editing retains the mode captured when that message was sent.
+This default is based on the main process's claimed conversation ownership and
+does not approve host access. The [Pal execution boundary](pals.md#computer-setup-and-execution)
+retains configured denials, pause, takeover and current writer/control checks.
+
 The Home sidebar puts **Create your first Pal** directly below New conversation.
 After creation it lists each Pal followed by **New Pal**, without a group
 heading for the first three. Four or more Pals appear in a collapsible **Pals**

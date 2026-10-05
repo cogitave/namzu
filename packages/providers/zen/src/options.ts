@@ -28,8 +28,15 @@ export function createCallOptions(
 			detail,
 		})
 	}
-	let maxOutputTokens = params.maxTokens ?? 4096
-	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0)
+	// Optional wire fields can still select a small upstream default when
+	// absent. Request the advertised model ceiling when known; do not invent
+	// a ceiling for an unknown model. Messages also checks its native ceiling.
+	let maxOutputTokens =
+		params.maxTokens ?? (protocol === 'messages' ? undefined : known?.maxOutputTokens)
+	if (
+		maxOutputTokens !== undefined &&
+		(!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0)
+	)
 		refuse('maxTokens must be a positive integer.')
 	if (
 		params.effort !== undefined &&
@@ -133,6 +140,18 @@ export function createCallOptions(
 		case 'messages': {
 			const thinking = params.thinking
 			const capabilities = getMessagesCapabilities(params.model)
+			// Messages requires max_tokens. Use the actual model ceiling, not
+			// the native adapter's conservative fallback for unknown models.
+			if (maxOutputTokens === undefined) {
+				const modelCeiling =
+					known?.maxOutputTokens ??
+					(capabilities.isKnownModel ? capabilities.maxOutputTokens : undefined)
+				if (modelCeiling === undefined)
+					return refuse('This messages model has no known output limit; set maxTokens explicitly.')
+				maxOutputTokens = capabilities.isKnownModel
+					? Math.min(modelCeiling, capabilities.maxOutputTokens)
+					: modelCeiling
+			}
 			const isThinking = thinking?.type === 'enabled' || thinking?.type === 'adaptive'
 			if (
 				(isThinking || capabilities.rejectsSamplingParameters) &&
@@ -245,7 +264,7 @@ export function createCallOptions(
 	const enforced = new Set(params.enforceToolInputSchema)
 	return {
 		prompt: toModelPrompt(params, route, service, protocol),
-		maxOutputTokens,
+		...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 		...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
 		...(params.topP !== undefined ? { topP: params.topP } : {}),
 		...(params.topK !== undefined ? { topK: params.topK } : {}),

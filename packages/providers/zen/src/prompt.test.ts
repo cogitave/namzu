@@ -294,10 +294,154 @@ describe('Zen prompt conversion', () => {
 				],
 			})
 		}
-		expect(() => convert(messages, 'chat')).toThrow('rich tool results')
+		expect(() => convert(messages, 'chat')).toThrow('documents in tool results')
 		expect(() =>
 			convert([required(messages[0]), { ...required(messages[1]), isError: true } as Message]),
 		).toThrow('failure status')
+	})
+
+	it('carries chat screenshots after every result in the batch without mutating history', () => {
+		const second = { ...CALL, id: 'second-image' }
+		const third = { ...CALL, id: 'final-text' }
+		const messages: Message[] = [
+			{ role: 'assistant', content: null, toolCalls: [CALL, second, third] },
+			{
+				role: 'tool',
+				toolCallId: CALL.id,
+				content: [
+					{ type: 'text', text: 'First screenshot' },
+					{ type: 'image', data: 'aW1hZ2Ux', mediaType: 'image/png' },
+					{
+						type: 'image',
+						data: 'omitted',
+						mediaType: 'image/png',
+						modelOmission: { reason: 'invalid-image' },
+					},
+				],
+			},
+			{
+				role: 'tool',
+				toolCallId: second.id,
+				isError: true,
+				content: [
+					{ type: 'text', text: 'Action failed' },
+					{ type: 'image', data: 'aW1hZ2Uy', mediaType: 'image/jpeg' },
+				],
+			},
+			{ role: 'tool', toolCallId: third.id, content: 'Finished reading' },
+			{ role: 'user', content: 'Continue' },
+		]
+		const before = structuredClone(messages)
+		const prompt = convert(messages, 'chat')
+		expect(prompt.map((m) => m.role)).toEqual(['assistant', 'tool', 'tool', 'tool', 'user', 'user'])
+		expect(prompt[1]).toMatchObject({
+			content: [{ output: { type: 'text', value: 'First screenshot' } }],
+		})
+		expect(prompt[2]).toMatchObject({
+			content: [
+				{
+					output: {
+						type: 'error-text',
+						value: 'Tool execution failed.\nAction failed',
+					},
+				},
+			],
+		})
+		expect(prompt[4]).toEqual({
+			role: 'user',
+			content: [
+				{
+					type: 'text',
+					text: expect.stringContaining(JSON.stringify(CALL.id)),
+				},
+				{ type: 'text', text: 'First screenshot' },
+				{ type: 'file', data: 'aW1hZ2Ux', mediaType: 'image/png' },
+				{
+					type: 'text',
+					text: expect.stringContaining(JSON.stringify(second.id)),
+				},
+				{ type: 'text', text: 'Action failed' },
+				{ type: 'file', data: 'aW1hZ2Uy', mediaType: 'image/jpeg' },
+			],
+		})
+		expect(prompt[5]).toEqual({
+			role: 'user',
+			content: [{ type: 'text', text: 'Continue' }],
+		})
+		expect(messages).toEqual(before)
+		expect(JSON.stringify(prompt)).not.toContain('omitted')
+	})
+
+	it('keeps labels adjacent to their images inside a chat media carrier', () => {
+		const prompt = convert(
+			[
+				{ role: 'assistant', content: null, toolCalls: [CALL] },
+				{
+					role: 'tool',
+					toolCallId: CALL.id,
+					content: [
+						{ type: 'text', text: 'Before' },
+						{ type: 'image', data: 'YmVmb3Jl', mediaType: 'image/png' },
+						{ type: 'text', text: 'After' },
+						{ type: 'image', data: 'YWZ0ZXI=', mediaType: 'image/png' },
+						{ type: 'text', text: 'Compare these saved renders.' },
+					],
+				},
+			],
+			'chat',
+		)
+		expect(prompt[1]).toMatchObject({
+			content: [
+				{
+					output: {
+						type: 'text',
+						value: 'Before\nAfter\nCompare these saved renders.',
+					},
+				},
+			],
+		})
+		expect(prompt[2]).toEqual({
+			role: 'user',
+			content: [
+				{
+					type: 'text',
+					text: expect.stringContaining(JSON.stringify(CALL.id)),
+				},
+				{ type: 'text', text: 'Before' },
+				{ type: 'file', data: 'YmVmb3Jl', mediaType: 'image/png' },
+				{ type: 'text', text: 'After' },
+				{ type: 'file', data: 'YWZ0ZXI=', mediaType: 'image/png' },
+				{ type: 'text', text: 'Compare these saved renders.' },
+			],
+		})
+	})
+
+	it('flushes a final chat image and keeps plain-text tool history unchanged', () => {
+		const prompt = convert(
+			[
+				{ role: 'assistant', content: null, toolCalls: [CALL] },
+				{
+					role: 'tool',
+					toolCallId: CALL.id,
+					content: [{ type: 'image', data: 'aW1hZ2U=', mediaType: 'image/png' }],
+				},
+			],
+			'chat',
+		)
+		expect(prompt).toHaveLength(3)
+		expect(prompt[2]).toMatchObject({
+			role: 'user',
+			content: [{ type: 'text' }, { type: 'file', data: 'aW1hZ2U=' }],
+		})
+		expect(
+			convert(
+				[
+					{ role: 'assistant', content: null, toolCalls: [CALL] },
+					{ role: 'tool', toolCallId: CALL.id, content: 'Plain result' },
+				],
+				'chat',
+			),
+		).toHaveLength(2)
 	})
 
 	it('keeps text-only block failures and omits empty foreign reasoning turns', () => {
@@ -681,6 +825,62 @@ describe('official V3 adapters consume replay metadata', () => {
 				expect(JSON.stringify(body)).toContain('Tool execution failed.\\npermission denied')
 			}
 		}
+	})
+
+	it('serializes chat tool screenshots as real image_url parts after matching tool results', async () => {
+		const image =
+			'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII='
+		const body = await requestBody(
+			(fetch) =>
+				createOpenAICompatible({
+					name: 'opencode',
+					baseURL: 'https://fixture.invalid/v1',
+					apiKey: 'fixture',
+					fetch,
+				})('space-bunny-free'),
+			materialize(
+				[
+					{
+						type: 'tool-call',
+						toolCallId: CALL.id,
+						toolName: 'read_file',
+						input: CALL.function.arguments,
+					},
+				],
+				'chat',
+			),
+			'chat',
+			[
+				{
+					role: 'tool',
+					toolCallId: CALL.id,
+					content: [
+						{ type: 'text', text: 'Screenshot captured' },
+						{ type: 'image', data: image, mediaType: 'image/png' },
+					],
+				},
+			],
+		)
+		expect(body.messages).toMatchObject([
+			{ role: 'user' },
+			{ role: 'assistant' },
+			{ role: 'tool', tool_call_id: CALL.id, content: 'Screenshot captured' },
+			{
+				role: 'user',
+				content: [
+					{
+						type: 'text',
+						text: expect.stringContaining(JSON.stringify(CALL.id)),
+					},
+					{ type: 'text', text: 'Screenshot captured' },
+					{
+						type: 'image_url',
+						image_url: { url: `data:image/png;base64,${image}` },
+					},
+				],
+			},
+		])
+		expect(JSON.stringify(body)).not.toContain('image-data')
 	})
 
 	it('replays Anthropic thinking signatures and redacted blocks on the wire', async () => {

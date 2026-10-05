@@ -150,7 +150,10 @@ async function fixture(
 		topicId: state.topicId,
 		tenantId: state.tenantId,
 	}
-	const reopen = (permissionMode: PermissionMode = 'auto') =>
+	const reopen = (
+		permissionMode?: PermissionMode,
+		rules?: NonNullable<Parameters<typeof createAgentSession>[2]>['rules'],
+	) =>
 		createAgentSession(
 			{
 				version: 3,
@@ -169,7 +172,8 @@ async function fixture(
 				onSessionEvent,
 				scope,
 				conversationSessions: state,
-				permissionMode,
+				...(permissionMode ? { permissionMode } : {}),
+				...(rules ? { rules } : {}),
 				palEnvironment: conversationOnly
 					? palSessionEnvironment(runtime, pal, id)
 					: {
@@ -1026,6 +1030,95 @@ it('refuses mismatched decisions, foreign journals, repinned models and revoked 
 		)
 		expect(provider.requests).toHaveLength(1)
 	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('runs owned guest commands without asking when only a reviewer callback is supplied', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] },
+			{ text: 'Guest command completed.' },
+		],
+	})
+	const f = await fixture(provider)
+	const onPermission = vi.fn(async () => ({ kind: 'reject' as const }))
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Inspect your computer.')], {
+			onPermission,
+		})) {
+		}
+		expect(f.original.sandbox.exec).toHaveBeenCalledTimes(1)
+		expect(onPermission).not.toHaveBeenCalled()
+		expect(
+			await findPendingCheckpoint(DiskSessionLog.at(f.state.paths, { sessionId: f.id })),
+		).toBeNull()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('retains an explicit durable review hold even when no permission mode is supplied', async () => {
+	const provider = new MockLLMProvider({
+		turns: [{ toolCalls: [{ name: 'write', args: { path: 'waiting.txt', content: 'waiting' } }] }],
+	})
+	const f = await fixture(provider)
+	const onPermission = vi.fn(async () => ({ kind: 'approve' as const }))
+	try {
+		for await (const _event of f.agent.send([createUserMessage('Prepare this reviewed write.')], {
+			reviewHold: { reason: 'The operator requested review.' },
+			onPermission,
+		})) {
+		}
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(onPermission).not.toHaveBeenCalled()
+		expect(
+			await findPendingCheckpoint(DiskSessionLog.at(f.state.paths, { sessionId: f.id })),
+		).not.toBeNull()
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('does not turn automatic guest approval into a host escape or an override of deny rules', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [{ name: 'bash', args: { command: 'pwd', dangerously_disable_sandbox: true } }],
+			},
+			{ toolCalls: [{ name: 'write', args: { path: 'denied.txt', content: 'denied' } }] },
+			{ text: 'These operations are unavailable.' },
+		],
+	})
+	const f = await fixture(provider)
+	const onPermission = vi.fn(async () => ({ kind: 'approve' as const }))
+	let restricted: Awaited<ReturnType<typeof f.reopen>> | undefined
+	try {
+		await f.agent.close()
+		restricted = await f.reopen(undefined, [{ type: 'deny_by_name', toolNames: ['write'] }])
+		for await (const _event of restricted.send(
+			[createUserMessage('Try the requested operations.')],
+			{
+				onPermission,
+			},
+		)) {
+		}
+		expect(f.original.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(onPermission).not.toHaveBeenCalled()
+		expect(provider.requests).toHaveLength(3)
+		expect((await records(f)).filter((record) => record.type === 'tool_completed')).toEqual([
+			expect.objectContaining({ isError: true }),
+			expect.objectContaining({ isError: true }),
+		])
+	} finally {
+		await restricted?.close()
 		await f.agent.close()
 		await f.runtime.close()
 		closeSessions(f.state)

@@ -67,13 +67,30 @@ export interface PalEnvironmentRequest {
 	readonly signal?: AbortSignal
 }
 /** Human input to the Pal's guest desktop; no shell, filesystem or host target. */
-export type PalComputerInput = Extract<
-	ComputerUseAction,
-	{ readonly type: 'mouse_move' | 'mouse_click' | 'mouse_drag' | 'scroll' | 'type_text' | 'key' }
->
+export type PalComputerInput =
+	| Extract<
+			ComputerUseAction,
+			{
+				readonly type: 'mouse_move' | 'mouse_click' | 'mouse_drag' | 'scroll' | 'type_text' | 'key'
+			}
+	  >
+	| {
+			/** One X keysym, never a chord. Complete AI key taps remain unchanged. */
+			readonly type: 'key_down' | 'key_up'
+			readonly key: string
+			/** Host-created keyboard focus lifetime; cleanup cannot release another lifetime's keys. */
+			readonly keyboardId: string
+	  }
+	| {
+			/** Release only keys held by this keyboard lifetime, not all guest keys. */
+			readonly type: 'release_keys'
+			readonly keyboardId: string
+	  }
 /** Optional provider-owned exclusive control. A provider must gate every agent effect. */
 export interface PalComputerControl {
 	readonly mode: 'pal' | 'operator' | 'transitioning'
+	/** Opt in only after the owned guest confirms session-scoped held keyboard support. */
+	readonly heldKeyboard?: true
 	/** Reserve the transition before checking all guest activity; refuse unless idle is confirmed. */
 	takeOver(): Promise<void>
 	/** Return only the input authority. This must not start a query or replay input. */
@@ -83,6 +100,7 @@ export interface PalComputerControl {
 export interface PalComputerControlState {
 	readonly supported: boolean
 	readonly mode: 'pal' | 'operator' | 'transitioning' | 'unavailable'
+	readonly heldKeyboard?: true
 }
 /** Host-only credentials for a readonly RFB WebSocket stream; never pass to a renderer. */
 export interface PalComputerScreenStream {

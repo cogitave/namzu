@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-05T10:23:15.322742+00:00",
+  "actualNativeWindows": true,
+  "actualProvider": "zen",
+  "actualModel": "space-bunny-free",
+  "sdkTurnGuards": {
+    "tokenBudget": 0,
+    "timeoutMs": 0,
+    "maxIterations": 0
+  },
+  "before": {
+    "driverDefaultMaxOutputTokens": 4096,
+    "actualLimitedResponses": [
+      {
+        "completionTokens": 4096,
+        "reasoningTokens": 4095
+      },
+      {
+        "completionTokens": 4096,
+        "reasoningTokens": 4095
+      },
+      {
+        "completionTokens": 4096,
+        "reasoningTokens": 2057
+      }
+    ],
+    "savedRobotArtifacts": false,
+    "observedEffects": [
+      "Two empty completions after reasoning consumed4095/4096 output tokens",
+      "SDK empty-completion fallback requested an ending summary",
+      "Later write arguments were truncated before an executed write",
+      "That failed stream left a durable active turn, so fresh send was refused"
+    ]
+  },
+  "implemented": {
+    "omittedChatResponsesGoogleCap": "leave unset for native service",
+    "messagesCap": "known model ceiling required by protocol; unknown ceiling requires explicit caller cap",
+    "explicitCallerCaps": "preserved",
+    "nativePackageRebuiltAndReloaded": true,
+    "profileLayoutDraftsPreserved": true,
+    "newComputerReady": true,
+    "localNamedDataVolumeRetained": true,
+    "optionalProtocolsCap": "verified catalogue model ceiling when known, otherwise leave unset; service default alone still truncated",
+    "cliMalformedPresentation": "typed fallback preserves original tool errors, retry and turn settlement"
+  },
+  "limits": "Service/model limits still apply. SDK interrupted-turn recovery and cross-process orphan allocation recovery are not changed by this fix. Subsequent game proof is recorded separately.",
+  "after": {
+    "newFreeConversation": true,
+    "sendPermissionModeOption": "omitted",
+    "observedSuccessfulWrite": true,
+    "observedSuccessfulSectionEdits": true,
+    "language": "English",
+    "gameCompletion": "pending actual artifact and gameplay verification"
+  }
+}

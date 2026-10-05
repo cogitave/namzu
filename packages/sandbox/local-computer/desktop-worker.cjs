@@ -128,6 +128,55 @@ const KEY_NAMES = {
 	PAGEUP: 'Prior',
 	PAGEDOWN: 'Next',
 }
+const HELD_KEYS = new Set([
+	'Control_L',
+	'Alt_L',
+	'Shift_L',
+	'Super_L',
+	'Return',
+	'Escape',
+	'BackSpace',
+	'Delete',
+	'Up',
+	'Down',
+	'Left',
+	'Right',
+	'Home',
+	'End',
+	'Prior',
+	'Next',
+	'Insert',
+	'Tab',
+	'space',
+	'minus',
+	'equal',
+	'period',
+	'comma',
+	'slash',
+	'backslash',
+	'semicolon',
+	'apostrophe',
+	'bracketleft',
+	'bracketright',
+	'grave',
+])
+function heldKey(value) {
+	const alias = KEY_NAMES[value.toUpperCase()] ?? value
+	const key =
+		alias === 'ctrl'
+			? 'Control_L'
+			: alias === 'alt'
+				? 'Alt_L'
+				: alias === 'shift'
+					? 'Shift_L'
+					: /^[A-Z]$/.test(alias)
+						? alias.toLowerCase()
+						: alias
+	// xdotool supports command chaining; a syntactically safe word is not necessarily a keysym.
+	if (!HELD_KEYS.has(key) && !/^(?:[a-z0-9]|F(?:[1-9]|1[0-9]|2[0-4]))$/.test(key))
+		throw new Error('Unsupported held keysym')
+	return key
+}
 
 function run(binary, args) {
 	return new Promise((resolve, reject) => {
@@ -273,6 +322,54 @@ function createDesktopServer(options) {
 		return { width: value[0], height: value[1] }
 	}
 	let queue = Promise.resolve()
+	// Per-allocation and per-focus ownership. Never send a global keyup.
+	const keyboards = new Map()
+	const heldAction = async (action) => {
+		const fields =
+			action.type === 'release_keys' ? ['type', 'keyboardId'] : ['type', 'key', 'keyboardId']
+		if (
+			Object.keys(action).length !== fields.length ||
+			!fields.every((field) => Object.hasOwn(action, field)) ||
+			typeof action.keyboardId !== 'string' ||
+			!/^[a-zA-Z0-9_-]{16,80}$/.test(action.keyboardId) ||
+			(action.type !== 'release_keys' &&
+				(typeof action.key !== 'string' || !/^[a-zA-Z0-9_]{1,40}$/.test(action.key)))
+		)
+			throw new Error('Invalid held keyboard input')
+		const key = action.type === 'release_keys' ? undefined : heldKey(action.key)
+		const owned = keyboards.get(action.keyboardId)
+		const heldElsewhere = (candidate) =>
+			[...keyboards].some(([id, keys]) => id !== action.keyboardId && keys.has(candidate))
+		let args
+		if (action.type === 'key_down') {
+			if (owned?.has(key)) return
+			if ((!owned && keyboards.size >= 16) || (owned?.size ?? 0) >= 32)
+				throw new Error('Held keyboard limit exceeded')
+			if (!heldElsewhere(key)) args = ['keydown', '--', key]
+		} else if (action.type === 'key_up') {
+			if (!owned?.has(key)) return
+			if (!heldElsewhere(key)) args = ['keyup', '--', key]
+		} else {
+			if (!owned) return
+			const releasing = [...owned].filter((candidate) => !heldElsewhere(candidate))
+			if (releasing.length) args = ['keyup', '--', ...releasing]
+		}
+		if (args) {
+			try {
+				await execute('xdotool', args)
+			} catch {
+				return { outcome: 'unknown' }
+			}
+		}
+		if (action.type === 'key_down') {
+			const keys = owned ?? new Set()
+			keys.add(key)
+			keyboards.set(action.keyboardId, keys)
+		} else if (action.type === 'key_up') {
+			owned.delete(key)
+			if (!owned.size) keyboards.delete(action.keyboardId)
+		} else keyboards.delete(action.keyboardId)
+	}
 	const json = (res, status, body) => {
 		res.writeHead(status, {
 			'content-type': 'application/json',
@@ -304,6 +401,7 @@ function createDesktopServer(options) {
 					protocol: 1,
 					...display,
 					browserReady: true,
+					heldKeyboard: { version: 1 },
 					...(streamReady ? { stream: { protocol: 'rfb' } } : {}),
 				})
 			} catch {
@@ -324,6 +422,11 @@ function createDesktopServer(options) {
 			const action = JSON.parse(body)
 			const perform = async () => {
 				try {
+					if (['key_down', 'key_up', 'release_keys'].includes(action.type)) {
+						const result = await heldAction(action)
+						json(res, 200, result ?? { type: 'ok' })
+						return
+					}
 					if (action.type === 'screenshot') {
 						json(res, 200, {
 							type: 'screenshot',

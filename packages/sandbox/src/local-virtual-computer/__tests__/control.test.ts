@@ -26,13 +26,14 @@ function deferred<T>() {
 	})
 	return { promise, resolve }
 }
-function clients(desktopUrl = 'http://127.0.0.1:1') {
+function clients(desktopUrl = 'http://127.0.0.1:1', heldKeyboard = false) {
 	return localComputerClients({
 		executionUrl: 'http://127.0.0.1:2',
 		desktopUrl,
 		token: 'owned-fixture-token',
 		geometry: { width: 1280, height: 800, scaleFactor: 1 },
 		stop: async () => {},
+		heldKeyboard,
 	})
 }
 async function desktop(run: (binary: string, args: string[]) => Promise<Buffer>) {
@@ -210,4 +211,83 @@ it('does not transfer control after an unconfirmed remote file write', async () 
 	)
 	await expect(owned.operatorControl.takeOver()).rejects.toThrow('outcome is unknown')
 	expect(owned.operatorControl.mode).toBe('pal')
+})
+
+it('keeps AI taps unchanged, negotiates held input separately and confirms owned releases before return', async () => {
+	const run = runner()
+	const owned = clients(await desktop(run), true)
+	expect(owned.operatorControl.heldKeyboard).toBe(true)
+	await owned.computerUseHost.execute({ type: 'key', keys: 'w' })
+	await owned.operatorControl.takeOver()
+	const keyboardId = 'operator-keyboard-lifetime'
+	await owned.operatorControl.executeInput({ type: 'key_down', key: 'w', keyboardId })
+	await owned.operatorControl.executeInput({ type: 'key_down', key: 'd', keyboardId })
+	await owned.operatorControl.returnControl()
+	expect(owned.operatorControl.mode).toBe('pal')
+	expect(run.mock.calls.filter((call) => call[1][0] !== 'getdisplaygeometry')).toEqual([
+		['xdotool', ['key', '--clearmodifiers', '--', 'w']],
+		['xdotool', ['keydown', '--', 'w']],
+		['xdotool', ['keydown', '--', 'd']],
+		['xdotool', ['keyup', '--', 'w', 'd']],
+	])
+	await expect(owned.computerUseHost.execute({ type: 'key', keys: 'w' })).rejects.toThrow('fresh')
+	await expect(
+		owned.operatorControl.executeInput({ type: 'release_keys', keyboardId }),
+	).rejects.toThrow('does not have control')
+})
+
+it('reserves return authority while key release is pending and never reports success for an unknown release', async () => {
+	const run = runner()
+	const owned = clients(await desktop(run), true)
+	await owned.operatorControl.takeOver()
+	await owned.operatorControl.executeInput({
+		type: 'key_down',
+		key: 'w',
+		keyboardId: 'operator-keyboard-lifetime',
+	})
+	const release = deferred<void>()
+	const dispatched = deferred<void>()
+	run.mockImplementation(async (_binary, args) => {
+		if (args[0] === 'keyup') {
+			dispatched.resolve()
+			await release.promise
+			throw new Error('Release may have acted')
+		}
+		return Buffer.alloc(0)
+	})
+	const returning = owned.operatorControl.returnControl()
+	const failed = expect(returning).rejects.toMatchObject({ code: 'computer_use_outcome_unknown' })
+	await dispatched.promise
+	expect(owned.operatorControl.mode).toBe('transitioning')
+	await expect(owned.operatorControl.executeInput({ type: 'key', keys: 'A' })).rejects.toThrow(
+		'does not have control',
+	)
+	release.resolve()
+	await failed
+	expect(owned.operatorControl.mode).toBe('operator')
+	await expect(owned.operatorControl.returnControl()).rejects.toThrow('outcome is unknown')
+})
+
+it('refuses held input for old guest capabilities and for the AI port without a generic fallback', async () => {
+	const run = runner()
+	const url = await desktop(run)
+	const older = clients(url)
+	await older.operatorControl.takeOver()
+	expect(older.operatorControl.heldKeyboard).toBeUndefined()
+	await expect(
+		older.operatorControl.executeInput({
+			type: 'key_down',
+			key: 'w',
+			keyboardId: 'operator-keyboard-lifetime',
+		}),
+	).rejects.toThrow('does not support')
+	const current = clients(url, true)
+	await expect(
+		current.computerUseHost.execute({
+			type: 'key_down',
+			key: 'w',
+			keyboardId: 'operator-keyboard-lifetime',
+		} as unknown as Parameters<typeof current.computerUseHost.execute>[0]),
+	).rejects.toThrow('does not support')
+	expect(run).not.toHaveBeenCalled()
 })

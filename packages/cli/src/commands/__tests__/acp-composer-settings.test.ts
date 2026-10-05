@@ -15,7 +15,7 @@ function deferred<T>() {
 	return { promise, resolve }
 }
 
-function fixture() {
+function fixture(ownedPal = false) {
 	const sessionId = asSessionId(fixtureUuid('desktop-settings-owner'))
 	const preferences: Preferences = {
 		version: 3,
@@ -96,12 +96,29 @@ function fixture() {
 	)
 	const decideTrust = vi.fn(({ cwd }: { cwd: string }) => ({ allowed: true, cwd }))
 	const resolveProjectContext = vi.fn((ctx: unknown) => ctx)
+	const pal = {
+		id: 'owned-pal',
+		workspace: '/project',
+		name: 'Research',
+		purpose: '',
+		revision: 1,
+		model: null,
+		paused: false,
+		createdAt: '',
+		updatedAt: '',
+	}
 	const runtime = createCliAcpRuntime(
 		{
 			config: { plugins: { enabled: true } },
 			formatter: { name: 'text', print: () => {}, info: () => {}, error: () => {} },
 		},
 		{
+			...(ownedPal
+				? {
+						palBinding: async () => ({ pal, definition: pal, sessionId }),
+						palRuntime: async () => ({ computer: () => null }),
+					}
+				: {}),
 			probe: async () => ({
 				preferences,
 				detected: [
@@ -192,6 +209,21 @@ describe('ACP composer settings use the exact owned session', () => {
 			await f.prompt()
 			expect(f.send.mock.calls[1]?.[1]).toMatchObject({ permissionMode: 'prompt' })
 			expect(f.send.mock.calls[1]?.[1]).not.toHaveProperty('effort')
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('defaults a host-claimed Pal to auto while preserving an explicit review or plan choice', async () => {
+		const f = fixture(true)
+		try {
+			await f.prompt()
+			expect(f.send.mock.calls[0]?.[1]).toMatchObject({ permissionMode: 'auto' })
+			await f.prompt({ effort: 'high' })
+			expect(f.send.mock.calls[1]?.[1]).toMatchObject({ effort: 'high', permissionMode: 'auto' })
+			await f.prompt({ permissionMode: 'prompt' })
+			expect(f.send.mock.calls[2]?.[1]).toMatchObject({ permissionMode: 'prompt' })
+			await f.prompt({ permissionMode: 'plan' })
+			expect(f.send.mock.calls[3]?.[1]).toMatchObject({ permissionMode: 'plan' })
 		} finally {
 			await f.runtime.close()
 		}

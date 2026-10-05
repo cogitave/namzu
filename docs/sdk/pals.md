@@ -195,6 +195,18 @@ are nonblank, at most 100 characters, using letters, digits, underscore, plus,
 space or hyphen. Inputs are captured before awaiting provider work. No shell,
 file target, screenshot action or host selector is part of this input port.
 
+Providers may opt into `PalComputerControl.heldKeyboard: true`, also reflected
+in `computerControl()`. Only then does the input port accept
+`{ type: 'key_down' | 'key_up', key, keyboardId }` and
+`{ type: 'release_keys', keyboardId }`. `key` is one keysym with 1–40 letters,
+digits or underscores, never a chord; providers additionally validate their
+supported keys. `keyboardId` is a host-created focus lifetime of 16–80 ASCII
+letters, digits, underscores or hyphens. Exact shapes and current operator
+generation remain mandatory. A release removes only that lifetime's held
+keys, and providers must confirm their tracked releases before returning Pal
+authority. A stale lifetime must not release another lifetime's keys. Existing
+providers and complete `key` taps do not acquire this optional capability.
+
 Admissions and every `assertActive()` refuse operator or transitional authority.
 After takeover, each later admission's `computerUseHost` refuses GUI mutations
 until that admission successfully executes its own fresh screenshot. A raw

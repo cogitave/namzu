@@ -1,6 +1,7 @@
 import { MessageSquare, Minus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
+import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
 	type ThreadState,
 	applyEvent,
@@ -40,6 +41,7 @@ import { Composer } from './composer.js'
 import { type ComputerChatLayout, useComputerChatMotion } from './computer-chat-motion.js'
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
+import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { compareConversationRecency } from './conversation-order.js'
 import { type ConversationPalWorkspace, ConversationTabs } from './conversation-tabs.js'
@@ -568,9 +570,7 @@ export function App({
 		(failure) => setError(errorText(failure)),
 		api,
 	)
-	const settings = savedSettings.value.options ?? {
-		permissionMode: 'prompt' as const,
-	}
+	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
 		draftChoice: savedSettings.value.choice,
@@ -1940,9 +1940,18 @@ export function App({
 		navigation: navigation.current,
 		visible: computerPage && focused && !frozen,
 	}
+	const keyboardOwners = useRef(new ComputerKeyboardOwners())
 	const inputQueue = useRef<ComputerInputQueue | null>(null)
 	if (!inputQueue.current)
 		inputQueue.current = new ComputerInputQueue(async (action, owner) => {
+			if (action.type === 'release_keys') {
+				keyboardOwners.current.assertRelease(action.keyboardId, owner)
+				if (!api.palComputerInput) throw new ComputerInputRetiredError()
+				// Focus loss retires new input, but cleanup still targets only its captured
+				// allocation/lifetime. Main, runtime and guest keep their authority fences.
+				await api.palComputerInput(owner.id, owner.generation, action)
+				return
+			}
 			const current = computerOwner.current
 			if (
 				!computerInputOwnerMatches(owner, {
@@ -1966,6 +1975,15 @@ export function App({
 			await api.palComputerInput(owner.id, owner.generation, action)
 		})
 	const computerInputQueue = inputQueue.current
+	const releaseComputerKeyboard = async (keyboardId: string): Promise<void> => {
+		const owner = keyboardOwners.current.owner(keyboardId)
+		if (!owner) return
+		try {
+			await computerInputQueue.enqueue({ type: 'release_keys', keyboardId }, owner)
+		} finally {
+			keyboardOwners.current.retire(keyboardId, owner)
+		}
+	}
 	const changeComputerControl = async (takeOver: boolean) => {
 		const id = pal?.id
 		const generation = palComputer?.generation
@@ -1999,6 +2017,7 @@ export function App({
 		}
 	}
 	const sendComputerInput = (action: PalComputerInput): Promise<void> => {
+		if (action.type === 'release_keys') return releaseComputerKeyboard(action.keyboardId)
 		const owner = { ...computerOwner.current }
 		if (
 			!document.hasFocus() ||
@@ -2020,14 +2039,20 @@ export function App({
 			!api.palComputerInput
 		)
 			return Promise.reject(new Error('Take over this computer before sending input.'))
-		const sequence = ++inputSequence.current
-		setInputBusy(true)
-		const operation = computerInputQueue.enqueue(action, {
+		const captured = {
 			id: owner.id,
 			generation: owner.generation,
 			navigation: owner.navigation,
 			viewEpoch: computerInputViewEpoch.current,
-		})
+		}
+		try {
+			keyboardOwners.current.capture(action, captured)
+		} catch (error) {
+			return Promise.reject(error)
+		}
+		const sequence = ++inputSequence.current
+		setInputBusy(true)
+		const operation = computerInputQueue.enqueue(action, captured)
 		void operation
 			.finally(() => {
 				if (sequence === inputSequence.current) {
@@ -2210,7 +2235,7 @@ export function App({
 							...savedSettings.get(target),
 							options: {
 								effort: item.effort,
-								permissionMode: item.permissionMode ?? 'prompt',
+								permissionMode: item.permissionMode ?? (pal ? 'auto' : 'prompt'),
 							},
 						})
 				}
@@ -2220,7 +2245,7 @@ export function App({
 				if (activeSession.current === target) input.current?.focus()
 			}
 		},
-		[sessionId, attached.reload, savedSettings.get, savedSettings.save, api],
+		[sessionId, attached.reload, savedSettings.get, savedSettings.save, api, pal],
 	)
 	const send = async () => {
 		if (context.current.frozen) return
@@ -2780,6 +2805,7 @@ export function App({
 						control={palComputer?.control}
 						controlBusy={controlBusy}
 						inputBusy={inputBusy}
+						inputEnabled={focused && !frozen}
 						onBack={showPalChat}
 						onRefresh={() => {
 							invalidateComputerInput()
@@ -2797,6 +2823,7 @@ export function App({
 								: undefined
 						}
 						onInput={api.palComputerInput ? sendComputerInput : undefined}
+						onReleaseKeyboard={api.palComputerInput ? releaseComputerKeyboard : undefined}
 						onKeyboardFocus={onComputerFocus}
 					/>
 				)}

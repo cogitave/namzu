@@ -138,7 +138,6 @@ import {
 	createResidentStepContributions,
 	createReviewHandler,
 	createSkillTool,
-	createToolPresenter,
 	deferred,
 	ensureProject,
 	filtered,
@@ -322,6 +321,7 @@ import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
+import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
 
 export type AgentEvent =
 	| {
@@ -1802,7 +1802,7 @@ export interface AgentSessionOptions {
 	 * That stays the behaviour for anyone who writes no config.
 	 */
 	readonly rules?: readonly AuthorizationRule[]
-	/** How calls no rule decided are resolved. Defaults to prompt/auto by TTY. */
+	/** How undecided calls resolve. Owned Pal guests default to auto; ordinary sessions use prompt/auto by TTY. */
 	readonly permissionMode?: PermissionMode
 	/**
 	 * External tool servers to connect for this session, from the operator's
@@ -3356,7 +3356,7 @@ export async function createAgentSession(
 	// than left implicit inside `runTurn`'s own per-turn presenter. Reads
 	// through `liveManager()` so a plugin enabled or disabled after boot is
 	// reflected here too, not only in `/tools`.
-	const sessionPresenter = createToolPresenter({
+	const sessionPresenter = createCliToolPresenter({
 		get: (name) => liveManager().get(name),
 	})
 	// What one turn's prompt manifest and `skill` tool see: the file skills
@@ -5342,7 +5342,7 @@ async function* runTurn({
 		...(toolResultGuardrails !== undefined ? { resultGuardrails: toolResultGuardrails } : {}),
 		messages: () => [],
 	})
-	const presenter = createToolPresenter(turnManager)
+	const presenter = createCliToolPresenter(turnManager)
 	const readsOnly = declaredReadOnly(turnManager)
 	try {
 		const events = query({
@@ -5856,7 +5856,7 @@ export function toAgentEvent(
 			}
 		case 'tool_completed': {
 			const view =
-				event.presentation ??
+				admitToolView(event.presentation) ??
 				presenter.presentResult(
 					event.toolName,
 					{},
@@ -6444,7 +6444,7 @@ function emptySession(
 		// No toolsets were built, so every call falls back to the generic
 		// label/view, honestly — an empty manager, not this session pretending
 		// to have an opinion it never formed.
-		presenter: createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] })),
+		presenter: createCliToolPresenter(new ToolManager({ toolsets: [], messages: () => [] })),
 		// No provider, so no runtime was built and there is nothing to delegate
 		// to — the same reason `toolNames` is empty.
 		agentIds: [],

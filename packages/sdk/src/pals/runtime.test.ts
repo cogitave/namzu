@@ -350,6 +350,59 @@ function controlledComputer(pal: PalDefinition) {
 }
 
 describe('Pal operator computer control', () => {
+	it('requires explicit held-key capability and fences releases to the current operator allocation', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		const keyboardId = 'operator-keyboard-lifetime'
+		await expect(
+			runtime.executeOperatorInput(pal.id, 1, { type: 'key_down', key: 'w', keyboardId }),
+		).rejects.toThrow('does not support held')
+		expect(control.executeInput).not.toHaveBeenCalled()
+		Object.defineProperty(control, 'heldKeyboard', { value: true })
+		expect(runtime.computerControl(pal.id)).toEqual({
+			supported: true,
+			mode: 'operator',
+			heldKeyboard: true,
+		})
+		for (const input of [
+			{ type: 'key_down' as const, key: 'w', keyboardId },
+			{ type: 'key_up' as const, key: 'w', keyboardId },
+			{ type: 'release_keys' as const, keyboardId },
+		])
+			await runtime.executeOperatorInput(pal.id, 1, input)
+		await expect(
+			runtime.executeOperatorInput(pal.id, 2, { type: 'release_keys', keyboardId }),
+		).rejects.toThrow('generation')
+		await runtime.returnControl(pal.id, 1)
+		await expect(
+			runtime.executeOperatorInput(pal.id, 1, { type: 'release_keys', keyboardId }),
+		).rejects.toThrow('Take operator control')
+		expect(control.executeInput).toHaveBeenCalledTimes(3)
+		await runtime.close()
+	})
+	it('refuses malformed held keyboard shapes before invoking the provider', async () => {
+		const { pal, store } = fixture()
+		const { lease, control } = controlledComputer(pal)
+		Object.defineProperty(control, 'heldKeyboard', { value: true })
+		const runtime = new PalRuntime({ store, environments: { acquire: async () => lease } })
+		await runtime.startComputer(pal.id)
+		await runtime.takeOver(pal.id, 1)
+		for (const input of [
+			{ type: 'key_down', key: 'CTRL+w', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: '--window', keyboardId: 'operator-keyboard-lifetime' },
+			{ type: 'key_down', key: 'w', keyboardId: 'short' },
+			{ type: 'key_up', key: 'w', keyboardId: 'x'.repeat(81) },
+			{ type: 'release_keys', keyboardId: 'operator-keyboard-lifetime', palId: 'foreign' },
+		])
+			await expect(
+				runtime.executeOperatorInput(pal.id, 1, input as PalComputerInput),
+			).rejects.toThrow('Invalid Pal computer input')
+		expect(control.executeInput).not.toHaveBeenCalled()
+		await runtime.close()
+	})
 	it('refuses an unsupported provider without a generic computer input fallback', async () => {
 		const { pal, store } = fixture()
 		const lease = computer(pal)

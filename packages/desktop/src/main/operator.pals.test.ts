@@ -333,6 +333,40 @@ it('publishes a new conversation only after the runtime confirms its Pal claim',
 	const methods = transport.calls.map((call) => call.method)
 	expect(methods.at(-1)).toBe('namzu/pals/conversations/claim')
 })
+it.each([
+	[undefined, { permissionMode: 'auto' }],
+	[{ effort: 'high' }, { effort: 'high', permissionMode: 'auto' }],
+	[{ permissionMode: 'prompt' }, { permissionMode: 'prompt' }],
+	[{ permissionMode: 'plan' }, { permissionMode: 'plan' }],
+] as const)(
+	'captures owned Pal defaults and explicit settings for sends and queued drafts (%s)',
+	async (options, expected) => {
+		const { owner, pal } = fixture()
+		const opened = await owner.openPal(pal.id)
+		const conversation = await owner.newConversation(opened.project.id)
+		const entered = deferred()
+		const complete = deferred()
+		transport.requestHook = async (_cwd, method) => {
+			if (method !== 'session/prompt') return undefined
+			entered.resolve()
+			await complete.promise
+			return { stopReason: 'end_turn' }
+		}
+		owner.send(conversation.id, 'Work in your computer', options)
+		await entered.promise
+		try {
+			expect(
+				transport.calls.find((call) => call.method === 'session/prompt')?.params.options,
+			).toEqual(expected)
+			owner.send(conversation.id, 'Queued work', options)
+			expect(owner.takeQueued(conversation.id)).toBe('Queued work')
+			expect(owner.draftSettings(conversation.id)).toEqual({ options: expected })
+		} finally {
+			complete.resolve()
+		}
+	},
+)
+
 it('retains failed runtime shutdown ownership and confirms it on a later close', async () => {
 	const { owner, pal, workspace } = fixture()
 	await owner.listPals()

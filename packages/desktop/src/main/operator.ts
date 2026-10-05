@@ -6,6 +6,7 @@ import type {
 	AcpSessionPromptResult,
 	AcpSessionUpdateNotification,
 } from '@namzu/sdk'
+import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -1532,12 +1533,9 @@ export class Operator {
 			id: randomUUID(),
 			prompt,
 			files,
-			...(options
+			...(options || session.view.palId
 				? {
-						options: {
-							...(options.effort ? { effort: options.effort } : {}),
-							permissionMode: options.permissionMode ?? 'prompt',
-						},
+						options: resolveComposerSendOptions(options, session.view.palId),
 					}
 				: {}),
 		}
@@ -1848,7 +1846,7 @@ export class Operator {
 		if (prompt !== null) this.saveDraft(sessionId, prompt)
 		this.saveDraftSettings(sessionId, {
 			...this.draftSettings(sessionId),
-			options: session.queue[index]?.options ?? { permissionMode: 'prompt' },
+			options: resolveComposerSendOptions(session.queue[index]?.options, session.view.palId),
 		})
 		for (const file of session.queue[index]?.files ?? []) {
 			file.draft = true

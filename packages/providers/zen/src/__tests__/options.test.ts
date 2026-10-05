@@ -49,7 +49,7 @@ describe('request intent and model discovery', () => {
 			reasoningEffort: 'low',
 			parallelToolCalls: false,
 		})
-		expect(result.maxOutputTokens).toBe(4096)
+		expect(result.maxOutputTokens).toBe(128000)
 	})
 
 	it.each([

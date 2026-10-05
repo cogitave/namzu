@@ -89,7 +89,7 @@ function engineFixture(
 	return { runner, calls }
 }
 
-function stubReadiness(stream?: unknown) {
+function stubReadiness(stream?: unknown, heldKeyboard?: unknown) {
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(
@@ -97,7 +97,7 @@ function stubReadiness(stream?: unknown) {
 				new Response(
 					JSON.stringify(
 						url.endsWith('/readyz')
-							? { protocol: 1, width: 1280, height: 800, browserReady: true, stream }
+							? { protocol: 1, width: 1280, height: 800, browserReady: true, stream, heldKeyboard }
 							: { protocolVersion: 2 },
 					),
 					{ status: 200 },
@@ -264,6 +264,16 @@ describe('local Pal computer admission', () => {
 		expect(Object.isFrozen(lease.screenStream)).toBe(true)
 		expect(run.args).not.toContain('127.0.0.1::5900')
 		await lease.release()
+	})
+	it('advertises held operator keys only for a confirmed current guest protocol', async () => {
+		for (const advertised of [undefined, { version: 2 }, { version: 1 }]) {
+			stubReadiness(undefined, advertised)
+			const fixture = engineFixture()
+			const provider = createLocalVirtualComputerProvider({ runner: fixture.runner })
+			const lease = await provider.acquire({ pal, conversationId: 'held-keyboard' })
+			expect(lease.operatorControl?.heldKeyboard).toBe(advertised?.version === 1 ? true : undefined)
+			await lease.release()
+		}
 	})
 	it('does not invent RFB support for another advertised stream protocol', async () => {
 		stubReadiness({ protocol: 'unknown' })
