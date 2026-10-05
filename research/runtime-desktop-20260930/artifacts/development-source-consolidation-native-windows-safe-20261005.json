@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "sourceBaseline": "5e2fb3a59",
+  "actualNativeWindows": true,
+  "graph": {
+    "passed": true,
+    "platform": "win32",
+    "node": "v22.20.0",
+    "packages": 130,
+    "copiedWorkspacePackages": 13,
+    "links": 225,
+    "singleSdkRoot": true,
+    "zenRegistration": true,
+    "registryTypes": [
+      "mock",
+      "zen"
+    ],
+    "runtimeAssets": [
+      "assets/pal-blender-mcp.py",
+      "assets/pal-godot-mcp.cjs",
+      "assets/pal-godot-mcp-pin.json"
+    ],
+    "networkCalls": 0,
+    "profilesOrSessionsTouched": false
+  },
+  "deployment": {
+    "stableApp": "Development/app",
+    "stableRuntime": "Development/runtime",
+    "mainPreloadRendererBuiltTogether": true,
+    "sameUserData": true,
+    "startupErrorRecords": 0,
+    "savedProfilesLayoutDraftsModelsAndMessageCountPreserved": true,
+    "workspaceSequenceIsProcessLocal": true
+  },
+  "rootCause": {
+    "previousConsumerSplitSdkRegistry": true,
+    "providerFailureBeforeNetwork": true,
+    "omittedCliMcpAssetsRepaired": true,
+    "worktreeCountAloneNotRootCause": true
+  },
+  "cleanup": {
+    "initialRegisteredWorktrees": 13,
+    "unusedCleanWorktreesRemoved": 9,
+    "remainingRegisteredWorktrees": 4,
+    "preservedDirtyWorktrees": [
+      "zen-compat",
+      "integration-phase-a",
+      "tui-dogfood"
+    ],
+    "branchRefsKept": true,
+    "uniqueBranchBundleVerified": true,
+    "evalReportsArchived": true,
+    "priorUntrackedHelperArchived": true,
+    "forcedRemoval": false,
+    "pushPerformed": false
+  },
+  "limitations": [
+    "Copied local development runtime; not an npm installation or native distribution.",
+    "Cleanup preserves three worktrees carrying uncommitted files.",
+    "Metadata communication UI was exercised with one peer and empty inbox/subscriptions; no consent mutation or idle wake execution was attempted."
+  ]
+}

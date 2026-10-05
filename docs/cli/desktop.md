@@ -60,6 +60,28 @@ settings before launching, as described in [Local Pal computer](../sdk/local-pal
 Starting a renderer development server alone does not configure that native
 host or start a Pal computer.
 
+### Native Windows development snapshots
+
+A copied development runtime must contain the complete CLI dependency graph.
+Copying only the CLI and SDK while retaining older provider package junctions
+can load two SDK registries and fail with `Unsupported provider type: zen`
+before a model request starts. Keep one source checkout and deploy its built
+main process, preload and renderer together; preserve the application's userData.
+
+The research helper `research/runtime-desktop-20260930/prepare-windows-reused-consumer.mjs`
+accepts a built WSL checkout, an existing compatible native consumer fixture and
+a fresh Windows Temp snapshot directory. It copies every Namzu package in that
+fixture, derives runtime assets from each package's `files`, and requires native
+external dependency versions matching the checkout's installed dependencies.
+`--check` performs preparation checks without writes. `--refresh-unlinked` is
+limited to a matching snapshot that has not yet acquired dependency links.
+Run the generated `link-native.mjs` using native Windows Node: it materializes
+external package files, rebuilds internal junctions inside the new snapshot and
+refuses split SDK roots. The result is a local runtime fixture, not an npm
+installation or a native distribution. The
+[coherence receipt](../../research/runtime-desktop-20260930/artifacts/development-source-consolidation-native-windows-safe-20261005.json)
+records the actual Windows graph and isolated Zen registration check.
+
 ### Diagnostic logs
 
 The native host records startup, unhandled main-process failures, renderer

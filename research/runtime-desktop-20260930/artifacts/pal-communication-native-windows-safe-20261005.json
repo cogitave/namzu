@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "readOnly": true,
+  "targetScopeSha256": "80d6420d0e3b9831f54c7ce9671ec8afc1b70d124905d04054181593f64b9b0a",
+  "supported": true,
+  "metadataSha256": "b1a2e7ee88f3ca0d281e763bdaeb6d32e3156cab9dca70678b53a6a0a7386295",
+  "counts": {
+    "peers": 1,
+    "inbox": 0,
+    "subscriptions": 0,
+    "sources": 2
+  },
+  "notices": {
+    "peers": false,
+    "inbox": false,
+    "subscriptions": false
+  },
+  "keyboardAndClickTabsPassed": true,
+  "restoredOriginalLayoutAndFocus": true,
+  "screenshots": [
+    {
+      "kind": "peers",
+      "sha256": "8c24df2e31ca643cc267d510027a433c5a09bf3c81c28b4f774e195ec2b15fa2"
+    },
+    {
+      "kind": "inbox",
+      "sha256": "1d5ebf361a265296e770d650b97653f351cff08faebe95744132681cece9b05b"
+    },
+    {
+      "kind": "subscriptions",
+      "sha256": "29bcb6e4e7dfa8b8b880ff562a68973aa8ba3eea296f9de4807f7b8153bf8e82"
+    }
+  ],
+  "unavailableSectionsObserved": false,
+  "unavailableRetentionNotInjected": true
+}
