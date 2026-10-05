@@ -1,0 +1,159 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindows": true,
+  "guestGeneration": "1791206245700",
+  "sdkMcpClientUsed": true,
+  "serializedReadonlyMaintenance": true,
+  "nativeAtomicOperationBarrierReserved": false,
+  "operatorFullyReturnedBeforeObservation": true,
+  "gameSourceEdited": false,
+  "inputOrAnimationControlSent": false,
+  "actualGameGlbSha256": "f2cb6bc72e31db6ff725d5ea5fdd2cfc458398c274fe744809ad4b308a62da1b",
+  "liveSkeleton": {
+    "bone_count": 14,
+    "class": "Skeleton3D",
+    "path": {
+      "path": "/root/Main/Player/Robot/RobotRig/Skeleton3D",
+      "type": "NodePath"
+    },
+    "tree_paused": true,
+    "version": 15
+  },
+  "liveAnimationPlayer": {
+    "active": true,
+    "animation_list": "PackedStringArray(\"idle\", \"walk\")",
+    "assigned_animation": "idle",
+    "class": "AnimationPlayer",
+    "current_animation": "idle",
+    "length": 2.04166674613953,
+    "path": {
+      "path": "/root/Main/Player/Robot/AnimationPlayer",
+      "type": "NodePath"
+    },
+    "playing": true,
+    "position": 1.85045364712911,
+    "speed_scale": 1,
+    "tree_paused": true
+  },
+  "importedMeshCount": 42,
+  "representativeMeshBindings": [
+    {
+      "mesh": "/root/Main/Player/Robot/RobotRig/Skeleton3D/boot_L",
+      "observedAt": "2026-10-05T14:21:35.662Z",
+      "meshFacts": {
+        "class": "MeshInstance3D",
+        "has_skin_reference": true,
+        "mesh": {
+          "class": "ArrayMesh",
+          "path": "res://assets/robot.glb::ArrayMesh_yhnl6",
+          "type": "Resource"
+        },
+        "path": {
+          "path": "/root/Main/Player/Robot/RobotRig/Skeleton3D/boot_L",
+          "type": "NodePath"
+        },
+        "resolved_skeleton": "/root/Main/Player/Robot/RobotRig/Skeleton3D",
+        "skeleton_path": {
+          "path": "..",
+          "type": "NodePath"
+        },
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        },
+        "visible_in_tree": true
+      },
+      "skinReferenceFacts": {
+        "bind_count": 14,
+        "same_assigned_skin": true,
+        "skeleton_rid": "RID(2525440770048)",
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        }
+      }
+    },
+    {
+      "mesh": "/root/Main/Player/Robot/RobotRig/Skeleton3D/chest",
+      "observedAt": "2026-10-05T14:21:57.684Z",
+      "meshFacts": {
+        "class": "MeshInstance3D",
+        "has_skin_reference": true,
+        "mesh": {
+          "class": "ArrayMesh",
+          "path": "res://assets/robot.glb::ArrayMesh_12bro",
+          "type": "Resource"
+        },
+        "path": {
+          "path": "/root/Main/Player/Robot/RobotRig/Skeleton3D/chest",
+          "type": "NodePath"
+        },
+        "resolved_skeleton": "/root/Main/Player/Robot/RobotRig/Skeleton3D",
+        "skeleton_path": {
+          "path": "..",
+          "type": "NodePath"
+        },
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        },
+        "visible_in_tree": true
+      },
+      "skinReferenceFacts": {
+        "bind_count": 14,
+        "same_assigned_skin": true,
+        "skeleton_rid": "RID(2525440770048)",
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        }
+      }
+    },
+    {
+      "mesh": "/root/Main/Player/Robot/RobotRig/Skeleton3D/forearm_L",
+      "observedAt": "2026-10-05T14:22:18.800Z",
+      "meshFacts": {
+        "class": "MeshInstance3D",
+        "has_skin_reference": true,
+        "mesh": {
+          "class": "ArrayMesh",
+          "path": "res://assets/robot.glb::ArrayMesh_80f3x",
+          "type": "Resource"
+        },
+        "path": {
+          "path": "/root/Main/Player/Robot/RobotRig/Skeleton3D/forearm_L",
+          "type": "NodePath"
+        },
+        "resolved_skeleton": "/root/Main/Player/Robot/RobotRig/Skeleton3D",
+        "skeleton_path": {
+          "path": "..",
+          "type": "NodePath"
+        },
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        },
+        "visible_in_tree": true
+      },
+      "skinReferenceFacts": {
+        "bind_count": 14,
+        "same_assigned_skin": true,
+        "skeleton_rid": "RID(2525440770048)",
+        "skin": {
+          "class": "Skin",
+          "path": "res://assets/robot.glb::Skin_12ugp",
+          "type": "Resource"
+        }
+      }
+    }
+  ],
+  "allApplicationGetterRepliesSettled": true,
+  "guestServerExitConfirmed": true,
+  "liveWeightedWalkCertified": false,
+  "scope": "Three representative imported mesh skin bindings plus paused idle AP snapshot; not continuous walk deformation or a native concurrency barrier proof."
+}
