@@ -15,6 +15,7 @@ import type {
 	ComposerModelSettings,
 	ConversationView,
 	DesktopEvent,
+	DesktopRetryStatus,
 	DesktopSendOptions,
 	DraftSettings,
 	HarnessView,
@@ -81,6 +82,9 @@ interface Conversation {
 	selectionPending?: boolean
 	client: RuntimeClient
 	running: boolean
+	/** Exact owner of preflight or settlement; an older finally cannot release it. */
+	admitting?: symbol
+	executionRevision?: number
 	runSettled?: Promise<void>
 	queue: PendingMessage[]
 	draft: string
@@ -932,7 +936,12 @@ export class Operator {
 			throw new Error('External engines are available in normal conversations only.')
 		if (!['namzu', 'codex-cli', 'claude-code'].includes(engine))
 			throw new Error('Unknown execution engine.')
-		if (session.running || session.queue.length || this.changingPlugins.has(sessionId))
+		if (
+			session.running ||
+			session.admitting ||
+			session.queue.length ||
+			this.changingPlugins.has(sessionId)
+		)
 			throw new Error('Stop this conversation before changing its engine.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
@@ -1056,12 +1065,14 @@ export class Operator {
 			await this.reattach(existing)
 		}
 		// Active/transient sessions are rendered from their live UI projection.
-		if (existing)
+		if (existing) {
+			if (!existing.running && !existing.admitting) await this.refreshRetry(existing)
 			return {
 				messages: existing.projection.messages,
 				partial: existing.projection.partial ?? false,
 				thread: existing.projection,
 			}
+		}
 		const history = (await project.client.request('namzu/conversations/history', {
 			sessionId,
 		})) as { messages: ChatMessage[]; partial: boolean }
@@ -1071,6 +1082,7 @@ export class Operator {
 				...restoreMessages(record.projection, history.messages),
 				partial: history.partial,
 			}
+		if (record) await this.refreshRetry(record)
 		this.persistDesktop()
 		return { ...history, thread: record?.projection }
 	}
@@ -1319,7 +1331,12 @@ export class Operator {
 		enabled: boolean,
 	): Promise<PluginInventoryView> {
 		const session = this.session(sessionId)
-		if (session.running || session.permissions.size || this.changingPlugins.has(sessionId))
+		if (
+			session.running ||
+			session.admitting ||
+			session.permissions.size ||
+			this.changingPlugins.has(sessionId)
+		)
 			throw new Error('Stop this conversation’s active work before changing plugins.')
 		if (
 			typeof name !== 'string' ||
@@ -1329,6 +1346,7 @@ export class Operator {
 		)
 			throw new Error('Invalid plugin choice.')
 		this.changingPlugins.add(sessionId)
+		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		try {
 			return (await session.client.request('namzu/plugins/set_enabled', {
 				sessionId: session.runtimeSessionId,
@@ -1347,7 +1365,7 @@ export class Operator {
 			(model !== undefined && (typeof model !== 'string' || model.length > 400))
 		)
 			throw new Error('Invalid model choice.')
-		if (session.running || this.changingPlugins.has(sessionId))
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
 			throw new Error('Stop this conversation before changing its model.')
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
@@ -1462,8 +1480,9 @@ export class Operator {
 		if (this.palRecords.get(palId)?.paused)
 			throw new Error('Resume this Pal before sending a message.')
 	}
-	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void {
+	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void | Promise<void> {
 		const session = this.session(sessionId)
+		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
 		this.assertPalAdmission(session.view.palId)
 		if (this.changingPlugins.has(sessionId))
 			throw new Error('Wait for this conversation’s settings change to finish.')
@@ -1550,12 +1569,209 @@ export class Operator {
 			this.state(session)
 			return
 		}
+		if (session.client.supportsTurnRetry()) {
+			const admission = Symbol('prompt admission')
+			const selectionRevision = session.selectionRevision ?? 0
+			session.admitting = admission
+			return (async () => {
+				await this.reattach(session)
+				const assertCurrent = this.metadataRead(this.project(session.view.projectId), session)
+				const status = await this.refreshRetry(session)
+				assertCurrent()
+				if (
+					session.admitting !== admission ||
+					(session.selectionRevision ?? 0) !== selectionRevision ||
+					this.changingPlugins.has(sessionId)
+				)
+					throw new Error(
+						'This conversation’s settings changed during admission. Your draft is retained.',
+					)
+				if (status.retry || status.notice || session.projection.reason === 'paused')
+					throw new Error(
+						status.notice ??
+							'This conversation has a paused turn. Retry it before sending a new message. Your draft is retained.',
+					)
+				this.assertPalAdmission(session.view.palId)
+				this.admitMessage(session, captured)
+			})().finally(() => {
+				if (session.admitting === admission) session.admitting = undefined
+			})
+		}
+		if (session.projection.reason === 'paused')
+			throw new Error(
+				'This conversation has a paused turn. Your draft is retained; update Namzu to retry it.',
+			)
+		this.admitMessage(session, captured)
+	}
+	private admitMessage(session: Conversation, captured: PendingMessage): void {
+		const { prompt, files } = captured
 		for (const file of files) {
 			file.draft = false
-			file.ownerId = sessionId
+			file.ownerId = session.view.id
 		}
 		if (session.draft === prompt) session.draft = ''
 		this.startRun(session, captured)
+	}
+	private async refreshRetry(session: Conversation): Promise<DesktopRetryStatus> {
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const executionRevision = session.executionRevision ?? 0
+		const selectionRevision = session.selectionRevision ?? 0
+		const result = client.supportsTurnRetry()
+			? await client.request('namzu/sessions/retry-status', { sessionId: runtimeId })
+			: {}
+		if (this.closing || session.client !== client || session.runtimeSessionId !== runtimeId)
+			throw new Error('The connection changed while reading this turn’s retry status.')
+		if (!result || typeof result !== 'object' || Array.isArray(result))
+			throw new Error('Namzu returned an invalid turn retry status.')
+		const { retry, notice } = result as DesktopRetryStatus
+		if (
+			(retry !== undefined &&
+				(!retry ||
+					typeof retry !== 'object' ||
+					typeof retry.turnId !== 'string' ||
+					!retry.turnId ||
+					retry.turnId.length > 200 ||
+					typeof retry.checkpointId !== 'string' ||
+					!retry.checkpointId ||
+					retry.checkpointId.length > 200)) ||
+			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000))
+		)
+			throw new Error('Namzu returned an invalid turn retry status.')
+		if ((session.executionRevision ?? 0) !== executionRevision || session.running)
+			throw new Error('This turn changed while reading its retry status. Open it again.')
+		if (
+			(session.selectionRevision ?? 0) !== selectionRevision ||
+			session.selectionPending ||
+			this.changingPlugins.has(session.view.id)
+		)
+			throw new Error(
+				'This conversation’s settings changed while reading retry status. Open it again.',
+			)
+		if (
+			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
+			session.projection.retryNotice !== notice
+		)
+			this.emit({ kind: 'retry-status', sessionId: session.view.id, retry, notice })
+		return { ...(retry ? { retry } : {}), ...(notice ? { notice } : {}) }
+	}
+	async retryTurn(
+		sessionId: string,
+		turnId: string,
+		checkpointId: string,
+		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
+	): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		if (!session.client.supportsTurnRetry()) throw new Error('Update Namzu to retry paused turns.')
+		this.assertPalAdmission(session.view.palId, true)
+		if (
+			options !== undefined &&
+			(!options ||
+				typeof options !== 'object' ||
+				Array.isArray(options) ||
+				Object.keys(options).some((key) => key !== 'effort' && key !== 'permissionMode') ||
+				(options.effort !== undefined &&
+					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
+						options.effort,
+					)) ||
+				(options.permissionMode !== undefined &&
+					!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)))
+		)
+			throw new Error('Invalid retry settings.')
+		const admission = Symbol('retry admission')
+		const selectionRevision = session.selectionRevision ?? 0
+		session.admitting = admission
+		try {
+			await this.reattach(session)
+			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session)
+			const status = await this.refreshRetry(session)
+			assertCurrent()
+			if (
+				session.admitting !== admission ||
+				(session.selectionRevision ?? 0) !== selectionRevision ||
+				this.changingPlugins.has(sessionId)
+			)
+				throw new Error('This conversation’s settings changed during retry admission.')
+			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+				throw new Error(
+					status.notice ??
+						'This checkpoint is no longer available for retry. Open the conversation again.',
+				)
+			this.assertPalAdmission(session.view.palId, true)
+			session.running = true
+			session.executionRevision = (session.executionRevision ?? 0) + 1
+			const running = this.runRetry(session, turnId, checkpointId, options)
+			session.runSettled = running
+			const clear = () => {
+				if (session.runSettled === running) session.runSettled = undefined
+			}
+			void running.then(clear, clear)
+		} finally {
+			if (session.admitting === admission) session.admitting = undefined
+		}
+	}
+	private async runRetry(
+		session: Conversation,
+		turnId: string,
+		checkpointId: string,
+		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
+	): Promise<void> {
+		this.emit({ kind: 'retry', sessionId: session.view.id, turnId })
+		this.state(session)
+		try {
+			const result = (await session.client.request(
+				'namzu/sessions/retry',
+				{
+					sessionId: session.runtimeSessionId,
+					turnId,
+					checkpointId,
+					...(options ? { options } : {}),
+				},
+				0,
+			)) as AcpSessionPromptResult
+			if (!session.projection.stopReason)
+				this.emit({
+					kind: 'update',
+					projectId: session.view.projectId,
+					sessionId: session.view.id,
+					update: {
+						kind: 'turn_ended',
+						turnId,
+						stopReason: result.stopReason,
+						...(result.reason ? { reason: result.reason } : {}),
+					},
+				})
+			if (result.stopReason === 'error' && !session.projection.error)
+				this.state(
+					session,
+					'Namzu could not retry this turn. Your conversation and draft are retained.',
+				)
+		} catch (error) {
+			if (!session.projection.stopReason)
+				this.emit({
+					kind: 'update',
+					projectId: session.view.projectId,
+					sessionId: session.view.id,
+					update: { kind: 'turn_ended', turnId, stopReason: 'cancelled', reason: 'paused' },
+				})
+			this.state(session, error instanceof Error ? error.message : String(error))
+		} finally {
+			const settlement = Symbol('retry settlement')
+			session.admitting = settlement
+			session.running = false
+			session.permissions.clear()
+			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
+			try {
+				await this.refreshRetry(session)
+			} catch {
+				/* Original failure remains visible. */
+			}
+			this.state(session)
+			if (session.admitting === settlement) session.admitting = undefined
+		}
+		// Retry resumes only the checkpoint. Authored queue and draft are retained.
 	}
 	private draftSession(sessionId: string): Conversation {
 		const session = this.conversations.get(sessionId)
@@ -1680,6 +1896,7 @@ export class Operator {
 		})
 	}
 	private startRun(session: Conversation, item: PendingMessage): void {
+		session.executionRevision = (session.executionRevision ?? 0) + 1
 		const running = this.run(session, item)
 		session.runSettled = running
 		const clear = () => {
@@ -1814,14 +2031,32 @@ export class Operator {
 					file.ownerId = session.view.id
 				}
 			}
+			const settlement = Symbol('prompt settlement')
+			session.admitting = settlement
 			session.running = false
 			session.permissions.clear()
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
+			if (session.client.supportsTurnRetry()) {
+				try {
+					await this.refreshRetry(session)
+				} catch {
+					/* Original failure remains visible. */
+				}
+			}
 			this.state(session)
-		}
-		if (completed && (!session.view.palId || !this.changingPals.has(session.view.palId))) {
-			const next = session.queue.shift()
-			if (next) this.startRun(session, next)
+			if (session.admitting === settlement) {
+				// Release and hand off in one synchronous span; new admission cannot
+				// race the previous run's status read or consume its authored queue.
+				session.admitting = undefined
+				if (
+					completed &&
+					!this.closing &&
+					(!session.view.palId || !this.changingPals.has(session.view.palId))
+				) {
+					const next = session.queue.shift()
+					if (next) this.startRun(session, next)
+				}
+			}
 		}
 	}
 	async cancel(sessionId: string): Promise<void> {

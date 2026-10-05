@@ -689,6 +689,39 @@ end followed by its response does not create a second completion. Pending
 reviews are cleared; authored queued messages remain available after a stopped
 turn.
 
+Checkpointed provider faults retain their failure explanation in the live
+transcript's error alert even when the compatibility stop category is
+`cancelled`. Reopening that conversation while its runtime connection remains
+alive retains the explanation; the next authored prompt clears it. Ordinary
+review pauses and user cancellation do not create an error. Cold text-only
+history retains its existing limit: it does not reconstruct these live receipts.
+
+The desktop offers **Retry turn** only when the connected runtime confirms an
+exact retryable provider checkpoint with resolved request accounting and known
+original approval settings. Retry continues that original turn, using its
+retained model and settings, without submitting another message or its
+attachments. The current draft and authored queue remain available; Retry does
+not consume or automatically start them. Its existing approvals and Stop action
+remain effective, and moving a conversation preserves its window/pane writer
+ownership. Stale checkpoints, user-decision pauses, unsafe accounting and
+unverifiable original settings or Pal computer lifetimes show the runtime's notice instead of a Retry
+button. A request with unresolved usage needs its actual provider usage receipt;
+Retry does not fabricate usage or abandon the turn. Older CLI connections do not
+offer this route. Ordinary new-message admission checks the paused status before
+clearing drafts/files or appending an authored prompt; a follow-up is never
+silently substituted for retry.
+Admission remains reserved through the final status read and authored-queue
+handoff. A concurrent send retains its draft, and engine, model and plugin
+changes wait for admission/settlement to finish. Settings revisions and connection
+ownership fence replies that arrive after metadata changes.
+
+The host captures an original Pal computer's generation and environment identity
+before sending, then checks that exact lifetime at status and resumed provider/tool
+entries. Reboot, replacement, retirement and operator takeover refuse Retry. The
+original approval options and computer lifetime are not currently durable; after
+host reconnection this action is unavailable when either cannot be verified. A
+currently ready computer does not substitute for the original one.
+
 Elapsed time uses the native host's timestamps at prompt admission and turn
 settlement. It includes preparation, model work, tools and approval waits; time
 spent in an unstarted message queue is excluded. This is observed wall-clock

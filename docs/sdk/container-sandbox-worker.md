@@ -67,6 +67,24 @@ The client sends it on every request it makes — `HttpWorkerClient` for
 `write-file` calls, which are direct `fetch`es rather than client methods and
 therefore carry the header separately.
 
+Interactive [Pal stdio channels](local-pal-computer.md#owned-guest-stdio-services)
+also use that exact allocation token. `POST /executions/reserve` advertises
+`stdio: { version: 1, maxLifetimeMs }` additively. An explicitly reserved
+`POST /execute` with `stdio: true` owns a strict process group and keeps stdin
+open. Its NDJSON stream starts with `stdio_started` version 1, carries
+`stdio_data` frames with `stream` and base64 `data`, and sends the exact bounded
+`{ "type": "stdio_heartbeat", "version": 1 }` frame every 30 seconds while the
+response can accept output. Quiet services therefore keep HTTP response-body
+and intermediary inactivity timers live. Heartbeats stop on response close or
+execution settlement, do not bypass socket backpressure, and never represent
+application output, request completion or device admission. The stream retains
+the existing terminal `result` or `error` protocol. `POST /executions/write` accepts only a
+running stdio execution ID and bounded canonical base64 `data`; its
+`{ ok: true, bytesWritten }` confirms stdin delivery, not application completion.
+The existing authenticated `/cancel` confirms group termination. Interactive
+streams apply socket backpressure without retaining lifetime output in memory;
+ordinary execute/stdin and output capture remain unchanged.
+
 ## What the worker enforces
 
 ### Execution ownership

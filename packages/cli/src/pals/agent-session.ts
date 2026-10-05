@@ -64,6 +64,7 @@ import {
 import { projectTurnConversation } from '../tui/conversation-history.js'
 import { createCliPalMessagingContext } from './communication.js'
 import { palConversationBinding } from './conversations.js'
+import { type PalGuestMcpConnection, connectPalGuestMcp } from './guest-mcp.js'
 import { assertPalReviewDecision, readPalWaitingReview } from './review.js'
 
 export interface PalSessionEnvironment {
@@ -255,16 +256,40 @@ export async function createPalAgentSession(
 	let sandboxProvider: SandboxProvider | undefined
 	let tools: ReturnType<typeof getBuiltinTools> = []
 	let sets: Toolset[] = []
+	let guestMcp: PalGuestMcpConnection = {
+		toolsets: [],
+		connected: [],
+		failed: [],
+	}
 	let manager = new ToolManager({ toolsets: sets, messages: () => [] })
-	const presenter = createToolPresenter({ get: (name) => manager.get(name) })
+	const presenter = createToolPresenter({
+		get: (name) => {
+			manager.refresh()
+			return manager.get(name)
+		},
+	})
 	const messaging = createCliPalMessagingContext(binding.definition, scope, assertActive)
 	let assertExecutionAllowed: (() => void | Promise<void>) | undefined
 	let activePermissionMode: (() => PermissionMode) | undefined
 	let referenceAttachments: readonly MessageAttachment[] = []
+	const closeGuestMcp = async () => {
+		const failures: unknown[] = []
+		for (const source of guestMcp.toolsets) {
+			try {
+				await source.close?.()
+			} catch (error) {
+				failures.push(error)
+			}
+		}
+		if (failures.length)
+			throw new AggregateError(failures, 'Pal application server cleanup was not confirmed.')
+	}
 	const configureComputer = async (lease?: PalEnvironmentLease) => {
 		await manager.dispose()
+		await closeGuestMcp()
 		tools = []
 		sets = []
+		guestMcp = { toolsets: [], connected: [], failed: [] }
 		sandboxProvider = undefined
 		if (lease) {
 			const guest = guardHost(
@@ -329,10 +354,11 @@ export async function createPalAgentSession(
 						)
 					: []),
 			]
-			const guardedTools = tools.map((tool) => ({
+			const guardTool = (tool: (typeof tools)[number]) => ({
 				...tool,
 				async execute(input: unknown, context: Parameters<typeof tool.execute>[1]) {
 					assertComputerActive()
+					manager.refresh()
 					await renewWriter()
 					await assertExecutionAllowed?.()
 					assertComputerActive()
@@ -345,8 +371,37 @@ export async function createPalAgentSession(
 						throw new Error(PLAN_MODE_REFUSAL)
 					return tool.execute(input, context)
 				},
-			}))
-			sets = [toolset('pal-computer', guardedTools)]
+			})
+			sets = [toolset('pal-computer', tools.map(guardTool))]
+			// Opening a conversation does not allocate or enter a guest. Installed
+			// application servers are discovered only after this exact turn admission.
+			if (admission) {
+				const pinned = {
+					environmentId: lease.environmentId,
+					generation: lease.generation,
+				}
+				guestMcp = await connectPalGuestMcp(
+					lease,
+					async () => {
+						assertComputerActive()
+						await renewWriter()
+						await assertExecutionAllowed?.()
+						assertComputerActive()
+						if (
+							admission?.lease.environmentId !== pinned.environmentId ||
+							admission?.lease.generation !== pinned.generation
+						)
+							throw new Error('This guest MCP server belongs to another Pal computer lifetime.')
+					},
+					activeAbort?.signal,
+				)
+				sets.push(
+					...guestMcp.toolsets.map((source) => ({
+						...source,
+						tools: () => source.tools().map(guardTool),
+					})),
+				)
+			}
 		}
 		manager = new ToolManager({ toolsets: sets, messages: () => [] })
 	}
@@ -820,13 +875,20 @@ export async function createPalAgentSession(
 					}
 				: { unconfined: false, enforced: [], required: [] }
 		},
-		toolNames: () => tools.map((tool) => tool.name),
+		toolNames: () => {
+			manager.refresh()
+			return manager.listNames()
+		},
 		presenter,
 		agentIds: [],
 		instructionFiles: [],
 		skippedInstructionFiles: [],
-		mcpConnected: [],
-		mcpFailed: [],
+		get mcpConnected() {
+			return guestMcp.connected
+		},
+		get mcpFailed() {
+			return guestMcp.failed
+		},
 		configNotices: [
 			'Pal tools run in its local virtual computer. Host plugins, MCP servers, browser accounts and filesystem are not inherited.',
 		],
@@ -919,6 +981,7 @@ export async function createPalAgentSession(
 				await releaseAdmission()
 				await jobs.killOwner(scope.sessionId)
 				await manager.dispose()
+				await closeGuestMcp()
 				cleaned = true
 			})()
 			closing = cleanup

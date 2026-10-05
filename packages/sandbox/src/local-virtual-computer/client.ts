@@ -9,11 +9,13 @@ import type {
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxReadFileOptions,
+	SandboxStdioOptions,
 } from '@namzu/sdk'
 import { generateSandboxId, walkFilesViaExec } from '@namzu/sdk'
 import { HttpWorkerClient, workerAuthorization } from '../backends/http-worker-client.js'
 import { RemoteCancellationUnknownError } from '../backends/remote-execution-controller.js'
 import { type OwnedDetachedProcess, startDetachedGuestProcess } from './detached-process.js'
+import { type OwnedGuestStdioChannel, openGuestStdio } from './guest-stdio.js'
 
 export interface LocalComputerClientOptions {
 	readonly executionUrl: string
@@ -43,6 +45,7 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 	let needsFreshScreen = false
 	let stopping: Promise<void> | undefined
 	const detached = new Set<OwnedDetachedProcess>()
+	const stdio = new Set<OwnedGuestStdioChannel>()
 	const heldKeyboards = new Map<string, Set<string>>()
 	const assertActive = () => {
 		if (!active) throw new Error('This Pal computer lease has ended')
@@ -50,7 +53,7 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 	const assertCertain = () => {
 		if (uncertain)
 			throw new Error(
-				'The Pal desktop input outcome is unknown. Stop this computer before retrying.',
+				'The Pal computer operation outcome is unknown. Stop this computer before retrying.',
 			)
 	}
 	const assertPal = () => {
@@ -64,6 +67,8 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		stopping = options
 			.stop(destroyOptions?.signal)
 			.then(async () => {
+				for (const channel of stdio) channel.allocationEnded()
+				stdio.clear()
 				// Guest removal is confirmed first. These pipes may now end without
 				// being mistaken for proof that a guest process was stopped.
 				for (const process of detached) process.child.kill('SIGKILL')
@@ -149,7 +154,60 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		environment: 'linux-namespace',
 		rootDir: '/home/namzu/workspace',
 		get status() {
-			return !active ? 'destroyed' : busy > 0 ? 'busy' : 'ready'
+			return !active ? 'destroyed' : busy > 0 || uncertain ? 'busy' : 'ready'
+		},
+		async openStdio(command, args = [], spawnOptions?: SandboxStdioOptions) {
+			const acquire = async (signal?: AbortSignal) => {
+				signal?.throwIfAborted()
+				assertPal()
+				busy += 1
+				let released = false
+				const release = () => {
+					if (!released) {
+						released = true
+						busy -= 1
+					}
+				}
+				try {
+					await spawnOptions?.assertExecutionAllowed?.()
+					signal?.throwIfAborted()
+					assertPal()
+					return release
+				} catch (error) {
+					release()
+					throw error
+				}
+			}
+			const release = await acquire(spawnOptions?.signal)
+			try {
+				const channel = await openGuestStdio(
+					{
+						executionUrl: options.executionUrl,
+						token: options.token,
+						acquire,
+						uncertain: () => {
+							uncertain = true
+						},
+					},
+					command,
+					args,
+					{
+						...spawnOptions,
+						assertExecutionAllowed: async () => {
+							await spawnOptions?.assertExecutionAllowed?.()
+							assertPal()
+						},
+					},
+				)
+				stdio.add(channel)
+				void channel.closed.then(
+					() => stdio.delete(channel),
+					() => stdio.delete(channel),
+				)
+				return channel
+			} finally {
+				release()
+			}
 		},
 		spawnDetached(command, args, spawnOptions) {
 			assertPal()

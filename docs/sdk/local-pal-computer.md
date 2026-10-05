@@ -45,14 +45,27 @@ and operating-system packages and is an explicit operator action. The provider
 never installs an engine, starts a machine, changes a default connection,
 builds an image or pulls an image.
 
-The image installs Blender, FreeCAD, GIMP, Inkscape, LibreOffice Draw, Mousepad,
-OpenSCAD, Kdenlive, Godot 3, Solitaire, QGIS, KiCad and ParaView, alongside
+The image installs Blender 5.2.2 LTS, FreeCAD, GIMP, Inkscape, LibreOffice Draw, Mousepad,
+OpenSCAD, Kdenlive, Godot 4.7.2, Solitaire, QGIS, KiCad and ParaView, alongside
 Terminal and Files. Its 15 home launchers and icons are generated from actual
 installed executables and Debian desktop entries; missing entries fail the image
 build. The image does not claim unavailable reference applications such as
 3D Slicer. OpenGL applications use the guest's Mesa software rendering rather
 than host GPU access. Kdenlive includes its Frei0r effects and uses SDL's dummy
 audio driver, keeping preview playback alive without exposing host audio devices.
+
+Blender and Godot use official Linux x86-64 portable releases with fixed SHA-256
+checksums verified during the image build. `/usr/local/bin/blender`, `godot` and
+`godot4`, and the fixed home launchers, select those supported releases. Godot uses
+the OpenGL compatibility renderer; these versions do not imply host GPU access.
+The distribution's `/usr/bin/blender` and `/usr/bin/godot3` remain available for
+explicit legacy work. Godot 3 projects require conversion before using the new
+default launcher; preserve the original project and verify conversion in Godot 4.
+Blender MCP automatic addon update checks and telemetry are disabled in the guest
+environment, including home launches. Installing an addon or server remains an
+explicit operator action; an updated binary alone does not install an MCP bridge.
+An already running computer keeps its previous image until it is stopped and
+opened again. Updating the image tag does not replace a live allocation.
 
 Normal home and new tabs use a bundled Manifest V3 New Tab page with only
 `nativeMessaging` permission. Startup and a cold dock reopen activate the bundled
@@ -421,3 +434,50 @@ isolation boundary, not a dedicated-kernel VM per Pal.
 The CLI composition accepts `NAMZU_PAL_COMPUTER_ENGINE`,
 `NAMZU_PAL_PODMAN_MACHINE`, `NAMZU_PAL_PODMAN_CONNECTION` and
 `NAMZU_PAL_PODMAN_BINARY`. SDK embedders set factory options directly.
+
+## Owned guest stdio services
+
+`Sandbox.openStdio` is an optional host API on the local computer lease. It
+starts literal `command`/`args` inside that allocation, with guest `cwd` and
+explicit guest `env`, never the operator environment or host MCP configuration.
+The worker strips its `NAMZU_SANDBOX_*` configuration and token from the child;
+the existing same-user guest boundary described above still applies. The method
+refuses while the operator owns the computer or the allocation has ended.
+Older workers refuse interactive startup before spawning; rebuild the image
+and start a fresh allocation to use it.
+
+`SandboxStdioChannel.events` has one async iterator of
+`{ stream: 'stdout' | 'stderr', data: Uint8Array }` chunks. It preserves binary
+bytes across UTF-8 and transport chunk boundaries and applies bounded
+backpressure. `write(data, signal?)` confirms at most 1 MiB of stdin bytes per
+call; callers split larger byte streams. It does not confirm an application
+request completed. `close()` and `closed` confirm the server's entire tracked
+process group ended, using the existing strict execution cancellation protocol.
+Unexpected loss of that confirmation fences the allocation. Confirmed idle
+server exit retains the computer. The worker advertises a finite maximum server
+lifetime, using its existing execution timeout ceiling. Transport-only worker
+heartbeats keep a quiet server's HTTP response alive and are discarded before
+`events`; they neither reserve control nor settle an outstanding application
+request. Rebuild the worker and load the matching runtime together to enable
+the interactive protocol, including these heartbeat frames.
+
+An idle server does not hold the device busy. Before each real application
+request, a trusted transport calls `beginOperation(signal?)`, which reserves the
+control barrier and rechecks the optional host `assertExecutionAllowed` callback.
+The callback should check the exact original Pal allocation, generation,
+conversation writer and admission; it runs again before each write. Complete
+that operation only on its exact positive application reply or when dispatch
+was never attempted. Pending operations refuse Take over. Closing a service
+with pending operations, losing a write acknowledgement or calling
+`outcomeUnknown()` permanently fences subsequent effects and control transfers
+until the computer is stopped. A late `complete()` cannot clear that fence.
+
+The MCP adapter must correlate replies and drain queued stdout before treating
+confirmed EOF as missing RPC replies. An error reply, cancellation notification
+or successful MCP envelope is not necessarily proof that an external Blender or
+Godot command stopped. In particular, closing a stdio server cannot cancel an
+editor command already handed to a separate application process. Hosts must
+classify the application's actual completion and retain uncertainty instead of
+replaying a mutable call. This API does not suspend arbitrary guest processes
+or revoke independently running application behavior; it provides ownership
+barriers over host-admitted operations in the existing local container boundary.

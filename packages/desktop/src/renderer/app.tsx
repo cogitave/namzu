@@ -69,6 +69,7 @@ import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { Transcript } from './transcript.js'
+import { TurnRecovery } from './turn-recovery.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { useAttachments } from './use-attachments.js'
@@ -2249,6 +2250,11 @@ export function App({
 	)
 	const send = async () => {
 		if (context.current.frozen) return
+		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
+			throw new Error(
+				thread.retryNotice ??
+					'Retry the paused turn before sending a new message. Your draft is retained.',
+			)
 		if (
 			loading ||
 			restoringTabs ||
@@ -3060,6 +3066,21 @@ export function App({
 											{thread.error}
 										</p>
 									)}
+									<TurnRecovery
+										retry={thread.retry}
+										notice={thread.retryNotice}
+										disabled={thread.running || loading || frozen || project.status !== 'ready'}
+										onRetry={
+											api.retryTurn && thread.retry
+												? () => {
+														const retry = thread.retry
+														const retryTurn = api.retryTurn
+														if (retry && retryTurn)
+															void act(() => retryTurn(sessionId, retry.turnId, retry.checkpointId))
+													}
+												: undefined
+										}
+									/>
 								</div>
 							</div>
 							<Composer
@@ -3107,6 +3128,9 @@ export function App({
 								}
 								connected={
 									project.status === 'ready' &&
+									!thread.retry &&
+									!thread.retryNotice &&
+									thread.reason !== 'paused' &&
 									palCanChat &&
 									providerReady &&
 									project.trusted &&

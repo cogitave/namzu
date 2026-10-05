@@ -28,12 +28,18 @@ import { closeSessions, openSessions } from '../integrations/sessions/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { createAgentSession } from '../tui/agent.js'
 import {
+	GUEST_MCP_IMAGE,
+	guestMcpChannel,
+	guestMcpResponse,
+} from './__fixtures__/guest-mcp-channel.js'
+import {
 	type CliPalReviewActionsOptions,
 	type PalReviewAction,
 	createCliPalReviewActions,
 } from './actions.js'
 import { palSessionEnvironment } from './agent-session.js'
 import { claimPalConversation } from './conversations.js'
+import { PAL_GUEST_MCP_MANIFEST } from './guest-mcp.js'
 import { readPalWaitingReview } from './review.js'
 import { createPal, getCliPalStore, updatePal } from './store.js'
 
@@ -285,6 +291,74 @@ it('refuses hallucinated guest tools offline without executing on the host or st
 		await f.runtime.close()
 		closeSessions(f.state)
 	}
+})
+it('opens installed application MCP only in the admitted original guest and executes its rich result through the actual Pal loop', async () => {
+	const provider = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ name: 'mcp__blender__inspect_scene', args: {} }] },
+			{ text: 'I inspected my scene.' },
+		],
+	})
+	const f = await fixture(provider)
+	const guest = guestMcpChannel(guestMcpResponse)
+	const openStdio = vi.fn(async () => guest.channel)
+	f.original.sandbox.openStdio = openStdio
+	vi.mocked(f.original.sandbox.exec).mockResolvedValue({
+		exitCode: 0,
+		timedOut: false,
+		stdout: '',
+		stderr: '',
+		durationMs: 0,
+	})
+	vi.mocked(f.original.sandbox.readFile).mockImplementation(async (path) => {
+		if (path !== PAL_GUEST_MCP_MANIFEST) throw new Error('Unexpected guest read')
+		return Buffer.from(
+			JSON.stringify({
+				version: 1,
+				servers: [
+					{
+						name: 'blender',
+						outcomeProtocol: 'namzu-v1',
+						command: '/home/namzu/blender/python',
+						args: ['/home/namzu/blender/bridge.py'],
+						env: { BLENDER_HOST: '127.0.0.1' },
+						allow: ['inspect_scene'],
+					},
+				],
+			}),
+		)
+	})
+	const approval = vi.fn()
+	try {
+		expect(openStdio).not.toHaveBeenCalled()
+		expect(f.agent.mcpConnected).toEqual([])
+		for await (const _event of f.agent.send([createUserMessage('Inspect your scene')], {
+			onPermission: approval,
+		})) {
+		}
+		expect(approval).not.toHaveBeenCalled()
+		expect(openStdio).toHaveBeenCalledOnce()
+		expect(openStdio).toHaveBeenCalledWith(
+			'/home/namzu/blender/python',
+			['/home/namzu/blender/bridge.py'],
+			expect.objectContaining({ env: { BLENDER_HOST: '127.0.0.1' } }),
+		)
+		expect(f.replacement.sandbox.exec).not.toHaveBeenCalled()
+		expect(f.agent.mcpConnected[0]?.tools).toEqual(['mcp__blender__inspect_scene'])
+		expect(f.agent.toolNames()).toContain('mcp__blender__inspect_scene')
+		expect(f.agent.toolNames()).not.toContain('mcp__blender__paid_generate')
+		expect(provider.requests[0]?.tools?.map((tool) => tool.function.name)).toContain(
+			'mcp__blender__inspect_scene',
+		)
+		expect(JSON.stringify(provider.requests[1]?.messages)).toContain('Actual guest scene')
+		expect(JSON.stringify(provider.requests[1]?.messages)).toContain(GUEST_MCP_IMAGE)
+		expect(guest.messages.filter((message) => message.method === 'tools/call')).toHaveLength(1)
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+	expect(guest.channel.close).toHaveBeenCalledOnce()
 })
 it('updates capabilities after explicit guest start, takeover and return without recreating the chat session', async () => {
 	const provider = new MockLLMProvider({

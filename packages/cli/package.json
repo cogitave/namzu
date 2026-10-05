@@ -32,6 +32,9 @@
 		"!dist/**/__fixtures__",
 		"!dist/**/test-setup.*",
 		"skills",
+		"assets/pal-blender-mcp.py",
+		"assets/pal-godot-mcp.cjs",
+		"assets/pal-godot-mcp-pin.json",
 		"README.md",
 		"CHANGELOG.md"
 	],

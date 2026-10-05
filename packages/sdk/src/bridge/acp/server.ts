@@ -125,6 +125,13 @@ export interface AcpAgentGateway {
 	 * maps to a session through the index's `acp` / `session` refs.
 	 */
 	load?(sessionId: string, cwd?: string): Promise<readonly unknown[] | undefined>
+	/** Explicit host retry of one durable pause; never a new operator prompt. */
+	retry?(
+		request: Omit<Parameters<AcpAgentGateway['prompt']>[0], 'prompt' | 'attachments'> & {
+			readonly turnId: string
+			readonly checkpointId: string
+		},
+	): ReturnType<AcpAgentGateway['prompt']>
 }
 
 export interface AcpServerOptions {
@@ -242,6 +249,32 @@ export class ACPServer {
 	/** Published connection-owned workspace, absent while loading or after shutdown. */
 	getSessionCwd(sessionId: string): string | undefined {
 		return this.stopped ? undefined : this.sessions.get(sessionId)?.cwd
+	}
+
+	/** Host extensions can reuse the prompt's ordering, cancellation and review owner. */
+	async retrySession(
+		sessionId: string,
+		turnId: string,
+		checkpointId: string,
+		options?: AcpSessionPromptParams['options'],
+	): Promise<AcpSessionPromptResult> {
+		this.requireInitialized()
+		this.requirePermissionCapability()
+		if (this.stopped) throw new Error('The ACP server is stopped.')
+		if (
+			![turnId, checkpointId].every((id) => typeof id === 'string' && id.trim() && id.length <= 400)
+		)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid retry turn or checkpoint.')
+		const retry = this.options.gateway.retry
+		if (!retry)
+			throw new AcpError(ACP_ERROR_CODES.INVALID_REQUEST, 'This agent cannot retry paused turns.')
+		return this.onSessionPrompt(
+			{ sessionId, prompt: '', ...(options ? { options } : {}) },
+			(request) => {
+				const { prompt: _prompt, attachments: _attachments, ...context } = request
+				return retry.call(this.options.gateway, { ...context, turnId, checkpointId })
+			},
+		)
 	}
 
 	async start(): Promise<void> {
@@ -581,7 +614,10 @@ export class ACPServer {
 		}
 	}
 
-	private async onSessionPrompt(params: AcpSessionPromptParams): Promise<AcpSessionPromptResult> {
+	private async onSessionPrompt(
+		params: AcpSessionPromptParams,
+		run: AcpAgentGateway['prompt'] = (request) => this.options.gateway.prompt(request),
+	): Promise<AcpSessionPromptResult> {
 		const session = this.requireSession(params.sessionId)
 		if (
 			typeof params.prompt !== 'string' ||
@@ -612,7 +648,7 @@ export class ACPServer {
 		let updateFailure: Error | undefined
 
 		try {
-			const outcome = await this.options.gateway.prompt({
+			const outcome = await run({
 				sessionId: params.sessionId,
 				prompt: params.prompt,
 				...(attachments.length ? { attachments } : {}),

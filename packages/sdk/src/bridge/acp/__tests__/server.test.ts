@@ -511,6 +511,44 @@ describe('session/prompt', () => {
 		})
 	})
 
+	it('delivers a checkpointed provider failure before its coarse paused prompt response', async () => {
+		const message =
+			'zen — could not reach the provider: model "space-bunny-free": request timed out'
+		const fixture = build({
+			gateway: {
+				prompt: async ({ onEvent }) => {
+					onEvent({
+						type: 'turn_paused',
+						sessionId: fixtureId.session('parked'),
+						turnId: fixtureId.turn('parked'),
+						checkpointId: fixtureId.checkpoint('parked'),
+						reason: message,
+						failure: { code: 'provider_error', message, retryable: true },
+						providerError: { providerId: 'zen', kind: 'network', detail: 'request timed out' },
+					})
+					return { stopReason: 'error' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'continue' },
+		})
+		await settle()
+		expect(fixture.sent.slice(-2)).toMatchObject([
+			{
+				method: 'session/update',
+				params: {
+					update: { kind: 'turn_ended', stopReason: 'cancelled', reason: 'paused', error: message },
+				},
+			},
+			{ id: 3, result: { stopReason: 'cancelled', reason: 'paused' } },
+		])
+	})
+
 	it('refuses a prompt for a session that does not exist', async () => {
 		const fixture = build()
 		await handshake(fixture)

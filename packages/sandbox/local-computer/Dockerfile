@@ -23,6 +23,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends file frei0r-plugins \
     && rm -rf /var/lib/apt/lists/*
 
+# Use checksum-pinned supported application releases rather than Bookworm's
+# Godot 3 and Blender 3 launchers. Retain the distribution tools for explicit
+# legacy-project use; normal launches and the home catalogue use these binaries.
+RUN mkdir -p /opt/namzu-apps \
+    && curl --fail --location --retry 3 --output /tmp/godot.zip \
+       https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip \
+    && printf '%s  %s\n' cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4 /tmp/godot.zip | sha256sum --check --strict \
+    && python3 -c "import zipfile; zipfile.ZipFile('/tmp/godot.zip').extractall('/opt/namzu-apps/godot-4.7.2')" \
+    && chmod 0755 /opt/namzu-apps/godot-4.7.2/Godot_v4.7.2-stable_linux.x86_64 \
+    && ln -s /opt/namzu-apps/godot-4.7.2/Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot \
+    && ln -s /opt/namzu-apps/godot-4.7.2/Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot4 \
+    && curl --fail --location --retry 3 --output /tmp/blender.tar.xz \
+       https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz \
+    && printf '%s  %s\n' 84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168 /tmp/blender.tar.xz | sha256sum --check --strict \
+    && python3 -c "import tarfile; tarfile.open('/tmp/blender.tar.xz').extractall('/opt/namzu-apps')" \
+    && ln -s /opt/namzu-apps/blender-5.2.2-linux-x64/blender /usr/local/bin/blender \
+    && /usr/local/bin/godot4 --version \
+    && /usr/local/bin/blender --version \
+    && rm /tmp/godot.zip /tmp/blender.tar.xz
+
 # Authenticated binary WebSocket transport only; VNC input remains disabled.
 RUN npm install --prefix /opt/namzu-computer --omit=dev --ignore-scripts \
     --no-audit --no-fund ws@8.21.3
@@ -42,6 +62,7 @@ RUN chmod 0755 /opt/namzu-computer/app-native-host.cjs \
     && node /opt/namzu-computer/prepare-home.cjs
 
 ENV HOME=/home/namzu DISPLAY=:99 GTK_THEME=Adwaita:dark \
+    BLENDERMCP_NO_UPDATE_CHECK=1 BLENDER_MCP_DISABLE_TELEMETRY=1 \
     NAMZU_SANDBOX_WORKSPACE=/home/namzu/workspace \
     NAMZU_SANDBOX_READ_ROOTS=/home/namzu \
     NAMZU_SANDBOX_WRITE_ROOTS=/home/namzu \

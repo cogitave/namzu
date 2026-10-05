@@ -51,6 +51,9 @@ vi.mock('./rpc-client.js', async () => {
 			supportsPromptOptions() {
 				return true
 			}
+			supportsTurnRetry() {
+				return false
+			}
 			supportsPromptAttachments() {
 				return true
 			}

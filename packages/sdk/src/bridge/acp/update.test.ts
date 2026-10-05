@@ -399,6 +399,69 @@ describe('public message and reasoning lifecycle', () => {
 		).toEqual({ kind: 'turn_ended', turnId: TID, stopReason: 'cancelled', reason: 'paused' })
 	})
 
+	it.each([
+		{
+			failure: {
+				code: 'provider_error',
+				message: 'zen — could not reach the provider: model "space-bunny-free": request timed out',
+				retryable: true,
+			},
+		},
+		{
+			providerError: {
+				providerId: 'zen',
+				kind: 'network',
+				detail: 'request timed out',
+			},
+		},
+	])(
+		'preserves a checkpointed provider failure explanation without calling the turn cancelled',
+		(fault) => {
+			const reason =
+				'zen — could not reach the provider: model "space-bunny-free": request timed out'
+			expect(
+				toAcpSessionUpdate(
+					{
+						type: 'turn_paused',
+						sessionId: SID,
+						turnId: TID,
+						checkpointId: fixtureId.checkpoint('acp'),
+						reason,
+						...fault,
+					} as SessionEvent,
+					presenter,
+				),
+			).toEqual({
+				kind: 'turn_ended',
+				turnId: TID,
+				stopReason: 'cancelled',
+				reason: 'paused',
+				error: reason,
+			})
+		},
+	)
+
+	it('keeps an ordinary user cancellation free of a manufactured provider error', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'turn_completed',
+					sessionId: SID,
+					turnId: TID,
+					stopReason: 'cancelled',
+					result: '',
+				} as SessionEvent,
+				presenter,
+			),
+		).toEqual({
+			kind: 'turn_ended',
+			turnId: TID,
+			stopReason: 'cancelled',
+			reason: 'cancelled',
+			result: '',
+		})
+	})
+
 	it('identifies the actual settled message rather than guessing from the last chunk', () => {
 		expect(
 			toAcpSessionUpdate(

@@ -40,6 +40,13 @@ In the `bash` dialect it reads:
 
 For each simple command it reports every word as bash passes it, after quote removal and before expansion, and flags each word whose text is not its runtime value: one holding a parameter, command or arithmetic expansion, a glob, a brace expansion, a tilde, or an escape whose value depends on the locale. An unflagged word is exactly the argument bash passes. It also reports each command's redirections, every redirection in the line (a compound command's included), a here-document's body as written (`ShellRedirection.body`), the words that belong to no simple command — a `for` or `select` loop's variable and list, a `case` statement's subject and patterns (`compoundWords`) — whether the parse completed, and `opaque` with the reasons.
 
+A source-exact bare `[` is the literal POSIX test command, so `[ -e "$path" ]`
+does not acquire an unknown-program escalation merely for its opening bracket.
+The same applies inside a shell loop and through a literal execution wrapper.
+Actual bracket patterns such as `[ab]` in program position, runtime-built names
+and opaque constructs remain unknown. The dangerous-command floor and explicit
+permission rules still decide their calls independently of this classification.
+
 # When a line is opaque
 
 `opaque` means the commands listed may not be everything the line runs. The lexer sets it rather than guess, for:

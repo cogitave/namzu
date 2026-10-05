@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { BashTool } from '../../tools/builtins/bash.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
+import { AuthorizationGate } from '../gate.js'
 
 import {
 	DYNAMIC_RESOLUTION_VARIABLES,
@@ -19,6 +22,60 @@ import { lexShellCommandLine } from '../shell-lexer.js'
 function isUnknown(line: string, dialect: 'bash' | 'sh' = 'bash'): boolean {
 	return unknownProgramInLine(line, dialect) !== undefined
 }
+
+describe('literal test command and expanding program names', () => {
+	it.each(['bash', 'sh'] as const)(
+		'keeps bare [ literal in %s, including a guest copy loop',
+		(dialect) => {
+			expect(unknownProgramInLine('[ -e "$d" ]', dialect)).toBeUndefined()
+			expect(
+				unknownProgramInLine(
+					'for d in /workspace/demo /workspace/old; do [ -e "$d" ] && cp -r "$d" /workspace/new; done',
+					dialect,
+				),
+			).toBeUndefined()
+			expect(unknownProgramInLine('env [ -e /workspace/demo ]', dialect)).toBeUndefined()
+			expect(unknownProgramInLine('[\\\n -e "$d" ]', dialect)).toBeUndefined()
+		},
+	)
+	it.each(['bash', 'sh'] as const)(
+		'retains unknown real glob and runtime-produced command names in %s',
+		(dialect) => {
+			for (const line of [
+				'[ab] argument',
+				'./[ab] argument',
+				'[a-z] argument',
+				'[[:alpha:]] argument',
+				'$TEST -e "$d"',
+				'$(printf "[") -e "$d"',
+				'["$suffix" -e "$d"',
+				'[ -e "$d" ] && "$runner" argument',
+			]) {
+				expect(unknownProgramInLine(line, dialect), line).toBeDefined()
+			}
+		},
+	)
+	it('keeps dangerous-command denial ahead of a tool allow even after a literal predicate', () => {
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				allowReadOnlyTools: true,
+				denyDangerousPatterns: true,
+				logDecisions: false,
+				rules: [{ type: 'allow_by_name', toolNames: ['bash'] }],
+			},
+			NOOP_LOGGER,
+		)
+		const result = gate.evaluate({
+			toolName: 'bash',
+			toolDef: BashTool,
+			commandDialect: 'bash',
+			toolInput: { command: '[ -e "$d" ] && rm -rf /' },
+		})
+		expect(result.decision).toBe('deny')
+		expect(result.matchedRule?.type).toBe('deny_dangerous_patterns')
+	})
+})
 
 describe('a re-exec wrapper does not move the program out of reach', () => {
 	// The security review's own examples: a wrapper the head-only check used

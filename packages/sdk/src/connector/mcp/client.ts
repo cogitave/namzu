@@ -38,6 +38,7 @@ import {
 	type McpEraProbeAnswer,
 	type McpEraResolution,
 	classifyModernHttpFailure,
+	createMcpEraCache,
 	defaultMcpEraCache,
 	mcpEraCacheKey,
 	resolveMcpEra,
@@ -275,7 +276,8 @@ export class MCPClient {
 			),
 			this.requestTimeoutMs,
 		)
-		this.eraCache = config.eraCache ?? defaultMcpEraCache
+		this.eraCache =
+			config.eraCache ?? (config.transportFactory ? createMcpEraCache() : defaultMcpEraCache)
 		this.eraCacheKey = mcpEraCacheKey(config.transport)
 		this.id = config.id ?? generateMCPClientId()
 		// Built BEFORE the transport, not after: `createTransport` threads
@@ -285,7 +287,9 @@ export class MCPClient {
 			[SCOPE_ATTRIBUTE]: 'connector/mcp',
 			[NAMZU.SERVER_ID]: config.serverName,
 		})
-		this.transport = this.createTransport(config.transport)
+		this.transport = config.transportFactory
+			? config.transportFactory()
+			: this.createTransport(config.transport)
 	}
 
 	async connect(): Promise<MCPInitializeResult> {

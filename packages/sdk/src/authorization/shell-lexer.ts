@@ -1880,7 +1880,10 @@ class Parser {
 		const word: ShellWord = {
 			text: src.slice(start, i),
 			value: builder.value,
-			expands: builder.expands,
+			// A bare `[` is the literal POSIX test command, not a complete glob
+			// bracket expression. Keep this exception source-exact: an actual
+			// bracket pattern or runtime-produced command still needs review.
+			expands: builder.expands && joined(src.slice(start, i)) !== '[',
 			quoted: builder.quoted,
 			substitutes: builder.substitutes,
 		}

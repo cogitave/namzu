@@ -93,6 +93,8 @@ API; requests needing those capabilities report that limitation.
 
 Host plugins, MCP servers, project instruction files, skills, subagent launchers
 and scheduler commands are not implicitly loaded into a Pal conversation.
+Installed guest application MCP servers are an explicit exception, described
+below; they still grant no host access.
 A Pal's saved purpose reaches the actual model system context. The saved model
 is selected before provider construction, and provider settings report the
 conversation's actual selection. A model change in a conversation is local to
@@ -106,6 +108,113 @@ not public answers. Substantive outputs require actual confirming tool evidence.
 An authenticated rename or appearance edit updates the next turn's display
 identity; the conversation's purpose, model, workspace and permissions remain
 pinned to their original revision.
+
+### Installed application MCP servers
+
+A Pal can use application tools installed inside its own computer, including
+Blender and Godot bridges. The CLI reads only the guest's
+`/home/namzu/.config/namzu/mcp.json` after obtaining the actual computer
+admission. Opening a chat does not read that file or start a server. A missing
+manifest or an older guest without `Sandbox.openStdio` mounts no application
+servers. Host MCP preferences, environment variables, browser accounts and
+network endpoints are not inherited.
+
+The manifest is JSON with `version: 1` and at most 16 `servers`. Each entry
+requires a unique lowercase `name`, `outcomeProtocol: "namzu-v1"`, an absolute
+Linux guest `command`, and a nonempty `allow` list of server-reported tool
+names. Optional fields are `args`, an absolute guest `cwd`, literal string
+`env` values, and `requestTimeoutMs` from 1,000 to 300,000 milliseconds
+(default 180,000). Environment references such as `${TOKEN}` remain literal;
+there is no host expansion. Unknown fields, host paths, duplicate names,
+parent traversal, sandbox control environment keys and a manifest larger
+than 64 KiB are refused. Setup has a separate 20 second bound.
+
+For example, after explicitly installing a reviewed guest bridge and its
+application:
+
+```json
+{
+  "version": 1,
+  "servers": [
+    {
+      "name": "blender",
+      "outcomeProtocol": "namzu-v1",
+      "command": "/home/namzu/.local/share/namzu/mcp/blender/.venv/bin/python",
+      "args": ["/home/namzu/.local/share/namzu/mcp/blender/pal-blender-mcp.py"],
+      "env": {
+        "BLENDER_HOST": "127.0.0.1",
+        "BLENDER_PORT": "9876",
+        "BLENDER_MCP_SAFE_MODE": "1",
+        "BLENDER_MCP_DISABLE_TELEMETRY": "1",
+        "BLENDERMCP_NO_UPDATE_CHECK": "1"
+      },
+      "allow": ["get_scene_info", "get_addon_status", "execute_blender_code", "look"]
+    }
+  ]
+}
+```
+
+Paths identify installed guest files; this example does not install the
+application, addon or Python packages. The bundled
+`assets/pal-blender-mcp.py` entry point requires `mcp-for-blender` 2.1.7 at
+upstream commit `df7de4c67830cda13e700c5c762f69d8457c3e7e` and Python MCP 1.29.0.
+It verifies the reviewed server file's SHA-256 before import and replaces
+upstream's unowned startup probes with request-owned execution. Application
+and bridge installation belongs to the computer installer, not model output.
+Enable upstream safe mode to prevent untracked timers and subprocesses while
+retaining ordinary Blender modeling, rigging, rendering and import/export.
+Disable addon updates and telemetry in the actual application process too.
+
+The bundled `assets/pal-godot-mcp.cjs` and sibling
+`assets/pal-godot-mcp-pin.json` adapt [NPGameDev's Godot MCP server](https://github.com/NPGameDev/godot-mcp-server)
+1.0.3 at `581fbcce32337ad98f2229457ac43154001f7efb` and its
+[Godot editor toolkit](https://github.com/NPGameDev/godot-mcp-toolkit) 1.0.3 at
+`db005fc054155a0f977868fdfa34220b347fa8aa`. Explicit installation builds the
+pinned source, copies both assets together, and runs
+`node /absolute/bridge/pal-godot-mcp.cjs --seal /absolute/server-root` to verify
+129 source/build inputs and record the actual build. Runtime requires guest
+Node 22.15 or later, with `command` pointing to that Node executable and
+`args` containing the absolute bridge and server-root paths. Set `cwd` and
+`GODOT_MCP_PROJECT_PATH` to the same exact guest project; set
+`GODOT_MCP_EDITOR_PORT` to the actual toolkit editor port. The bridge checks
+its source pin and sealed loaded modules, refuses editor rediscovery after
+connection loss, and disables custom startup extensions. Builtin scene,
+script, editor, run and gameplay tools remain; explicitly allow
+`discover_tools` and the desired lazy tools to receive actual listing updates.
+The editor addon must be installed, enabled and running in that project.
+Application version compatibility and connectivity require an actual guest
+smoke test; configuration alone does not prove them.
+
+The CLI uses the SDK MCP toolsets, retaining server provenance, explicit name
+admission, rich images/resources and live listing updates. A server's
+read-only annotation is not automatically trusted for Plan or approval
+exemptions. Existing automatic owned-computer approval applies; explicit
+Ask first, Plan, strict policies and configured denials remain effective.
+Application calls are serialized, carry the installed request deadline and
+have no automatic retry or reconnect. Every dispatch rechecks the original
+computer generation, current admission, session writer and execution policy.
+Idle server pipes do not prevent operator takeover.
+
+The reviewed bridge must return `_meta["namzu/outcome"]` on each
+`tools/call` result: `settled` confirms an exact application reply after its
+handler finished; `not_dispatched` confirms no application dispatch;
+`unknown` reports lost confirmation. Missing/unrecognized markers, protocol
+errors, issued cancellation, malformed replies and EOF with unanswered
+requests retain an unknown effect barrier. A positive stdin acknowledgement
+or a successful MCP text response alone cannot settle an editor command.
+Unknown results remain errors visible to the model and fence the allocation
+until the computer is stopped; late replies and server process termination
+do not clear the fence. Do not repeat the action or take over an uncertain
+computer. Blender's bridge marks post-send socket/parse ambiguity before
+upstream catches it into ordinary text; a valid addon error response can
+still be settled after a partial application change.
+
+These lifecycle checks assume that the operator-installed manifest, bridge
+scripts and source pins remain intact and cooperative. They are stored in the
+Pal's writable guest home. Declaring `outcomeProtocol: "namzu-v1"` does not
+verify their integrity, and the local container does not enforce immutable
+bridges or revocation against a hostile guest. Application services receive
+only the admitted guest authority; this configuration grants no host authority.
 
 ACP and admitted manual chat turns use exclusive SDK conversation admission independently of computer
 readiness. An offline or operator-controlled computer supplies zero tool
@@ -132,6 +241,27 @@ process. One conversation controls it at a time. Closing the host releases the
 container and retains the Pal data volume. Unknown execution cancellation can
 retire a computer; its current operation is refused until a confirmed stop and
 restart. A failed stop keeps ownership tracked for retry.
+
+## Provider-paused conversations
+
+A recoverable provider failure can retain an open turn and its checkpoint.
+The desktop exposes Retry when the CLI can verify that checkpoint, its current
+token accounting and the original approval choices. Retry resumes the same turn
+without adding a user message or consuming the current draft. Ordinary review
+holds, handoffs and unresolved provider usage are retained with a notice instead.
+An unlimited token allowance does not authorize discarding unknown usage.
+
+The same-process route preserves automatic own-computer approval when that was
+the original selection, and also preserves an explicit Plan, strict or Ask first
+selection. After host reconnection, initial approval settings cannot currently be
+verified from the durable turn snapshot, so the desktop does not offer a default
+Retry. The original ready computer's generation and environment identity are
+captured before sending and rechecked at every resumed provider/guest entry.
+That historical tuple is not currently durable: a cold or originally offline Pal
+checkpoint cannot attach to a new ready computer, even with explicitly selected
+approval settings. Retry cannot approve a recorded review or bypass the current
+Pal writer, model, pause or operator takeover. See the
+[ACP recovery methods](../sdk/agent-client-protocol.md#explicit-paused-turn-recovery).
 
 ## Working with applications and reference images
 

@@ -77,6 +77,14 @@ as a complete diagnosis. `reason: 'paused'` describes a checkpointed segment,
 whose coarse label is `cancelled` for older clients; it does not claim the active
 turn was cancelled.
 
+A paused segment carrying a classified failure also supplies the existing
+`turn_ended.error` field with its recorded failure message (or pause reason when
+only the provider classification is available). Display that explanation even
+when `stopReason` is `cancelled`; the checkpoint is retained, and the failure
+is not a user cancellation. Ordinary review/handoff pauses and user cancellation
+do not manufacture an error. The bridge does not expose the complete provider
+payload or change the prompt response's coarse pause category.
+
 `AcpSessionPromptResult` also carries optional `reason`. If cancellation occurs
 during preparation, before any runtime event, the response contains
 `stopReason: 'cancelled'` and `reason: 'cancelled'` without manufacturing an answer
@@ -150,6 +158,53 @@ binding to authorize provider/model preparation before its first turn. This
 lookup does not grant filesystem trust, prove persisted history or bypass Pal
 claims. The CLI retains durable ownership checks and admits an unrecorded
 ordinary session only through this connection-owned, exact canonical workspace.
+
+## Explicit paused-turn recovery
+
+Embedding hosts can implement optional `AcpAgentGateway.retry(request)` and call
+`ACPServer.retrySession(sessionId, turnId, checkpointId, options?)` from a scoped
+host extension. The retry gateway receives the published workspace, cancellation
+signal, event route, review asker and history, plus the exact target IDs. It
+receives no prompt or attachments. Its result has the same stop-reason and
+optional authoritative-history shape as `prompt`.
+
+Retry uses the existing session's single active execution slot. An ordinary
+prompt and a retry exclude each other; `session/cancel`, ordered updates,
+permission negotiation and review delivery apply to both. Unknown sessions,
+unsupported gateways and invalid options are refused. The bridge does not decide
+whether a durable failure is safe to retry; the host must revalidate the original
+checkpoint and authority before its runtime resumes it.
+
+`namzu acp --desktop` advertises these extensions when both sides support them:
+
+| Method | Request and result |
+| --- | --- |
+| `namzu/sessions/retry-status` | `{sessionId}` returns `{retry?: {turnId, checkpointId}, notice?: string}`. Truly idle conversations return `{}`; an active turn without a safe Retry has a notice. |
+| `namzu/sessions/retry` | `{sessionId, turnId, checkpointId, options?}` returns `AcpSessionPromptResult` while streaming existing `session/update` notifications. Extra prompt/attachment fields are refused. |
+
+The CLI reads the strict project/tenant-owned journal, verifies the referenced
+checkpoint against its recorded hashes, and reads the current original budget
+ledger. Only a classified retryable network, server or throttle pause without a
+human decision is eligible. Missing, changed, exhausted or unresolved accounting
+does not become a new turn. In particular, an unlimited turn with an uncertain
+provider request still needs its actual provider usage receipt; Retry does not
+reset accounting, manufacture usage or abandon the old turn.
+
+Same-process Retry preserves the paused turn's exact captured approval mode and
+effort and pins its recorded model/provider. Initial approval choices are not
+currently persisted in the turn snapshot: after reconnection, status reports that
+they cannot be verified instead of exposing a default Retry. A direct ordinary-conversation host retry
+can deliberately supply an explicit `permissionMode` as new operator consent;
+omitting it is refused. This does not grant a parked human decision. Owned Pal
+resume retains its current identity, model, writer, pause and operator-control
+checks. The CLI captures the original ready computer's generation and
+`environmentId` before the original send, preserves that immutable tuple at its
+pause, and rechecks it in status, retry admission and each resumed provider/guest
+entry. A changed or unavailable original lifetime is refused; a new computer is
+never accepted as proof of the original one. That tuple is not currently durable,
+so a cold or originally offline Pal checkpoint remains blocked even when an
+explicit permission mode is supplied. Another active Pal conversation blocks
+admission.
 
 Stdout is reserved for JSON-RPC lines. Human logs go to stderr. Disconnect cancels
 owned prompts and rejects pending permission requests.

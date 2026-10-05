@@ -621,17 +621,37 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 		// sandbox it belongs to — and `destroy()` is unreachable, because
 		// `create()` never returned a handle. The worker never answering is the
 		// cheapest way to reach that path.
-		globalThis.fetch = vi.fn(async () => new Response('nope', { status: 503 })) as typeof fetch
-		await expect(
-			backend().create({ workingDirectory: workDir, egress: STATIC_ALLOWLIST }),
-		).rejects.toThrow(/did not become ready/)
+		// Real shim processes establish the topology; only the readiness clock is
+		// advanced. Cleanup then awaits its actual subprocesses without racing a
+		// loaded runner against another real deadline.
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+		try {
+			let markHealthStarted!: () => void
+			const healthStarted = new Promise<void>((resolve) => {
+				markHealthStarted = resolve
+			})
+			globalThis.fetch = vi.fn(async () => {
+				markHealthStarted()
+				return await new Promise<Response>(() => {})
+			}) as typeof fetch
+			const failed = expect(
+				backend().create({ workingDirectory: workDir, egress: STATIC_ALLOWLIST }),
+			).rejects.toThrow(/did not become ready/)
+			await healthStarted
+			await vi.advanceTimersByTimeAsync(200)
+			await failed
 
-		const removed = callsMatching((argv) => argv[0] === 'rm' && argv[1] === '-f').map(
-			(argv) => argv[2],
-		)
-		expect(removed.some((name) => name?.startsWith('namzu-egress-'))).toBe(true)
-		expect(removed.some((name) => name?.startsWith('namzu-sandbox-'))).toBe(true)
-	})
+			const removed = callsMatching((argv) => argv[0] === 'rm' && argv[1] === '-f').map(
+				(argv) => argv[2],
+			)
+			expect(removed.some((name) => name?.startsWith('namzu-egress-'))).toBe(true)
+			expect(removed.some((name) => name?.startsWith('namzu-sandbox-'))).toBe(true)
+			expect(containersRunning()).toEqual([])
+		} finally {
+			vi.useRealTimers()
+		}
+		// Real subprocess startup/cleanup I/O; Vitest owns the legitimate timeout.
+	}, 15_000)
 
 	it('replaces the proxy container when the policy changes on a live sandbox', async () => {
 		// The policy is in the container's environment, which cannot be

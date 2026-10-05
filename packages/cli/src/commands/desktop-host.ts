@@ -1,5 +1,11 @@
 /** Scoped operator methods; ACP owns prompts, cancellation and review. */
-import { type PalComputerInput, asSessionId, isEntityId } from '@namzu/sdk'
+import {
+	type AcpSessionPromptParams,
+	type AcpSessionPromptResult,
+	type PalComputerInput,
+	asSessionId,
+	isEntityId,
+} from '@namzu/sdk'
 import {
 	closeSessions,
 	listRecent,
@@ -46,6 +52,12 @@ export function createDesktopHostExtensions(
 	runtime: CliAcpRuntime,
 	directory: string,
 	publishedSessionCwd?: (sessionId: string) => string | undefined,
+	retrySession?: (
+		sessionId: string,
+		turnId: string,
+		checkpointId: string,
+		options?: AcpSessionPromptParams['options'],
+	) => Promise<AcpSessionPromptResult>,
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -89,7 +101,35 @@ export function createDesktopHostExtensions(
 			throw new Error('This Pal does not own the current workspace.')
 		return id
 	}
+	const retryStatus = runtime.providerRetryStatus?.bind(runtime)
 	return {
+		...(retryStatus && retrySession
+			? {
+					'namzu/sessions/retry-status': async (params: Record<string, unknown>) =>
+						retryStatus(await ownedSession(params), cwd),
+					'namzu/sessions/retry': async (params: Record<string, unknown>) => {
+						if (
+							Object.keys(params).some(
+								(key) => !['sessionId', 'turnId', 'checkpointId', 'options'].includes(key),
+							)
+						)
+							throw new Error(
+								'Retry accepts only the original turn, checkpoint and explicit settings; send a new message after the turn settles.',
+							)
+						const id = await ownedSession(params)
+						const turnId = text(params, 'turnId')
+						const checkpointId = text(params, 'checkpointId')
+						if (!isEntityId(turnId, 'turn') || !isEntityId(checkpointId, 'checkpoint'))
+							throw new Error('Invalid retry turn or checkpoint.')
+						return retrySession(
+							id,
+							turnId,
+							checkpointId,
+							params.options as AcpSessionPromptParams['options'],
+						)
+					},
+				}
+			: {}),
 		'namzu/harnesses/list': async (params: Record<string, unknown>) => {
 			if (pal())
 				return {

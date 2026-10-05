@@ -457,6 +457,13 @@ export interface MCPClientConfig {
 	id?: MCPClientId
 	serverName: string
 	transport: MCPTransportUnion
+	/**
+	 * Construct a host-owned transport instead of spawning/fetching from `transport`.
+	 * The config still supplies protocol/cache metadata; no built-in transport work
+	 * is started. The factory runs once per client; its transport owns reconnects.
+	 * Custom clients get an isolated era cache unless `eraCache` is supplied.
+	 */
+	transportFactory?: () => MCPTransport
 	capabilities?: MCPClientCapabilities
 	clientInfo?: { name: string; version: string }
 	/**

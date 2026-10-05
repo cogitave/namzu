@@ -17,6 +17,29 @@ function deferred<T>() {
 const bridge = (methods: Partial<DesktopApi>): DesktopApi => methods as DesktopApi
 
 describe('pane write admission', () => {
+	it('fences an explicit turn retry by pane ownership and transfer admission', async () => {
+		const retryTurn = vi.fn<NonNullable<DesktopApi['retryTurn']>>().mockResolvedValue(undefined)
+		let blocked = false
+		const controller = createWorkspacePaneApi(bridge({ retryTurn }), {
+			owns: (id) => id === 'owned',
+			blocked: () => blocked,
+		})
+		await expect(controller.api.retryTurn?.('foreign', 'turn', 'checkpoint')).rejects.toThrow(
+			'another pane',
+		)
+		blocked = true
+		await expect(controller.api.retryTurn?.('owned', 'turn', 'checkpoint')).rejects.toThrow(
+			'moving',
+		)
+		blocked = false
+		await controller.api.retryTurn?.('owned', 'turn', 'checkpoint')
+		expect(retryTurn).toHaveBeenCalledExactlyOnceWith('owned', 'turn', 'checkpoint', undefined)
+		controller.invalidate()
+		await expect(controller.api.retryTurn?.('owned', 'turn', 'checkpoint')).rejects.toThrow(
+			'closed',
+		)
+	})
+
 	it('copies a frozen context bridge and blocks another pane without mutating the original API', async () => {
 		const saveDraft = vi.fn<DesktopApi['saveDraft']>().mockResolvedValue(undefined)
 		const original = Object.freeze(bridge({ saveDraft }))

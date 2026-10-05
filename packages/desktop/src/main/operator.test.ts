@@ -167,6 +167,7 @@ it('records a response-only cancellation once with stable host start/end timesta
 	expect(restored?.turns).toEqual(first?.turns)
 	expect((restored?.turns[1]?.endedAt ?? 0) - (restored?.turns[1]?.startedAt ?? 0)).toBe(4_321)
 	expect(owner.takeQueued(session.id)).toBe('Keep this authored follow-up')
+	expect(restored?.error).toBeUndefined()
 })
 
 it.each(['Fail turn with fixture', 'Reject turn with fixture'])(
@@ -231,6 +232,35 @@ it('retains the exact paused reason from a response without misreporting a compl
 	expect(first?.error).toBeUndefined()
 	expect(first?.messages).toEqual([{ role: 'user', text: 'Pause turn with fixture' }])
 	expect((await owner.openConversation(project.id, session.id)).thread?.turns).toEqual(first?.turns)
+})
+
+it('retains a streamed provider pause explanation through settlement and UI reattachment without admitting an ordinary follow-up', async () => {
+	const { owner, wait, recorded } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.send(session.id, 'Provider pause with fixture')
+	await stopped
+	const message = 'zen — could not reach the provider: model "space-bunny-free": request timed out'
+	expect(turnEndings(recorded, session.id)).toEqual([
+		expect.objectContaining({
+			update: { kind: 'turn_ended', stopReason: 'cancelled', reason: 'paused', error: message },
+		}),
+	])
+	const first = (await owner.openConversation(project.id, session.id)).thread
+	expect(first).toMatchObject({
+		running: false,
+		stopReason: 'cancelled',
+		reason: 'paused',
+		error: message,
+		messages: [{ role: 'user', text: 'Provider pause with fixture' }],
+	})
+	expect((await owner.openConversation(project.id, session.id)).thread?.error).toBe(message)
+	expect(() => owner.send(session.id, 'Next authored prompt')).toThrow('paused turn')
+	expect((await owner.openConversation(project.id, session.id)).thread?.error).toBe(message)
+	expect(recorded.filter((event) => event.kind === 'prompt')).toHaveLength(1)
 })
 
 it('keeps a streamed completion once when the prompt response follows, without shifting its snapshot timestamp', async () => {

@@ -91,6 +91,10 @@ lines.on('line', (line) => {
 		if (params.prompt === 'Fail turn with fixture') { reply(id, { stopReason: 'error', history: { messages: ['PRIVATE_TURN_HISTORY_FIXTURE'] } }); return }
 		if (params.prompt === 'Reject turn with fixture') { send({ id, error: { code: -32603, message: 'The isolated fixture rejected this prompt.' } }); return }
 		if (params.prompt === 'Pause turn with fixture') { reply(id, { stopReason: 'cancelled', reason: 'paused' }); return }
+		if (params.prompt === 'Provider pause with fixture') {
+			send({ method: 'session/update', params: { sessionId: params.sessionId, update: { kind: 'turn_ended', stopReason: 'cancelled', reason: 'paused', error: 'zen — could not reach the provider: model "space-bunny-free": request timed out' } } })
+			reply(id, { stopReason: 'cancelled', reason: 'paused' }); return
+		}
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })

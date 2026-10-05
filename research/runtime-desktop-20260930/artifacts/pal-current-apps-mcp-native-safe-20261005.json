@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "palModel": {
+    "provider": "zen",
+    "model": "space-bunny-free"
+  },
+  "guestGeneration": "1791202155100",
+  "guestImageSha256": "35027e188a0f04d68a98e4929279f504fd20c351e229bab856d5750b6b2081b9",
+  "applications": {
+    "godot": "4.7.2.stable.official.ed1daf0bf",
+    "blender": "5.2.2 LTS"
+  },
+  "sourcePins": {
+    "blender": "df7de4c67830cda13e700c5c762f69d8457c3e7e",
+    "godotServer": "581fbcce32337ad98f2229457ac43154001f7efb",
+    "godotToolkit": "db005fc054155a0f977868fdfa34220b347fa8aa"
+  },
+  "liveBlender": [
+    {
+      "tool": "get_addon_status",
+      "outcome": "settled",
+      "isError": false,
+      "imageReturned": false
+    },
+    {
+      "tool": "get_scene_info",
+      "outcome": "settled",
+      "isError": false,
+      "imageReturned": false
+    },
+    {
+      "tool": "look",
+      "outcome": "settled",
+      "isError": false,
+      "imageReturned": true
+    }
+  ],
+  "actualPalApplicationToolsObserved": [
+    {
+      "name": "mcp__blender__get_addon_status",
+      "status": "completed"
+    },
+    {
+      "name": "mcp__godot__scene_get_tree",
+      "status": "completed"
+    }
+  ],
+  "gameSourceAuthoredByOperator": false,
+  "gameplayVerified": false,
+  "scope": "Current application versions, owned guest MCP, live Blender robot inspection and actual Pal-authored Godot4 Main.tscn editor tree. Game runtime and human gameplay have not yet been verified.",
+  "rigImage": {
+    "file": "pal-blender-live-rig-native-20261005.png",
+    "sha256": "8a5d211296a2e0ba551fd4195b18ae61f7bd2fd1c56f74ab16b4e7a46dadccf7"
+  },
+  "liveGodot": [
+    {
+      "tool": "discover_tools",
+      "outcome": "not_dispatched",
+      "isError": false,
+      "imageReturned": false
+    },
+    {
+      "tool": "scene_get_tree",
+      "outcome": "settled",
+      "isError": false,
+      "imageReturned": false
+    },
+    {
+      "tool": "editor_screenshot",
+      "outcome": "settled",
+      "isError": false,
+      "imageReturned": true
+    }
+  ],
+  "nativeCompiledFilesShaVerified": 12065,
+  "telemetryStatusFixedAndLiveVerified": true,
+  "addonStatus": {
+    "blender_version": "5.2.2 LTS",
+    "protocol_version": 13,
+    "up_to_date": true,
+    "telemetry_consent": false,
+    "premium_generators": []
+  },
+  "workerSha256": "99dbb19c51c34161faecac56c791020def8333205c499a9312ee51d1b3528cdd",
+  "heartbeat": {
+    "intervalMs": 30000,
+    "protocolFrame": "stdio_heartbeat",
+    "workerAndRuntimeRolledTogether": true,
+    "actualWindowsIdleOverFiveMinutesVerified": false,
+    "connectionLifetimeOverFiveMinutesVerified": true,
+    "connectionLifetimeEvidence": {
+      "observedAt": "2026-10-05T12:17:41Z",
+      "blenderBridgeElapsedSeconds": 387,
+      "godotBridgeElapsedSeconds": 386,
+      "successfulGodotCallAt": "2026-10-05T12:16:41.530Z",
+      "applicationTrafficActive": true,
+      "continuousFiveMinuteSilenceVerified": false
+    }
+  },
+  "godotProject": "game-godot4",
+  "nativeOwnedGuestPredicate": {
+    "command": "[ -f /home/namzu/workspace/clockwork-courier-godot-free-20261005/game-godot4/project.godot ] && printf \"OWNED_GUEST_PREDICATE_OK\"",
+    "completed": true,
+    "result": "OWNED_GUEST_PREDICATE_OK",
+    "operatorApprovalSent": false
+  }
+}

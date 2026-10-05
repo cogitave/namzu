@@ -116,7 +116,10 @@ function fixture(ownedPal = false) {
 			...(ownedPal
 				? {
 						palBinding: async () => ({ pal, definition: pal, sessionId }),
-						palRuntime: async () => ({ computer: () => null }),
+						palRuntime: async () => ({
+							computer: () => null,
+							computerControl: () => ({ supported: false, mode: 'unavailable' }),
+						}),
 					}
 				: {}),
 			probe: async () => ({

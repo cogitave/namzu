@@ -154,7 +154,23 @@ describe('bundled New Tab native application host', () => {
 			LANG: 'C.UTF-8',
 			PATH: '/usr/local/bin:/usr/bin:/bin:/usr/games',
 			LIBGL_ALWAYS_SOFTWARE: '1',
+			BLENDERMCP_NO_UPDATE_CHECK: '1',
+			BLENDER_MCP_DISABLE_TELEMETRY: '1',
 		})
+	})
+	it('launches the supported Godot editor with the guest compatibility renderer', async () => {
+		const child = Object.assign(new EventEmitter(), { unref: vi.fn() })
+		const execute = vi.fn((_binary: string, _args: string[], _options: SpawnOptions) => child)
+		const result = host.handleMessage(
+			{ type: 'launch', appId: 'godot' },
+			{ access: () => {}, spawn: execute },
+		)
+		expect(execute.mock.calls[0]?.slice(0, 2)).toEqual([
+			'/usr/local/bin/godot4',
+			['--rendering-method', 'gl_compatibility'],
+		])
+		child.emit('spawn')
+		expect(await result).toEqual({ ok: true, appId: 'godot' })
 	})
 	it('starts Kdenlive with software rendering and SDL dummy audio without a host audio device', () => {
 		const app = catalogue.APPLICATIONS.find((entry: { id: string }) => entry.id === 'kdenlive')

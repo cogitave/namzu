@@ -8,7 +8,7 @@ const APPLICATIONS = Object.freeze(
 		{
 			id: 'blender',
 			name: 'Blender',
-			binary: '/usr/bin/blender',
+			binary: '/usr/local/bin/blender',
 			args: [],
 			desktop: ['blender.desktop'],
 			software: true,
@@ -103,9 +103,9 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'godot',
-			name: 'Godot 3',
-			binary: '/usr/bin/godot3',
-			args: ['--video-driver', 'GLES2'],
+			name: 'Godot',
+			binary: '/usr/local/bin/godot4',
+			args: ['--rendering-method', 'gl_compatibility'],
 			desktop: ['godot3.desktop'],
 			software: true,
 		},
@@ -169,6 +169,10 @@ function applicationEnvironment(app, inherited = process.env) {
 	env.DISPLAY = ':99'
 	env.PATH = '/usr/local/bin:/usr/bin:/bin:/usr/games'
 	if (app.software) env.LIBGL_ALWAYS_SOFTWARE = '1'
+	if (app.id === 'blender') {
+		env.BLENDERMCP_NO_UPDATE_CHECK = '1'
+		env.BLENDER_MCP_DISABLE_TELEMETRY = '1'
+	}
 	// The isolated guest has no host audio device. SDL must not abort the editor
 	// while trying to open an unavailable ALSA default output.
 	if (app.id === 'kdenlive') env.SDL_AUDIODRIVER = 'dummy'

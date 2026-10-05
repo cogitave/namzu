@@ -26,6 +26,25 @@ const manager = new ToolManager({ toolsets: [main, resources], messages: () => [
 await main.close?.() // stops the reconnect supervisor this call started
 ```
 
+## Injected host transports
+
+`MCPClientConfig.transportFactory` optionally constructs a caller-owned
+`MCPTransport`. The client calls it once at construction and uses that transport
+for connect, JSON-RPC dispatch, cancellation, notifications and close. The
+required `transport` configuration supplies descriptive protocol/cache metadata;
+no built-in host subprocess or HTTP connection is opened when the factory is
+present. A throwing factory fails without falling back to a host transport.
+The same injected transport owns its reconnect behavior. It gets an isolated
+era cache unless the caller deliberately supplies `eraCache`.
+
+This lets a trusted host adapt an [allocation-owned guest stdio
+channel](local-pal-computer.md#owned-guest-stdio-services) to MCP without importing
+the sandbox package into the SDK. The transport must preserve JSON-RPC IDs,
+signal cancellation, bounded byte parsing and its own device-operation barriers.
+`MCPClient` cancellation means the local wait ended; it does not prove an external
+application command stopped. Disable automatic reconnect and tool retries when
+an interrupted application effect cannot safely be repeated.
+
 ## Naming
 
 Every name this function produces is `mcp__<server>__<rest>`: a tool is `mcp__<server>__<tool>`, a prompt is `mcp__<server>__prompt__<name>` (prompts get their own segment so a server publishing a tool and a prompt under the same name cannot collide), and the two resource tools are `mcp__<server>__list_resources` and `mcp__<server>__read_resource`. This replaces the CLI's own historical `mcp_<server>_<tool>` (single underscore, ambiguous the moment either name contains one); the plugin path already used `mcp__`.

@@ -191,6 +191,11 @@ export function toAcpSessionUpdate(
 				kind: 'turn_ended',
 				stopReason: 'cancelled',
 				reason: 'paused',
+				// A checkpointed provider fault is still a failure the operator
+				// needs to see. Ordinary review/handoff pauses remain non-errors.
+				...(event.failure || event.providerError
+					? { error: event.failure?.message || event.reason }
+					: {}),
 				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
 			}
 

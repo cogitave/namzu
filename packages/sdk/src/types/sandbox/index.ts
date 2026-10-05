@@ -239,6 +239,39 @@ export interface SandboxSpawnOptions {
 	readonly env?: Record<string, string>
 }
 
+/** Host-selected guest process options; never inherits the operator environment. */
+export interface SandboxStdioOptions extends SandboxSpawnOptions {
+	readonly signal?: AbortSignal
+	/** Rechecked at admission and before every write/operation, e.g. Pal writer/lifetime. */
+	readonly assertExecutionAllowed?: () => void | Promise<void>
+}
+
+export interface SandboxStdioEvent {
+	readonly stream: 'stdout' | 'stderr'
+	readonly data: Uint8Array
+}
+
+/** A trusted host's ownership barrier for one application request. */
+export interface SandboxStdioOperation {
+	/** Call only after an exact application reply, or before dispatch was attempted. */
+	complete(): void
+	/** Permanently fence this allocation until computer stop. Never replay the request. */
+	outcomeUnknown(): void
+}
+
+/** Interactive pipes for an allocation-owned guest process, not a host child. */
+export interface SandboxStdioChannel {
+	/** One bounded, backpressured consumer. Bytes preserve binary and UTF-8 boundaries. */
+	readonly events: AsyncIterable<SandboxStdioEvent>
+	write(data: string | Uint8Array, signal?: AbortSignal): Promise<void>
+	/** Idle services do not prevent takeover; each actual request must hold this barrier. */
+	beginOperation(signal?: AbortSignal): Promise<SandboxStdioOperation>
+	/** Confirm this server's process group stopped; does not quiesce external applications. */
+	close(): Promise<void>
+	/** Resolves only on confirmed process-group exit; rejects on lost confirmation. */
+	readonly closed: Promise<void>
+}
+
 /**
  * One host-side end of a TCP connection opened from inside the sandbox.
  *
@@ -315,6 +348,13 @@ export interface Sandbox {
 		args?: readonly string[],
 		opts?: SandboxSpawnOptions,
 	): SandboxDetachedProcess
+
+	/** Optional interactive guest stdio. Never falls back to a host subprocess. */
+	openStdio?(
+		command: string,
+		args?: readonly string[],
+		options?: SandboxStdioOptions,
+	): Promise<SandboxStdioChannel>
 
 	/**
 	 * Narrow or widen what this sandbox can reach, while it is running.

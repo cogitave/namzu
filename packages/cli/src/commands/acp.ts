@@ -5,6 +5,7 @@ import {
 	HostCommandRegistry,
 	type Message,
 	type Origin,
+	type PalEnvironmentLease,
 	ServerStdioTransport,
 	type SessionEvent,
 	type SessionId,
@@ -31,8 +32,10 @@ import type { DetectedProvider, Preferences } from '../integrations/providers/in
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import {
 	closeSessions,
+	loadConversation,
 	loadResumableConversation,
 	openSessions,
+	readConversationFacts,
 } from '../integrations/sessions/store.js'
 import { cliLogger } from '../logging.js'
 import { palSessionEnvironment } from '../pals/agent-session.js'
@@ -48,6 +51,7 @@ import {
 	probeAgentSession,
 } from '../tui/agent.js'
 import { withCliHarnesses } from './acp-harness.js'
+import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import type { CommandContext, CommandDef } from './types.js'
@@ -186,7 +190,7 @@ type AcpLiveSession = Pick<
 	| 'reasoningEffortDefault'
 	| 'imageAttachmentsSupported'
 	| 'documentAttachmentsSupported'
->
+> & { readonly resumePaused?: AgentSession['resumePaused'] }
 
 export interface AcpRuntimeDependencies {
 	readonly palBinding?: typeof palConversationBinding
@@ -206,6 +210,7 @@ export interface AcpRuntimeDependencies {
 	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
 	/** Durable CLI catalog owned for the lifetime of one runtime session. */
 	readonly openSessions?: typeof openSessions
+	readonly readRetryStatus?: typeof readProviderRetryStatus
 }
 
 interface AcpRuntimeRecord {
@@ -214,12 +219,53 @@ interface AcpRuntimeRecord {
 	readonly session: AcpLiveSession
 	/** Host-validated Pal binding, never a wire-supplied scope claim. */
 	readonly ownedPal: boolean
+	readonly palId?: string
+	readonly readyComputer?: () => PalEnvironmentLease | undefined
+	readonly provider: string
+	retrySettings?: {
+		turnId: string
+		settings: ReturnType<typeof validateComposerSendSettings>
+		computer?: { generation: number; environmentId: string }
+	}
 	route: ((event: SessionEvent) => void) | undefined
+}
+
+const MISSING_RETRY_COMPUTER =
+	'The original Pal computer lifetime cannot be verified. This checkpoint is retained; Retry cannot attach it to a new computer.'
+const CHANGED_RETRY_COMPUTER =
+	'The original Pal computer is unavailable, changed or under operator control. This checkpoint is retained.'
+function readyComputerPin(record: AcpRuntimeRecord) {
+	const lease = record.readyComputer?.()
+	return lease &&
+		lease.palId === record.palId &&
+		(lease.sandbox.status === 'ready' || lease.sandbox.status === 'busy') &&
+		Number.isSafeInteger(lease.generation) &&
+		lease.generation > 0 &&
+		typeof lease.environmentId === 'string' &&
+		lease.environmentId.length > 0
+		? { generation: lease.generation, environmentId: lease.environmentId }
+		: undefined
+}
+function assertRetryComputer(
+	record: AcpRuntimeRecord,
+	original: AcpRuntimeRecord['retrySettings'],
+) {
+	if (!record.ownedPal) return
+	const pin = original?.computer
+	if (!pin) throw new Error(MISSING_RETRY_COMPUTER)
+	const current = readyComputerPin(record)
+	if (
+		!current ||
+		current.generation !== pin.generation ||
+		current.environmentId !== pin.environmentId
+	)
+		throw new Error(CHANGED_RETRY_COMPUTER)
 }
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
 	providerStatus(sessionId?: string): Promise<unknown>
+	providerRetryStatus?(sessionId: string, cwd: string): Promise<ProviderRetryStatus>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
 	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
 	setPluginEnabled(
@@ -409,7 +455,8 @@ export function createCliAcpRuntime(
 				signal.throwIfAborted()
 				if (closed) throw new Error('The ACP connection closed while its session was starting.')
 				const prefs = await preferencesFor(sessionId, probe, cwd)
-				if (!prefs) {
+				const primary = prefs?.providers[0]
+				if (!prefs || !primary) {
 					throw new Error(
 						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
 					)
@@ -423,12 +470,12 @@ export function createCliAcpRuntime(
 				if (palBinding && !palRuntime) throw new Error('This Pal runtime is unavailable.')
 				signal.throwIfAborted()
 				const routeOwner: { current?: AcpRuntimeRecord } = {}
+				const palEnvironment =
+					palBinding && palRuntime
+						? palSessionEnvironment(palRuntime, palBinding.definition, sessionId)
+						: undefined
 				candidate = await deps.createSession(prefs, probe.detected, {
-					...(palBinding && palRuntime
-						? {
-								palEnvironment: palSessionEnvironment(palRuntime, palBinding.definition, sessionId),
-							}
-						: {}),
+					...(palEnvironment ? { palEnvironment } : {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -491,6 +538,10 @@ export function createCliAcpRuntime(
 					cwd,
 					session: candidate,
 					ownedPal: !!palBinding,
+					...(palBinding
+						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
+						: {}),
+					provider: primary.id,
 					conversations: conversationState,
 					route: undefined,
 				}
@@ -620,8 +671,14 @@ export function createCliAcpRuntime(
 					record.session,
 					record.ownedPal ? 'auto' : 'prompt',
 				)
+				// Snapshot before admission; a later/current lease is never historical proof.
+				const computer = readyComputerPin(record)
+				const original = { turnId: '', settings, ...(computer ? { computer } : {}) }
 				for await (const event of record.session.send(messages, {
 					...settings,
+					...(computer
+						? { assertExecutionAllowed: () => assertRetryComputer(record, original) }
+						: {}),
 					signal,
 					onPermission,
 					onConversationMessages: (messages) => {
@@ -632,6 +689,8 @@ export function createCliAcpRuntime(
 					else if (event.kind === 'error' || event.kind === 'paused') {
 						stopReason = signal.aborted ? 'cancelled' : 'error'
 						if (event.kind === 'error' && !signal.aborted) failureMessage = event.message
+						if (event.kind === 'paused')
+							record.retrySettings = { ...original, turnId: event.turnId }
 					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
@@ -645,11 +704,162 @@ export function createCliAcpRuntime(
 				if (record.route === routedEvent) record.route = undefined
 			}
 		},
+		retry: async ({ sessionId, turnId, checkpointId, options, cwd, signal, onEvent, ask }) => {
+			const record = await ensureSession(sessionId, cwd, signal)
+			if (!record.conversations || !record.session.resumePaused)
+				throw new Error('This connection cannot resume durable paused turns.')
+			if (record.route) throw new Error('This conversation already has active work.')
+			const target = await deps.resolveSession(sessionId)
+			const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
+				record.conversations,
+				target.sessionId,
+			)
+			if (status.retry?.turnId !== turnId || status.retry.checkpointId !== checkpointId)
+				throw new Error(
+					status.notice ?? 'The paused turn or checkpoint has changed. Refresh this conversation.',
+				)
+			const original = record.retrySettings?.turnId === turnId ? record.retrySettings : undefined
+			assertRetryComputer(record, original)
+			const previous = original?.settings
+			if (!previous && options?.permissionMode === undefined)
+				throw new Error(
+					'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+				)
+			const settings = validateComposerSendSettings(
+				{ ...previous, ...options },
+				record.session,
+				'prompt',
+			)
+			const facts = await readConversationFacts(record.conversations, target.sessionId)
+			const started = facts?.records.find(
+				(row) => row.type === 'turn_started' && row.turnId === turnId,
+			)
+			const pause = [...(facts?.records ?? [])]
+				.reverse()
+				.find((row) => row.type === 'turn_paused' && row.turnId === turnId)
+			if (
+				started?.type !== 'turn_started' ||
+				!started.config.model ||
+				pause?.type !== 'turn_paused' ||
+				pause.providerError?.providerId !== record.provider
+			)
+				throw new Error('The original provider and model cannot be verified for this retry.')
+			const routedEvent = (event: SessionEvent): void => {
+				const outer = activeRecord
+				activeRecord = record
+				try {
+					onEvent(event)
+				} finally {
+					activeRecord = outer
+				}
+			}
+			record.route = routedEvent
+			try {
+				let stopReason: string | undefined
+				let failureMessage: string | undefined
+				for await (const event of record.session.resumePaused({
+					turnId,
+					checkpointId,
+					signal,
+					permissionMode: settings.permissionMode,
+					...(record.ownedPal
+						? { assertExecutionAllowed: () => assertRetryComputer(record, original) }
+						: {}),
+					model: {
+						provider: record.provider,
+						model: started.config.model,
+						...(settings.effort ? { effort: settings.effort } : {}),
+					},
+					onPermission: async (request) => {
+						const outcome = await ask({
+							sessionId,
+							toolCalls: request.toolCalls.map((call) => ({
+								id: call.id,
+								name: call.name,
+								input: call.input,
+								isDestructive: call.isDestructive,
+							})),
+						})
+						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
+						if (outcome.kind === 'approve') return { kind: 'approve' }
+						return { kind: 'reject', ...(outcome.feedback ? { feedback: outcome.feedback } : {}) }
+					},
+				})) {
+					if (event.kind === 'done') stopReason = event.stopReason
+					if (event.kind === 'paused') {
+						stopReason = 'paused'
+						record.retrySettings = { ...original, turnId: event.turnId, settings }
+					}
+					if (event.kind === 'error') {
+						stopReason = 'error'
+						failureMessage = event.message
+					}
+				}
+				if (signal.aborted) stopReason = 'cancelled'
+				if (failureMessage && !signal.aborted) throw new Error(failureMessage)
+				return {
+					...(stopReason ? { stopReason } : {}),
+					history: await loadConversation(record.conversations, target.sessionId),
+				}
+			} finally {
+				if (record.route === routedEvent) record.route = undefined
+			}
+		},
 	}
 
 	return {
 		gateway,
 		presenter,
+		providerRetryStatus: async (sessionId, requestedCwd) => {
+			if (closed) throw new Error('The connection is closed.')
+			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
+			if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
+			const record = records.get(sessionId)
+			if (record && record.cwd !== trust.cwd)
+				throw new Error('This conversation belongs to another project.')
+			const target = await deps.resolveSession(sessionId)
+			const binding = await deps.palBinding?.(trust.cwd, target.sessionId)
+			const state = record?.conversations ?? (await (deps.openSessions ?? openSessions)(trust.cwd))
+			try {
+				const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
+					state,
+					target.sessionId,
+				)
+				if (!status.retry) return status
+				if (binding) {
+					if (!record) return { notice: MISSING_RETRY_COMPUTER }
+					try {
+						assertRetryComputer(
+							record,
+							record.retrySettings?.turnId === status.retry.turnId
+								? record.retrySettings
+								: undefined,
+						)
+					} catch (error) {
+						return { notice: error instanceof Error ? error.message : MISSING_RETRY_COMPUTER }
+					}
+				}
+				if (binding && (await deps.palRuntime?.())?.busy(binding.pal.id))
+					return {
+						notice:
+							'Wait for this Pal’s current work to settle before retrying another conversation.',
+					}
+				if (record?.retrySettings?.turnId !== status.retry.turnId)
+					return {
+						notice:
+							'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+					}
+				const facts = await readConversationFacts(state, target.sessionId)
+				const pause = [...(facts?.records ?? [])]
+					.reverse()
+					.find((row) => row.type === 'turn_paused' && row.turnId === status.retry?.turnId)
+				if (pause?.type !== 'turn_paused' || pause.providerError?.providerId !== record.provider)
+					return { notice: 'The original provider cannot be verified for this retry.' }
+				return status
+			} finally {
+				if (state !== record?.conversations) closeSessions(state)
+			}
+		},
 		modelSettings: async (provider, model, sessionId) => {
 			if (closed) throw new Error('The connection is closed.')
 			if (sessionId !== undefined && !isEntityId(sessionId, 'session'))
@@ -927,8 +1137,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 		...(desktop
 			? {
-					extensions: createDesktopHostExtensions(runtime, process.cwd(), (id) =>
-						server.getSessionCwd(id),
+					extensions: createDesktopHostExtensions(
+						runtime,
+						process.cwd(),
+						(id) => server.getSessionCwd(id),
+						(id, turnId, checkpointId, options) =>
+							server.retrySession(id, turnId, checkpointId, options),
 					),
 				}
 			: {}),

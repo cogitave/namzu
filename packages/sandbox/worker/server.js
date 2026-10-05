@@ -667,6 +667,7 @@ async function handleReserveExecution(_req, res) {
 		executionId,
 		leaseExpiresAt,
 		normalExitPolicy: NORMAL_EXIT_POLICY,
+		stdio: { version: 1, maxLifetimeMs: MAX_TIMEOUT_MS },
 	})
 }
 
@@ -897,6 +898,17 @@ async function handleExecute(req, res) {
 		writeJson(res, 400, { error: 'missing_command' })
 		return
 	}
+	if (body.stdio !== undefined && body.stdio !== true) {
+		writeJson(res, 400, { error: 'invalid_stdio' })
+		return
+	}
+	if (
+		body.stdio &&
+		(!body.executionId || body.stdin !== undefined || body.normalExitPolicy === 'computer-lifetime')
+	) {
+		writeJson(res, 400, { error: 'stdio_requires_reserved_strict_execution' })
+		return
+	}
 	const normalExitPolicy = body.normalExitPolicy === undefined ? 'strict' : body.normalExitPolicy
 	if (normalExitPolicy !== 'strict' && normalExitPolicy !== 'computer-lifetime') {
 		writeJson(res, 400, { error: 'invalid_normal_exit_policy' })
@@ -990,7 +1002,7 @@ async function handleExecute(req, res) {
 		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
 			cwd,
 			env: childEnvironment(body.env),
-			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+			stdio: [body.stdio || body.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
 			// The worker owns the process group, not only the command's outer
 			// wrapper. Cancellation can therefore address the wrapper and ordinary
 			// descendants with the same signal. A descendant that deliberately
@@ -1031,11 +1043,51 @@ async function handleExecute(req, res) {
 		terminationCause: undefined,
 		normalExitPolicy,
 		computerLifetimeHandoff: false,
+		stdio: body.stdio === true,
 	})
 	// `whileWorkerActive` owns request parsing and preparation. The spawned
 	// command outlives this handler, so take a second activity lease before the
 	// request lease can be released; `settle` transfers it back exactly once.
 	const releaseActivity = acquireWorkerActivity()
+	let stdioHeartbeat
+	function stopStdioHeartbeat() {
+		clearInterval(stdioHeartbeat)
+		stdioHeartbeat = undefined
+	}
+	if (body.stdio) {
+		child.stdin.on('error', () => {})
+		child.once('spawn', () => {
+			if (settled || res.destroyed || res.writableEnded) return
+			writeEvent(res, { type: 'stdio_started', version: 1 })
+			// Quiet MCP services still need response-body bytes: HTTP clients and
+			// intermediaries may expire an otherwise healthy idle response. These
+			// frames neither feed stdin nor acknowledge an application operation.
+			stdioHeartbeat = setInterval(() => {
+				if (!settled && !res.destroyed && !res.writableEnded && !res.writableNeedDrain)
+					writeEvent(res, { type: 'stdio_heartbeat', version: 1 })
+			}, 30_000)
+			stdioHeartbeat.unref()
+		})
+		res.once('close', () => {
+			stopStdioHeartbeat()
+			if (!settled) void ensureTermination(execution, 'cancelled').catch(poisonWorker)
+		})
+	}
+	function streamStdio(stream, chunk) {
+		// Lossless byte framing with backpressure, without accumulating lifetime output.
+		if (
+			!res.write(
+				`${JSON.stringify({ type: 'stdio_data', stream, data: chunk.toString('base64') })}\n`,
+			)
+		) {
+			child.stdout.pause()
+			child.stderr.pause()
+			res.once('drain', () => {
+				child.stdout.resume()
+				child.stderr.resume()
+			})
+		}
+	}
 
 	function appendChunk(target, chunk) {
 		if (target.truncated) return null
@@ -1052,10 +1104,12 @@ async function handleExecute(req, res) {
 	}
 
 	child.stdout.on('data', (chunk) => {
+		if (body.stdio) return streamStdio('stdout', chunk)
 		const clipped = appendChunk(stdout, chunk)
 		if (clipped) writeEvent(res, { type: 'stdout_delta', data: clipped.toString('utf8') })
 	})
 	child.stderr.on('data', (chunk) => {
+		if (body.stdio) return streamStdio('stderr', chunk)
 		const clipped = appendChunk(stderr, chunk)
 		if (clipped) writeEvent(res, { type: 'stderr_delta', data: clipped.toString('utf8') })
 	})
@@ -1074,6 +1128,7 @@ async function handleExecute(req, res) {
 		if (settled) return
 		settled = true
 		clearTimeout(timeout)
+		stopStdioHeartbeat()
 		releaseActivity()
 		if (trackedExecution) {
 			rememberTerminal(
@@ -1116,6 +1171,36 @@ async function handleExecute(req, res) {
 			})
 			.catch((error) => poisonWorker(error))
 	})
+}
+
+async function handleStdioWrite(req, res) {
+	const body = await readBody(req)
+	if (
+		!validateExecutionId(body.executionId) ||
+		typeof body.data !== 'string' ||
+		body.data.length > 2 * 1024 * 1024
+	) {
+		writeJson(res, 400, { error: 'invalid_stdio_write' })
+		return
+	}
+	const bytes = Buffer.from(body.data, 'base64')
+	if (bytes.toString('base64') !== body.data) {
+		writeJson(res, 400, { error: 'invalid_stdio_bytes' })
+		return
+	}
+	const execution = executions.get(body.executionId)
+	if (!execution?.stdio || execution.state !== 'running' || !execution.child?.stdin?.writable) {
+		writeJson(res, 409, { error: 'stdio_not_running' })
+		return
+	}
+	try {
+		await new Promise((resolve, reject) =>
+			execution.child.stdin.write(bytes, (error) => (error ? reject(error) : resolve())),
+		)
+		writeJson(res, 200, { ok: true, bytesWritten: bytes.length })
+	} catch {
+		writeJson(res, 500, { error: 'stdio_delivery_unknown' })
+	}
 }
 
 async function handleReadFile(req, res) {
@@ -1331,6 +1416,10 @@ const server = http.createServer(async (req, res) => {
 		}
 		if (req.method === 'POST' && req.url === '/cancel') {
 			await whileWorkerActive(() => handleCancelExecution(req, res))
+			return
+		}
+		if (req.method === 'POST' && req.url === '/executions/write') {
+			await whileWorkerActive(() => handleStdioWrite(req, res))
 			return
 		}
 		if (req.method === 'POST' && req.url === '/read-file') {

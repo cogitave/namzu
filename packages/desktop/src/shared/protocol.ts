@@ -235,6 +235,14 @@ export interface WindowMenuAnchor {
 	x: number
 	y: number
 }
+export interface DesktopTurnRetry {
+	turnId: string
+	checkpointId: string
+}
+export interface DesktopRetryStatus {
+	retry?: DesktopTurnRetry
+	notice?: string
+}
 export type DesktopEvent = (
 	| {
 			kind: 'prompt'
@@ -250,6 +258,8 @@ export type DesktopEvent = (
 	  }
 	| { kind: 'permission'; request: PermissionView }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
+	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
+	| { kind: 'retry'; sessionId: string; turnId: string }
 	| {
 			kind: 'state'
 			sessionId: string
@@ -327,6 +337,12 @@ export interface DesktopApi {
 	removeAttachment(ownerId: string, id: string): Promise<void>
 	moveAttachments(fromOwner: string, toSessionId: string): Promise<AttachmentView[]>
 	send(sessionId: string, prompt: string, options?: DesktopSendOptions): Promise<void>
+	retryTurn?(
+		sessionId: string,
+		turnId: string,
+		checkpointId: string,
+		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
+	): Promise<void>
 	draft(sessionId: string): Promise<string>
 	saveDraft(sessionId: string, draft: string): Promise<void>
 	draftSettings(ownerId: string): Promise<DraftSettings>

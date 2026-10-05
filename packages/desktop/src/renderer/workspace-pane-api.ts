@@ -38,6 +38,7 @@ export function createWorkspacePaneApi(
 		takeOverPalComputer,
 		returnPalComputerControl,
 		palComputerInput,
+		retryTurn,
 	} = base
 	const assertLifetime = (admittedGeneration = generation) => {
 		if (invalidated || generation !== admittedGeneration)
@@ -171,6 +172,12 @@ export function createWorkspacePaneApi(
 		...(selectHarness
 			? {
 					selectHarness: (owner, harness) => invoke(() => selectHarness(owner, harness), [owner]),
+				}
+			: {}),
+		...(retryTurn
+			? {
+					retryTurn: (owner, turnId, checkpointId, settings) =>
+						invoke(() => retryTurn(owner, turnId, checkpointId, settings), [owner]),
 				}
 			: {}),
 		...(openChat ? { openChat: () => invoke(() => openChat(), [], { global: true }) } : {}),

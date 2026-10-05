@@ -42,6 +42,10 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private promptAttachments = false
 	private promptOptions = false
+	private turnRetry = false
+	supportsTurnRetry(): boolean {
+		return this.turnRetry
+	}
 	supportsPromptOptions(): boolean {
 		return this.promptOptions
 	}
@@ -146,6 +150,9 @@ export class RuntimeClient extends EventEmitter {
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
+		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
+			result.extensions?.includes(method),
+		)
 		this.pals = [
 			'namzu/pals/list',
 			'namzu/pals/get',

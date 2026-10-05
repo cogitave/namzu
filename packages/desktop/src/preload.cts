@@ -51,6 +51,8 @@ const api: DesktopApi = {
 	removeAttachment: (owner, id) => invoke('removeAttachment', owner, id),
 	moveAttachments: (owner, target) => invoke('moveAttachments', owner, target),
 	send: (id, prompt, options) => invoke('send', id, prompt, options),
+	retryTurn: (id, turnId, checkpointId, options) =>
+		invoke('retryTurn', id, turnId, checkpointId, options),
 	draft: (id) => invoke('draft', id),
 	saveDraft: (id, draft) => invoke('saveDraft', id, draft),
 	draftSettings: (owner) => invoke('draftSettings', owner),

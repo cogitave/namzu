@@ -227,6 +227,7 @@ function register(): void {
 		['removeAttachment', 0],
 		['moveAttachments', 0],
 		['send', 0],
+		['retryTurn', 0],
 		['saveDraft', 0],
 		['saveDraftSettings', 0],
 		['cancel', 0],
@@ -599,6 +600,15 @@ function register(): void {
 	)
 	handle('send', (id: string, prompt: string, options?: DesktopSendOptions) =>
 		operator.send(id, prompt, options),
+	)
+	handle(
+		'retryTurn',
+		(
+			id: string,
+			turnId: string,
+			checkpointId: string,
+			options?: Omit<DesktopSendOptions, 'attachmentIds'>,
+		) => operator.retryTurn(id, turnId, checkpointId, options),
 	)
 	handle('draft', (id: string) => operator.draft(id))
 	handle('saveDraft', (id: string, draft: string) => operator.saveDraft(id, draft))

@@ -1,5 +1,11 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
-import type { ChatMessage, DesktopEvent, PermissionView, QueuedMessageView } from './protocol.js'
+import type {
+	ChatMessage,
+	DesktopEvent,
+	DesktopTurnRetry,
+	PermissionView,
+	QueuedMessageView,
+} from './protocol.js'
 
 export type TimelineEntry =
 	| { kind: 'message'; index: number; turn: number }
@@ -32,6 +38,8 @@ export interface ThreadState {
 	queued: string[]
 	queuedItems: QueuedMessageView[]
 	error?: string
+	retry?: DesktopTurnRetry
+	retryNotice?: string
 	tools: Record<string, Extract<AcpSessionUpdate, { kind: 'tool_call' }>>
 	activeToolIds: string[]
 	permissions: PermissionView[]
@@ -79,6 +87,8 @@ export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): T
 		stopReason: undefined,
 		reason: undefined,
 		result: undefined,
+		retry: undefined,
+		retryNotice: undefined,
 	}
 }
 /** Explicit waiting and real tools take precedence over model streaming. */
@@ -270,6 +280,39 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			stopReason: undefined,
 			reason: undefined,
 			result: undefined,
+			retry: undefined,
+			retryNotice: undefined,
+			activeToolIds: [],
+			activeReasoningId: undefined,
+			responding: false,
+		}
+	}
+	if (event.kind === 'retry-status')
+		return { ...thread, retry: event.retry, retryNotice: event.notice }
+	if (event.kind === 'retry') {
+		const turn =
+			Object.entries(thread.turns).find(([, state]) => state.turnId === event.turnId)?.[0] ??
+			thread.turn
+		return {
+			...thread,
+			turn: Number(turn),
+			turns: {
+				...thread.turns,
+				[turn]: {
+					...thread.turns[Number(turn)],
+					turnId: event.turnId,
+					endedAt: undefined,
+					stopReason: undefined,
+					reason: undefined,
+					result: undefined,
+				},
+			},
+			error: undefined,
+			stopReason: undefined,
+			reason: undefined,
+			result: undefined,
+			retry: undefined,
+			retryNotice: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,

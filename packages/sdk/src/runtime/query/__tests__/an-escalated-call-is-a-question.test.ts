@@ -607,6 +607,16 @@ async function unknownProgramThroughQuery(input: {
 }
 
 describe('a command whose own program name is decided at runtime', () => {
+	it('runs a literal bracket predicate loop under auto without asking its attached review UI', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { text, audit } = await unknownProgramThroughQuery({
+			command: 'for d in /workspace/noop; do [ -n "$d" ] && printf "BRACKET_RAN\\n"; done',
+			resumeHandler: createReviewHandler({ mode: 'auto', prompt }),
+		})
+		expect(text).toContain('BRACKET_RAN')
+		expect(prompt).not.toHaveBeenCalled()
+		expect(audit.some((entry) => entry.action === 'unknown_program')).toBe(false)
+	})
 	it('is never approved by auto mode with nobody to ask: the batch is refused', async () => {
 		const { text, audit } = await unknownProgramThroughQuery({
 			command: '$(echo echo) HOST_RAN',
