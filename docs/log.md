@@ -2,6 +2,8 @@
 
 ## 2026-10-05
 
+- **Update** [MCP input schemas](sdk/mcp-toolset.md#input-schemas): preserve explicitly declared dictionary keys through model schema, local review and MCP dispatch by validating schema-valued `additionalProperties`. Keep ordinary omitted/false objects closed, bound recursive value conversion without opening empty closed objects, and retain server trust and result provenance. Verify real query delivery of application event data and typed-value rejection. `.changeset/mcp-schema-valued-additional-properties.md`, **patch** for `@namzu/sdk`.
+
 - **Update** [Owned guest stdio](sdk/local-pal-computer.md#owned-guest-stdio-services) and the [worker protocol](sdk/container-sandbox-worker.md): keep quiet application MCP responses alive with bounded transport-only heartbeat frames. Skip socket backpressure, clear the timer on settlement and response close, and discard only the exact heartbeat shape before application output without changing control or uncertain-effect barriers. Verify host parsing and worker timing through deterministic clocks and real protocol events. `.changeset/owned-guest-stdio-transports.md`, **minor** for `@namzu/sdk` and `@namzu/sandbox`.
 
 - **Update** [Shell command classification](sdk/command-lines.md#what-it-reads): recognize the source-exact bare `[` POSIX test program instead of escalating an ordinary Pal copy-loop batch as an unknown runtime program. Preserve real globbed/dynamic program review, explicit rules and the dangerous-command floor; verify automatic mode with an attached review UI and adversarial program variants. `.changeset/literal-shell-test-command.md`, **patch** for `@namzu/sdk`.

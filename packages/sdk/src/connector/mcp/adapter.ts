@@ -81,7 +81,7 @@ function objectToZod(rawSchema: Record<string, unknown>, depth: number): z.ZodTy
 
 	const properties = schema.properties as Record<string, unknown> | undefined
 	if (!properties || Object.keys(properties).length === 0) {
-		return closeOrOpen(z.object({}), schema)
+		return closeOrOpen(z.object({}), schema, depth)
 	}
 	if (depth >= MAX_CONVERSION_DEPTH) return z.record(z.unknown())
 
@@ -93,7 +93,7 @@ function objectToZod(rawSchema: Record<string, unknown>, depth: number): z.ZodTy
 		shape[key] = required.has(key) ? field : field.optional()
 	}
 
-	return closeOrOpen(z.object(shape), schema)
+	return closeOrOpen(z.object(shape), schema, depth)
 }
 
 /**
@@ -105,9 +105,21 @@ function objectToZod(rawSchema: Record<string, unknown>, depth: number): z.ZodTy
  * silently drops undeclared keys rather than rejecting them, so the
  * contract shown to the model tightens without turning a server's
  * incomplete schema into a hard validation failure.
+ * A schema-valued additionalProperties explicitly declares a dictionary:
+ * preserve those keys and validate each value through the same converter.
  */
-function closeOrOpen(obj: z.ZodObject<z.ZodRawShape>, schema: Record<string, unknown>): z.ZodType {
-	return schema.additionalProperties === true ? obj.passthrough() : obj
+function closeOrOpen(
+	obj: z.ZodObject<z.ZodRawShape>,
+	schema: Record<string, unknown>,
+	depth: number,
+): z.ZodType {
+	const additional = schema.additionalProperties
+	if (additional === true) return obj.passthrough()
+	if (additional !== null && typeof additional === 'object' && !Array.isArray(additional))
+		return obj.catchall(
+			depth >= MAX_CONVERSION_DEPTH ? z.unknown() : jsonSchemaPropertyToZod(additional, depth + 1),
+		)
+	return obj
 }
 
 function jsonSchemaPropertyToZod(prop: unknown, depth = 0): z.ZodType {

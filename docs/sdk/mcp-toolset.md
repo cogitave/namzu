@@ -66,6 +66,24 @@ These two tools are always wrapped `deferred(...)`, regardless of `options.avail
 
 Whether the server supports resources AT ALL is re-checked on every reconnect, not decided once at construction: a server that gains the capability on a later connection (a restart with a newer build, say) gets the two tools added to the next `tools()` snapshot, and one that loses it has them removed.
 
+## Input schemas
+
+The adapter converts a server's JSON Schema into the local validator and the
+schema shown to the model. Objects with omitted or `false`
+`additionalProperties` keep Namzu's closed behavior: undeclared keys are
+stripped. Explicit `true` retains arbitrary keys. A schema-valued
+`additionalProperties` explicitly declares dictionary values; those keys are
+retained and each value is validated against that schema, including local
+references, nested objects and constraints. The empty schema `{}` permits any
+dictionary value, as used for application event data. It does not open sibling
+arguments outside that dictionary or change the owning server's trust policy.
+
+Dictionary conversion shares the adapter's depth ceiling: at the boundary only
+explicitly declared dictionary values fall back to unknown values. Empty closed
+objects retain their closed behavior. Remote results still carry their
+untrusted source envelope, and normal review, ownership and execution guards
+apply before dispatch.
+
 ## Tool call progress
 
 An MCP tool call requests per-call `notifications/progress` only while its
