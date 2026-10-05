@@ -54,7 +54,7 @@ describe('failed planning tasks', () => {
 			label: 'Fail task',
 		})
 		expect(presenter.presentResult('task_list', {}, result)).toMatchObject({
-			label: 'Tasks · 0/2 done · 1 failed',
+			label: 'Current-turn task view · 0/2 done · 1 failed',
 		})
 		const nextTurn = buildTaskTools(store, {
 			sessionId,

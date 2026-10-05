@@ -24,10 +24,9 @@ function setup() {
 	const store = new InMemoryTaskStore()
 	const tools = buildTaskTools(store, { sessionId: SESSION, turnId: TURN })
 	const byName = new Map(tools.map((tool) => [tool.name, tool]))
-	const registry = { get: (name: string) => byName.get(name) } as unknown as Pick<
-		ToolManager,
-		'get'
-	>
+	const registry = {
+		get: (name: string) => byName.get(name),
+	} as unknown as Pick<ToolManager, 'get'>
 	const tool = (name: string) => byName.get(name) as ToolDefinition
 	return { presenter: createToolPresenter(registry), tool, store }
 }
@@ -53,7 +52,9 @@ describe('task tool presentation', () => {
 
 	it('says what an update does, never the id or the JSON it was given', async () => {
 		const { presenter, tool } = setup()
-		const created = await run(tool('task_create'), { subject: 'Write the parser' })
+		const created = await run(tool('task_create'), {
+			subject: 'Write the parser',
+		})
 		const id = (created.data as { id: string }).id
 		for (const [status, verb] of [
 			['in_progress', 'Start task'],
@@ -63,7 +64,11 @@ describe('task tool presentation', () => {
 			[undefined, 'Update task'],
 		] as const) {
 			const call = presenter.presentCall('task_update', { id, status })
-			expect(call).toEqual({ kind: 'generic', presentation: 'activity', label: verb })
+			expect(call).toEqual({
+				kind: 'generic',
+				presentation: 'activity',
+				label: verb,
+			})
 			expect(JSON.stringify(call)).not.toContain(id)
 		}
 		const done = await run(tool('task_update'), { id, status: 'completed' })
@@ -90,14 +95,14 @@ describe('task tool presentation', () => {
 		const empty = await run(tool('task_list'), {})
 		expect(presenter.presentResult('task_list', {}, empty)).toEqual({
 			kind: 'generic',
-			label: 'No tasks yet',
+			label: 'No open or current-turn tasks',
 		})
 		await run(tool('task_create'), { subject: 'One' })
 		const one = await run(tool('task_list'), {})
-		expect(one.output).toBe('1 task: 0 completed, 0 in progress, 1 pending.')
+		expect(one.output).toBe('Current-turn view: 1 task: 0 completed, 0 in progress, 1 pending.')
 		expect(presenter.presentResult('task_list', {}, one)).toEqual({
 			kind: 'generic',
-			label: 'Tasks · 0/1 done',
+			label: 'Current-turn task view · 0/1 done',
 		})
 		expect(presenter.presentCall('task_list', {})).toEqual({
 			kind: 'generic',
@@ -106,13 +111,15 @@ describe('task tool presentation', () => {
 		})
 		await run(tool('task_create'), { subject: 'Two' })
 		expect((await run(tool('task_list'), {})).output).toBe(
-			'2 tasks: 0 completed, 0 in progress, 2 pending.',
+			'Current-turn view: 2 tasks: 0 completed, 0 in progress, 2 pending.',
 		)
 	})
 
 	it('keeps a long subject to one bounded line', () => {
 		const { presenter } = setup()
-		const call = presenter.presentCall('task_create', { subject: `${'uzun '.repeat(60)}\nson` })
+		const call = presenter.presentCall('task_create', {
+			subject: `${'uzun '.repeat(60)}\nson`,
+		})
 		const label = (call as { label: string }).label
 		expect(label).not.toContain('\n')
 		expect(label.length).toBeLessThanOrEqual('Add task · '.length + 100)

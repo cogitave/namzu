@@ -79,6 +79,17 @@ tasks remain in storage but do not crowd the next turn's planning context.
 A resumed turn retains its original start time. CLI context uses this same
 selector and terminal-status helper as `task_list`.
 
+`task_list` returns that current-turn view, not the complete stored history.
+Its `data.tasks` and `data.stats` count only visible rows. The model-facing
+output names this scope and reports the number of earlier terminal records
+retained but omitted. An empty filtered view says there are no open or
+current-turn tasks; an empty store read says no tasks were found for the
+session. Neither means earlier records were deleted. The human tool presenter
+also qualifies its counts as a current-turn view, without displaying hidden
+task IDs or history. Hosts needing the full durable list read their authorized
+store, as the desktop snapshot does; they should not change task statuses just
+to make historical completions appear in `task_list`.
+
 ## Delegated execution and reported outcomes
 
 `agent_task_list` reports delegated invocations; `task_list` reports planning

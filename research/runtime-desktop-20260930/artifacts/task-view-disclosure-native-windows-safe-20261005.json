@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "passed": true,
+  "actualNativeWindows": true,
+  "pid": 72496,
+  "inspectedAt": "2026-10-05T17:47:12.563Z",
+  "sdkModules": [
+    {
+      "module": "tools/task/list.js",
+      "sha256": "c6ab83f54dfe587ef9fcce0ad039f4799a299e71dfc6e0e074a426cc172428c0",
+      "builtAndDeployedBytesEqual": true
+    },
+    {
+      "module": "tools/task/present.js",
+      "sha256": "a90f1e0dc0045ce5ee576387d18d25074d38d771852a09b1701fc8dfd2f14ef4",
+      "builtAndDeployedBytesEqual": true
+    }
+  ],
+  "completeRuntimeGraphVerified": {
+    "passed": true,
+    "platform": "win32",
+    "node": "v22.20.0",
+    "packages": 130,
+    "copiedWorkspacePackages": 13,
+    "links": 225,
+    "singleSdkRoot": true,
+    "zenRegistration": true,
+    "registryTypes": [
+      "mock",
+      "zen"
+    ],
+    "runtimeAssets": [
+      "assets/pal-blender-mcp.py",
+      "assets/pal-godot-mcp.cjs",
+      "assets/pal-godot-mcp-pin.json"
+    ],
+    "networkCalls": 0,
+    "profilesOrSessionsTouched": false
+  },
+  "preserved": {
+    "originalWindowLayout": true,
+    "allPalProfiles": true,
+    "originalConversationMessageCount": true,
+    "originalDraftAndSettings": true,
+    "selectedFreeProviderAndModel": true
+  },
+  "currentState": {
+    "originalConversationOnly": true,
+    "runningTurn": false,
+    "pendingPermissions": 0,
+    "queuedMessages": 0,
+    "activeTools": 0,
+    "runningOrRecoveryJobs": 0,
+    "selectedProvider": "zen",
+    "selectedModel": "space-bunny-free",
+    "palComputer": "ready",
+    "control": "pal",
+    "visibleAlerts": 0,
+    "currentInstanceErrorRecords": 0
+  },
+  "historicalDiagnosticsPreserved": true,
+  "verificationMadeNoModelRequest": true,
+  "limitations": [
+    "The native application loads the verified SDK build; the revised task-list wording is checked by deterministic SDK regressions, without another provider turn.",
+    "Earlier native task create/update/delete and reopen proof remains in task-tracking-desktop-native-windows-safe-20261005.json.",
+    "This is the local development application, not a published npm install."
+  ]
+}

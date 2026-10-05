@@ -44,7 +44,12 @@ pending tasks, with stable creation-time/ID ordering within each class.
 Dependencies whose records are missing or still open count as unresolved.
 At most eight rows include a task ID, status, clipped subject and
 description, and unresolved dependency count. An omitted count makes the
-partial view explicit. Use `task_list` for the full plan.
+partial view explicit. Use `task_list` for all rows in the current-turn
+planning view. That view also omits tasks closed in earlier turns; its counts
+are not totals for the durable session history. The tool reports how many
+earlier terminal records remain stored but are omitted. Desktop Activity reads
+the authorized durable list, so its total can be larger without any task being
+lost or deleted.
 
 The added block is at most 2,400 UTF-16 code units, further limited to the
 integer remaining-token estimate treated conservatively as a character

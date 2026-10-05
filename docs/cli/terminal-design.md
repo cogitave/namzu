@@ -369,6 +369,12 @@ it, and the next task call opens a new one. No task id, owner or JSON appears
 on any surface: the model still receives the ids in its tool results, which the
 screen does not show.
 
+The `Tasks · …` header is the CLI transcript group's checklist progress.
+The SDK's generic presentation of an individual `task_list` result instead
+qualifies its scope as `Current-turn task view · …`. The model-facing result
+also reports how many earlier terminal records remain stored outside that
+view; see [Task context](task-context.md).
+
 One renderer draws every checklist, the transcript block and `/tasks` alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject

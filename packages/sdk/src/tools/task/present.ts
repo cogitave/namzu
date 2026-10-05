@@ -111,7 +111,7 @@ export function presentTaskListResult(_input: unknown, result: ToolResult): Tool
 		kind: 'generic',
 		label:
 			total === 0
-				? 'No tasks yet'
-				: `Tasks · ${completed}/${total} done${failed ? ` · ${failed} failed` : ''}`,
+				? 'No open or current-turn tasks'
+				: `Current-turn task view · ${completed}/${total} done${failed ? ` · ${failed} failed` : ''}`,
 	}
 }

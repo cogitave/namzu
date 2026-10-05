@@ -13,7 +13,7 @@ export function buildTaskListTool(
 	return defineTool({
 		name: 'task_list',
 		description:
-			'List planning items for this session: every open one, and those closed during the current turn. Not delegated agent invocations. Use agent_task_list, when available, to inspect agent execution. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
+			'List planning items for this session: every open one, and those closed during the current turn. Earlier completed or failed items remain stored but are omitted; returned tasks and stats count only this current-turn view, not the full stored history. Not delegated agent invocations. Use agent_task_list, when available, to inspect agent execution. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
 		inputSchema: z.object({}),
 		category: 'custom',
 		permissions: [],
@@ -51,13 +51,20 @@ export function buildTaskListTool(
 				completed: tasks.filter((t) => t.status === 'completed').length,
 				failed: tasks.filter((t) => t.status === 'failed').length,
 			}
+			const omitted = all.length - tasks.length
+			const history = omitted
+				? ` ${countTasks(omitted)} closed in earlier turns ${omitted === 1 ? 'remains' : 'remain'} stored and ${omitted === 1 ? 'is' : 'are'} omitted from this view.`
+				: ''
+			const output =
+				all.length === 0
+					? 'No planning tasks found for this session. This list does not report delegated agent status; use agent_task_list when available.'
+					: tasks.length === 0
+						? `No open or current-turn planning tasks.${history}`
+						: `Current-turn view: ${countTasks(stats.total)}: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending${stats.failed ? `, ${stats.failed} failed` : ''}.${history}`
 
 			return {
 				success: true,
-				output:
-					tasks.length === 0
-						? 'No planning tasks yet. This list does not report delegated agent status; use agent_task_list when available.'
-						: `${countTasks(stats.total)}: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending${stats.failed ? `, ${stats.failed} failed` : ''}.`,
+				output,
 				data: { tasks: summary, stats },
 			}
 		},

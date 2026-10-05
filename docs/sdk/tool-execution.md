@@ -178,12 +178,16 @@ A generic result view may set `outcome: 'cancelled'` when the person declined on
 The planning tools `task_create`, `task_update` and `task_list` present
 themselves in words (`packages/sdk/src/tools/task/present.ts`): an activity
 label such as `Add task · <subject>`, `Start task`, `Complete task` or `Check
-tasks`, a hidden result view on success, and for `task_list` a `Tasks · N/M
-done` label. No view carries a task id, an owner or the JSON arguments; the
+tasks`, a hidden result view on success, and for `task_list` a `Current-turn
+task view · N/M done` label or `No open or current-turn tasks`. No view carries
+a task id, an owner or the JSON arguments; the
 model-facing `output` still names the id it needs for `task_update`, and a
 failure reads `No task has that id` rather than echoing it. The `data` of
 `task_create` and `task_update` now also carries the task's `subject`. The
-list output uses a correct plural (`1 task: …`).
+list output uses a correct plural (`Current-turn view: 1 task: …`) and names
+earlier completed or failed tasks retained in storage but omitted from the
+view. Its counts describe open work plus tasks created or closed in this turn,
+not all durable session history.
 
 A task removed with `task_update` status `deleted` reaches the stream as
 `task_updated` with `deleted: true` (and the SSE `task.updated` event as
