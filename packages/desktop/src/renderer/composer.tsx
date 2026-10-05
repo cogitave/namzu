@@ -161,7 +161,12 @@ export function Composer({
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
 	const importDisabled =
-		sending || attachmentsBusy || editingQueued || !connected || !attachmentsSupported
+		sending ||
+		attachmentsBusy ||
+		editingQueued ||
+		draftDisabled ||
+		!connected ||
+		!attachmentsSupported
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -364,7 +369,7 @@ export function Composer({
 														variant="ghost-muted"
 														size="xs"
 														aria-label={`Edit queued message ${index + 1}`}
-														disabled={draft.length > 0 || editingQueued}
+														disabled={draftDisabled || draft.length > 0 || editingQueued}
 														title={draft.length > 0 ? 'Send or clear your draft first' : undefined}
 														onClick={() => onEditQueued(item.id)}
 													>
@@ -374,6 +379,7 @@ export function Composer({
 														variant="ghost-muted"
 														size="xs"
 														aria-label={`Remove queued message ${index + 1}`}
+														disabled={draftDisabled}
 														onClick={() => onRemoveQueued(item.id)}
 													>
 														Remove
@@ -396,7 +402,7 @@ export function Composer({
 							<Button
 								variant="ghost-muted"
 								size="xs"
-								disabled={draft.length > 0 || editingQueued}
+								disabled={draftDisabled || draft.length > 0 || editingQueued}
 								title={draft.length > 0 ? 'Send or clear your draft first' : undefined}
 								onClick={() => onEditQueued()}
 							>
@@ -555,6 +561,7 @@ export function Composer({
 															type="button"
 															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
 															aria-label="Stop turn"
+															disabled={draftDisabled}
 															onClick={onStop}
 														/>
 													}

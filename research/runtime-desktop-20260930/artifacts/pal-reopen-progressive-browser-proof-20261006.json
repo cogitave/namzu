@@ -1,0 +1,502 @@
+{
+  "passed": true,
+  "browserPreview": true,
+  "fixture": "Pal and conversation IDs were created through Vite preview API; history and metadata responses were intercepted in-page.",
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "cold open renders fresh authoritative Pal history while the provider read is explicitly deferred",
+    "provider, draft, draftSettings, and attachments reads all start before provider resolution",
+    "composer, send, model selection, and pending approval actions remain unavailable while metadata is held",
+    "navigating to a normal conversation before provider release does not overwrite the selected route",
+    "closing and reopening after success hydrates; switching to a warm Pal tab makes no history or metadata calls",
+    "after a confirmed closed-Pal reopen, openPal is skipped and saved transcript remains visible with Updating conversation while deferred authoritative history, queue, composer, and approval gates are pending",
+    "new authoritative history replaces the saved transcript and enters metadata admission after release",
+    "a deferred closed-history failure keeps the prior saved transcript in Saved messages state and blocks the composer; Retry setup fetches newer history plus all four metadata reads before admission",
+    "after a fresh preview reload, provider metadata rejection keeps authoritative history visible and leaves composer/model/approval actions blocked",
+    "Retry setup performs a fresh authoritative history read for the same selected Pal, restores the composer, and retains approval fixture data without invoking provider selection, approval, or send"
+  ],
+  "firstSession": "sample-thread-7",
+  "secondSession": "sample-thread-7",
+  "metadataMethods": [
+    "providers",
+    "draft",
+    "draftSettings",
+    "attachments"
+  ],
+  "firstSessionEvents": [
+    {
+      "index": 4,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 5,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 6,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 7,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 8,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 9,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 10,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 11,
+      "method": "providers:held",
+      "sessionId": "sample-thread-7",
+      "outcome": "hold-success"
+    },
+    {
+      "index": 12,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 13,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 14,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 15,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 16,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 17,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 18,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 19,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 20,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 21,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 22,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 23,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 24,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 25,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 26,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-7"
+    }
+  ],
+  "refreshedEvents": [
+    {
+      "index": 4,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 5,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 6,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 7,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 8,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 9,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 10,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 11,
+      "method": "providers:held",
+      "sessionId": "sample-thread-7",
+      "outcome": "hold-success"
+    },
+    {
+      "index": 12,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 13,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 14,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 15,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 16,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 17,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 18,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 19,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 20,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 21,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 22,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 23,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 24,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 25,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 26,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 27,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 3
+    },
+    {
+      "index": 28,
+      "method": "openConversation:held",
+      "sessionId": "sample-thread-7",
+      "ordinal": 3,
+      "outcome": "resolve"
+    },
+    {
+      "index": 29,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 3
+    },
+    {
+      "index": 30,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 31,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 32,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 33,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 34,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 35,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 36,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 37,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 38,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 39,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-7"
+    }
+  ],
+  "closedPalRefresh": {
+    "sessionId": "sample-thread-7",
+    "openPalCallsBefore": 0,
+    "openPalCallsWhileHeld": 0,
+    "savedMarker": "AUTHORITATIVE_HISTORY_sample-thread-7_2",
+    "refreshedMarker": "AUTHORITATIVE_HISTORY_sample-thread-7_3",
+    "queueActionsBlocked": true,
+    "composerBlockedWhileRefreshing": true,
+    "approvalBlockedWhileRefreshing": true
+  },
+  "savedHistoryRetry": {
+    "sessionId": "sample-thread-7",
+    "failedHistoryOrdinal": 4,
+    "retryHistoryOrdinal": 5,
+    "retainedMarkerAfterFailure": "AUTHORITATIVE_HISTORY_sample-thread-7_3",
+    "recoveredMarker": "AUTHORITATIVE_HISTORY_sample-thread-7_5",
+    "metadataCompletedBeforeAdmission": true,
+    "openPalCallsUnchanged": true
+  },
+  "secondSessionEvents": [
+    {
+      "index": 4,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 5,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 1
+    },
+    {
+      "index": 6,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 7,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 8,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 9,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 10,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 11,
+      "method": "providers:held",
+      "sessionId": "sample-thread-7",
+      "outcome": "hold-error"
+    },
+    {
+      "index": 12,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 13,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 14,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 15,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 16,
+      "method": "openConversation:start",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 17,
+      "method": "openConversation:resolved",
+      "sessionId": "sample-thread-7",
+      "ordinal": 2
+    },
+    {
+      "index": 18,
+      "method": "draft:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 19,
+      "method": "providers:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 20,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 21,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 22,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 23,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 24,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 25,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 26,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-7"
+    },
+    {
+      "index": 27,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-7"
+    }
+  ],
+  "retryRecovery": {
+    "sessionId": "sample-thread-7",
+    "historyOrdinal": 2,
+    "transcriptMarker": "AUTHORITATIVE_HISTORY_sample-thread-7_2",
+    "composerEnabled": true,
+    "approvalFixtureRetained": true,
+    "actionCalls": []
+  },
+  "warmTabCallCounts": {
+    "before": 23,
+    "after": 23
+  },
+  "fixtureLimits": "Sample Vite API only; no model or provider execution. The error case reloads the preview, whose in-memory fixture resets and reuses sample-thread-7; it does not model durable Pal persistence. The provider response is a deferred synthetic API value, not a live connection.",
+  "faults": []
+}

@@ -23,6 +23,41 @@ export class PalCatalogueActivity {
 	current(palId: string): boolean {
 		return this.ticket(palId) === (this.confirmed.get(palId) ?? 0)
 	}
+
+	/** Targeting a removed tab requires an actual catalogue read, not initial freshness. */
+	confirmedCurrent(palId: string): boolean {
+		return this.confirmed.get(palId) === this.ticket(palId)
+	}
+}
+
+/** Resolves a navigation target; canonical opening still establishes pane ownership. */
+export function latestPalConversation(
+	palId: string,
+	projects: readonly ProjectView[],
+	conversations: readonly ConversationView[],
+): ConversationView | undefined {
+	const matching = projects.filter(
+		(item) => item.palId === palId && item.trusted && item.status === 'ready',
+	)
+	if (matching.length !== 1) return
+	const project = matching[0]
+	if (!project) return
+	return conversations
+		.filter((item) => item.palId === palId && item.projectId === project.id)
+		.sort(compareConversationRecency)[0]
+}
+
+/** Successful project reads replace their catalogue; unread projects retain their rows. */
+export function mergeConversationCatalogues(
+	current: readonly ConversationView[],
+	refreshedRows: readonly ConversationView[],
+	refreshedProjectIds: readonly string[],
+): ConversationView[] {
+	const refreshed = new Set(refreshedProjectIds)
+	return [
+		...refreshedRows.filter((row) => refreshed.has(row.projectId)),
+		...current.filter((row) => !refreshed.has(row.projectId)),
+	]
 }
 
 /** Sidebar revisits use the same admitted, pane-owned route as its open tab. */
@@ -33,15 +68,7 @@ export function warmPalConversation(
 	tabs: readonly string[],
 	isAdmitted: (view: ConversationView) => boolean,
 ): ConversationView | undefined {
-	const matching = projects.filter(
-		(item) => item.palId === palId && item.trusted && item.status === 'ready',
-	)
-	if (matching.length !== 1) return
-	const project = matching[0]
-	if (!project) return
-	const latest = conversations
-		.filter((item) => item.palId === palId && item.projectId === project.id)
-		.sort(compareConversationRecency)[0]
+	const latest = latestPalConversation(palId, projects, conversations)
 	// Do not substitute an older open tab for the latest conversation, adopt a
 	// different pane's session, or revive a retired connection/choice admission.
 	return latest && tabs.includes(latest.id) && isAdmitted(latest) ? latest : undefined

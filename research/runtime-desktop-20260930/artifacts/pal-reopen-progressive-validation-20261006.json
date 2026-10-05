@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-06",
+  "scope": "Immediate labeled saved-history display, confirmed Pal targeting, authoritative refresh, concurrent metadata admission and attachment read sharing",
+  "checks": [
+    { "command": "pnpm typecheck", "exitCode": 0 },
+    { "command": "pnpm lint", "exitCode": 0, "existingWarnings": true },
+    { "command": "pnpm test", "exitCode": 0, "desktopTestsPassed": 620, "sdkTestsPassed": 10126, "cliTestsPassed": 5157 },
+    { "command": "pnpm -r build", "exitCode": 0, "stage": "initial authoritative history and metadata presentation", "existingBundleWarnings": true },
+    { "command": "pnpm --filter @namzu/desktop build", "exitCode": 0, "stage": "final saved-history and confirmed-target implementation", "existingBundleWarnings": true },
+    { "command": "pnpm --filter @namzu/desktop test", "exitCode": 0, "desktopTestsPassed": 620 },
+    { "command": "pnpm docs:check", "exitCode": 0 },
+    { "command": "node tools/check-doc-fences.mjs", "exitCode": 0, "stage": "initial implementation; subsequent documentation changes are prose only" },
+    { "command": "git diff --check", "exitCode": 0 },
+    { "command": "node research/runtime-desktop-20260930/pal-reopen-progressive-browser-proof-20261006.mjs", "exitCode": 0, "checksPassed": 10, "pageFaults": 0 },
+    { "command": "node --check research/runtime-desktop-20260930/pal-reopen-progressive-browser-proof-20261006.mjs", "exitCode": 0 },
+    { "command": "node --check research/runtime-desktop-20260930/windows-pal-reopen-renderer-proof-20261006.cjs", "exitCode": 0 }
+  ],
+  "nativeWindows": {
+    "receipt": "pal-reopen-saved-native-safe-20261006.json",
+    "passed": true,
+    "savedMessagesObservedMs": 93.4,
+    "authoritativeHistoryObservedMs": 2572.2,
+    "composerReadyObservedMs": 3074.7,
+    "rendererDeployed": true,
+    "electronRestarted": false,
+    "cliRestarted": false,
+    "computerGenerationAndControlPreserved": true
+  },
+  "liveModelRequests": 0,
+  "pushPerformed": false,
+  "limits": "This records the checks executed for this private desktop change. It does not claim every publishing gate or a native timing guarantee. Native state preservation and observations have their own receipt."
+}

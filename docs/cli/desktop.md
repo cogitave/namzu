@@ -697,17 +697,52 @@ the exact session, provider and model choice; choosing another model cannot
 reuse a different model's capabilities. Reusing display state does not bypass
 the current ownership checks.
 
+An authoritative history read selects and displays the conversation before its
+provider catalogue, saved draft, message settings and files finish loading.
+Those independent metadata reads run together after main admits the session.
+Reopening a previously loaded conversation in the same renderer can first show
+its saved messages immediately after canonical opening. An “Updating
+conversation…” status identifies this read-only display while main's history
+read is pending. It is not a current snapshot or permission to send: messages
+received while the tab was closed replace the saved display when main returns,
+and buffered live events merge by revision. A history failure leaves saved
+messages labeled as such and offers Retry setup. Connection changes retire the
+saved display's provenance. Incoming transfers and cold renderer restarts have
+no such local history and read main first.
+The composer, approvals, queued-message edits and retry controls remain disabled
+until the complete load succeeds; a metadata failure leaves the history visible
+and offers Retry setup. A removed tab still refreshes main's live projection,
+so the saved display cannot become admitted history in place of the current
+snapshot. Initial attachment reads share an in-flight refresh for
+the same owner and mutation revision rather than superseding its admission.
+The [deferred restoration browser proof](../../research/runtime-desktop-20260930/artifacts/pal-reopen-progressive-browser-proof-20261006.json)
+holds history and provider responses to verify saved and current history,
+blocked actions, independent reads, error recovery, obsolete navigation
+rejection and call-free warm tabs.
+Its in-memory preview fixtures do not establish durable native history.
+The [native Windows close/reopen proof](../../research/runtime-desktop-20260930/artifacts/pal-reopen-saved-native-safe-20261006.json)
+separately observes saved-message display, authoritative refresh and composer
+readiness in the existing app. It verifies the refresh label and blocked
+pending controls while preserving tabs, histories, drafts, model selections,
+preferences and the running Pal computer's generation and operator control.
+Recorded durations are observations of that run, not a latency guarantee.
+
 The Pal sidebar uses this same activation path when its latest known conversation
 is already an admitted tab in the current pane. It does not fetch the Pal record
-and conversation catalogue again for each revisit. A newer unloaded conversation,
-an ambiguous or unavailable project, a removed/moved tab, a pending model change
-or a replaced runtime connection uses the full opening path. This is navigation
-reuse; it grants no new message, computer or tool authority.
+and conversation catalogue again for each revisit. After an actual unchanged
+catalogue confirmation it can also target that latest conversation after its
+tab closes, while retaining canonical ownership checks and full history and
+metadata hydration. This target shortcut grants no cache admission. An
+unconfirmed catalogue, an ambiguous or unavailable project, or a replaced
+runtime connection refreshes the Pal and catalogue first. Removed/moved tabs
+and pending model changes still require fresh session admission. This is
+navigation reuse; it grants no new message, computer or tool authority.
 Authored prompts, streamed conversation updates and retries retire that Pal's
 catalogue freshness without changing the displayed recency merely on selection.
 Its next sidebar open refreshes the authoritative list once. Activity arriving
 during that read cannot certify the returned list as current; other Pals' warm
-routes remain unaffected.
+routes remain unaffected. Pal edits and connection changes also retire catalogue
+confirmation.
 
 The [native Windows activation receipt](../../research/runtime-desktop-20260930/artifacts/workspace-tabs-layout-latency-native-safe-20261005.json)
 verified that the same canonical tabs survived cold start and retained their

@@ -65,7 +65,12 @@ import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
-import { PalCatalogueActivity, warmPalConversation } from './pal-navigation.js'
+import {
+	PalCatalogueActivity,
+	latestPalConversation,
+	mergeConversationCatalogues,
+	warmPalConversation,
+} from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -330,6 +335,14 @@ export function App({
 		})
 	}, [projectId, sessionId])
 	const [threads, setThreads] = useState<Record<string, ThreadState>>({})
+	// Display provenance is separate from write admission. A closed tab may show
+	// its last loaded history while main refreshes it; it cannot reuse metadata.
+	const loadedHistory = useRef(new Map<string, { projectId: string; connection: number }>())
+	const [historyDisplay, setHistoryDisplay] = useState<{
+		sessionId: string
+		saved: boolean
+		refreshing: boolean
+	} | null>(null)
 	const threadsRef = useRef(threads)
 	threadsRef.current = threads
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -378,17 +391,24 @@ export function App({
 		if (!api) return
 		const generation = ++commandRead.current
 		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
+		const activities = readable.map((item) =>
+			item.palId ? palCatalogueActivity.current.ticket(item.palId) : undefined,
+		)
 		setCommandListing({ loading: true, notice: '' })
 		void Promise.allSettled(readable.map((item) => api.conversations(item.id))).then((results) => {
 			if (generation !== commandRead.current) return
-			setConversations((previous) => {
-				const catalogue = new Map(previous.map((view) => [view.id, view]))
-				for (const result of results) {
-					if (result.status !== 'fulfilled') continue
-					for (const view of result.value) catalogue.set(view.id, view)
-				}
-				return [...catalogue.values()]
-			})
+			for (const [index, result] of results.entries()) {
+				const palId = readable[index]?.palId
+				const activity = activities[index]
+				if (!palId || activity === undefined) continue
+				if (result.status === 'fulfilled') palCatalogueActivity.current.confirm(palId, activity)
+				else palCatalogueActivity.current.changed(palId)
+			}
+			const rows = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+			const refreshed = readable
+				.filter((_item, index) => results[index]?.status === 'fulfilled')
+				.map((item) => item.id)
+			setConversations((previous) => mergeConversationCatalogues(previous, rows, refreshed))
 			const partial =
 				readable.length < projects.length || results.some((result) => result.status === 'rejected')
 			setCommandListing({
@@ -847,6 +867,9 @@ export function App({
 			if (event.kind === 'workspace') return
 			if (event.kind === 'connection') {
 				warmSessions.current.invalidateProject(event.project.id)
+				if (event.project.palId) palCatalogueActivity.current.changed(event.project.palId)
+				for (const [id, owner] of loadedHistory.current)
+					if (owner.projectId === event.project.id) loadedHistory.current.delete(id)
 				if (
 					providerReadOwner.current === JSON.stringify([event.project.id, activeSession.current])
 				) {
@@ -1328,6 +1351,10 @@ export function App({
 				openingHistory.current = generation
 				const remembered = warmSessions.current.read(view.id, view.projectId)
 				const ticket = warmSessions.current.ticket(view.id, view.projectId)
+				const previousHistory = loadedHistory.current.get(view.id)
+				const retained =
+					previousHistory?.projectId === view.projectId &&
+					previousHistory.connection === ticket.connection
 				const read = {
 					generation,
 					sessionId: view.id,
@@ -1336,61 +1363,10 @@ export function App({
 					overflow: false,
 				}
 				snapshotRead.current = remembered ? null : read
-				try {
-					let status = remembered?.providers
-					if (!remembered) {
-						const history = await api.openConversation(view.projectId, view.id)
-						if (generation !== navigation.current) return
-						if (read.overflow)
-							throw new Error(
-								'This conversation changed while opening. Open it again for its latest history.',
-							)
-						const replay = [...read.events]
-						if (snapshotRead.current === read) snapshotRead.current = null
-						setThreads((all) => {
-							let restored: ThreadState = {
-								...emptyThread(),
-								...history.thread,
-								messages: history.messages,
-								partial: history.partial,
-							}
-							if (!history.thread) restored = restoreMessages(restored, history.messages)
-							for (const event of replay) restored = applyEvent(restored, event)
-							return (all[view.id]?.revision ?? 0) > restored.revision
-								? all
-								: { ...all, [view.id]: restored }
-						})
-						const [available, savedDraft] = await Promise.all([
-							api.providers(view.projectId, view.id),
-							api.draft(view.id),
-						])
-						status = available
-						if (restoring || draftsRef.current[view.id] === undefined) {
-							draftsRef.current[view.id] = savedDraft
-							setDrafts((all) => ({ ...all, [view.id]: savedDraft }))
-						}
-						if (generation !== navigation.current) return
-						await Promise.all([savedSettings.refresh(view.id), attached.reload(view.id)])
-						if (generation !== navigation.current) return
-						if (
-							!warmSessions.current.remember(ticket, {
-								providers: available,
-								modelSettings: new Map(),
-							})
-						)
-							throw new Error(
-								'This conversation’s connection or pane changed while opening. Try again.',
-							)
-					}
-					if (!status) return
-					hydratedSession.current = view.id
-					setError(
-						harnessChoiceFailure.current?.sessionId === view.id
-							? harnessChoiceFailure.current.message
-							: '',
-					)
-					setProviders(status)
-					setProviderOwner(JSON.stringify([view.projectId, view.id]))
+				let shown = false
+				const showConversation = () => {
+					if (shown) return
+					shown = true
 					setSessionId(view.id)
 					setConversationSelection({ sessionId: view.id, collection })
 					setProjectId(view.projectId)
@@ -1398,7 +1374,7 @@ export function App({
 					setPalsPage(false)
 					setSideOpen(false)
 					const presentation =
-						restoring || remembered
+						restoring || remembered || retained
 							? readWorkspacePresentation(localStorage, view.id, view.palId)
 							: null
 					if (presentation) {
@@ -1422,9 +1398,88 @@ export function App({
 						setJobsOpen(false)
 						follow.current = true
 					}
+				}
+				try {
+					let status = remembered?.providers
+					if (!remembered) {
+						// Retained messages are a saved display, never admission. Main's
+						// current history and all metadata must still succeed before actions.
+						setRestoringTabs(true)
+						hydratedSession.current = null
+						setProviderOwner('')
+						if (retained) {
+							setHistoryDisplay({ sessionId: view.id, saved: true, refreshing: true })
+							showConversation()
+						}
+						const history = await api.openConversation(view.projectId, view.id)
+						if (generation !== navigation.current) return
+						if (read.overflow)
+							throw new Error(
+								'This conversation changed while opening. Open it again for its latest history.',
+							)
+						const replay = [...read.events]
+						if (snapshotRead.current === read) snapshotRead.current = null
+						setThreads((all) => {
+							let restored: ThreadState = {
+								...emptyThread(),
+								...history.thread,
+								messages: history.messages,
+								partial: history.partial,
+							}
+							if (!history.thread) restored = restoreMessages(restored, history.messages)
+							for (const event of replay) restored = applyEvent(restored, event)
+							return (all[view.id]?.revision ?? 0) > restored.revision
+								? all
+								: { ...all, [view.id]: restored }
+						})
+						loadedHistory.current.set(view.id, {
+							projectId: view.projectId,
+							connection: ticket.connection,
+						})
+						setHistoryDisplay({ sessionId: view.id, saved: false, refreshing: false })
+						showConversation()
+						const [available, savedDraft] = await Promise.all([
+							api.providers(view.projectId, view.id),
+							api.draft(view.id),
+							savedSettings.refresh(view.id),
+							attached.reload(view.id),
+						])
+						if (generation !== navigation.current) return
+						status = available
+						if (restoring || draftsRef.current[view.id] === undefined) {
+							draftsRef.current[view.id] = savedDraft
+							setDrafts((all) => ({ ...all, [view.id]: savedDraft }))
+						}
+						if (
+							!warmSessions.current.remember(ticket, {
+								providers: available,
+								modelSettings: new Map(),
+							})
+						)
+							throw new Error(
+								'This conversation’s connection or pane changed while opening. Try again.',
+							)
+					}
+					if (!status) return
+					hydratedSession.current = view.id
+					setError(
+						harnessChoiceFailure.current?.sessionId === view.id
+							? harnessChoiceFailure.current.message
+							: '',
+					)
+					setProviders(status)
+					setProviderOwner(JSON.stringify([view.projectId, view.id]))
+					if (remembered) showConversation()
+					setTabsRestored(true)
+					setRestoringTabs(false)
 					if (context.current.focused && !context.current.frozen) input.current?.focus()
 				} catch (failure) {
-					if (generation === navigation.current) throw failure
+					if (generation === navigation.current) {
+						setHistoryDisplay((current) =>
+							current?.sessionId === view.id ? { ...current, refreshing: false } : current,
+						)
+						throw failure
+					}
 				} finally {
 					if (snapshotRead.current === read) snapshotRead.current = null
 					if (openingHistory.current === generation) openingHistory.current = null
@@ -1466,14 +1521,24 @@ export function App({
 		let current = true
 		void tabRestoreAttempt
 		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
+		const activities = readable.map((item) =>
+			item.palId ? palCatalogueActivity.current.ticket(item.palId) : undefined,
+		)
 		void Promise.allSettled(readable.map((item) => api.conversations(item.id))).then((results) => {
 			if (!current) return
+			for (const [index, result] of results.entries()) {
+				const palId = readable[index]?.palId
+				const activity = activities[index]
+				if (!palId || activity === undefined) continue
+				if (result.status === 'fulfilled') palCatalogueActivity.current.confirm(palId, activity)
+				else palCatalogueActivity.current.changed(palId)
+			}
 			catalogueOwner.current = { projects, tabsKey: catalogueTabsKey }
 			const rows = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
-			setConversations((all) => [
-				...rows,
-				...all.filter((item) => !rows.some((row) => row.id === item.id)),
-			])
+			const refreshed = readable
+				.filter((_item, index) => results[index]?.status === 'fulfilled')
+				.map((item) => item.id)
+			setConversations((all) => mergeConversationCatalogues(all, rows, refreshed))
 			setCatalogueReady(true)
 		})
 		return () => {
@@ -1530,14 +1595,20 @@ export function App({
 			return
 		}
 		setRestoringTabs(true)
-		void openConversation(view, 'projects', true)
+		const opening = openConversation(view, 'projects', true)
+		const generation = navigation.current
+		const current = () =>
+			generation === navigation.current &&
+			activation.current === target &&
+			context.current.group.activeTabId === target
+		void opening
 			.then(() => {
-				if (activation.current !== target) return
+				if (!current()) return
 				setTabsRestored(true)
 				setRestoringTabs(false)
 			})
 			.catch((failure) => {
-				if (activation.current !== target) return
+				if (!current()) return
 				setError(errorText(failure))
 				onLoadFailure(target, failure)
 			})
@@ -1655,10 +1726,20 @@ export function App({
 			setLoading(false)
 			return openConversation(remembered)
 		}
+		// Knowing the latest target does not admit a closed tab. Canonical opening
+		// and a fresh history/metadata read still run, without rediscovering the Pal.
+		const target = palCatalogueActivity.current.confirmedCurrent(value.id)
+			? latestPalConversation(value.id, projects, conversations)
+			: undefined
+		if (target) {
+			setLoading(false)
+			return openConversation(target)
+		}
 		abandonTabRestore()
 		const generation = ++navigation.current
 		setPalScreen(undefined)
 		setLoading(true)
+		let loadingGeneration = generation
 		try {
 			const activity = palCatalogueActivity.current.ticket(value.id)
 			const opened = await api.openPal(value.id)
@@ -1685,9 +1766,11 @@ export function App({
 				setThreads((all) => ({ ...all, [created.id]: emptyThread() }))
 				if (generation !== navigation.current) return
 			}
-			await openConversation(latest)
+			const opening = openConversation(latest)
+			loadingGeneration = navigation.current
+			await opening
 		} finally {
-			setLoading(false)
+			if (loadingGeneration === navigation.current) setLoading(false)
 		}
 	}
 	const savePal = async (value: PalInput, id?: string) => {
@@ -1700,6 +1783,7 @@ export function App({
 			const saved = id
 				? await api.updatePal(id, editing?.revision ?? 0, value)
 				: await api.createPal(value)
+			palCatalogueActivity.current.changed(saved.id)
 			upsertPal(saved)
 			setEditingPal(undefined)
 			setCreatingPal(false)
@@ -2294,7 +2378,7 @@ export function App({
 	const editQueued = useCallback(
 		async (itemId?: string) => {
 			const target = sessionId
-			if (!target || editingQueue.current.has(target)) return
+			if (loading || restoringTabs || !target || editingQueue.current.has(target)) return
 			if ((draftsRef.current[target] ?? '').length > 0)
 				throw new Error('Send or clear your current draft before editing a queued message.')
 			editingQueue.current.add(target)
@@ -2322,7 +2406,16 @@ export function App({
 				if (activeSession.current === target) input.current?.focus()
 			}
 		},
-		[sessionId, attached.reload, savedSettings.get, savedSettings.save, api, pal],
+		[
+			sessionId,
+			loading,
+			restoringTabs,
+			attached.reload,
+			savedSettings.get,
+			savedSettings.save,
+			api,
+			pal,
+		],
 	)
 	const send = async () => {
 		if (context.current.frozen) return
@@ -2340,6 +2433,7 @@ export function App({
 			project.status !== 'ready' ||
 			!choice.provider ||
 			!providerReady ||
+			!attached.loaded ||
 			savedSettings.loading ||
 			harnessBusy ||
 			sendingRef.current.has(draftOwner) ||
@@ -2439,7 +2533,7 @@ export function App({
 				if (sideOpen || detailsOpen) {
 					setSideOpen(false)
 					if (detailsOpen) closeDetails()
-				} else if (thread.running && railSection !== 'plugins')
+				} else if (thread.running && !loading && !restoringTabs && railSection !== 'plugins')
 					void act(() => api.cancel(sessionId))
 				return
 			}
@@ -2473,6 +2567,7 @@ export function App({
 		detailsOpen,
 		sessionId,
 		thread.running,
+		restoringTabs,
 		act,
 		newConversation,
 		openProject,
@@ -3115,8 +3210,18 @@ export function App({
 							</header>
 						)}
 						<div className="conversation-lane">
+							{historyDisplay?.sessionId === sessionId && historyDisplay.saved && (
+								<output className="notice conversation-refresh">
+									{historyDisplay.refreshing ? 'Updating conversation…' : 'Saved messages'}
+								</output>
+							)}
 							<div
 								className="transcript"
+								data-history-state={
+									historyDisplay?.sessionId === sessionId && historyDisplay.saved
+										? 'saved'
+										: 'authoritative'
+								}
 								role={pal ? 'region' : undefined}
 								aria-label={pal ? `${pal.name} conversation` : undefined}
 								tabIndex={pal ? 0 : undefined}
@@ -3190,7 +3295,13 @@ export function App({
 									<TurnRecovery
 										retry={thread.retry}
 										notice={thread.retryNotice}
-										disabled={thread.running || loading || frozen || project.status !== 'ready'}
+										disabled={
+											thread.running ||
+											loading ||
+											restoringTabs ||
+											frozen ||
+											project.status !== 'ready'
+										}
 										onRetry={
 											api.retryTurn && thread.retry
 												? () => {
@@ -3241,6 +3352,7 @@ export function App({
 								modelSelectionReady={
 									project.status === 'ready' &&
 									providerReady &&
+									attached.loaded &&
 									project.trusted &&
 									!savedSettings.loading &&
 									!harnessBusy &&
@@ -3254,6 +3366,7 @@ export function App({
 									thread.reason !== 'paused' &&
 									palCanChat &&
 									providerReady &&
+									attached.loaded &&
 									project.trusted &&
 									!savedSettings.loading &&
 									!harnessBusy &&

@@ -13,7 +13,7 @@ export function useAttachments(
 	const [all, setAll] = useState<Record<string, AttachmentView[]>>({})
 	const values = useRef<Record<string, AttachmentView[]>>({})
 	const revisions = useRef<Record<string, number>>({})
-	const reads = useRef<Record<string, number>>({})
+	const reads = useRef(new Map<string, { revision: number; promise: Promise<void> }>())
 	const pending = useRef(new Set<string>())
 	const [busy, setBusy] = useState<Record<string, boolean>>({})
 	const put = useCallback((target: string, files: AttachmentView[]) => {
@@ -21,42 +21,43 @@ export function useAttachments(
 		setAll((current) => ({ ...current, [target]: files }))
 	}, [])
 	const reload = useCallback(
-		async (target: string) => {
+		(target: string): Promise<void> => {
 			const revision = revisions.current[target] ?? 0
-			const read = (reads.current[target] ?? 0) + 1
-			reads.current[target] = read
-			const files = await api.attachments(target)
-			if (read === reads.current[target] && revision === (revisions.current[target] ?? 0))
-				put(target, files)
+			const current = reads.current.get(target)
+			if (current?.revision === revision) return current.promise
+			const read: { revision: number; promise: Promise<void> } = {
+				revision,
+				promise: Promise.resolve()
+					.then(() => api.attachments(target))
+					.then((files) => {
+						if (reads.current.get(target) !== read || revision !== (revisions.current[target] ?? 0))
+							throw new Error('This conversation’s attachments changed while loading. Try again.')
+						put(target, files)
+					})
+					.finally(() => {
+						if (reads.current.get(target) === read) reads.current.delete(target)
+					}),
+			}
+			reads.current.set(target, read)
+			return read.promise
 		},
 		[put, api],
 	)
 	useEffect(() => {
 		if (!connected || !owner) return
-		if (values.current[owner] !== undefined) return
 		let active = true
 		const revision = revisions.current[owner] ?? 0
-		const read = (reads.current[owner] ?? 0) + 1
-		reads.current[owner] = read
-		void api
-			.attachments(owner)
-			.then((files) => {
-				if (
-					active &&
-					read === reads.current[owner] &&
-					revision === (revisions.current[owner] ?? 0)
-				) {
-					values.current[owner] = files
-					setAll((current) => ({ ...current, [owner]: files }))
-				}
-			})
-			.catch((error: unknown) => {
-				if (active && read === reads.current[owner]) report.current(error)
+		// Progressive conversation opening starts its explicit reload before this
+		// owner's effect. Share that read so awaiting it confirms admitted files.
+		if (values.current[owner] === undefined || reads.current.has(owner))
+			void reload(owner).catch((error: unknown) => {
+				if (active && revision === (revisions.current[owner] ?? 0)) report.current(error)
 			})
 		return () => {
 			active = false
+			reads.current.delete(owner)
 		}
-	}, [owner, connected, api])
+	}, [owner, connected, reload])
 	const change = async (target: string, operation: () => Promise<AttachmentView[]>) => {
 		if (pending.current.has(target)) return
 		pending.current.add(target)

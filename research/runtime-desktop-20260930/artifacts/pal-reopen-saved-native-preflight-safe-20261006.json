@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "rendererOnly": true,
+  "preflightOnly": true,
+  "verifyCurrent": false,
+  "savedHistoryProof": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "The independent original pre-update receipt still matches all application state and visible scroll/disclosure; only normal persistence of its already visible target scroll is allowed.",
+    "All open conversations are idle; drafts match visible editors; no active/recovery job, queue, permission, dialog, alert or computer control transition is present.",
+    "Focused Sıtkı conversation is its latest and the last tab in its unchanged owning group."
+  ],
+  "observations": {
+    "presentationScrollRefresh": {
+      "storedBefore": 0,
+      "visibleBefore": 1008,
+      "storedAfter": 1008
+    }
+  },
+  "preservation": {},
+  "build": {
+    "sourceManifestSha256": "aa21fd95ae7be87e5411902bb2ffe9f894200c8cd5ebbf13eb9c16ddb344ec6f",
+    "sourceAssetRefs": [
+      "assets/index-CL6xL2rA.css",
+      "assets/index-DvB4BVBt.js"
+    ]
+  },
+  "rendererDeploymentPreviouslyRecorded": false,
+  "idleOpenTabs": 2,
+  "deployed": false,
+  "failurePolicy": "No deployment occurred before idle preflight passed."
+}

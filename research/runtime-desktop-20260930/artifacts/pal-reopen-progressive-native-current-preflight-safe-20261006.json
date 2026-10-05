@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "rendererOnly": true,
+  "preflightOnly": true,
+  "verifyCurrent": false,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "All open conversations are idle; drafts match visible editors; no active/recovery job, queue, permission, dialog, alert or computer control transition is present.",
+    "Focused Sıtkı conversation is its latest and the last tab in its unchanged owning group."
+  ],
+  "observations": {},
+  "preservation": {},
+  "build": {
+    "sourceManifestSha256": "ef2dc4589cc331fa964d40a96060a34f13fd466c28b689576718293600afff2b",
+    "sourceAssetRefs": [
+      "assets/index-Cs6h24WI.css",
+      "assets/index-kwRojDAc.js"
+    ]
+  },
+  "idleOpenTabs": 2,
+  "deployed": false,
+  "failurePolicy": "No deployment occurred before idle preflight passed."
+}

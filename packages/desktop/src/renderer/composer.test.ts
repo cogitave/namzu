@@ -237,6 +237,31 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 })
 
+it('keeps restored work readable without admitting queue or turn mutations during hydration', () => {
+	const work = {
+		variant: 'pal' as const,
+		connected: true,
+		draft: '',
+		running: true,
+		queued: ['Retained queued request'],
+		queuedItems: [{ id: 'queued', prompt: 'Retained queued request' }],
+		attachments: [
+			{ id: 'file', name: 'notes.txt', kind: 'text' as const, size: 20, mediaType: 'text/plain' },
+		],
+	}
+	const pending = render({ ...work, draftDisabled: true })
+	expect(pending).toContain('Retained queued request')
+	for (const label of [
+		'Edit queued message 1',
+		'Remove queued message 1',
+		'Stop turn',
+		'Remove notes.txt',
+	]) {
+		expect(button(pending, label)).toMatch(/\bdisabled=/)
+		expect(button(render(work), label)).not.toMatch(/\bdisabled=/)
+	}
+})
+
 it('keeps real context above the normal editor and permissions beside Plus below it', () => {
 	const html = render({
 		connected: true,

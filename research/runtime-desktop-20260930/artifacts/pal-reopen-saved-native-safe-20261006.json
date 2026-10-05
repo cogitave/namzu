@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "passed": true,
+  "nativeWindows": true,
+  "rendererOnly": true,
+  "preflightOnly": false,
+  "verifyCurrent": false,
+  "savedHistoryProof": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "guestExecutions": 0,
+  "checks": [
+    "The independent original pre-update receipt still matches all application state and visible scroll/disclosure; only normal persistence of its already visible target scroll is allowed.",
+    "All open conversations are idle; drafts match visible editors; no active/recovery job, queue, permission, dialog, alert or computer control transition is present.",
+    "Focused Sıtkı conversation is its latest and the last tab in its unchanged owning group.",
+    "Complete renderer-only update retains the Electron process, canonical tabs/layout/focus, exact histories/drafts/settings/files/model selections, Pal profiles and computer generations/control.",
+    "Actual close/sidebar-reopen rendered the latest main-authoritative user message in the exact owning pane/target tab/Pal log and enabled the same pane composer.",
+    "Final state matches the original canonical layout/order/focus, all observed histories, drafts/settings/files/models, Pal profiles and computer state; original visible presentation/scroll restored; normal persistence may refresh the target’s stale stored scroll to that unchanged viewport."
+  ],
+  "observations": {
+    "presentationScrollRefresh": {
+      "storedBefore": 0,
+      "visibleBefore": 1008,
+      "storedAfter": 1008
+    },
+    "phases": [
+      {
+        "name": "targetTabActive",
+        "elapsedMs": 93.2
+      },
+      {
+        "name": "palTranscriptVisible",
+        "elapsedMs": 93.2
+      },
+      {
+        "name": "savedUserMessageVisible",
+        "elapsedMs": 93.4
+      },
+      {
+        "name": "latestAuthoritativeUserMessageVisible",
+        "elapsedMs": 2572.2
+      },
+      {
+        "name": "composerReady",
+        "elapsedMs": 3074.7
+      }
+    ],
+    "messageToComposerGapMs": 502.5,
+    "savedToAuthoritativeGapMs": 2478.8,
+    "timingInterpretation": "One actual native close/sidebar-reopen observation. No speed threshold or before/after improvement claim is asserted."
+  },
+  "preservation": {
+    "rendererReloadState": true,
+    "canonicalLayoutAndTabOrder": true,
+    "focusedGroupAndConversation": true,
+    "exactHistories": true,
+    "draftsSettingsFilesAndModelSelections": true,
+    "palProfiles": true,
+    "computerStatusGenerationAndControl": true,
+    "nonScrollPresentationPreferencesAndVisibleScroll": true,
+    "electronPid": true
+  },
+  "build": {
+    "sourceManifestSha256": "923ac339e29a3d2970882ba0de2e7c794c69a5c25a20d62904d72c0532bbd252",
+    "sourceAssetRefs": [
+      "assets/index-CIjyUG4W.css",
+      "assets/index-LKz6ocY-.js"
+    ]
+  },
+  "rendererDeploymentPreviouslyRecorded": false,
+  "idleOpenTabs": 2,
+  "savedHistoryAdmission": {
+    "updatingStatusObserved": true,
+    "pendingSamples": 5,
+    "pendingControlsBlocked": true
+  },
+  "currentBuildVerified": true,
+  "pageErrorCount": 0,
+  "deployed": true,
+  "failurePolicy": "Prior renderer retained as a timestamped backup. No app/CLI/computer rollback or restart attempted."
+}

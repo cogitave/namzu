@@ -617,6 +617,20 @@ pre {
 .notice {
 	margin: 12px 0;
 }
+.conversation-refresh {
+	position: absolute;
+	top: 8px;
+	left: 50%;
+	z-index: 2;
+	margin: 0;
+	padding: 4px 12px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--background);
+	white-space: nowrap;
+	transform: translateX(-50%);
+	pointer-events: none;
+}
 .eyebrow {
 	color: var(--muted-foreground);
 	font-size: 12px;
