@@ -61,12 +61,13 @@ import { JobRow } from './job-row.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
-import { PalActivity, palToolActivity } from './pal-activity.js'
+import { PalActivity } from './pal-activity.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalCatalogueActivity, warmPalConversation } from './pal-navigation.js'
+import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
@@ -2160,16 +2161,7 @@ export function App({
 							: undefined),
 				},
 				hostComputer: humanComputer,
-				activity: palToolActivity(thread)
-					.reverse()
-					.map(({ id, tool }) => ({
-						id,
-						title: tool.title,
-						status:
-							tool.status === 'pending' && thread.activeToolIds.includes(id)
-								? 'working'
-								: undefined,
-					})),
+				activity: palRecentActivity(thread),
 				outputs: changes
 					? [
 							{
@@ -3151,6 +3143,7 @@ export function App({
 									)}
 									<TasksProgress
 										thread={thread}
+										palName={pal?.name}
 										onOpen={() => {
 											if (pal) {
 												setJobsOpen(false)

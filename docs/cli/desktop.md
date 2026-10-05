@@ -247,7 +247,12 @@ column continuously. The card is 240–300px wide, with its own bounded vertical
 scrolling in short windows. Narrower desktop windows do not move it into a
 full-width band above the conversation. A small settings icon beside the Pal's
 name opens its communication settings. Planning tasks appear inside this same
-card, between Computers and Recent activity. The Tasks summary above the
+card, between Computers and Recent activity, as **Progress** milestones with
+reported state icons and a completed-step count. A finished plan starts folded;
+its step titles remain available through the keyboard-accessible disclosure.
+Open or failed steps start visible. Dependency labels resolve task subjects;
+failed prerequisites remain visible as needing attention but do not invent an
+unresolved wait after the runtime treats them as terminal. The Progress summary above the
 composer reveals and focuses that list, closing any open Activity/Changes pane
 instead of adding another column. Ordinary conversations retain their Activity
 task list. Pal conversations hide the transcript scrollbar and its reserved
@@ -278,8 +283,8 @@ transcript scrollbar with wheel/PageDown access to the last message. A renderer
 reload preserves the current window, tabs, messages, profiles, model selections,
 drafts and computer generations/control. The final view retains the requested
 Pal card and closes Activity; other conversations' presentation stays unchanged.
-The [current native card](../../research/runtime-desktop-20260930/artifacts/pal-card-tasks-native-20261006.png)
-shows its task list beside the conversation. The
+The [earlier native card](../../research/runtime-desktop-20260930/artifacts/pal-card-tasks-native-20261006.png)
+records the task list before the Progress milestone presentation. The
 [loaded native settings dialog](../../research/runtime-desktop-20260930/artifacts/pal-settings-dialog-native-20261006.png)
 shows Sıtkı's existing outgoing message and wake grants for Kiro without changing
 either grant.
@@ -813,6 +818,36 @@ Subjects, reported statuses and dependency subjects are shown without raw IDs.
 Planning state is agent-maintained: a completed item does not independently
 verify an artifact. Failed items remain distinct from completed items. The
 project-context entry for background terminal jobs is labelled Shells.
+
+Pal cards summarize the reported plan as **Progress**, counting only completed
+steps rather than estimating an execution percentage. Finished plans start
+folded; active, pending and failed rows start disclosed, with state icons and
+dependency subjects. A failed dependency is terminal rather than an unresolved
+wait, and its failed outcome stays visible. The ordinary Activity task list
+retains its existing presentation.
+
+**Recent activity** uses plain intent labels and actual execution states.
+For example, `send_pal_message` appears as **Message to another Pal · Sent to
+inbox**, and `list_pals` as **Available Pals · Checked**. Inbox acceptance does
+not claim the recipient read or answered. Unknown tool names use a neutral
+action label; arguments, commands, paths and receipt bodies are not mined for
+card titles. Successful planning bookkeeping stays in the plan and technical
+activity history, while failed planning actions remain visible on the card.
+Selecting an activity opens the retained technical receipts for inspection.
+
+The [progress preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-browser-proof-20261006.json)
+checks completed disclosure, active/failed/dependent steps, unavailable reads,
+safe action labels, exact disclosed receipts, error colors and narrow/short
+layouts with synthetic fixtures. The
+[native Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-native-safe-20261006.json)
+records the actual renderer deployment and a follow-up inspection without
+another reload or model turn. Messages, models, drafts, tasks and computer
+generations/control retain their observed state. The initial deployment check
+rejected encoded presentation-preference string equality after verifying the
+UI; the follow-up verifies parsed preferences against the deployed baseline.
+The [native folded card](../../research/runtime-desktop-20260930/artifacts/pal-progress-completed-collapsed-native-20261006.png)
+and [disclosed steps](../../research/runtime-desktop-20260930/artifacts/pal-progress-completed-disclosed-native-20261006.png)
+show the actual Sıtkı plan and accepted-message summary.
 
 The [native Windows task receipt](../../research/runtime-desktop-20260930/artifacts/task-tracking-desktop-native-windows-safe-20261005.json)
 records two actual Pal composer sends using the existing free model, guest file

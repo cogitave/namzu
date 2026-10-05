@@ -120,8 +120,11 @@ Only task ID, subject, status, dependency IDs and optional owner are projected;
 descriptions, metadata, tenant IDs and filesystem paths are not copied.
 
 Desktop retains live updates during a snapshot read and rejects a stale snapshot
-from a replaced connection or session. Task rows show reported planning state
-in Activity. The separate background-shell entry is labelled Shells.
+from a replaced connection or session. Ordinary conversation task rows show
+reported planning state in Activity; Pal conversations show Progress milestones
+in their existing context card, with finished steps folded by default. Counts
+describe reported plan steps, not measured execution percentages or verified
+outputs. The separate background-shell entry is labelled Shells.
 Live notifications cover the current query. Later disk-only changes are read
 when Activity opens, at turn settlement or on cold reconnect; there is no
 unsolicited idle filesystem notification feed. Completion tracking remains

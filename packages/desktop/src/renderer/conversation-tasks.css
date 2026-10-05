@@ -4,9 +4,13 @@
 	white-space: normal;
 	text-align: left;
 }
+.tasks-progress[data-pal-progress="true"] {
+	flex-wrap: wrap;
+	justify-content: flex-start;
+}
 .tasks-failed,
 .conversation-tasks [data-status="failed"] .task-state {
-	color: var(--destructive);
+	color: var(--error-foreground);
 }
 .conversation-tasks {
 	margin-bottom: 24px;

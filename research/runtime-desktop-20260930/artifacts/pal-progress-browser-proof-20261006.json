@@ -1,0 +1,110 @@
+{
+  "passed": true,
+  "browserPreview": true,
+  "inMemoryTasksAndToolReceipts": true,
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "Pal task region is named for the Pal and headed Progress",
+    "all-completed plan is collapsed by default and keyboard Enter opens the actual subjects",
+    "mixed tasks remain visible with active, blocked and failed states; failed prerequisite is terminal for dependency display",
+    "failed and unavailable task states stay visible",
+    "no percentage progress indicator is rendered",
+    "card activity uses safe known intent labels and status; hides successful planning bookkeeping and all raw tool names/arguments/receipts",
+    "clicking card activity opens the detailed Pal actions receipts unchanged",
+    "layout has no horizontal overflow at 240px, 300px and short height viewports"
+  ],
+  "geometry": [
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "width": 299.75,
+      "height": 784,
+      "scrollWidth": 300,
+      "clientWidth": 300,
+      "scrollHeight": 873,
+      "clientHeight": 784,
+      "documentWidth": 1188,
+      "viewportWidth": 1188
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "width": 240,
+      "height": 784,
+      "scrollWidth": 240,
+      "clientWidth": 240,
+      "scrollHeight": 873,
+      "clientHeight": 784,
+      "documentWidth": 1024,
+      "viewportWidth": 1024
+    },
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 420
+      },
+      "width": 299.75,
+      "height": 304,
+      "scrollWidth": 300,
+      "clientWidth": 300,
+      "scrollHeight": 873,
+      "clientHeight": 304,
+      "documentWidth": 1188,
+      "viewportWidth": 1188
+    }
+  ],
+  "failureColor": {
+    "actual": "rgb(255, 100, 103)",
+    "expected": "rgb(255, 100, 103)"
+  },
+  "composerSummary": {
+    "text": "Progress · 1 of 5 steps done1 needs attention",
+    "outer": {
+      "left": 356,
+      "right": 696.921875,
+      "top": 181,
+      "bottom": 209
+    },
+    "children": [
+      {
+        "left": 364,
+        "right": 380,
+        "top": 187,
+        "bottom": 203
+      },
+      {
+        "left": 384,
+        "right": 554.828125,
+        "top": 185,
+        "bottom": 205
+      },
+      {
+        "left": 560.828125,
+        "right": 668.921875,
+        "top": 185,
+        "bottom": 205
+      },
+      {
+        "left": 672.921875,
+        "right": 688.921875,
+        "top": 187,
+        "bottom": 203
+      }
+    ],
+    "overlaps": [],
+    "escaped": false
+  },
+  "reducedMotion": {
+    "prefersReduced": true,
+    "spinnerAnimation": "none"
+  },
+  "fixtureVsReal": "All tasks and receipts are synthetic preview fixtures; no runtime/provider was used.",
+  "faults": []
+}

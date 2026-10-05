@@ -4,13 +4,17 @@ import { ConversationTasks } from './conversation-tasks.js'
 import {
 	ConversationIcon,
 	FileTextIcon,
+	HistoryIcon,
 	LoaderCircleIcon,
 	MonitorIcon,
 	PencilIcon,
 	SettingsIcon,
+	UserRoundIcon,
+	XIcon,
 } from './icons.js'
 import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
+import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
 import './pal-context.css'
 
@@ -27,7 +31,7 @@ export interface PalContextProps {
 	}
 	/** Supplied only when the native host has reported its actual identity. */
 	hostComputer?: { name: string }
-	activity: readonly { id: string; title: string; status?: string }[]
+	activity: readonly PalRecentAction[]
 	outputs: readonly { id: string; label: string }[]
 	tasks?: Pick<ThreadState, 'tasks' | 'tasksNotice'>
 	onCustomize: () => void
@@ -251,7 +255,7 @@ function PalContextBody({
 			</section>
 			{tasks && (tasks.tasks.length > 0 || tasks.tasksNotice) && (
 				<div className="pal-context-section pal-context-tasks">
-					<ConversationTasks thread={tasks} palName={pal.name} />
+					<ConversationTasks key={pal.id} thread={tasks} palName={pal.name} />
 				</div>
 			)}
 			<section className="pal-context-section" aria-label="Recent activity">
@@ -260,21 +264,42 @@ function PalContextBody({
 					<p className="pal-context-empty">No activity yet</p>
 				) : (
 					<ul className="pal-context-list">
-						{activity.slice(0, 5).map((item) => (
-							<li key={item.id}>
-								<Button
-									variant="ghost"
-									className="pal-context-row"
-									onClick={() => onActivity(item.id)}
-								>
-									<ConversationIcon aria-hidden="true" />
-									<span title={item.title}>{item.title}</span>
-									{item.status === 'working' || item.status === 'running' ? (
-										<LoaderCircleIcon className="pal-context-loading" />
-									) : null}
-								</Button>
-							</li>
-						))}
+						{activity.slice(0, 5).map((item) => {
+							const Icon =
+								item.status === 'working'
+									? LoaderCircleIcon
+									: item.status === 'failed'
+										? XIcon
+										: item.category === 'message'
+											? ConversationIcon
+											: item.category === 'pals'
+												? UserRoundIcon
+												: item.category === 'file'
+													? FileTextIcon
+													: item.category === 'computer'
+														? MonitorIcon
+														: HistoryIcon
+							return (
+								<li key={item.id}>
+									<Button
+										variant="ghost"
+										className="pal-context-row pal-recent-action"
+										data-status={item.status}
+										aria-label={`${item.title}. ${item.detail}. View details`}
+										onClick={() => onActivity(item.id)}
+									>
+										<Icon
+											aria-hidden="true"
+											className={item.status === 'working' ? 'pal-context-loading' : undefined}
+										/>
+										<span className="pal-recent-copy">
+											<span>{item.title}</span>
+											<span className="pal-recent-detail">{item.detail}</span>
+										</span>
+									</Button>
+								</li>
+							)
+						})}
 					</ul>
 				)}
 			</section>

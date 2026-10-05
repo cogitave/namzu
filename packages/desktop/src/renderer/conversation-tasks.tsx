@@ -1,6 +1,7 @@
 import type { ThreadState } from '../shared/projection.js'
-import { CheckIcon, ChevronRightIcon } from './icons.js'
+import { CheckIcon, ChevronRightIcon, ListTodoIcon, LoaderCircleIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import './conversation-tasks.css'
 
 const labels = {
@@ -9,20 +10,148 @@ const labels = {
 	completed: 'Completed',
 	failed: 'Failed',
 }
-export function TasksProgress({ thread, onOpen }: { thread: ThreadState; onOpen: () => void }) {
+export function TasksProgress({
+	thread,
+	onOpen,
+	palName,
+}: { thread: ThreadState; onOpen: () => void; palName?: string }) {
 	if (!thread.tasks.length && !thread.tasksNotice) return null
 	const completed = thread.tasks.filter((task) => task.status === 'completed').length
 	const failed = thread.tasks.filter((task) => task.status === 'failed').length
+	const Icon =
+		!palName || (thread.tasks.length > 0 && completed === thread.tasks.length)
+			? CheckIcon
+			: failed
+				? XIcon
+				: thread.tasks.some((task) => task.status === 'in_progress')
+					? LoaderCircleIcon
+					: ListTodoIcon
 	return (
-		<Button variant="ghost-muted" size="sm" className="tasks-progress" onClick={onOpen}>
-			<CheckIcon aria-hidden="true" />
+		<Button
+			variant="ghost-muted"
+			size={palName ? 'sm-multiline' : 'sm'}
+			className="tasks-progress"
+			data-pal-progress={Boolean(palName)}
+			onClick={onOpen}
+		>
+			<Icon aria-hidden="true" />
 			<span>
-				{thread.tasks.length ? `Tasks · ${completed}/${thread.tasks.length} completed` : 'Tasks'}
+				{palName
+					? thread.tasks.length
+						? `Progress · ${completed} of ${thread.tasks.length} ${thread.tasks.length === 1 ? 'step' : 'steps'} done`
+						: 'Progress'
+					: thread.tasks.length
+						? `Tasks · ${completed}/${thread.tasks.length} completed`
+						: 'Tasks'}
 			</span>
-			{failed > 0 && <span className="tasks-failed">{failed} failed</span>}
+			{failed > 0 && (
+				<span className="tasks-failed">
+					{failed} {palName ? (failed === 1 ? 'needs attention' : 'need attention') : 'failed'}
+				</span>
+			)}
 			{thread.tasksNotice && <span>Unavailable</span>}
 			<ChevronRightIcon aria-hidden="true" />
 		</Button>
+	)
+}
+
+/** Plan milestones are reported states, not measured execution percentages. */
+function PalTaskProgress({
+	thread,
+	name,
+}: { thread: Pick<ThreadState, 'tasks' | 'tasksNotice'>; name: string }) {
+	const completed = thread.tasks.filter((task) => task.status === 'completed').length
+	const failed = thread.tasks.filter((task) => task.status === 'failed').length
+	const allDone = thread.tasks.length > 0 && completed === thread.tasks.length
+	const byId = new Map(thread.tasks.map((task) => [task.taskId, task]))
+	return (
+		<section
+			aria-label={`${name} tasks`}
+			className="conversation-tasks pal-plan-progress"
+			tabIndex={-1}
+		>
+			<h3>Progress</h3>
+			{thread.tasksNotice && <output className="quiet">{thread.tasksNotice}</output>}
+			{thread.tasks.length > 0 && (
+				<Collapsible defaultOpen={!allDone || Boolean(thread.tasksNotice)}>
+					<CollapsibleTrigger className="pal-plan-toggle" aria-label="View plan steps">
+						{allDone ? <CheckIcon aria-hidden="true" /> : <ListTodoIcon aria-hidden="true" />}
+						<span>
+							<span>
+								{completed} of {thread.tasks.length} {thread.tasks.length === 1 ? 'step' : 'steps'}{' '}
+								done
+							</span>
+							{failed > 0 && (
+								<span className="tasks-failed">
+									{failed} {failed === 1 ? 'needs' : 'need'} attention
+								</span>
+							)}
+						</span>
+						<ChevronRightIcon className="pal-plan-chevron" aria-hidden="true" />
+					</CollapsibleTrigger>
+					<CollapsiblePanel>
+						<ul className="pal-plan-steps">
+							{thread.tasks.map((task) => {
+								const dependencies = task.blockedBy.map((id) => byId.get(id))
+								const waiting =
+									task.status === 'pending' &&
+									dependencies.some(
+										(dep) => !dep || dep.status === 'pending' || dep.status === 'in_progress',
+									)
+								const Icon =
+									task.status === 'completed'
+										? CheckIcon
+										: task.status === 'failed'
+											? XIcon
+											: task.status === 'in_progress'
+												? LoaderCircleIcon
+												: undefined
+								const state =
+									task.status === 'completed'
+										? 'Done'
+										: task.status === 'failed'
+											? 'Needs attention'
+											: task.status === 'in_progress'
+												? 'In progress'
+												: waiting
+													? 'Waiting'
+													: 'Not started'
+								const remaining = dependencies.filter((dep) => dep?.status !== 'completed')
+								return (
+									<li key={task.taskId} data-status={task.status}>
+										<span className="pal-step-mark" aria-hidden="true">
+											{Icon && (
+												<Icon
+													className={
+														task.status === 'in_progress' ? 'pal-context-loading' : undefined
+													}
+												/>
+											)}
+										</span>
+										<div className="pal-step-copy">
+											<span>{task.subject}</span>
+											<span className="task-state">{state}</span>
+											{task.status !== 'completed' && remaining.length > 0 && (
+												<p className="quiet">
+													{waiting ? 'Waiting on: ' : 'Earlier step: '}
+													{remaining
+														.map((dep) =>
+															dep
+																? `${dep.subject}${dep.status === 'failed' ? ' (needs attention)' : ''}`
+																: 'Unavailable step',
+														)
+														.join(', ')}
+												</p>
+											)}
+										</div>
+									</li>
+								)
+							})}
+						</ul>
+					</CollapsiblePanel>
+				</Collapsible>
+			)}
+		</section>
 	)
 }
 /** Planning status is authored by the agent; it does not certify an output passed QA. */
@@ -31,19 +160,12 @@ export function ConversationTasks({
 	palName,
 }: { thread: Pick<ThreadState, 'tasks' | 'tasksNotice'>; palName?: string }) {
 	if (!thread.tasks.length && !thread.tasksNotice) return null
+	if (palName) return <PalTaskProgress thread={thread} name={palName} />
 	const byId = new Map(thread.tasks.map((task) => [task.taskId, task]))
 	return (
-		<section
-			aria-label={palName ? `${palName} tasks` : 'Conversation tasks'}
-			className="conversation-tasks"
-			tabIndex={palName ? -1 : undefined}
-		>
+		<section aria-label="Conversation tasks" className="conversation-tasks">
 			<h3>Tasks</h3>
-			<p className="quiet">
-				{palName
-					? `${palName}’s plan for this conversation.`
-					: 'The agent’s plan for this conversation.'}
-			</p>
+			<p className="quiet">The agent’s plan for this conversation.</p>
 			{thread.tasksNotice && <output className="quiet">{thread.tasksNotice}</output>}
 			<ul>
 				{thread.tasks.map((task) => (

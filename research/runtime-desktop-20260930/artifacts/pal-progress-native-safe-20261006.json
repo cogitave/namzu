@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "passed": true,
+  "actualNativeWindows": true,
+  "observedAt": "2026-10-05T21:43:31.421416+00:00",
+  "rendererDeployed": true,
+  "electronRestarted": false,
+  "cliRestarted": false,
+  "modelRequests": 0,
+  "guestExecutions": 0,
+  "computerLifecycleOrControlActions": 0,
+  "build": {
+    "sourceManifestSha256": "bc79d577f33f9e41e7e771a171de8e5a06d83c1ab984265be3fda5a14a120a8e",
+    "sourceAssetRefs": [
+      "assets/index-BPW8kfhp.css",
+      "assets/index-C6rsCUkX.js"
+    ]
+  },
+  "observedConversationCount": 2,
+  "activePal": "Sıtkı",
+  "planSteps": 3,
+  "planStatuses": [
+    "completed"
+  ],
+  "initialDeploymentChecks": [
+    "Idle preflight passed for every open tab: no unsaved editor, permissions, queued work, active/recovery job, dialog, alert, focused computer control or control transition.",
+    "Two friendly activity labels are backed by completed send/list receipts in the observed open Pal conversation projections; scope is limited to those observed conversations.",
+    "Complete built renderer staged with the prior renderer retained as a timestamped backup.",
+    "Renderer-only reload retained workspace, tabs, messages, drafts/settings/attachments/models, plan state and computer generations/control.",
+    "Native card shows Progress, a collapsed all-completed summary, then actual detailed source rows when disclosed; no percentage widget is present.",
+    "Recent activity uses friendly titles/details for the two observed placed conversations and does not display raw tool names."
+  ],
+  "followupChecks": [
+    "Idle preflight passed for every open tab: no unsaved editor, permissions, queued work, active/recovery job, dialog, alert, focused computer control or control transition.",
+    "Two friendly activity labels are backed by completed send/list receipts in the observed open Pal conversation projections; scope is limited to those observed conversations.",
+    "Read-only verification uses the already deployed complete renderer, without another reload.",
+    "Read-only current-renderer inspection retained workspace, tabs, messages, drafts/settings/attachments/models, plan state and computer generations/control.",
+    "Native card shows Progress, a collapsed all-completed summary, then actual detailed source rows when disclosed; no percentage widget is present.",
+    "Recent activity uses friendly titles/details for the two observed placed conversations and does not display raw tool names.",
+    "Original disclosure, card scroll and session presentation restored; Activity remains closed and all other user state is unchanged."
+  ],
+  "nativePidUnchanged": true,
+  "persistentStatePreservedAcrossReloadAndFollowup": true,
+  "followupSemanticPresentationPreserved": true,
+  "pageErrorCountDuringFollowup": 0,
+  "presentationCheck": {
+    "initialEncodedStringComparisonPassed": false,
+    "followupParsedComparisonPassed": true,
+    "followupReloads": 0,
+    "scope": "Follow-up compares parsed presentation preferences against the already-deployed baseline; initial deployment verified persistent user state and the requested UI."
+  },
+  "initialFailure": "The initial proof rejected encoded presentation preference string equality after its UI checks. A follow-up checked parsed preferences without another deployment or reload.",
+  "captures": [
+    "pal-progress-completed-collapsed-native-20261006.png",
+    "pal-progress-completed-disclosed-native-20261006.png"
+  ]
+}

@@ -156,6 +156,97 @@
 	outline: 2px solid var(--ring);
 	outline-offset: 4px;
 }
+.pal-plan-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	font-size: 13px;
+	line-height: 20px;
+	text-align: left;
+}
+.pal-plan-toggle:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 4px;
+}
+.pal-plan-toggle > span {
+	flex: 1;
+	min-width: 0;
+}
+.pal-plan-toggle > span > span {
+	display: block;
+}
+.pal-plan-toggle > svg {
+	width: 15px;
+	height: 15px;
+	flex: none;
+}
+.pal-plan-chevron {
+	color: var(--muted-foreground);
+	transition: transform 150ms var(--motion-ease);
+}
+.pal-plan-toggle[aria-expanded="true"] .pal-plan-chevron {
+	transform: rotate(90deg);
+}
+.pal-plan-progress .pal-plan-steps {
+	margin-top: 8px;
+}
+.pal-plan-steps li {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 8px 0;
+	border: 0;
+}
+.pal-step-mark {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 18px;
+	height: 18px;
+	margin-top: 1px;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	color: var(--muted-foreground);
+}
+.pal-step-mark svg {
+	width: 13px;
+	height: 13px;
+}
+.pal-plan-steps [data-status="completed"] .pal-step-mark {
+	border-color: transparent;
+	color: var(--primary);
+}
+.pal-plan-steps [data-status="in_progress"] .pal-step-mark {
+	border-color: transparent;
+	color: var(--foreground);
+}
+.pal-plan-steps [data-status="failed"] .pal-step-mark {
+	border-color: transparent;
+	color: var(--error-foreground);
+}
+.pal-plan-steps .pal-step-copy {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+}
+.pal-step-copy .task-state,
+.pal-step-copy .quiet {
+	font-size: 12px;
+	line-height: 18px;
+}
+.pal-plan-steps .pal-step-copy p {
+	margin: 2px 0 0;
+}
 .pal-computer-row {
 	display: flex;
 	align-items: center;
@@ -312,6 +403,27 @@
 	flex: none;
 	color: var(--muted-foreground);
 }
+.pal-recent-action {
+	align-items: flex-start;
+	padding-block: 7px;
+}
+.pal-recent-action > svg {
+	margin-top: 2px;
+}
+.pal-recent-copy > span {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.pal-recent-detail {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+}
+.pal-recent-action[data-status="failed"] .pal-recent-detail,
+.pal-recent-action[data-status="failed"] > svg {
+	color: var(--error-foreground);
+}
 .pal-context-loading {
 	animation: pal-context-spin 900ms linear infinite;
 }
@@ -348,7 +460,8 @@
 	.pal-computer-thumbnail,
 	.pal-status-action,
 	.pal-status-rest,
-	.pal-status-hover {
+	.pal-status-hover,
+	.pal-plan-chevron {
 		transition: none;
 	}
 	.pal-computer-open:not(:disabled):hover .pal-computer-thumbnail {
