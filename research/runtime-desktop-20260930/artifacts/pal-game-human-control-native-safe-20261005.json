@@ -1,0 +1,284 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindowsApplication": true,
+  "inputPath": "Actual renderer Take over and keyboard through the live noVNC canvas, with independent readonly X11 focus/keymap observations",
+  "guestGeneration": "1791206245700",
+  "gameplayAuthor": "Actual S\u0131tk\u0131 Pal on zen/space-bunny-free",
+  "rootGameSourceEdited": false,
+  "targetIdleBeforeManualQA": true,
+  "profilePausedPreserved": true,
+  "observations": [
+    {
+      "action": "take_over",
+      "passed": true,
+      "keys": [
+        "p",
+        "r",
+        "Escape",
+        "Enter"
+      ],
+      "requestedHoldMs": null,
+      "releaseInitiatedAfterMs": null,
+      "rendererReleaseConfirmedAfterMs": null,
+      "keymapChecks": [
+        {
+          "step": "takeover-keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false,
+            "p": false,
+            "r": false,
+            "Escape": false,
+            "Return": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        }
+      ]
+    },
+    {
+      "action": "space_start",
+      "passed": true,
+      "keys": [
+        "space"
+      ],
+      "requestedHoldMs": 1000,
+      "releaseInitiatedAfterMs": 1000,
+      "rendererReleaseConfirmedAfterMs": 1014,
+      "keymapChecks": [
+        {
+          "step": "baseline-keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-held",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": true,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        }
+      ]
+    },
+    {
+      "action": "d_move_right",
+      "passed": true,
+      "keys": [
+        "d"
+      ],
+      "requestedHoldMs": 1200,
+      "releaseInitiatedAfterMs": 1208,
+      "rendererReleaseConfirmedAfterMs": 1222,
+      "keymapChecks": [
+        {
+          "step": "baseline-keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-held",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": true,
+            "space": false,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        }
+      ]
+    },
+    {
+      "action": "p_pause",
+      "passed": true,
+      "keys": [
+        "p"
+      ],
+      "requestedHoldMs": 1000,
+      "releaseInitiatedAfterMs": 1008,
+      "rendererReleaseConfirmedAfterMs": 1022,
+      "keymapChecks": [
+        {
+          "step": "baseline-keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false,
+            "p": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-held",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false,
+            "p": true
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        },
+        {
+          "step": "keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false,
+            "p": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        }
+      ]
+    },
+    {
+      "action": "return_control",
+      "passed": true,
+      "keys": [
+        "p",
+        "r",
+        "Escape",
+        "Enter"
+      ],
+      "requestedHoldMs": null,
+      "releaseInitiatedAfterMs": null,
+      "rendererReleaseConfirmedAfterMs": null,
+      "keymapChecks": [
+        {
+          "step": "returned-control-keys-released",
+          "passed": true,
+          "keys": {
+            "w": false,
+            "a": false,
+            "s": false,
+            "d": false,
+            "space": false,
+            "Shift_L": false,
+            "p": false,
+            "r": false,
+            "Escape": false,
+            "Return": false
+          },
+          "focusWindow": "37748739",
+          "focusMatches": true,
+          "mismatches": []
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "action": "space_start",
+      "file": "pal-game-space_start-native-20261005.png",
+      "sha256": "c3c036d79f450da32ef1d08721f1a3e4b8efd4ec278ec02772e39ab087ef8a49",
+      "visuallyReviewedByRoot": true
+    },
+    {
+      "action": "d_move_right",
+      "file": "pal-game-d_move_right-native-20261005.png",
+      "sha256": "c61f201d34acd05e1eb95f35d0200719a1a9cdfb140f0bb19edb3804f8862d2d",
+      "visuallyReviewedByRoot": true
+    },
+    {
+      "action": "p_pause",
+      "file": "pal-game-p_pause-native-20261005.png",
+      "sha256": "9b533410c2c1001ef5eb7733d1937b650373e6c0fc42ece7d093746f3b047d61",
+      "visuallyReviewedByRoot": true
+    }
+  ],
+  "returnedPalAuthority": true,
+  "controlledKeysReleased": true,
+  "scope": "Manual start, right movement and pause; full game victory is recorded separately. Does not certify live weighted walk, exact pickup-restart race, all keyboard keys or atomic MCP admission.",
+  "visualResults": {
+    "spaceOpenedGame": true,
+    "rightMovementVisibleBeforeAfter": true,
+    "pauseOverlayVisible": true,
+    "humanWonFullRun": false,
+    "hostScreencastProvesWalk": false
+  }
+}

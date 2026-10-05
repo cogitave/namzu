@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-05",
+  "actualNativeWindows": true,
+  "guestGeneration": "1791206245700",
+  "standaloneZipSha256": "2e6a37eb00b2cef7fa051b243b8a18ffa9ae730ed3a17d06e0094b33422c8a60",
+  "isolatedFreshClone": true,
+  "actualGodotVersion": "4.7.2.stable.official.ed1daf0bf",
+  "authoredSourceUnchanged": true,
+  "stages": [
+    {
+      "mode": "import",
+      "passed": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "warnings": [],
+      "headlessOnly": true,
+      "inputSent": false,
+      "authoredSourceModified": false
+    },
+    {
+      "mode": "run",
+      "passed": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "warnings": [],
+      "headlessOnly": true,
+      "inputSent": false,
+      "authoredSourceModified": false
+    }
+  ],
+  "passed": true,
+  "scope": "Immutable standalone clone import/title-startup; not visual or input gameplay QA."
+}
