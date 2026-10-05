@@ -53,6 +53,17 @@ installs Docker, builds or pulls that image. The CLI supports
 engine executable. Docker's selected endpoint must be a supported local Unix
 socket or Windows named pipe; remote engines are refused.
 
+Foreground application launchers default to `computer-lifetime`: a successful
+launcher may return while Blender or another application remains owned by the
+Pal's exclusive computer. Rebuild the shipped image from the same Namzu release
+to use this policy; an older worker is refused before a foreground command is
+admitted. Registered background jobs keep strict process ownership. Set
+`NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY=strict` before launching the CLI or desktop
+host to retain the previous foreground command lifetime and use an older strict
+image. The only accepted values are `strict` and `computer-lifetime`; malformed
+values are refused before provider startup. Applications retained by the computer
+stay open during operator takeover and end when the computer stops.
+
 The Pal's file, shell and computer tools execute in its Linux guest. Visible
 Chromium is operated through `computer_use`; the operator's host browser is not
 an implicit fallback. Host provider credentials route model requests and are not

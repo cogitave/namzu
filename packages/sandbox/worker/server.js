@@ -81,6 +81,11 @@ const REMOTE_EXECUTION_PROTOCOL_VERSION = 2
  */
 const WORKER_CONFIG_PREFIX = 'NAMZU_SANDBOX_'
 
+// Only an exclusive, long-lived computer may accept applications that outlive
+// a successful launcher. Each foreground execution must also opt in; registered
+// background jobs and ordinary container workers retain strict process ownership.
+const NORMAL_EXIT_POLICY = process.env.NAMZU_SANDBOX_NORMAL_EXIT_POLICY ?? 'strict'
+
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
 // Bind address picks `0.0.0.0` by default so a sibling container
 // (a host app talking to a sandbox spawned via docker.sock on
@@ -215,6 +220,10 @@ function refuseToStart(reason) {
  *    purpose.
  */
 function assertListenableConfiguration() {
+	if (NORMAL_EXIT_POLICY !== 'strict' && NORMAL_EXIT_POLICY !== 'computer-lifetime')
+		refuseToStart(
+			'NAMZU_SANDBOX_NORMAL_EXIT_POLICY must be strict or computer-lifetime, with no surrounding whitespace.',
+		)
 	// A token that was SET but cannot be used is refused before the bind
 	// address is considered: `""` is the empty injection, a padded value is
 	// one the trimmed header can never match, and a value outside what a
@@ -654,6 +663,7 @@ async function handleReserveExecution(_req, res) {
 		protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
 		executionId,
 		leaseExpiresAt,
+		normalExitPolicy: NORMAL_EXIT_POLICY,
 	})
 }
 
@@ -725,6 +735,16 @@ async function waitForDone(execution, deadlineAt) {
 async function terminateAndConfirm(execution, cause) {
 	if (execution.state === 'terminal') return terminalPayload(execution)
 	if (execution.state === 'exited') {
+		// A Pal launcher has not transferred its descendants until normal close
+		// commits that handoff. Cancellation or timeout before it wins the fence.
+		// Observe the surviving group, but never signal its reusable numeric ID.
+		if (
+			execution.normalExitPolicy === 'computer-lifetime' &&
+			!execution.computerLifetimeHandoff &&
+			execution.terminationCause === undefined &&
+			processGroupAlive(execution.processGroupId)
+		)
+			execution.terminationCause = cause
 		// `exit` proves that the owned leader has gone; `close` may lag while
 		// inherited stdio drains. Do not relabel a naturally completed command,
 		// and do not signal a numeric process-group id after its leader exited.
@@ -772,6 +792,18 @@ function ensureTermination(execution, cause) {
 
 async function confirmExitedProcessGroup(execution) {
 	if (!processGroupAlive(execution.processGroupId)) return
+	if (
+		execution.normalExitPolicy === 'computer-lifetime' &&
+		execution.terminationCause === undefined &&
+		execution.exitCode === 0 &&
+		!execution.exitSignal
+	) {
+		// The foreground command succeeded. Its surviving applications now belong
+		// to this exclusive computer allocation, like applications opened from the
+		// desktop dock. This is not a claim that a cancelled job/tree has stopped.
+		execution.computerLifetimeHandoff = true
+		return
+	}
 	if (execution.terminationCause !== undefined) {
 		const groupGone = await waitForGroupExit(
 			execution.processGroupId,
@@ -860,6 +892,15 @@ async function handleExecute(req, res) {
 
 	if (!body.command || typeof body.command !== 'string') {
 		writeJson(res, 400, { error: 'missing_command' })
+		return
+	}
+	const normalExitPolicy = body.normalExitPolicy === undefined ? 'strict' : body.normalExitPolicy
+	if (normalExitPolicy !== 'strict' && normalExitPolicy !== 'computer-lifetime') {
+		writeJson(res, 400, { error: 'invalid_normal_exit_policy' })
+		return
+	}
+	if (normalExitPolicy === 'computer-lifetime' && NORMAL_EXIT_POLICY !== 'computer-lifetime') {
+		writeJson(res, 400, { error: 'computer_lifetime_not_enabled' })
 		return
 	}
 
@@ -985,6 +1026,8 @@ async function handleExecute(req, res) {
 		done,
 		resolveDone,
 		terminationCause: undefined,
+		normalExitPolicy,
+		computerLifetimeHandoff: false,
 	})
 	// `whileWorkerActive` owns request parsing and preparation. The spawned
 	// command outlives this handler, so take a second activity lease before the

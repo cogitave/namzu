@@ -21,6 +21,8 @@ const OWNER_LABEL = 'org.namzu.pal.owner'
 /** Uses an already installed local engine and an already built guest image. */
 export interface LocalVirtualComputerOptions {
 	readonly image?: string
+	/** Foreground applications normally belong to the computer after a successful launcher. */
+	readonly normalExitPolicy?: 'strict' | 'computer-lifetime'
 	/** Docker remains the default. Podman requires an explicitly selected local Windows WSL machine. */
 	readonly engine?: 'docker' | 'podman'
 	readonly dockerBinary?: string
@@ -96,6 +98,9 @@ export function createLocalVirtualComputerProvider(
 	if (options.engine !== undefined && options.engine !== 'docker' && options.engine !== 'podman')
 		throw new Error('Choose the Docker or Podman local computer engine')
 	const image = options.image ?? LOCAL_COMPUTER_IMAGE
+	const normalExitPolicy = options.normalExitPolicy ?? 'computer-lifetime'
+	if (normalExitPolicy !== 'strict' && normalExitPolicy !== 'computer-lifetime')
+		throw new Error('Choose strict or computer-lifetime foreground execution ownership')
 	if (!/^[a-zA-Z0-9][a-zA-Z0-9_./:@-]*$/.test(image))
 		throw new Error('Invalid local Pal image reference')
 	const width = dimension(options.width, 1280)
@@ -334,6 +339,7 @@ export function createLocalVirtualComputerProvider(
 				request.signal?.throwIfAborted()
 				clients = localComputerClients({
 					...connected,
+					normalExitPolicy,
 					token,
 					geometry: { width, height, scaleFactor: 1 },
 					stop,

@@ -32,6 +32,7 @@ async function workerFixture() {
 			NAMZU_SANDBOX_BIND: '127.0.0.1',
 			NAMZU_SANDBOX_WORKSPACE: root,
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
+			NAMZU_SANDBOX_NORMAL_EXIT_POLICY: 'computer-lifetime',
 			NAMZU_SANDBOX_MAX_TIMEOUT_MS: '2147000000',
 		},
 		stdio: ['ignore', 'pipe', 'pipe'],
@@ -51,6 +52,7 @@ async function workerFixture() {
 		)
 	})
 	let stopped = false
+	let removalConfirmed = false
 	const stop = async () => {
 		if (!stopped) {
 			stopped = true
@@ -68,6 +70,7 @@ async function workerFixture() {
 			} catch {}
 			worker.kill('SIGKILL')
 			await closed
+			removalConfirmed = true
 		}
 	}
 	cleanups.push(async () => {
@@ -82,7 +85,7 @@ async function workerFixture() {
 		stop,
 		detachedWorkerPath: helper,
 	})
-	return { root, clients }
+	return { root, clients, removalConfirmed: () => removalConfirmed }
 }
 
 function observe(process: OwnedDetachedProcess, marker?: string) {
@@ -139,6 +142,50 @@ describe.skipIf(process.platform !== 'linux')('guest background process protocol
 		expect(process.child.exitCode).toBe(0)
 		await clients.sandbox.destroy()
 	}, 15_000)
+	it('keeps registered background wrappers strict in an application-enabled computer', async () => {
+		const fixture = await workerFixture()
+		const { clients, root } = fixture
+		const application = "process.send('READY'); process.disconnect(); setInterval(() => {}, 1000)"
+		const script = [
+			"const fs = require('node:fs')",
+			"const {spawn} = require('node:child_process')",
+			`const application = spawn(process.execPath, ['-e', ${JSON.stringify(application)}], {stdio: ['ignore', 'ignore', 'ignore', 'ipc']})`,
+			'application.once("message", () => {',
+			'  fs.writeFileSync("pids.json", JSON.stringify([application.pid]))',
+			'  process.stdout.write("WRAPPER_READY\\n", () => process.exit(0))',
+			'})',
+		].join('\n')
+		const process = background(clients.sandbox, processExecutable(), ['-e', script], { cwd: root })
+		const confirmations: boolean[] = []
+		process.child.on('message', (message: unknown) => {
+			if (message && typeof message === 'object' && 'type' in message)
+				if (message.type === 'terminal-confirmed') confirmations.push(fixture.removalConfirmed())
+		})
+		const registry = new BackgroundJobRegistry()
+		const job = registry.start({
+			owner: 'private-fixture-pal',
+			command: 'wrapper-with-background-child',
+			workingDirectory: root,
+			spawn: () => process,
+		})
+		await observe(process, 'WRAPPER_READY').ready
+		await process.closed
+		expect(fixture.removalConfirmed()).toBe(true)
+		// Allocation removal comes before its host bridge is killed; the bridge
+		// must never publish a successful natural result for the surviving child.
+		expect(process.child.exitCode).toBeNull()
+		expect(process.child.signalCode).toBe('SIGKILL')
+		expect(confirmations).toEqual([])
+		expect(await registry.waitForExit(job.id)).toMatchObject({
+			status: 'exited',
+			signal: 'SIGKILL',
+		})
+		expect(clients.sandbox.status).toBe('destroyed')
+		const pids = JSON.parse(await readFile(join(root, 'pids.json'), 'utf8')) as number[]
+		expect(await Promise.all(pids.map(running))).toEqual([false])
+		// The real bridge waits through the production 8s unknown-cancellation
+		// confirmation window before retiring its actual fixture allocation.
+	}, 20_000)
 	it('keeps a server between calls and confirms its complete owned tree stops', async () => {
 		const { clients, root } = await workerFixture()
 		const grandchild =

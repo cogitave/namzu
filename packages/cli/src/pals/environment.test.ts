@@ -25,6 +25,7 @@ beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), 'namzu-pal-control-cli-'))
 	mkdirSync(join(root, 'home'))
 	vi.stubEnv('NAMZU_HOME', join(root, 'home'))
+	vi.stubEnv('NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY', undefined)
 	createProvider.mockReset()
 })
 afterEach(async () => {
@@ -89,6 +90,30 @@ function deferred<T>() {
 	})
 	return { promise, resolve }
 }
+
+it.each(['strict', 'computer-lifetime', undefined] as const)(
+	'composes the exact host-owned foreground policy %s',
+	async (policy) => {
+		fixture()
+		vi.stubEnv('NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY', policy)
+		await getCliPalRuntime()
+		expect(createProvider).toHaveBeenCalledWith(
+			expect.objectContaining({ normalExitPolicy: policy ?? 'computer-lifetime' }),
+		)
+	},
+)
+
+it('refuses an invalid foreground policy before provider admission and permits a corrected retry', async () => {
+	fixture()
+	vi.stubEnv('NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY', 'invalid')
+	await expect(getCliPalRuntime()).rejects.toThrow('must be strict or computer-lifetime')
+	expect(createProvider).not.toHaveBeenCalled()
+	vi.stubEnv('NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY', 'strict')
+	await expect(getCliPalRuntime()).resolves.toBeDefined()
+	expect(createProvider).toHaveBeenCalledWith(
+		expect.objectContaining({ normalExitPolicy: 'strict' }),
+	)
+})
 
 it('reports an idle guest truthfully during model-only chat without implying startup', async () => {
 	const { pal, acquire } = fixture()

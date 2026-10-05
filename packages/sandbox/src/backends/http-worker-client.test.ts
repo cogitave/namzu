@@ -18,13 +18,14 @@ function ndjson(lines: readonly unknown[]): Response {
 	})
 }
 
-function reservation(): Response {
+function reservation(normalExitPolicy?: string): Response {
 	return json(
 		{
 			ok: true,
 			protocolVersion: 2,
 			executionId: EXECUTION_ID,
 			leaseExpiresAt: Date.now() + 30_000,
+			...(normalExitPolicy ? { normalExitPolicy } : {}),
 		},
 		201,
 	)
@@ -52,6 +53,52 @@ afterEach(() => {
 })
 
 describe('the shared HTTP worker execution client', () => {
+	it('admits computer-owned foreground applications only after the worker acknowledges the policy', async () => {
+		const fetch_ = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+			if (String(input).endsWith('/executions/reserve')) return reservation('computer-lifetime')
+			return ndjson([{ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 }])
+		})
+		vi.stubGlobal('fetch', fetch_)
+		const client = new HttpWorkerClient('http://pal-worker', 'owned-token', 'computer-lifetime')
+		await expect(client.exec('launcher', [], undefined)).resolves.toMatchObject({ exitCode: 0 })
+		expect(fetch_).toHaveBeenCalledTimes(2)
+		expect(JSON.parse(String(fetch_.mock.calls[1]?.[1]?.body))).toMatchObject({
+			executionId: EXECUTION_ID,
+			normalExitPolicy: 'computer-lifetime',
+		})
+		expect(fetch_.mock.calls[1]?.[1]?.headers).toMatchObject({
+			authorization: 'Bearer owned-token',
+		})
+	})
+
+	it.each([undefined, 'strict', 'unknown'])(
+		'refuses an unacknowledged computer policy (%s) before executing a command',
+		async (policy) => {
+			const fetch_ = vi.fn(async (_input: string | URL | Request) => reservation(policy))
+			vi.stubGlobal('fetch', fetch_)
+			const client = new HttpWorkerClient('http://old-pal-worker', undefined, 'computer-lifetime')
+			await expect(client.exec('launcher', [], undefined)).rejects.toThrow(
+				'Rebuild the local Pal computer image',
+			)
+			expect(fetch_).toHaveBeenCalledTimes(1)
+			expect(String(fetch_.mock.calls[0]?.[0])).toBe('http://old-pal-worker/executions/reserve')
+		},
+	)
+
+	it('keeps default job clients strict even on a computer-capable worker with per-command environment overrides', async () => {
+		const fetch_ = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+			if (String(input).endsWith('/executions/reserve')) return reservation('computer-lifetime')
+			return ndjson([{ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 }])
+		})
+		vi.stubGlobal('fetch', fetch_)
+		await new HttpWorkerClient('http://pal-worker').exec('job', [], {
+			env: { NAMZU_SANDBOX_NORMAL_EXIT_POLICY: 'computer-lifetime' },
+		})
+		expect(JSON.parse(String(fetch_.mock.calls[1]?.[1]?.body))).not.toHaveProperty(
+			'normalExitPolicy',
+		)
+	})
+
 	it('reserves every command before admission, including commands without a caller signal', async () => {
 		const output: Array<{ stream: string; data: string }> = []
 		const fetch_ = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {

@@ -69,6 +69,27 @@ therefore carry the header separately.
 
 ## What the worker enforces
 
+### Execution ownership
+
+The worker defaults to strict execution ownership: a command is not completed
+while its process group can still mutate the guest. An unconfirmed cancellation
+or surviving group after its leader exits retires the worker rather than signaling
+a potentially reused numeric process-group ID.
+
+The dedicated [local Pal computer image](local-pal-computer.md) additionally pins
+`NAMZU_SANDBOX_NORMAL_EXIT_POLICY=computer-lifetime` at startup. Its authenticated
+`POST /executions/reserve` response adds `normalExitPolicy`, which is `strict` or
+`computer-lifetime`. Only an execution explicitly requesting
+`normalExitPolicy: "computer-lifetime"` on a worker that acknowledges that policy
+may transfer surviving applications to its exclusive computer after a successful
+natural launcher close. An absent or `strict` request retains strict ownership;
+unsupported or misspelled policies are refused before execution. The protocol
+version remains 2; existing strict clients ignore the additive acknowledgment.
+The field is selected by the host's foreground client, never by command environment
+variables. Registered background jobs keep strict execution ownership even on
+the Pal image. Cancellation, timeout and unsuccessful launcher completion cannot
+use this handoff. `GET /healthz` still reports only liveness and protocol version.
+
 | Route | Without the token |
 |---|---|
 | `GET /healthz` | `200` — liveness and the protocol version, and nothing else |

@@ -209,6 +209,43 @@ describe('local Pal computer admission', () => {
 			'lease has ended',
 		)
 	})
+	it('keeps explicitly strict foreground ownership compatible with an older worker', async () => {
+		stubReadiness()
+		const fixture = engineFixture()
+		const provider = createLocalVirtualComputerProvider({
+			runner: fixture.runner,
+			normalExitPolicy: 'strict',
+		})
+		const lease = await provider.acquire({ pal, conversationId: 'strict-compatibility' })
+		const requests: { url: string; body: Record<string, unknown> }[] = []
+		vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+			requests.push({ url, body: JSON.parse(String(init?.body ?? '{}')) })
+			if (url.endsWith('/executions/reserve'))
+				return Response.json({
+					ok: true,
+					protocolVersion: 2,
+					executionId: 'exec_00000000-0000-4000-8000-000000000001',
+					leaseExpiresAt: Date.now() + 30_000,
+				})
+			return new Response(
+				`${JSON.stringify({ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 })}\n`,
+			)
+		})
+		await expect(lease.sandbox.exec('true', [])).resolves.toMatchObject({ exitCode: 0 })
+		expect(requests).toHaveLength(2)
+		expect(requests[1]?.body).not.toHaveProperty('normalExitPolicy')
+		await lease.release()
+	})
+	it('refuses an invalid foreground lifetime before touching the local engine', () => {
+		const fixture = engineFixture()
+		expect(() =>
+			createLocalVirtualComputerProvider({
+				runner: fixture.runner,
+				normalExitPolicy: 'unknown' as 'strict',
+			}),
+		).toThrow('Choose strict or computer-lifetime')
+		expect(fixture.calls).toEqual([])
+	})
 	it('exposes a host-only RFB descriptor from actual readiness through the existing owned desktop port', async () => {
 		stubReadiness({ protocol: 'rfb' })
 		const fixture = engineFixture()

@@ -19,6 +19,7 @@ export interface LocalComputerClientOptions {
 	readonly executionUrl: string
 	readonly desktopUrl: string
 	readonly token: string
+	readonly normalExitPolicy?: 'strict' | 'computer-lifetime'
 	readonly geometry: DisplayGeometry
 	readonly stop: (signal?: AbortSignal) => Promise<void>
 	readonly detachedWorkerPath?: string
@@ -75,7 +76,13 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 		'content-type': 'application/json',
 		...workerAuthorization(options.token),
 	}
-	const worker = new HttpWorkerClient(options.executionUrl, options.token)
+	// A successfully completed foreground launcher may leave applications owned
+	// by this exclusive computer. Detached jobs use their own strict client.
+	const worker = new HttpWorkerClient(
+		options.executionUrl,
+		options.token,
+		options.normalExitPolicy ?? 'computer-lifetime',
+	)
 	const request = async (route: string, body: unknown, signal?: AbortSignal) => {
 		assertPal()
 		busy += 1

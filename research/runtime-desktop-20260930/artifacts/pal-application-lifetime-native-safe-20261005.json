@@ -1,0 +1,27 @@
+{
+  "nativeWindows": true,
+  "actualSDK": true,
+  "actualPodman": true,
+  "actualGuest": true,
+  "fixtureOverrides": false,
+  "successfulLauncherReturnedWithBlenderOpen": true,
+  "nextForegroundCommandSucceeded": true,
+  "actualBlenderFramebuffer": true,
+  "takeoverAndReturnWithApplicationOpen": true,
+  "explicitStopRemovedAllocation": true,
+  "coldReopenRetainedFilesAndStoppedOldApplication": true,
+  "ownedVerificationResourcesRemoved": true,
+  "restoration": {
+    "actualNativeDesktop": true,
+    "actualCLI": true,
+    "actualUpdatedGuest": true,
+    "fixtureOverrides": false,
+    "computerReady": true,
+    "actualGuestFramebuffer": true,
+    "existingBlenderProjectPreserved": true,
+    "savedPalProfileAndModelPreserved": true,
+    "savedTabsAndDraftsPreserved": true,
+    "restoredTabCount": 6,
+    "freshDesktopDiagnosticsWithoutWarningsOrErrors": true
+  }
+}

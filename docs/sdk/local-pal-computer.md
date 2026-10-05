@@ -171,6 +171,40 @@ Destroying the computer first removes the guest allocation, then kills and await
 every host bridge. A host crash disconnects IPC and requests guest cancellation;
 an unconfirmed stop still needs operator recovery of the saved allocation.
 
+Foreground launchers and registered background jobs have different owners.
+The shipped Pal image permits an application started by a **successfully completed
+foreground launcher** to remain open for the computer's lifetime. The host's
+foreground client requests `normalExitPolicy: "computer-lifetime"`; the worker
+must acknowledge that policy in its authenticated execution reservation before
+the host admits the command. Rebuild an older local image from the same Namzu
+release if this acknowledgment is absent. Per-command environment variables do
+not select the policy. The image pins
+`NAMZU_SANDBOX_NORMAL_EXIT_POLICY=computer-lifetime` at worker startup; the generic
+container worker and registered background-job clients retain strict execution
+ownership.
+
+`createLocalVirtualComputerProvider` defaults to
+`normalExitPolicy: "computer-lifetime"`. SDK hosts that need the previous command
+lifetime or an older strict image can explicitly set `normalExitPolicy: "strict"`.
+That choice does not permit applications to survive a foreground command's group;
+registered background jobs remain strict under either choice.
+
+The handoff occurs only after the foreground command closes with exit code zero,
+no signal and no admitted cancellation or timeout. The completed result describes
+the launcher, not the application's later exit. Remaining applications belong to
+the exclusive guest allocation, are not invented job-registry entries, and stay
+open during operator takeover. Stopping the computer removes their process
+namespace. A failed launcher with surviving descendants or an unconfirmed command
+cancellation still retires the allocation; a failed command whose whole group
+has exited returns its actual failure result. The worker never signals a stale
+numeric process-group ID after its leader has exited. Cancellation observed before
+handoff while descendants remain cannot be reported as successful completion.
+A command whose whole group already exited retains its natural result, and
+cancellation of an already completed launcher returns its original terminal
+result without claiming that its application stopped. Applications
+launched from a shell should redirect inherited standard input/output/error so
+their pipes do not hold that foreground call open.
+
 The guest worker's maximum background lifetime is 2,147,000,000 milliseconds
 (about 24.8 days), below Node's timer limit. Foreground calls retain their explicit
 timeouts. Background output still has the worker's capture cap; exceeding it is

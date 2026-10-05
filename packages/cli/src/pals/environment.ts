@@ -20,9 +20,15 @@ async function environment(): Promise<{
 				throw new Error('NAMZU_PAL_COMPUTER_ENGINE must be docker or podman.')
 			const engine =
 				engineValue === 'podman' ? 'podman' : engineValue === 'docker' ? 'docker' : undefined
+			const exitPolicy = process.env.NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY ?? 'computer-lifetime'
+			if (exitPolicy !== 'strict' && exitPolicy !== 'computer-lifetime')
+				throw new Error(
+					'NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY must be strict or computer-lifetime.',
+				)
 			const module = (await import(packageName)) as {
 				createLocalVirtualComputerProvider(options: {
 					image?: string
+					normalExitPolicy?: 'strict' | 'computer-lifetime'
 					dockerBinary?: string
 					engine?: 'docker' | 'podman'
 					podmanBinary?: string
@@ -31,6 +37,7 @@ async function environment(): Promise<{
 				}): LocalComputerProvider
 			}
 			const provider = module.createLocalVirtualComputerProvider({
+				normalExitPolicy: exitPolicy,
 				...(engine ? { engine } : {}),
 				...(process.env.NAMZU_PAL_COMPUTER_IMAGE
 					? { image: process.env.NAMZU_PAL_COMPUTER_IMAGE }

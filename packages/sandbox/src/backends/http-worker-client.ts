@@ -125,6 +125,7 @@ async function readExecution(
 	argv: string[] | undefined,
 	opts: SandboxExecOptions | undefined,
 	transportSignal: AbortSignal,
+	normalExitPolicy: 'strict' | 'computer-lifetime',
 ): Promise<SandboxExecResult> {
 	let response: Response
 	try {
@@ -134,6 +135,7 @@ async function readExecution(
 			signal: transportSignal,
 			body: JSON.stringify({
 				...(executionId ? { executionId } : {}),
+				...(normalExitPolicy === 'computer-lifetime' ? { normalExitPolicy } : {}),
 				command,
 				args: argv ?? [],
 				cwd: opts?.cwd,
@@ -243,7 +245,12 @@ async function readExecution(
 export class HttpWorkerClient {
 	private readonly controller: RemoteExecutionController
 
-	constructor(baseUrl: string, token?: string) {
+	constructor(
+		baseUrl: string,
+		token?: string,
+		/** Host-owned foreground policy; registered background jobs keep strict ownership. */
+		normalExitPolicy: 'strict' | 'computer-lifetime' = 'strict',
+	) {
 		const adapter: RemoteExecutionAdapter = {
 			label: 'HTTP worker',
 			reserve: async (signal) => {
@@ -268,7 +275,19 @@ export class HttpWorkerClient {
 						`execution reservation failed: HTTP ${response.status} ${await response.text()}`,
 					)
 				}
-				return await response.json()
+				const reservation: unknown = await response.json()
+				if (
+					normalExitPolicy === 'computer-lifetime' &&
+					(!reservation ||
+						typeof reservation !== 'object' ||
+						!('normalExitPolicy' in reservation) ||
+						reservation.normalExitPolicy !== 'computer-lifetime')
+				) {
+					throw new RemoteProtocolError(
+						'The local Pal computer worker does not support computer-owned applications. Rebuild the local Pal computer image from the same Namzu release before running commands.',
+					)
+				}
+				return reservation
 			},
 			cancel: async (executionId, signal) => {
 				const response = await fetch(`${baseUrl}/cancel`, {
@@ -283,7 +302,16 @@ export class HttpWorkerClient {
 				return await response.json()
 			},
 			execute: async (executionId, command, argv, opts, signal) =>
-				await readExecution(baseUrl, token, executionId, command, argv, opts, signal),
+				await readExecution(
+					baseUrl,
+					token,
+					executionId,
+					command,
+					argv,
+					opts,
+					signal,
+					normalExitPolicy,
+				),
 		}
 		this.controller = new RemoteExecutionController(adapter)
 	}

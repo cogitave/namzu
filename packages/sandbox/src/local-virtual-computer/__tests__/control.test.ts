@@ -108,6 +108,30 @@ it('delivers authenticated human input while every agent guest path is fenced, t
 		type: 'ok',
 	})
 })
+it('requests computer ownership for a completed foreground launcher and still admits operator takeover', async () => {
+	const fetch_ = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+		if (String(input).endsWith('/executions/reserve'))
+			return Response.json({
+				ok: true,
+				protocolVersion: 2,
+				normalExitPolicy: 'computer-lifetime',
+				executionId: 'exec_00000000-0000-4000-8000-000000000001',
+				leaseExpiresAt: Date.now() + 30_000,
+			})
+		return new Response(
+			`${JSON.stringify({ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 })}\n`,
+		)
+	})
+	vi.stubGlobal('fetch', fetch_)
+	const owned = clients()
+	await expect(owned.sandbox.exec('launcher', [])).resolves.toMatchObject({ exitCode: 0 })
+	const body = JSON.parse(String(fetch_.mock.calls[1]?.[1]?.body))
+	expect(body.normalExitPolicy).toBe('computer-lifetime')
+	await owned.operatorControl.takeOver()
+	expect(owned.operatorControl.mode).toBe('operator')
+	expect(owned.sandbox.status).toBe('ready')
+})
+
 it('refuses takeover while a foreground command is pending and preserves Pal authority', async () => {
 	const pending = deferred<Awaited<ReturnType<HttpWorkerClient['exec']>>>()
 	vi.spyOn(HttpWorkerClient.prototype, 'exec').mockReturnValue(pending.promise)

@@ -33,6 +33,7 @@ async function spawnWorker(env, transformSource = (source) => source) {
 			// Disable the idle-exit layer so a slow CI runner can't race the
 			// worker's self-shutdown against the test's requests.
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
+			NAMZU_SANDBOX_NORMAL_EXIT_POLICY: 'strict',
 			...env,
 		},
 		stdio: ['ignore', 'pipe', 'pipe'],
