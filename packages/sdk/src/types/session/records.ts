@@ -798,6 +798,20 @@ export const SessionRecordSchema = z
 				message: `${r.type} happens only inside a turn and must carry turnId`,
 			})
 		}
+		if (
+			r.type === 'tool_completed' &&
+			r.inputFailure !== undefined &&
+			(!['invalid_json', 'schema_validation', 'input_truncated'].includes(
+				r.inputFailure as string,
+			) ||
+				r.isError !== true)
+		) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['inputFailure'],
+				message: 'inputFailure must classify a failed tool admission',
+			})
+		}
 		if (r.type === 'message') {
 			const content = r.content as { role: unknown }
 			if (r.role !== content.role) {

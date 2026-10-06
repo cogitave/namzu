@@ -450,7 +450,10 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
 - **Checkpoint** (`kind: 'checkpoint'`, `parseCheckpoint`): `checkpointId`,
   `sessionId`, `turnId`, `iteration`, `throughSeq`, `throughSha256`, usage and
   cost, the budget reference, the iteration and elapsed-time guards, the review
-  attempts already consumed, `latestUserMessageId?`, the compaction working
+  attempts already consumed (`review.structuredAttempts`, `answerAttempts`,
+  `nativeStructuredAttempts` and optional `toolStructuredAttempts`; see
+  [structured corrections](structured-output-review.md#tool-mode-schema-corrections)),
+  `latestUserMessageId?`, the compaction working
   state, the trace to continue, `turnCreatedAt` and `createdAt`. It holds no
   messages. A restore refuses it when its hash differs from its
   `checkpoint_written` record's `docSha256`, or when the record at

@@ -222,13 +222,22 @@ This follow-up corrects three reproduced outcome defects:
 | Waiting for a completed worker could report success despite a failed or partial turn, and empty answer text could hide its recorded error. | [Delegated waits](task-tracking.md#delegated-execution-and-reported-outcomes) use the actual turn outcome and retain the explanation. |
 | A store could refuse a backward planning-status change while `task_update` reported a hidden successful update. | [Planning updates](task-tracking.md#planning-outcomes-and-dependencies) report a requested/returned status mismatch honestly, including possible separately applied edits or concurrent changes. |
 
-The comparison also reproduced two remaining validation inconsistencies:
-tool-mode structured schema failures do not all consume `maxRetries`, and
-async Zod refinements accepted in native mode fail in synchronous tool
-preparation. Follow-up work must give tool-mode schema retries their own
-checkpointed accounting and add cancellation-aware async preparation while
-preserving the existing synchronous API and authorization boundary. Reviewer
-rejections are a separate counter and must not be reused for schema failures.
+The next correction gives tool-mode structured schema failures and missing
+output their own checkpointed `maxRetries` accounting, once per response. Trusted
+argument-failure metadata survives pending-batch recovery, while denials, host
+rewrites and reviewer rejections retain their independent meaning. Complete
+sibling results and correction feedback are saved before another request;
+exhausted restores make no new model request. The default remains two corrections.
+See [the correction contract](structured-output-review.md#tool-mode-schema-corrections).
+
+Async Zod refinements accepted in native mode still fail in synchronous tool
+preparation. Follow-up work must add cancellation-aware async preparation while
+preserving the existing synchronous API and authorization boundary. Consistent
+rejection of malformed tool-mode `maxRetries` settings needs a separate
+compatibility decision; this correction does not narrow previously accepted
+configuration values. Standalone output-tool skips also need an explicit
+non-candidate outcome: their synthetic success text currently fails the retained
+JSON integrity check.
 
 A durable structured result separate from bounded model-visible receipts is
 another follow-up. It needs a JSON-safe result contract and recovery evidence;

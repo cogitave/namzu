@@ -297,6 +297,12 @@ only the admitted guest authority; this configuration grants no host authority.
 ACP and admitted manual chat turns use exclusive SDK conversation admission independently of computer
 readiness. An offline or operator-controlled computer supplies zero tool
 definitions: no guest or host files, shell, browser, GUI, messaging or plugins.
+Computer awareness is observed separately from that tool admission. When the
+current owned computer is connected under operator control, the prompt tells
+the Pal that its computer exists, the user has control and conversation can
+continue. It does not describe that state as offline or grant guest effects.
+Transitioning or unavailable control is also reported explicitly from current
+host metadata, without starting or inspecting guest applications.
 The desktop's explicit Start computer or Return control enables the actual guest toolset
 on the next turn without recreating the chat session. These turn admissions do
 not start a computer. The standalone `pal chat` command retains its existing

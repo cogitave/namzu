@@ -40,12 +40,14 @@ export interface Checkpoint {
 	/**
 	 * Review corrections already consumed at this checkpoint, independent of
 	 * compactable history: host structured-output review, prose-answer review
-	 * and native structured-output correction.
+	 * and tool/native structured-output correction.
 	 */
 	readonly review: {
 		readonly structuredAttempts: number
 		readonly answerAttempts: number
 		readonly nativeStructuredAttempts: number
+		/** Tool-output corrections; absent in older v1 checkpoints and restored as zero. */
+		readonly toolStructuredAttempts?: number
 	}
 	/** The turn's current operator/goal/steering message, independent of compaction. */
 	readonly latestUserMessageId?: MessageId
@@ -120,6 +122,7 @@ export const CheckpointSchema = z
 				structuredAttempts: count,
 				answerAttempts: count,
 				nativeStructuredAttempts: count,
+				toolStructuredAttempts: count.optional(),
 			})
 			.strict(),
 		latestUserMessageId: id<MessageId>('message').optional(),

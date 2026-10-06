@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "purpose": "Read-only native Windows confirmation of Sıtkı computer presence and control; source fix deployment boundary",
+  "observedAt": "2026-10-06T10:26:43.903Z",
+  "pal": {
+    "id": "40c17c36-d369-4be6-9bfe-1331db7a01cb",
+    "name": "Sıtkı"
+  },
+  "provenance": {
+    "platform": "win32",
+    "node": "v22.20.0",
+    "launcher": "/mnt/c/Windows/System32/cmd.exe /d /c node",
+    "launcherWorkingDirectory": "/mnt/c/Windows",
+    "observerScriptDelivery": "Node standard input; no script or receipt written to the native runtime",
+    "launchConfiguration": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\launch.json",
+    "devToolsPortFile": "C:\\Users\\Arda\\AppData\\Roaming\\Namzu\\DevToolsActivePort",
+    "cdpPort": 59808,
+    "attachment": "Existing Electron renderer matched by exact configured renderer URL; separate observer process exited without calling browser.close",
+    "metadataCall": "await window.namzu.palComputer('40c17c36-d369-4be6-9bfe-1331db7a01cb')",
+    "playwrightModule": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\runtime\\packages\\p39"
+  },
+  "observed": {
+    "status": "ready",
+    "generation": "1791232320649",
+    "environmentId": "local-container:4c25fc164ad7a63c45f19301464c136db9adec2c7a3c192fffea7f661fab7f3c",
+    "control": {
+      "supported": true,
+      "mode": "operator",
+      "heldKeyboard": true
+    }
+  },
+  "interpretation": {
+    "connectedOwnComputer": true,
+    "operatorOwnsInputAuthority": true,
+    "heldKeyboardMeaning": "Capability support for session-scoped held key input; not an observation of currently held keys or active user input",
+    "heldKeyboardSources": [
+      "packages/sdk/src/pals/types.ts:92",
+      "packages/sdk/src/pals/runtime.ts:249"
+    ],
+    "screenOrGuestContentsObserved": false,
+    "canInferCurrentUserActivity": false
+  },
+  "scope": {
+    "readOnly": true,
+    "modelRequests": 0,
+    "computerInputCalls": 0,
+    "computerControlChanges": 0,
+    "guestCommands": 0,
+    "guestFileEffects": 0,
+    "uiFocusOrNavigationCalls": 0,
+    "liveRestarts": 0,
+    "liveReloads": 0,
+    "liveProcessCloses": 0,
+    "nativeRuntimeFilesReplaced": 0
+  },
+  "nativeSnapshot": {
+    "inspectedAt": "2026-10-06T10:27:11.383Z",
+    "root": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\runtime",
+    "manifest": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\runtime\\manifest.json",
+    "cliEntry": "packages/p0/dist/bin.js",
+    "sdkPackage": "packages/p22",
+    "executableFiles": [
+      {
+        "relative": "packages/p22/dist/pals/prompt.js",
+        "bytes": 8613,
+        "sha256": "000e3fd99b99b3160e9950d65b4afb006473e70071e33f2b6e64628379bad830"
+      },
+      {
+        "relative": "packages/p0/dist/pals/agent-session.js",
+        "bytes": 41383,
+        "sha256": "8717d6e633ba33e6bb333efaba8afe7924cc695ed0f68f8d10d6f2087f2b8062"
+      }
+    ],
+    "relevantDeclarationsMapsAndTestsPresent": false,
+    "vitestOrTsxInManifest": false,
+    "existingNativeTestHelper": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\verify-current-runtime-20261005.cjs",
+    "existingNativeTestHelperBoundary": "Packaging and provider registration proof, not Pal connected-control regression; inspected only because running it would overwrite its prior receipt"
+  },
+  "activation": {
+    "sourceFixBuiltAndFocusedTestsPassed": true,
+    "liveRuntimeFixActivated": false,
+    "staticModuleCache": true,
+    "sources": [
+      "packages/desktop/src/main/index.ts:171",
+      "packages/desktop/src/main/runtime-node-args.ts",
+      "packages/desktop/src/main/rpc-client.ts",
+      "packages/cli/src/commands/acp.ts:41",
+      "packages/cli/src/pals/agent-session.ts",
+      "packages/cli/src/tui/agent.ts:1941"
+    ],
+    "limitation": "The already owned ACP process statically imports agent-session and the SDK prompt. File synchronization, renderer reload or reopening the conversation does not invalidate that Node module cache; synchronized files are used by future ACP process startups.",
+    "replacementBoundary": "Replacing the current owned ACP process can release runtime-owned leases or alter the live operator-controlled computer lifetime. This receipt authorizes no replacement, synchronization or control transition.",
+    "legacyDeployHelper": "C:\\Users\\Arda\\AppData\\Local\\Namzu\\Development\\deploy-pal-conversation-listing-native-20261005.cjs",
+    "legacyDeployGuard": "Requires the native desktop normally closed before replacing compiled modules; inspected only"
+  }
+}

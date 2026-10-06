@@ -17,8 +17,10 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	mode?: 'tool' | 'native'
 
 	/**
-	 * Turns spent re-prompting when the model answers in prose or fails
-	 * validation. Defaults to {@link DEFAULT_STRUCTURED_OUTPUT_RETRIES}.
+	 * Correction opportunities after missing output or model-argument validation
+	 * failure. Default 2; zero stops after the first invalid response. Tool-mode
+	 * prose and invalid output calls share a checkpointed counter, once per response.
+	 * Host review rejections use the separate maxReviews allowance.
 	 *
 	 * Bounded so a model that cannot satisfy the schema fails loudly rather
 	 * than iterating against `maxIterations`.

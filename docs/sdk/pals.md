@@ -62,9 +62,15 @@ conversation. Ordinary chat does not require a report or an artifact. Public
 answers should omit internal reasoning and raw tool logs, explain real failures
 clearly, and describe completed outputs only with confirming tool evidence.
 
-`PalSystemPromptOptions.computer` is either `{ status: 'ready', workingDirectory }`
-or `{ status: 'unavailable' }`; omission describes no current computer access.
-The host supplies only authority actually confirmed for the turn. An optional
+`PalSystemPromptOptions.computer` accepts `{ status: 'ready', workingDirectory }`
+for admitted guest effects, `{ status: 'connected', control }` for observed
+presence without tool admission, or `{ status: 'unavailable' }`. Omission
+describes no current computer access. Connected `control` is `pal`, `operator`,
+`transitioning` or `unavailable`. Under operator control the Pal knows its
+computer is connected and that the user controls it; the prompt permits ordinary
+conversation and explains that guest actions require returning control. The
+host supplies only current owned connection metadata and authority actually
+confirmed for the turn; observation grants no tools or guest inspection. An optional
 `greeting` supplies the pinned host introduction as system context, explicitly
 separate from prior model turns. `systemNote` appends trusted host instructions.
 The helper does not admit a query, acquire a computer, create a greeting, grant

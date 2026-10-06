@@ -1,0 +1,23 @@
+{
+  "scope": "Native Windows compiled SDK Pal prompt module only; not live deployment or CLI runtime verification.",
+  "result": "passed",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v22.20.0",
+  "verifiedAt": "2026-10-06T10:28:01.245Z",
+  "moduleSource": "packages/sdk/dist/pals/prompt.js (isolated copy, no dependencies)",
+  "moduleSha256": "0f507ad9599b9da40f31356754adda15630d6ca5369accad346b7d4a1477d997",
+  "cases": [
+    "connected:operator",
+    "connected:pal",
+    "connected:transitioning",
+    "connected:unavailable",
+    "unavailable",
+    "default-unavailable",
+    "ready",
+    "ready:basic"
+  ],
+  "profileUnchanged": true,
+  "modelRequests": 0,
+  "livePalActions": 0
+}

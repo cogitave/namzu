@@ -143,6 +143,35 @@ describe.each(backends)('%s session checkpoint store', (_name, make) => {
 		expect(log.asked.at(-1)?.turnId).toBe(scope.turnId)
 	})
 
+	it('keeps an older v1 review document unchanged when the tool counter is absent', async () => {
+		const store = make()
+		const scope = scopeOf()
+		const checkpoint = checkpointOf(scope)
+		const legacyText = `${JSON.stringify(checkpoint)}\n`
+		const receipt = await store.write(scope, checkpoint)
+		log.commit(receipt)
+		const restored = await store.restore(scope, checkpoint.checkpointId)
+
+		expect(restored?.review).not.toHaveProperty('toolStructuredAttempts')
+		expect(`${JSON.stringify(restored)}\n`).toBe(legacyText)
+		expect(receipt.docSha256).toBe(createHash('sha256').update(legacyText).digest('hex'))
+	})
+
+	it('persists tool corrections separately from all three existing counters', async () => {
+		const store = make()
+		const scope = scopeOf()
+		const review = {
+			structuredAttempts: 2,
+			answerAttempts: 1,
+			nativeStructuredAttempts: 3,
+			toolStructuredAttempts: 4,
+		}
+		const checkpoint = await written(store, scope, { review })
+
+		expect((await store.read(scope, checkpoint.checkpointId))?.review).toEqual(review)
+		expect((await store.restore(scope, checkpoint.checkpointId))?.review).toEqual(review)
+	})
+
 	it('refuses a mismatched throughSha256 through the injected verifyThrough', async () => {
 		const store = make()
 		const scope = scopeOf()

@@ -223,7 +223,7 @@
     },
     {
       "id": "tool-mode-schema-retry-accounting",
-      "status": "reproduced_not_implemented",
+      "status": "implemented_verified",
       "sources": [
         "packages/sdk/src/runtime/query/iteration/index.ts",
         "packages/sdk/src/runtime/query/checkpoint.ts",
@@ -240,7 +240,29 @@
         "stopReason": "max_iterations",
         "externalModelRequests": 0
       },
-      "proposal": "Count invalid tool-mode output candidates and prose corrections with a dedicated checkpointed schema-retry budget. Keep reviewer rejections and cumulative call reservations separate; preserve valid paired-candidate, cancellation, compaction and resume semantics."
+      "proposal": "Count invalid tool-mode output candidates and prose corrections with a dedicated checkpointed schema-retry budget. Keep reviewer rejections and cumulative call reservations separate; preserve valid paired-candidate, cancellation, compaction and resume semantics.",
+      "implementation": {
+        "contract": "One durable counter for missing tool-mode output and delivered unrepaired model-argument failures, once per completed response. Separate reviewer/native counters; no revalidation; verified completion metadata survives recovery.",
+        "defaultCorrections": 2,
+        "externalModelRequests": 0,
+        "regressionFiles": [
+          "packages/sdk/src/runtime/query/__tests__/tool-structured-retries.test.ts",
+          "packages/sdk/src/runtime/query/__tests__/tool-structured-retry-boundaries.test.ts",
+          "packages/sdk/src/runtime/query/__tests__/tool-structured-retry-checkpoints.test.ts",
+          "packages/sdk/src/runtime/query/__tests__/input-failures-retain-their-origin.test.ts",
+          "packages/sdk/src/runtime/query/__tests__/tool-structured-retry-durability.test.ts"
+        ],
+        "verificationReceipt": "research/workflow-peers-20261006/artifacts/correction-presence-verification-20261006.json",
+        "correctedProbe": {
+          "maxRetries": 0,
+          "modelRequests": 1,
+          "stopReason": "structured_output_failed",
+          "structuredValuePublished": false,
+          "checkpointToolStructuredAttempts": 1,
+          "externalModelRequests": 0,
+          "nativeWindows": true
+        }
+      }
     }
   ],
   "verification": {

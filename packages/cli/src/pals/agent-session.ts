@@ -12,6 +12,7 @@ import {
 	type PalDefinition,
 	type PalEnvironmentLease,
 	type PalRuntime,
+	type PalSystemPromptOptions,
 	type QueryParams,
 	type ReasoningEffort,
 	type ResumeOutcome,
@@ -76,6 +77,10 @@ export interface PalSessionEnvironment {
 	readonly lease?: PalEnvironmentLease
 	/** Observe actual ready Pal-controlled guest authority; never starts a computer. */
 	readyComputer?(): PalEnvironmentLease | undefined
+	/** Current host connection metadata only; grants no guest execution authority. */
+	observeComputer?():
+		| Extract<NonNullable<PalSystemPromptOptions['computer']>, { status: 'connected' }>
+		| undefined
 	admitConversation?(signal?: AbortSignal): Promise<PalConversationAdmission>
 	admit(signal?: AbortSignal): Promise<PalAdmission>
 }
@@ -99,6 +104,14 @@ export function palSessionEnvironment(
 			const lease = runtime.computer(id)
 			const control = runtime.computerControl(id)
 			return lease && (!control.supported || control.mode === 'pal') ? lease : undefined
+		},
+		observeComputer: () => {
+			const lease = runtime.computer(id)
+			if (!lease) return undefined
+			const control = runtime.computerControl(id)
+			// Presence describes only the currently owned lifetime, never a cached lease.
+			if (runtime.computer(id) !== lease) return undefined
+			return { status: 'connected', control: control.mode }
 		},
 		admit: (signal) => runtime.admit(request(signal)),
 		admitConversation: (signal) => runtime.admitConversation(request(signal)),
@@ -686,7 +699,7 @@ export async function createPalAgentSession(
 									status: 'ready',
 									workingDirectory: admission.lease.sandbox.rootDir,
 								}
-							: { status: 'unavailable' },
+							: (binding.observeComputer?.() ?? { status: 'unavailable' }),
 						...(opts?.systemNote ? { systemNote: opts.systemNote } : {}),
 					},
 				),

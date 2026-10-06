@@ -52,7 +52,7 @@ Only a tool-free response with finish reason `stop` can become a candidate.
 Malformed JSON, schema mismatches, truncated responses and content-filtered
 responses are refused. A correction asks for a complete JSON value, never a
 continuation fragment. `maxRetries` bounds these correction opportunities
-(default three); zero stops after the first invalid candidate with
+(default two, allowing up to three candidate responses); zero stops after the first invalid candidate with
 `structured_output_failed`. The general iteration, token and time budgets
 still apply. Forced finalization cannot bypass validation or request an
 unvalidated prose summary.
@@ -82,7 +82,7 @@ field without replacing text. Failed and cancelled turns also clear that field.
 
 ## Checkpoints
 
-`IterationCheckpoint.nativeStructuredAttempts` records consumed native
+`Checkpoint.review.nativeStructuredAttempts` records consumed native
 correction opportunities. Rejection feedback and the updated count are saved
 before the next model request, separately from the host-review count. Message
 compaction cannot reset either counter. Resume requires the host to supply its

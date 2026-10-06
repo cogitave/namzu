@@ -15,7 +15,13 @@ import type { ToolExecutionSnapshot } from '../../types/session/tool-execution.j
 import type { Logger } from '../../utils/logger.js'
 import type { RestoredCheckpoint } from './checkpoint.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
-import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
+import type {
+	PriorToolResult,
+	PriorToolResults,
+	ToolCallDenials,
+	ToolExecutionBatch,
+	ToolExecutor,
+} from './executor.js'
 import { PendingAnswers } from './question-park.js'
 import { readToolExecutions } from './tool-executions.js'
 import { isPauseForCall } from './tool-pause.js'
@@ -417,7 +423,7 @@ export async function applyPendingResume(
 	executor: ToolExecutor,
 	prior?: PriorToolResults,
 	assistantMessageId?: MessageId,
-): Promise<void> {
+): Promise<ToolExecutionBatch> {
 	const denials = new Map(plan.denials)
 	const reviewedById = new Map(plan.reviewedCalls?.map((call) => [call.id, call]))
 
@@ -439,7 +445,10 @@ export async function applyPendingResume(
 		...plan.response,
 		message: { ...plan.response.message, toolCalls: callsToPrepare },
 	}
-	const preparedBatch = await executor.prepareBatchForReview(responseToPrepare)
+	const preparedBatch = await executor.prepareBatchForReview(
+		responseToPrepare,
+		plan.modifiedCallIds,
+	)
 
 	for (const call of preparedBatch.reviewCalls) {
 		const reviewed = reviewedById.get(call.id)
@@ -512,6 +521,7 @@ export async function applyPendingResume(
 	for (const msg of batch.messages) {
 		recorder.pushMessage(msg)
 	}
+	return batch
 }
 
 /**
@@ -567,8 +577,8 @@ export async function recoverCompletedCalls(
 	toolCalls: readonly ToolCall[],
 	log: Logger,
 	options: { answers?: PendingAnswers; signal?: AbortSignal } = {},
-): Promise<Map<string, { result: string; isError: boolean }>> {
-	const recovered = new Map<string, { result: string; isError: boolean }>()
+): Promise<Map<string, PriorToolResult>> {
+	const recovered = new Map<string, PriorToolResult>()
 	let snapshot: ToolExecutionSnapshot | undefined
 	try {
 		await recorder.flush()
@@ -592,7 +602,11 @@ export async function recoverCompletedCalls(
 		) {
 			if (!record) continue // Complete evidence proves this call has no recorded start.
 			if (record.status === 'completed') {
-				recovered.set(call.id, { result: record.result, isError: record.isError })
+				recovered.set(call.id, {
+					result: record.result,
+					isError: record.isError,
+					...(record.inputFailure ? { inputFailure: record.inputFailure } : {}),
+				})
 				continue
 			}
 		}

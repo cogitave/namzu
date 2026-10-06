@@ -674,6 +674,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			return {
 				success: false,
 				result: this.validationFailure(tool, rawInput, parseResult.error),
+				inputFailure: 'schema_validation',
 			}
 		}
 

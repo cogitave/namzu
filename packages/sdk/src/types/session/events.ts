@@ -422,6 +422,8 @@ type CoreSessionEvent =
 			toolName: string
 			result: string
 			isError: boolean
+			/** Executor-classified provider argument failure; absent for host policy, rewrites and cancellation. */
+			inputFailure?: 'invalid_json' | 'schema_validation' | 'input_truncated'
 			/** See {@link tool_executing}'s `via`. Carried on both, so a
 			 * consumer can pair them without holding the start event. */
 			via?: {

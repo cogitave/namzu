@@ -89,6 +89,7 @@ export async function runPreToolHook(
 export async function prepareDirectCall(
 	host: ToolAdmissionHost,
 	toolCall: ToolCall,
+	providerInput = true,
 ): Promise<PreparedDirectCall> {
 	let toolName = toolCall.function.name
 	const truncationRepair =
@@ -103,6 +104,7 @@ export async function prepareDirectCall(
 			input: {},
 			message: unreadableToolCallMessage(host, toolCall, toolName),
 			isError: true,
+			...(providerInput ? { inputFailure: unreadableCallFailure(toolCall) } : {}),
 		}
 	}
 
@@ -132,6 +134,9 @@ export async function prepareDirectCall(
 				input: {},
 				message: resolved.message,
 				isError: true,
+				...(providerInput && !truncationRepair && resolved.inputFailure
+					? { inputFailure: resolved.inputFailure }
+					: {}),
 			}
 		}
 		const preOutcome = await runPreToolHook(host, toolName, resolved.input)
@@ -151,6 +156,9 @@ export async function prepareDirectCall(
 				toolCall,
 				toolName,
 				input: preOutcome.input,
+				...(providerInput && !truncationRepair && !preOutcome.modified && resolved.inputFailure
+					? { inputFailure: resolved.inputFailure }
+					: {}),
 			}
 		}
 		return {
@@ -186,7 +194,15 @@ export async function prepareDirectCall(
 				raw = repair.arguments
 				continue
 			}
-			return { kind: 'synthetic', toolCall, toolName, input: {}, message, isError: true }
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: {},
+				message,
+				isError: true,
+				...(providerInput && !repairUsed ? { inputFailure: 'invalid_json' as const } : {}),
+			}
 		}
 
 		try {
@@ -235,6 +251,9 @@ export async function prepareDirectCall(
 			input: parsed,
 			message,
 			isError: true,
+			...(providerInput && !repairUsed && preparation.inputFailure
+				? { inputFailure: preparation.inputFailure }
+				: {}),
 		}
 	}
 
@@ -342,7 +361,8 @@ export async function resolveCall(
 	host: ToolAdmissionHost,
 	toolCall: ToolCall,
 ): Promise<
-	{ ok: true; toolName: string; input: unknown } | { ok: false; toolName: string; message: string }
+	| { ok: true; toolName: string; input: unknown; inputFailure?: 'schema_validation' }
+	| { ok: false; toolName: string; message: string; inputFailure?: 'invalid_json' }
 > {
 	let toolName = toolCall.function.name
 	let raw = toolCall.function.arguments
@@ -361,9 +381,23 @@ export async function resolveCall(
 				failure.reason === 'invalid_json' ||
 				(failure.reason === 'unknown_tool' && isUnregistered(host, toolName))
 			) {
-				return { ok: false, toolName, message: failure.message }
+				return {
+					ok: false,
+					toolName,
+					message: failure.message,
+					...(attempt === 0 && failure.reason === 'invalid_json'
+						? { inputFailure: 'invalid_json' as const }
+						: {}),
+				}
 			}
-			return { ok: true, toolName, input: parseArguments(raw) }
+			return {
+				ok: true,
+				toolName,
+				input: parseArguments(raw),
+				...(attempt === 0 && failure.reason === 'schema_validation'
+					? { inputFailure: 'schema_validation' as const }
+					: {}),
+			}
 		}
 
 		host.log.info('Repaired a malformed tool call', {
@@ -377,6 +411,11 @@ export async function resolveCall(
 		toolName = repair.toolName ?? toolName
 		raw = repair.arguments
 	}
+}
+
+/** The normalized unreadable flag covers both malformed and truncated arguments. */
+export function unreadableCallFailure(toolCall: ToolCall): 'invalid_json' | 'input_truncated' {
+	return toolCall.metadata?.inputError?.reason === 'malformed' ? 'invalid_json' : 'input_truncated'
 }
 
 export async function repairTruncatedCall(

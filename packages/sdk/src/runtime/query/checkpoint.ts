@@ -268,6 +268,8 @@ export class CheckpointManager {
 	private restoredReviewAttempts = 0
 	private nativeStructuredAttemptsSource?: () => number
 	private restoredNativeAttempts = 0
+	private toolStructuredAttemptsSource?: () => number
+	private restoredToolAttempts = 0
 	private lastCreatedId?: CheckpointId
 	private traceSource?: () => SerializedSpanContext | undefined
 	private parkTtlMs?: number
@@ -312,6 +314,13 @@ export class CheckpointManager {
 	}
 	get restoredNativeStructuredAttempts(): number {
 		return this.restoredNativeAttempts
+	}
+
+	setToolStructuredAttemptsSource(source: () => number): void {
+		this.toolStructuredAttemptsSource = source
+	}
+	get restoredToolStructuredAttempts(): number {
+		return this.restoredToolAttempts
 	}
 
 	setStructuredReviewAttemptsSource(source: () => number): void {
@@ -398,6 +407,7 @@ export class CheckpointManager {
 				answerAttempts: this.answerReviewAttemptsSource?.() ?? this.restoredAnswerAttempts,
 				nativeStructuredAttempts:
 					this.nativeStructuredAttemptsSource?.() ?? this.restoredNativeAttempts,
+				toolStructuredAttempts: this.toolStructuredAttemptsSource?.() ?? this.restoredToolAttempts,
 			},
 			...(latestUserMessageId ? { latestUserMessageId } : {}),
 			...withDefined('workingState', this.workingStateSource?.()),
@@ -597,6 +607,7 @@ export class CheckpointManager {
 		this.turnCreatedAt ??= document.turnCreatedAt
 		this.restoredAnswerAttempts = document.review.answerAttempts
 		this.restoredNativeAttempts = document.review.nativeStructuredAttempts
+		this.restoredToolAttempts = document.review.toolStructuredAttempts ?? 0
 		this.restoredReviewAttempts = document.review.structuredAttempts
 		this.restoredUserMessage = restored.latestUserMessage
 		this.restoredUserMessageId = restored.latestUserMessage

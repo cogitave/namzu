@@ -2,6 +2,7 @@ import type { SessionLog } from '../../store/session-log/index.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { SessionRecord } from '../../types/session/records.js'
 import type {
+	CompletedToolRecord,
 	ToolExecutionRecord,
 	ToolExecutionSnapshot,
 } from '../../types/session/tool-execution.js'
@@ -40,11 +41,22 @@ export class ToolExecutionCollector {
 		}
 		if (typeof event.result !== 'string' || typeof event.isError !== 'boolean')
 			throw new Error('Tool recovery found an invalid completion.')
+		const inputFailure = event.inputFailure
+		if (
+			inputFailure !== undefined &&
+			(typeof inputFailure !== 'string' ||
+				!['invalid_json', 'schema_validation', 'input_truncated'].includes(inputFailure) ||
+				event.isError !== true)
+		)
+			throw new Error('Tool recovery found an invalid input failure classification.')
 		this.records.set(event.toolUseId, {
 			...identity,
 			status: 'completed',
 			result: event.result,
 			isError: event.isError,
+			...(inputFailure !== undefined
+				? { inputFailure: inputFailure as CompletedToolRecord['inputFailure'] }
+				: {}),
 		})
 	}
 

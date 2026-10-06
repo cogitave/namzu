@@ -60,7 +60,7 @@ The old candidate's review remains bound to its dispatch input. This also works
 without a host reviewer. Forced finalization and existing turn limits still apply;
 an interrupted turn does not publish a pending candidate as completed output.
 
-A rejection saves feedback and `IterationCheckpoint.structuredReviewAttempts`
+A rejection saves feedback and `Checkpoint.review.structuredAttempts`
 before the next model request. Resume restores that counter independently of
 message compaction. Supply the same review configuration when resuming. This is
 checkpoint state, not a tamper-proof lifetime quota: selecting an older checkpoint
@@ -70,6 +70,35 @@ The callback itself is host code and is not serialized.
 Tool mode remains the default. [Native mode](native-structured-output.md) uses
 provider response schemas with local validation and the same host reviewer.
 Existing prose `reviewAnswer` behavior is unchanged.
+
+## Tool-mode schema corrections
+
+`maxRetries` allows two corrections by default: an initial response and up to
+two further responses. Zero stops on the first missing or invalid output with
+`structured_output_failed` and no accepted `structuredOutput`. Tool-free prose,
+empty responses, truncated prose and unrepaired invalid JSON, truncated arguments
+or schema mismatches from `structured_output` share this allowance. A response
+with several invalid output calls consumes one correction after every sibling
+tool result has been recorded. Ordinary tool work and valid output candidates
+paired with other tools consume no schema correction.
+
+Argument repair that produces a valid call, permission refusals, cancellation,
+host hook errors or modifications, and damaged retained output receipts are
+not model schema corrections. A damaged receipt remains an integrity error.
+Host reviewer rejections use the separate `maxReviews` allowance. Admission
+classifies failures once; accounting does not rerun schema transformations or
+infer a failure category from error text.
+
+`Checkpoint.review.toolStructuredAttempts` records the consumed corrections,
+independently of native validation and host review. The answered batch, correction
+feedback and count are committed before another request, including exhaustion.
+A checkpoint-write failure prevents another request. Compaction preserves the
+counter; resume of an exhausted checkpoint makes no new model request. A resumed
+pending batch first answers all its owned calls and then accounts its verified
+argument failures once. Legacy checkpoints lacking this optional field restore
+zero without rewriting their original bytes or hashes. Supply the output
+configuration again on resume; selecting an older checkpoint restores that
+checkpoint's count.
 
 In tool mode, settlement reads the retained tool-result JSON, not a separate
 result artifact. The default tool-output budget is 40,000 characters. A

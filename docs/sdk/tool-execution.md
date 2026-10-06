@@ -471,6 +471,15 @@ older completion, so an interrupted retry is not mistaken for its earlier
 attempt. IDs must identify calls uniquely within the turn. The runtime checks
 the requested ID and tool name before reusing a record.
 
+`tool_completed.inputFailure?` and `CompletedToolRecord.inputFailure?` carry a
+trusted admission category: `invalid_json`, `schema_validation` or
+`input_truncated`. They describe unrepaired model arguments, rather than every
+error result. Policy refusals, cancellation, host-modified input and unsafe
+prepared-value cloning omit the field. Recovery retains verified classifications
+without parsing error text or rerunning validation. Legacy records remain
+field-free. [Tool-mode structured corrections](structured-output-review.md#tool-mode-schema-corrections)
+use this evidence to account a pending batch after all its results are restored.
+
 Disk recovery scans only the JSONL metadata, without loading retained outputs
 or compaction attachments: 64 KiB reads, at most 256 MiB per log, 4 MiB per
 record and 4,096 selected IDs. It validates turn ownership, sequence, UTF-8 and

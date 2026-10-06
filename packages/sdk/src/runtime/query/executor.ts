@@ -35,6 +35,7 @@ import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
 import type { SessionRecord } from '../../types/session/records.js'
+import type { CompletedToolRecord } from '../../types/session/tool-execution.js'
 import type {
 	FileReadTracker,
 	PreparedToolExecution,
@@ -65,6 +66,7 @@ import {
 	resolveCall,
 	runPreToolHook,
 	unknownToolMessage,
+	unreadableCallFailure,
 	unreadableToolCallMessage,
 } from './executor/tool-call-admission.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
@@ -96,6 +98,7 @@ export type PreparedDirectCall =
 			readonly toolCall: ToolCall
 			readonly toolName: string
 			readonly input: unknown
+			readonly inputFailure?: CompletedToolRecord['inputFailure']
 	  }
 	| {
 			readonly kind: 'synthetic'
@@ -104,6 +107,7 @@ export type PreparedDirectCall =
 			readonly input: unknown
 			readonly message: string
 			readonly isError: boolean
+			readonly inputFailure?: CompletedToolRecord['inputFailure']
 	  }
 
 /**
@@ -496,6 +500,8 @@ export interface ToolCallOutcome {
 	/** Rich form for the model, when the tool supplied one. */
 	content?: ToolResultContent
 	isError?: boolean
+	/** Provider argument admission failure, never inferred from receipt text. */
+	inputFailure?: CompletedToolRecord['inputFailure']
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
 	/**
@@ -533,7 +539,8 @@ export type ToolCallDenials = ReadonlyMap<string, string>
  * again — which for a payment or an email is the difference between
  * resuming and repeating.
  */
-export type PriorToolResults = ReadonlyMap<string, { result: string; isError: boolean }>
+export type PriorToolResult = Pick<CompletedToolRecord, 'result' | 'isError' | 'inputFailure'>
+export type PriorToolResults = ReadonlyMap<string, PriorToolResult>
 
 /**
  * Model-visible text for a tool call that was never executed.
@@ -844,12 +851,19 @@ export class ToolExecutor {
 	 * The returned projection is what policy and a human review; execution later
 	 * consumes the registry-owned preparations rather than parsing again.
 	 */
-	async prepareBatchForReview(response: ChatCompletionResponse): Promise<PreparedToolBatch> {
+	async prepareBatchForReview(
+		response: ChatCompletionResponse,
+		hostModifiedCallIds?: ReadonlySet<string>,
+	): Promise<PreparedToolBatch> {
 		assertUniqueToolCallIds(response.message.toolCalls ?? [])
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
 		for (const toolCall of response.message.toolCalls ?? []) {
-			const call = await prepareDirectCall(this.admissionHost(), toolCall)
+			const call = await prepareDirectCall(
+				this.admissionHost(),
+				toolCall,
+				!hostModifiedCallIds?.has(toolCall.id),
+			)
 			calls.set(toolCall.id, call)
 			const escalation = await this.escalationOf(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
@@ -937,7 +951,7 @@ export class ToolExecutor {
 		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				const call = await prepareDirectCall(this.admissionHost(), toolCall)
+				const call = await prepareDirectCall(this.admissionHost(), toolCall, false)
 				calls.set(toolCall.id, call)
 				const escalation = await this.escalationOf(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
@@ -1093,6 +1107,7 @@ export class ToolExecutor {
 					toolName: toolCall.function.name,
 					output: recovered.result,
 					isError: recovered.isError,
+					...(recovered.inputFailure ? { inputFailure: recovered.inputFailure } : {}),
 				}
 				if (isBarrier) schedule(async () => {}, true, true)
 				return
@@ -1653,10 +1668,12 @@ export class ToolExecutor {
 		let toolName = preparedCall?.toolName ?? toolCall.function.name
 		let input: unknown
 		let prepared: PreparedToolExecution | undefined
+		let inputFailure: ToolCallOutcome['inputFailure']
 
 		if (preparedCall?.kind === 'ready' || preparedCall?.kind === 'legacy') {
 			input = preparedCall.input
 			prepared = preparedCall.kind === 'ready' ? preparedCall.prepared : undefined
+			if (preparedCall.kind === 'legacy') inputFailure = preparedCall.inputFailure
 		} else {
 			// A stream that cut off mid-JSON is the case `repairToolCall` exists
 			// for, and it used to be the one case that never reached it: this
@@ -1670,6 +1687,7 @@ export class ToolExecutor {
 
 			if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
 				const message = unreadableToolCallMessage(this.admissionHost(), toolCall, toolName)
+				const failure = unreadableCallFailure(toolCall)
 				await this.emitEvent({
 					type: 'tool_executing',
 					turnId: this.config.turnId,
@@ -1684,12 +1702,14 @@ export class ToolExecutor {
 					toolName,
 					result: message,
 					isError: true,
+					inputFailure: failure,
 				})
 				return {
 					toolCallId: toolCall.id,
 					toolName,
 					output: message,
 					isError: true,
+					inputFailure: failure,
 				}
 			}
 
@@ -1733,12 +1753,18 @@ export class ToolExecutor {
 					toolName,
 					result: message,
 					isError: true,
+					...(!truncationRepair && resolved.inputFailure
+						? { inputFailure: resolved.inputFailure }
+						: {}),
 				})
 				return {
 					toolCallId: toolCall.id,
 					toolName,
 					output: message,
 					isError: true,
+					...(!truncationRepair && resolved.inputFailure
+						? { inputFailure: resolved.inputFailure }
+						: {}),
 				}
 			}
 
@@ -1757,6 +1783,7 @@ export class ToolExecutor {
 				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
 			}
 			input = preOutcome.input
+			if (!truncationRepair && !preOutcome.modified) inputFailure = resolved.inputFailure
 		}
 
 		const activity = this.activityStore.create({
@@ -2006,6 +2033,10 @@ export class ToolExecutor {
 		// unusable: the model was told a successful call had gone wrong, and
 		// routed around it.
 		const effectiveIsError = !result.success || (postOverride?.isError ?? false)
+		const visibleInputFailure =
+			!result.success && !postOverride && !this.config.abortSignal.aborted
+				? inputFailure
+				: undefined
 
 		if (this.workingStateManager) {
 			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
@@ -2077,6 +2108,7 @@ export class ToolExecutor {
 				? this.resultPresentation(toolName, input, result)
 				: {}),
 			isError: effectiveIsError,
+			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
 			durationMs,
 			// Pre-truncation size, so a host can show "returned 2.1 MB" even
 			// though the model only ever saw a preview.
@@ -2099,6 +2131,7 @@ export class ToolExecutor {
 			toolName,
 			output,
 			isError: effectiveIsError,
+			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
 			// Rich content follows the override's own decision.
 			//
 			// An ERROR override drops it: the payload is no longer the tool's,
@@ -2601,7 +2634,11 @@ export class ToolExecutor {
 		toolCallId: string,
 		toolName: string,
 		input: unknown,
-		outcome: { kind: 'skip' | 'error'; output: string },
+		outcome: {
+			kind: 'skip' | 'error'
+			output: string
+			inputFailure?: ToolCallOutcome['inputFailure']
+		},
 	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
 			type: 'tool_call',
@@ -2632,12 +2669,14 @@ export class ToolExecutor {
 			toolName,
 			result: outcome.output,
 			isError: outcome.kind === 'error',
+			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 		})
 		return {
 			toolCallId,
 			toolName,
 			output: outcome.output,
 			isError: outcome.kind === 'error',
+			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 		}
 	}
 
@@ -2645,6 +2684,7 @@ export class ToolExecutor {
 		return this.recordSyntheticHookOutcome(call.toolCall.id, call.toolName, call.input, {
 			kind: call.isError ? 'error' : 'skip',
 			output: call.message,
+			...(call.inputFailure ? { inputFailure: call.inputFailure } : {}),
 		})
 	}
 

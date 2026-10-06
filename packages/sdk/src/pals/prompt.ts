@@ -21,9 +21,14 @@ export function palConversationGreeting(
 export interface PalSystemPromptOptions {
 	/** The pinned host-authored introduction, separate from recorded model messages. */
 	readonly greeting?: PalConversationGreeting
-	/** Describe only computer authority confirmed by the host for this turn. */
+	/** Describe host-observed presence separately from admitted execution authority. */
 	readonly computer?:
 		| { readonly status: 'ready'; readonly workingDirectory: string }
+		| {
+				/** A connected guest does not itself grant this conversation any computer tools. */
+				readonly status: 'connected'
+				readonly control: 'pal' | 'operator' | 'transitioning' | 'unavailable'
+		  }
 		| { readonly status: 'unavailable' }
 	/** Task guidance for a ready computer; ordinary chat keeps its conversational style. */
 	readonly workGuidance?: 'observe-verify' | 'basic'
@@ -53,9 +58,7 @@ export function buildPalSystemPrompt(
 			: undefined,
 		'You can chat as well as help with work. Be warm, natural and concise, like a helpful friend in a messaging conversation. Start in English until the user speaks or requests another language; then follow their language and conversational tone. Answer the actual message directly. Avoid repeated introductions, generic offers of help, unnecessary headings, status reports and task lists in ordinary chat.',
 		'Keep internal reasoning, raw tool results, command logs and implementation details out of public replies. Give a short, useful progress update when work needs it, and explain real failures clearly. Use readable names and links for outputs. Create files or artifacts for substantive deliverables when requested or useful, not for every chat reply; describe an output as created only after its tool result confirms it. Never claim to have called, sent a message, scheduled work, observed a screen or continued working in the background without a supported action and confirming evidence.',
-		options.computer?.status === 'ready'
-			? `Your own local virtual computer is available. File paths and terminal commands refer only to its filesystem at ${options.computer.workingDirectory}. Use computer_use for its desktop. Its current tool and control guards still apply.`
-			: 'Your virtual computer is not currently available to this conversation. You can still chat. Do not claim computer access, desktop observations, file changes or command execution until the host admits those capabilities.',
+		palComputerContext(options.computer),
 		"You do not inherit access to the user's host files, desktop, browser accounts or other Pals. A request to use a computer never authorizes a host fallback. Follow the capabilities and permissions actually supplied by this host.",
 		options.computer?.status === 'ready' && options.workGuidance !== 'basic'
 			? PAL_WORK_GUIDANCE
@@ -64,6 +67,23 @@ export function buildPalSystemPrompt(
 	]
 		.filter(Boolean)
 		.join('\n\n')
+}
+
+function palComputerContext(computer: PalSystemPromptOptions['computer']): string {
+	if (computer?.status === 'ready')
+		return `Your own local virtual computer is available. File paths and terminal commands refer only to its filesystem at ${computer.workingDirectory}. Use computer_use for its desktop. Its current tool and control guards still apply.`
+	if (computer?.status === 'connected') {
+		const control =
+			computer.control === 'operator'
+				? 'The user currently has control. You can still chat while they use it. They must return control before you can perform guest actions.'
+				: computer.control === 'transitioning'
+					? 'Its control is changing. You can still chat; wait for the host to confirm control before guest actions.'
+					: computer.control === 'pal'
+						? 'The host reports Pal control, but has not admitted computer actions to this conversation. You can still chat.'
+						: 'The host cannot currently confirm its input control. You can still chat.'
+		return `Your own local virtual computer is connected. ${control} This is host-observed connection metadata, not a screen observation or execution authority. No guest tools are admitted to this conversation. Do not claim desktop observations, file changes or command execution until the host admits those capabilities.`
+	}
+	return 'Your virtual computer is not currently available to this conversation. You can still chat. Do not claim computer access, desktop observations, file changes or command execution until the host admits those capabilities.'
 }
 
 /** Guidance shapes model decisions; tool permissions and evidence remain host-enforced. */

@@ -2424,13 +2424,14 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						}
 					}
 
-					await applyPendingResume(
+					const resumedBatch = await applyPendingResume(
 						pendingResume,
 						ctx.recorder,
 						toolExecutor,
 						recoveredResults,
 						pendingResumeAssistantId,
 					)
+					iterationOrchestrator.setResumedToolResults(resumedBatch.results)
 					yield* eventTranslator.drainPending()
 				}
 

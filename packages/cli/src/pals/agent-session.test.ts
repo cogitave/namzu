@@ -463,6 +463,7 @@ it('updates capabilities after explicit guest start, takeover and return without
 			{ text: 'Chat while you control the guest' },
 			{ toolCalls: [{ name: 'read', args: { path: 'notes.txt' } }] },
 			{ text: 'Guest control returned' },
+			{ text: 'Computer stopped; still chatting' },
 		],
 	})
 	const f = await fixture(provider, undefined, true)
@@ -492,13 +493,31 @@ it('updates capabilities after explicit guest start, takeover and return without
 		await f.runtime.takeOver(f.pal.id, 1)
 		await chat('Keep chatting')
 		expect(provider.requests[3]?.tools ?? []).toEqual([])
+		const operatorContext = JSON.stringify(provider.requests[3]?.messages)
+		expect(operatorContext).toContain('Your own local virtual computer is connected.')
+		expect(operatorContext).toContain('The user currently has control.')
+		expect(operatorContext).toContain('return control before you can perform guest actions')
+		expect(operatorContext).not.toContain('virtual computer is not currently available')
 		expect(f.original.sandbox.exec).toHaveBeenCalledTimes(1)
+		expect(f.original.sandbox.readFile).not.toHaveBeenCalled()
+		expect(f.original.sandbox.writeFile).not.toHaveBeenCalled()
+		expect(f.original.computerUseHost.execute).not.toHaveBeenCalled()
+		expect(f.runtime.computerControl(f.pal.id).mode).toBe('operator')
 		await f.runtime.returnControl(f.pal.id, 1)
 		await chat('Read guest notes')
 		expect(f.original.sandbox.readFile).toHaveBeenCalledTimes(1)
 		expect(provider.requests[0]?.tools ?? []).toEqual([])
 		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).toContain('bash')
 		expect(provider.requests[4]?.tools?.map((tool) => tool.function.name)).toContain('read')
+		expect(JSON.stringify(provider.requests[4]?.messages)).toContain(
+			'Your own local virtual computer is available.',
+		)
+		await f.runtime.stopComputer(f.pal.id)
+		await chat('Are you still connected?')
+		expect(provider.requests[6]?.tools ?? []).toEqual([])
+		const stoppedContext = JSON.stringify(provider.requests[6]?.messages)
+		expect(stoppedContext).toContain('virtual computer is not currently available')
+		expect(stoppedContext).not.toContain('Your own local virtual computer is connected.')
 		expect(f.acquire).toHaveBeenCalledTimes(1)
 		expect(f.runtime.busy(f.pal.id)).toBe(false)
 	} finally {

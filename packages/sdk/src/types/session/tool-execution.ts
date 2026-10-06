@@ -14,6 +14,8 @@ export interface CompletedToolRecord {
 	readonly toolName: string
 	readonly result: string
 	readonly isError: boolean
+	/** Trusted admission classification retained with the completion, absent in legacy records. */
+	readonly inputFailure?: 'invalid_json' | 'schema_validation' | 'input_truncated'
 }
 
 /** The latest recorded execution boundary of a tool call, not its inferred external effect. */

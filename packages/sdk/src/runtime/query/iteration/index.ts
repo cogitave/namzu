@@ -191,6 +191,8 @@ export class IterationOrchestrator {
 	/** One current input, independent of the compactable history array. */
 	private latestUserMessage: UserMessage | undefined
 	private initialDurableDelivered = false
+	private resumedToolResults: readonly ToolCallOutcome[] = []
+	private toolStructuredCounterHydrated = false
 
 	constructor(ctx: IterationContext) {
 		this.ctx = {
@@ -203,6 +205,11 @@ export class IterationOrchestrator {
 		ctx.checkpointMgr.setAnswerReviewAttemptsSource?.(() => this.answerReviewAttempts)
 		ctx.checkpointMgr.setStructuredReviewAttemptsSource?.(() => this.structuredReviewAttempts)
 		ctx.checkpointMgr.setNativeStructuredAttemptsSource?.(() => this.nativeStructuredAttempts)
+		ctx.checkpointMgr.setToolStructuredAttemptsSource?.(() =>
+			this.toolStructuredCounterHydrated
+				? this.toolStructuredAttempts
+				: (ctx.checkpointMgr.restoredToolStructuredAttempts ?? 0),
+		)
 		if (ctx.structuredOutput?.mode === 'native') {
 			const limit = ctx.structuredOutput.maxRetries
 			if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
@@ -311,6 +318,11 @@ export class IterationOrchestrator {
 		this.initialDurableDelivered = true
 	}
 
+	/** A restored pending batch must answer every owned call before consuming its correction. */
+	setResumedToolResults(results: readonly ToolCallOutcome[]): void {
+		this.resumedToolResults = results
+	}
+
 	async *runLoop(): AsyncGenerator<SessionEvent> {
 		const { turnConfig, recorder } = this.ctx
 		const { model } = turnConfig
@@ -322,6 +334,8 @@ export class IterationOrchestrator {
 		this.answerReviewAttempts = this.ctx.checkpointMgr.restoredAnswerReviewAttempts ?? 0
 		this.structuredReviewAttempts = this.ctx.checkpointMgr.restoredStructuredReviewAttempts ?? 0
 		this.nativeStructuredAttempts = this.ctx.checkpointMgr.restoredNativeStructuredAttempts ?? 0
+		this.toolStructuredAttempts = this.ctx.checkpointMgr.restoredToolStructuredAttempts ?? 0
+		this.toolStructuredCounterHydrated = true
 		if (!this.latestUserMessage) {
 			for (const message of recorder.messages) this.rememberUserMessage(message, false)
 		}
@@ -329,6 +343,9 @@ export class IterationOrchestrator {
 		// Only known post-checkpoint arrivals may supersede it, never an old
 		// retained user turn encountered while scanning restored history.
 		for (const message of this.ctx.resumedInput ?? []) this.rememberUserMessage(message)
+		const resumedToolResults = this.resumedToolResults
+		this.resumedToolResults = []
+		await this.recordToolStructuredFailure(resumedToolResults, recorder.currentIteration)
 
 		// What a recoverable failure pauses on when it lands before this
 		// loop wrote a checkpoint of its own: without it a 429 on the first
@@ -348,9 +365,6 @@ export class IterationOrchestrator {
 		// succeeded, which is the evidence that the turn is no longer stuck.
 		let overflowRelieved = false
 
-		const planSignal = yield* runPlanGate(this.ctx)
-		if (planSignal === 'stop') return
-
 		// A `finally` rather than a line at each exit, for the reason written
 		// beside `iterSpan.end()` below: this loop leaves by eight `break`s,
 		// two `return`s and a `throw`, and a rule every future edit has to
@@ -361,19 +375,17 @@ export class IterationOrchestrator {
 		// A `finally` also covers a generator abandoned by its consumer, which
 		// no post-loop block reaches.
 		try {
+			// Restored exhaustion precedes plan gates and any auxiliary inference.
+			if (this.stopForStructuredRetryExhaustion()) return
+			const planSignal = yield* runPlanGate(this.ctx)
+			if (planSignal === 'stop') return
 			while (true) {
 				if (this.ctx.abortController.signal.aborted) {
 					recorder.setStopReason('cancelled')
 					recorder.markCancelled()
 					break
 				}
-				if (
-					this.ctx.structuredOutput?.mode === 'native' &&
-					this.nativeStructuredAttempts > this.structuredOutputRetryLimit()
-				) {
-					recorder.setStopReason('structured_output_failed')
-					break
-				}
+				if (this.stopForStructuredRetryExhaustion()) break
 				if (
 					this.ctx.reviewAnswer &&
 					this.answerReviewAttempts > (this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
@@ -1219,6 +1231,21 @@ export class IterationOrchestrator {
 							continue
 						}
 
+						// Missing output and rejected model arguments share one durable
+						// correction allowance, including prose cut off by the output cap.
+						if (!forceFinalize && this.needsStructuredOutput()) {
+							await this.recordToolStructuredCorrection(iterationNum)
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								turnId: recorder.turnId,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							if (this.stopForStructuredRetryExhaustion()) break
+							continue
+						}
+
 						const hasContent =
 							response.message.content !== null && response.message.content.length > 0
 
@@ -1258,40 +1285,6 @@ export class IterationOrchestrator {
 							})
 							recorder.pushMessage(
 								createRuntimeContextMessage(AUTO_CONTINUATION_USER_MESSAGE, 'auto-continuation'),
-							)
-							await this.ctx.emitEvent({
-								type: 'iteration_completed',
-								turnId: recorder.turnId,
-								iteration: iterationNum,
-								hasToolCalls: false,
-							})
-							yield* this.ctx.drainPending()
-							continue
-						}
-
-						// The model tried to finish in prose while a structured
-						// output was demanded. Send it back with the schema error
-						// rather than returning an unusable result — this is the
-						// re-prompt half, and it is bounded so a model that cannot
-						// satisfy the schema fails loudly instead of looping.
-						if (!forceFinalize && this.needsStructuredOutput()) {
-							const attempt = ++this.structuredOutputAttempts
-							const limit = this.structuredOutputRetryLimit()
-							if (attempt > limit) {
-								this.ctx.log.warn('Structured output not produced within its retries', {
-									[NAMZU.TURN_ID]: recorder.turnId,
-									'namzu.runtime.attempts': attempt - 1,
-								})
-								recorder.setStopReason('structured_output_failed')
-								break
-							}
-							this.ctx.log.info('Re-prompting for structured output', {
-								[NAMZU.TURN_ID]: recorder.turnId,
-								'namzu.retry.attempt': attempt,
-								'namzu.runtime.limit': limit,
-							})
-							recorder.pushMessage(
-								createRuntimeContextMessage(STRUCTURED_OUTPUT_REPROMPT, 'structured-output'),
 							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
@@ -1479,6 +1472,10 @@ export class IterationOrchestrator {
 					if (reviewOutcome.decision === 'stop') {
 						return
 					}
+					const needsCorrection = await this.recordToolStructuredFailure(
+						reviewOutcome.results,
+						iterationNum,
+					)
 
 					// A tool asked for a person. The whole batch is committed; the
 					// turn parks here rather than asking the model what to do about
@@ -1488,6 +1485,17 @@ export class IterationOrchestrator {
 					}
 
 					if (reviewOutcome.decision === 'rejected') {
+						continue
+					}
+					if (needsCorrection) {
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							turnId: recorder.turnId,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						if (this.stopForStructuredRetryExhaustion()) break
 						continue
 					}
 
@@ -2030,8 +2038,8 @@ export class IterationOrchestrator {
 		}
 	}
 
-	/** Turns spent asking the model again for a valid structured output. */
-	private structuredOutputAttempts = 0
+	/** Model responses needing a tool-mode schema correction, separate from host reviews. */
+	private toolStructuredAttempts = 0
 	private nativeStructuredAttempts = 0
 	private structuredOutputDone = false
 	private pendingStructuredOutput: unknown
@@ -2039,6 +2047,58 @@ export class IterationOrchestrator {
 
 	private structuredOutputRetryLimit(): number {
 		return this.ctx.structuredOutput?.maxRetries ?? DEFAULT_STRUCTURED_OUTPUT_RETRIES
+	}
+
+	private stopForStructuredRetryExhaustion(): boolean {
+		const { recorder, abortController } = this.ctx
+		if (abortController.signal.aborted) {
+			recorder.setStopReason('cancelled')
+			recorder.markCancelled()
+			return true
+		}
+		if (!this.needsStructuredOutput()) return false
+		const attempts =
+			this.ctx.structuredOutput?.mode === 'native'
+				? this.nativeStructuredAttempts
+				: this.toolStructuredAttempts
+		if (attempts === 0 || !(attempts > this.structuredOutputRetryLimit())) return false
+		recorder.setStopReason('structured_output_failed')
+		return true
+	}
+
+	private async recordToolStructuredFailure(
+		results: readonly ToolCallOutcome[],
+		iteration: number,
+	): Promise<boolean> {
+		if (
+			!this.needsStructuredOutput() ||
+			this.ctx.structuredOutput?.mode === 'native' ||
+			this.ctx.abortController.signal.aborted ||
+			!results.some(
+				(result) => result.toolName === STRUCTURED_OUTPUT_TOOL_NAME && result.inputFailure,
+			)
+		)
+			return false
+		// One model response consumes one correction, even with several invalid calls.
+		await this.recordToolStructuredCorrection(iteration)
+		return true
+	}
+
+	private async recordToolStructuredCorrection(iteration: number): Promise<void> {
+		this.toolStructuredAttempts++
+		const { recorder } = this.ctx
+		recorder.pushMessage(
+			createRuntimeContextMessage(STRUCTURED_OUTPUT_REPROMPT, 'structured-output'),
+		)
+		// Commit the full answered batch, feedback and allowance before another request
+		// or handoff. A failed checkpoint must not buy another correction opportunity.
+		const checkpoint = await this.ctx.checkpointMgr.create(recorder, iteration)
+		await this.ctx.emitEvent({
+			type: 'checkpoint_created',
+			turnId: recorder.turnId,
+			checkpointId: checkpoint.id,
+			iteration,
+		})
 	}
 
 	/** True while a structured output was demanded and has not arrived. */

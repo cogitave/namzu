@@ -60,6 +60,36 @@ describe('Pal conversational system context', () => {
 		expect(prompt).toContain('Do not claim computer access')
 	})
 
+	it('knows its connected computer while the user controls it without claiming guest authority', () => {
+		const prompt = buildPalSystemPrompt(
+			{ name: 'Sıtkı', purpose: '' },
+			{ computer: { status: 'connected', control: 'operator' } },
+		)
+		expect(prompt).toContain('Your own local virtual computer is connected.')
+		expect(prompt).toContain('The user currently has control.')
+		expect(prompt).toContain('You can still chat while they use it.')
+		expect(prompt).toContain('They must return control before you can perform guest actions.')
+		expect(prompt).toContain('not a screen observation or execution authority')
+		expect(prompt).toContain('No guest tools are admitted')
+		expect(prompt).not.toContain('virtual computer is not currently available')
+		expect(prompt).not.toContain('observe, act, compare and correct loop')
+	})
+
+	it.each([
+		['transitioning', 'Its control is changing.'],
+		['unavailable', 'cannot currently confirm its input control'],
+		['pal', 'has not admitted computer actions'],
+	] as const)('describes connected %s control without admitting actions', (control, message) => {
+		const prompt = buildPalSystemPrompt(
+			{ name: 'Pal', purpose: '' },
+			{ computer: { status: 'connected', control } },
+		)
+		expect(prompt).toContain('Your own local virtual computer is connected.')
+		expect(prompt).toContain(message)
+		expect(prompt).toContain('No guest tools are admitted')
+		expect(prompt).not.toContain('Your own local virtual computer is available.')
+	})
+
 	it('scopes common work discipline to an admitted computer, with a compatible basic optout', () => {
 		const definition = { name: 'Pal', purpose: '' }
 		const computer = {

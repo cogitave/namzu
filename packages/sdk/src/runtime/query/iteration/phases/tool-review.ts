@@ -98,9 +98,13 @@ export async function* runToolReview(
 		return finish('executed')
 	}
 
-	const prepareForReview = async (): Promise<PreparedToolBatch | undefined> => {
+	const prepareForReview = async (
+		hostModifiedCallIds?: ReadonlySet<string>,
+	): Promise<PreparedToolBatch | undefined> => {
 		const prepare = ctx.toolExecutor.prepareBatchForReview
-		return typeof prepare === 'function' ? prepare.call(ctx.toolExecutor, response) : undefined
+		return typeof prepare === 'function'
+			? prepare.call(ctx.toolExecutor, response, hostModifiedCallIds)
+			: undefined
 	}
 	let preparedBatch = await prepareForReview()
 	const summariesFor = (prepared: PreparedToolBatch | undefined): ToolCallSummary[] => {
@@ -654,7 +658,7 @@ export async function* runToolReview(
 				preparedBatch =
 					preparedBatch && typeof reprepare === 'function'
 						? await reprepare.call(ctx.toolExecutor, response, preparedBatch, modifiedCallIds)
-						: await prepareForReview()
+						: await prepareForReview(modifiedCallIds)
 				toolCallSummaries = summariesFor(preparedBatch)
 			}
 			if (ctx.verificationGate && modifiedCallIds.size > 0) {

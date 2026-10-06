@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "result": "passed",
+  "verifiedAt": "2026-10-06T10:33:33.769Z",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v22.20.0",
+  "scope": "Fresh isolated native Windows built consumer graph and real query loop with mock inference only; not live deployment.",
+  "snapshot": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-presence-tool-retry-20261006",
+  "manifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+  "packageCount": 130,
+  "copiedWorkspacePackages": [
+    "@namzu/cli",
+    "@namzu/anthropic",
+    "@namzu/sdk",
+    "@namzu/browser",
+    "@namzu/computer-use",
+    "@namzu/deepseek",
+    "@namzu/files",
+    "@namzu/ollama",
+    "@namzu/openai",
+    "@namzu/openrouter",
+    "@namzu/sandbox",
+    "@namzu/google",
+    "@namzu/zen"
+  ],
+  "verifiedLinks": 225,
+  "sdkUsers": 11,
+  "singleSdkRoot": true,
+  "sdkEntry": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-presence-tool-retry-20261006\\packages\\p22\\dist\\index.js",
+  "zodEntry": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-presence-tool-retry-20261006\\packages\\p36\\index.cjs",
+  "cliHelp": {
+    "exitCode": 0,
+    "usagePresent": true,
+    "isolatedNamzuHome": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-native-consumer-presence-tool-retry-20261006\\probe-home"
+  },
+  "structuredOutputProbe": {
+    "mode": "tool",
+    "provider": "MockLLMProvider",
+    "maxRetries": 0,
+    "requests": 1,
+    "stopReason": "structured_output_failed",
+    "structuredValuePublished": false,
+    "checkpoints": 1,
+    "review": {
+      "structuredAttempts": 0,
+      "answerAttempts": 0,
+      "nativeStructuredAttempts": 0,
+      "toolStructuredAttempts": 1
+    },
+    "toolResults": 1,
+    "toolResultIsError": true,
+    "toolInputFailure": "schema_validation"
+  },
+  "productionFiles": [
+    {
+      "label": "sdk/pals/prompt",
+      "relative": "packages\\p22\\dist\\pals\\prompt.js",
+      "sha256": "0f507ad9599b9da40f31356754adda15630d6ca5369accad346b7d4a1477d997"
+    },
+    {
+      "label": "sdk/query/index",
+      "relative": "packages\\p22\\dist\\runtime\\query\\index.js",
+      "sha256": "229ac5d942ef1c57bde6df1b4656a890e5f67ee0d2fe2fab9df440b9cc775a77"
+    },
+    {
+      "label": "sdk/query/iteration",
+      "relative": "packages\\p22\\dist\\runtime\\query\\iteration\\index.js",
+      "sha256": "58965e361a4cca41f293f527804184a165c6b9ee06068a3542b04ebdbe372524"
+    },
+    {
+      "label": "cli/pals/agent-session",
+      "relative": "packages\\p0\\dist\\pals\\agent-session.js",
+      "sha256": "d78260f4241a2b86a4a7b603636eac2b18eb4f5af3486a7098a7ff228a05bdcd"
+    }
+  ],
+  "modelRequestsToRealProviders": 0,
+  "networkCalls": 0,
+  "packageInstallCalls": 0,
+  "activeRuntimeFilesChanged": 0,
+  "launchConfigurationChanged": false,
+  "livePalActions": 0,
+  "liveProcessRestartsOrCloses": 0
+}

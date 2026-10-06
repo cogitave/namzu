@@ -1177,7 +1177,12 @@ export interface PreparedToolExecution {
 /** Result of decoding a tool input at the execution boundary. */
 export type ToolPreparationResult =
 	| { readonly success: true; readonly prepared: PreparedToolExecution }
-	| { readonly success: false; readonly result: ToolExecutionResult }
+	| {
+			readonly success: false
+			readonly result: ToolExecutionResult
+			/** Zod rejected the input; other preparation failures leave this absent. */
+			readonly inputFailure?: 'schema_validation'
+	  }
 
 export * from './repair.js'
 

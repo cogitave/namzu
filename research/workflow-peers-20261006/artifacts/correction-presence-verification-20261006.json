@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-06T10:34:40.554438+00:00",
+  "workingTreeBasedOn": "bb0ad2eac",
+  "scope": "Tool-mode structured correction accounting and Pal connected-computer awareness; frozen production builds and full workspace checks",
+  "externalModelRequests": 0,
+  "liveRuntimeActivated": false,
+  "livePalActions": 0,
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm -r build",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm -r --no-sort test",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:fences",
+      "exitCode": 0
+    }
+  ],
+  "testSuites": {
+    "packages/computer-use": {
+      "Test Files": "17 passed (17)",
+      "Tests": "165 passed (165)"
+    },
+    "packages/browser": {
+      "Test Files": "9 passed | 2 skipped (11)",
+      "Tests": "133 passed | 42 skipped (175)"
+    },
+    "packages/ag-ui": {
+      "Test Files": "8 passed (8)",
+      "Tests": "189 passed (189)"
+    },
+    "packages/desktop": {
+      "Test Files": "67 passed (67)",
+      "Tests": "620 passed (620)"
+    },
+    "packages/live": {
+      "Test Files": "3 passed (3)",
+      "Tests": "25 passed (25)"
+    },
+    "packages/lsp": {
+      "Test Files": "2 passed (2)",
+      "Tests": "27 passed (27)"
+    },
+    "packages/files": {
+      "Test Files": "3 passed | 1 skipped (4)",
+      "Tests": "48 passed | 11 skipped (59)"
+    },
+    "packages/providers/anthropic": {
+      "Test Files": "21 passed | 3 skipped (24)",
+      "Tests": "259 passed | 44 skipped (303)"
+    },
+    "packages/providers/bedrock": {
+      "Test Files": "13 passed (13)",
+      "Tests": "127 passed (127)"
+    },
+    "packages/providers/deepseek": {
+      "Test Files": "6 passed (6)",
+      "Tests": "44 passed (44)"
+    },
+    "packages/providers/google": {
+      "Test Files": "4 passed (4)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/http": {
+      "Test Files": "9 passed (9)",
+      "Tests": "83 passed | 10 skipped (93)"
+    },
+    "packages/providers/lmstudio": {
+      "Test Files": "5 passed (5)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/ollama": {
+      "Test Files": "8 passed (8)",
+      "Tests": "36 passed (36)"
+    },
+    "packages/providers/openrouter": {
+      "Test Files": "12 passed (12)",
+      "Tests": "80 passed (80)"
+    },
+    "packages/providers/openai": {
+      "Test Files": "11 passed (11)",
+      "Tests": "129 passed (129)"
+    },
+    "packages/providers/zen": {
+      "Test Files": "17 passed (17)",
+      "Tests": "261 passed (261)"
+    },
+    "packages/telemetry": {
+      "Test Files": "4 passed (4)",
+      "Tests": "33 passed (33)"
+    },
+    "packages/sandbox": {
+      "Test Files": "103 passed (103)",
+      "Tests": "1857 passed | 3 skipped (1860)"
+    },
+    "packages/sdk": {
+      "Test Files": "907 passed (907)",
+      "Tests": "10243 passed (10243)"
+    },
+    "packages/cli": {
+      "Test Files": "557 passed (557)",
+      "Tests": "5157 passed | 6 skipped (5163)"
+    }
+  },
+  "documentation": {
+    "okfConceptBundleFiles": 143,
+    "compiledFences": 115,
+    "compiledPackageReadmes": 21,
+    "declaredSketchFencesSkipped": 15
+  },
+  "nativeWindowsProofs": [
+    "research/workflow-peers-20261006/pal-computer-presence-native.json",
+    "research/workflow-peers-20261006/artifacts/native-staged-runtime-probe-20261006.json",
+    "research/workflow-peers-20261006/artifacts/pal-computer-presence-live-20261006.json"
+  ],
+  "productionSourceSha256": {
+    "packages/sdk/src/runtime/query/iteration/index.ts": "34e5b3840b8b7ac7c94d2a3b69229b4dc0c66923141fbebc8a734eb9e524bb57",
+    "packages/sdk/src/runtime/query/checkpoint.ts": "7e4fe1366e2ac07c0514f8fa8f6e385eb9b7de6ce0554256416aff2d11aa08b9",
+    "packages/sdk/src/runtime/query/executor.ts": "40ab3fd80ef87760c3dfdeaee8b4f93c23186ddf39fd47ddff474e756de12578",
+    "packages/sdk/src/runtime/query/executor/tool-call-admission.ts": "ff2692ea878a00d43410ea090eb3bfd18d759b302ebcaa97ddc5f00dc6284fce",
+    "packages/sdk/src/runtime/query/resume-pending.ts": "194a5619ed8503f63da6026f0510e9b100c966da63d371d1ed45e61bbe205e59",
+    "packages/sdk/src/runtime/query/tool-executions.ts": "fc9f172dde744a78b06683900460cdc2cffc6ec790eed50c40bffeb061ff290d",
+    "packages/sdk/src/toolsets/manager.ts": "32945d960e5034611ea510e401eb74420a258c9f1e2e140d96864e7653340564",
+    "packages/sdk/src/types/session/checkpoint.ts": "a56c1415c63a751904aaac3efc11a412f063123c17d3b43a14145b28f3a2af8b",
+    "packages/sdk/src/types/session/events.ts": "8eade064e14440ba23be74aebff16bc5e81febd5b86c7d26f08f451f2c3b01f6",
+    "packages/sdk/src/types/session/records.ts": "20f14e82dc511587e3256673bcf34e0a923b4029a7d20a2c24f70fe47a46b32b",
+    "packages/sdk/src/pals/prompt.ts": "f62edc6788d93660e680aae524c8af30e6a8c9920b7212eedd7e2a0853544cd1",
+    "packages/cli/src/pals/agent-session.ts": "c1389387e079b59d877fed270b6df249f98ea870eace9fe5351bf84450928b25"
+  },
+  "remainingContracts": [
+    "Async tool-input validation requires a separate cancellation-aware preparation API.",
+    "Malformed tool-mode maxRetries rejection needs a separate compatibility decision.",
+    "A standalone output-tool hook skip needs an explicit non-candidate outcome."
+  ],
+  "activationBoundary": "Current native ACP processes cache old modules. Approved normal shutdown/relaunch retires current owned Pal computer lifetimes; staged files do not hot-activate the running process."
+}
