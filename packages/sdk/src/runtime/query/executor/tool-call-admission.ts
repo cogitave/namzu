@@ -5,6 +5,7 @@ import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolCallRepair, ToolCallRepairReason } from '../../../types/tool/repair.js'
+import { awaitWithAbort } from '../../../utils/await-with-abort.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
 import type {
@@ -71,18 +72,23 @@ export async function runPreToolHook(
 	input: unknown,
 	signal: AbortSignal = host.config.abortSignal,
 ): Promise<PreToolHookOutcome> {
+	signal.throwIfAborted()
 	if (!host.config.pluginManager) return { kind: 'continue', input, modified: false }
-	const results = await host.config.pluginManager.executeHooks(
-		'pre_tool_use',
-		{
-			sessionId: host.config.sessionId,
-			turnId: host.config.turnId,
-			toolName,
-			toolInput: input,
-			signal,
-		},
-		host.emitEvent,
+	const results = await awaitWithAbort(
+		host.config.pluginManager.executeHooks(
+			'pre_tool_use',
+			{
+				sessionId: host.config.sessionId,
+				turnId: host.config.turnId,
+				toolName,
+				toolInput: input,
+				signal,
+			},
+			host.emitEvent,
+		),
+		signal,
 	)
+	signal.throwIfAborted()
 	return interpretPreToolResults(toolName, input, results)
 }
 
@@ -91,11 +97,14 @@ export async function prepareDirectCall(
 	toolCall: ToolCall,
 	providerInput = true,
 ): Promise<PreparedDirectCall> {
+	const signal = host.config.abortSignal
+	signal.throwIfAborted()
 	let toolName = toolCall.function.name
 	const truncationRepair =
 		toolCall.metadata?.inputTruncated === true
 			? await repairTruncatedCall(host, toolCall, toolName)
 			: null
+	signal.throwIfAborted()
 	if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
 		return {
 			kind: 'synthetic',
@@ -108,7 +117,7 @@ export async function prepareDirectCall(
 		}
 	}
 
-	const prepare = host.config.tools.prepareExecution
+	const prepare = host.config.tools.prepareExecutionAsync ?? host.config.tools.prepareExecution
 	const executePrepared = host.config.tools.executePrepared
 	if (typeof prepare !== 'function' || typeof executePrepared !== 'function') {
 		const resolved = await resolveCall(
@@ -175,8 +184,9 @@ export async function prepareDirectCall(
 	let raw = truncationRepair?.arguments ?? toolCall.function.arguments
 	toolName = truncationRepair?.toolName ?? toolName
 	let repairUsed = truncationRepair !== null
-	let preparation: ReturnType<typeof prepare>
+	let preparation: Awaited<ReturnType<typeof prepare>>
 	for (;;) {
+		signal.throwIfAborted()
 		let parsed: unknown
 		try {
 			parsed = parseArguments(raw)
@@ -207,8 +217,10 @@ export async function prepareDirectCall(
 		}
 
 		try {
-			preparation = prepare.call(host.config.tools, toolName, parsed)
+			preparation = await prepare.call(host.config.tools, toolName, parsed, signal)
+			signal.throwIfAborted()
 		} catch (err) {
+			signal.throwIfAborted()
 			// A name the registry does not hold gets the step's list, not the
 			// registry's "Not found", which lists everything it holds.
 			const message = isUnregistered(host, toolName)
@@ -227,7 +239,14 @@ export async function prepareDirectCall(
 				raw = repair.arguments
 				continue
 			}
-			return { kind: 'synthetic', toolCall, toolName, input: parsed, message, isError: true }
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: parsed,
+				message,
+				isError: true,
+			}
 		}
 
 		if (preparation.success) break
@@ -272,7 +291,8 @@ export async function prepareDirectCall(
 	}
 
 	if (preOutcome.modified) {
-		const modified = prepare.call(host.config.tools, toolName, preOutcome.input)
+		const modified = await prepare.call(host.config.tools, toolName, preOutcome.input, signal)
+		signal.throwIfAborted()
 		if (!modified.success) {
 			return {
 				kind: 'synthetic',
@@ -363,8 +383,18 @@ export async function resolveCall(
 	host: ToolAdmissionHost,
 	toolCall: ToolCall,
 ): Promise<
-	| { ok: true; toolName: string; input: unknown; inputFailure?: 'schema_validation' }
-	| { ok: false; toolName: string; message: string; inputFailure?: 'invalid_json' }
+	| {
+			ok: true
+			toolName: string
+			input: unknown
+			inputFailure?: 'schema_validation'
+	  }
+	| {
+			ok: false
+			toolName: string
+			message: string
+			inputFailure?: 'invalid_json'
+	  }
 > {
 	let toolName = toolCall.function.name
 	let raw = toolCall.function.arguments
@@ -425,6 +455,7 @@ export async function repairTruncatedCall(
 	toolCall: ToolCall,
 	toolName: string,
 ): Promise<ToolCallRepair | null> {
+	host.config.abortSignal.throwIfAborted()
 	if (!host.config.repairToolCall) return null
 
 	// Present the PARTIAL buffer, not the normalized `"{}"` — a repairer
@@ -434,7 +465,10 @@ export async function repairTruncatedCall(
 		host,
 		{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
 		toolName,
-		{ reason: 'invalid_json', message: unreadableToolCallMessage(host, toolCall, toolName) },
+		{
+			reason: 'invalid_json',
+			message: unreadableToolCallMessage(host, toolCall, toolName),
+		},
 	)
 	if (repair) {
 		// Unreadable is not the same as cut off: the reason says which.
@@ -510,24 +544,33 @@ async function requestRepair(
 	toolName: string,
 	failure: { reason: ToolCallRepairReason; message: string },
 ): Promise<ToolCallRepair | null> {
+	host.config.abortSignal.throwIfAborted()
 	const repairToolCall = host.config.repairToolCall
 	if (!repairToolCall) return null
 
 	const tool = host.config.tools.get(toolName)
 	try {
-		return await repairToolCall({
-			toolCall,
-			reason: failure.reason,
-			message: failure.message,
-			...(tool
-				? {
-						tool,
-						jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema),
-					}
-				: {}),
-			availableTools: host.config.tools.listNames(),
-		})
+		const repair = await awaitWithAbort(
+			Promise.resolve(
+				repairToolCall({
+					toolCall,
+					reason: failure.reason,
+					message: failure.message,
+					...(tool
+						? {
+								tool,
+								jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema),
+							}
+						: {}),
+					availableTools: host.config.tools.listNames(),
+				}),
+			),
+			host.config.abortSignal,
+		)
+		host.config.abortSignal.throwIfAborted()
+		return repair
 	} catch (err) {
+		host.config.abortSignal.throwIfAborted()
 		// A broken repairer must not turn a recoverable tool error into a
 		// failed turn: the original error is still a perfectly good answer
 		// to give the model.

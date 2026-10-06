@@ -168,7 +168,12 @@ export class IterationOrchestrator {
 	private projectObservations(messages: Message[]): Message[] {
 		const config = this.ctx.compactionConfig
 		return config && config.strategy !== 'disabled' && config.deduplicateObservations !== false
-			? projectObservationContext(messages, this.ctx.tools, config.preserveToolResultsFrom)
+			? projectObservationContext(
+					messages,
+					this.ctx.tools,
+					config.preserveToolResultsFrom,
+					(call, message) => this.ctx.toolExecutor.recordedObservationKey(call, message),
+				)
 			: messages
 	}
 	/** Rich tool blocks already reported; durable history is scanned every turn. */

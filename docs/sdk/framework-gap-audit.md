@@ -230,11 +230,16 @@ sibling results and correction feedback are saved before another request;
 exhausted restores make no new model request. The default remains two corrections.
 See [the correction contract](structured-output-review.md#tool-mode-schema-corrections).
 
-Async Zod refinements accepted in native mode still fail in synchronous tool
-preparation. Follow-up work must add cancellation-aware async preparation while
-preserving the existing synchronous API and authorization boundary. Observation
-deduplication also reparses earlier tool input; the design must prevent an
-effectful async schema from being restarted there. Consistent
+The next correction adds cancellation-aware
+[async tool preparation](toolsets.md#the-execution-pipeline), preserving the
+synchronous API and authorization on the normalized execution value. Direct,
+nested and structured tool calls accept async refinements and JSON-safe
+transforms; retries reuse their preparation and actual rewrites are revalidated.
+[Observation deduplication](salience-working-set.md#exact-repeated-observations-in-the-active-request)
+uses ephemeral actual-execution evidence and never restarts historical schema
+callbacks. Unproven historical or recovered results remain full. Cancellation
+ends the wait and prevents late admission, but cannot terminate uncooperative
+validator work. Consistent
 rejection of malformed tool-mode `maxRetries` settings needs a separate
 compatibility decision; this correction does not narrow previously accepted
 configuration values.

@@ -25,6 +25,7 @@ import type {
 	ToolTierConfig,
 	ToolsView,
 } from '../types/tool/index.js'
+import { awaitWithAbort } from '../utils/await-with-abort.js'
 import { toErrorMessage } from '../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../utils/json-snapshot.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
@@ -670,6 +671,50 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	prepareExecution(toolName: string, rawInput: unknown): ToolPreparationResult {
 		const tool = this.getOrThrow(toolName)
 		const parseResult = tool.inputSchema.safeParse(rawInput)
+		return this.finalizePreparation(tool, rawInput, parseResult)
+	}
+
+	/**
+	 * Decode an input once, including asynchronous schema refinements and transforms.
+	 * JSON-compatible raw values are detached synchronously before validation can
+	 * yield. Non-JSON host values retain the schema's input semantics; callers must
+	 * not mutate them while preparation is pending. The prepared output must still
+	 * be immutable JSON, as with `prepareExecution`.
+	 * Cancellation stops waiting and prevents publication, but cannot stop schema
+	 * work that does not cooperate with cancellation.
+	 */
+	async prepareExecutionAsync(
+		toolName: string,
+		rawInput: unknown,
+		signal?: AbortSignal,
+	): Promise<ToolPreparationResult> {
+		signal?.throwIfAborted()
+		const tool = this.getOrThrow(toolName)
+		let validationInput = rawInput
+		try {
+			validationInput = clonePreparedInput(rawInput, false, '$', true)
+		} catch {
+			// A schema may normalize a Date or another host value into JSON.
+			// Raw input safety must not narrow that existing normalization domain.
+		}
+		signal?.throwIfAborted()
+		const asyncParse = tool.inputSchema.safeParseAsync
+		const operation =
+			typeof asyncParse === 'function'
+				? asyncParse.call(tool.inputSchema, validationInput)
+				: Promise.resolve(tool.inputSchema.safeParse(validationInput))
+		const parseResult = await awaitWithAbort(operation, signal)
+		signal?.throwIfAborted()
+		return this.finalizePreparation(tool, validationInput, parseResult, signal)
+	}
+
+	private finalizePreparation(
+		tool: ToolDefinition,
+		rawInput: unknown,
+		parseResult: ReturnType<ToolDefinition['inputSchema']['safeParse']>,
+		signal?: AbortSignal,
+	): ToolPreparationResult {
+		const toolName = tool.name
 		if (!parseResult.success) {
 			return {
 				success: false,
@@ -684,6 +729,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			retainedInput = clonePreparedInput(parseResult.data, false)
 			reviewInput = clonePreparedInput(retainedInput, true)
 		} catch (err) {
+			signal?.throwIfAborted()
 			const message = `Tool "${toolName}" produced an input that cannot be safely prepared for review and execution: ${toErrorMessage(err)}`
 			this.log.error('Prepared tool input could not be detached for review and execution', {
 				'namzu.tool.name': toolName,
@@ -695,6 +741,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			}
 		}
 
+		signal?.throwIfAborted()
 		const prepared = Object.freeze({ toolName, input: reviewInput })
 		this.preparations.set(prepared, { tool, input: retainedInput })
 		return { success: true, prepared }
@@ -729,7 +776,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	): Promise<ToolExecutionResult> {
 		let preparation: ToolPreparationResult
 		try {
-			preparation = this.prepareExecution(toolName, rawInput)
+			preparation = await this.prepareExecutionAsync(toolName, rawInput, context.abortSignal)
+			context.abortSignal?.throwIfAborted()
 		} catch (err) {
 			return this.rejectPreparationWithClosedSpan(toolName, context, err)
 		}

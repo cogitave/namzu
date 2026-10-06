@@ -239,7 +239,7 @@ The authorization gate reads that same source for `by_source` rules; see
 
 ### The execution pipeline
 
-`prepareExecution` / `executePrepared` / `execute` are the decode-once
+`prepareExecution` / `prepareExecutionAsync` / `executePrepared` / `execute` are the decode-once
 preparation pipeline: a frozen review projection and a retained execution
 value in a `WeakMap`, ordered checks (availability → `allowedTools` →
 plan-mode read-only gate → execute + guardrail screening, with the
@@ -247,6 +247,27 @@ halt/fail distinction and the explicit parent span for async-generator
 tracing). Availability comes from the derivation above; the source comes
 from `sourceOf(name)` for the plan-mode read-only gate and the result
 screen's `provenance` context.
+
+`prepareExecution(name, rawInput)` remains synchronous. The additive
+`prepareExecutionAsync(name, rawInput, signal?)` returns
+`Promise<ToolPreparationResult>` and supports asynchronous schema refinements,
+defaults and transforms with one parse per candidate. The query executor and
+`execute` use async preparation for direct and nested calls. An execution retry
+reuses its owned preparation; a repair or actual host input rewrite is a new
+candidate and is validated again before review.
+
+JSON-compatible raw inputs are detached before the first await; the final
+normalized value must still be JSON-safe and the review projection is frozen.
+Non-JSON host inputs such as a `Date` remain available to schemas which normalize
+them into JSON. The caller must not mutate these non-JSON inputs while preparation
+is pending. A token remains bound to its manager and exact tool definition;
+replacement or removal cannot inherit its approval.
+
+Cancellation ends the wait and prevents a late validator from publishing a
+preparation or proceeding to hooks, review or execution. Validators are trusted
+host code and run before authorization, which needs their normalized value.
+Keep them free of external effects or make their work cooperate with the host's
+cancellation signal: the runtime cannot undo or terminate arbitrary schema work.
 
 `ToolManager` is exported as an advanced API; `query()` builds one per turn
 from the `toolsets` it is given, combined with its own generated `runtime`

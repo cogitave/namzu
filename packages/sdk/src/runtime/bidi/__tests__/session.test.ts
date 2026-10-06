@@ -388,13 +388,13 @@ describe('a session with no turn boundary', () => {
 	})
 
 	it('caller cancellation closes once, aborts the tool context, and publishes no late terminal event', async () => {
-		let toolSignal: AbortSignal | undefined
+		const toolEntered = deferred<AbortSignal>()
 		const toolFinished = deferred<void>()
 		const tools = [] as Toolset[]
 		tools.push(
 			testToolset(
 				slowTool('lookup', toolFinished.promise, (signal) => {
-					toolSignal = signal
+					toolEntered.resolve(signal)
 				}),
 			),
 		)
@@ -419,9 +419,10 @@ describe('a session with no turn boundary', () => {
 		session.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
 		const started = await collectEvents(run, 1)
 		expect(started[0]?.type).toBe('tool_started')
+		const toolSignal = await toolEntered.promise
 
 		controller.abort(new Error('caller stopped'))
-		await vi.waitFor(() => expect(toolSignal?.aborted).toBe(true))
+		expect(toolSignal.aborted).toBe(true)
 		toolFinished.resolve()
 		await run.close()
 		await new Promise((resolve) => setImmediate(resolve))
@@ -550,12 +551,12 @@ describe('a session with no turn boundary', () => {
 
 	it('far-side close revokes a held tool context without redundantly closing the provider', async () => {
 		const never = new Promise<void>(() => undefined)
-		let toolSignal: AbortSignal | undefined
+		const toolEntered = deferred<AbortSignal>()
 		const tools = [] as Toolset[]
 		tools.push(
 			testToolset(
 				slowTool('lookup', never, (signal) => {
-					toolSignal = signal
+					toolEntered.resolve(signal)
 				}),
 			),
 		)
@@ -577,6 +578,7 @@ describe('a session with no turn boundary', () => {
 		session.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
 		const started = await collectEvents(run, 1)
 		expect(started[0]?.type).toBe('tool_started')
+		const toolSignal = await toolEntered.promise
 
 		session.push({ type: 'closed', reason: 'peer left' })
 		const rest: BidiTurnEvent[] = []
@@ -585,7 +587,7 @@ describe('a session with no turn boundary', () => {
 		expect(rest).toEqual([
 			{ type: 'closed', sessionId: run.sessionId, turnId: run.turnId, reason: 'peer left' },
 		])
-		expect(toolSignal?.aborted).toBe(true)
+		expect(toolSignal.aborted).toBe(true)
 		expect(closeCalls).toBe(0)
 	})
 

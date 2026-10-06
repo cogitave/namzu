@@ -153,13 +153,26 @@ not apply this policy. Set `deduplicateObservations: false` in the SDK compactio
 configuration to keep the previous request representation.
 
 For a successful text result of at least 1,024 characters, the kernel requires
-an explicitly read-only, non-destructive tool, valid input, identical tool name,
-byte-identical argument string and byte-identical output. It keeps the first
+an explicitly read-only, non-destructive tool classified from its actual prepared
+input after successful execution, identical tool name,
+byte-identical argument string, identical normalized execution input and
+byte-identical output. It keeps the first
 full result and substitutes a short reference for subsequent duplicates only
 when that reduces estimated tokens. All call/result pairs remain. Errors,
 ambiguous IDs, rich blocks, retained messages and `preserveToolResultsFrom`
 results are left intact. Unknown or failing tool classification leaves evidence
 unchanged. The test is deliberately stricter than semantic equivalence.
+
+Classification is ephemeral evidence owned by the current query executor. It is
+bound to the exact call name, raw argument bytes, final model-visible result and
+tool-definition identity. The recorded normalized input distinguishes calls
+which used different transformed or rewritten values despite identical raw
+arguments and result text. Projection does not rerun schemas, defaults, transforms
+or classification predicates. Synthetic hook skips and denied or cancelled calls
+do not acquire this evidence. Historical or recovered results lacking it remain
+full, even when their metadata resembles a read-only operation. Removing or
+replacing a tool invalidates its classification. This may retain more context
+after a new turn or resume; the existing context and compaction limits still apply.
 
 References are computed anew from surviving canonical history each request.
 If compaction removes or clears the first result, another surviving full copy

@@ -82,6 +82,14 @@ Tool mode remains the default. [Native mode](native-structured-output.md) uses
 provider response schemas with local validation and the same host reviewer.
 Existing prose `reviewAnswer` behavior is unchanged.
 
+Tool mode accepts asynchronous Zod refinements and JSON-safe transforms through
+[async input preparation](tool-execution.md#preparing-asynchronous-input), as
+native mode does. The schema runs once per candidate before its normalized
+value is reviewed and executed; settlement and host review do not rerun it.
+Schema mismatches use the correction allowance below. A thrown validator error
+or cancellation is not a trusted mismatch and cannot spend that allowance as
+though it were one. Cancellation while awaiting validation publishes no candidate.
+
 ## Tool-mode schema corrections
 
 `maxRetries` allows two corrections by default: an initial response and up to

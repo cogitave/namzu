@@ -1,5 +1,14 @@
-/** Clone JSON data without invoking getters or silently dropping values. */
-export function cloneJsonValue(value: unknown, freeze: boolean, path = '$'): unknown {
+/**
+ * Clone JSON data without invoking getters or silently dropping values.
+ * Raw schema input may preserve its plain-object prototypes; prepared outputs
+ * keep the default canonical shape used by durable JSON round-trips.
+ */
+export function cloneJsonValue(
+	value: unknown,
+	freeze: boolean,
+	path = '$',
+	preserveObjectPrototype = false,
+): unknown {
 	const active = new WeakSet<object>()
 	const copies = new WeakMap<object, object>()
 
@@ -23,8 +32,16 @@ export function cloneJsonValue(value: unknown, freeze: boolean, path = '$'): unk
 		active.add(candidate)
 		try {
 			if (Array.isArray(candidate)) {
+				if (preserveObjectPrototype && Object.getPrototypeOf(candidate) !== Array.prototype) {
+					throw new TypeError(`${at} must be an ordinary array for raw preparation`)
+				}
 				const extra = Reflect.ownKeys(candidate).filter(
-					(key) => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)),
+					(key) =>
+						key !== 'length' &&
+						(typeof key !== 'string' ||
+							!/^(0|[1-9]\d*)$/.test(key) ||
+							(preserveObjectPrototype &&
+								(Number(key) >= candidate.length || Number(key) > 0xffff_fffe))),
 				)
 				if (extra.length > 0) throw new TypeError(`${at} has non-JSON array properties`)
 				const result: unknown[] = new Array(candidate.length)
@@ -45,12 +62,12 @@ export function cloneJsonValue(value: unknown, freeze: boolean, path = '$'): unk
 			if (prototype !== Object.prototype && prototype !== null) {
 				throw new TypeError(`${at} must be a plain JSON object`)
 			}
-			// JSON does not preserve prototypes. Canonicalize both admitted plain
-			// shapes to an ordinary object so a disk checkpoint round-trip compares
-			// equal to a fresh preparation of the same semantic value. Properties
-			// are still defined explicitly, so a literal "__proto__" key remains
-			// data rather than changing this object's prototype.
-			const result: Record<string, unknown> = {}
+			// Raw schema input can depend on its prototype. Prepared output instead
+			// canonicalizes both admitted shapes so a disk checkpoint round-trip
+			// compares equal to a fresh preparation of the same JSON value. Explicit
+			// data properties keep a literal "__proto__" key from changing either.
+			const result: Record<string, unknown> =
+				preserveObjectPrototype && prototype === null ? Object.create(null) : {}
 			copies.set(candidate, result)
 			for (const key of Reflect.ownKeys(candidate)) {
 				if (typeof key !== 'string') throw new TypeError(`${at} has a symbol property`)

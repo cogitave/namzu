@@ -1,0 +1,312 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-06T12:36:07.836115+00:00",
+  "workingTreeBasedOn": "8d85979cae59e35630c509d348c3825e39fa87be",
+  "verificationStatus": "passed",
+  "scope": "Async tool input preparation, direct/nested/structured query admission, immutable normalized authorization, cancellation, retries, durable pending-batch recovery and executor-owned observation deduplication.",
+  "externalModelRequests": 0,
+  "liveRuntimeActivated": false,
+  "livePalActions": 0,
+  "dependenciesInstalled": false,
+  "newRegressionCases": 45,
+  "initialIntegrationRun": {
+    "stage": "before direct/nested async executor integration",
+    "passed": 1,
+    "failed": 9,
+    "total": 10
+  },
+  "initialFullWorkspaceRun": {
+    "exitCode": 1,
+    "sdk": {
+      "passed": 10255,
+      "failed": 57,
+      "total": 10312
+    },
+    "corrections": [
+      "Preserve advanced host contexts that omit abortSignal; keep the post-await fence when a signal is supplied. The 55 guardrail test fixtures remain unchanged.",
+      "Make two held-tool bidi cancellation tests await actual execute entry rather than tool_started intent. No production bidi source changed."
+    ]
+  },
+  "verifiedContracts": [
+    "Asynchronous refine/default/transform succeeds with one schema parse per candidate and frozen detached normalized review input.",
+    "Authorization and human review receive the exact transformed/defaulted value that executes; dangerous normalized input is refused.",
+    "Execution retry reuses its preparation; actual hook or review rewrite is revalidated.",
+    "Raw JSON mutation during await does not alter execution. Ordinary/null plain-object prototypes remain compatible; Date and custom-array host normalization remains accepted.",
+    "Pre-abort prevents schema invocation. Mid-validation abort stops waiting, removes its listener and admits no later hook/review/gate/execute; late resolution or rejection does not revive work.",
+    "Final non-JSON outputs cannot produce prepared tokens; malformed host rewrites and thrown validation errors cannot manufacture trusted schema mismatch evidence.",
+    "Durable pending approval is checked against freshly normalized input; changed normalization cannot inherit approval. Completed and denied recovery receipts do not reparse or repeat effects.",
+    "Observation grouping is bound to exact raw call, visible output, admitted tool-definition identity and actual normalized input. Differently transformed or rewritten observations do not merge.",
+    "Historical projection never reruns schema refinements/transforms/defaults or classification predicates. Missing proof, skips, denies, cancellation, rich/error/retained/ambiguous/unknown results remain full."
+  ],
+  "limits": [
+    "Schema validation runs before input-dependent authorization. It is trusted host code and may continue underlying work if it ignores cancellation.",
+    "Non-JSON host inputs must not be mutated while preparation is pending.",
+    "Observation evidence is ephemeral to the current executor. New turns or resumed historical results without proof may retain more context under existing limits.",
+    "This receipt does not claim activation of the open native Windows runtime, live model behavior or complete release CI validation."
+  ],
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "existingCliWarnings": 12
+    },
+    {
+      "command": "pnpm -r build",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm -r --no-sort test",
+      "equivalence": "Runs the same workspace package test scripts after a complete build, without dependency-order scheduling.",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:fences",
+      "exitCode": 0
+    },
+    {
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "exportedSignatures": 1013,
+      "packages": 20
+    },
+    {
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0
+    }
+  ],
+  "sourceSha256": {
+    "packages/sdk/src/toolsets/manager.ts": "b8892dc7a32a94cdc779f80e0d2e00fc5034e606f16c4fba9571483613512cfe",
+    "packages/sdk/src/utils/json-snapshot.ts": "916b8eb120be5a10fbc07a1b2718208a1649cf277f7545cd6f3eeb834dc0ba14",
+    "packages/sdk/src/runtime/query/executor.ts": "f30b515a71c6d4c6f26645276d1a56b4232fbfa3f4d29842dfba04212cfc38c8",
+    "packages/sdk/src/runtime/query/executor/tool-call-admission.ts": "4a319b458318dcf0a9205d3db6c6b693ca040a13676fa8a5ae8bffcf9cf52d64",
+    "packages/sdk/src/runtime/query/iteration/index.ts": "f9d83dfc76b6d1dc30d5cf9d37fa5f7f6c7d4432a6176cc37c4dd938419560f0",
+    "packages/sdk/src/runtime/query/observation-context.ts": "3494cdb449ece5906c47609fd6825c8161321fb8a6a72907fc7882ee4ebba59f"
+  },
+  "builtSha256": {
+    "packages/sdk/dist/toolsets/manager.js": "0915c0c0c11ff87b4b8d7e2c05fff810529e387160af4731a355937586194390",
+    "packages/sdk/dist/utils/json-snapshot.js": "43308e60184ae907655307f5f6b225c19a05efa965616d187b55adcc7de2ebab",
+    "packages/sdk/dist/runtime/query/executor.js": "65f795c03e13718de9680740caa1c10910d8ba84fc0098fb980d701b8aa10b60",
+    "packages/sdk/dist/runtime/query/executor/tool-call-admission.js": "a106a9e945112e559756ebb4e1adeaec1186d089bd716ac15051ec1e6d0c8950",
+    "packages/sdk/dist/runtime/query/iteration/index.js": "dc567d5d120a96f501125ba0bda4f1500b2de6e3f142ab423d6ddc730217c30b",
+    "packages/sdk/dist/runtime/query/observation-context.js": "f04db0caa352c433801660285a6f030d0a1bc9121ef0aebfe826523b91073a84",
+    "packages/sdk/dist/toolsets/manager.d.ts": "4468b813528ee5aea1ce3ccd5c2970f063cb86c1ca1403471a3c86ddb0bbb31c"
+  },
+  "rawHostCompatibilityReproduction": {
+    "input": {
+      "arrayLength": 1,
+      "ownNonIndexKey": "4294967295",
+      "ownNonIndexValue": "host-array-metadata"
+    },
+    "syncPreparation": {
+      "metadata": "host-array-metadata"
+    },
+    "asyncPreparationBeforeFinalCorrection": {
+      "metadata": null
+    },
+    "asyncPreparationAfterFinalCorrection": {
+      "metadata": "host-array-metadata"
+    },
+    "fix": "Only raw snapshot mode refuses out-of-range numeric array keys and uses existing host-input normalization fallback. Final-output cloning defaults are unchanged.",
+    "focusedFinalVerification": {
+      "suites": 3,
+      "testsPassed": 91,
+      "typecheckExitCode": 0,
+      "biomeExitCode": 0
+    }
+  },
+  "preFinalRawCompatibilityRun": {
+    "command": "pnpm test",
+    "exitCode": 0,
+    "packageTestSummaries": {
+      "packages/files": {
+        "Test Files": "3 passed | 1 skipped (4)",
+        "Tests": "48 passed | 11 skipped (59)"
+      },
+      "packages/sdk": {
+        "Test Files": "913 passed (913)",
+        "Tests": "10313 passed (10313)"
+      },
+      "packages/desktop": {
+        "Test Files": "67 passed (67)",
+        "Tests": "620 passed (620)"
+      },
+      "packages/computer-use": {
+        "Test Files": "17 passed (17)",
+        "Tests": "165 passed (165)"
+      },
+      "packages/browser": {
+        "Test Files": "9 passed | 2 skipped (11)",
+        "Tests": "133 passed | 42 skipped (175)"
+      },
+      "packages/ag-ui": {
+        "Test Files": "8 passed (8)",
+        "Tests": "189 passed (189)"
+      },
+      "packages/live": {
+        "Test Files": "3 passed (3)",
+        "Tests": "25 passed (25)"
+      },
+      "packages/lsp": {
+        "Test Files": "2 passed (2)",
+        "Tests": "27 passed (27)"
+      },
+      "packages/providers/anthropic": {
+        "Test Files": "21 passed | 3 skipped (24)",
+        "Tests": "259 passed | 44 skipped (303)"
+      },
+      "packages/providers/bedrock": {
+        "Test Files": "13 passed (13)",
+        "Tests": "127 passed (127)"
+      },
+      "packages/providers/deepseek": {
+        "Test Files": "6 passed (6)",
+        "Tests": "44 passed (44)"
+      },
+      "packages/providers/google": {
+        "Test Files": "4 passed (4)",
+        "Tests": "29 passed (29)"
+      },
+      "packages/providers/http": {
+        "Test Files": "9 passed (9)",
+        "Tests": "83 passed | 10 skipped (93)"
+      },
+      "packages/providers/lmstudio": {
+        "Test Files": "5 passed (5)",
+        "Tests": "29 passed (29)"
+      },
+      "packages/providers/ollama": {
+        "Test Files": "8 passed (8)",
+        "Tests": "36 passed (36)"
+      },
+      "packages/providers/openrouter": {
+        "Test Files": "12 passed (12)",
+        "Tests": "80 passed (80)"
+      },
+      "packages/providers/zen": {
+        "Test Files": "17 passed (17)",
+        "Tests": "261 passed (261)"
+      },
+      "packages/providers/openai": {
+        "Test Files": "11 passed (11)",
+        "Tests": "129 passed (129)"
+      },
+      "packages/telemetry": {
+        "Test Files": "4 passed (4)",
+        "Tests": "33 passed (33)"
+      },
+      "packages/sandbox": {
+        "Test Files": "103 passed (103)",
+        "Tests": "1857 passed | 3 skipped (1860)"
+      },
+      "packages/cli": {
+        "Test Files": "557 passed (557)",
+        "Tests": "5157 passed | 6 skipped (5163)"
+      }
+    },
+    "scope": "Completed before the last raw-only non-index array metadata correction; rerun all packages below on the final source."
+  },
+  "packageTestSummaries": {
+    "packages/computer-use": {
+      "Test Files": "17 passed (17)",
+      "Tests": "165 passed (165)"
+    },
+    "packages/browser": {
+      "Test Files": "9 passed | 2 skipped (11)",
+      "Tests": "133 passed | 42 skipped (175)"
+    },
+    "packages/ag-ui": {
+      "Test Files": "8 passed (8)",
+      "Tests": "189 passed (189)"
+    },
+    "packages/desktop": {
+      "Test Files": "67 passed (67)",
+      "Tests": "620 passed (620)"
+    },
+    "packages/live": {
+      "Test Files": "3 passed (3)",
+      "Tests": "25 passed (25)"
+    },
+    "packages/lsp": {
+      "Test Files": "2 passed (2)",
+      "Tests": "27 passed (27)"
+    },
+    "packages/files": {
+      "Test Files": "3 passed | 1 skipped (4)",
+      "Tests": "48 passed | 11 skipped (59)"
+    },
+    "packages/providers/anthropic": {
+      "Test Files": "21 passed | 3 skipped (24)",
+      "Tests": "259 passed | 44 skipped (303)"
+    },
+    "packages/providers/bedrock": {
+      "Test Files": "13 passed (13)",
+      "Tests": "127 passed (127)"
+    },
+    "packages/providers/deepseek": {
+      "Test Files": "6 passed (6)",
+      "Tests": "44 passed (44)"
+    },
+    "packages/providers/google": {
+      "Test Files": "4 passed (4)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/http": {
+      "Test Files": "9 passed (9)",
+      "Tests": "83 passed | 10 skipped (93)"
+    },
+    "packages/providers/lmstudio": {
+      "Test Files": "5 passed (5)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/ollama": {
+      "Test Files": "8 passed (8)",
+      "Tests": "36 passed (36)"
+    },
+    "packages/providers/openai": {
+      "Test Files": "11 passed (11)",
+      "Tests": "129 passed (129)"
+    },
+    "packages/providers/openrouter": {
+      "Test Files": "12 passed (12)",
+      "Tests": "80 passed (80)"
+    },
+    "packages/providers/zen": {
+      "Test Files": "17 passed (17)",
+      "Tests": "261 passed (261)"
+    },
+    "packages/telemetry": {
+      "Test Files": "4 passed (4)",
+      "Tests": "33 passed (33)"
+    },
+    "packages/sandbox": {
+      "Test Files": "103 passed (103)",
+      "Tests": "1857 passed | 3 skipped (1860)"
+    },
+    "packages/sdk": {
+      "Test Files": "913 passed (913)",
+      "Tests": "10314 passed (10314)"
+    },
+    "packages/cli": {
+      "Test Files": "557 passed (557)",
+      "Tests": "5157 passed | 6 skipped (5163)"
+    }
+  },
+  "testTotals": {
+    "packages": 21,
+    "passed": 19645,
+    "skipped": 116,
+    "failed": 0
+  },
+  "review": {
+    "independentReview": "No unresolved source or documentation defect after normalized-input evidence binding and raw host metadata compatibility correction.",
+    "productionSourcesFrozen": true
+  }
+}

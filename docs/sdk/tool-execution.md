@@ -22,6 +22,30 @@ remains mutating and destructive. Its static `shell_execute` permission describe
 the complete capability. Per-call review, read-only authorization and plan-mode
 execution use the operation predicate; provenance checks remain unchanged.
 
+## Preparing asynchronous input
+
+Direct calls, nested `dispatchTool` calls and `ToolManager.execute` await schema
+validation, including asynchronous refinements and transforms. The normalized
+JSON-safe value is retained once and supplies the frozen pre-tool hook and review
+projection, authorization and execution. Execution retries reuse it. An actual
+hook or reviewer rewrite, or a repaired call, needs a new preparation. The
+advanced synchronous `prepareExecution` API remains available; see
+[the preparation API](toolsets.md#the-execution-pipeline).
+
+An abort before or during preparation prevents later hook, gate, human-review
+and execution admission. A validator that resolves or rejects after cancellation
+cannot revive the call. Its underlying host work may continue if it ignores
+cancellation. Validation runs before transformed-input authorization, so a
+denied call is not proof that its validator performed no external effect.
+Keep validators free of external effects or cooperative with host cancellation.
+
+Pending-batch recovery validates calls still requiring execution against their
+recorded reviewed input. Changed normalization cannot reuse an old approval.
+Already completed and denied calls retain their existing recovery behavior and
+do not rerun input validation. Only actual schema mismatches carry trusted
+`inputFailure: 'schema_validation'`; cancellation and thrown validator failures
+are not schema correction evidence.
+
 ## Observing background output
 
 `BackgroundJobRegistry.waitForOutput(id, options)` observes a literal condition

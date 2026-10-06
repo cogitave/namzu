@@ -3,7 +3,7 @@ import { findRetainedIndices } from '../../compaction/retention.js'
 import { estimateMessageTokens } from '../../compaction/token-estimate.js'
 import { isClearedToolResult } from '../../compaction/tool-result-editing.js'
 import type { ToolManager } from '../../toolsets/manager.js'
-import type { Message, ToolMessage } from '../../types/message/index.js'
+import type { Message, ToolCall, ToolMessage } from '../../types/message/index.js'
 
 /**
  * Request-only exact observation masking. Every reference targets a full result
@@ -15,14 +15,19 @@ export function projectObservationContext(
 	messages: Message[],
 	tools: Pick<ToolManager, 'get'>,
 	preserveToolResultsFrom: readonly string[] = [],
+	observationKey?: (call: ToolCall, message: ToolMessage) => string | undefined,
 ): Message[] {
-	const calls = new Map<string, { name: string; arguments: string } | null>()
+	// Historical model input is not a new tool invocation. Its schema may contain
+	// refinements, transforms or defaults with effects, so only an executor-owned
+	// record of an actual observation may authorize request-only masking.
+	if (!observationKey) return messages
+	const calls = new Map<string, ToolCall | null>()
 	for (const message of messages) {
 		if (message.role !== 'assistant') continue
 		for (const call of message.toolCalls ?? []) {
 			// Ambiguous IDs cannot prove which observation belongs to which call.
 			if (calls.has(call.id)) calls.set(call.id, null)
-			else calls.set(call.id, call.metadata?.inputTruncated ? null : call.function)
+			else calls.set(call.id, call.metadata?.inputTruncated ? null : call)
 		}
 	}
 	const resultCounts = new Map<string, number>()
@@ -47,26 +52,27 @@ export function projectObservationContext(
 		)
 			continue
 		const call = calls.get(message.toolCallId)
-		if (!call || preserveToolResultsFrom.includes(call.name)) continue
-		const definition = tools.get(call.name)
-		if (!definition) continue
+		if (!call || preserveToolResultsFrom.includes(call.function.name)) continue
+		if (!tools.get(call.function.name)) continue
+		let executionKey: string | undefined
 		try {
-			const input = definition.inputSchema.safeParse(JSON.parse(call.arguments))
-			if (
-				!input.success ||
-				definition.isReadOnly?.(input.data) !== true ||
-				definition.isDestructive?.(input.data) === true
-			)
-				continue
+			executionKey = observationKey(call, message)
 		} catch {
-			// Classification is advisory; invalid input or a broken custom predicate
-			// must leave evidence intact, not abort the request.
+			// Missing or broken trusted classification leaves the full result intact.
 			continue
 		}
+		if (executionKey === undefined) continue
 		// Exact arguments intentionally: equivalent JSON with different formatting
 		// is a missed optimization, not permission to merge different file ranges.
 		const key = createHash('sha256')
-			.update(JSON.stringify([call.name, call.arguments, message.content]))
+			.update(
+				JSON.stringify([
+					call.function.name,
+					call.function.arguments,
+					message.content,
+					executionKey,
+				]),
+			)
 			.digest('hex')
 		const representative = representatives.get(key)
 		if (!representative) {

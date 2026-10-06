@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
@@ -25,6 +26,7 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import {
 	type Message,
 	type ToolCall,
+	type ToolMessage,
 	type ToolResultContent,
 	type ToolRevealReceipt,
 	createToolMessage,
@@ -62,12 +64,8 @@ import {
 	formatFailedToolOutput,
 	isUnregistered,
 	prepareDirectCall,
-	repairTruncatedCall,
-	resolveCall,
 	runPreToolHook,
 	unknownToolMessage,
-	unreadableCallFailure,
-	unreadableToolCallMessage,
 } from './executor/tool-call-admission.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
@@ -578,6 +576,16 @@ export class ToolExecutor {
 	private parentSpan?: Span
 	private readonly toolCallBudget?: ToolCallBudget
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
+	/** Ephemeral proof of actual execution; restored messages do not acquire it. */
+	private readonly recordedObservations = new Map<
+		string,
+		{
+			readonly toolName: string
+			readonly definition: ToolDefinition
+			readonly fingerprint: string
+			readonly inputFingerprint: string
+		}
+	>()
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
 	private readonly fileReadTracker: FileReadTracker
@@ -614,6 +622,50 @@ export class ToolExecutor {
 
 	setSandbox(sandbox: Sandbox): void {
 		this.config = { ...this.config, sandbox }
+	}
+
+	/** Classify only the exact successful result executed by this executor. */
+	recordedObservationKey(call: ToolCall, message: ToolMessage): string | undefined {
+		const recorded = this.recordedObservations.get(call.id)
+		return recorded !== undefined &&
+			message.toolCallId === call.id &&
+			!message.isError &&
+			typeof message.content === 'string' &&
+			this.config.tools.get(recorded.toolName) === recorded.definition &&
+			recorded.fingerprint === this.observationFingerprint(call, message.content)
+			? recorded.inputFingerprint
+			: undefined
+	}
+
+	private observationFingerprint(call: ToolCall, content: string): string {
+		return createHash('sha256')
+			.update(JSON.stringify([call.function.name, call.function.arguments, content]))
+			.digest('hex')
+	}
+
+	private recordExecutedObservation(
+		call: ToolCall,
+		toolName: string,
+		definition: ToolDefinition,
+		input: unknown,
+		content: ToolResultContent,
+	): void {
+		if (typeof content !== 'string' || this.config.tools.get(toolName) !== definition) return
+		try {
+			if (definition.isReadOnly?.(input) !== true || definition.isDestructive?.(input) === true)
+				return
+			this.recordedObservations.set(call.id, {
+				toolName,
+				definition,
+				fingerprint: this.observationFingerprint(call, content),
+				inputFingerprint: createHash('sha256')
+					.update(JSON.stringify([toolName, input]))
+					.digest('hex'),
+			})
+		} catch {
+			// Classification is advisory. A broken predicate preserves the
+			// full evidence instead of failing an already completed call.
+		}
 	}
 
 	/**
@@ -875,6 +927,7 @@ export class ToolExecutor {
 			const escalation = await this.escalationOf(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
 		}
+		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
 	}
 
@@ -965,6 +1018,7 @@ export class ToolExecutor {
 				else escalations.delete(toolCall.id)
 			}
 		}
+		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
 	}
 
@@ -1052,6 +1106,7 @@ export class ToolExecutor {
 		// One context per call so each execution can see its own
 		// `toolUseId`. The base context is built once; we spread + add
 		// per-call to keep allocations cheap.
+		for (const call of toolCalls) this.recordedObservations.delete(call.id)
 		const observations: ToolResultObservation[] = []
 		const recordObservation = (observation: ToolResultObservation): void => {
 			observations.push(observation)
@@ -1684,119 +1739,26 @@ export class ToolExecutor {
 			prepared = preparedCall.kind === 'ready' ? preparedCall.prepared : undefined
 			if (preparedCall.kind === 'legacy') inputFailure = preparedCall.inputFailure
 		} else {
-			// A stream that cut off mid-JSON is the case `repairToolCall` exists
-			// for, and it used to be the one case that never reached it: this
-			// branch returned before `resolveCall` ran, so the motivating failure
-			// was answered with a generic hint while the configured repairer sat
-			// unused. Offer it the partial buffer first.
-			const truncationRepair =
-				toolCall.metadata?.inputTruncated === true
-					? await repairTruncatedCall(this.admissionHost(), toolCall, toolName)
-					: null
-
-			if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
-				const message = unreadableToolCallMessage(this.admissionHost(), toolCall, toolName)
-				const failure = unreadableCallFailure(toolCall)
-				await this.emitEvent({
-					type: 'tool_executing',
-					turnId: this.config.turnId,
-					toolUseId: toolCall.id,
-					toolName,
-					input: {},
-				})
-				await this.emitEvent({
-					type: 'tool_completed',
-					turnId: this.config.turnId,
-					toolUseId: toolCall.id,
-					toolName,
-					result: message,
-					isError: true,
-					inputFailure: failure,
-				})
-				return {
-					toolCallId: toolCall.id,
-					toolName,
-					output: message,
-					isError: true,
-					inputFailure: failure,
-				}
-			}
-
-			// A malformed call used to cost a full model round trip to fix: the
-			// error went back as a `tool_result`, the model re-read the whole
-			// context and tried again. A host that can repair it locally turns
-			// that into nothing. No-op when no repairer is configured.
-			const resolved = await resolveCall(
-				this.admissionHost(),
-				truncationRepair
-					? {
-							...toolCall,
-							function: {
-								...toolCall.function,
-								name: truncationRepair.toolName ?? toolName,
-								arguments: truncationRepair.arguments,
-							},
-							metadata: {},
-						}
-					: toolCall,
-			)
-			toolName = resolved.toolName
-
-			if (!resolved.ok) {
-				// malformed JSON args used to return without ever
-				// emitting tool_executing or tool_completed, leaving UI cards
-				// orphaned in `streaming_input`. Emit the executing→completed
-				// terminal pair so the card lifecycle closes.
-				const message = resolved.message
-				await this.emitEvent({
-					type: 'tool_executing',
-					turnId: this.config.turnId,
-					toolUseId: toolCall.id,
-					toolName,
-					input: {},
-				})
-				await this.emitEvent({
-					type: 'tool_completed',
-					turnId: this.config.turnId,
-					toolUseId: toolCall.id,
-					toolName,
-					result: message,
-					isError: true,
-					...(!truncationRepair && resolved.inputFailure
-						? { inputFailure: resolved.inputFailure }
-						: {}),
-				})
-				return {
-					toolCallId: toolCall.id,
-					toolName,
-					output: message,
-					isError: true,
-					...(!truncationRepair && resolved.inputFailure
-						? { inputFailure: resolved.inputFailure }
-						: {}),
-				}
-			}
-
-			input = resolved.input
-
-			let preOutcome: PreToolHookOutcome
+			// The unreviewed executor path uses the same preparation as a
+			// reviewed call. Parsing here and again in the registry would run
+			// transforms twice and reject asynchronous schemas.
+			let admitted: PreparedDirectCall
 			try {
-				preOutcome = await runPreToolHook(this.admissionHost(), toolName, input)
+				admitted = await prepareDirectCall(this.admissionHost(), toolCall)
+				this.config.abortSignal.throwIfAborted()
 			} catch (error) {
 				if (!this.config.abortSignal.aborted) throw error
-				// A later call's interrupted preparation must not reject the batch
-				// that already holds an earlier call's settled side-effect receipt.
-				return this.recordCancelledBeforeExecution(toolCall.id, toolName, input)
+				// Keep earlier settled siblings' receipts when a later
+				// preparation is interrupted.
+				return this.recordCancelledBeforeExecution(toolCall.id, toolName, {})
 			}
-			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
-				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, {
-					...preOutcome,
-					...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
-				})
-			}
-			input = preOutcome.input
-			if (!truncationRepair && !preOutcome.modified) inputFailure = resolved.inputFailure
+			if (admitted.kind === 'synthetic') return this.recordSyntheticPreparation(admitted)
+			toolName = admitted.toolName
+			input = admitted.input
+			prepared = admitted.kind === 'ready' ? admitted.prepared : undefined
+			if (admitted.kind === 'legacy') inputFailure = admitted.inputFailure
 		}
+		const executedDefinition = this.config.tools.get(toolName)
 
 		const activity = this.activityStore.create({
 			type: 'tool_call',
@@ -2138,6 +2100,16 @@ export class ToolExecutor {
 			result,
 		})
 
+		if (prepared && executedDefinition && !effectiveIsError && !this.config.abortSignal.aborted) {
+			this.recordExecutedObservation(
+				toolCall,
+				toolName,
+				executedDefinition,
+				input,
+				modelContent ?? output,
+			)
+		}
+
 		return {
 			toolCallId: toolCall.id,
 			toolName,
@@ -2372,7 +2344,8 @@ export class ToolExecutor {
 		input: unknown,
 		signal: AbortSignal,
 	): Promise<PreparedNestedCall> {
-		const prepare = this.config.tools.prepareExecution
+		signal.throwIfAborted()
+		const prepare = this.config.tools.prepareExecutionAsync ?? this.config.tools.prepareExecution
 		const executePrepared = this.config.tools.executePrepared
 		if (typeof prepare !== 'function' || typeof executePrepared !== 'function') {
 			if (this.config.authorizationGate) {
@@ -2396,10 +2369,12 @@ export class ToolExecutor {
 			return { kind: 'legacy', input: preOutcome.input }
 		}
 
-		let preparation: ReturnType<typeof prepare>
+		let preparation: Awaited<ReturnType<typeof prepare>>
 		try {
-			preparation = prepare.call(this.config.tools, toolName, input)
+			preparation = await prepare.call(this.config.tools, toolName, input, signal)
+			signal.throwIfAborted()
 		} catch (err) {
+			signal.throwIfAborted()
 			// A name the registry does not hold is answered with what this step
 			// can call, as a model's own call is; the registry's "Not found"
 			// lists everything it holds.
@@ -2443,7 +2418,8 @@ export class ToolExecutor {
 				prepared: preparation.prepared,
 			}
 		}
-		const modified = prepare.call(this.config.tools, toolName, preOutcome.input)
+		const modified = await prepare.call(this.config.tools, toolName, preOutcome.input, signal)
+		signal.throwIfAborted()
 		if (!modified.success) {
 			return {
 				kind: 'synthetic',
