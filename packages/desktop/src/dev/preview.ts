@@ -197,6 +197,11 @@ const api: DesktopApi = {
 			throw new Error('This sample conversation belongs to another project.')
 		return { messages: clone(messages.get(id) ?? []), partial: false }
 	},
+	readyConversation: async (projectId, id) => {
+		project(projectId)
+		if (conversation(id).projectId !== projectId)
+			throw new Error('This sample conversation belongs to another project.')
+	},
 	providers: async (projectId, id) => {
 		project(projectId)
 		if (id && conversation(id).projectId !== projectId)

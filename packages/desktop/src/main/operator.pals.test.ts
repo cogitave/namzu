@@ -586,6 +586,10 @@ it('loads a durable empty Pal claim once after reconnect and preserves its sessi
 		owner.openConversation(opened.project.id, conversation.id),
 		owner.openConversation(opened.project.id, conversation.id),
 	])
+	const readiness = Promise.all([
+		owner.readyConversation(opened.project.id, conversation.id),
+		owner.readyConversation(opened.project.id, conversation.id),
+	])
 	await loadEntered.promise
 	expect(transport.calls.filter((call) => call.method === 'session/load')).toEqual([
 		{
@@ -595,6 +599,7 @@ it('loads a durable empty Pal claim once after reconnect and preserves its sessi
 		},
 	])
 	loadComplete.resolve()
+	await readiness
 	for (const history of await loading)
 		expect(history.thread).toMatchObject({ messages: [], running: false, permissions: [] })
 	expect(transport.calls.filter((call) => call.method === 'session/new')).toHaveLength(1)

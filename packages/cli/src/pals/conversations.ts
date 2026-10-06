@@ -8,6 +8,7 @@ import {
 	palConversationGreeting,
 } from '@namzu/sdk'
 import {
+	type CliSessionScope,
 	type CliSessions,
 	type ConversationFacts,
 	type RecentConversation,
@@ -56,22 +57,28 @@ function parseTag(value: unknown, sessionId: string): { id: string; revision: nu
 export async function palConversationBinding(
 	cwd: string,
 	sessionId: string,
-	existingState?: CliSessions,
+	existingState?: CliSessionScope,
 ): Promise<PalConversationBinding | null> {
 	const pal = palAtWorkspace(cwd, existingState?.root)
 	if (!pal) return null
 	if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
-	const state = existingState ?? (await openSessions(cwd))
+	let opened: CliSessions | undefined
+	let state: CliSessionScope
+	if (existingState) state = existingState
+	else {
+		opened = await openSessions(cwd)
+		state = opened
+	}
 	try {
 		return (await readPalConversation(state, cwd, pal.id, sessionId))?.binding ?? null
 	} finally {
-		if (!existingState) closeSessions(state)
+		if (opened) closeSessions(opened)
 	}
 }
 
 /** Reuse the authenticated scope, while reading each candidate's ownership from its actual log. */
 async function readPalConversation(
-	state: CliSessions,
+	state: CliSessionScope,
 	cwd: string,
 	palId: string,
 	sessionId: string,

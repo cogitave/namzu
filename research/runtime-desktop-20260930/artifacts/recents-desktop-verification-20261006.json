@@ -1,0 +1,194 @@
+{
+  "date": "2026-10-06",
+  "sourceBaseCommit": "301f5b3a35db9ab69f539db091bf7290c60709d2",
+  "status": "Verified",
+  "scope": "Desktop Recents responsiveness, fresh CLI conversation history scope, and actual-phase transcript motion",
+  "finalSourceVerification": [
+    {
+      "command": "pnpm typecheck",
+      "passed": true,
+      "scope": "Whole workspace after final CLI scope refactor"
+    },
+    {
+      "command": "pnpm lint",
+      "passed": true,
+      "existingWarnings": 12
+    },
+    {
+      "command": "pnpm --filter @namzu/cli build",
+      "passed": true
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop build",
+      "passed": true,
+      "note": "Desktop source remained unchanged during the final CLI scope refactor"
+    },
+    {
+      "command": "pnpm --filter @namzu/cli test --reporter=verbose",
+      "passed": true,
+      "files": 557,
+      "testsPassed": 5164,
+      "testsSkipped": 6
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop test",
+      "passed": true,
+      "files": 69,
+      "testsPassed": 640,
+      "note": "Final desktop source; no subsequent desktop production edits"
+    },
+    {
+      "command": "pnpm docs:check",
+      "passed": true,
+      "pages": 143
+    },
+    {
+      "command": "node scripts/check-log-standard.mjs",
+      "passed": true,
+      "files": 1479
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    }
+  ],
+  "earlierWorkspaceRun": {
+    "command": "pnpm test",
+    "passed": true,
+    "testsPassed": 19793,
+    "testsSkipped": 116,
+    "scope": "Before the final persisted-history, motion followups and CLI scope refactor; final changed packages are verified above"
+  },
+  "interruptedRun": {
+    "command": "pnpm --filter @namzu/cli test",
+    "exitCode": 143,
+    "signal": "SIGTERM",
+    "passed": false,
+    "summaryProduced": false,
+    "cause": "Not established from retained logs; subsequent complete runs passed"
+  },
+  "rendererProofs": [
+    {
+      "receipt": "recents-progressive-browser-proof-20261006.json",
+      "passed": true,
+      "calls": 114,
+      "violations": 0,
+      "mutationCalls": 0,
+      "scope": "Actual renderer, held synthetic history/readiness, cold selection, saved-history overlap, obsolete navigation, action gates and recovery"
+    },
+    {
+      "receipt": "transcript-reference-motion-proof-20261006.json",
+      "passed": true,
+      "sections": 6,
+      "scope": "Actual renderer with synthetic runtime events, paired animation frames, new-entry identity, phase/disclosure reversals, terminal outcomes, Pal separation, reduced motion and narrow layout"
+    }
+  ],
+  "nativeActivation": {
+    "receipt": "recents-desktop-scoped-activation-retry-20261006.json",
+    "passed": true,
+    "nativeWindows": true,
+    "gracefulClose": true,
+    "desktopBuiltFiles": 630,
+    "desktopManifestSha256": "6aee2467738beaafb7b06bc426e663f2f5054a1e7e877e7bf2a1a476c118a9ff",
+    "cliModules": {
+      "commands/desktop-host.js": "95ad1ac9a5a311d51006a360efb86efd98fb9a949ae943312315990884a53ff4",
+      "integrations/sessions/store.js": "d6ebffbc21889a1032bd0b6a07c8533ff072565e8fc7f7518d7b11775c7d1fec",
+      "pals/conversations.js": "1db3169f60569fd27a1c87eb861080910cd2791beb9bfcc5c53fa7c4173695d3"
+    },
+    "sdkCopies": 0,
+    "dependencyInstalls": 0,
+    "unrelatedCliFilesUnchanged": true,
+    "sdkFilesUnchanged": true,
+    "launchAndDependencyGraphUnchanged": true,
+    "protectedSemanticCategoriesPreserved": true,
+    "originalTabsAndFocusRestored": true,
+    "previousAttempt": {
+      "receipt": "recents-desktop-scoped-activation-20261006.json",
+      "passed": false,
+      "failedPhase": "Graceful owned close",
+      "cliModuleCopies": 0,
+      "sourceStagingCommitted": false,
+      "cause": "Not established; process remained interactive, fresh ownership/window/idle checks preceded the successful guarded normal retry"
+    }
+  },
+  "nativeNavigation": {
+    "receipt": "recents-native-performance-20261006.json",
+    "passed": true,
+    "samplesRetained": 5,
+    "finalBuild": "optimized desktop and three scoped CLI modules",
+    "finalPrivateReceipt": "recents-navigation-scoped-20261006.json",
+    "firstOpen": [
+      {
+        "candidate": 1,
+        "selectedMs": 40.5,
+        "authoritativeMs": 1936.3,
+        "composerReadyMs": 2601.5,
+        "twoAnimationFramesMs": 2650.1
+      },
+      {
+        "candidate": 2,
+        "selectedMs": 36.5,
+        "authoritativeMs": 252.7,
+        "composerReadyMs": 1738.1,
+        "twoAnimationFramesMs": 1772.1
+      }
+    ],
+    "reopen": [
+      {
+        "candidate": 1,
+        "selectedMs": 13.6,
+        "authoritativeMs": 13.6,
+        "composerReadyMs": 13.6,
+        "twoAnimationFramesMs": 55.1
+      },
+      {
+        "candidate": 2,
+        "selectedMs": 12.7,
+        "authoritativeMs": 12.7,
+        "composerReadyMs": 12.8,
+        "twoAnimationFramesMs": 56.7
+      }
+    ],
+    "protectedStateRestored": true,
+    "noSpeedPassThreshold": true
+  },
+  "reference": {
+    "receipt": "transcript-reference-observations-20261006.json",
+    "installedCodexSourceInspected": true,
+    "currentLiveReferenceDomAvailable": false,
+    "pixelParityClaimed": false
+  },
+  "releaseIntent": {
+    "changeset": "desktop-history-single-state.md",
+    "package": "@namzu/cli",
+    "bump": "patch",
+    "desktopPackagePrivate": true,
+    "sdkPublicSurfaceChanged": false
+  },
+  "boundaries": {
+    "liveModelRequests": 0,
+    "computerActions": 0,
+    "forcedProcessStops": 0,
+    "installs": 0,
+    "pushes": 0
+  },
+  "limits": [
+    "Native timing observations cover the same two conversations, not latency percentiles or controlled operating-system cache experiments.",
+    "Two animation frames are affected by Chromium and remote desktop scheduling; timings are observations rather than pass thresholds.",
+    "No full release-gate or CI validation claim is made; no push was requested or performed.",
+    "Private native snapshots, conversations, IDs and raw error payloads remain outside this repository."
+  ],
+  "passed": true,
+  "nativeTranscript": {
+    "privateReceipt": "recents-scoped-transcript-dom-20261006.json",
+    "passed": true,
+    "computedDurationsMs": {
+      "entry": 150,
+      "phase": 300,
+      "frame": 200
+    },
+    "historicalMessages": 4,
+    "historicalAnimation": "none",
+    "noUserContentIncluded": true
+  }
+}

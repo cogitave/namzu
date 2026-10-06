@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-06",
+  "environment": "Already running native Windows Electron desktop, observed through its existing CDP endpoint",
+  "method": "Four bounded Recents clicks per run: first open each of the same two ordinary conversations, then reopen each. Timings start at capture of the actual renderer click and end when each DOM condition is observed. No prompts, model requests, guest actions, reloads, or restarts were performed by the navigation probe.",
+  "samples": [
+    {
+      "build": "baseline",
+      "receipt": "recents-navigation-baseline-2-20261006.json",
+      "passed": true,
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 2029.1, "authoritativeMs": 2029.1, "composerReadyMs": 2694.1, "twoAnimationFramesMs": 4020.3 },
+        { "candidate": 2, "selectedMs": 1329.1, "authoritativeMs": 1330.1, "composerReadyMs": 2147.6, "twoAnimationFramesMs": 4054.6 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 10.4, "authoritativeMs": 10.5, "composerReadyMs": 10.5, "twoAnimationFramesMs": 2026.6 },
+        { "candidate": 2, "selectedMs": 10.4, "authoritativeMs": 10.4, "composerReadyMs": 10.4, "twoAnimationFramesMs": 2058.7 }
+      ]
+    },
+    {
+      "build": "first progressive build",
+      "receipt": "recents-navigation-after-20261006.json",
+      "passed": true,
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 40.6, "authoritativeMs": 1742.4, "composerReadyMs": 2660.1, "twoAnimationFramesMs": 2713.4 },
+        { "candidate": 2, "selectedMs": 34.9, "authoritativeMs": 872.8, "composerReadyMs": 1943.4, "twoAnimationFramesMs": 1992.3 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 10.8, "authoritativeMs": 10.8, "composerReadyMs": 10.8, "twoAnimationFramesMs": 54.4 },
+        { "candidate": 2, "selectedMs": 10.6, "authoritativeMs": 10.6, "composerReadyMs": 10.6, "twoAnimationFramesMs": 56.9 }
+      ]
+    },
+    {
+      "build": "final desktop build",
+      "receipt": "recents-navigation-final-20261006.json",
+      "passed": true,
+      "concurrentLoad": "Workspace tests and browser proofs were running during this sample.",
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 44.0, "authoritativeMs": 2150.6, "composerReadyMs": 3615.2, "twoAnimationFramesMs": 3648.4 },
+        { "candidate": 2, "selectedMs": 41.4, "authoritativeMs": 762.6, "composerReadyMs": 3066.4, "twoAnimationFramesMs": 3111.3 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 12.0, "authoritativeMs": 12.0, "composerReadyMs": 12.0, "twoAnimationFramesMs": 54.7 },
+        { "candidate": 2, "selectedMs": 14.0, "authoritativeMs": 14.0, "composerReadyMs": 14.0, "twoAnimationFramesMs": 55.2 }
+      ]
+    },
+    {
+      "build": "optimized desktop and single CLI history module",
+      "receipt": "recents-navigation-optimized-20261006.json",
+      "passed": true,
+      "concurrentLoad": "No workspace tests or proof browsers were running during this sample.",
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 46.4, "authoritativeMs": 1952.0, "composerReadyMs": 2593.4, "twoAnimationFramesMs": 2619.6 },
+        { "candidate": 2, "selectedMs": 38.3, "authoritativeMs": 627.4, "composerReadyMs": 1768.4, "twoAnimationFramesMs": 1802.6 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 10.9, "authoritativeMs": 10.9, "composerReadyMs": 10.9, "twoAnimationFramesMs": 54.0 },
+        { "candidate": 2, "selectedMs": 13.1, "authoritativeMs": 13.1, "composerReadyMs": 13.1, "twoAnimationFramesMs": 56.4 }
+      ]
+    },
+    {
+      "build": "optimized desktop and three scoped CLI modules",
+      "receipt": "recents-navigation-scoped-20261006.json",
+      "activationReceipt": "recents-desktop-scoped-activation-retry-20261006.json",
+      "passed": true,
+      "concurrentLoad": "No workspace tests or proof browsers were running during this sample.",
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 40.5, "authoritativeMs": 1936.3, "composerReadyMs": 2601.5, "twoAnimationFramesMs": 2650.1 },
+        { "candidate": 2, "selectedMs": 36.5, "authoritativeMs": 252.7, "composerReadyMs": 1738.1, "twoAnimationFramesMs": 1772.1 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 13.6, "authoritativeMs": 13.6, "composerReadyMs": 13.6, "twoAnimationFramesMs": 55.1 },
+        { "candidate": 2, "selectedMs": 12.7, "authoritativeMs": 12.7, "composerReadyMs": 12.8, "twoAnimationFramesMs": 56.7 }
+      ]
+    }
+  ],
+  "stateProof": "Each successful run restored its own original tabs, tab order, focus, workspace layout, project disclosure, scroll positions, persisted presentations, and protected project, profile, computer, session, draft, setting, attachment, message, and task snapshots. The baseline original tabs differ from later runs because the user changed them before deployment. All four clicks in each of the five runs occurred with a visible, focused renderer and recorded no long tasks.",
+  "observations": [
+    "The optimized build selected each cold Recents conversation in 46.4 and 38.3 ms, compared with 2029.1 and 1329.1 ms in the baseline on the same two candidate conversations.",
+    "The optimized run reached authoritative history in 1952.0 and 627.4 ms and composer readiness in 2593.4 and 1768.4 ms. Full readiness remains variable; the earlier final desktop sample under concurrent load was slower at 3615.2 and 3066.4 ms for composer readiness.",
+    "Warm reopen selected and enabled the composer in 10 to 14 ms in all five builds.",
+    "With three scoped CLI modules, cold selection took 40.5 and 36.5 ms, authoritative history 1936.3 and 252.7 ms, and composer readiness 2601.5 and 1738.1 ms. The first conversation's cold wait remained about 1.9 seconds; the second history phase improved in this one sample, while composer readiness remained close to the preceding optimized run."
+  ],
+  "limits": [
+    "This is one pair of cold openings per build, without controlled operating-system cache or background-load conditions; it is not a percentile or statistical benchmark.",
+    "The earlier final desktop sample ran alongside workspace tests and browser proofs, while the optimized sample did not. The difference cannot isolate the single CLI history change or establish that contention alone caused the earlier slow result.",
+    "The three-module activation first stopped at graceful close before any file copy. A second guarded normal close succeeded, but the first failure's exact reason was not retained. This does not affect the later measured navigation state; it remains a deployment limitation.",
+    "The two-animation-frame value is affected by Chromium and remote desktop frame scheduling. It is retained as an observation, not used as a responsiveness pass threshold.",
+    "Successful IPC calls do not emit durations in current desktop diagnostics, so the DOM phases do not isolate CLI index, log folding, session loading, or renderer scheduling costs."
+  ],
+  "finalDomProof": {
+    "receipt": "recents-final-transcript-dom-normalized-20261006.json",
+    "deployedFilesMatchBuiltSource": true,
+    "computedTranscriptDurationsMs": { "entry": 150, "phase": 300, "frame": 200 },
+    "historicalMessageCount": 4,
+    "historicalMessageAnimationName": "none",
+    "codeBlockCountInActiveTranscript": 0,
+    "note": "Chromium serializes the CSS durations as .15s, .3s, and .2s; values here are normalized to milliseconds. This DOM proof retained no transcript text or screenshot."
+  },
+  "optimizedDomProof": {
+    "receipt": "recents-optimized-transcript-dom-20261006.json",
+    "activationReceipt": "recents-desktop-optimized-activation-20261006.json",
+    "deployedFilesMatchBuiltSource": true,
+    "cliHistoryModuleCopies": 1,
+    "sdkCopies": 0,
+    "computedTranscriptDurationsMs": { "entry": 150, "phase": 300, "frame": 200 },
+    "historicalMessageCount": 4,
+    "historicalMessageAnimationName": "none",
+    "codeBlockCountInActiveTranscript": 0,
+    "note": "The read-only native DOM proof retained no transcript text or screenshot. The app remains on the original two tabs after the guarded navigation restored all protected state."
+  },
+  "scopedDomProof": {
+    "receipt": "recents-scoped-transcript-dom-20261006.json",
+    "activationReceipt": "recents-desktop-scoped-activation-retry-20261006.json",
+    "deployedFilesMatchBuiltSource": true,
+    "cliModuleCopies": 3,
+    "sdkCopies": 0,
+    "computedTranscriptDurationsMs": { "entry": 150, "phase": 300, "frame": 200 },
+    "historicalMessageCount": 4,
+    "historicalMessageAnimationName": "none",
+    "codeBlockCountInActiveTranscript": 0,
+    "note": "The read-only native DOM proof retained no transcript text or screenshot. The original two tabs and protected state remained restored."
+  }
+}

@@ -67,7 +67,8 @@ export interface CliSessionCatalog {
 	getSession(sessionId: SessionId, tenantId: TenantId): Promise<Session | null>
 }
 
-export interface CliSessions {
+/** Fresh project and tenant ownership for direct journal reads; no installation index is opened. */
+export interface CliSessionScope {
 	/** Absolute `NAMZU_HOME`. */
 	readonly root: string
 	/** The project's layout under `root`. */
@@ -79,13 +80,19 @@ export interface CliSessions {
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
 	readonly tenantId: TenantId
-	/** The rebuildable index over every session log under `root`. */
-	readonly index: SessionIndex
 	/** Sessions by id, read from their logs. */
 	readonly store: CliSessionCatalog
+}
+
+export interface CliSessions extends CliSessionScope {
+	/** The rebuildable index over every session log under `root`. */
+	readonly index: SessionIndex
 	/** Durable completion goal owned by each conversation Session. */
 	readonly goals: SessionGoalStore
 }
+
+/** The exact scope needed to verify and fold one persisted conversation. */
+export type ConversationReadContext = Pick<CliSessionScope, 'paths' | 'projectId' | 'tenantId'>
 
 /** Persisted conversation ownership and history; no goal or UI sidecars are needed for retrieval. */
 export type ConversationContext = Pick<
@@ -130,17 +137,17 @@ const LEASE_POLL_MS = 25
 const LEASE_TTL_MS = 30_000
 
 /**
- * Open (or initialize) the working directory's project: `projects/<slug>/`
- * with its `project.json`, the installation's tenant, and the index.
+ * Open (or initialize) the working directory's project and installation tenant
+ * for direct journal reads. This does not open or synchronize the index.
  *
  * The project is the nearest checkout root (a `.git` file or directory), so
  * worktrees and nested repositories keep distinct history while every
  * directory of one checkout shares it. Tool cwd is unchanged.
  */
-export async function openSessions(
+export async function openSessionScope(
 	cwd: string,
-	options: OpenSessionsOptions = {},
-): Promise<CliSessions> {
+	options: Pick<OpenSessionsOptions, 'stateRoot' | 'home' | 'env'> = {},
+): Promise<CliSessionScope> {
 	const workingDirectory = await realpath(resolve(cwd))
 	const root = resolve(
 		options.stateRoot ??
@@ -162,10 +169,6 @@ export async function openSessions(
 	})
 	ensurePrivateStateDirectory(projectsDir, project.slug)
 	const paths = new SessionPaths({ home: root, slug: project.slug })
-	const index = await openSessionIndex({
-		home: root,
-		...(options.indexBackend ? { backend: options.indexBackend } : {}),
-	})
 	const partial = {
 		root,
 		paths,
@@ -174,15 +177,27 @@ export async function openSessions(
 		projectId: project.projectId,
 		topicId: topicIdFor(project.projectId),
 		tenantId,
-		index,
 	}
 	const store: CliSessionCatalog = {
 		getSession: (sessionId, tenant) => readSessionEntity(partial, sessionId, tenant),
 	}
+	return { ...partial, store }
+}
+
+/** Open the same owned scope with its synchronized installation index and goal store. */
+export async function openSessions(
+	cwd: string,
+	options: OpenSessionsOptions = {},
+): Promise<CliSessions> {
+	const scope = await openSessionScope(cwd, options)
+	const index = await openSessionIndex({
+		home: scope.root,
+		...(options.indexBackend ? { backend: options.indexBackend } : {}),
+	})
 	return {
-		...partial,
-		store,
-		goals: new DiskSessionGoalStore({ rootDir: paths.projectDir(), sessions: store }),
+		...scope,
+		index,
+		goals: new DiskSessionGoalStore({ rootDir: scope.paths.projectDir(), sessions: scope.store }),
 	}
 }
 
@@ -513,7 +528,7 @@ export async function findMappedConversation(
  * recorded must also agree, and so must the tenant.
  */
 async function requireConversationInScope(
-	s: ConversationContext,
+	s: ConversationReadContext,
 	sessionId: SessionId,
 	op: string,
 ): Promise<ConversationFacts> {
@@ -624,7 +639,7 @@ export async function unarchiveConversation(s: CliSessions, sessionId: SessionId
 
 /** Load a conversation's folded message history. */
 export async function loadConversation(
-	s: ConversationContext,
+	s: ConversationReadContext,
 	sessionId: SessionId,
 ): Promise<Message[]> {
 	const facts = await requireConversationInScope(s, sessionId, 'load conversation history')

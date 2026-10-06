@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-06",
+  "method": "Read-only installed application asset inspection and allowlisted native UI Automation labels; no prompts, navigation, settings, restart or model requests.",
+  "reference": {
+    "application": "Official installed Windows Codex application",
+    "msix": "OpenAI.Codex_26.928.2636.0_x64__2p2nqsd0c76g0",
+    "package": "openai-codex-electron",
+    "packageVersion": "26.928.21956",
+    "assetRoot": "app/resources/app.asar/webview/assets",
+    "liveDomAvailable": false,
+    "remoteDebuggingConfigured": false,
+    "nativeRead": {
+      "nodes": 481,
+      "allowlistedVisibleStatusLabels": ["Activity"],
+      "interpretation": "The current view did not expose a live Thinking/Working or completed-turn disclosure. Activity may be navigation; no transcript identity is inferred from that label."
+    }
+  },
+  "verifiedPackedSources": [
+    {
+      "path": "collapsed-turn-disclosure-541fb0b033c7.js",
+      "sha256": "b6a252276b466087964ff3c17f9f643c15ecc946ea7bef74a4d1fa08a7a51131",
+      "finding": "Worked for {time} is the completed-turn divider between agent activity and the final assistant response."
+    },
+    {
+      "path": "latest-turn-preview-909867d3e9da.js",
+      "sha256": "7fb2277abf20bd4e72dc95a75bb24ddb419abf86cf0be4d4bd733661a0770394",
+      "finding": "Working is the in-progress latest-turn heading."
+    },
+    {
+      "path": "local-conversation-turn-202a34d13919.js",
+      "sha256": "5a7ea075cada0cd33afa80a8fd3725119dcdbdcfa8932a9f2f67c489072cfff7",
+      "finding": "Normal Thinking, waiting-for-answer and Pal Typing have separate presentation branches. Small fixed content uses opacity plus y=4 entry/exit for 150ms easeOut and a 200ms easeOut layout transition. The thinking-status opacity transition imports shared hT."
+    },
+    {
+      "path": "app-shared-a906948d8868.js",
+      "sha256": "50c38d92886db2b9832ec21932ca80fd0d997e4c3cc716c4139e9085c4f15d25",
+      "finding": "Export hT is bound to Iui: duration 300ms and cubic-bezier(0.19,1,0.22,1)."
+    },
+    {
+      "path": "active-tool-activity-label-d7b103efce2b.js",
+      "sha256": "94ef5667e8ee8f93c1fc6d9941a9edb97eafbb38e40577c3b2f4d5c5b5752072",
+      "finding": "Tool summaries use real action labels such as Reading, Searching, Running, Ran and Stopped command, with available target details."
+    },
+    {
+      "path": "activity-state-label-2c8ca7646438.js",
+      "sha256": "fd96abf3d09e8c331774d4667809aeac6c87cb57a74c5da6e28101327410afcb",
+      "finding": "Pal header activity states distinguish Thinking, Working, Needs input, Ready and Paused. Working explicitly refers to computer use in this source."
+    }
+  ],
+  "secondaryLocalReference": {
+    "project": "appUI",
+    "paths": [
+      "components/blocks/agent-thinking/agent-thinking.tsx",
+      "components/blocks/conversation/conversation.tsx",
+      "components/base/collapsible/collapsible.tsx",
+      "styles/theme.css",
+      "styles/loading-disclosure.css",
+      "styles/blocks.css"
+    ],
+    "sourceMotion": {
+      "fastMs": 160,
+      "standardMs": 240,
+      "settleMs": 360,
+      "easing": "cubic-bezier(0.2,0.75,0.25,1)"
+    },
+    "finding": "Collapsible animates real grid height and opacity while closed descendants are inert. Conversation following preserves explicit reader intent. AgentThinking is a configurable presentation component, not evidence that Namzu lacks real runtime phases.",
+    "limits": "Concurrent local working copy; no clean upstream revision or license claim, no source copied. These are source observations, not newly measured reference DOM."
+  },
+  "priorEvidence": {
+    "receipt": "transcript-native-windows-20261004.json",
+    "finding": "Earlier native inspection observed the completed Worked for disclosure and ordered public thoughts/commentary/tools. Namzu already verified actual-event Working/Thinking, 200ms collapsible motion and reduced motion."
+  },
+  "adaptation": {
+    "normalTranscript": "Replace the generic live Activity heading with truthful admitted phases; preserve completed Worked for duration and action-specific tool rows. Stop/pause durations use a separator, and incomplete work does not claim successful completion.",
+    "motion": "150ms fresh live entry, 300ms phase crossfade, existing 200ms collapse, reduced-motion cancellation and interrupted-frame continuity. Stored history, hydration, tab mounts and successive streaming chunks do not replay entry effects.",
+    "pal": "Keep delivered chat bubbles and concise Typing/Working; do not import coding-work disclosures into friend-style Pal chat.",
+    "branding": "Namzu branding and existing accessible primitives remain local."
+  },
+  "limits": [
+    "Packed source availability proves a presentation implementation, not that every branch is enabled in the currently visible account or route.",
+    "No current live Codex transition was induced or measured; exact pixel parity is not claimed.",
+    "No private transcript or source blob is included in this receipt."
+  ]
+}

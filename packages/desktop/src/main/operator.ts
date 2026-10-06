@@ -73,6 +73,8 @@ interface Project {
 	view: ProjectView
 	client: RuntimeClient
 	providers?: ProviderView
+	/** Display metadata from this connection's authoritative catalogue; never history admission. */
+	conversationCatalogue?: Map<string, ConversationView>
 }
 interface Conversation {
 	view: ConversationView
@@ -102,8 +104,22 @@ interface Conversation {
 	taskRevision?: number
 	taskRead?: Promise<boolean>
 	tasksClient?: RuntimeClient
+	readyRead?: {
+		client: RuntimeClient
+		runtimeId: string
+		executionRevision: number
+		selectionRevision: number
+		promise: Promise<void>
+	}
 	needsLoad?: boolean
 	needsHistory?: boolean
+	historyRead?: {
+		client: RuntimeClient
+		runtimeId: string
+		executionRevision: number
+		selectionRevision: number
+		promise: Promise<void>
+	}
 	restorePending?: boolean
 	permissions: Map<string, string | number>
 }
@@ -884,6 +900,7 @@ export class Operator {
 				.map((session) => ({ ...session.view }))
 		const project = this.project(id)
 		if (!project.view.trusted) return []
+		const assertCurrent = this.metadataRead(project)
 		const rows = (await project.client.request(
 			project.view.palId ? 'namzu/pals/conversations/list' : 'namzu/conversations/list',
 			project.view.palId ? { palId: project.view.palId } : {},
@@ -894,6 +911,7 @@ export class Operator {
 			harness?: ConversationView['harness']
 			palGreeting?: ConversationView['palGreeting']
 		}[]
+		assertCurrent()
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
 		const views = rows.map((row) => ({
 			id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
@@ -924,6 +942,7 @@ export class Operator {
 			)
 				views.unshift({ ...session.view })
 		}
+		project.conversationCatalogue = new Map(views.map((view) => [view.id, { ...view }]))
 		return views
 	}
 	async newConversation(projectId: string): Promise<ConversationView> {
@@ -1094,53 +1113,137 @@ export class Operator {
 			}
 		const project = this.project(projectId)
 		if (!existing) {
-			const list = await this.listConversations(projectId)
+			const assertCurrent = this.metadataRead(project)
+			const indexed = project.conversationCatalogue?.get(sessionId)
+			const list = indexed ? [indexed] : await this.listConversations(projectId)
+			assertCurrent()
 			const view = list.find((row) => row.id === sessionId)
 			if (!view) throw new Error('This conversation is no longer in this project.')
-			await project.client.request('session/load', {
+			const history = (await project.client.request('namzu/conversations/history', {
 				sessionId,
-				cwd: project.view.path,
-			})
-			this.conversations.set(sessionId, {
+			})) as { messages: ChatMessage[]; partial: boolean }
+			assertCurrent()
+			const record: Conversation = {
 				view,
 				runtimeSessionId: sessionId,
 				hasPrompted: true,
+				needsLoad: true,
+				needsHistory: false,
 				client: project.client,
 				running: false,
 				queue: [],
 				draft: '',
-				projection: emptyThread(),
+				projection: {
+					...restoreMessages(emptyThread(), history.messages),
+					partial: history.partial,
+				},
 				permissions: new Map(),
-			})
+			}
+			this.conversations.set(sessionId, record)
+			this.persistDesktop()
+			return { ...history, thread: record.projection }
 		}
-		if (existing?.needsLoad) {
-			await this.reattach(existing)
-		}
+		await this.restoreConversationHistory(existing)
+		// An unsent tab has no durable history; restore its replacement slot and
+		// exact engine/model before admitting metadata against that new identity.
+		if (existing.needsLoad && !existing.hasPrompted) await this.reattach(existing)
 		// Active/transient sessions are rendered from their live UI projection.
-		if (existing) {
-			if (!existing.running && !existing.admitting) {
-				await this.readTasksSnapshot(existing)
-				await this.refreshRetry(existing)
-			}
-			return {
-				messages: existing.projection.messages,
-				partial: existing.projection.partial ?? false,
-				thread: existing.projection,
-			}
+		return {
+			messages: existing.projection.messages,
+			partial: existing.projection.partial ?? false,
+			thread: existing.projection,
 		}
-		const history = (await project.client.request('namzu/conversations/history', {
-			sessionId,
-		})) as { messages: ChatMessage[]; partial: boolean }
-		const record = this.conversations.get(sessionId)
-		if (record)
-			record.projection = {
-				...restoreMessages(record.projection, history.messages),
+	}
+	/** Durable display does not require a provider context. Share the exact owned read with admission. */
+	private async restoreConversationHistory(session: Conversation): Promise<void> {
+		if (!session.needsHistory) return
+		const project = this.project(session.view.projectId)
+		const assertCurrent = this.metadataRead(project, session, Boolean(session.selectionPending))
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const executionRevision = session.executionRevision ?? 0
+		const selectionRevision = session.selectionRevision ?? 0
+		const pending = session.historyRead
+		if (
+			pending?.client === client &&
+			pending.runtimeId === runtimeId &&
+			pending.executionRevision === executionRevision &&
+			pending.selectionRevision === selectionRevision
+		)
+			return await pending.promise
+		const promise = (async () => {
+			const history = (await client.request('namzu/conversations/history', {
+				sessionId: runtimeId,
+			})) as { messages: ChatMessage[]; partial: boolean }
+			assertCurrent()
+			if (
+				this.conversations.get(session.view.id) !== session ||
+				(session.executionRevision ?? 0) !== executionRevision ||
+				session.running
+			)
+				throw new Error('This conversation changed while opening. Open it again.')
+			session.projection = {
+				...restoreMessages(session.projection, history.messages),
 				partial: history.partial,
 			}
-		if (record) await this.readTasksSnapshot(record)
-		if (record && !record.running && !record.admitting) await this.refreshRetry(record)
-		this.persistDesktop()
-		return { ...history, thread: record?.projection }
+			session.needsHistory = false
+		})()
+		const reading = {
+			client,
+			runtimeId,
+			executionRevision,
+			selectionRevision,
+			promise,
+		}
+		session.historyRead = reading
+		try {
+			await promise
+		} finally {
+			if (session.historyRead === reading) session.historyRead = undefined
+		}
+	}
+	/** Readiness is separate from display; actions still perform their own fresh admission. */
+	async readyConversation(projectId: string, sessionId: string): Promise<void> {
+		const session = this.conversations.get(sessionId)
+		if (!session) throw new Error('Open this conversation first.')
+		if (session.view.projectId !== projectId)
+			throw new Error('This conversation belongs to another project.')
+		const project = this.project(projectId)
+		if (session.needsLoad) await this.reattach(session)
+		const assertCurrent = this.metadataRead(project, session)
+		if (session.running || session.admitting) return
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const executionRevision = session.executionRevision ?? 0
+		const selectionRevision = session.selectionRevision ?? 0
+		const pending = session.readyRead
+		if (
+			pending?.client === client &&
+			pending.runtimeId === runtimeId &&
+			pending.executionRevision === executionRevision &&
+			pending.selectionRevision === selectionRevision
+		)
+			return await pending.promise
+		const promise = Promise.all([this.readTasksSnapshot(session), this.refreshRetry(session)]).then(
+			() => {
+				assertCurrent()
+				if ((session.executionRevision ?? 0) !== executionRevision || session.running)
+					throw new Error('This turn changed while loading. Open it again.')
+			},
+		)
+		const reading = {
+			client,
+			runtimeId,
+			executionRevision,
+			selectionRevision,
+			promise,
+		}
+		session.readyRead = reading
+		try {
+			await promise
+		} finally {
+			if (session.readyRead === reading) session.readyRead = undefined
+		}
 	}
 	private runtimeSession(project: Project, runtimeId: string): Conversation | undefined {
 		return [...this.conversations.values()].find(
@@ -1188,21 +1291,12 @@ export class Operator {
 		}
 		const operation = (async () => {
 			if (session.hasPrompted) {
+				await this.restoreConversationHistory(session)
+				stillOwned()
 				await client.request('session/load', {
 					sessionId: session.runtimeSessionId,
 					cwd: project.view.path,
 				})
-				if (session.needsHistory) {
-					const history = (await client.request('namzu/conversations/history', {
-						sessionId: session.runtimeSessionId,
-					})) as { messages: ChatMessage[]; partial: boolean }
-					stillOwned()
-					session.projection = {
-						...restoreMessages(session.projection, history.messages),
-						partial: history.partial,
-					}
-					session.needsHistory = false
-				}
 			} else {
 				// A never-started session has no durable CLI history to load. Keep
 				// its UI/draft owner and create only its replacement runtime slot.
@@ -1281,8 +1375,6 @@ export class Operator {
 					}
 				}
 			}
-			stillOwned()
-			await this.readTasksSnapshot(session)
 			stillOwned()
 			session.needsLoad = false
 			session.restorePending = false
@@ -1676,9 +1768,18 @@ export class Operator {
 		const executionRevision = session.executionRevision ?? 0
 		const selectionRevision = session.selectionRevision ?? 0
 		const result = client.supportsTurnRetry()
-			? await client.request('namzu/sessions/retry-status', { sessionId: runtimeId })
+			? await client.request('namzu/sessions/retry-status', {
+					sessionId: runtimeId,
+				})
 			: {}
-		if (this.closing || session.client !== client || session.runtimeSessionId !== runtimeId)
+		if (
+			this.closing ||
+			this.conversations.get(session.view.id) !== session ||
+			this.projects.get(session.view.projectId)?.client !== client ||
+			this.projects.get(session.view.projectId)?.view.status !== 'ready' ||
+			session.client !== client ||
+			session.runtimeSessionId !== runtimeId
+		)
 			throw new Error('The connection changed while reading this turn’s retry status.')
 		if (!result || typeof result !== 'object' || Array.isArray(result))
 			throw new Error('Namzu returned an invalid turn retry status.')
@@ -1710,7 +1811,12 @@ export class Operator {
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
 			session.projection.retryNotice !== notice
 		)
-			this.emit({ kind: 'retry-status', sessionId: session.view.id, retry, notice })
+			this.emit({
+				kind: 'retry-status',
+				sessionId: session.view.id,
+				retry,
+				notice,
+			})
 		return { ...(retry ? { retry } : {}), ...(notice ? { notice } : {}) }
 	}
 	private async readTasksSnapshot(session: Conversation, force = false): Promise<void> {
@@ -1746,7 +1852,9 @@ export class Operator {
 			(session.executionRevision ?? 0) === executionRevision
 		const operation = (async () => {
 			try {
-				const result = await client.request('namzu/tasks/list', { sessionId: runtimeId })
+				const result = await client.request('namzu/tasks/list', {
+					sessionId: runtimeId,
+				})
 				if (!current()) return false
 				const tasks = readTasks(result)
 				if (!tasks) throw new Error('Invalid task list.')
@@ -1756,7 +1864,10 @@ export class Operator {
 			} catch (error) {
 				if (current()) {
 					try {
-						this.diagnostics?.record('cli_notice', { operation: 'namzu/tasks/list', error })
+						this.diagnostics?.record('cli_notice', {
+							operation: 'namzu/tasks/list',
+							error,
+						})
 					} catch {
 						/* Diagnostics cannot break task readout or prompt settlement. */
 					}
@@ -1875,7 +1986,12 @@ export class Operator {
 					kind: 'update',
 					projectId: session.view.projectId,
 					sessionId: session.view.id,
-					update: { kind: 'turn_ended', turnId, stopReason: 'cancelled', reason: 'paused' },
+					update: {
+						kind: 'turn_ended',
+						turnId,
+						stopReason: 'cancelled',
+						reason: 'paused',
+					},
 				})
 			this.state(session, error instanceof Error ? error.message : String(error))
 		} finally {

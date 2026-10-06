@@ -1,0 +1,704 @@
+{
+  "passed": true,
+  "browserPreview": true,
+  "fixture": "Existing ordinary sample Recents in two projects; history, registration and readiness are synthetic deferred API boundaries.",
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "cold Recents click selects the shell and loading transcript before the held history resolves",
+    "opening known Recents rows does not trigger another full project catalogue scan",
+    "Opening conversation notice identifies pending first history; composer, model and send remain blocked",
+    "no targeted session metadata or readiness read runs before main registration",
+    "duplicate click on the same pending Recents row shares one history and one readiness flight",
+    "authoritative messages paint while the readiness response remains explicitly held",
+    "ancillary shell polling, engine discovery and duplicate visible-task reads wait until core admission completes",
+    "composer, models, permission settings, plugins, engine selection, attachment import, approvals and queued-message mutations stay unavailable until readiness confirms",
+    "confirmed closed-conversation reopen displays saved history and overlaps history with all four metadata reads",
+    "rapid navigation to another project wins over obsolete history and provider results",
+    "late A responses cannot replace B transcript, selected tab or owner-specific draft",
+    "readiness failure retains accepted messages, blocks actions and allows an authoritative Retry setup",
+    "synthetic per-session drafts and model settings are retained without provider selection or sending"
+  ],
+  "firstSession": "sample-thread-1",
+  "secondSession": "sample-thread-4",
+  "metadataMethods": [
+    "providers",
+    "draft",
+    "draftSettings",
+    "attachments"
+  ],
+  "catalogueCalls": {
+    "before": 3,
+    "beforeExplicitRetry": 3,
+    "afterExplicitRetry": 9
+  },
+  "events": [
+    {
+      "index": 0,
+      "method": "catalogue:start",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 1,
+      "method": "catalogue:start",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 2,
+      "method": "catalogue:start",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 3,
+      "method": "catalogue:resolved",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 4,
+      "method": "catalogue:resolved",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 5,
+      "method": "catalogue:resolved",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 6,
+      "method": "workspace:open",
+      "sessionId": "sample-thread-1"
+    },
+    {
+      "index": 7,
+      "method": "history:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 8,
+      "method": "history:held",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 9,
+      "method": "history:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 10,
+      "method": "providers:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 11,
+      "method": "draft:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 12,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 13,
+      "method": "ready:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 14,
+      "method": "ready:held",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 15,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 16,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 17,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 18,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 19,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 20,
+      "method": "ready:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 21,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 22,
+      "method": "jobs:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 23,
+      "method": "jobs:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 24,
+      "method": "harnesses:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 25,
+      "method": "harnesses:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 26,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 1
+    },
+    {
+      "index": 27,
+      "method": "workspace:close",
+      "sessionId": "sample-thread-1"
+    },
+    {
+      "index": 28,
+      "method": "workspace:open",
+      "sessionId": "sample-thread-1"
+    },
+    {
+      "index": 29,
+      "method": "providers:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 30,
+      "method": "providers:held",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 31,
+      "method": "draft:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 32,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 33,
+      "method": "history:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 34,
+      "method": "history:held",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 35,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 36,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 37,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 38,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 39,
+      "method": "workspace:open",
+      "sessionId": "sample-thread-4"
+    },
+    {
+      "index": 40,
+      "method": "jobs:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 41,
+      "method": "jobs:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 42,
+      "method": "harnesses:start",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 43,
+      "method": "harnesses:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 44,
+      "method": "history:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 45,
+      "method": "history:held",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 46,
+      "method": "history:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 47,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-1",
+      "ordinal": 2
+    },
+    {
+      "index": 48,
+      "method": "history:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 49,
+      "method": "providers:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 50,
+      "method": "draft:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 51,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 52,
+      "method": "ready:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 53,
+      "method": "ready:held",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 54,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 55,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 56,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 57,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 58,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 59,
+      "method": "ready:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 60,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 61,
+      "method": "jobs:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 62,
+      "method": "jobs:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 63,
+      "method": "harnesses:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 64,
+      "method": "harnesses:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 65,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 1
+    },
+    {
+      "index": 66,
+      "method": "workspace:open",
+      "sessionId": "sample-thread-2"
+    },
+    {
+      "index": 67,
+      "method": "jobs:start",
+      "sessionId": "sample-thread-4",
+      "ordinal": 2
+    },
+    {
+      "index": 68,
+      "method": "jobs:resolved",
+      "sessionId": "sample-thread-4",
+      "ordinal": 2
+    },
+    {
+      "index": 69,
+      "method": "history:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 70,
+      "method": "history:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 71,
+      "method": "providers:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 72,
+      "method": "draft:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 73,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 74,
+      "method": "ready:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 75,
+      "method": "ready:held",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 76,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 77,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 78,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 79,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 80,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 81,
+      "method": "ready:rejected",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 82,
+      "method": "catalogue:start",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 83,
+      "method": "catalogue:start",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 84,
+      "method": "catalogue:start",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 85,
+      "method": "catalogue:resolved",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 86,
+      "method": "catalogue:resolved",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 87,
+      "method": "catalogue:resolved",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 88,
+      "method": "providers:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 89,
+      "method": "catalogue:start",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 90,
+      "method": "catalogue:start",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 91,
+      "method": "catalogue:start",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 92,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 93,
+      "method": "catalogue:resolved",
+      "projectId": "sample-app"
+    },
+    {
+      "index": 94,
+      "method": "catalogue:resolved",
+      "projectId": "sample-docs"
+    },
+    {
+      "index": 95,
+      "method": "catalogue:resolved",
+      "projectId": "sample-workspace"
+    },
+    {
+      "index": 96,
+      "method": "providers:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 3
+    },
+    {
+      "index": 97,
+      "method": "draft:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 98,
+      "method": "draft:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 99,
+      "method": "history:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 100,
+      "method": "providers:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 3
+    },
+    {
+      "index": 101,
+      "method": "draftSettings:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 102,
+      "method": "draftSettings:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 103,
+      "method": "attachments:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 104,
+      "method": "attachments:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 105,
+      "method": "history:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 106,
+      "method": "ready:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 107,
+      "method": "ready:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 2
+    },
+    {
+      "index": 108,
+      "method": "modelSettings:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 109,
+      "method": "jobs:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 110,
+      "method": "jobs:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 111,
+      "method": "harnesses:start",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 112,
+      "method": "harnesses:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    },
+    {
+      "index": 113,
+      "method": "modelSettings:resolved",
+      "sessionId": "sample-thread-2",
+      "ordinal": 1
+    }
+  ],
+  "violations": [],
+  "actionCalls": [],
+  "faults": [],
+  "fixtureLimits": "In-memory Vite browser fixture; no native deployment, durable history, real CLI readiness or latency guarantee is established."
+}

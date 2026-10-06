@@ -119,6 +119,7 @@ it('loads a saved durable runtime directly even when the recent catalogue no lon
 	expect(project.id).toBe(projectId)
 	expect(await owner.listConversations(projectId)).toContainEqual(view)
 	await owner.openConversation(projectId, view.id)
+	await owner.readyConversation(projectId, view.id)
 	const calls = await requests(log)
 	expect(calls.find((item) => item.method === 'session/load')?.params?.sessionId).toBe(
 		'durable-runtime-alias',

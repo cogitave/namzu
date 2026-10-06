@@ -1,0 +1,32 @@
+.normal-transcript {
+	--transcript-entry-duration: 150ms;
+	--transcript-phase-duration: 300ms;
+	--transcript-frame-duration: 200ms;
+	--transcript-entry-ease: ease-out;
+	--transcript-phase-ease: cubic-bezier(0.19, 1, 0.22, 1);
+	--transcript-frame-ease: ease-out;
+}
+.normal-transcript .message {
+	/* Stored history and tab selection are immediate. Live entries use their admission effects. */
+	animation: none;
+}
+.normal-transcript .transcript-phase-label {
+	display: inline-grid;
+	min-width: 0;
+}
+.normal-transcript .transcript-phase-text {
+	grid-area: 1 / 1;
+}
+.normal-transcript [data-transcript-phase-outgoing] {
+	pointer-events: none;
+	opacity: 0;
+}
+.normal-transcript [data-slot="collapsible-panel"] {
+	transition-duration: var(--transcript-frame-duration);
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-transcript [data-slot="collapsible-panel"],
+	.normal-transcript .disclosure-chevron {
+		transition: none;
+	}
+}

@@ -65,11 +65,16 @@ const row = (taskId: string, status = 'pending') => ({
 	status,
 	blockedBy: [],
 })
+async function openReady(owner: Operator, projectId: string, sessionId: string) {
+	await owner.openConversation(projectId, sessionId)
+	await owner.readyConversation(projectId, sessionId)
+	return owner.openConversation(projectId, sessionId)
+}
 
 it('cold-loads durable planning states before any model request and preserves failure rather than claiming completion', async () => {
 	const { owner, requests } = harness()
 	const project = await owner.openProject(process.cwd())
-	const result = await owner.openConversation(project.id, 'cold-session')
+	const result = await openReady(owner, project.id, 'cold-session')
 	expect(result.thread?.tasks).toEqual([row('first', 'in_progress'), row('second', 'failed')])
 	expect(requests.filter(({ method }) => method === 'session/prompt')).toEqual([])
 	expect(requests.find(({ method }) => method === 'initialize')?.params).toMatchObject({
@@ -86,8 +91,8 @@ it('cold-loads durable planning states before any model request and preserves fa
 it('accepts only the matching active session’s typed notifications and reconciles deletion on idle without touching drafts or queue', async () => {
 	const { owner, client, wait, recorded } = harness()
 	const project = await owner.openProject(process.cwd())
-	await owner.openConversation(project.id, 'cold-session')
-	await owner.openConversation(project.id, 'other-session')
+	await openReady(owner, project.id, 'cold-session')
+	await openReady(owner, project.id, 'other-session')
 	owner.saveDraft('cold-session', 'Keep draft')
 	const permission = wait((event) => event.kind === 'permission')
 	await owner.send('cold-session', 'Watch task updates')
@@ -155,7 +160,9 @@ it('does not let a delayed cold snapshot resurrect a deleted task and performs a
 		return request.call(this, method, params, timeout)
 	})
 	try {
-		const opening = owner.openConversation(project.id, 'cold-session')
+		await owner.openConversation(project.id, 'cold-session')
+		const readiness = owner.readyConversation(project.id, 'cold-session')
+		const refused = expect(readiness).rejects.toThrow('turn changed')
 		await entered.promise
 		const stopped = wait(settled)
 		await owner.send('cold-session', 'Finish')
@@ -165,7 +172,8 @@ it('does not let a delayed cold snapshot resurrect a deleted task and performs a
 			deleted: true,
 		})
 		snapshot.resolve({ tasks: [row('first', 'in_progress'), row('second', 'failed')] })
-		const loaded = await opening
+		await refused
+		const loaded = await owner.openConversation(project.id, 'cold-session')
 		expect(loaded.thread?.tasks.some((task) => task.taskId === 'second')).toBe(false)
 		await stopped
 		expect((await owner.openConversation(project.id, 'cold-session')).thread?.tasks).toEqual([
@@ -195,13 +203,15 @@ it('discards a pending snapshot when the exact owned connection closes', async (
 		return request.call(this, method, params, timeout)
 	})
 	try {
-		const opening = owner.openConversation(project.id, 'cold-session')
+		await owner.openConversation(project.id, 'cold-session')
+		const readiness = owner.readyConversation(project.id, 'cold-session')
+		const refused = expect(readiness).rejects.toThrow('settings changed')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')
 		await closed
 		snapshot.resolve({ tasks: [row('stale-private-task')] })
-		await opening
+		await refused
 		expect((await owner.openConversation(project.id, 'cold-session')).thread?.tasks).toEqual([])
 	} finally {
 		snapshot.resolve({ tasks: [] })
@@ -210,13 +220,13 @@ it('discards a pending snapshot when the exact owned connection closes', async (
 it('keeps older CLI peers usable without invoking an unadvertised task route', async () => {
 	const { owner, requests } = harness(true)
 	const project = await owner.openProject(process.cwd())
-	expect((await owner.openConversation(project.id, 'cold-session')).thread?.tasks).toEqual([])
+	expect((await openReady(owner, project.id, 'cold-session')).thread?.tasks).toEqual([])
 	expect(requests.some(({ method }) => method === 'namzu/tasks/list')).toBe(false)
 })
 it('explicitly refreshes idle disk-only outcomes and deletion without a model call, and skips active or unknown sessions', async () => {
 	const { owner, client, requests, wait } = harness()
 	const project = await owner.openProject(process.cwd())
-	const before = (await owner.openConversation(project.id, 'cold-session')).thread?.tasks
+	const before = (await openReady(owner, project.id, 'cold-session')).thread?.tasks
 	await client().request('test/task', {
 		sessionId: 'cold-session',
 		task: row('first', 'completed'),

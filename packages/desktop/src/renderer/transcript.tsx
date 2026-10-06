@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import { AttachmentList } from './attachment-list.js'
 import { ChevronRightIcon, FileDiffIcon, TerminalIcon, WrenchIcon } from './icons.js'
@@ -10,7 +10,15 @@ import {
 	toolGroupLabel,
 	transcriptTurns,
 } from './transcript-layout.js'
+import {
+	livePhaseLabel,
+	transcriptEntryKey,
+	turnActivityLabel,
+	useTranscriptEntryMotion,
+	useTranscriptPhaseMotion,
+} from './transcript-motion.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
+import './transcript-motion.css'
 
 function ToolRow({
 	tool,
@@ -74,7 +82,11 @@ function Entry({
 	if (entry.kind === 'tool') {
 		const tool = thread.tools[entry.id]
 		return tool ? (
-			<div className="tool-list" data-timeline-turn={entry.turn}>
+			<div
+				className="tool-list"
+				data-timeline-turn={entry.turn}
+				data-transcript-entry-key={transcriptEntryKey(entry)}
+			>
 				<ToolRow
 					tool={tool}
 					active={thread.activeToolIds.includes(entry.id)}
@@ -87,7 +99,12 @@ function Entry({
 		const thought = thread.reasoning[entry.id]
 		// A redacted block can drive Thinking, but cannot invent a public body.
 		return thought?.text ? (
-			<div className="reasoning" data-timeline-turn={entry.turn} data-reasoning-id={entry.id}>
+			<div
+				className="reasoning"
+				data-timeline-turn={entry.turn}
+				data-reasoning-id={entry.id}
+				data-transcript-entry-key={transcriptEntryKey(entry)}
+			>
 				<MessageContent text={thought.text} markdown />
 			</div>
 		) : null
@@ -99,6 +116,7 @@ function Entry({
 			className={`message ${message.role}`}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
+			data-transcript-entry-key={transcriptEntryKey(entry)}
 		>
 			<MessageContent text={message.text} markdown={message.role === 'assistant'} />
 			{message.attachments && (
@@ -110,8 +128,16 @@ function Entry({
 	) : null
 }
 
-function entryKey(entry: TimelineEntry): string {
-	return entry.kind === 'message' ? `message-${entry.index}` : `${entry.kind}-${entry.id}`
+const entryKey = transcriptEntryKey
+
+function PhaseLabel({ label, animate }: { label: string; animate: boolean }) {
+	const ref = useRef<HTMLSpanElement>(null)
+	useTranscriptPhaseMotion(ref, label, animate)
+	return (
+		<span className="transcript-phase-label" ref={ref} aria-hidden="true">
+			<span className="transcript-phase-text">{label}</span>
+		</span>
+	)
 }
 
 function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: ThreadState }) {
@@ -192,17 +218,11 @@ function TurnActivity({
 	thread,
 	turn,
 	entries,
-}: { thread: ThreadState; turn: number; entries: TimelineEntry[] }) {
+	animate,
+}: { thread: ThreadState; turn: number; entries: TimelineEntry[]; animate: boolean }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
-	const timing = thread.turns[turn]
-	const duration =
-		timing?.startedAt !== undefined && timing.endedAt !== undefined
-			? timing.endedAt - timing.startedAt
-			: undefined
-	const label = live
-		? 'Activity'
-		: `${timing?.reason === 'paused' ? 'Paused' : timing?.stopReason === 'cancelled' ? 'Stopped' : timing?.stopReason && timing.stopReason !== 'end_turn' ? 'Activity' : 'Worked'}${duration !== undefined ? ` for ${elapsedLabel(duration)}` : ''}`
+	const label = turnActivityLabel(thread, turn)
 	return (
 		<Collapsible
 			className="turn-activity"
@@ -210,8 +230,8 @@ function TurnActivity({
 			onOpenChange={setChosenOpen}
 			data-activity-turn={turn}
 		>
-			<CollapsibleTrigger className="activity-trigger">
-				<span>{label}</span>
+			<CollapsibleTrigger className="activity-trigger" aria-label={label}>
+				<PhaseLabel label={label} animate={animate} />
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
 			<CollapsiblePanel>
@@ -223,8 +243,15 @@ function TurnActivity({
 	)
 }
 
-function LiveStatus({ thread }: { thread: ThreadState }) {
+function LiveStatus({ thread, animate }: { thread: ThreadState; animate: boolean }) {
 	const phase = threadPhase(thread)
+	const label = livePhaseLabel(thread)
+	const retained = useRef(label)
+	const ref = useRef<HTMLOutputElement>(null)
+	useTranscriptPhaseMotion(ref, label, animate, true)
+	useEffect(() => {
+		if (label) retained.current = label
+	}, [label])
 	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
 	useEffect(() => {
@@ -233,20 +260,19 @@ function LiveStatus({ thread }: { thread: ThreadState }) {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000)
 		return () => window.clearInterval(timer)
 	}, [thread.running, start])
-	if (phase === 'idle') return null
-	const label =
-		phase === 'waiting'
-			? 'Waiting for your decision'
-			: phase === 'thinking'
-				? 'Thinking'
-				: 'Working'
 	return (
 		<output
+			ref={ref}
 			className={`working ${phase === 'waiting' ? 'waiting' : ''}`}
-			aria-live="polite"
-			data-transcript-phase={phase}
+			aria-live={label ? 'polite' : 'off'}
+			aria-label={label}
+			aria-hidden={!label}
+			inert={!label}
+			data-transcript-phase={phase === 'idle' ? undefined : phase}
 		>
-			<span className="working-label">{label}</span>
+			<span className="working-label transcript-phase-label" aria-hidden="true">
+				<span className="transcript-phase-text">{label ?? retained.current}</span>
+			</span>
 			{start !== undefined && (
 				<span className="working-elapsed" aria-hidden="true">
 					{elapsedLabel(now - start)}
@@ -256,27 +282,37 @@ function LiveStatus({ thread }: { thread: ThreadState }) {
 	)
 }
 
-export function Transcript({ thread }: { thread: ThreadState }) {
+export function Transcript({
+	thread,
+	animate = false,
+}: { thread: ThreadState; animate?: boolean }) {
+	const ref = useRef<HTMLDivElement>(null)
+	useTranscriptEntryMotion(ref, thread, animate)
 	const notice = !thread.running
 		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
 		: undefined
 	return (
-		<>
+		<div className="normal-transcript" ref={ref}>
 			{transcriptTurns(thread).map((group) => (
 				<div className="transcript-turn" key={group.turn} data-transcript-turn={group.turn}>
 					{group.user.map((entry) => (
 						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
 					))}
 					{group.activity.length > 0 && (
-						<TurnActivity thread={thread} turn={group.turn} entries={group.activity} />
+						<TurnActivity
+							thread={thread}
+							turn={group.turn}
+							entries={group.activity}
+							animate={animate}
+						/>
 					)}
 					{group.answer.map((entry) => (
 						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
 					))}
 				</div>
 			))}
-			<LiveStatus thread={thread} />
+			<LiveStatus thread={thread} animate={animate} />
 			{notice && <p className="notice">{notice}</p>}
-		</>
+		</div>
 	)
 }

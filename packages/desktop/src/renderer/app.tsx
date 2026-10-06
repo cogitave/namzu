@@ -342,6 +342,7 @@ export function App({
 		sessionId: string
 		saved: boolean
 		refreshing: boolean
+		pending?: boolean
 	} | null>(null)
 	const threadsRef = useRef(threads)
 	threadsRef.current = threads
@@ -515,7 +516,8 @@ export function App({
 	const follow = useRef(true)
 	const project = projects.find((item) => item.id === projectId)
 	const conversation = conversations.find((item) => item.id === sessionId)
-	const thread = threads[sessionId] ?? emptyThread()
+	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
+	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
 	const pal = pals.find((item) => item.id === project?.palId)
 	const palConversation = Boolean(project?.palId || conversation?.palId)
 	const detailsOpen = jobsOpen && !palConversation
@@ -606,13 +608,13 @@ export function App({
 	const draft = drafts[draftOwner] ?? ''
 	const attached = useAttachments(
 		draftOwner,
-		Boolean(project),
+		Boolean(project) && !historyPending,
 		(failure) => setError(errorText(failure)),
 		api,
 	)
 	const savedSettings = useDraftSettings(
 		draftOwner,
-		Boolean(project),
+		Boolean(project) && !historyPending,
 		(failure) => setError(errorText(failure)),
 		api,
 	)
@@ -940,7 +942,7 @@ export function App({
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch
-		if (!project || project.status === 'connecting' || !project.trusted) return
+		if (!project || project.status === 'connecting' || !project.trusted || historyPending) return
 		if (warmSessions.current.mutating(sessionId)) return
 		const remembered = warmSessions.current.read(sessionId, project.id)
 		if (remembered) {
@@ -966,7 +968,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [project, sessionId, api, metadataEpoch])
+	}, [project, sessionId, api, metadataEpoch, historyPending])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
@@ -987,8 +989,9 @@ export function App({
 		}
 	}, [projectId, windowId, group.id, api])
 	useEffect(() => {
-		if (!sessionId || !api || palConversation) {
+		if (!sessionId || !api || palConversation || historyPending || restoringTabs) {
 			setJobs([])
+			setJobsSessionId('')
 			return
 		}
 		let current = true
@@ -1021,7 +1024,7 @@ export function App({
 			current = false
 			clearInterval(timer)
 		}
-	}, [sessionId, palConversation, api])
+	}, [sessionId, palConversation, api, historyPending, restoringTabs])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -1032,6 +1035,8 @@ export function App({
 		if (
 			!sessionId ||
 			!api?.refreshTasks ||
+			historyPending ||
+			restoringTabs ||
 			(!palTasksVisible && (!detailsOpen || panelTab !== 'jobs'))
 		)
 			return
@@ -1042,7 +1047,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [sessionId, detailsOpen, panelTab, palTasksVisible, api])
+	}, [sessionId, detailsOpen, panelTab, palTasksVisible, api, historyPending, restoringTabs])
 	useEffect(() => {
 		const node = transcript.current
 		if (!node || !sessionId) return
@@ -1074,7 +1079,16 @@ export function App({
 	}, [sessionId, pal, conversations])
 	useEffect(() => {
 		void metadataEpoch
-		if (!api.harnesses || !project || pal || !project.trusted || project.status !== 'ready') return
+		if (
+			!api.harnesses ||
+			!project ||
+			pal ||
+			!project.trusted ||
+			project.status !== 'ready' ||
+			historyPending ||
+			restoringTabs
+		)
+			return
 		if (warmSessions.current.mutating(sessionId)) return
 		const remembered = warmSessions.current.read(sessionId, project.id)?.harness
 		if (remembered) {
@@ -1096,7 +1110,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [project, pal, sessionId, providerKey, api, metadataEpoch])
+	}, [project, pal, sessionId, providerKey, api, metadataEpoch, historyPending, restoringTabs])
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
@@ -1407,10 +1421,24 @@ export function App({
 						setRestoringTabs(true)
 						hydratedSession.current = null
 						setProviderOwner('')
-						if (retained) {
-							setHistoryDisplay({ sessionId: view.id, saved: true, refreshing: true })
-							showConversation()
-						}
+						setHistoryDisplay({
+							sessionId: view.id,
+							saved: retained,
+							refreshing: true,
+							pending: !retained,
+						})
+						showConversation()
+						const readMetadata = () =>
+							Promise.all([
+								api.providers(view.projectId, view.id),
+								api.draft(view.id),
+								savedSettings.refresh(view.id),
+								attached.reload(view.id),
+							])
+						// A retained session already exists in main. Its independent metadata
+						// can overlap history; first opens wait for main registration.
+						const metadata = retained ? readMetadata() : undefined
+						void metadata?.catch(() => {})
 						const history = await api.openConversation(view.projectId, view.id)
 						if (generation !== navigation.current) return
 						if (read.overflow)
@@ -1436,13 +1464,15 @@ export function App({
 							projectId: view.projectId,
 							connection: ticket.connection,
 						})
-						setHistoryDisplay({ sessionId: view.id, saved: false, refreshing: false })
+						setHistoryDisplay({
+							sessionId: view.id,
+							saved: false,
+							refreshing: false,
+						})
 						showConversation()
-						const [available, savedDraft] = await Promise.all([
-							api.providers(view.projectId, view.id),
-							api.draft(view.id),
-							savedSettings.refresh(view.id),
-							attached.reload(view.id),
+						const [[available, savedDraft]] = await Promise.all([
+							metadata ?? readMetadata(),
+							api.readyConversation?.(view.projectId, view.id),
 						])
 						if (generation !== navigation.current) return
 						status = available
@@ -1520,6 +1550,17 @@ export function App({
 	useEffect(() => {
 		let current = true
 		void tabRestoreAttempt
+		// Opening an indexed Recent only changes membership, not the catalogue.
+		// Unknown transferred/restored IDs still require an authoritative listing.
+		if (
+			catalogueReady &&
+			catalogueOwner.current?.projects === projects &&
+			(catalogueOwner.current.tabsKey === catalogueTabsKey ||
+				group.tabs.every((id) => conversations.some((item) => item.id === id)))
+		) {
+			catalogueOwner.current = { projects, tabsKey: catalogueTabsKey }
+			return
+		}
 		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
 		const activities = readable.map((item) =>
 			item.palId ? palCatalogueActivity.current.ticket(item.palId) : undefined,
@@ -1544,7 +1585,15 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [api, projects, catalogueTabsKey, tabRestoreAttempt])
+	}, [
+		api,
+		projects,
+		catalogueTabsKey,
+		tabRestoreAttempt,
+		conversations,
+		group.tabs,
+		catalogueReady,
+	])
 	useEffect(() => {
 		void metadataEpoch
 		setOpenTabIds([...group.tabs])
@@ -3167,7 +3216,7 @@ export function App({
 						id={palWorkspace ? computerIds.chatPanel : undefined}
 						role={palWorkspace ? 'tabpanel' : undefined}
 						aria-labelledby={palWorkspace ? computerIds.chatTab : undefined}
-						data-empty={!pal && thread.messages.length === 0}
+						data-empty={!pal && !historyPending && thread.messages.length === 0}
 						data-context-card={!jobsOpen && !pal && thread.messages.length > 0}
 						data-pal-context={Boolean(palContextProps) && !computerPage && palProfileOpen}
 					>
@@ -3210,6 +3259,13 @@ export function App({
 							</header>
 						)}
 						<div className="conversation-lane">
+							{historyPending && (
+								<output className="notice conversation-refresh" aria-live="polite">
+									{historyDisplay?.refreshing
+										? 'Opening conversation…'
+										: 'Conversation could not be loaded.'}
+								</output>
+							)}
 							{historyDisplay?.sessionId === sessionId && historyDisplay.saved && (
 								<output className="notice conversation-refresh">
 									{historyDisplay.refreshing ? 'Updating conversation…' : 'Saved messages'}
@@ -3218,9 +3274,11 @@ export function App({
 							<div
 								className="transcript"
 								data-history-state={
-									historyDisplay?.sessionId === sessionId && historyDisplay.saved
-										? 'saved'
-										: 'authoritative'
+									historyPending
+										? 'loading'
+										: historyDisplay?.sessionId === sessionId && historyDisplay.saved
+											? 'saved'
+											: 'authoritative'
 								}
 								role={pal ? 'region' : undefined}
 								aria-label={pal ? `${pal.name} conversation` : undefined}
@@ -3235,7 +3293,7 @@ export function App({
 											100
 								}}
 							>
-								<div className="conversation-body">
+								<div className="conversation-body" aria-busy={historyPending}>
 									{thread.partial && (
 										<p className="notice">
 											Showing the latest part of this conversation. The full record remains on this
@@ -3251,7 +3309,11 @@ export function App({
 										/>
 									) : (
 										<>
-											<Transcript key={sessionId || 'blank'} thread={thread} />
+											<Transcript
+												key={sessionId || 'blank'}
+												thread={thread}
+												animate={!historyPending && !restoringTabs}
+											/>
 											<ChangedFilesCard
 												tools={thread.tools}
 												onOpen={() => {
@@ -3328,7 +3390,7 @@ export function App({
 								projects={projects.filter((item) => !item.palId)}
 								onSelectProject={(item) => selectProject(item.id)}
 								onOpenProject={() => void act(openProject)}
-								empty={!pal && thread.messages.length === 0}
+								empty={!pal && !historyPending && thread.messages.length === 0}
 								draft={draft}
 								onDraftChange={(value) => changeDraft(draftOwner, value)}
 								providers={activeProviders}

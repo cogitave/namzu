@@ -345,6 +345,8 @@ export interface DesktopApi {
 		partial: boolean
 		thread?: import('./projection.js').ThreadState
 	}>
+	/** Refresh tasks/retry state after history is visible, before admitting actions. */
+	readyConversation?(projectId: string, sessionId: string): Promise<void>
 	providers(projectId: string, sessionId?: string): Promise<ProviderView>
 	models(projectId: string, provider: string, sessionId?: string): Promise<ModelCatalogueView>
 	modelSettings(

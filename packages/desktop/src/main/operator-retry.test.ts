@@ -192,8 +192,9 @@ it('rejects a stale readonly status response after a model selection changes', a
 		}
 		return request.call(this, method, params, timeout)
 	})
-	const opening = owner.openConversation(project.id, session.id)
-	const refused = expect(opening).rejects.toThrow('settings changed')
+	await owner.openConversation(project.id, session.id)
+	const readiness = owner.readyConversation(project.id, session.id)
+	const refused = expect(readiness).rejects.toThrow('settings changed')
 	try {
 		await entered.promise
 		await owner.selectProvider(session.id, 'fixture', 'new')

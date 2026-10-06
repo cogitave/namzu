@@ -8,13 +8,16 @@ import {
 	isEntityId,
 } from '@namzu/sdk'
 import {
+	type CliSessionScope,
 	closeSessions,
 	listRecent,
 	loadConversation,
+	openSessionScope,
 	openSessions,
 	readConversationFacts,
 } from '../integrations/sessions/store.js'
-import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import { isTrusted, isTrustedAtStateRoot, trustDir } from '../integrations/trust/store.js'
 import {
 	claimPalConversation,
 	listPalConversations,
@@ -74,10 +77,16 @@ export function createDesktopHostExtensions(
 			closeSessions(state)
 		}
 	}
-	const ownedSessionIn = async (
-		params: Record<string, unknown>,
-		state: Awaited<ReturnType<typeof openSessions>>,
-	) => {
+	const withReadScope = async <T>(run: (state: CliSessionScope) => Promise<T>): Promise<T> => {
+		const root = resolveNamzuHome()
+		if (!isTrustedAtStateRoot(cwd, root))
+			throw new Error('Trust this folder before opening its conversations.')
+		const scope = await openSessionScope(cwd, { stateRoot: root })
+		if (!isTrustedAtStateRoot(cwd, scope.root))
+			throw new Error('Trust this folder before opening its conversations.')
+		return await run(scope)
+	}
+	const ownedSessionIn = async (params: Record<string, unknown>, state: CliSessionScope) => {
 		const id = session(params)
 		const durable = Boolean(await state.store.getSession(asSessionId(id), state.tenantId))
 		const currentPal = palAtWorkspace(cwd, state.root)
@@ -246,10 +255,10 @@ export function createDesktopHostExtensions(
 				)
 			}),
 		'namzu/conversations/history': async (params: Record<string, unknown>) => {
-			const id = await ownedSession(params)
-			return withState(async (state) => {
+			return withReadScope(async (state) => {
+				const id = await ownedSessionIn(params, state)
 				const messages = await loadConversation(state, asSessionId(id))
-				const ownedPal = Boolean(pal())
+				const ownedPal = Boolean(palAtWorkspace(cwd, state.root))
 				const shown = messages.flatMap<{
 					role: 'user' | 'assistant'
 					content: string | null

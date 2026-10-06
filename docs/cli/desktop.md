@@ -706,11 +706,42 @@ the exact session, provider and model choice; choosing another model cannot
 reuse a different model's capabilities. Reusing display state does not bypass
 the current ownership checks.
 
-An authoritative history read selects and displays the conversation before its
-provider catalogue, saved draft, message settings and files finish loading.
-Those independent metadata reads run together after main admits the session.
+Opening an already indexed Recent does not relist every project or reread its
+project's catalogue. Main retains the last successful catalogue as display
+metadata on that exact project connection; strict history validation still
+admits every first read. A replaced connection cannot publish its late catalogue.
+Unknown restored or transferred IDs still resolve their catalogue against the
+current connection. After canonical pane ownership is acknowledged, a cold selection
+shows its own loading shell immediately, with no previous transcript and no
+session metadata reads before main registers that session. Authoritative history
+then displays before provider, draft, message settings, files and readiness finish
+loading. Those independent reads run together after main admits the session.
+For a first open, strict project/tenant/Pal history validation succeeds before
+main registers the conversation. Runtime context loading is deferred to readiness
+and shared with provider/engine reads, so full model context restoration does not
+delay message display. Failed or obsolete history reads never register an empty
+authoritative conversation.
+Persisted, previously prompted sessions also restore strictly scoped history
+before loading model context, including when the stable UI ID aliases a durable
+runtime ID. Concurrent history display and admission share that exact read;
+connection, execution and selection changes refuse obsolete results. Unsent
+tabs retain their existing replacement-slot and exact engine/model restoration.
+The CLI history request opens one fresh session scope for ownership validation,
+strict journal reading and Pal public-message projection. All three use that
+scope's captured home. Reading one conversation does not construct or synchronize
+the installation-wide listing index; indexed catalogue and write operations keep
+their existing store. Folder trust and strict project/tenant and Pal claim checks
+remain in place, including when a readable row is archived.
+The optional desktop `readyConversation(projectId, sessionId)` acknowledgement
+refreshes tasks and retry state in parallel, sharing an in-flight read only for
+the exact client, runtime session and execution/selection revisions. The renderer
+awaits it alongside metadata before enabling actions; actual sends and retries
+keep their own fresh admission. Failed or obsolete readiness cannot make saved
+messages writable. Older bridges without this method retain their original
+history-plus-readiness opening contract.
 Reopening a previously loaded conversation in the same renderer can first show
-its saved messages immediately after canonical opening. An “Updating
+its saved messages immediately after canonical opening, overlapping its metadata
+reads with current history. An “Updating
 conversation…” status identifies this read-only display while main's history
 read is pending. It is not a current snapshot or permission to send: messages
 received while the tab was closed replace the saved display when main returns,
@@ -720,7 +751,10 @@ saved display's provenance. Incoming transfers and cold renderer restarts have
 no such local history and read main first.
 The composer, approvals, queued-message edits and retry controls remain disabled
 until the complete load succeeds; a metadata failure leaves the history visible
-and offers Retry setup. A removed tab still refreshes main's live projection,
+and offers Retry setup. Shell polling, engine discovery and extra visible-task
+refreshes start after core admission so their store reads do not compete with
+first history and readiness. Until a shell read finishes, its state remains
+unknown rather than reporting zero running jobs. A removed tab still refreshes main's live projection,
 so the saved display cannot become admitted history in place of the current
 snapshot. Initial attachment reads share an in-flight refresh for
 the same owner and mutation revision rather than superseding its admission.
@@ -729,6 +763,23 @@ holds history and provider responses to verify saved and current history,
 blocked actions, independent reads, error recovery, obsolete navigation
 rejection and call-free warm tabs.
 Its in-memory preview fixtures do not establish durable native history.
+The [Recents opening browser proof](../../research/runtime-desktop-20260930/artifacts/recents-progressive-browser-proof-20261006.json)
+separately holds cold history and readiness, verifies immediate selection,
+disabled pending actions, retained metadata overlap, obsolete navigation,
+failure recovery and no catalogue reread for known navigation. No model or
+computer action is performed.
+The [native Windows timing observations](../../research/runtime-desktop-20260930/artifacts/recents-native-performance-20261006.json)
+retain the baseline and each deployed build on the same two conversations. The
+final run selected cold tabs in 40.5 and 36.5ms; warm navigation took about 13ms.
+Strict first history still took 1936.3 and 252.7ms, with composer readiness at
+2601.5 and 1738.1ms. Immediate selection and warm reuse do not establish instant
+cold history or a uniform readiness improvement. Each bounded run restored its
+original workspace, drafts, settings, messages and protected state. These are
+two examples per build, not latency percentiles.
+The [verification receipt](../../research/runtime-desktop-20260930/artifacts/recents-desktop-verification-20261006.json)
+records the final source checks, UI fixtures, guarded native activation and
+measurement limits. Local activation changed the desktop build and three
+reviewed CLI modules, retaining the SDK and remaining runtime dependency graph.
 The [native Windows close/reopen proof](../../research/runtime-desktop-20260930/artifacts/pal-reopen-saved-native-safe-20261006.json)
 separately observes saved-message display, authoritative refresh and composer
 readiness in the existing app. It verifies the refresh label and blocked
@@ -973,8 +1024,11 @@ model phase remains Working. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
 opaque reasoning, signatures or replay material.
 
-In ordinary conversations, each authored prompt owns one turn. Its public reasoning, tool receipts and
-explicit commentary stay in admission order inside Activity. Activity opens
+In ordinary conversations, each authored prompt owns one turn. Its public
+reasoning, tool receipts and explicit commentary stay in admission order inside
+a collapsible work summary. Its heading follows Thinking, Working or Waiting
+for your decision while live; settled headings retain Worked for the observed
+duration, Paused, Stopped or Work incomplete as appropriate. The summary opens
 while that turn runs and collapses after settlement unless the operator chose
 otherwise. The answer appears below that group only when it is a trailing
 answer; grouping never moves text across a later tool or reasoning event.
@@ -982,6 +1036,25 @@ Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.
 An authoritative completion replaces its streamed partial text, including an
 explicit empty result that withdraws rejected output.
+
+New admitted transcript entries fade in with a 4px vertical movement over
+150ms. Phase labels crossfade over 300ms; status presence and work disclosures
+change height over 200ms. Scoped motion tokens are shared across ordinary
+transcript entries and states. Streaming chunks do not restart an entry effect,
+and mounted history, navigation and pending restoration do not replay it.
+Interrupted phase changes start from their observed opacity and height;
+outgoing decorative labels never remain accessible statuses. Reduced motion
+settles the current state immediately. Pal conversations retain their delivered
+chat bubbles and their own concise Typing/Working states.
+
+The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
+record the installed Codex build's verified source labels and motion constants.
+Its live transcript DOM was unavailable without restarting that application,
+so these observations do not establish pixel parity with a running reference.
+The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
+uses the actual Namzu renderer with synthetic runtime events, deterministic
+animation frames, keyboard disclosures, rapid reversals, reduced motion and
+Pal separation. It performs no native, model or computer action.
 
 Cancellation, pause, refusal and error end the live phase without claiming a
 successful answer. The exact runtime reason preserves Paused even when its ACP

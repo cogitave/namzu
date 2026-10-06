@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as sdk from '@namzu/sdk'
 import {
 	ACPServer,
 	DiskSessionLog,
@@ -14,6 +15,7 @@ import {
 	createToolPresenter,
 	createUserMessage,
 	drainQuery,
+	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTurnId,
@@ -22,6 +24,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
@@ -166,9 +169,9 @@ function runtime() {
 		} as unknown as AcpRuntimeDependencies,
 	)
 }
-async function seeded(prompt = 'Stored request') {
+async function seeded(prompt = 'Stored request', id?: ReturnType<typeof generateSessionId>) {
 	const state = await openSessions(cwd)
-	const sessionId = await startConversation(state)
+	const sessionId = await startConversation(state, id)
 	await drainQuery({
 		provider: new MockLLMProvider({ responseText: 'Stored answer' }),
 		messages: [createUserMessage(prompt)],
@@ -195,6 +198,9 @@ it('requires exact affirmative folder trust before reading conversations', async
 	const host = createDesktopHostExtensions(owner, cwd)
 	expect(host['namzu/project/status']()).toMatchObject({ trusted: false })
 	await expect(host['namzu/conversations/list']()).rejects.toThrow('Trust this folder')
+	await expect(
+		host['namzu/conversations/history']({ sessionId: generateSessionId() }),
+	).rejects.toThrow('Trust this folder')
 	expect(() => host['namzu/project/trust']({ confirmed: true, cwd: root })).toThrow(
 		'does not match',
 	)
@@ -415,6 +421,163 @@ it('prepares the selected provider on a real fresh ACP slot before its first jou
 		await owner.close()
 	}
 })
+it('reads fresh journal history without opening the installation index, while listing remains indexed', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const indexed = vi.spyOn(sdk, 'openSessionIndex')
+	const opened = vi.spyOn(sessionStorage, 'openSessionScope')
+	try {
+		expect((await host['namzu/conversations/history']({ sessionId })).messages).toContainEqual({
+			role: 'user',
+			text: 'Stored request',
+		})
+		await recordTurn(state, sessionId, [createUserMessage('Newer durable message')])
+		expect((await host['namzu/conversations/history']({ sessionId })).messages.at(-1)).toEqual({
+			role: 'user',
+			text: 'Newer durable message',
+		})
+		expect(opened).toHaveBeenCalledTimes(2)
+		expect(indexed).not.toHaveBeenCalled()
+		expect(await host['namzu/conversations/list']()).toContainEqual(
+			expect.objectContaining({ id: sessionId }),
+		)
+		expect(indexed).toHaveBeenCalledTimes(1)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('refuses history if the captured folder trust is revoked while preparing its scope', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const actualOpen = sessionStorage.openSessionScope
+	const catalogRead = vi.fn()
+	vi.spyOn(sessionStorage, 'openSessionScope').mockImplementation(async (...args) => {
+		const scope = await actualOpen(...args)
+		writeFileSync(join(scope.root, 'trust.json'), JSON.stringify({ version: 1, trusted: [] }))
+		const get = scope.store.getSession.bind(scope.store)
+		scope.store.getSession = (...lookup) => {
+			catalogRead()
+			return get(...lookup)
+		}
+		return scope
+	})
+	try {
+		await expect(host['namzu/conversations/history']({ sessionId })).rejects.toThrow(
+			'Trust this folder',
+		)
+		expect(catalogRead).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('authorizes and reads history through one state if the application home changes during lookup', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const replacementHome = join(root, 'replacement-history-state')
+	mkdirSync(replacementHome)
+	vi.stubEnv('NAMZU_HOME', replacementHome)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const replacement = await seeded('PRIVATE_REPLACEMENT_HISTORY', sessionId)
+	vi.stubEnv('NAMZU_HOME', state.root)
+	const actualOpen = sessionStorage.openSessionScope
+	const opened = vi
+		.spyOn(sessionStorage, 'openSessionScope')
+		.mockImplementation(async (...args) => {
+			const selected = await actualOpen(...args)
+			const get = selected.store.getSession.bind(selected.store)
+			selected.store.getSession = async (...lookup) => {
+				const result = await get(...lookup)
+				vi.stubEnv('NAMZU_HOME', replacementHome)
+				return result
+			}
+			return selected
+		})
+	try {
+		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
+			partial: false,
+			messages: [
+				{ role: 'user', text: 'Stored request' },
+				{ role: 'assistant', text: 'Stored answer' },
+			],
+		})
+		expect(opened).toHaveBeenCalledTimes(1)
+	} finally {
+		vi.stubEnv('NAMZU_HOME', state.root)
+		closeSessions(replacement.state)
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it.each(['tenant', 'project'] as const)(
+	'refuses history whose real journal names a different %s',
+	async (scope) => {
+		const owner = runtime()
+		const host = createDesktopHostExtensions(owner, cwd)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const state = await openSessions(cwd)
+		try {
+			const wrongScope =
+				scope === 'tenant'
+					? { ...state, tenantId: generateTenantId() }
+					: { ...state, projectId: generateProjectId() }
+			const sessionId = await startConversation(wrongScope)
+			const opened = vi.spyOn(sessionStorage, 'openSessionScope')
+			await expect(host['namzu/conversations/history']({ sessionId })).rejects.toThrow(
+				/does not belong/,
+			)
+			expect(opened).toHaveBeenCalledTimes(1)
+		} finally {
+			closeSessions(state)
+			await owner.close()
+		}
+	},
+)
+
+it('refuses a corrupt history instead of returning its readable prefix', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		appendFileSync(state.paths.sessionLog({ sessionId }), '{PRIVATE_BROKEN_RECORD}\n')
+		const opened = vi.spyOn(sessionStorage, 'openSessionScope')
+		await expect(host['namzu/conversations/history']({ sessionId })).rejects.toThrow()
+		expect(opened).toHaveBeenCalledTimes(1)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it("refuses durable Pal history without that Pal's claim", async () => {
+	const pal = createPal({ name: 'History ownership fixture' })
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	const state = await openSessions(pal.workspace)
+	try {
+		const sessionId = await startConversation(state)
+		const opened = vi.spyOn(sessionStorage, 'openSessionScope')
+		await expect(host['namzu/conversations/history']({ sessionId })).rejects.toThrow(
+			'This conversation is not claimed by this Pal.',
+		)
+		expect(opened).toHaveBeenCalledTimes(1)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('loads durable history through the CLI gateway and refuses another project or archived writer', async () => {
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, cwd)
@@ -444,6 +607,7 @@ it('loads durable history through the CLI gateway and refuses another project or
 		).rejects.toThrow()
 		await archiveConversation(state, sessionId)
 		await expect(owner.gateway.load?.(sessionId, cwd)).rejects.toThrow(/archived/)
+		expect(await host['namzu/conversations/history']({ sessionId })).toEqual(projection)
 	} finally {
 		closeSessions(state)
 		await owner.close()
@@ -466,7 +630,7 @@ it('marks history partial when a single message exceeds the display ceiling', as
 	}
 })
 
-it('restores Pal delivered replies while retaining tool narration in the original journal', async () => {
+it('restores Pal delivered replies from the admitted home while retaining private narration in its journal', async () => {
 	const pal = createPal({ name: 'Chat fixture' })
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, pal.workspace)
@@ -509,12 +673,32 @@ it('restores Pal delivered replies while retaining tool narration in the origina
 				timeoutMs: 30_000,
 			},
 		})
+		const replacementHome = join(root, 'replacement-pal-history-state')
+		mkdirSync(replacementHome)
+		vi.stubEnv('NAMZU_HOME', replacementHome)
+		host['namzu/project/trust']({ confirmed: true, cwd: pal.workspace })
+		vi.stubEnv('NAMZU_HOME', state.root)
+		const actualOpen = sessionStorage.openSessionScope
+		const opened = vi
+			.spyOn(sessionStorage, 'openSessionScope')
+			.mockImplementation(async (...args) => {
+				const selected = await actualOpen(...args)
+				const get = selected.store.getSession.bind(selected.store)
+				selected.store.getSession = async (...lookup) => {
+					const result = await get(...lookup)
+					vi.stubEnv('NAMZU_HOME', replacementHome)
+					return result
+				}
+				return selected
+			})
 		const projection = await host['namzu/conversations/history']({ sessionId })
 		expect(projection.messages).toEqual([
 			{ role: 'user', text: 'Prepare the result' },
 			{ role: 'assistant', text: 'Your requested result is ready.' },
 		])
 		expect(projection.partial).toBe(false)
+		expect(opened).toHaveBeenCalledTimes(1)
+		vi.stubEnv('NAMZU_HOME', state.root)
 		const original = await loadConversation(state, sessionId)
 		expect(
 			original.some(
@@ -526,6 +710,7 @@ it('restores Pal delivered replies while retaining tool narration in the origina
 		).toBe(true)
 		expect(original.some((message) => message.role === 'tool')).toBe(true)
 	} finally {
+		vi.stubEnv('NAMZU_HOME', state.root)
 		closeSessions(state)
 		await owner.close()
 	}

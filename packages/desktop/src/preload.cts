@@ -45,6 +45,7 @@ const api: DesktopApi = {
 	harnesses: (id, sessionId) => invoke('harnesses', id, sessionId),
 	selectHarness: (id, engine) => invoke('selectHarness', id, engine),
 	openConversation: (project, id) => invoke('openConversation', project, id),
+	readyConversation: (project, id) => invoke('readyConversation', project, id),
 	providers: (id, sessionId) => invoke('providers', id, sessionId),
 	models: (id, provider, sessionId) => invoke('models', id, provider, sessionId),
 	modelSettings: (id, provider, model, sessionId) =>

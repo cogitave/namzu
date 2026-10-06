@@ -220,6 +220,7 @@ function register(): void {
 		['readJob', 0],
 		['harnesses', 1],
 		['providers', 1],
+		['readyConversation', 1],
 		['models', 2],
 		['modelSettings', 3],
 		['plugins', 1],
@@ -550,6 +551,10 @@ function register(): void {
 			}
 			throw error
 		}
+	})
+	handleWindow('readyConversation', async ({ id: windowId }, project: string, id: string) => {
+		await operator.readyConversation(project, id)
+		workspace.assertReadable(windowId, id)
 	})
 	handle('providers', (id: string, sessionId?: string) => operator.providers(id, sessionId))
 	handle('models', (id: string, provider: string, sessionId?: string) =>
