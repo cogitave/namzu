@@ -213,7 +213,12 @@
           }
         }
       },
-      "proposal": "Add cancellation-aware async preparation while retaining the synchronous API, one parse per stage, source identity, detached review input and authorization after validation. Async hooks and output review already exist."
+      "proposal": "Add cancellation-aware async preparation while retaining the synchronous API, one parse per stage, source identity, detached review input and authorization after validation. Async hooks and output review already exist.",
+      "designAudit": {
+        "status": "read_only_not_implemented",
+        "additionalSource": "packages/sdk/src/runtime/query/observation-context.ts:projectObservationContext",
+        "constraint": "Preserve prepareExecution sync compatibility; add one cancellation-aware async validation per stage and do not restart effectful schemas while classifying retained observations."
+      }
     },
     {
       "id": "durable-typed-structured-result",
@@ -262,6 +267,57 @@
           "externalModelRequests": 0,
           "nativeWindows": true
         }
+      }
+    },
+    {
+      "id": "skipped-answer-tool-receipts",
+      "status": "implemented_verified",
+      "sources": [
+        "packages/sdk/src/runtime/query/iteration/index.ts:captureStructuredOutput",
+        "packages/sdk/src/runtime/query/iteration/index.ts:terminalToolOutput",
+        "packages/sdk/src/runtime/query/executor.ts:recordSyntheticHookOutcome",
+        "packages/sdk/src/runtime/query/tool-executions.ts:ToolExecutionCollector"
+      ],
+      "baselineRevision": "e88971742",
+      "localProbe": {
+        "provider": "MockLLMProvider",
+        "externalModelRequests": 0,
+        "standaloneStructuredSkip": {
+          "withAndWithoutReviewer": true,
+          "status": "failed",
+          "stopReason": "error",
+          "error": "Structured output requires an intact JSON tool result",
+          "modelRequests": 1,
+          "reviews": 0
+        },
+        "standaloneTerminalSkip": {
+          "result": "Synthetic skip receipt published as final answer",
+          "modelRequests": 1,
+          "actualTerminalExecutions": 0
+        },
+        "alreadyCorrectControls": [
+          "Pre-hook error",
+          "Invalid host rewrite",
+          "Authorization denial",
+          "Invalid review rewrite",
+          "Pending batch recovery followed by a fresh candidate"
+        ]
+      },
+      "implementation": {
+        "contract": "Only a genuine pre-tool hook skip produces optional skipped:true. The non-error receipt relays to the model without accepting an executed answer or charging structured schema retries. Completion events, recovery and StepToolResult retain the marker; legacy absence is unchanged.",
+        "regressionFiles": [
+          "packages/sdk/src/runtime/query/__tests__/skipped-answer-tools.test.ts",
+          "packages/sdk/src/runtime/query/__tests__/skipped-tool-completions.test.ts"
+        ],
+        "boundaries": [
+          "Cancellation and maxIterations still terminate the turn",
+          "Nested skip belongs to its child, not the executed parent",
+          "No inference from output text, raw ToolResult fields or provider metadata",
+          "Contradictory durable skip classifications are refused",
+          "Intact JSON remains required for executed structured output receipts",
+          "Legacy logs without the marker retain their bytes and hashes"
+        ],
+        "verificationReceipt": "research/workflow-peers-20261006/artifacts/skipped-answer-tools-verification-20261006.json"
       }
     }
   ],

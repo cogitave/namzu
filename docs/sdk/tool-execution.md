@@ -112,6 +112,38 @@ releasing the recorder and borrowed resources. A tool which ignores cancellation
 can outlive its abandoned execution; cooperative cancellation remains a tool
 implementation responsibility.
 
+## Skipped calls and terminal answers
+
+A `pre_tool_use` hook returning `action: 'skip'` deliberately prevents that
+tool body from running. The executor still emits the existing
+`tool_executing` → `tool_completed` pair and returns the hook's explanation as
+a non-error tool receipt. Its completion carries optional `skipped: true`
+alongside `isError: false`, with no `inputFailure`. Denials, hook errors,
+cancellation and invalid host rewrites do not receive this marker.
+
+This is executor-owned metadata. Raw `ToolResult` properties, provider input
+metadata and skip-looking output text cannot set it. A skipped nested call
+marks its own completion; it does not mark an enclosing tool that actually
+ran. `CompletedToolRecord` and recovered batch outcomes retain the recorded
+marker without executing the call again. Strict record validation and
+completion collection reject a marker other than `true`, an error marked as
+skipped, or a skip combined with `inputFailure`. Legacy records omit the
+field and retain their original bytes and hashes; recovery does not infer
+it from their text.
+
+`StepToolResult.skipped` preserves the same optional marker in
+`StepResult.toolResults`, including `Turn.steps`, `onStepFinish` and
+`stopWhen` observations. A non-error receipt therefore does not by itself
+prove the tool executed.
+
+A tool declared `terminal: true` settles the turn only when it was the sole
+requested call and produced a non-error, unskipped result. A skipped terminal
+call returns its receipt to the model instead of publishing it as the answer.
+The same rule applies to the built-in structured output tool: a skip is no
+candidate and consumes no schema correction. Existing turn limits, including
+`maxIterations`, still bound repeated skips. See
+[structured output review](structured-output-review.md#tool-mode-schema-corrections).
+
 ## Ordering a batch
 
 `ToolDefinition.executionBarrier` and `defineTool({ executionBarrier: true, ... })`
@@ -479,6 +511,13 @@ prepared-value cloning omit the field. Recovery retains verified classifications
 without parsing error text or rerunning validation. Legacy records remain
 field-free. [Tool-mode structured corrections](structured-output-review.md#tool-mode-schema-corrections)
 use this evidence to account a pending batch after all its results are restored.
+
+`tool_completed.skipped?` and `CompletedToolRecord.skipped?` separately retain
+a verified pre-tool hook skip. A recorded skip remains non-error and
+unexecuted on recovery; the runtime neither replays it nor upgrades its
+explanation into a terminal or structured answer. An interrupted start with
+no trustworthy completion remains unknown rather than being classified as
+skipped.
 
 Disk recovery scans only the JSONL metadata, without loading retained outputs
 or compaction attachments: 64 KiB reads, at most 256 MiB per log, 4 MiB per

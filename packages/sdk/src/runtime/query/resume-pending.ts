@@ -606,6 +606,7 @@ export async function recoverCompletedCalls(
 					result: record.result,
 					isError: record.isError,
 					...(record.inputFailure ? { inputFailure: record.inputFailure } : {}),
+					...(record.skipped ? { skipped: true as const } : {}),
 				})
 				continue
 			}

@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-06T11:27:17.868106+00:00",
+  "workingTreeBasedOn": "e88971742",
+  "scope": "Trusted pre-tool hook skip metadata, structured/terminal settlement, step observation and durable recovery; final production sources and full workspace package checks.",
+  "newRegressionExternalModelRequests": 0,
+  "liveRuntimeActivated": false,
+  "livePalActions": 0,
+  "dependenciesInstalled": false,
+  "baselineReproduction": {
+    "revision": "e88971742",
+    "generatedAt": "2026-10-06T11:14:43.178Z",
+    "provider": "MockLLMProvider",
+    "cases": [
+      {
+        "label": "valid",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "lastError": null,
+        "structuredOutput": {
+          "score": 99
+        },
+        "requests": 1,
+        "reviews": 0,
+        "corrections": [
+          0
+        ]
+      },
+      {
+        "label": "standalone-skip reviewer=false",
+        "status": "failed",
+        "stopReason": "error",
+        "lastError": "Structured output requires an intact JSON tool result; check result transformations, increase maxToolOutputChars to fit the result, or use native mode with a capable provider",
+        "structuredOutput": null,
+        "requests": 1,
+        "reviews": 0,
+        "corrections": []
+      },
+      {
+        "label": "standalone-skip reviewer=true",
+        "status": "failed",
+        "stopReason": "error",
+        "lastError": "Structured output requires an intact JSON tool result; check result transformations, increase maxToolOutputChars to fit the result, or use native mode with a capable provider",
+        "structuredOutput": null,
+        "requests": 1,
+        "reviews": 0,
+        "corrections": []
+      },
+      {
+        "label": "hook-error",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "lastError": null,
+        "structuredOutput": {
+          "score": 2
+        },
+        "requests": 2,
+        "reviews": 0,
+        "corrections": [
+          0,
+          0
+        ]
+      },
+      {
+        "label": "hook-invalid-rewrite",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "lastError": null,
+        "structuredOutput": {
+          "score": 2
+        },
+        "requests": 2,
+        "reviews": 0,
+        "corrections": [
+          0,
+          0
+        ]
+      },
+      {
+        "label": "gate-denied-valid",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "lastError": null,
+        "structuredOutput": {
+          "score": 2
+        },
+        "requests": 2,
+        "reviews": 0,
+        "corrections": []
+      },
+      {
+        "label": "review-invalid-rewrite",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "lastError": null,
+        "structuredOutput": {
+          "score": 2
+        },
+        "requests": 2,
+        "reviews": 0,
+        "corrections": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "label": "resume-recorded-skip-prefix",
+        "status": "completed",
+        "structuredOutput": {
+          "score": 2
+        },
+        "requests": 1,
+        "originalSkipCompletions": 1,
+        "corrections": [
+          0,
+          0
+        ]
+      },
+      {
+        "label": "standalone-terminal-skip",
+        "status": "completed",
+        "stopReason": "end_turn",
+        "result": "Tool submit_answer skipped by plugin: Host intentionally deferred.",
+        "requests": 1,
+        "actualTerminalExecutions": 0
+      }
+    ]
+  },
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm -r build",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm -r --no-sort test",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:fences",
+      "exitCode": 0
+    },
+    {
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "newRegressions": {
+    "files": [
+      "packages/sdk/src/runtime/query/__tests__/skipped-answer-tools.test.ts",
+      "packages/sdk/src/runtime/query/__tests__/skipped-tool-completions.test.ts"
+    ],
+    "filesPassed": 2,
+    "testsPassed": 26
+  },
+  "focusedChecks": {
+    "rootQueryAndAdjacentContracts": {
+      "filesPassed": 8,
+      "testsPassed": 83
+    },
+    "executorRecoveryAndAuthorityContracts": {
+      "filesPassed": 6,
+      "testsPassed": 94
+    },
+    "finalResumeListenerAssertion": {
+      "filesPassed": 1,
+      "testsPassed": 8
+    },
+    "note": "Focused suite counts overlap. The final listener assertion specifically verifies the real work-call receipt; it was rerun separately after strengthening the assertion during the workspace run."
+  },
+  "testSuites": {
+    "packages/computer-use": {
+      "Test Files": "17 passed (17)",
+      "Tests": "165 passed (165)"
+    },
+    "packages/browser": {
+      "Test Files": "9 passed | 2 skipped (11)",
+      "Tests": "133 passed | 42 skipped (175)"
+    },
+    "packages/ag-ui": {
+      "Test Files": "8 passed (8)",
+      "Tests": "189 passed (189)"
+    },
+    "packages/desktop": {
+      "Test Files": "67 passed (67)",
+      "Tests": "620 passed (620)"
+    },
+    "packages/live": {
+      "Test Files": "3 passed (3)",
+      "Tests": "25 passed (25)"
+    },
+    "packages/lsp": {
+      "Test Files": "2 passed (2)",
+      "Tests": "27 passed (27)"
+    },
+    "packages/files": {
+      "Test Files": "3 passed | 1 skipped (4)",
+      "Tests": "48 passed | 11 skipped (59)"
+    },
+    "packages/providers/anthropic": {
+      "Test Files": "21 passed | 3 skipped (24)",
+      "Tests": "259 passed | 44 skipped (303)"
+    },
+    "packages/providers/bedrock": {
+      "Test Files": "13 passed (13)",
+      "Tests": "127 passed (127)"
+    },
+    "packages/providers/deepseek": {
+      "Test Files": "6 passed (6)",
+      "Tests": "44 passed (44)"
+    },
+    "packages/providers/google": {
+      "Test Files": "4 passed (4)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/http": {
+      "Test Files": "9 passed (9)",
+      "Tests": "83 passed | 10 skipped (93)"
+    },
+    "packages/providers/lmstudio": {
+      "Test Files": "5 passed (5)",
+      "Tests": "29 passed (29)"
+    },
+    "packages/providers/ollama": {
+      "Test Files": "8 passed (8)",
+      "Tests": "36 passed (36)"
+    },
+    "packages/providers/openai": {
+      "Test Files": "11 passed (11)",
+      "Tests": "129 passed (129)"
+    },
+    "packages/providers/openrouter": {
+      "Test Files": "12 passed (12)",
+      "Tests": "80 passed (80)"
+    },
+    "packages/providers/zen": {
+      "Test Files": "17 passed (17)",
+      "Tests": "261 passed (261)"
+    },
+    "packages/telemetry": {
+      "Test Files": "4 passed (4)",
+      "Tests": "33 passed (33)"
+    },
+    "packages/sandbox": {
+      "Test Files": "103 passed (103)",
+      "Tests": "1857 passed | 3 skipped (1860)"
+    },
+    "packages/sdk": {
+      "Test Files": "909 passed (909)",
+      "Tests": "10269 passed (10269)"
+    },
+    "packages/cli": {
+      "Test Files": "557 passed (557)",
+      "Tests": "5157 passed | 6 skipped (5163)"
+    }
+  },
+  "documentation": {
+    "okfConceptBundleFiles": 143,
+    "compiledFences": 115,
+    "compiledPackageReadmes": 21,
+    "declaredSketchFencesSkipped": 15
+  },
+  "warnings": {
+    "workspaceLint": "12 existing CLI warnings; no lint failures. Dependency bundling use-client directives also emitted existing build warnings."
+  },
+  "productionSourceSha256": {
+    "packages/sdk/src/runtime/query/executor.ts": "f12ebbf33049c06cab2ae187d1bde11c5daa989b5c2999775db645e3323405c4",
+    "packages/sdk/src/runtime/query/executor/tool-call-admission.ts": "c98759dd704d1a50ca1765c7c82e2f2fd9fb902bf153859a7512f8350373738a",
+    "packages/sdk/src/runtime/query/iteration/index.ts": "cb14f13c0d6ff2f61754266e81ba4408e6025816f4c0e71aaf9e7d5507ede3d0",
+    "packages/sdk/src/runtime/query/resume-pending.ts": "5f4462a5d635d2270750d1d8ad4dc22e986bb9dae8aa66220ee6cc33c05473d2",
+    "packages/sdk/src/runtime/query/tool-executions.ts": "d41a94b8128364132fbe39e84f2ab754351d44f02b45b276d473c9a68e54269b",
+    "packages/sdk/src/types/session/events.ts": "b0d858af4a481dd3eb41bc029a56c2fdb1fec89173112ab921b47d1edbf975ad",
+    "packages/sdk/src/types/session/records.ts": "32ba71a8ae0df38fa208487a7ed020ce9e87a3142d69f33f24ee0da76d349b93",
+    "packages/sdk/src/types/session/step.ts": "2655049e599e94319fcdeebedeac425f657848d0d24c934cbaf40c158437b29f",
+    "packages/sdk/src/types/session/tool-execution.ts": "3d19f769f388e1041d39e66c14604a705c1c5ed6bd3b9558ebbecd46321cd8ff"
+  },
+  "regressionSourceSha256": {
+    "packages/sdk/src/runtime/query/__tests__/skipped-answer-tools.test.ts": "9a361e1a75a44da889568b6021571741b5ea82bbde8155d43a677e283ad74b99",
+    "packages/sdk/src/runtime/query/__tests__/skipped-tool-completions.test.ts": "15da36485376a597cf7049c6b1dcd146add2e833816ee492b5da0ebaba81da07"
+  },
+  "remainingContracts": [
+    "Async tool-input validation requires a cancellation-aware additive preparation API and safe retained-observation classification.",
+    "Malformed tool-mode maxRetries rejection needs a separate compatibility decision.",
+    "An accepted structured-result channel separate from bounded model receipts remains a design task."
+  ],
+  "activationBoundary": "Source/build verification does not activate the cached native ACP runtime. The existing approval question is pending: normal shutdown/relaunch retires current owned Pal computer lifetimes."
+}

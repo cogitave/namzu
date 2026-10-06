@@ -159,6 +159,8 @@ export interface StepToolResult {
 	/** Text form, after the model-visible output budget was applied. */
 	output: string
 	isError: boolean
+	/** The pre-tool hook skipped this call; its receipt is not an executed answer. */
+	skipped?: true
 	durationMs: number
 }
 

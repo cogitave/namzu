@@ -148,6 +148,7 @@ export async function prepareDirectCall(
 				input: preOutcome.input,
 				message: preOutcome.output,
 				isError: preOutcome.kind === 'error',
+				...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
 			}
 		}
 		if (!host.config.authorizationGate) {
@@ -266,6 +267,7 @@ export async function prepareDirectCall(
 			input: preOutcome.input,
 			message: preOutcome.output,
 			isError: preOutcome.kind === 'error',
+			...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
 		}
 	}
 

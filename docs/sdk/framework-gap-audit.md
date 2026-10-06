@@ -232,12 +232,21 @@ See [the correction contract](structured-output-review.md#tool-mode-schema-corre
 
 Async Zod refinements accepted in native mode still fail in synchronous tool
 preparation. Follow-up work must add cancellation-aware async preparation while
-preserving the existing synchronous API and authorization boundary. Consistent
+preserving the existing synchronous API and authorization boundary. Observation
+deduplication also reparses earlier tool input; the design must prevent an
+effectful async schema from being restarted there. Consistent
 rejection of malformed tool-mode `maxRetries` settings needs a separate
 compatibility decision; this correction does not narrow previously accepted
-configuration values. Standalone output-tool skips also need an explicit
-non-candidate outcome: their synthetic success text currently fails the retained
-JSON integrity check.
+configuration values.
+
+Standalone output-tool and terminal-tool skips are now distinguished from
+executed answers with trusted optional `skipped: true` completion metadata.
+Their non-error receipts return to the model without settling a result, running
+output review or charging a schema correction. The metadata survives logs,
+pending-batch recovery and step callbacks; cancellation and iteration limits
+remain effective. Legacy records without the field are unchanged, and receipt
+text or a tool-authored field cannot manufacture the classification. See
+[tool execution](tool-execution.md) and [structured settlement](structured-output-review.md).
 
 A durable structured result separate from bounded model-visible receipts is
 another follow-up. It needs a JSON-safe result contract and recovery evidence;

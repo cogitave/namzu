@@ -1994,6 +1994,7 @@ export class IterationOrchestrator {
 						toolName: tc.function.name,
 						output: outcome?.output ?? '',
 						isError: outcome?.isError ?? false,
+						...(outcome?.skipped ? { skipped: true as const } : {}),
 						durationMs: 0,
 					},
 				]
@@ -2112,9 +2113,9 @@ export class IterationOrchestrator {
 	 * Deliberately narrow. A terminal call decides the turn only when it is
 	 * the ONLY call the model made in that turn: a model that asked for
 	 * other work meant to see those results, and settling here would throw
-	 * away answers it requested. Same for a failed terminal call — an
-	 * error is not an answer, and the model is the one that should read
-	 * it. Both cases fall through to the ordinary path, and both say so in
+	 * away answers it requested. A failed or skipped terminal call also
+	 * needs another model turn: its receipt is not an executed answer.
+	 * These cases fall through to the ordinary path, and each says so in
 	 * the log rather than quietly costing the relay the flag was set to
 	 * avoid.
 	 */
@@ -2137,11 +2138,16 @@ export class IterationOrchestrator {
 		}
 
 		const hit = terminal[0]
-		if (!hit || hit.isError) {
-			this.ctx.log.info('Terminal tool failed — returning the error to the model', {
-				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
-				[GENAI.TOOL_NAME]: hit?.toolName,
-			})
+		if (!hit || hit.isError || hit.skipped) {
+			this.ctx.log.info(
+				hit?.skipped
+					? 'Terminal tool was skipped — returning its receipt to the model'
+					: 'Terminal tool failed — returning the error to the model',
+				{
+					[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
+					[GENAI.TOOL_NAME]: hit?.toolName,
+				},
+			)
 			return undefined
 		}
 		return hit
@@ -2153,7 +2159,8 @@ export class IterationOrchestrator {
 	 * The tool validates against the Zod schema before its `execute` runs,
 	 * so reaching here successfully means the value is already valid — a
 	 * failed parse comes back as an error result and simply does not
-	 * satisfy the demand, which sends the loop round again.
+	 * satisfy the demand, which sends the loop round again. A hook-skipped
+	 * receipt did not execute the tool and is not a candidate either.
 	 *
 	 * Narrow in the same way {@link terminalToolOutput} is, for its stated
 	 * reason and one that is sharper here. The neighbour refuses a shared
@@ -2199,7 +2206,9 @@ export class IterationOrchestrator {
 	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (!this.needsStructuredOutput() || this.ctx.structuredOutput?.mode === 'native')
 			return 'absent'
-		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
+		const hit = results.find(
+			(r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError && !r.skipped,
+		)
 		if (!hit) return 'absent'
 
 		const callCount = response.message.toolCalls?.length ?? 0

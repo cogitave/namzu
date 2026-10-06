@@ -108,6 +108,7 @@ export type PreparedDirectCall =
 			readonly message: string
 			readonly isError: boolean
 			readonly inputFailure?: CompletedToolRecord['inputFailure']
+			readonly skipped?: true
 	  }
 
 /**
@@ -156,6 +157,7 @@ type PreparedNestedCall =
 			readonly input: unknown
 			readonly message: string
 			readonly isError: boolean
+			readonly skipped?: true
 	  }
 
 /**
@@ -502,6 +504,8 @@ export interface ToolCallOutcome {
 	isError?: boolean
 	/** Provider argument admission failure, never inferred from receipt text. */
 	inputFailure?: CompletedToolRecord['inputFailure']
+	/** A pre-tool hook deliberately skipped execution; its receipt is not an output candidate. */
+	skipped?: true
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
 	/**
@@ -539,7 +543,10 @@ export type ToolCallDenials = ReadonlyMap<string, string>
  * again — which for a payment or an email is the difference between
  * resuming and repeating.
  */
-export type PriorToolResult = Pick<CompletedToolRecord, 'result' | 'isError' | 'inputFailure'>
+export type PriorToolResult = Pick<
+	CompletedToolRecord,
+	'result' | 'isError' | 'inputFailure' | 'skipped'
+>
 export type PriorToolResults = ReadonlyMap<string, PriorToolResult>
 
 /**
@@ -1108,6 +1115,7 @@ export class ToolExecutor {
 					output: recovered.result,
 					isError: recovered.isError,
 					...(recovered.inputFailure ? { inputFailure: recovered.inputFailure } : {}),
+					...(recovered.skipped ? { skipped: true as const } : {}),
 				}
 				if (isBarrier) schedule(async () => {}, true, true)
 				return
@@ -1315,6 +1323,7 @@ export class ToolExecutor {
 				toolName: name,
 				result: preparedCall.message,
 				isError: preparedCall.isError,
+				...(preparedCall.skipped ? { skipped: true as const } : {}),
 				durationMs: Date.now() - startedAt,
 				outputLength: preparedCall.message.length,
 				...(via ? { via } : {}),
@@ -1780,7 +1789,10 @@ export class ToolExecutor {
 				return this.recordCancelledBeforeExecution(toolCall.id, toolName, input)
 			}
 			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
-				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
+				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, {
+					...preOutcome,
+					...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
+				})
 			}
 			input = preOutcome.input
 			if (!truncationRepair && !preOutcome.modified) inputFailure = resolved.inputFailure
@@ -2378,6 +2390,7 @@ export class ToolExecutor {
 					input: preOutcome.input,
 					message: preOutcome.output,
 					isError: preOutcome.kind === 'error',
+					...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
 				}
 			}
 			return { kind: 'legacy', input: preOutcome.input }
@@ -2420,6 +2433,7 @@ export class ToolExecutor {
 				input: preOutcome.input,
 				message: preOutcome.output,
 				isError: preOutcome.kind === 'error',
+				...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
 			}
 		}
 		if (!preOutcome.modified) {
@@ -2638,6 +2652,7 @@ export class ToolExecutor {
 			kind: 'skip' | 'error'
 			output: string
 			inputFailure?: ToolCallOutcome['inputFailure']
+			skipped?: true
 		},
 	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
@@ -2670,6 +2685,7 @@ export class ToolExecutor {
 			result: outcome.output,
 			isError: outcome.kind === 'error',
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
+			...(outcome.skipped ? { skipped: true as const } : {}),
 		})
 		return {
 			toolCallId,
@@ -2677,6 +2693,7 @@ export class ToolExecutor {
 			output: outcome.output,
 			isError: outcome.kind === 'error',
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
+			...(outcome.skipped ? { skipped: true as const } : {}),
 		}
 	}
 
@@ -2685,6 +2702,7 @@ export class ToolExecutor {
 			kind: call.isError ? 'error' : 'skip',
 			output: call.message,
 			...(call.inputFailure ? { inputFailure: call.inputFailure } : {}),
+			...(call.skipped ? { skipped: true as const } : {}),
 		})
 	}
 

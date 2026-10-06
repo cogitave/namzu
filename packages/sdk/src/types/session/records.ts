@@ -812,6 +812,17 @@ export const SessionRecordSchema = z
 				message: 'inputFailure must classify a failed tool admission',
 			})
 		}
+		if (
+			r.type === 'tool_completed' &&
+			r.skipped !== undefined &&
+			(r.skipped !== true || r.isError !== false || r.inputFailure !== undefined)
+		) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['skipped'],
+				message: 'skipped must classify a non-error pre-tool hook skip without an input failure',
+			})
+		}
 		if (r.type === 'message') {
 			const content = r.content as { role: unknown }
 			if (r.role !== content.role) {

@@ -49,6 +49,12 @@ export class ToolExecutionCollector {
 				event.isError !== true)
 		)
 			throw new Error('Tool recovery found an invalid input failure classification.')
+		const skipped = event.skipped
+		if (
+			skipped !== undefined &&
+			(skipped !== true || event.isError !== false || inputFailure !== undefined)
+		)
+			throw new Error('Tool recovery found an invalid skipped completion classification.')
 		this.records.set(event.toolUseId, {
 			...identity,
 			status: 'completed',
@@ -57,6 +63,7 @@ export class ToolExecutionCollector {
 			...(inputFailure !== undefined
 				? { inputFailure: inputFailure as CompletedToolRecord['inputFailure'] }
 				: {}),
+			...(skipped ? { skipped: true as const } : {}),
 		})
 	}
 

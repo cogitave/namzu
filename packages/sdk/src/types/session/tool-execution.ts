@@ -16,6 +16,8 @@ export interface CompletedToolRecord {
 	readonly isError: boolean
 	/** Trusted admission classification retained with the completion, absent in legacy records. */
 	readonly inputFailure?: 'invalid_json' | 'schema_validation' | 'input_truncated'
+	/** Trusted pre-tool hook skip, absent in legacy records; the tool produced no output. */
+	readonly skipped?: true
 }
 
 /** The latest recorded execution boundary of a tool call, not its inferred external effect. */

@@ -50,8 +50,19 @@ and no accepted structured result. Schema retry limits remain separate.
 Thrown errors and malformed verdicts fail the turn. Cancellation stops waiting
 for the reviewer, even if its promise does not settle; external work started by
 the callback must still honor the supplied signal. Only a solitary successful
-output-tool call is reviewed for settlement; a candidate alongside other calls
-is relayed until the model has observed their results.
+output-tool call that was not skipped is reviewed for settlement; a candidate
+alongside other calls is relayed until the model has observed their results.
+
+A pre-tool hook skip carries executor-owned `skipped: true` completion
+metadata. Its non-error explanation is not a structured candidate, even when
+the output tool was the only requested call. It returns to the model without
+JSON candidate parsing, host review or publication of `Turn.structuredOutput`.
+This also keeps a skipped `terminal: true` tool from ending the turn with its
+explanation. The marker survives the event, persisted completion, recovery and
+`StepToolResult` paths. Strict admission requires `isError: false` and no
+`inputFailure`; neither skip-looking text nor raw tool-result/provider
+properties supply the marker. Legacy completions without it are not
+reclassified from their text.
 
 Before publishing an accepted tool-mode candidate, the loop checks for inbound
 messages and steering, including steering already attached to that tool's
@@ -83,8 +94,10 @@ tool result has been recorded. Ordinary tool work and valid output candidates
 paired with other tools consume no schema correction.
 
 Argument repair that produces a valid call, permission refusals, cancellation,
-host hook errors or modifications, and damaged retained output receipts are
-not model schema corrections. A damaged receipt remains an integrity error.
+host hook skips, errors or modifications, and damaged retained output receipts
+are not model schema corrections. A skipped output has no candidate and consumes
+no `maxRetries` correction; repeated skips remain bounded by the existing turn
+limits, including `maxIterations`. A damaged receipt remains an integrity error.
 Host reviewer rejections use the separate `maxReviews` allowance. Admission
 classifies failures once; accounting does not rerun schema transformations or
 infer a failure category from error text.
@@ -102,8 +115,10 @@ checkpoint's count.
 
 In tool mode, settlement reads the retained tool-result JSON, not a separate
 result artifact. The default tool-output budget is 40,000 characters. A
-truncated or transformed receipt that is no longer JSON fails the turn before
-review, including when no reviewer is configured. No raw-text fallback is
+truncated or transformed candidate receipt that is no longer JSON fails the turn
+before review, including when no reviewer is configured. Legacy synthetic
+receipts without a trusted skip marker retain this integrity check; the runtime
+does not infer a skip from their wording. No raw-text fallback is
 published in `Turn.structuredOutput`; the runtime does not recover raw tool
 input or data that would bypass result screening or hooks. Hosts expecting
 larger results must raise `maxToolOutputChars` (or explicitly set zero to

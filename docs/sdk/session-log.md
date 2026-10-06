@@ -164,6 +164,22 @@ list is exported as `TurnBoundSessionEventType`. Events a host can cause between
 manual compaction, a background job exiting, an approval-policy change, a
 session hook, task and sandbox bookkeeping — may omit it.
 
+A `tool_completed` event and its persisted record may carry `skipped: true`
+when a pre-tool hook deliberately prevented execution. It is a non-error
+receipt: `isError` must be `false`, and `inputFailure` must be absent. Record
+validation and completed-call collection reject any other present marker
+value or contradictory combination. The existing executing/completed event
+pair still closes the call's lifecycle; a completion does not establish that
+its tool body ran.
+
+The executor sets this marker from the hook outcome, without inferring it
+from receipt text, provider metadata or raw `ToolResult` properties. It is
+retained in `CompletedToolRecord`, recovered batch outcomes and
+`StepToolResult` observations. Recovery reuses the receipt without rerunning
+the skipped call. Legacy records without the field keep their original
+bytes and hashes and are not reclassified from their text. See
+[skipped calls and terminal answers](tool-execution.md#skipped-calls-and-terminal-answers).
+
 ### Record-only types
 
 | Type | Payload |
