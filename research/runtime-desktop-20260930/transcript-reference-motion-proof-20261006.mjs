@@ -23,7 +23,8 @@ await context.route('**/*', route =>
 )
 await mkdir(artifacts, { recursive: true })
 const receipt = { passed: false, realRenderer: true, browserOnly: true, modelRequests: 0,
-	computerActions: 0, nativeActions: 0, viewport: { width: 1280, height: 900 }, frames: {}, checks: [] }
+	computerActions: 0, nativeActions: 0, viewport: { width: 1280, height: 900 }, frames: {}, checks: [],
+	supplements: 'transcript-reference-motion-proof-20261006.json', singleLiveStatus: [] }
 
 await page.addInitScript(() => {
 	let api
@@ -33,6 +34,9 @@ await page.addInitScript(() => {
 	let palProject
 	const listeners = new Set()
 	const at = Date.UTC(2026, 9, 6, 15)
+	// The displayed elapsed duration is derived from admitted fixture timestamps,
+	// with a fixed wall clock. Animation outcomes use their own explicit timeline.
+	Date.now = () => at + 48000
 	const nativeAnimate = Element.prototype.animate
 	Element.prototype.animate = function (...args) {
 		const animation = nativeAnimate.apply(this, args)
@@ -218,9 +222,30 @@ async function presenceSnapshot(selector) {
 	}))
 }
 async function capture(name) {
-	const filename = `transcript-reference-${name}-20261006.png`
+	const filename = `transcript-single-live-status-${name}-20261006.png`
 	await page.screenshot({ path: join(artifacts, filename) })
 	return filename
+}
+
+async function assertSingleLiveStatus(turn, label, { details = true, open } = {}) {
+	const root = page.locator('.normal-transcript')
+	const live = root.locator(':scope > .working[aria-live="polite"][aria-hidden="false"]')
+	await expect(live).toHaveCount(1)
+	await expect(live).toHaveAttribute('aria-label', label)
+	await expect(live.locator('.transcript-phase-text:not([data-transcript-phase-outgoing])')).toHaveText(label)
+	await expect(root.locator('[data-activity-turn="1"] .activity-trigger')).toHaveAttribute('aria-label', 'Worked for 9s')
+	const disclosure = root.locator(`[data-activity-turn="${turn}"] .activity-trigger`)
+	if (details) {
+		await expect(disclosure).toHaveAttribute('aria-label', 'Work details')
+		if (open !== undefined) await expect(disclosure).toHaveAttribute('aria-expanded', String(open))
+	} else await expect(disclosure).toHaveCount(0)
+	const visiblePhases = await root.locator('.transcript-phase-text:not([data-transcript-phase-outgoing])').evaluateAll(nodes =>
+		nodes.filter(node => node.getClientRects().length && ['Thinking', 'Working', 'Waiting for your decision'].includes(node.textContent))
+			.map(node => node.textContent),
+	)
+	assert.deepEqual(visiblePhases, [label], 'one current visible phase layer belongs to the single live status')
+	receipt.singleLiveStatus.push({ turn, label, details, open: open ?? null, activeStatusOwners: 1,
+		visiblePhaseLabels: visiblePhases, historicalLabel: 'Worked for 9s' })
 }
 
 try {
@@ -298,6 +323,22 @@ try {
 	assert.equal(continuedReasoning.id, receipt.frames.reasoningEntry.id)
 	assert.equal((await entryCalls()).filter(call => call.entry === 'reasoning-2:live-thought').length, countBeforeChunk)
 	await settleFinite()
+	await assertSingleLiveStatus(2, 'Thinking', { open: true })
+	const liveDisclosure = page.locator('[data-activity-turn="2"] .activity-trigger')
+	const callsBeforeDisclosure = (await entryCalls()).length
+	await liveDisclosure.click()
+	await expect(liveDisclosure).toHaveAttribute('aria-expanded', 'false')
+	await settleFinite()
+	await expect(page.locator(reasoning)).not.toBeVisible()
+	await assertSingleLiveStatus(2, 'Thinking', { open: false })
+	await emit([update({ kind: 'agent_thought_chunk', turnId: 'motion-turn-2', messageId: 'live-thought', blockId: 'live-thought', text: ' Preserve the reader collapse.' })])
+	await assertSingleLiveStatus(2, 'Thinking', { open: false })
+	await liveDisclosure.click()
+	await expect(liveDisclosure).toHaveAttribute('aria-expanded', 'true')
+	await settleFinite()
+	await expect(page.locator(reasoning)).toContainText('Preserve the reader collapse.')
+	await assertSingleLiveStatus(2, 'Thinking', { open: true })
+	assert.equal((await entryCalls()).length, callsBeforeDisclosure, 'opening/collapsing existing live entries must not replay entry effects')
 
 	await emit([update({ kind: 'tool_call', toolCallId: 'live-tool', title: 'exec', status: 'pending', view: { kind: 'terminal', command: 'Read visible fixture', output: '' } })])
 	await expect(page.locator(phase)).toHaveAttribute('data-transcript-phase', 'tools')
@@ -308,6 +349,23 @@ try {
 	await expect(page.locator(tool)).toContainText('Read visible fixture')
 	assert.equal((await frames(tool, 150, { finish: false })).id, receipt.frames.toolEntry.id)
 	await settleFinite()
+	await assertSingleLiveStatus(2, 'Working', { open: true })
+	await liveDisclosure.click()
+	await expect(liveDisclosure).toHaveAttribute('aria-expanded', 'false')
+	await settleFinite()
+	await assertSingleLiveStatus(2, 'Working', { open: false })
+	receipt.screenshots = [await capture('collapsed')]
+	await liveDisclosure.click()
+	await expect(liveDisclosure).toHaveAttribute('aria-expanded', 'true')
+	await settleFinite()
+	await emit([{ kind: 'permission', request: { id: 'motion-review', sessionId: 'sample-thread-1', projectId: 'sample-app', calls: [] } }])
+	await expect(page.locator(phase)).toHaveAttribute('data-transcript-phase', 'waiting')
+	await settleFinite()
+	await assertSingleLiveStatus(2, 'Waiting for your decision', { open: true })
+	await emit([{ kind: 'permission-cleared', requestId: 'motion-review' }])
+	await expect(page.locator(phase)).toHaveAttribute('data-transcript-phase', 'tools')
+	await settleFinite()
+	await assertSingleLiveStatus(2, 'Working', { open: true })
 	await emit([update({ kind: 'tool_call', toolCallId: 'live-tool', title: 'exec', status: 'completed', durationMs: 250, view: { kind: 'terminal', command: 'Read visible fixture', output: 'Visible fixture checked' } })])
 	await emit([update({ kind: 'agent_message_chunk', turnId: 'motion-turn-2', messageId: 'live-answer', phase: 'final_answer', text: 'Visible streamed answer' })])
 	const answer = '.normal-transcript [data-message-phase="final_answer"][data-timeline-turn="2"]'
@@ -318,7 +376,8 @@ try {
 	assert.equal((await frames(answer, 150, { finish: false })).id, receipt.frames.messageEntry.id)
 	await settleFinite()
 	receipt.checks.push('live reasoning/tool/message entries fade and rise4px for150ms once; chunks/progress preserve animation identity')
-	receipt.screenshots = [await capture('live')]
+	receipt.screenshots.push(await capture('live'))
+	receipt.checks.push('one live phase+elapsed owner across expanded/collapsed current Work details; reader collapse survives chunks, older Worked for9s retained, waiting stays truthful')
 
 	await emit([update({ kind: 'agent_message', turnId: 'motion-turn-2', messageId: 'live-answer', status: 'completed', content: 'Verified visible answer', phase: 'final_answer' }),
 		{ ...update({ kind: 'turn_ended', turnId: 'motion-turn-2', stopReason: 'end_turn', reason: 'end_turn', result: 'Verified visible answer' }), at: at + 9000 }, state(false)])
@@ -431,6 +490,16 @@ try {
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
 	receipt.screenshots.push(await capture('reduced-narrow'))
 	receipt.checks.push('reduced motion creates no finite transcript animation and uses zero disclosure transition; narrow view has no horizontal overflow')
+	await emit([{ ...update({ kind: 'turn_ended', turnId: 'motion-turn-6', stopReason: 'end_turn', reason: 'end_turn', result: '' }), at: at + 25000 }, state(false),
+		prompt('Private thought fixture', at + 26000), state(true),
+		update({ kind: 'agent_thought_chunk', turnId: 'motion-turn-7', messageId: 'private-thought', blockId: 'private-thought', text: '' })])
+	await expect(page.locator(phase)).toHaveAttribute('data-transcript-phase', 'thinking')
+	await settleFinite()
+	await assertSingleLiveStatus(7, 'Thinking', { details: false })
+	await expect(page.locator('[data-reasoning-id="7:private-thought"]')).toHaveCount(0)
+	await page.locator(phase).scrollIntoViewIfNeeded()
+	receipt.screenshots.push(await capture('private'))
+	receipt.checks.push('private/redacted reasoning drives actual Thinking without an empty current-turn disclosure or invented public body')
 	assert.deepEqual(faults, [])
 	receipt.apiErrors = await page.evaluate(() => window.__transcriptMotionProof.apiErrors)
 	assert.deepEqual(receipt.apiErrors, [])
@@ -441,6 +510,6 @@ try {
 } finally {
 	receipt.rendererErrors = faults
 	await browser.close()
-	await writeFile(join(artifacts, 'transcript-reference-motion-proof-20261006.json'), JSON.stringify(receipt, null, 2) + '\n')
+	await writeFile(join(artifacts, 'transcript-single-live-status-motion-proof-20261006.json'), JSON.stringify(receipt, null, 2) + '\n')
 	process.stdout.write(JSON.stringify({ passed: receipt.passed, checks: receipt.checks, error: receipt.error }) + '\n')
 }

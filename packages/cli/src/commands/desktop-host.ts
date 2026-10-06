@@ -114,6 +114,8 @@ export function createDesktopHostExtensions(
 	}
 	const ownedSession = (params: Record<string, unknown>) =>
 		withState((state) => ownedSessionIn(params, state))
+	const ownedReadSession = (params: Record<string, unknown>) =>
+		withReadScope((state) => ownedSessionIn(params, state))
 	const ownedPal = (params: Record<string, unknown>) => {
 		const id = text(params, 'palId')
 		if (!isTrusted(cwd) || pal()?.id !== id)
@@ -125,7 +127,9 @@ export function createDesktopHostExtensions(
 		...(retryStatus && retrySession
 			? {
 					'namzu/sessions/retry-status': async (params: Record<string, unknown>) =>
-						retryStatus(await ownedSession(params), cwd),
+						withReadScope(async (state) =>
+							retryStatus(await ownedSessionIn(params, state), cwd, state),
+						),
 					'namzu/sessions/retry': async (params: Record<string, unknown>) => {
 						if (
 							Object.keys(params).some(
@@ -156,7 +160,7 @@ export function createDesktopHostExtensions(
 					locked: true,
 					engines: [{ id: 'namzu', label: 'Namzu', available: true }],
 				}
-			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			const id = params.sessionId === undefined ? undefined : await ownedReadSession(params)
 			const harness = runtime as Partial<CliHarnessRuntime>
 			return harness.harnesses
 				? harness.harnesses(id)
@@ -264,7 +268,11 @@ export function createDesktopHostExtensions(
 					content: string | null
 				}>((message) => {
 					if (message.role === 'assistant') {
-						if (!ownedPal) return [{ role: message.role, content: message.content }]
+						if (!ownedPal) {
+							// A tool-only assistant has no public message body or media.
+							if (message.content === null && message.toolCalls?.length) return []
+							return [{ role: message.role, content: message.content }]
+						}
 						const content = palPublicAssistantText(message)
 						return content === undefined ? [] : [{ role: message.role, content }]
 					}
@@ -295,7 +303,7 @@ export function createDesktopHostExtensions(
 			})
 		},
 		'namzu/tasks/list': async (params: Record<string, unknown>) => {
-			return withState(async (state) => {
+			return withReadScope(async (state) => {
 				const id = asSessionId(await ownedSessionIn(params, state))
 				const store = new DiskTaskStore({
 					paths: state.paths,
@@ -321,7 +329,7 @@ export function createDesktopHostExtensions(
 			})
 		},
 		'namzu/providers/status': async (params: Record<string, unknown>) => {
-			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			const id = params.sessionId === undefined ? undefined : await ownedReadSession(params)
 			const status = await runtime.providerStatus(id)
 			const model = id ? undefined : pal()?.model
 			if (!model) return status
@@ -337,16 +345,16 @@ export function createDesktopHostExtensions(
 			const provider = text(params, 'provider')
 			if (params.sessionId === undefined) return runtime.models(provider)
 			session(params)
-			return ownedSession(params).then((id) => runtime.models(provider, id))
+			return ownedReadSession(params).then((id) => runtime.models(provider, id))
 		},
 		'namzu/providers/settings': async (params: Record<string, unknown>) =>
 			runtime.modelSettings(
 				text(params, 'provider'),
 				text(params, 'model'),
-				params.sessionId === undefined ? undefined : await ownedSession(params),
+				params.sessionId === undefined ? undefined : await ownedReadSession(params),
 			),
 		'namzu/plugins/list': async (params: Record<string, unknown>) => {
-			const id = params.sessionId === undefined ? undefined : await ownedSession(params)
+			const id = params.sessionId === undefined ? undefined : await ownedReadSession(params)
 			if (pal())
 				return {
 					plugins: [],
@@ -376,9 +384,9 @@ export function createDesktopHostExtensions(
 			return { selected: true }
 		},
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
-			runtime.jobs(await ownedSession(params)),
+			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>
-			runtime.readJob(await ownedSession(params), text(params, 'jobId')),
+			runtime.readJob(await ownedReadSession(params), text(params, 'jobId')),
 		'namzu/jobs/stop': async (params: Record<string, unknown>) =>
 			runtime.stopJob(await ownedSession(params), text(params, 'jobId')),
 	}

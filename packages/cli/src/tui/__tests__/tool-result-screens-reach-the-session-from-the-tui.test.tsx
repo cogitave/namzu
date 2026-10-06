@@ -50,6 +50,11 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	// The /resume and /abandon paths ask for the parked turn first; none here.
 	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
+	// runCli imports ACP's default dependency table; this fixture never opens
+	// an ACP journal, so an accidental call must remain visible.
+	openSessionScope: vi.fn(async () => {
+		throw new Error('ACP journal reads are outside this TUI configuration fixture')
+	}),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},

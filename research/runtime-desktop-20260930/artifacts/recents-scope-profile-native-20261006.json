@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "at": "2026-10-06T16:09:07.558Z",
+  "nativeWindows": true,
+  "passed": true,
+  "method": "Read-only calls to the deployed CLI history extension and direct session-scope opener in an isolated native Node process; subprocess instrumentation reports names, counts and durations only. No UI navigation or runtime creation.",
+  "actions": {
+    "modelRequests": 0,
+    "uiActions": 0,
+    "computerActions": 0,
+    "appRestarts": 0
+  },
+  "history": {
+    "historyHandlerMs": 226.12709999999993,
+    "scopeMs": 167.09750000000008,
+    "ownershipMs": 1.4972999999999956,
+    "strictFactsMs": 3.173999999999978,
+    "strictLoadAndFoldMs": 1.3369000000000142,
+    "journalBytes": 6075,
+    "journalRecords": 10,
+    "foldedMessages": 2,
+    "noIndexOpenedByHistory": true,
+    "savedMetadataUnchanged": true,
+    "journalUnchanged": true,
+    "projectMetadataUnchanged": true
+  },
+  "scopeInstrumentation": {
+    "scopeMs": 165.35310000000004,
+    "spawnCount": 6,
+    "spawnTotalMs": 153.79830000000004,
+    "spawnByExecutable": {
+      "whoami.exe": {
+        "count": 2,
+        "totalMs": 52.23980000000006
+      },
+      "icacls.exe": {
+        "count": 4,
+        "totalMs": 101.55849999999998
+      }
+    }
+  },
+  "candidateClassification": [
+    {
+      "candidate": 1,
+      "kind": "unsent draft",
+      "currentRuntimeJournalExists": false,
+      "savedEngineAndModelPresent": true,
+      "previousMeasurementMeaning": "The authoritative-display marker was blocked by replacement runtime and exact external-engine model restoration; 1936.3ms was not a strict durable-history measurement."
+    },
+    {
+      "candidate": 2,
+      "kind": "durable conversation",
+      "currentRuntimeJournalExists": true,
+      "previousMeasurementMeaning": "The 252.7ms authoritative-display marker followed the strict durable-history request."
+    }
+  ],
+  "limits": [
+    "Two fixed conversations, not latency percentiles.",
+    "Direct stage timings are not a full user-navigation benchmark.",
+    "Index synchronization may still contribute to external-engine mutation setup; this probe did not call those mutations.",
+    "Windows ACL checks remain enabled; no permissions were cached or skipped."
+  ]
+}

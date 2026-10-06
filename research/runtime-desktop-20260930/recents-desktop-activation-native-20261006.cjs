@@ -1,10 +1,13 @@
 'use strict';
-// Apply the built desktop, optionally the paired reviewed CLI history/scope/Pal modules.
+// Apply the built desktop, optionally the explicitly reviewed CLI history/scope/Pal/readiness modules.
 // No installs or guest changes. Native Windows Node:
 // <script> <built dist directory> <private receipt.json>
 //   [--cli-history-source=<built commands/desktop-host.js>]
 //   [--cli-scope-source=<built integrations/sessions/store.js>]
 //   [--cli-pal-source=<built pals/conversations.js>]
+//   [--cli-readiness-source=<built commands/acp.js>]
+//   [--cli-retry-source=<built commands/acp-provider-retry.js>]
+// Read-only verification into a new receipt: --verify-current --verify-from=<private original receipt.json>
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -19,6 +22,24 @@ const source = path.resolve(process.argv[2] ?? '');
 const output = path.resolve(process.argv[3] ?? '');
 const relative = path.relative(root, output);
 assert(process.argv[2] && process.argv[3] && relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+const verifyFromArgs = process.argv.filter(arg => arg.startsWith('--verify-from='));
+assert(verifyFromArgs.length <= 1, 'Repeated verification receipt option');
+const verifyFrom = verifyFromArgs.length ? path.resolve(verifyFromArgs[0].slice('--verify-from='.length)) : null;
+function assertConfinedFile(file) {
+  const realRoot = fs.realpathSync(root);
+  const fileRelative = path.relative(realRoot, fs.realpathSync(file));
+  assert(fileRelative && !fileRelative.startsWith('..') && !path.isAbsolute(fileRelative),
+    'Verification input must remain inside the private Development directory');
+  assert(fs.statSync(file).isFile(), 'Verification input must be a file');
+}
+if (verifyFrom) {
+  assert(process.argv.includes('--verify-current'), '--verify-from requires read-only --verify-current');
+  assertConfinedFile(verifyFrom);
+  assert.notEqual(verifyFrom.toLowerCase(), output.toLowerCase(), 'The original receipt must be retained');
+  assert(!fs.existsSync(output), 'Read-only verification requires a fresh output receipt');
+  const outputParent = path.relative(fs.realpathSync(root), fs.realpathSync(path.dirname(output)));
+  assert(!outputParent.startsWith('..') && !path.isAbsolute(outputParent), 'Verification output must remain private');
+}
 const target = path.join(config.app, 'dist');
 assert.notEqual(source.toLowerCase(), target.toLowerCase());
 for (const file of ['main/index.js', 'main/operator.js', 'preload.cjs', 'renderer/index.html'])
@@ -48,20 +69,56 @@ const cliScopeSourceArg = process.argv.find(arg => arg.startsWith('--cli-scope-s
 const cliScopeSource = cliScopeSourceArg ? path.resolve(cliScopeSourceArg.slice('--cli-scope-source='.length)) : null;
 const cliPalSourceArg = process.argv.find(arg => arg.startsWith('--cli-pal-source='));
 const cliPalSource = cliPalSourceArg ? path.resolve(cliPalSourceArg.slice('--cli-pal-source='.length)) : null;
+const cliReadinessSourceArg = process.argv.find(arg => arg.startsWith('--cli-readiness-source='));
+const cliReadinessSource = cliReadinessSourceArg ? path.resolve(cliReadinessSourceArg.slice('--cli-readiness-source='.length)) : null;
+const cliRetrySourceArg = process.argv.find(arg => arg.startsWith('--cli-retry-source='));
+const cliRetrySource = cliRetrySourceArg ? path.resolve(cliRetrySourceArg.slice('--cli-retry-source='.length)) : null;
 assert((!cliScopeSource && !cliPalSource) || (cliSource && cliScopeSource && cliPalSource),
   'The reviewed scope and Pal modules must be staged together with the history host.');
+assert(!cliReadinessSource || (cliSource && cliScopeSource && cliPalSource),
+  'The reviewed readiness module requires the history, scope and Pal module sources.');
+assert(!cliRetrySource || cliReadinessSource,
+  'The reviewed retry module must be staged with the readiness module.');
+for (const option of ['--cli-history-source=', '--cli-scope-source=', '--cli-pal-source=',
+  '--cli-readiness-source=', '--cli-retry-source=']) {
+  assert(process.argv.filter(arg => arg.startsWith(option)).length <= 1, `Repeated source option ${option}`);
+}
 const cliTarget = path.join(path.dirname(config.cli), 'commands', 'desktop-host.js');
 const cliScopeTarget = path.join(path.dirname(config.cli), 'integrations', 'sessions', 'store.js');
 const cliPalTarget = path.join(path.dirname(config.cli), 'pals', 'conversations.js');
+const cliReadinessTarget = path.join(path.dirname(config.cli), 'commands', 'acp.js');
+const cliRetryTarget = path.join(path.dirname(config.cli), 'commands', 'acp-provider-retry.js');
 const cliBefore = cliSource ? manifest(path.dirname(config.cli)) : null;
 const cliPackagePath = path.join(path.dirname(path.dirname(config.cli)), 'package.json');
 const cliPackageBytes = fs.readFileSync(cliPackagePath);
 const cliSourceBytes = cliSource ? fs.readFileSync(cliSource) : null;
 const cliScopeSourceBytes = cliScopeSource ? fs.readFileSync(cliScopeSource) : null;
 const cliPalSourceBytes = cliPalSource ? fs.readFileSync(cliPalSource) : null;
+const cliReadinessSourceBytes = cliReadinessSource ? fs.readFileSync(cliReadinessSource) : null;
+const cliRetrySourceBytes = cliRetrySource ? fs.readFileSync(cliRetrySource) : null;
 const cliTargetBytes = cliSource ? fs.readFileSync(cliTarget) : null;
 const cliScopeTargetBytes = cliScopeSource ? fs.readFileSync(cliScopeTarget) : null;
 const cliPalTargetBytes = cliPalSource ? fs.readFileSync(cliPalTarget) : null;
+const cliReadinessTargetBytes = cliReadinessSource ? fs.readFileSync(cliReadinessTarget) : null;
+const cliRetryTargetBytes = cliRetrySource ? fs.readFileSync(cliRetryTarget) : null;
+const reviewedCliModules = [
+  { file: 'commands/desktop-host.js', label: 'History', source: cliSource, target: cliTarget,
+    bytes: cliSourceBytes, before: cliTargetBytes },
+  { file: 'integrations/sessions/store.js', label: 'Scope', source: cliScopeSource, target: cliScopeTarget,
+    bytes: cliScopeSourceBytes, before: cliScopeTargetBytes },
+  { file: 'pals/conversations.js', label: 'Pal', source: cliPalSource, target: cliPalTarget,
+    bytes: cliPalSourceBytes, before: cliPalTargetBytes },
+  { file: 'commands/acp.js', label: 'Readiness', source: cliReadinessSource, target: cliReadinessTarget,
+    bytes: cliReadinessSourceBytes, before: cliReadinessTargetBytes },
+  { file: 'commands/acp-provider-retry.js', label: 'Retry', source: cliRetrySource, target: cliRetryTarget,
+    bytes: cliRetrySourceBytes, before: cliRetryTargetBytes },
+].filter(item => item.source);
+for (const item of reviewedCliModules) {
+  assert.equal(path.basename(item.source), path.basename(item.target));
+  assert.notEqual(fs.realpathSync(item.source).toLowerCase(), fs.realpathSync(item.target).toLowerCase());
+  assert(fs.statSync(item.target).isFile());
+  assert(cliBefore.some(row => row.file === item.file), `Reviewed target ${item.file} is absent from the CLI manifest`);
+}
 const staticImports = bytes => {
   const code = bytes.toString('utf8');
   const imports = code.match(/^import[^\r\n]*;$/gm) ?? [];
@@ -77,6 +134,9 @@ const namedImport = (line, specifier) => {
 };
 const exportNames = bytes => [...bytes.toString('utf8').matchAll(/^export (?:async )?(?:function|class|const|let|var) ([A-Za-z_$][\w$]*)/gm)]
   .map(match => match[1]);
+const hasNamedExport = (bytes, name) => exportNames(bytes).includes(name) ||
+  [...bytes.toString('utf8').matchAll(/^export \{([^}]*)\}(?: from '[^']+')?;$/gm)]
+    .some(match => match[1].split(',').map(part => part.trim().split(/\s+as\s+/).at(-1)).includes(name));
 if (cliSource) {
   assert.equal(path.basename(cliSource), 'desktop-host.js');
   assert.notEqual(cliSource.toLowerCase(), cliTarget.toLowerCase());
@@ -85,7 +145,7 @@ if (cliSource) {
   const nextImports = staticImports(cliSourceBytes);
   assert.deepEqual(exportLines(cliSourceBytes), exportLines(cliTargetBytes),
     'CLI host exported declarations changed');
-  if (!cliScopeSource) {
+  if (!cliScopeSource || JSON.stringify(nextImports) === JSON.stringify(oldImports)) {
     assert.deepEqual(nextImports, oldImports, 'CLI module imports changed; stage a complete runtime instead');
   } else {
     const homeImport = "import { resolveNamzuHome } from '../integrations/state/home.js';";
@@ -135,14 +195,15 @@ if (cliScopeSource) {
     'CLI scope module imports changed; stage a complete runtime instead');
   const previousExports = exportNames(cliScopeTargetBytes);
   const nextExports = exportNames(cliScopeSourceBytes);
-  assert(!previousExports.includes('openSessionScope'), 'Current store already exports the scope opener');
   assert.equal(nextExports.filter(name => name === 'openSessionScope').length, 1);
-  assert.deepEqual(nextExports.filter(name => name !== 'openSessionScope'), previousExports,
+  assert.deepEqual(nextExports.filter(name => name !== 'openSessionScope'),
+    previousExports.filter(name => name !== 'openSessionScope'),
     'CLI scope module exports changed beyond the reviewed opener');
   assert(/^export async function openSessionScope\(/m.test(cliScopeSourceBytes.toString('utf8')),
     'Reviewed scope opener export is missing');
   assert.deepEqual(exportLines(cliScopeSourceBytes).filter(line => !line.startsWith('export async function openSessionScope(')),
-    exportLines(cliScopeTargetBytes), 'CLI scope module exported declarations changed beyond the opener');
+    exportLines(cliScopeTargetBytes).filter(line => !line.startsWith('export async function openSessionScope(')),
+    'CLI scope module exported declarations changed beyond the opener');
 }
 if (cliPalSource) {
   assert.equal(path.basename(cliPalSource), 'conversations.js');
@@ -152,6 +213,75 @@ if (cliPalSource) {
     'CLI Pal module imports changed; stage a complete runtime instead');
   assert.deepEqual(exportLines(cliPalSourceBytes), exportLines(cliPalTargetBytes),
     'CLI Pal module exports changed');
+}
+if (cliReadinessSource) {
+  assert.deepEqual(exportLines(cliReadinessSourceBytes), exportLines(cliReadinessTargetBytes),
+    'CLI readiness module exported declarations changed');
+  const additions = new Map([
+    ['../integrations/sessions/store.js', ['openSessionScope']],
+    ['../integrations/state/home.js', ['resolveNamzuHome']],
+    ['../integrations/state/project.js', ['cliProjectRoot']],
+    ['../integrations/trust/store.js', ['isTrustedAtStateRoot']],
+    ['../pals/store.js', ['palAtWorkspace']],
+    ['../permissions/canonical-project.js', ['canonicalProjectPath']],
+  ]);
+  const oldImports = staticImports(cliReadinessTargetBytes);
+  const nextImports = staticImports(cliReadinessSourceBytes);
+  const reviewedSpecifier = line => [...additions.keys()].find(specifier => line.endsWith(`from '${specifier}';`));
+  assert.deepEqual(nextImports.filter(line => !reviewedSpecifier(line)),
+    oldImports.filter(line => !reviewedSpecifier(line)), 'Unrelated CLI readiness import changed');
+  for (const [specifier, permitted] of additions) {
+    const previous = oldImports.filter(line => line.endsWith(`from '${specifier}';`));
+    const next = nextImports.filter(line => line.endsWith(`from '${specifier}';`));
+    assert(previous.length <= 1 && next.length === 1, `Unexpected CLI readiness import count for ${specifier}`);
+    const previousNames = previous.length ? namedImport(previous[0], specifier) : [];
+    const nextNames = namedImport(next[0], specifier);
+    assert.deepEqual(nextNames.filter(name => !permitted.includes(name)),
+      previousNames.filter(name => !permitted.includes(name)), `CLI readiness ${specifier} import changed beyond reviewed names`);
+    for (const name of permitted) assert.equal(nextNames.filter(candidate => candidate === name).length, 1,
+      `CLI readiness is missing the reviewed ${name} import`);
+    const importedTarget = path.resolve(path.dirname(cliReadinessTarget), specifier);
+    const replacement = reviewedCliModules.find(item => item.target.toLowerCase() === importedTarget.toLowerCase());
+    const importedBytes = replacement?.bytes ?? fs.readFileSync(importedTarget);
+    for (const name of permitted) assert(hasNamedExport(importedBytes, name), `Native CLI target does not export ${name}`);
+  }
+}
+if (cliRetrySource) {
+  assert.deepEqual(staticImports(cliRetrySourceBytes), staticImports(cliRetryTargetBytes),
+    'CLI retry module imports changed');
+  assert.deepEqual(exportLines(cliRetrySourceBytes), exportLines(cliRetryTargetBytes),
+    'CLI retry module exported declarations changed');
+}
+// Protect the installed dependency mapping as well as the package manifests.
+// Only these explicit CLI files can change; no dependency is staged here.
+function dependencyGraph(packagePath) {
+  const directory = path.dirname(packagePath);
+  const dependencies = JSON.parse(fs.readFileSync(packagePath, 'utf8')).dependencies ?? {};
+  return Object.keys(dependencies).sort().map(name => {
+    const dependencyPackage = fs.realpathSync(path.join(directory, 'node_modules', name, 'package.json'));
+    return { name, requested: dependencies[name], packagePath: dependencyPackage,
+      packageSha256: hash(fs.readFileSync(dependencyPackage)) };
+  });
+}
+const cliDependencyGraph = cliSource ? dependencyGraph(cliPackagePath) : null;
+const cliStagingDirectory = cliSource ? path.join(root, `recents-cli-stage-${stamp}`) : null;
+const cliModules = reviewedCliModules.map(item => ({ ...item,
+  staged: path.join(cliStagingDirectory, item.file) }));
+let cliStagingOwned = false;
+function cleanupCliStaging() {
+  if (!cliStagingOwned || !fs.existsSync(cliStagingDirectory)) return;
+  const directories = new Set([cliStagingDirectory]);
+  for (const item of cliModules) {
+    if (fs.existsSync(item.staged)) fs.unlinkSync(item.staged);
+    let directory = path.dirname(item.staged);
+    while (directory !== cliStagingDirectory) {
+      directories.add(directory);
+      directory = path.dirname(directory);
+    }
+  }
+  for (const directory of [...directories].sort((a, b) => b.length - a.length)) {
+    if (fs.existsSync(directory)) fs.rmdirSync(directory);
+  }
 }
 const sdkPackagePath = cliSource ? fs.realpathSync(path.join(path.dirname(path.dirname(config.cli)), 'node_modules', '@namzu', 'sdk', 'package.json')) : null;
 const sdkTarget = sdkPackagePath ? path.join(path.dirname(sdkPackagePath), 'dist') : null;
@@ -163,7 +293,8 @@ const groups = node => !node ? [] : node.kind === 'group' ? [node] : [...groups(
 let browser, page, before;
 const receipt = { passed: false, nativeWindows: true, at: new Date().toISOString(), packageInstalls: 0,
   sdkCopies: 0, cliModuleCopies: 0, modelRequests: 0, computerActions: 0, sourceFiles: sourceFiles.length,
-  sourceManifestSha256: hash(sourceFiles), backupDirectory: path.basename(backup), phase: 'preflight', checks: [] };
+  sourceManifestSha256: hash(sourceFiles), launchConfigSha256: hash(configBytes),
+  desktopPackageSha256: hash(packageBytes), backupDirectory: path.basename(backup), phase: 'preflight', checks: [] };
 async function attach() {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port()}`);
   page = browser.contexts().flatMap(context => context.pages()).find(candidate => candidate.url() === new URL(config.url).href);
@@ -316,27 +447,81 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
   try {
     await attach();
     if (process.argv.includes('--verify-current')) {
-      const previous = JSON.parse(fs.readFileSync(output, 'utf8'));
+      const previousFile = verifyFrom ?? output;
+      assertConfinedFile(previousFile);
+      const previousBytes = fs.readFileSync(previousFile);
+      const previous = JSON.parse(previousBytes.toString('utf8'));
+      if (previous.passed !== true) assert(verifyFrom, 'A failed original receipt must be retained through --verify-from');
+      const completedApplication = previous.phase === 'verify' &&
+        Number.isInteger(previous.cliModuleCopies) && previous.cliModuleCopies > 0 &&
+        Array.isArray(previous.cliReviewedModules) &&
+        previous.cliModuleCopies === previous.cliReviewedModules.length &&
+        previous.cliReviewedModules.length === cliModules.length;
+      assert(previous.passed === true || completedApplication,
+        'Verification requires a passed receipt or an entirely applied reviewed CLI update');
+      assert.equal(previous.sourceManifestSha256, hash(sourceFiles), 'The reviewed desktop source differs from the original activation');
+      if (previous.launchConfigSha256) assert.equal(hash(configBytes), previous.launchConfigSha256,
+        'Launch configuration differs from the original activation');
+      if (previous.desktopPackageSha256) assert.equal(hash(packageBytes), previous.desktopPackageSha256,
+        'Desktop package differs from the original activation');
       assert(previous.privateSnapshot && path.basename(previous.privateSnapshot) === previous.privateSnapshot);
-      before = JSON.parse(fs.readFileSync(path.join(root, previous.privateSnapshot), 'utf8'));
+      const snapshot = path.join(root, previous.privateSnapshot);
+      assertConfinedFile(snapshot);
+      before = JSON.parse(fs.readFileSync(snapshot, 'utf8'));
+      assert.deepEqual(digests(before), previous.before, 'The original protected snapshot differs from its recorded digests');
       await readState(); // Read-only computer presence may hydrate its local Pal connection.
       const after = await readState();
       receipt.beforePid = previous.beforePid;
       receipt.afterPid = Number(fs.readFileSync(path.join(root, 'desktop.pid'), 'utf8').trim());
       receipt.before = digests(before); receipt.after = digests(after);
+      if (previous.afterPid !== undefined) assert.equal(receipt.afterPid, previous.afterPid,
+        'The current desktop is not the originally verified process');
+      else assert.notEqual(receipt.afterPid, previous.beforePid, 'The original desktop did not restart');
       assert.deepEqual(receipt.after, receipt.before, 'Protected durable/display state differs');
       assert.deepEqual(manifest(target), sourceFiles);
       assert.equal(hash(fs.readFileSync(configPath)), hash(configBytes));
       assert.equal(hash(fs.readFileSync(path.join(config.app, 'package.json'))), hash(packageBytes));
-      if (previous.cliManifestAfterSha256) {
-        assert.equal(hash(manifest(path.dirname(config.cli))), previous.cliManifestAfterSha256,
+      if (previous.cliManifestBeforeSha256 || previous.cliManifestAfterSha256) {
+        const currentCli = manifest(path.dirname(config.cli));
+        if (Array.isArray(previous.cliReviewedModules)) {
+          assert.equal(previous.cliReviewedModules.length, cliModules.length, 'The reviewed CLI module set differs');
+          const seen = new Set();
+          for (const reviewed of previous.cliReviewedModules) {
+            assert(!seen.has(reviewed.file), 'Duplicate reviewed CLI module');
+            seen.add(reviewed.file);
+            const provided = cliModules.find(item => item.file === reviewed.file);
+            assert(provided, 'The original receipt names an unprovided CLI module');
+            assert(/^[a-f0-9]{64}$/.test(reviewed.beforeSha256), 'Invalid original CLI module digest');
+            assert.equal(hash(provided.bytes), reviewed.afterSha256, 'Provided CLI source differs from its original reviewed digest');
+            assert.equal(currentCli.find(item => item.file === reviewed.file)?.hash, reviewed.afterSha256,
+              'An applied CLI module differs from its reviewed source');
+          }
+          const reconstructed = currentCli.map(item => {
+            const reviewed = previous.cliReviewedModules.find(module => module.file === item.file);
+            return reviewed ? { ...item, hash: reviewed.beforeSha256 } : item;
+          });
+          assert.equal(hash(reconstructed), previous.cliManifestBeforeSha256,
+            'Unrelated CLI files differ from the original installation');
+          receipt.cliReviewedModules = previous.cliReviewedModules;
+          receipt.cliManifestBeforeSha256 = previous.cliManifestBeforeSha256;
+        } else assert(previous.cliManifestAfterSha256, 'The original receipt has no reviewed CLI module evidence');
+        if (previous.cliManifestAfterSha256) assert.equal(hash(currentCli), previous.cliManifestAfterSha256,
           'Reviewed CLI runtime changed after activation');
         assert.equal(hash(fs.readFileSync(cliPackagePath)), previous.cliPackageSha256);
+        if (previous.cliDependencyGraphSha256)
+          assert.equal(hash(dependencyGraph(cliPackagePath)), previous.cliDependencyGraphSha256,
+            'Installed CLI dependency mapping changed after activation');
         const runtimeSdkPackage = fs.realpathSync(path.join(path.dirname(path.dirname(config.cli)),
           'node_modules', '@namzu', 'sdk', 'package.json'));
         assert.equal(hash(fs.readFileSync(runtimeSdkPackage)), previous.sdkPackageSha256);
         assert.equal(hash(manifest(path.join(path.dirname(runtimeSdkPackage), 'dist'))),
-          previous.sdkManifestAfterSha256, 'SDK runtime changed after activation');
+          previous.sdkManifestAfterSha256 ?? previous.sdkManifestBeforeSha256, 'SDK runtime changed after activation');
+        receipt.cliManifestAfterSha256 = hash(currentCli);
+        receipt.cliPackageSha256 = previous.cliPackageSha256;
+        receipt.cliDependencyGraphSha256 = previous.cliDependencyGraphSha256;
+        receipt.sdkManifestBeforeSha256 = previous.sdkManifestBeforeSha256;
+        receipt.sdkManifestAfterSha256 = previous.sdkManifestAfterSha256 ?? previous.sdkManifestBeforeSha256;
+        receipt.sdkPackageSha256 = previous.sdkPackageSha256;
       }
       receipt.checks = [...previous.checks, 'fresh exact main/preload/renderer bytes',
         'original tab order, authored message bodies, drafts, files, selected model/settings, tasks, profiles and computers preserved'];
@@ -349,6 +534,13 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
       receipt.privateSnapshot = previous.privateSnapshot;
       receipt.backupDirectory = previous.backupDirectory;
       receipt.previousActivationPassed = previous.passed;
+      receipt.previousActivationPhase = previous.phase;
+      receipt.originalCliModuleCopies = previous.originalCliModuleCopies ?? previous.cliModuleCopies;
+      if (verifyFrom) {
+        assert.equal(hash(fs.readFileSync(verifyFrom)), hash(previousBytes), 'The original receipt changed during verification');
+        receipt.verificationFrom = path.basename(verifyFrom);
+        receipt.verificationFromSha256 = hash(previousBytes);
+      }
       receipt.originalActivationAt = previous.at;
       receipt.passed = true;
       return;
@@ -364,28 +556,28 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
     fs.writeFileSync(privateSnapshot, JSON.stringify(before), { mode: 0o600 });
     receipt.privateSnapshot = path.basename(privateSnapshot);
     if (cliSource) {
-      fs.writeFileSync(path.join(root, `cli-history-before-${stamp}.js`), fs.readFileSync(cliTarget), { mode: 0o600, flag: 'wx' });
-      receipt.cliHistoryBeforeSha256 = hash(fs.readFileSync(cliTarget));
-      receipt.cliHistoryAfterSha256 = hash(cliSourceBytes);
-      receipt.cliHistoryBackup = `cli-history-before-${stamp}.js`;
       receipt.cliManifestBeforeSha256 = hash(cliBefore);
       receipt.cliPackageSha256 = hash(cliPackageBytes);
+      receipt.cliDependencyGraphSha256 = hash(cliDependencyGraph);
       receipt.sdkManifestBeforeSha256 = hash(sdkBefore);
       receipt.sdkPackageSha256 = hash(sdkPackageBytes);
-    }
-    if (cliScopeSource) {
-      fs.writeFileSync(path.join(root, `cli-scope-before-${stamp}.js`), cliScopeTargetBytes,
-        { mode: 0o600, flag: 'wx' });
-      receipt.cliScopeBeforeSha256 = hash(cliScopeTargetBytes);
-      receipt.cliScopeAfterSha256 = hash(cliScopeSourceBytes);
-      receipt.cliScopeBackup = `cli-scope-before-${stamp}.js`;
-    }
-    if (cliPalSource) {
-      fs.writeFileSync(path.join(root, `cli-pal-before-${stamp}.js`), cliPalTargetBytes,
-        { mode: 0o600, flag: 'wx' });
-      receipt.cliPalBeforeSha256 = hash(cliPalTargetBytes);
-      receipt.cliPalAfterSha256 = hash(cliPalSourceBytes);
-      receipt.cliPalBackup = `cli-pal-before-${stamp}.js`;
+      assert(!fs.existsSync(cliStagingDirectory), 'CLI staging directory already exists');
+      fs.mkdirSync(cliStagingDirectory, { mode: 0o700 });
+      cliStagingOwned = true;
+      receipt.cliReviewedModules = [];
+      for (const item of cliModules) {
+        assert.equal(path.parse(item.target).root.toLowerCase(), path.parse(item.staged).root.toLowerCase(),
+          'CLI staging and its reviewed target must share a volume');
+        const backupName = `cli-${item.label.toLowerCase()}-before-${stamp}.js`;
+        fs.writeFileSync(path.join(root, backupName), item.before, { mode: 0o600, flag: 'wx' });
+        receipt[`cli${item.label}BeforeSha256`] = hash(item.before);
+        receipt[`cli${item.label}AfterSha256`] = hash(item.bytes);
+        receipt[`cli${item.label}Backup`] = backupName;
+        fs.mkdirSync(path.dirname(item.staged), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(item.staged, item.bytes, { mode: 0o600, flag: 'wx' });
+        assert.equal(hash(fs.readFileSync(item.staged)), hash(item.bytes));
+        receipt.cliReviewedModules.push({ file: item.file, beforeSha256: hash(item.before), afterSha256: hash(item.bytes) });
+      }
     }
     fs.cpSync(source, staging, { recursive: true, errorOnExist: true, force: false });
     assert.deepEqual(manifest(staging), sourceFiles);
@@ -403,8 +595,14 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
     assert.equal(hash(fs.readFileSync(configPath)), hash(configBytes));
     if (cliSource) {
       assert.deepEqual(manifest(path.dirname(config.cli)), cliBefore, 'CLI files changed during preflight');
+      assert.equal(hash(fs.readFileSync(cliPackagePath)), hash(cliPackageBytes));
+      assert.deepEqual(dependencyGraph(cliPackagePath), cliDependencyGraph, 'CLI dependency mapping changed during preflight');
       assert.deepEqual(manifest(sdkTarget), sdkBefore, 'SDK files changed during preflight');
       assert.equal(hash(fs.readFileSync(sdkPackagePath)), hash(sdkPackageBytes));
+      for (const item of cliModules) {
+        assert.equal(hash(fs.readFileSync(item.source)), hash(item.bytes), 'Reviewed CLI source changed during preflight');
+        assert.equal(hash(fs.readFileSync(item.staged)), hash(item.bytes), 'Staged CLI source changed during preflight');
+      }
     }
     const oldPortStamp = fs.existsSync(portFile) ? fs.statSync(portFile).mtimeMs : null;
     receipt.phase = 'graceful-close';
@@ -424,17 +622,10 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
     }
     assert.deepEqual(manifest(target), sourceFiles);
     if (cliSource) {
-      const modules = [
-        { target: cliTarget, bytes: cliSourceBytes, before: cliTargetBytes },
-        ...(cliScopeSource ? [{ target: cliScopeTarget, bytes: cliScopeSourceBytes,
-          before: cliScopeTargetBytes }] : []),
-        ...(cliPalSource ? [{ target: cliPalTarget, bytes: cliPalSourceBytes,
-          before: cliPalTargetBytes }] : []),
-      ].map(item => ({ ...item, staged: `${item.target}.recents-stage-${stamp}` }));
+      const modules = cliModules;
       const replaced = [];
       try {
         for (const item of modules) {
-          fs.writeFileSync(item.staged, item.bytes, { flag: 'wx' });
           assert.equal(hash(fs.readFileSync(item.staged)), hash(item.bytes));
         }
         for (const item of modules) {
@@ -454,7 +645,7 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
         receipt.cliModuleCopies = 0;
         throw error;
       }
-      receipt.checks.push(`reviewed ${modules.length} CLI module(s) staged after graceful close`);
+      receipt.checks.push(`reviewed ${modules.length} CLI module(s) applied after graceful close`);
     }
     receipt.checks.push('staged complete built desktop and retained old dist as backup');
     receipt.phase = 'startup';
@@ -501,17 +692,15 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
     assert.equal(hash(fs.readFileSync(path.join(config.app, 'package.json'))), hash(packageBytes));
     assert.deepEqual(manifest(target), sourceFiles);
     if (cliSource) {
-      const expectedCli = cliBefore.map(item => item.file === 'commands/desktop-host.js'
-        ? { ...item, hash: hash(cliSourceBytes) }
-        : item.file === 'integrations/sessions/store.js' && cliScopeSource
-          ? { ...item, hash: hash(cliScopeSourceBytes) }
-          : item.file === 'pals/conversations.js' && cliPalSource
-            ? { ...item, hash: hash(cliPalSourceBytes) }
-          : item);
+      const expectedCli = cliBefore.map(item => {
+        const replacement = cliModules.find(module => module.file === item.file);
+        return replacement ? { ...item, hash: hash(replacement.bytes) } : item;
+      });
       assert.deepEqual(manifest(path.dirname(config.cli)), expectedCli, 'Unrelated CLI files changed');
       assert.deepEqual(manifest(sdkTarget), sdkBefore, 'SDK files changed');
       assert.equal(hash(fs.readFileSync(sdkPackagePath)), hash(sdkPackageBytes));
       assert.equal(hash(fs.readFileSync(cliPackagePath)), hash(cliPackageBytes));
+      assert.deepEqual(dependencyGraph(cliPackagePath), cliDependencyGraph, 'CLI dependency mapping changed');
       receipt.cliManifestAfterSha256 = hash(expectedCli);
       receipt.sdkManifestAfterSha256 = hash(sdkBefore);
     }
@@ -526,7 +715,13 @@ function digests(state) { return Object.fromEntries(Object.entries(semantic(stat
   } catch (error) { receipt.error = { name: error.name, message: error.message }; process.exitCode = 1; }
   finally {
     if (browser) { try { await browser.close(); } catch {} }
-    fs.writeFileSync(output, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
+    try { cleanupCliStaging(); } catch (error) {
+      receipt.cliStagingCleanupError = { name: error.name, message: error.message };
+      process.exitCode = 1;
+      receipt.passed = false;
+    }
+    fs.writeFileSync(output, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600,
+      ...(verifyFrom ? { flag: 'wx' } : {}) });
     console.log(JSON.stringify({ passed: receipt.passed, beforePid: receipt.beforePid, afterPid: receipt.afterPid, checks: receipt.checks.length, error: receipt.error ? 'See private activation receipt' : undefined }));
   }
 })();

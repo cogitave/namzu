@@ -2,6 +2,10 @@
   "date": "2026-10-06",
   "environment": "Already running native Windows Electron desktop, observed through its existing CDP endpoint",
   "method": "Four bounded Recents clicks per run: first open each of the same two ordinary conversations, then reopen each. Timings start at capture of the actual renderer click and end when each DOM condition is observed. No prompts, model requests, guest actions, reloads, or restarts were performed by the navigation probe.",
+  "candidateClasses": [
+    "Candidate 1 is an unsent external conversation with a saved draft and no prompted durable journal history. Its authoritative marker describes the owned empty display, not a completed history read.",
+    "Candidate 2 has prompted durable journal history. Its authoritative marker describes the displayed history."
+  ],
   "samples": [
     {
       "build": "baseline",
@@ -71,19 +75,39 @@
         { "candidate": 1, "selectedMs": 13.6, "authoritativeMs": 13.6, "composerReadyMs": 13.6, "twoAnimationFramesMs": 55.1 },
         { "candidate": 2, "selectedMs": 12.7, "authoritativeMs": 12.7, "composerReadyMs": 12.8, "twoAnimationFramesMs": 56.7 }
       ]
+    },
+    {
+      "build": "progressive unsent display and direct scoped readiness",
+      "receipt": "recents-navigation-direct-readiness-20261006.json",
+      "restorationReceipt": "recents-navigation-direct-readiness-restoration-verified-20261006.json",
+      "nativeAudit": "desktop-live-work-verification-20261006.json",
+      "originalProbePassed": false,
+      "restorationCorrectionPassed": true,
+      "concurrentLoad": "No workspace tests or proof browsers were running during this sample.",
+      "firstOpen": [
+        { "candidate": 1, "selectedMs": 38.3, "authoritativeMs": 38.3, "composerReadyMs": 2866.1, "twoAnimationFramesMs": 2886.9 },
+        { "candidate": 2, "selectedMs": 207.1, "authoritativeMs": 1002.5, "composerReadyMs": 2080.3, "twoAnimationFramesMs": 2117.2 }
+      ],
+      "reopen": [
+        { "candidate": 1, "selectedMs": 14.3, "authoritativeMs": 14.3, "composerReadyMs": 14.3, "twoAnimationFramesMs": 53.1 },
+        { "candidate": 2, "selectedMs": 19.2, "authoritativeMs": 19.2, "composerReadyMs": 19.2, "twoAnimationFramesMs": 56.5 }
+      ]
     }
   ],
-  "stateProof": "Each successful run restored its own original tabs, tab order, focus, workspace layout, project disclosure, scroll positions, persisted presentations, and protected project, profile, computer, session, draft, setting, attachment, message, and task snapshots. The baseline original tabs differ from later runs because the user changed them before deployment. All four clicks in each of the five runs occurred with a visible, focused renderer and recorded no long tasks.",
+  "stateProof": "The first five navigation probes passed their restoration checks. The sixth completed four measured clicks but its original receipt failed because one project disclosure stayed open. A separate fresh idle and protected-state guard permitted one accessible toggle click; the correction receipt passed exact pre-probe disclosure, tabs, tab order, focus, workspace layout, other DOM presentation, persisted presentation, protected snapshot, and PID checks. The original failed receipt remains unchanged. The baseline original tabs differ from later runs because the user changed them before deployment. All four clicks in each of the six runs occurred with a visible, focused renderer and recorded no long tasks.",
   "observations": [
     "The optimized build selected each cold Recents conversation in 46.4 and 38.3 ms, compared with 2029.1 and 1329.1 ms in the baseline on the same two candidate conversations.",
-    "The optimized run reached authoritative history in 1952.0 and 627.4 ms and composer readiness in 2593.4 and 1768.4 ms. Full readiness remains variable; the earlier final desktop sample under concurrent load was slower at 3615.2 and 3066.4 ms for composer readiness.",
-    "Warm reopen selected and enabled the composer in 10 to 14 ms in all five builds.",
-    "With three scoped CLI modules, cold selection took 40.5 and 36.5 ms, authoritative history 1936.3 and 252.7 ms, and composer readiness 2601.5 and 1738.1 ms. The first conversation's cold wait remained about 1.9 seconds; the second history phase improved in this one sample, while composer readiness remained close to the preceding optimized run."
+    "The optimized run reached authoritative display markers in 1952.0 and 627.4 ms and composer readiness in 2593.4 and 1768.4 ms. Only candidate 2's marker denotes prompted durable history. Full readiness remains variable; the earlier final desktop sample under concurrent load was slower at 3615.2 and 3066.4 ms for composer readiness.",
+    "Warm reopen selected and enabled the composer in 10 to 14 ms in the first five builds and 14.3 and 19.2 ms in the sixth sample.",
+    "With three scoped CLI modules, cold selection took 40.5 and 36.5 ms, authoritative display markers 1936.3 and 252.7 ms, and composer readiness 2601.5 and 1738.1 ms. Candidate 1's cold unsent-display wait remained about 1.9 seconds; candidate 2's history marker improved in this one sample, while composer readiness remained close to the preceding optimized run.",
+    "In the sixth sample, candidate 1's unsent authoritative display appeared at 38.3 ms, while composer readiness took 2866.1 ms. Candidate 2's durable history marker appeared at 1002.5 ms and composer readiness took 2080.3 ms. These single openings do not establish a general readiness speedup."
   ],
   "limits": [
     "This is one pair of cold openings per build, without controlled operating-system cache or background-load conditions; it is not a percentile or statistical benchmark.",
     "The earlier final desktop sample ran alongside workspace tests and browser proofs, while the optimized sample did not. The difference cannot isolate the single CLI history change or establish that contention alone caused the earlier slow result.",
     "The three-module activation first stopped at graceful close before any file copy. A second guarded normal close succeeded, but the first failure's exact reason was not retained. This does not affect the later measured navigation state; it remains a deployment limitation.",
+    "The sixth navigation probe's original restoration assertion failed on one probe-induced project disclosure. A separate guarded single-click correction passed; no second four-click benchmark was run. The original probe must not be reported as passed.",
+    "Candidate 1's authoritative display marker does not measure history I/O because that conversation has no prompted durable history. The DOM phases do not directly measure saved draft paint.",
     "The two-animation-frame value is affected by Chromium and remote desktop frame scheduling. It is retained as an observation, not used as a responsiveness pass threshold.",
     "Successful IPC calls do not emit durations in current desktop diagnostics, so the DOM phases do not isolate CLI index, log folding, session loading, or renderer scheduling costs."
   ],

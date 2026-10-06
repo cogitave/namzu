@@ -132,7 +132,7 @@ it('refuses a late catalogue from a replaced connection before caching its displ
 	}
 })
 
-async function savedConversation() {
+async function savedConversation(hasPrompted = true) {
 	const directory = await mkdtemp(join(tmpdir(), 'namzu-recents-restored-'))
 	directories.push(directory)
 	new DesktopConversationStore(directory).write({
@@ -147,8 +147,13 @@ async function savedConversation() {
 					updatedAt: '2026-10-06T00:00:00.000Z',
 				},
 				runtimeSessionId: 'cold-session',
-				hasPrompted: true,
+				hasPrompted,
 				draft: 'Saved authored draft',
+				...(!hasPrompted
+					? {
+							draftSettings: { choice: { provider: 'fixture', model: 'exact-saved-model' } },
+						}
+					: {}),
 			},
 		],
 		projectDrafts: [],
@@ -156,6 +161,68 @@ async function savedConversation() {
 	})
 	return directory
 }
+
+it('displays an unsent draft while replacement and exact model restoration are still pending', async () => {
+	const replacementEntered = deferred<void>()
+	const replacement = deferred<unknown>()
+	const selectionEntered = deferred<void>()
+	const selected = deferred<unknown>()
+	const { owner, count, requests } = harness(
+		(method) => {
+			if (method === 'session/new') {
+				replacementEntered.resolve()
+				return replacement.promise
+			}
+			if (method === 'namzu/providers/select') {
+				selectionEntered.resolve()
+				return selected.promise
+			}
+			if (method === 'namzu/providers/status')
+				return Promise.resolve({
+					available: [],
+					selected: { id: 'fixture', model: 'exact-saved-model' },
+				})
+		},
+		await savedConversation(false),
+	)
+	try {
+		const project = await owner.openProject(process.cwd())
+		expect(await owner.openConversation(project.id, 'saved-ui')).toMatchObject({ messages: [] })
+		expect(count('session/new')).toBe(0)
+		expect(owner.draft('saved-ui')).toBe('Saved authored draft')
+		const readiness = owner.readyConversation(project.id, 'saved-ui')
+		const providers = owner.providers(project.id, 'saved-ui')
+		await replacementEntered.promise
+		expect((await owner.openConversation(project.id, 'saved-ui')).messages).toEqual([])
+		expect(count('session/new')).toBe(1)
+		expect(count('namzu/providers/status')).toBe(0)
+		replacement.resolve({ sessionId: 'replacement-slot' })
+		await selectionEntered.promise
+		expect(requests.find((request) => request.method === 'namzu/providers/select')?.params).toEqual(
+			{
+				sessionId: 'replacement-slot',
+				provider: 'fixture',
+				model: 'exact-saved-model',
+			},
+		)
+		expect(count('namzu/tasks/list')).toBe(0)
+		expect(count('namzu/providers/status')).toBe(0)
+		expect((await owner.openConversation(project.id, 'saved-ui')).messages).toEqual([])
+		selected.resolve({ selected: true })
+		const [status] = await Promise.all([providers, readiness])
+		expect(status.selected).toEqual({ id: 'fixture', model: 'exact-saved-model' })
+		expect(count('session/new')).toBe(1)
+		expect(count('namzu/providers/select')).toBe(1)
+		expect(count('session/load')).toBe(0)
+		expect(count('namzu/conversations/history')).toBe(0)
+		expect(count('session/prompt')).toBe(0)
+		expect(owner.draft('saved-ui')).toBe('Saved authored draft')
+		expect(owner.draftSettings('saved-ui').choice?.model).toBe('exact-saved-model')
+	} finally {
+		replacement.resolve({ sessionId: 'replacement-slot' })
+		selected.resolve({ selected: true })
+	}
+})
 
 it('shows persisted history before runtime load, sharing one history read with concurrent admission', async () => {
 	const historyEntered = deferred<void>()

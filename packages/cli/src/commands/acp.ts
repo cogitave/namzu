@@ -31,16 +31,23 @@ import {
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import {
+	type CliSessionScope,
 	closeSessions,
 	loadConversation,
 	loadResumableConversation,
+	openSessionScope,
 	openSessions,
 	readConversationFacts,
 } from '../integrations/sessions/store.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import { cliProjectRoot } from '../integrations/state/project.js'
+import { isTrustedAtStateRoot } from '../integrations/trust/store.js'
 import { cliLogger } from '../logging.js'
 import { palSessionEnvironment } from '../pals/agent-session.js'
 import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
+import { palAtWorkspace } from '../pals/store.js'
+import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
 import {
@@ -210,6 +217,8 @@ export interface AcpRuntimeDependencies {
 	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
 	/** Durable CLI catalog owned for the lifetime of one runtime session. */
 	readonly openSessions?: typeof openSessions
+	/** Direct journal reads; legacy injected openSessions remains the fallback when absent. */
+	readonly openSessionScope?: typeof openSessionScope
 	readonly readRetryStatus?: typeof readProviderRetryStatus
 }
 
@@ -265,7 +274,12 @@ function assertRetryComputer(
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
 	providerStatus(sessionId?: string): Promise<unknown>
-	providerRetryStatus?(sessionId: string, cwd: string): Promise<ProviderRetryStatus>
+	/** The optional scope is a host-authenticated handoff, never a wire-supplied ownership claim. */
+	providerRetryStatus?(
+		sessionId: string,
+		cwd: string,
+		scope?: CliSessionScope,
+	): Promise<ProviderRetryStatus>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
 	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
 	setPluginEnabled(
@@ -310,6 +324,7 @@ const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
 	palBinding: palConversationBinding,
 	palRuntime: getCliPalRuntime,
 	openSessions,
+	openSessionScope,
 	probe: probeAgentSession,
 	createSession: createAgentSession,
 	decideTrust: decideHeadlessTrust,
@@ -366,6 +381,26 @@ export function createCliAcpRuntime(
 			})
 		}
 		return probePromise
+	}
+	const openReadScope = async (cwd: string, root: string) => {
+		if (deps.openSessionScope)
+			return { state: await deps.openSessionScope(cwd, { stateRoot: root }), close: () => {} }
+		// An embedding's existing storage seam must not silently switch homes.
+		if (deps.openSessions) {
+			const state = await deps.openSessions(cwd)
+			return { state, close: () => closeSessions(state) }
+		}
+		return { state: await openSessionScope(cwd, { stateRoot: root }), close: () => {} }
+	}
+	const assertReadTrust = (cwd: string, state: CliSessionScope) => {
+		const current = deps.decideTrust({
+			cwd,
+			trustFlag: false,
+			trusted: (dir) => isTrustedAtStateRoot(dir, state.root),
+		})
+		if (!current.allowed) throw new Error(current.message ?? 'Trust this folder first.')
+		if (current.cwd !== cwd)
+			throw new Error('The project changed while its conversation scope was opening.')
 	}
 	const preferencesFor = async (
 		sessionId: string | undefined,
@@ -570,15 +605,17 @@ export function createCliAcpRuntime(
 	const gateway: AcpAgentGateway = {
 		load: async (sessionId, requestedCwd) => {
 			if (!requestedCwd) throw new Error('A project is required to load a conversation.')
+			const root = resolveNamzuHome()
 			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
 			if (!trust.allowed) throw new Error(trust.message)
 			const target = await deps.resolveSession(sessionId)
-			await deps.palBinding?.(trust.cwd, target.sessionId)
-			const state = await openSessions(trust.cwd)
+			const reading = await openReadScope(trust.cwd, root)
 			try {
-				return await loadResumableConversation(state, target.sessionId)
+				assertReadTrust(trust.cwd, reading.state)
+				await deps.palBinding?.(trust.cwd, target.sessionId, reading.state)
+				return await loadResumableConversation(reading.state, target.sessionId)
 			} finally {
-				closeSessions(state)
+				reading.close()
 			}
 		},
 		prompt: async ({
@@ -810,17 +847,46 @@ export function createCliAcpRuntime(
 	return {
 		gateway,
 		presenter,
-		providerRetryStatus: async (sessionId, requestedCwd) => {
+		providerRetryStatus: async (sessionId, requestedCwd, authenticatedScope) => {
 			if (closed) throw new Error('The connection is closed.')
-			const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
+			const root = authenticatedScope?.root ?? resolveNamzuHome()
+			const trust = deps.decideTrust({
+				cwd: requestedCwd,
+				trustFlag: false,
+				...(authenticatedScope
+					? { trusted: (dir: string) => isTrustedAtStateRoot(dir, authenticatedScope.root) }
+					: {}),
+			})
 			if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
 			const record = records.get(sessionId)
 			if (record && record.cwd !== trust.cwd)
 				throw new Error('This conversation belongs to another project.')
+			if (authenticatedScope) {
+				if (!isTrustedAtStateRoot(trust.cwd, authenticatedScope.root))
+					throw new Error('Trust this folder first.')
+				const cwd = canonicalProjectPath(trust.cwd)
+				const projectRoot = palAtWorkspace(cwd, authenticatedScope.root) ? cwd : cliProjectRoot(cwd)
+				if (
+					authenticatedScope.projectRoot !== projectRoot ||
+					(record?.conversations &&
+						(authenticatedScope.root !== record.conversations.root ||
+							authenticatedScope.projectId !== record.conversations.projectId ||
+							authenticatedScope.tenantId !== record.conversations.tenantId))
+				)
+					throw new Error('This conversation belongs to another project or application home.')
+			}
 			const target = await deps.resolveSession(sessionId)
-			const binding = await deps.palBinding?.(trust.cwd, target.sessionId)
-			const state = record?.conversations ?? (await (deps.openSessions ?? openSessions)(trust.cwd))
+			const reading =
+				authenticatedScope || record?.conversations
+					? {
+							state: authenticatedScope ?? (record?.conversations as CliSessionScope),
+							close: () => {},
+						}
+					: await openReadScope(trust.cwd, root)
+			const state = reading.state
 			try {
+				assertReadTrust(trust.cwd, state)
+				const binding = await deps.palBinding?.(trust.cwd, target.sessionId, state)
 				const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
 					state,
 					target.sessionId,
@@ -857,7 +923,7 @@ export function createCliAcpRuntime(
 					return { notice: 'The original provider cannot be verified for this retry.' }
 				return status
 			} finally {
-				if (state !== record?.conversations) closeSessions(state)
+				reading.close()
 			}
 		},
 		modelSettings: async (provider, model, sessionId) => {

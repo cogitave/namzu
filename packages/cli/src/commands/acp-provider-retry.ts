@@ -8,7 +8,7 @@ import {
 	asTurnId,
 } from '@namzu/sdk'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
-import { type CliSessions, readConversationFacts } from '../integrations/sessions/store.js'
+import { type CliSessionScope, readConversationFacts } from '../integrations/sessions/store.js'
 
 export interface ProviderRetryStatus {
 	retry?: { turnId: string; checkpointId: string }
@@ -17,7 +17,7 @@ export interface ProviderRetryStatus {
 
 /** Strict durable eligibility; no provider call, writer claim or budget mutation. */
 export async function readProviderRetryStatus(
-	state: CliSessions,
+	state: CliSessionScope,
 	sessionId: string,
 ): Promise<ProviderRetryStatus> {
 	const id = asSessionId(sessionId)

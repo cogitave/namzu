@@ -214,6 +214,15 @@ function ActivityEntries({ entries, thread }: { entries: TimelineEntry[]; thread
 	})
 }
 
+function hasPublicActivity(entries: TimelineEntry[], thread: ThreadState): boolean {
+	return entries.some((entry) => {
+		if (entry.kind === 'tool') return Boolean(thread.tools[entry.id])
+		if (entry.kind === 'reasoning') return Boolean(thread.reasoning[entry.id]?.text)
+		const message = thread.messages[entry.index]
+		return Boolean(message?.text || message?.attachments?.length)
+	})
+}
+
 function TurnActivity({
 	thread,
 	turn,
@@ -222,7 +231,7 @@ function TurnActivity({
 }: { thread: ThreadState; turn: number; entries: TimelineEntry[]; animate: boolean }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
-	const label = turnActivityLabel(thread, turn)
+	const label = live ? 'Work details' : turnActivityLabel(thread, turn)
 	return (
 		<Collapsible
 			className="turn-activity"
@@ -298,7 +307,7 @@ export function Transcript({
 					{group.user.map((entry) => (
 						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
 					))}
-					{group.activity.length > 0 && (
+					{hasPublicActivity(group.activity, thread) && (
 						<TurnActivity
 							thread={thread}
 							turn={group.turn}

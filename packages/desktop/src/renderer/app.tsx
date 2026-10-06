@@ -505,7 +505,7 @@ export function App({
 	}, [panelTab])
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [jobsSessionId, setJobsSessionId] = useState('')
-	const [jobOutput, setJobOutput] = useState('')
+	const refreshJobs = useRef<(() => Promise<void>) | undefined>(undefined)
 	const [jobsError, setJobsError] = useState('')
 	const [jobsLoading, setJobsLoading] = useState(false)
 	const [error, setError] = useState('')
@@ -820,6 +820,22 @@ export function App({
 			operations.current.delete(pending)
 		}
 	}, [])
+	const runJobAction = async <T,>(owner: string, generation: number, action: () => Promise<T>) => {
+		const current = () =>
+			mounted.current && activeSession.current === owner && navigation.current === generation
+		if (context.current.frozen || !current()) return undefined
+		const pending = Promise.resolve().then(action)
+		operations.current.add(pending)
+		try {
+			const result = await pending
+			return current() ? result : undefined
+		} catch (failure) {
+			if (current()) throw failure
+			return undefined
+		} finally {
+			operations.current.delete(pending)
+		}
+	}
 	const retryConversationSetup = async () => {
 		if (!project || !project.trusted || project.status !== 'ready' || harnessBusy) return
 		const owner = providerKey
@@ -995,33 +1011,42 @@ export function App({
 			return
 		}
 		let current = true
-		let pending = false
+		let pending: Promise<void> | undefined
 		setJobs([])
 		setJobsSessionId(sessionId)
-		setJobOutput('')
 		setJobsLoading(true)
 		setJobsError('')
-		const read = async () => {
-			if (pending) return
-			pending = true
-			try {
-				const rows = await api.jobs(sessionId)
-				if (current) {
-					setJobs(rows)
-					setJobsSessionId(sessionId)
-					setJobsError('')
+		const read = (): Promise<void> => {
+			if (pending) return pending
+			pending = (async () => {
+				try {
+					const rows = await api.jobs(sessionId)
+					if (current) {
+						setJobs(rows)
+						setJobsSessionId(sessionId)
+						setJobsError('')
+					}
+				} catch (failure) {
+					if (current) setJobsError(errorText(failure))
+				} finally {
+					pending = undefined
+					if (current) setJobsLoading(false)
 				}
-			} catch (failure) {
-				if (current) setJobsError(errorText(failure))
-			} finally {
-				pending = false
-				if (current) setJobsLoading(false)
-			}
+			})()
+			return pending
 		}
+		// A stop refresh follows any older in-flight poll, so that an older
+		// running snapshot cannot overwrite the newly confirmed terminal state.
+		const refresh = async () => {
+			if (pending) await pending
+			if (current) await read()
+		}
+		refreshJobs.current = refresh
 		void read()
 		const timer = setInterval(() => void read(), 2000)
 		return () => {
 			current = false
+			if (refreshJobs.current === refresh) refreshJobs.current = undefined
 			clearInterval(timer)
 		}
 	}, [sessionId, palConversation, api, historyPending, restoringTabs])
@@ -1431,7 +1456,18 @@ export function App({
 						const readMetadata = () =>
 							Promise.all([
 								api.providers(view.projectId, view.id),
-								api.draft(view.id),
+								api.draft(view.id).then((savedDraft) => {
+									// The owned local draft can be displayed while model readiness
+									// is pending. Publishing it does not enable the composer.
+									if (
+										generation === navigation.current &&
+										(restoring || draftsRef.current[view.id] === undefined)
+									) {
+										draftsRef.current[view.id] = savedDraft
+										setDrafts((all) => ({ ...all, [view.id]: savedDraft }))
+									}
+									return savedDraft
+								}),
 								savedSettings.refresh(view.id),
 								attached.reload(view.id),
 							])
@@ -3507,48 +3543,53 @@ export function App({
 						) : (
 							<div className="panel-scroll">
 								<ConversationTasks thread={thread} />
-								<h3 className="text-sm font-medium">Background shells</h3>
-								{jobsError ? (
-									<p role="alert" className="jobs-error">
-										{jobsError}
-									</p>
-								) : jobsLoading ? (
-									<p className="quiet">Loading background work…</p>
-								) : visibleJobs.length === 0 ? (
-									<p className="quiet">No background shells in this conversation.</p>
-								) : (
-									visibleJobs.map((job) => (
-										<JobRow
-											key={job.id}
-											job={job}
-											onRead={() =>
-												void act(async () => {
-													const target = sessionId
-													const generation = navigation.current
-													try {
-														const output = await api.readJob(target, job.id)
-														if (
-															activeSession.current !== target ||
-															generation !== navigation.current
-														)
-															return
-														setJobOutput(
-															`${output.truncated ? 'Earlier output omitted.\n' : ''}${output.output}`,
-														)
-													} catch (failure) {
-														if (
-															activeSession.current === target &&
-															generation === navigation.current
-														)
-															throw failure
-													}
-												})
-											}
-											onStop={() => void act(() => api.stopJob(sessionId, job.id))}
-										/>
-									))
-								)}
-								{jobOutput && <pre className="job-output">{jobOutput}</pre>}
+								<section className="background-processes" aria-label="Background processes">
+									<div className="background-processes-heading">
+										<h3>Background processes</h3>
+										{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
+											<kbd
+												aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
+											>
+												{visibleJobs.filter((job) => job.status === 'running').length}
+											</kbd>
+										)}
+									</div>
+									{jobsError ? (
+										<p role="alert" className="jobs-error">
+											{jobsError}
+										</p>
+									) : jobsLoading || jobsSessionId !== sessionId ? (
+										<p className="quiet">Loading background work…</p>
+									) : visibleJobs.length === 0 ? (
+										<p className="quiet">No background processes in this conversation.</p>
+									) : (
+										[...visibleJobs]
+											.sort(
+												(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
+											)
+											.map((job) => {
+												const owner = sessionId
+												const generation = navigation.current
+												const refresh = refreshJobs.current
+												return (
+													<JobRow
+														key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
+														job={job}
+														disabled={frozen}
+														onRead={() =>
+															runJobAction(owner, generation, () => api.readJob(owner, job.id))
+														}
+														onStop={() =>
+															runJobAction(owner, generation, async () => {
+																await api.stopJob(owner, job.id)
+																await refresh?.()
+															})
+														}
+													/>
+												)
+											})
+									)}
+								</section>
 							</div>
 						)}
 					</aside>

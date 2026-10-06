@@ -9,9 +9,12 @@ import {
 	HostCommandRegistry,
 	type MCPJsonRpcMessage,
 	type MCPTransport,
+	type Message,
 	MockLLMProvider,
 	ToolManager,
 	asSessionId,
+	createAssistantMessage,
+	createToolMessage,
 	createToolPresenter,
 	createUserMessage,
 	drainQuery,
@@ -42,6 +45,7 @@ import { createPal, getPalRevision, listPals } from '../../pals/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 import { createDesktopHostExtensions } from '../desktop-host.js'
+import { providerPaused } from './support/provider-paused.js'
 
 let root: string
 let cwd: string
@@ -114,17 +118,19 @@ it('authorizes and reads tasks through the same state if the application home ch
 			closeSessions(replacement)
 		}
 		vi.stubEnv('NAMZU_HOME', state.root)
-		const actualOpen = sessionStorage.openSessions
-		const opened = vi.spyOn(sessionStorage, 'openSessions').mockImplementation(async (...args) => {
-			const selected = await actualOpen(...args)
-			const get = selected.store.getSession.bind(selected.store)
-			selected.store.getSession = async (...lookup) => {
-				const result = await get(...lookup)
-				vi.stubEnv('NAMZU_HOME', replacementHome)
-				return result
-			}
-			return selected
-		})
+		const actualOpen = sessionStorage.openSessionScope
+		const opened = vi
+			.spyOn(sessionStorage, 'openSessionScope')
+			.mockImplementation(async (...args) => {
+				const selected = await actualOpen(...args)
+				const get = selected.store.getSession.bind(selected.store)
+				selected.store.getSession = async (...lookup) => {
+					const result = await get(...lookup)
+					vi.stubEnv('NAMZU_HOME', replacementHome)
+					return result
+				}
+				return selected
+			})
 		expect(await host['namzu/tasks/list']({ sessionId })).toMatchObject({
 			tasks: [{ taskId: originalTask.id, subject: 'Authorized work' }],
 		})
@@ -152,7 +158,7 @@ it('refuses a Pal task snapshot when its captured claim disappears during author
 		await owner.close()
 	}
 })
-function runtime() {
+function runtime(overrides: Partial<AcpRuntimeDependencies> = {}) {
 	return createCliAcpRuntime(
 		{
 			config: {},
@@ -166,6 +172,7 @@ function runtime() {
 		{
 			decideTrust: decideHeadlessTrust,
 			resolveSession: async (sessionId: string) => ({ sessionId }),
+			...overrides,
 		} as unknown as AcpRuntimeDependencies,
 	)
 }
@@ -249,6 +256,7 @@ it('restores only the owned durable task list without leaking private planning f
 		// A newly constructed host reads disk before any model turn has run on
 		// this connection. Its task store is not the current agent's cache.
 		const fresh = createDesktopHostExtensions(owner, cwd)
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
 		expect(await fresh['namzu/tasks/list']({ sessionId })).toEqual({
 			tasks: [
 				{
@@ -276,6 +284,7 @@ it('restores only the owned durable task list without leaking private planning f
 		const foreignHost = createDesktopHostExtensions(owner, foreign)
 		foreignHost['namzu/project/trust']({ confirmed: true, cwd: foreign })
 		await expect(foreignHost['namzu/tasks/list']({ sessionId })).rejects.toThrow('does not belong')
+		expect(indexed).not.toHaveBeenCalled()
 	} finally {
 		closeSessions(state)
 		await owner.close()
@@ -450,6 +459,66 @@ it('reads fresh journal history without opening the installation index, while li
 	}
 })
 
+it('omits tool-only assistant history without truncating text, media placeholders or model replay', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const sessionId = await startConversation(state)
+	const calls = [
+		{
+			id: fixtureUuid('history-tool-only-call'),
+			type: 'function' as const,
+			function: { name: 'fixture_read', arguments: '{}' },
+		},
+	]
+	const toolOnly = createAssistantMessage(null, calls, undefined, undefined, {
+		type: 'model',
+		providerId: 'mock',
+		model: 'mock',
+		chainIndex: 0,
+	})
+	const narration = createAssistantMessage('Checking the requested file.', calls)
+	// Earlier/imported user-media records may have null content. The durable
+	// record codec admits these bodies, though today's user constructor takes text.
+	const media = {
+		role: 'user',
+		content: null,
+		attachments: [{ data: 'AA==', mediaType: 'image/png' }],
+	} as unknown as Message
+	try {
+		await recordTurn(state, sessionId, [
+			createUserMessage('Check this file.'),
+			toolOnly,
+			createToolMessage('File content.', calls[0]!.id),
+			narration,
+			media,
+			createAssistantMessage(null),
+			createAssistantMessage('The file is ready.'),
+		])
+		const original = await loadConversation(state, sessionId)
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
+		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
+			messages: [
+				{ role: 'user', text: 'Check this file.' },
+				{ role: 'assistant', text: 'Checking the requested file.' },
+				{ role: 'user', text: '[Media message]' },
+				{ role: 'assistant', text: '[Media message]' },
+				{ role: 'assistant', text: 'The file is ready.' },
+			],
+			partial: false,
+		})
+		expect(indexed).not.toHaveBeenCalled()
+		expect(await loadConversation(state, sessionId)).toEqual(original)
+		expect(original).toContainEqual(expect.objectContaining(toolOnly))
+		expect(original).toContainEqual(expect.objectContaining(narration))
+		expect(original).toContainEqual(expect.objectContaining({ role: 'tool' }))
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('refuses history if the captured folder trust is revoked while preparing its scope', async () => {
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, cwd)
@@ -584,6 +653,7 @@ it('loads durable history through the CLI gateway and refuses another project or
 	host['namzu/project/trust']({ confirmed: true, cwd })
 	const { state, sessionId } = await seeded()
 	try {
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
 		const loaded = await owner.gateway.load?.(sessionId, cwd)
 		expect(JSON.stringify(loaded)).toContain('Stored request')
 		expect(JSON.stringify(loaded)).toContain('Stored answer')
@@ -605,6 +675,7 @@ it('loads durable history through the CLI gateway and refuses another project or
 		await expect(
 			createDesktopHostExtensions(owner, foreign)['namzu/conversations/history']({ sessionId }),
 		).rejects.toThrow()
+		expect(indexed).not.toHaveBeenCalled()
 		await archiveConversation(state, sessionId)
 		await expect(owner.gateway.load?.(sessionId, cwd)).rejects.toThrow(/archived/)
 		expect(await host['namzu/conversations/history']({ sessionId })).toEqual(projection)
@@ -627,6 +698,203 @@ it('marks history partial when a single message exceeds the display ceiling', as
 	} finally {
 		closeSessions(state)
 		await owner.close()
+	}
+})
+
+it('reads fresh retry eligibility without an index or a model runtime', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd, undefined, vi.fn())
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const f = await providerPaused(state)
+	const indexed = vi.spyOn(sdk, 'openSessionIndex')
+	try {
+		expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
+			notice: expect.stringContaining('original approval settings'),
+		})
+		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
+			notice: expect.stringContaining('original approval settings'),
+		})
+		const lease = await f.log.claim({ holder: 'fresh-retry-read', ttlMs: 60_000 })
+		if (!lease) throw new Error('Fixture writer unavailable')
+		try {
+			await f.log.append(lease, {
+				type: 'turn_resuming',
+				turnId: f.turnId,
+				fromCheckpointId: f.checkpointId,
+			})
+		} finally {
+			await f.log.release(lease)
+		}
+		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
+			notice: expect.stringContaining('active turn to settle'),
+		})
+		expect(indexed).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('keeps retry authorization, trust and status in the captured application home', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd, undefined, vi.fn())
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const f = await providerPaused(state)
+	const replacementHome = join(root, 'replacement-retry-state')
+	mkdirSync(replacementHome)
+	vi.stubEnv('NAMZU_HOME', replacementHome)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const replacement = await seeded('Replacement complete conversation', f.sessionId)
+	vi.stubEnv('NAMZU_HOME', state.root)
+	const actualOpen = sessionStorage.openSessionScope
+	const opened = vi
+		.spyOn(sessionStorage, 'openSessionScope')
+		.mockImplementation(async (...args) => {
+			const scope = await actualOpen(...args)
+			const get = scope.store.getSession.bind(scope.store)
+			scope.store.getSession = async (...lookup) => {
+				const result = await get(...lookup)
+				vi.stubEnv('NAMZU_HOME', replacementHome)
+				return result
+			}
+			return scope
+		})
+	const indexed = vi.spyOn(sdk, 'openSessionIndex')
+	try {
+		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
+			notice: expect.stringContaining('original approval settings'),
+		})
+		expect(opened).toHaveBeenCalledTimes(1)
+		expect(indexed).not.toHaveBeenCalled()
+	} finally {
+		vi.stubEnv('NAMZU_HOME', state.root)
+		closeSessions(replacement.state)
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('refuses a foreign authenticated retry scope and revoked captured trust', async () => {
+	const readRetryStatus = vi.fn(async () => ({}))
+	const owner = runtime({ readRetryStatus })
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const foreign = join(root, 'foreign-retry')
+	mkdirSync(join(foreign, '.git'), { recursive: true })
+	const other = await sessionStorage.openSessionScope(foreign)
+	try {
+		await expect(owner.providerRetryStatus!(sessionId, cwd, other)).rejects.toThrow(
+			'another project',
+		)
+		const scope = await sessionStorage.openSessionScope(cwd)
+		writeFileSync(join(scope.root, 'trust.json'), JSON.stringify({ version: 1, trusted: [] }))
+		await expect(owner.providerRetryStatus!(sessionId, cwd, scope)).rejects.toThrow(/Trust|trusted/)
+		expect(readRetryStatus).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it.each(['load', 'retry'] as const)(
+	'keeps direct %s in its original home when resolving the session changes ambient state',
+	async (operation) => {
+		const owner = runtime({
+			resolveSession: async (id) => {
+				vi.stubEnv('NAMZU_HOME', replacementHome)
+				return { sessionId: asSessionId(id) }
+			},
+		})
+		const host = createDesktopHostExtensions(owner, cwd)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const state = await openSessions(cwd)
+		const f = await providerPaused(state)
+		const replacementHome = join(root, 'direct-read-replacement')
+		mkdirSync(replacementHome)
+		vi.stubEnv('NAMZU_HOME', replacementHome)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const replacement = await seeded('Replacement completed request', f.sessionId)
+		vi.stubEnv('NAMZU_HOME', state.root)
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
+		try {
+			if (operation === 'load') {
+				const loaded = JSON.stringify(await owner.gateway.load!(f.sessionId, cwd))
+				expect(loaded).toContain('Continue the original robot task')
+				expect(loaded).not.toContain('Replacement completed request')
+			} else {
+				expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
+					notice: expect.stringContaining('original approval settings'),
+				})
+			}
+			expect(indexed).not.toHaveBeenCalled()
+		} finally {
+			vi.stubEnv('NAMZU_HOME', state.root)
+			closeSessions(replacement.state)
+			closeSessions(state)
+			await owner.close()
+		}
+	},
+)
+
+it.each(['load', 'retry'] as const)(
+	'refuses direct %s when captured trust is revoked during scope preparation',
+	async (operation) => {
+		const binding = vi.fn(async () => null)
+		const readRetryStatus = vi.fn(async () => ({}))
+		const owner = runtime({
+			palBinding: binding,
+			readRetryStatus,
+			openSessionScope: async (...args) => {
+				const scope = await sessionStorage.openSessionScope(...args)
+				writeFileSync(join(scope.root, 'trust.json'), JSON.stringify({ version: 1, trusted: [] }))
+				return scope
+			},
+		})
+		createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({ confirmed: true, cwd })
+		const { state, sessionId } = await seeded()
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
+		try {
+			await expect(
+				operation === 'load'
+					? owner.gateway.load!(sessionId, cwd)
+					: owner.providerRetryStatus!(sessionId, cwd),
+			).rejects.toThrow(/Trust|trusted/)
+			expect(binding).not.toHaveBeenCalled()
+			expect(readRetryStatus).not.toHaveBeenCalled()
+			expect(indexed).not.toHaveBeenCalled()
+		} finally {
+			closeSessions(state)
+			await owner.close()
+		}
+	},
+)
+
+it('preserves an embedding storage seam until an explicit direct-read seam replaces it', async () => {
+	const { state, sessionId } = await seeded()
+	const legacyOpen = vi.fn((directory: string) =>
+		openSessions(directory, { stateRoot: state.root }),
+	)
+	const owner = runtime({ openSessions: legacyOpen })
+	createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({ confirmed: true, cwd })
+	const read = vi.fn((directory: string) =>
+		sessionStorage.openSessionScope(directory, { stateRoot: state.root }),
+	)
+	const direct = runtime({ openSessions: legacyOpen, openSessionScope: read })
+	try {
+		expect(await owner.gateway.load!(sessionId, cwd)).toHaveLength(2)
+		expect(legacyOpen).toHaveBeenCalledTimes(1)
+		const indexed = vi.spyOn(sdk, 'openSessionIndex')
+		expect(await direct.gateway.load!(sessionId, cwd)).toHaveLength(2)
+		expect(read).toHaveBeenCalledTimes(1)
+		expect(legacyOpen).toHaveBeenCalledTimes(1)
+		expect(indexed).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+		await direct.close()
 	}
 })
 

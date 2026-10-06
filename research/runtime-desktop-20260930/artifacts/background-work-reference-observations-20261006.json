@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-06",
+  "method": "Read-only inspection of installed Codex packed assets; no live UI interaction, model request, or application change.",
+  "reference": {
+    "application": "Official installed Windows Codex application",
+    "msix": "OpenAI.Codex_26.928.2636.0_x64__2p2nqsd0c76g0",
+    "package": "openai-codex-electron",
+    "packageVersion": "26.928.21956",
+    "assetRoot": "app/resources/app.asar/webview/assets",
+    "liveDomAvailable": false
+  },
+  "packedSources": [
+    {
+      "asset": "local-conversation-thread-3c15e330d968.js",
+      "sha256": "5eb0440b6a108d9806b56c59d5494b298535db50219480e09e92e01ad8907948"
+    },
+    {
+      "asset": "thread-summary-panel-layout-49836ca2c5d8.js",
+      "sha256": "4d7f055cd7a90b67fc170eb5dd2d53f19d14d3d09569326bbf47962403c098e8"
+    },
+    {
+      "asset": "toggle-thread-summary-panel-6645e8331d2c.js",
+      "sha256": "54fdfc0fb058401cb4f1a62a2de3d720071efe97a32d59eb6e9133d6553e5b22"
+    }
+  ],
+  "sourceObserved": {
+    "surface": "The shared thread summary side panel has separate Subagents and Background processes sections; an overlay mode opens that summary in a header-anchored popover.",
+    "backgroundProcessSelection": "Only command executions still in progress from earlier turns are listed; interrupted executions and the current turn are excluded. The section disappears when no entries remain.",
+    "rows": "Each process row uses its command as the label, with Background terminal as fallback, and opens its own output tab.",
+    "stop": "An action visible on interaction calls a conversation-wide clean operation. Its accessible meaning is Stop all background terminals; a pending indicator is scoped to the clicked row and failure shows a toast.",
+    "otherStatuses": "Working and done counts belong to the separate Subagents section. Finished and failed terminal rows were not observed in the Background processes list.",
+    "layout": "The summary layout source defaults to a 300 px panel. With that width, its source conditions choose overlay below about 1096 px, shifted inline below about 1536 px, and gutter at wider widths. These are source-derived thresholds, not measured DOM dimensions."
+  },
+  "localAdaptation": "Keep Namzu's existing Activity side pane and retained background job history. Namzu's host already reads bounded output and stops a named job by ID, so each compact command row can own its output and Stop action. Running, completed, and failed states should reflect Namzu's actual job status; a finished section is a local extension rather than reference parity.",
+  "limits": [
+    "The installed reference did not expose a live DOM or an induced background-process transition. Exact geometry, computed styles, motion, and current-account availability were not measured.",
+    "Packed source proves implementation branches, not that every branch was visible in the user's current view.",
+    "No proprietary source excerpt, private transcript, command, or screenshot is retained."
+  ]
+}

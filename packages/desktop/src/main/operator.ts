@@ -988,7 +988,7 @@ export class Operator {
 		const session = sessionId ? this.session(sessionId) : undefined
 		if (session && session.view.projectId !== projectId)
 			throw new Error('This conversation belongs to another project.')
-		if (session?.needsLoad) await this.openConversation(projectId, sessionId as string)
+		if (session?.needsLoad) await this.reattach(session)
 		const assertCurrent = this.metadataRead(project, session)
 		const view = (await project.client.request(
 			'namzu/harnesses/list',
@@ -1144,9 +1144,9 @@ export class Operator {
 			return { ...history, thread: record.projection }
 		}
 		await this.restoreConversationHistory(existing)
-		// An unsent tab has no durable history; restore its replacement slot and
-		// exact engine/model before admitting metadata against that new identity.
-		if (existing.needsLoad && !existing.hasPrompted) await this.reattach(existing)
+		// An unsent tab already owns its local draft and projection. Display it
+		// immediately; readiness and metadata restore the exact engine/model
+		// against its replacement runtime before admitting actions.
 		// Active/transient sessions are rendered from their live UI projection.
 		return {
 			messages: existing.projection.messages,

@@ -551,11 +551,19 @@ async function requireConversationInScope(
  * transaction; the session lease is what serialises writers.
  */
 export async function requireWritableConversation(
-	s: ConversationContext,
+	s: ConversationReadContext,
 	sessionId: SessionId,
 	op = 'continue conversation',
 ): Promise<void> {
 	const facts = await requireConversationInScope(s, sessionId, op)
+	assertWritableConversation(facts, sessionId, op)
+}
+
+function assertWritableConversation(
+	facts: ConversationFacts,
+	sessionId: SessionId,
+	op: string,
+): void {
 	if (facts.archived) {
 		throw new Error(
 			`Conversation ${sessionId} is archived and read-only — ${op} rejected. Its history remains available for inspection.`,
@@ -654,12 +662,13 @@ export async function loadConversation(
  * live writer without a restore operation.
  */
 export async function loadResumableConversation(
-	s: ConversationContext,
+	s: ConversationReadContext,
 	sessionId: string,
 ): Promise<Message[]> {
 	const checked = asSessionId(sessionId)
-	await requireWritableConversation(s, checked, 'resume conversation')
-	return await loadConversation(s, checked)
+	const facts = await requireConversationInScope(s, checked, 'resume conversation')
+	assertWritableConversation(facts, checked, 'resume conversation')
+	return await foldConversation(s, checked, facts.records)
 }
 
 /** The open turn of a conversation, if it has one: `paused` when it is parked. */

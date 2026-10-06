@@ -1,0 +1,833 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "browserOnly": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "nativeActions": 0,
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "frames": {
+    "collapse": {
+      "duration": 200,
+      "values": [
+        {
+          "time": 0,
+          "height": 0
+        },
+        {
+          "time": 100,
+          "height": 69.7969
+        },
+        {
+          "time": 200,
+          "height": 90
+        }
+      ]
+    },
+    "revealHeight": {
+      "id": 1,
+      "duration": 200,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "paddingBottom": "0px",
+          "height": "0px",
+          "paddingTop": "0px",
+          "opacity": "1",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "paddingBottom": "20px",
+          "height": "53px",
+          "paddingTop": "12px",
+          "computedOffset": 1
+        }
+      ],
+      "timeline": "paired frame and opacity advance on the same 300ms clock",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 0,
+          "transform": "none",
+          "height": "0px"
+        },
+        {
+          "time": 100,
+          "frameTime": 100,
+          "opacityTime": 100,
+          "opacity": 0.917928,
+          "transform": "none",
+          "height": "36.2812px"
+        },
+        {
+          "time": 150,
+          "frameTime": 150,
+          "opacityTime": 150,
+          "opacity": 0.977825,
+          "transform": "none",
+          "height": "48.0312px"
+        },
+        {
+          "time": 200,
+          "frameTime": 200,
+          "opacityTime": 200,
+          "opacity": 0.995289,
+          "transform": "none",
+          "height": "53px"
+        },
+        {
+          "time": 300,
+          "frameTime": 200,
+          "opacityTime": 300,
+          "opacity": 1,
+          "transform": "none",
+          "height": "53px"
+        }
+      ]
+    },
+    "revealOpacity": {
+      "id": 2,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "timeline": "paired frame and opacity advance on the same 300ms clock",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 0,
+          "transform": "none",
+          "height": "0px"
+        },
+        {
+          "time": 100,
+          "frameTime": 100,
+          "opacityTime": 100,
+          "opacity": 0.917928,
+          "transform": "none",
+          "height": "36.2812px"
+        },
+        {
+          "time": 150,
+          "frameTime": 150,
+          "opacityTime": 150,
+          "opacity": 0.977825,
+          "transform": "none",
+          "height": "48.0312px"
+        },
+        {
+          "time": 200,
+          "frameTime": 200,
+          "opacityTime": 200,
+          "opacity": 0.995289,
+          "transform": "none",
+          "height": "53px"
+        },
+        {
+          "time": 300,
+          "frameTime": 200,
+          "opacityTime": 300,
+          "opacity": 1,
+          "transform": "none",
+          "height": "53px"
+        }
+      ]
+    },
+    "reasoningEntry": {
+      "id": 3,
+      "duration": 150,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "transform": "translateY(4px)",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "transform": "none",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0,
+          "transform": "matrix(1, 0, 0, 1, 0, 4)",
+          "height": "38.75px"
+        },
+        {
+          "time": 75,
+          "opacity": 0.684643,
+          "transform": "matrix(1, 0, 0, 1, 0, 1.26143)",
+          "height": "38.75px"
+        },
+        {
+          "time": 150,
+          "opacity": 1,
+          "transform": "none",
+          "height": "38.75px"
+        }
+      ]
+    },
+    "phaseIn": {
+      "id": 4,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 150,
+          "opacity": 0.977825,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 300,
+          "opacity": 1,
+          "transform": "none",
+          "height": "21px"
+        }
+      ]
+    },
+    "phaseOut": {
+      "id": 5,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 1,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 150,
+          "opacity": 0.0221754,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 300,
+          "opacity": 0,
+          "transform": "none",
+          "height": "21px"
+        }
+      ]
+    },
+    "toolEntry": {
+      "id": 6,
+      "duration": 150,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "transform": "translateY(4px)",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "transform": "none",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0,
+          "transform": "matrix(1, 0, 0, 1, 0, 4)",
+          "height": "34.75px"
+        },
+        {
+          "time": 75,
+          "opacity": 0.684643,
+          "transform": "matrix(1, 0, 0, 1, 0, 1.26143)",
+          "height": "34.75px"
+        },
+        {
+          "time": 150,
+          "opacity": 1,
+          "transform": "none",
+          "height": "34.75px"
+        }
+      ]
+    },
+    "messageEntry": {
+      "id": 7,
+      "duration": 150,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "transform": "translateY(4px)",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "transform": "none",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0,
+          "transform": "matrix(1, 0, 0, 1, 0, 4)",
+          "height": "42.75px"
+        },
+        {
+          "time": 75,
+          "opacity": 0.684643,
+          "transform": "matrix(1, 0, 0, 1, 0, 1.26143)",
+          "height": "42.75px"
+        },
+        {
+          "time": 150,
+          "opacity": 1,
+          "transform": "none",
+          "height": "42.75px"
+        }
+      ]
+    },
+    "exitHeight": {
+      "id": 8,
+      "duration": 200,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "paddingBottom": "20px",
+          "height": "53px",
+          "paddingTop": "12px",
+          "opacity": "1",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "paddingBottom": "0px",
+          "height": "0px",
+          "paddingTop": "0px",
+          "computedOffset": 1
+        }
+      ],
+      "timeline": "paired frame and opacity advance on the same 300ms clock",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 1,
+          "transform": "none",
+          "height": "53px"
+        },
+        {
+          "time": 100,
+          "frameTime": 100,
+          "opacityTime": 100,
+          "opacity": 0.0820722,
+          "transform": "none",
+          "height": "16.7031px"
+        },
+        {
+          "time": 150,
+          "frameTime": 150,
+          "opacityTime": 150,
+          "opacity": 0.0221754,
+          "transform": "none",
+          "height": "4.95312px"
+        },
+        {
+          "time": 200,
+          "frameTime": 200,
+          "opacityTime": 200,
+          "opacity": 0.00471125,
+          "transform": "none",
+          "height": "0px"
+        },
+        {
+          "time": 300,
+          "frameTime": 200,
+          "opacityTime": 300,
+          "opacity": 0,
+          "transform": "none",
+          "height": "0px"
+        }
+      ]
+    },
+    "exitOpacity": {
+      "id": 9,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0",
+          "computedOffset": 1
+        }
+      ],
+      "timeline": "paired frame and opacity advance on the same 300ms clock",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 1,
+          "transform": "none",
+          "height": "53px"
+        },
+        {
+          "time": 100,
+          "frameTime": 100,
+          "opacityTime": 100,
+          "opacity": 0.0820722,
+          "transform": "none",
+          "height": "16.7031px"
+        },
+        {
+          "time": 150,
+          "frameTime": 150,
+          "opacityTime": 150,
+          "opacity": 0.0221754,
+          "transform": "none",
+          "height": "4.95312px"
+        },
+        {
+          "time": 200,
+          "frameTime": 200,
+          "opacityTime": 200,
+          "opacity": 0.00471125,
+          "transform": "none",
+          "height": "0px"
+        },
+        {
+          "time": 300,
+          "frameTime": 200,
+          "opacityTime": 300,
+          "opacity": 0,
+          "transform": "none",
+          "height": "0px"
+        }
+      ]
+    },
+    "reversedPresence": {
+      "id": 11,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.0820722",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "timeline": "paired frame and opacity advance on the same 300ms clock",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 0.0820722,
+          "transform": "none",
+          "height": "16.7031px"
+        },
+        {
+          "time": 100,
+          "frameTime": 100,
+          "opacityTime": 100,
+          "opacity": 0.924664,
+          "transform": "none",
+          "height": "41.5469px"
+        },
+        {
+          "time": 150,
+          "frameTime": 150,
+          "opacityTime": 150,
+          "opacity": 0.979645,
+          "transform": "none",
+          "height": "49.5938px"
+        },
+        {
+          "time": 200,
+          "frameTime": 200,
+          "opacityTime": 200,
+          "opacity": 0.995675,
+          "transform": "none",
+          "height": "53px"
+        },
+        {
+          "time": 300,
+          "frameTime": 200,
+          "opacityTime": 300,
+          "opacity": 1,
+          "transform": "none",
+          "height": "53px"
+        }
+      ]
+    },
+    "reversedPhase": {
+      "id": 14,
+      "duration": 300,
+      "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.0221754",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.0221754,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 150,
+          "opacity": 0.978316,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 300,
+          "opacity": 1,
+          "transform": "none",
+          "height": "21px"
+        }
+      ]
+    }
+  },
+  "checks": [
+    "historical mount/disclosure stays still; existing activity height travel is 200ms",
+    "live reasoning/tool/message entries fade and rise4px for150ms once; chunks/progress preserve animation identity",
+    "one live phase+elapsed owner across expanded/collapsed current Work details; reader collapse survives chunks, older Worked for9s retained, waiting stays truthful",
+    "phase crossfade300ms; reveal/exit200ms height+300ms opacity; interrupted reversals preserve visible opacity and accessible status",
+    "completed Worked for duration; Paused/Stopped middle-dot duration; error remains Work incomplete with Failed tool",
+    "Pal retains delivered bubbles and Typing; private reasoning/provisional chunks/normal coding disclosures absent",
+    "reduced motion creates no finite transcript animation and uses zero disclosure transition; narrow view has no horizontal overflow",
+    "private/redacted reasoning drives actual Thinking without an empty current-turn disclosure or invented public body"
+  ],
+  "supplements": "transcript-reference-motion-proof-20261006.json",
+  "singleLiveStatus": [
+    {
+      "turn": 2,
+      "label": "Thinking",
+      "details": true,
+      "open": true,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Thinking"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Thinking",
+      "details": true,
+      "open": false,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Thinking"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Thinking",
+      "details": true,
+      "open": false,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Thinking"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Thinking",
+      "details": true,
+      "open": true,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Thinking"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Working",
+      "details": true,
+      "open": true,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Working"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Working",
+      "details": true,
+      "open": false,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Working"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Waiting for your decision",
+      "details": true,
+      "open": true,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Waiting for your decision"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 2,
+      "label": "Working",
+      "details": true,
+      "open": true,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Working"
+      ],
+      "historicalLabel": "Worked for 9s"
+    },
+    {
+      "turn": 7,
+      "label": "Thinking",
+      "details": false,
+      "open": null,
+      "activeStatusOwners": 1,
+      "visiblePhaseLabels": [
+        "Thinking"
+      ],
+      "historicalLabel": "Worked for 9s"
+    }
+  ],
+  "screenshots": [
+    "transcript-single-live-status-collapsed-20261006.png",
+    "transcript-single-live-status-live-20261006.png",
+    "transcript-single-live-status-terminal-20261006.png",
+    "transcript-single-live-status-pal-20261006.png",
+    "transcript-single-live-status-reduced-narrow-20261006.png",
+    "transcript-single-live-status-private-20261006.png"
+  ],
+  "interruptedPresenceExit": {
+    "time": 100,
+    "frameTime": 100,
+    "opacityTime": 100,
+    "opacity": 0.0820722,
+    "transform": "none",
+    "height": "16.7031px"
+  },
+  "reversedPresenceFrame": {
+    "id": 10,
+    "duration": 200,
+    "easing": "ease-out",
+    "keyframes": [
+      {
+        "offset": null,
+        "easing": "linear",
+        "composite": "auto",
+        "paddingBottom": "6.30713px",
+        "height": "16.7031px",
+        "paddingTop": "3.78428px",
+        "opacity": "0.0820722",
+        "computedOffset": 0
+      },
+      {
+        "offset": null,
+        "easing": "linear",
+        "composite": "auto",
+        "paddingBottom": "20px",
+        "height": "53px",
+        "paddingTop": "12px",
+        "computedOffset": 1
+      }
+    ],
+    "timeline": "paired frame and opacity advance on the same 300ms clock",
+    "values": [
+      {
+        "time": 0,
+        "frameTime": 0,
+        "opacityTime": 0,
+        "opacity": 0.0820722,
+        "transform": "none",
+        "height": "16.7031px"
+      },
+      {
+        "time": 100,
+        "frameTime": 100,
+        "opacityTime": 100,
+        "opacity": 0.924664,
+        "transform": "none",
+        "height": "41.5469px"
+      },
+      {
+        "time": 150,
+        "frameTime": 150,
+        "opacityTime": 150,
+        "opacity": 0.979645,
+        "transform": "none",
+        "height": "49.5938px"
+      },
+      {
+        "time": 200,
+        "frameTime": 200,
+        "opacityTime": 200,
+        "opacity": 0.995675,
+        "transform": "none",
+        "height": "53px"
+      },
+      {
+        "time": 300,
+        "frameTime": 200,
+        "opacityTime": 300,
+        "opacity": 1,
+        "transform": "none",
+        "height": "53px"
+      }
+    ]
+  },
+  "settledPresenceReversal": {
+    "display": "flex",
+    "opacity": 1,
+    "height": 53,
+    "ariaHidden": "false",
+    "inert": false,
+    "outgoing": 0
+  },
+  "settledPresenceExit": {
+    "display": "none",
+    "opacity": 1,
+    "height": 0,
+    "ariaHidden": "true",
+    "inert": true,
+    "outgoing": 0
+  },
+  "reducedMotion": {
+    "finiteAnimations": [],
+    "panelTransition": "0s",
+    "outgoing": 0
+  },
+  "apiErrors": [],
+  "rendererErrors": []
+}

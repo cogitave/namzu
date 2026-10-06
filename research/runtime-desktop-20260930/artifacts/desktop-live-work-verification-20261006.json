@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-06",
+  "nativeApplied": true,
+  "desktopSourceBytesMatch": true,
+  "cliHistorySourceBytesMatch": true,
+  "nativePidChanged": true,
+  "originalStrictActivationPassed": false,
+  "latestStrictActivationPassed": false,
+  "strictComparisonDifference": "First activation rebuilt one tool-only assistant as a media placeholder and released completed runtime buffers. The history fix removes that verified false placeholder; original strict receipts remain untouched.",
+  "postUpdateDurableContentAuditPassed": true,
+  "applicationSourceFiles": 630,
+  "sourceManifestSha256": "28e75fb02523519c263d54eed3735cb8be5dae48cfdc424a14103402428e774b",
+  "cliHistorySha256": "5fad1a99417106273a2dd24854ad2d19b10b3d46dc22e878387d1ae4bec7b158",
+  "unchangedDomains": [
+    "groups",
+    "catalogues",
+    "profiles",
+    "computers",
+    "projects",
+    "presentation"
+  ],
+  "audited": [
+    {
+      "ordinal": 1,
+      "beforeMessages": 0,
+      "afterMessages": 0,
+      "actualMessageBodiesEqual": true,
+      "draftsSettingsAttachmentsAndEffectiveModelEqual": true,
+      "taskAndRetryStateEqual": true,
+      "beforeCompletedRegistryJobs": 0,
+      "afterRegistryJobs": 0,
+      "runtimeProviderModelFieldPreserved": true,
+      "beforePublicTools": 0,
+      "afterPublicTools": 0
+    },
+    {
+      "ordinal": 2,
+      "beforeMessages": 12,
+      "afterMessages": 12,
+      "actualMessageBodiesEqual": true,
+      "draftsSettingsAttachmentsAndEffectiveModelEqual": true,
+      "taskAndRetryStateEqual": true,
+      "beforeCompletedRegistryJobs": 3,
+      "afterRegistryJobs": 0,
+      "runtimeProviderModelFieldPreserved": false,
+      "beforePublicTools": 8,
+      "afterPublicTools": 0
+    },
+    {
+      "ordinal": 3,
+      "beforeMessages": 2,
+      "afterMessages": 2,
+      "actualMessageBodiesEqual": true,
+      "draftsSettingsAttachmentsAndEffectiveModelEqual": true,
+      "taskAndRetryStateEqual": true,
+      "beforeCompletedRegistryJobs": 0,
+      "afterRegistryJobs": 0,
+      "runtimeProviderModelFieldPreserved": true,
+      "beforePublicTools": 0,
+      "afterPublicTools": 0
+    }
+  ],
+  "nativeSdkUnchanged": true,
+  "onlyReviewedCliModuleChanged": true,
+  "rendererProofs": [
+    {
+      "file": "background-processes-browser-proof-20261006.json",
+      "checks": 10
+    },
+    {
+      "file": "transcript-single-live-status-motion-proof-20261006.json",
+      "checks": 8,
+      "singleLiveStateChecks": 9
+    },
+    {
+      "file": "recents-progressive-unsent-browser-proof-20261006.json",
+      "checks": 16
+    }
+  ],
+  "verification": {
+    "workspaceTestsPassed": true,
+    "workspaceCheckpoint": "Before final tool-only history display filter; its strict journal suite subsequently passed 26 tests.",
+    "cliTestsAtWorkspaceCheckpoint": 5172,
+    "finalHistorySuiteTests": 26,
+    "desktopTests": 653,
+    "finalUiFocusedTests": 15,
+    "typecheckPassed": true,
+    "lintPassed": true,
+    "existingCliLintWarnings": 12,
+    "desktopAndCliBuildsPassed": true,
+    "docsPassed": true
+  },
+  "actions": {
+    "modelRequests": 0,
+    "computerActions": 0,
+    "packageInstalls": 0,
+    "sdkCopies": 0,
+    "cliModuleCopiesAtLatestActivation": 1
+  },
+  "limits": [
+    "This audit compares actual durable message bodies and saved choices. It does not turn either original strict activation failure into a pass.",
+    "Cold restart rebuilds ordinary text history rather than live public tool/reasoning presentation. Completed job buffers are owned by the terminated CLI registry and are not persisted.",
+    "Effective saved model choice is unchanged; one runtime provider response no longer has an explicit model field."
+  ]
+}

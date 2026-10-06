@@ -659,7 +659,10 @@ Open diff opens the same previews; unified/split display and line wrapping work
 without reading additional files. Line numbers refer to the preview, which may
 contain only the changed fragment. These result views survive a window reload
 while the connection lives; the current restart history projection contains text
-messages rather than old tool previews. Syntax highlighting uses bundled WASM;
+messages rather than old tool previews. Tool-only assistant records with no text
+do not create a media placeholder in ordinary history; text accompanying tools
+and actual media placeholders remain visible. This is a display filter, not a
+change to the model's recorded history. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
 Background work uses a separate column when the workspace has at least 880px
 available; narrower workspaces use an overlay without squeezing the
@@ -725,13 +728,24 @@ Persisted, previously prompted sessions also restore strictly scoped history
 before loading model context, including when the stable UI ID aliases a durable
 runtime ID. Concurrent history display and admission share that exact read;
 connection, execution and selection changes refuse obsolete results. Unsent
-tabs retain their existing replacement-slot and exact engine/model restoration.
+tabs display their owned local projection and saved draft before restoring a
+replacement runtime slot and exact engine/model. Provider and engine metadata,
+readiness and message admission still await that shared restoration. An unavailable
+model leaves the draft visible and actions blocked; opening the display does not
+replay a prompt or choose a replacement model.
 The CLI history request opens one fresh session scope for ownership validation,
 strict journal reading and Pal public-message projection. All three use that
 scope's captured home. Reading one conversation does not construct or synchronize
 the installation-wide listing index; indexed catalogue and write operations keep
 their existing store. Folder trust and strict project/tenant and Pal claim checks
 remain in place, including when a readable row is archived.
+Task snapshots, retry-status checks and desktop metadata ownership reads also
+use a fresh direct scope instead of opening the listing index. Retry status
+uses the host-authenticated scope's captured home for trust, Pal binding and
+checkpoint inspection; the actual retry retains its writer admission. ACP
+history loading folds one strictly verified, in-scope, nonarchived snapshot
+without an index or provider runtime. Existing embeddings that inject an
+indexed storage opener retain it until they supply a direct-read opener.
 The optional desktop `readyConversation(projectId, sessionId)` acknowledgement
 refreshes tasks and retry state in parallel, sharing an in-flight read only for
 the exact client, runtime session and execution/selection revisions. The renderer
@@ -768,14 +782,33 @@ separately holds cold history and readiness, verifies immediate selection,
 disabled pending actions, retained metadata overlap, obsolete navigation,
 failure recovery and no catalogue reread for known navigation. No model or
 computer action is performed.
+The [unsent draft browser proof](../../research/runtime-desktop-20260930/artifacts/recents-progressive-unsent-browser-proof-20261006.json)
+holds provider preparation and readiness while verifying immediate saved-draft
+display, a blocked composer, the exact nondefault model, and rejection of a draft
+response from an obsolete navigation. These are synthetic deferred boundaries,
+not native engine-restoration timings.
 The [native Windows timing observations](../../research/runtime-desktop-20260930/artifacts/recents-native-performance-20261006.json)
 retain the baseline and each deployed build on the same two conversations. The
-final run selected cold tabs in 40.5 and 36.5ms; warm navigation took about 13ms.
-Strict first history still took 1936.3 and 252.7ms, with composer readiness at
-2601.5 and 1738.1ms. Immediate selection and warm reuse do not establish instant
-cold history or a uniform readiness improvement. Each bounded run restored its
-original workspace, drafts, settings, messages and protected state. These are
-two examples per build, not latency percentiles.
+preceding scoped build selected cold tabs in 40.5 and 36.5ms; warm navigation took about 13ms.
+The authoritative-display markers took 1936.3 and 252.7ms, with composer readiness
+at 2601.5 and 1738.1ms. The [native stage profile](../../research/runtime-desktop-20260930/artifacts/recents-scope-profile-native-20261006.json)
+later identified the first example as an unsent external-engine draft with no
+current runtime journal: its marker waited for replacement and model restoration,
+not a strict history read. The second example is a durable 6KB conversation;
+an isolated deployed history request took 226ms, with Windows ACL subprocesses
+accounting for about 154ms of its direct-scope preparation. No permission checks
+were cached or disabled. Immediate selection and warm reuse do not establish
+instant cold history or a uniform readiness improvement. The latest direct-readiness
+build selected the unsent draft in 38.3ms and displayed its empty owned projection
+at that same marker, while model readiness still took 2866.1ms. Its durable
+conversation selected in 207.1ms, reached the history marker in 1002.5ms and enabled
+the composer in 2080.3ms. Warm readiness took 14.3 and 19.2ms. The latest probe's
+original strict restoration failed because reactivating the original tab expanded
+one previously closed project folder. A separate guarded correction restored that
+single disclosure and verified all original protected state; the failed receipt
+remains failed. Earlier successful probes and the supplemental corrected state
+retain original workspace, drafts, settings and messages. These are two examples
+per build, not latency percentiles or proof of uniformly faster cold history.
 The [verification receipt](../../research/runtime-desktop-20260930/artifacts/recents-desktop-verification-20261006.json)
 records the final source checks, UI fixtures, guarded native activation and
 measurement limits. Local activation changed the desktop build and three
@@ -1026,8 +1059,10 @@ opaque reasoning, signatures or replay material.
 
 In ordinary conversations, each authored prompt owns one turn. Its public
 reasoning, tool receipts and explicit commentary stay in admission order inside
-a collapsible work summary. Its heading follows Thinking, Working or Waiting
-for your decision while live; settled headings retain Worked for the observed
+a collapsible work summary. While live its heading is Work details; one status
+line near the composer owns Thinking, Working or Waiting for your decision and
+the elapsed time. Opening or closing details does not duplicate that state.
+Opaque reasoning alone does not create an empty disclosure. Settled headings retain Worked for the observed
 duration, Paused, Stopped or Work incomplete as appropriate. The summary opens
 while that turn runs and collapses after settlement unless the operator chose
 otherwise. The answer appears below that group only when it is a trailing
@@ -1045,7 +1080,10 @@ and mounted history, navigation and pending restoration do not replay it.
 Interrupted phase changes start from their observed opacity and height;
 outgoing decorative labels never remain accessible statuses. Reduced motion
 settles the current state immediately. Pal conversations retain their delivered
-chat bubbles and their own concise Typing/Working states.
+chat bubbles and their own concise Typing/Working states. The
+[single live status browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-single-live-status-motion-proof-20261006.json)
+checks expanded, collapsed and private-reasoning states, retained historical
+outcomes, phase motion, interruption and reduced motion against the real renderer.
 
 The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
 record the installed Codex build's verified source labels and motion constants.
@@ -1300,7 +1338,38 @@ destructive marker. Follow-up drafting and queuing remain available while a
 review waits. Cancellation aborts its permission wait. Approval IDs belong to
 the conversation that asked; navigation does not redirect an answer to another
 conversation. Background work shows session-owned shells, retained output and a
-stop action. It does not list or stop another session's jobs.
+stop action. It does not list or stop another session's jobs. In ordinary Activity,
+Background processes uses compact command rows, a confirmed running count and
+state badges. Running rows appear first; retained finished output remains
+inspectable while that CLI runtime owns its registry. Completed job buffers are
+not persisted across a CLI restart. Done requires exit code zero; a missing exit code is only Finished.
+The full command remains accessible when its visible label truncates. Hover or
+keyboard focus reveals the named process's stop action; touch keeps it visible.
+
+Each row opens its own bounded output snapshot, with explicit empty/truncated
+states and a refresh action. Polling does not discard an open row or its output.
+Read and stop responses belong to the session, navigation generation and job;
+late output or errors cannot appear in another conversation. Pending actions
+stay tracked during window close. Stopping waits for a fresh registry snapshot
+after any older in-flight poll; failure never fabricates a stopped state and
+unconfirmed termination keeps its retry action. A failed process-list read is
+unconfirmed, rather than a zero running count.
+
+The [background work reference observations](../../research/runtime-desktop-20260930/artifacts/background-work-reference-observations-20261006.json)
+record the installed reference's compact process section and the limit of its
+source-only inspection. Namzu retains its own named-job controls and output
+history. The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
+checks overlapping reads, failed/retried stops, poll ordering, navigation,
+long commands, narrow and short layouts, light/dark themes and reduced motion
+without native, model or computer actions.
+
+The [native live-work audit](../../research/runtime-desktop-20260930/artifacts/desktop-live-work-verification-20261006.json)
+verifies the final built desktop and history handler, exact original message
+bodies, saved choices, drafts, files, tasks, profiles and computer control.
+The private strict restart comparisons remain failed: live tool presentation
+and completed registry buffers are not persisted, and the corrected tool-only
+media placeholder intentionally disappears. The supplemental audit records
+these differences rather than claiming identical live projections.
 
 Enter sends; Shift+Enter adds a line. IME composition does not submit. While a
 composition is active, global Escape and other shortcuts do not cancel work or

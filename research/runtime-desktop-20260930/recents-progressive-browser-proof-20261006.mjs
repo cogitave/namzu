@@ -32,6 +32,8 @@ await page.addInitScript(() => {
 		'sample-thread-1': { projectId: 'sample-app', title: 'Refine navigation', draft: 'DRAFT_A_MAIN', provider: 'anthropic', model: 'sample-balanced' },
 		'sample-thread-4': { projectId: 'sample-docs', title: 'Improve the quick start', draft: 'DRAFT_B_MAIN', provider: 'sample-local', model: 'sample-focused' },
 		'sample-thread-2': { projectId: 'sample-app', title: 'Polish empty states', draft: 'DRAFT_C_MAIN', provider: 'anthropic', model: 'sample-balanced' },
+		'sample-thread-5': { projectId: 'sample-docs', title: 'Keep notes readable', unsent: true, draft: 'DRAFT_UNSENT_MAIN', provider: 'anthropic', model: 'sample-quick' },
+		'sample-thread-6': { projectId: 'sample-workspace', title: 'Explore a new idea', unsent: true, draft: 'DRAFT_STALE_FIRST', draftOnRetry: 'DRAFT_FRESH_SECOND', provider: 'sample-local', model: 'sample-focused' },
 	}
 	const state = {
 		events: [],
@@ -143,6 +145,16 @@ await page.addInitScript(() => {
 				const definition = definitions[sessionId]
 				if (!definition) return base.openConversation(projectId, sessionId)
 				if (definition.projectId !== projectId) throw new Error('Foreign fixture project.')
+				if (definition.unsent) {
+					const ordinal = start('unsentOpen', sessionId)
+					state.registered.add(sessionId)
+					record('unsentOpen:resolved', sessionId, { ordinal })
+					return { messages: [], partial: false, thread: {
+						revision: 0, tasks: [], messages: [], timeline: [], turn: 0, turns: {},
+						running: false, queued: [], queuedItems: [], tools: {}, activeToolIds: [],
+						permissions: [], reasoning: {}, responding: false,
+					} }
+				}
 				const ordinal = start('history', sessionId)
 				await gate('history', sessionId, ordinal)
 				state.registered.add(sessionId)
@@ -205,8 +217,9 @@ await page.addInitScript(() => {
 					if (!definition) return base[method](...args)
 					admission(method, sessionId, ['modelSettings', 'models', 'plugins', 'harnesses'].includes(method) ? args[0] : undefined)
 					const ordinal = start(method, sessionId)
+					await gate(method, sessionId, ordinal)
 					let result
-					if (method === 'draft') result = definition.draft
+					if (method === 'draft') result = definition.draftOnRetry && ordinal > 1 ? definition.draftOnRetry : definition.draft
 					else if (method === 'draftSettings') result = {
 						choice: { provider: definition.provider, model: definition.model },
 						options: { permissionMode: 'prompt', effort: 'low' },
@@ -233,6 +246,8 @@ await page.addInitScript(() => {
 const first = 'sample-thread-1'
 const second = 'sample-thread-4'
 const third = 'sample-thread-2'
+const unsent = 'sample-thread-5'
+const staleDraft = 'sample-thread-6'
 const marker = (id, ordinal) => `RECENTS_HISTORY_${id}_${ordinal}`
 const events = () => page.evaluate(() => structuredClone(window.__recentsProof.events))
 const arm = (method, id, outcome = 'resolve') => page.evaluate(
@@ -301,7 +316,7 @@ try {
 		'opening a known Recents row must not rescan every project catalogue')
 	assert.deepEqual((await events()).filter((event) => event.sessionId === first &&
 		(metadata.some((method) => event.method === `${method}:start`) || event.method === 'ready:start')), [])
-	await page.screenshot({ path: join(artifacts, 'recents-progressive-cold-pending-20261006.png') })
+	await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-cold-pending-20261006.png') })
 
 	// A second click on the same Recents row shares the still-held flight.
 	await recent('Refine navigation').click()
@@ -320,7 +335,7 @@ try {
 	assert.ok(metadata.every((method) => firstPending.find((event) => event.method === `${method}:start`).index > firstHistoryIndex))
 	assert.equal(firstPending.filter((event) => event.method === 'ready:start').length, 1)
 	assert.deepEqual(firstPending.filter((event) => ['jobs:start', 'harnesses:start', 'refreshTasks:start'].includes(event.method)), [])
-	await page.screenshot({ path: join(artifacts, 'recents-progressive-readiness-pending-20261006.png') })
+	await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-readiness-pending-20261006.png') })
 	await release('ready', first)
 	await expect(input).toBeEnabled()
 	await expect(input).toHaveValue('DRAFT_A_MAIN')
@@ -377,7 +392,7 @@ try {
 	await expect(input).toHaveValue('DRAFT_B_MAIN')
 	await expect(page.getByRole('button', { name: 'Select model', exact: true })).toContainText('sample-focused')
 	await expect(selectedTab('Improve the quick start')).toHaveAttribute('aria-selected', 'true')
-	await page.screenshot({ path: join(artifacts, 'recents-progressive-after-navigation-20261006.png') })
+	await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-after-navigation-20261006.png') })
 
 	// Readiness failure retains the accepted history and its draft but refuses admission.
 	await arm('ready', third, 'reject')
@@ -389,7 +404,7 @@ try {
 	await expect(page.getByRole('alert')).toContainText(`Deferred ready failed for ${third}`)
 	await expect(transcript).toContainText(marker(third, 1))
 	await blocked({ approval: true })
-	await page.screenshot({ path: join(artifacts, 'recents-progressive-readiness-error-20261006.png') })
+	await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-readiness-error-20261006.png') })
 	const catalogueBeforeRetry = (await events()).filter((event) => event.method === 'catalogue:start').length
 	assert.equal(catalogueBeforeRetry, catalogueBefore, 'known Recents opens and close/reopen must not relist all projects')
 	await page.getByRole('button', { name: 'Retry setup', exact: true }).click()
@@ -397,6 +412,54 @@ try {
 	await expect(input).toHaveValue('DRAFT_C_MAIN')
 	await waitEvent('ready:resolved', third, 2)
 	await expect(page.getByRole('alert')).toHaveCount(0)
+
+	// A persisted unsent conversation has no journal to fold. Its projection and
+	// owned draft appear while runtime replacement and provider readiness are held.
+	await arm('providers', unsent)
+	await arm('ready', unsent)
+	await recent('Keep notes readable').click()
+	await waitEvent('unsentOpen:resolved', unsent, 1)
+	await waitEvent('providers:held', unsent, 1)
+	await waitEvent('ready:held', unsent, 1)
+	await waitEvent('draft:resolved', unsent, 1)
+	await waitEvent('draftSettings:resolved', unsent, 1)
+	await expect(selectedTab('Keep notes readable')).toHaveAttribute('aria-selected', 'true')
+	await expect(transcript).toHaveAttribute('data-history-state', 'authoritative')
+	await expect(input).toHaveValue('DRAFT_UNSENT_MAIN')
+	await expect(page.getByRole('button', { name: 'Select model', exact: true })).toContainText('sample-quick')
+	await blocked()
+	assert.deepEqual((await events()).filter((event) => event.sessionId === unsent && event.method === 'history:start'), [],
+		'an unsent projection must not request durable history')
+	await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-unsent-pending-20261006.png') })
+	await release('providers', unsent)
+	await waitEvent('providers:resolved', unsent, 1)
+	await expect(input).toHaveValue('DRAFT_UNSENT_MAIN')
+	await expect(input).toBeDisabled()
+	await release('ready', unsent)
+	await waitEvent('ready:resolved', unsent, 1)
+	await expect(input).toBeEnabled()
+	await expect(input).toHaveValue('DRAFT_UNSENT_MAIN')
+	await expect(page.getByRole('button', { name: 'Select model', exact: true })).toContainText('sample-quick')
+	assert.equal((await events()).filter((event) => event.sessionId === unsent && event.method === 'unsentOpen:start').length, 1)
+
+	// A draft returned after the user leaves its pane cannot claim the newer
+	// navigation generation. On reopening, the current saved draft must win.
+	await arm('draft', staleDraft)
+	await recent('Explore a new idea').click()
+	await waitEvent('draft:held', staleDraft, 1)
+	await expect(selectedTab('Explore a new idea')).toHaveAttribute('aria-selected', 'true')
+	await expect(input).toBeDisabled()
+	await recent('Keep notes readable').click()
+	await expect(selectedTab('Keep notes readable')).toHaveAttribute('aria-selected', 'true')
+	await expect(input).toHaveValue('DRAFT_UNSENT_MAIN')
+	await release('draft', staleDraft)
+	await waitEvent('draft:resolved', staleDraft, 1)
+	await frames()
+	await expect(input).toHaveValue('DRAFT_UNSENT_MAIN')
+	await recent('Explore a new idea').click()
+	await waitEvent('draft:resolved', staleDraft, 2)
+	await expect(input).toHaveValue('DRAFT_FRESH_SECOND')
+	await expect(input).toBeEnabled()
 
 	const final = await page.evaluate(() => ({
 		events: structuredClone(window.__recentsProof.events),
@@ -430,6 +493,9 @@ try {
 			'late A responses cannot replace B transcript, selected tab or owner-specific draft',
 			'readiness failure retains accepted messages, blocks actions and allows an authoritative Retry setup',
 			'synthetic per-session drafts and model settings are retained without provider selection or sending',
+			'unsent Recents projects an empty authoritative transcript and exact saved draft before held provider/readiness responses',
+			'unsent composer remains blocked while provider and readiness are held, then restores the exact saved nondefault model without selection or sending',
+			'late unsent draft from an obsolete navigation cannot contaminate its later fresh draft or the selected pane',
 		],
 		firstSession: first,
 		secondSession: second,
@@ -439,12 +505,12 @@ try {
 		violations: final.violations,
 		actionCalls: final.actions,
 		faults,
-		fixtureLimits: 'In-memory Vite browser fixture; no native deployment, durable history, real CLI readiness or latency guarantee is established.',
+		fixtureLimits: 'In-memory Vite browser fixture; unsent replacement and provider readiness are synthetic deferred boundaries. No native deployment, durable history, real CLI readiness or latency guarantee is established.',
 	}
-	await writeFile(join(artifacts, 'recents-progressive-browser-proof-20261006.json'), `${JSON.stringify(receipt, null, 2)}\n`)
+	await writeFile(join(artifacts, 'recents-progressive-unsent-browser-proof-20261006.json'), `${JSON.stringify(receipt, null, 2)}\n`)
 	console.log(JSON.stringify({ passed: true, calls: final.events.length, violations: 0, actionCalls: 0 }))
 } catch (error) {
-	if (!page.isClosed()) await page.screenshot({ path: join(artifacts, 'recents-progressive-browser-failure-20261006.png') }).catch(() => {})
+	if (!page.isClosed()) await page.screenshot({ path: join(artifacts, 'recents-progressive-v2-browser-failure-20261006.png') }).catch(() => {})
 	console.error(JSON.stringify({ failed: true, message: error instanceof Error ? error.message : String(error), events: await events().catch(() => []) }))
 	throw error
 } finally {

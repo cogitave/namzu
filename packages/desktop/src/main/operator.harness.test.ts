@@ -347,7 +347,10 @@ it('retains failed restoration and retries selection on the same published slot 
 	await writeFile(f.rejectedSelection, '')
 	await disconnect(f)
 	const before = await f.calls()
-	await expect(f.owner.openConversation(f.project.id, session.id)).rejects.toThrow(
+	await expect(f.owner.openConversation(f.project.id, session.id)).resolves.toMatchObject({
+		messages: [],
+	})
+	await expect(f.owner.readyConversation(f.project.id, session.id)).rejects.toThrow(
 		'no longer available',
 	)
 	await expect(f.owner.harnesses(f.project.id, session.id)).rejects.toThrow('no longer available')
@@ -378,7 +381,10 @@ it('lets an explicit engine change recover a draft whose previous engine model c
 	f.owner.saveDraft(session.id, 'Retained while changing engines')
 	await writeFile(f.rejectedSelection, '')
 	await disconnect(f)
-	await expect(f.owner.openConversation(f.project.id, session.id)).rejects.toThrow(
+	await expect(f.owner.openConversation(f.project.id, session.id)).resolves.toMatchObject({
+		messages: [],
+	})
+	await expect(f.owner.readyConversation(f.project.id, session.id)).rejects.toThrow(
 		'no longer available',
 	)
 	expect((await f.owner.selectHarness(session.id, 'claude-code')).selected).toBe('claude-code')
@@ -394,7 +400,10 @@ it('does not restore an external draft into a project whose trust was revoked on
 	await writeFile(f.untrusted, '')
 	await disconnect(f)
 	const before = await f.calls()
-	await expect(f.owner.openConversation(f.project.id, session.id)).rejects.toThrow(
+	await expect(f.owner.openConversation(f.project.id, session.id)).resolves.toMatchObject({
+		messages: [],
+	})
+	await expect(f.owner.readyConversation(f.project.id, session.id)).rejects.toThrow(
 		'Trust this folder',
 	)
 	await expect(f.owner.providers(f.project.id, session.id)).rejects.toThrow('Trust this folder')
