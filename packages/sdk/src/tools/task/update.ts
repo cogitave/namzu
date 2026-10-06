@@ -9,7 +9,7 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 	return defineTool({
 		name: 'task_update',
 		description:
-			'Update an existing planning task. Change its status to pending, in_progress, completed or failed, edit its description, transfer ownership, or manage dependencies. Mark failed work as failed, not completed. A terminal status records the reported outcome, not independent verification. Use status "deleted" to remove a task entirely.',
+			'Update task fields, owner or dependencies. Built-in statuses move forward only; completed/failed are terminal. Create follow-up tasks instead of reopening. Record failures as failed. An unconfirmed status may leave other edits applied. Outcomes are reported, not verified. Use "deleted" to remove a task.',
 		inputSchema: z.object({
 			id: z.string().describe('Task ID (e.g. "task_abc123")'),
 			subject: z.string().optional().describe('Updated title'),
@@ -85,14 +85,21 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 				return { success: false, output: `Task ${id} not found` }
 			}
 
+			// Stores can retain the old status while applying other edits. The
+			// receipt describes the returned state; it cannot prove whether the
+			// request was refused or a concurrent writer advanced it again.
+			const statusApplied = status === undefined || updated.status === status
 			return {
-				success: true,
-				output: `Task ${id} updated — status: ${updated.status}`,
+				success: statusApplied,
+				output: statusApplied
+					? `Task ${id} updated — status: ${updated.status}`
+					: `Task ${id} requested status "${status}" could not be confirmed; returned status is "${updated.status}". Other requested edits may have applied. Inspect the task and create a new task for follow-up work.`,
 				data: {
 					id: updated.id,
 					subject: updated.subject,
 					status: updated.status,
 					owner: updated.owner,
+					...(statusApplied ? {} : { requestedStatus: status }),
 				},
 			}
 		},

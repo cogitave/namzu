@@ -68,6 +68,22 @@ Planning statuses are `pending`, `in_progress`, `completed` and `failed`.
 `task_list` reports failures separately through `stats.failed` and its human
 presentation. A failed task is never counted as completed.
 
+Both built-in stores allow forward status transitions: pending work can start
+or finish, in-progress work can finish, and a terminal outcome cannot be
+reopened or replaced with a different terminal outcome. Repeating the current
+status is allowed. Create a follow-up task for additional work. A custom
+`TaskStore` owns its own transition policy.
+
+`task_update` compares a requested status with the record returned by the
+store. If those statuses differ, the tool reports that the requested status
+could not be confirmed, with both requested and returned values. Built-in
+store refusal or a concurrent update can cause that mismatch; the store
+interface does not prove which occurred. Other requested edits or dependency
+changes may already have been applied; the receipt does not claim an atomic
+rollback. Successful task updates remain quiet in the tool presenter; an
+unconfirmed status change remains visible. On mismatch, `data.status` is the
+observed returned status and `data.requestedStatus` records the request.
+
 `isTerminalTaskStatus` treats completed and failed as terminal. A failed blocker
 has stopped running, so a dependent task need not wait for a future status
 change. Its failure still needs interpreting; removing the wait does not prove
@@ -97,6 +113,17 @@ items. A scheduler handle reaching `completed` means execution ended. Check
 the actual stop reason and result: a limit or partial answer is not a successful
 completion of the requested work. See [harness invariants](harness-invariants.md#delegated-lifecycle-versus-outcome)
 and [delegation events](delegation-events.md).
+
+`wait_for_task` applies the same outcome rule as `create_task`: a completed
+scheduler handle succeeds only when its turn also completed. Failed, partial
+or cancelled turns produce a failed receipt even when the scheduler's
+lifecycle is completed. The receipt preserves lifecycle state and the actual
+turn status, with its failure explanation even when the answer text is empty.
+Legacy completed handles without a turn status retain their existing success
+contract. Waiting remains restricted to invocations launched by that
+coordinator; this does not grant access to other workers.
+The wait receipt retains scheduler lifecycle in `data.state`, with optional
+`data.turn_status` and `data.last_error` when the worker provided them.
 
 When delegation has an explicit planning-task or plan-step binding, the
 coordinator settles those original records for blocking and background work.

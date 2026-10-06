@@ -59,7 +59,7 @@ describe('task tool presentation', () => {
 		for (const [status, verb] of [
 			['in_progress', 'Start task'],
 			['completed', 'Complete task'],
-			['pending', 'Reopen task'],
+			['pending', 'Set task pending'],
 			['deleted', 'Remove task'],
 			[undefined, 'Update task'],
 		] as const) {

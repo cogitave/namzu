@@ -91,6 +91,16 @@ the existing completed-worker contract. An inline wait timing out or being
 abandoned does not cancel this settlement. The launch retains the original
 plan manager and plan id; a newer plan with the same step id is not updated.
 
+`wait_for_task` uses that same lifecycle-versus-turn outcome rule. It retains
+the actual turn status and failure explanation, including an empty answer
+with a recorded error, rather than reporting success solely because the
+scheduler finished. Only tasks launched by the current coordinator can be
+waited on.
+Blocking `create_task` and linked planning/plan failure notes use the same
+result-text rule: empty answers retain recorded errors, and a legacy completed
+handle without a result is described as completed. Failure notes prioritize
+the diagnosis before partial answer text within their existing display bound.
+
 Completion delivery waits for the planning write before claiming or announcing
 the result. A rejected tracking write is reported as an error, with the
 completion retained, rather than announcing success over an unchanged plan.

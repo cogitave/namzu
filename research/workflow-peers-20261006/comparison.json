@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-10-06",
+  "scope": "Source comparison and deterministic local contract checks; no inference-quality ranking or claim of complete framework parity.",
+  "namzuBaseline": "4f66c934295c14bbc85074a8d4e23b8161f5ef12",
+  "execution": {
+    "externalModelRequests": 0,
+    "dependenciesInstalled": false,
+    "upstreamApplicationsExecuted": false,
+    "livePalStateChanged": false,
+    "platformOfLocalSchemaProbe": "Linux, Node.js 24.19.0",
+    "validationOwner": "Root agent integrates the frozen SDK patches and runs workspace typecheck, lint, test, build and documentation gates."
+  },
+  "upstreams": {
+    "pydanticAi": {
+      "repository": "https://github.com/pydantic/pydantic-ai",
+      "revision": "6e133c533696a7c12802c3ca6891a4b0fb8e765b",
+      "committedAt": "2026-10-06T01:24:50Z",
+      "revisionEvidence": "https://api.github.com/repos/pydantic/pydantic-ai/commits/main",
+      "inspection": "Current official documentation, GitHub revision metadata and selected pinned source files read; upstream tests not executed.",
+      "sources": {
+        "output": "https://pydantic.dev/docs/ai/core-concepts/output/",
+        "tools": "https://pydantic.dev/docs/ai/tools-toolsets/tools-advanced/",
+        "deferredTools": "https://pydantic.dev/docs/ai/tools-toolsets/deferred-tools/",
+        "retries": "https://pydantic.dev/docs/ai/core-concepts/retries/",
+        "testing": "https://pydantic.dev/docs/ai/guides/testing/",
+        "onDemandCapabilities": "https://pydantic.dev/docs/ai/capabilities/on-demand/",
+        "outputSource": "https://github.com/pydantic/pydantic-ai/blob/6e133c533696a7c12802c3ca6891a4b0fb8e765b/pydantic_ai_slim/pydantic_ai/_output.py",
+        "toolExecutionSource": "https://github.com/pydantic/pydantic-ai/blob/6e133c533696a7c12802c3ca6891a4b0fb8e765b/pydantic_ai_slim/pydantic_ai/_tool_execution.py"
+      }
+    },
+    "herdr": {
+      "repository": "https://github.com/herdrdev/herdr",
+      "previousRepositoryRedirect": "https://github.com/ogulcancelik/herdr",
+      "revision": "3d9d2b18dab139ba226ebc5a1c9a9f2c9c3ee4df",
+      "committedAt": "2026-10-05T21:46:23Z",
+      "revisionEvidence": "https://api.github.com/repos/herdrdev/herdr/commits/master",
+      "redirectEvidence": "https://api.github.com/repos/ogulcancelik/herdr",
+      "statusDocumentation": "https://herdr.dev/docs/agents/",
+      "statusSource": "https://github.com/herdrdev/herdr/blob/3d9d2b18dab139ba226ebc5a1c9a9f2c9c3ee4df/src/detect/mod.rs",
+      "pattern": "Agent reports take precedence over screen detection. Unknown is retained where evidence is insufficient. Semantic lifecycle state drives waits and rollups; a custom display summary does not change that state.",
+      "applicability": "Use explicit reported lifecycle and outcome in Namzu's existing scheduler and protocol. A terminal's idle or done indication does not independently verify requested work.",
+      "inspection": "Canonical repository redirect and revision obtained through GitHub API; official documentation and selected pinned source read. No Herdr installation or runtime test. Forks were not treated as canonical."
+    },
+    "openDots": {
+      "repository": "https://github.com/CopilotKit/OpenDots",
+      "revision": "8f53c3bb148068cf0405677de07df34cdfd2f680",
+      "pinProvenance": "research/runtime-desktop-20260930/PAL-ENVIRONMENT-REFERENCE-20261001.md",
+      "pinStatus": "Previously inspected revision retained; not fetched as current upstream in this review.",
+      "sources": [
+        "https://github.com/CopilotKit/OpenDots/blob/8f53c3bb148068cf0405677de07df34cdfd2f680/src/server/workspace.ts",
+        "https://github.com/CopilotKit/OpenDots/blob/8f53c3bb148068cf0405677de07df34cdfd2f680/src/server/store.ts",
+        "https://github.com/CopilotKit/OpenDots/blob/8f53c3bb148068cf0405677de07df34cdfd2f680/src/server/computer-service.ts"
+      ],
+      "existingNamzuCounterparts": [
+        "SDK Pal registry and ingress",
+        "local computer leases and operator control",
+        "Pal communication and activity",
+        "desktop context card and live VNC"
+      ],
+      "caveat": "The reference artifact describes its older baseline; its original missing-feature rows are not the current Namzu backlog."
+    },
+    "monoCode": {
+      "repository": "https://github.com/hardbeat920/monocode",
+      "revision": "271b66ded71e795e0569db77c9bbf599219c8cdc",
+      "pinProvenance": "research/runtime-desktop-20260930/COMPOSER-WORKSPACE-HARNESS-20261004.md",
+      "pinStatus": "Previously inspected revision retained; not fetched as current upstream in this review.",
+      "sources": [
+        "https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/integrations/harness/core/registry.ts",
+        "https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/workspace/model/layout.ts",
+        "https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src-tauri/src/windows.rs"
+      ],
+      "existingNamzuCounterparts": [
+        "native harness sessions and catalogue negotiation",
+        "canonical tabs and split panes",
+        "Windows process resolution and teardown"
+      ],
+      "caveat": "A reference implementation is design evidence, not proof of Namzu's platform behavior or a reason to replace the SDK runtime."
+    }
+  },
+  "capabilities": [
+    {
+      "area": "Structured output",
+      "namzu": "Tool and native modes, Zod validation, bounded native schema corrections, asynchronous host review and checkpointed reviewer rejection counts already exist.",
+      "source": "docs/sdk/native-structured-output.md",
+      "peerSource": "pydanticAi.sources.output",
+      "remainingBoundary": "Tool receipt integrity is corrected in this cycle. Tool-mode schema retry accounting and async Zod preparation remain inconsistent between modes."
+    },
+    {
+      "area": "Approval and external results",
+      "namzu": "Prepared-input authorization, checkpoint resume, AG-UI interrupts and frontend tool results already exist.",
+      "source": "docs/sdk/ag-ui.md",
+      "peerSource": "pydanticAi.sources.deferredTools",
+      "remainingBoundary": "External workflow-engine adapters and host-owned reconnect are separate integration work; no such adapter is implemented in this cycle."
+    },
+    {
+      "area": "Tool discovery and composition",
+      "namzu": "Source-preserving toolsets, deferred schemas, readiness checks, selectors and permission filtering already exist.",
+      "source": "docs/sdk/toolsets.md",
+      "peerSource": "pydanticAi.sources.onDemandCapabilities",
+      "remainingBoundary": "Loading an entire instructions/hooks/settings bundle on demand is broader than deferred tools and remains future work."
+    },
+    {
+      "area": "Execution ordering",
+      "namzu": "Optional executionBarrier separates bounded parallel segments; independent calls can still overlap.",
+      "source": "docs/sdk/tool-execution.md",
+      "peerSource": "pydanticAi.sources.toolExecutionSource",
+      "remainingBoundary": "Implemented already. Older source audits saying execution barriers are absent describe an earlier revision."
+    },
+    {
+      "area": "Planning and delegation",
+      "namzu": "TaskStore planning, AgentManager worker handles, explicit correlation and request-only CLI/Pal planning context already exist.",
+      "source": "docs/sdk/task-tracking.md",
+      "peerSource": "herdr.statusDocumentation",
+      "remainingBoundary": "Worker lifecycle completion and requested planning status must not conceal actual failures or refused transitions."
+    },
+    {
+      "area": "Call budgets and retry",
+      "namzu": "Optional cumulative attempt reservations cover batches, nested calls, retries and resume; omission preserves unlimited call admission.",
+      "source": "docs/sdk/tool-call-budget.md",
+      "peerSource": "pydanticAi.sources.retries",
+      "remainingBoundary": "Peer counters differ. Retry accounting is a follow-up audit, not a claim that Namzu lacks budgets or should acquire mandatory defaults."
+    },
+    {
+      "area": "Evidence and durability",
+      "namzu": "Hash-chained logs, checkpoints, scoped conversation evidence retrieval and retained tool evidence already exist.",
+      "source": "docs/sdk/retained-tool-evidence.md",
+      "peerSource": "pydanticAi.sources.deferredTools",
+      "remainingBoundary": "A dedicated accepted structured-result channel would need serialization, storage, screening and recovery contracts; not implemented here."
+    },
+    {
+      "area": "Tests without inference",
+      "namzu": "MockLLMProvider can drive the actual query loop and provider request fixtures without credentials or billed inference.",
+      "source": "packages/sdk/README.md",
+      "peerSource": "pydanticAi.sources.testing",
+      "remainingBoundary": "No model success-rate or cost benchmark was conducted; deterministic tests establish runtime contracts only."
+    }
+  ],
+  "selectedFixes": [
+    {
+      "id": "structured-output-receipt-integrity",
+      "baselineSource": "packages/sdk/src/runtime/query/iteration/index.ts:captureStructuredOutput",
+      "defect": "Without a host reviewer, JSON.parse failure could fall back to raw tool text and publish it as successful structured output after truncation or transformation.",
+      "reproductionStatus": "Reported verified by root; baseline source inspected by comparison agent.",
+      "implementationStatus": "implemented",
+      "scope": "Fail closed on invalid JSON; retain preview caps, result screening and existing serialized transform semantics. Do not rerun a schema transform or recover an original value around screening.",
+      "tests": [
+        "packages/sdk/src/runtime/query/__tests__/structured-output-integrity.test.ts"
+      ],
+      "verification": {
+        "status": "passed",
+        "receipt": "#/verification"
+      }
+    },
+    {
+      "id": "delegated-wait-outcome",
+      "baselineSource": "packages/sdk/src/tools/coordinator/index.ts:waitForTaskTool",
+      "defect": "A completed gateway handle could be reported successful while its child turn was failed, partial or cancelled. An empty output string could hide lastError.",
+      "reproductionStatus": "Reported verified by root; shared taskSucceeded/failureLabel contract and waiting path inspected.",
+      "implementationStatus": "implemented",
+      "scope": "Apply the existing worker outcome check to waits; share diagnosis-first result text across blocking create, waits and linked planning. Preserve useful partial output, empty-answer error evidence and legacy completed gateways without turn status.",
+      "tests": [
+        "packages/sdk/src/tools/coordinator/__tests__/waiting-preserves-the-worker-outcome.test.ts",
+        "packages/sdk/src/tools/coordinator/__tests__/background-planning-settlement.test.ts",
+        "packages/sdk/src/tools/coordinator/__tests__/completion-delivery.test.ts"
+      ],
+      "verification": {
+        "status": "passed",
+        "receipt": "#/verification"
+      }
+    },
+    {
+      "id": "planning-update-observed-status",
+      "baselineSource": "packages/sdk/src/tools/task/update.ts:buildTaskUpdateTool",
+      "relatedSource": "packages/sdk/src/tools/task/present.ts:presentTaskUpdateResult",
+      "defect": "A requested backward status transition could remain refused by the forward-only store while task_update returned hidden success and its call label implied reopening.",
+      "reproductionStatus": "Reported verified by root; disk-store forward transition rule and tool/presenter paths inspected.",
+      "implementationStatus": "implemented",
+      "scope": "Compare requested and observed returned status and report an unconfirmed mismatch with both values. Preserve other applied edits and store policies; do not assert refusal causality or rollback when concurrent updates can explain the observation.",
+      "tests": [
+        "packages/sdk/src/tools/task/__tests__/a-refused-status-is-not-a-success.test.ts",
+        "packages/sdk/src/tools/task/__tests__/task-tools-read-as-words.test.ts"
+      ],
+      "verification": {
+        "status": "passed",
+        "receipt": "#/verification"
+      }
+    }
+  ],
+  "followUps": [
+    {
+      "id": "async-schema-preparation",
+      "status": "reproduced_not_implemented",
+      "sources": [
+        "packages/sdk/src/toolsets/manager.ts:prepareExecution",
+        "packages/sdk/src/runtime/query/executor/tool-call-admission.ts:prepareDirectCall",
+        "packages/sdk/src/runtime/query/executor.ts:prepareNestedCall",
+        "packages/sdk/src/runtime/query/iteration/native-output.ts:parseNativeCandidate"
+      ],
+      "localProbe": {
+        "schema": "z.object({ answer: z.string().refine(async value => value === 'ok') })",
+        "input": {
+          "answer": "ok"
+        },
+        "toolPreparation": {
+          "throws": "Error",
+          "message": "Async refinement encountered during synchronous parse operation. Use .parseAsync instead."
+        },
+        "nativeCandidate": {
+          "success": true,
+          "value": {
+            "answer": "ok"
+          }
+        }
+      },
+      "proposal": "Add cancellation-aware async preparation while retaining the synchronous API, one parse per stage, source identity, detached review input and authorization after validation. Async hooks and output review already exist."
+    },
+    {
+      "id": "durable-typed-structured-result",
+      "status": "planned_not_implemented",
+      "source": "docs/sdk/structured-output-review.md",
+      "proposal": "Design an independent accepted-result channel only after specifying JSON semantics, screening, durable attribution, cancellation and replay. The selected integrity fix does not add that channel or promise Zod-inferred runtime object types."
+    },
+    {
+      "id": "tool-mode-schema-retry-accounting",
+      "status": "reproduced_not_implemented",
+      "sources": [
+        "packages/sdk/src/runtime/query/iteration/index.ts",
+        "packages/sdk/src/runtime/query/checkpoint.ts",
+        "docs/sdk/native-structured-output.md"
+      ],
+      "localProbe": {
+        "schema": "z.object({ score: z.number() })",
+        "toolInput": {
+          "score": "bad"
+        },
+        "maxRetries": 0,
+        "maxIterations": 4,
+        "modelRequests": 4,
+        "stopReason": "max_iterations",
+        "externalModelRequests": 0
+      },
+      "proposal": "Count invalid tool-mode output candidates and prose corrections with a dedicated checkpointed schema-retry budget. Keep reviewer rejections and cumulative call reservations separate; preserve valid paired-candidate, cancellation, compaction and resume semantics."
+    }
+  ],
+  "verification": {
+    "status": "passed",
+    "workingTreeBasedOn": "4f66c934295c14bbc85074a8d4e23b8161f5ef12",
+    "platform": "Linux; no native Windows process or live Pal mutation required for these SDK contract changes",
+    "focusedChecks": [
+      {
+        "suite": "Structured-output integrity plus adjacent query contracts",
+        "filesPassed": 6,
+        "testsPassed": 78,
+        "newRealQueryRegressions": 14,
+        "status": "passed"
+      },
+      {
+        "suite": "Coordinator outcomes, planning status and adjacent task contracts",
+        "filesPassed": 9,
+        "testsPassed": 92,
+        "newCoordinatorRegressions": 12,
+        "newRealStoreRegressions": 17,
+        "status": "passed"
+      }
+    ],
+    "rootValidation": [
+      {
+        "command": "pnpm typecheck",
+        "status": "passed",
+        "exitCode": 0
+      },
+      {
+        "command": "pnpm lint",
+        "status": "passed",
+        "exitCode": 0
+      },
+      {
+        "command": "pnpm -r build",
+        "status": "passed",
+        "exitCode": 0
+      },
+      {
+        "command": "pnpm -r --no-sort test",
+        "status": "passed",
+        "scope": "All workspace package test scripts, after fresh workspace build; only package scheduling order changes, no tests are filtered or skipped by this option.",
+        "sdk": {
+          "filesPassed": 902,
+          "testsPassed": 10169
+        },
+        "desktop": {
+          "filesPassed": 67,
+          "testsPassed": 620
+        },
+        "sandbox": {
+          "filesPassed": 103,
+          "testsPassed": 1857,
+          "testsSkipped": 3
+        },
+        "exitCode": 0,
+        "packageResults": {
+          "packages/computer-use": {
+            "testsPassed": 165,
+            "testsSkipped": 0
+          },
+          "packages/browser": {
+            "testsPassed": 133,
+            "testsSkipped": 42
+          },
+          "packages/ag-ui": {
+            "testsPassed": 189,
+            "testsSkipped": 0
+          },
+          "packages/desktop": {
+            "testsPassed": 620,
+            "testsSkipped": 0
+          },
+          "packages/live": {
+            "testsPassed": 25,
+            "testsSkipped": 0
+          },
+          "packages/lsp": {
+            "testsPassed": 27,
+            "testsSkipped": 0
+          },
+          "packages/providers/anthropic": {
+            "testsPassed": 259,
+            "testsSkipped": 44
+          },
+          "packages/files": {
+            "testsPassed": 48,
+            "testsSkipped": 11
+          },
+          "packages/providers/bedrock": {
+            "testsPassed": 127,
+            "testsSkipped": 0
+          },
+          "packages/providers/deepseek": {
+            "testsPassed": 44,
+            "testsSkipped": 0
+          },
+          "packages/providers/google": {
+            "testsPassed": 29,
+            "testsSkipped": 0
+          },
+          "packages/providers/http": {
+            "testsPassed": 83,
+            "testsSkipped": 10
+          },
+          "packages/providers/lmstudio": {
+            "testsPassed": 29,
+            "testsSkipped": 0
+          },
+          "packages/providers/ollama": {
+            "testsPassed": 36,
+            "testsSkipped": 0
+          },
+          "packages/providers/openrouter": {
+            "testsPassed": 80,
+            "testsSkipped": 0
+          },
+          "packages/providers/openai": {
+            "testsPassed": 129,
+            "testsSkipped": 0
+          },
+          "packages/providers/zen": {
+            "testsPassed": 261,
+            "testsSkipped": 0
+          },
+          "packages/telemetry": {
+            "testsPassed": 33,
+            "testsSkipped": 0
+          },
+          "packages/sandbox": {
+            "testsPassed": 1857,
+            "testsSkipped": 3
+          },
+          "packages/sdk": {
+            "testsPassed": 10169,
+            "testsSkipped": 0
+          },
+          "packages/cli": {
+            "testsPassed": 5157,
+            "testsSkipped": 6
+          }
+        },
+        "cli": {
+          "filesPassed": 557,
+          "testsPassed": 5157,
+          "testsSkipped": 6
+        }
+      },
+      {
+        "command": "pnpm docs:check",
+        "status": "passed",
+        "exitCode": 0,
+        "okfPages": 143
+      },
+      {
+        "command": "pnpm docs:fences",
+        "status": "passed",
+        "exitCode": 0,
+        "compiledDocFences": 115,
+        "compiledPackageReadmes": 21,
+        "declaredSketchesSkipped": 15
+      }
+    ],
+    "limitations": [
+      "No live inference success-rate or cost comparison.",
+      "No upstream test suites executed.",
+      "This is not the complete pre-push CI gate set; no push was requested."
+    ],
+    "sourceDigestsSha256": {
+      "packages/sdk/src/runtime/query/iteration/index.ts": "ac4dc0c0c287d756afa78779f247efcaff8cf522d45d36713ab2b83dcff20dcb",
+      "packages/sdk/src/tools/coordinator/index.ts": "41676e36e094410b8aff2410463be239e290ce7a572f81ffa295e55cf7fc362e",
+      "packages/sdk/src/tools/task/update.ts": "c16b5d31cb393e15e10719e4640692b501e680fe34a99671f1c3f2107f3753a5",
+      "packages/sdk/src/tools/task/present.ts": "d209eee714439aa144937861bbf0a2999c06eefaa87c2698755bc033bbd30034",
+      "packages/sdk/src/runtime/query/__tests__/structured-output-integrity.test.ts": "acf0badb8a870f4d396f388343f3a3a6dcb9c6205b081888a20a907e1c167058",
+      "packages/sdk/src/tools/coordinator/__tests__/waiting-preserves-the-worker-outcome.test.ts": "9f210004122da19c026a9482fe9a0143ef2a2f388513e8b0043c152471ee1eeb",
+      "packages/sdk/src/tools/task/__tests__/a-refused-status-is-not-a-success.test.ts": "b66891c4c44915a11d6efbf211b630e94d89e69118108cb4407abb7c2970203f",
+      "packages/sdk/src/tools/task/__tests__/task-tools-read-as-words.test.ts": "9cd1c8c298c55a918a37ea5400087b06f7f9ac1c2131957310a5939f2a16a8e7"
+    },
+    "earlierWorkspaceAttempts": [
+      {
+        "status": "failed_before_final_source_freeze",
+        "sdkFilesPassed": 901,
+        "sdkFilesFailed": 1,
+        "sdkTestsPassed": 10159,
+        "sdkTestsFailed": 9,
+        "explanation": "The run began before the adjacent create_task result-text correction was finalized. The expanded coordinator tests observed the previous empty-answer and failed-state fallback behavior. A fresh complete run after all source/test edits froze is required and is in progress."
+      },
+      {
+        "status": "failed_before_concise_tool_instruction_correction",
+        "sdkFilesPassed": 902,
+        "sdkTestsPassed": 10169,
+        "cliFilesPassed": 556,
+        "cliFilesFailed": 1,
+        "cliTestsPassed": 5156,
+        "cliTestsFailed": 1,
+        "cliTestsSkipped": 6,
+        "failedTest": "packages/cli/src/memory/provider-boundary.test.ts: re-bounds memory against a smaller model selected by a later preparation stage",
+        "cause": "Expanded task_update instructions cost roughly 55 additional estimated catalogue tokens, enough to cut the curated-profile heading under the unchanged small-model memory allocation.",
+        "correction": "Keep equivalent task instruction semantics in 304 characters, below the 332-character baseline, without changing memory budgeting or assertions.",
+        "confirmation": {
+          "command": "pnpm --filter @namzu/cli test src/memory/provider-boundary.test.ts",
+          "filesPassed": 1,
+          "testsPassed": 15,
+          "status": "passed"
+        }
+      }
+    ],
+    "verifiedAtUtc": "2026-10-06T01:53:35Z",
+    "newRegressionTests": 43,
+    "externalModelRequests": 0
+  }
+}

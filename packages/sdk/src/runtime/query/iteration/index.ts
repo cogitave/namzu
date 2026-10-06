@@ -2155,13 +2155,12 @@ export class IterationOrchestrator {
 		try {
 			parsed = JSON.parse(hit.output)
 		} catch {
-			// The tool serializes its own validated input, so this is
-			// unreachable in practice; keep the raw text rather than losing it.
-			if (this.ctx.structuredOutput?.review)
-				throw new Error(
-					'Structured review requires an intact JSON tool result; check tool-output limits and result transformations',
-				)
-			parsed = hit.output
+			// Screening, hooks or output budgeting can change the validated
+			// tool's receipt. A raw-text fallback is not a structured result;
+			// do not recover input/data that bypasses those boundaries either.
+			throw new Error(
+				'Structured output requires an intact JSON tool result; check result transformations, increase maxToolOutputChars to fit the result, or use native mode with a capable provider',
+			)
 		}
 		return this.reviewStructuredOutput(parsed, reviewRequest, model)
 	}

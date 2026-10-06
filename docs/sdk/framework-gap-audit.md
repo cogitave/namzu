@@ -1,7 +1,7 @@
 ---
 type: Analysis
 title: Framework and computer-use gap audit
-description: Source-verified implementation boundaries against Pydantic AI, AG-UI and OpenBot.
+description: Source-verified implementation boundaries against Pydantic AI, Herdr, AG-UI and OpenBot.
 resource: packages/sdk/src/index.ts
 tags: [sdk, harness, ag-ui, computer-use, verification]
 status: draft
@@ -23,6 +23,11 @@ had not supplied a repository URL. This is a bounded source audit, not a claim
 of exhaustive framework parity or measured model-quality superiority. Kernel
 contracts, optional capability packages, transport adapters and application UI
 are separate responsibilities.
+
+The source observations below describe that September baseline. The
+[October 6 follow-up](#october-6-follow-up) records current capabilities and
+newly reproduced defects; a historical gap is not evidence that the current
+implementation lacks a capability.
 
 ## What exists and was checked
 
@@ -98,7 +103,8 @@ approval, frontend tools or reconnect.
 ## Remaining kernel and harness differences
 
 **Structured-output host review and native query mode are implemented.**
-Namzu already validates structured output with Zod and bounded retries.
+Namzu already validates structured output with Zod; native schema corrections
+and host review each have their own bounded retry allowance.
 The audit found `reviewAnswer` only on the plain-text path. Optional
 [structured output review](structured-output-review.md) now checks JSON-decoded
 candidates before settlement, with bounded corrections, fail-closed errors and
@@ -121,14 +127,14 @@ and durable per-turn accounting for retries, nested calls and recovery. Pydantic
 before executing calls. Acceptance: a batch of three with only two calls left
 executes none; retries, nested calls and resumed turns have documented accounting.
 
-**Task status is stored but not automatically reminded each step.** The CLI
-owns durable task tools, yet its current per-step context contributes memory
-recall without a projection of current task status. The SDK already supplies
-`prepareStep.system` and `workingMemoryProvider`. Harness
+**Task reminders were a gap in the audited baseline and are now implemented.**
+The [CLI task context](../cli/task-context.md) now reads the durable planning
+store before each interactive request and checkpoint resume, selecting open
+and current-turn tasks. The SDK also supplies `prepareStep.system` and
+`workingMemoryProvider`. Harness
 [Planning](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/planning/_capability.py#L170)
-reads its plan before each request. This is a CLI composition opportunity;
-test next-request visibility after compaction and measure saved repeated work
-against extra prompt tokens before enabling a blanket reminder.
+reads its plan before each request. The current Namzu composition should be
+evaluated for useful context and prompt cost, rather than treated as absent.
 
 **External workflow engines are an optional integration gap.** Namzu already
 has fenced claims, injectable session-log and checkpoint stores and completed-call recovery.
@@ -189,3 +195,44 @@ reaches `output_config.format` alongside effort. Real vendor-SDK loopback tests
 verify the body and local refusal of unsupported format variants. Native mode
 selection and local validation inside `query` are now implemented; see
 [native structured output](native-structured-output.md).
+
+## October 6 follow-up
+
+Reviewed current Namzu from `4f66c9342` against official
+[Pydantic AI output contracts](https://pydantic.dev/docs/ai/core-concepts/output/)
+and source revision `6e133c533696a7c12802c3ca6891a4b0fb8e765b`, plus
+[Herdr agent lifecycle reporting](https://herdr.dev/docs/agent-automation/)
+at `3d9d2b18dab139ba226ebc5a1c9a9f2c9c3ee4df`. The
+[comparison receipt](../../research/workflow-peers-20261006/comparison.json)
+records source references, reproductions and verification. No peer SDK was
+embedded and no live model calls were needed.
+
+Namzu already has schema validation, native output, async host review,
+deferred toolsets, approval and question resume, durable checkpoints,
+cumulative tool-call budgets, task context and delegated execution. Its Pal
+composition also has persistent identity, local computer control and durable
+directed messages. These foundations should be strengthened rather than
+reimplemented from a peer's feature list.
+
+This follow-up corrects three reproduced outcome defects:
+
+| Defect | Corrected contract |
+| --- | --- |
+| A bounded structured tool receipt could become invalid JSON and still settle as a raw string when no reviewer was configured. | [Structured settlement](structured-output-review.md) requires intact retained JSON with or without a reviewer; failure never bypasses screening by recovering raw input. |
+| Waiting for a completed worker could report success despite a failed or partial turn, and empty answer text could hide its recorded error. | [Delegated waits](task-tracking.md#delegated-execution-and-reported-outcomes) use the actual turn outcome and retain the explanation. |
+| A store could refuse a backward planning-status change while `task_update` reported a hidden successful update. | [Planning updates](task-tracking.md#planning-outcomes-and-dependencies) report a requested/returned status mismatch honestly, including possible separately applied edits or concurrent changes. |
+
+The comparison also reproduced two remaining validation inconsistencies:
+tool-mode structured schema failures do not all consume `maxRetries`, and
+async Zod refinements accepted in native mode fail in synchronous tool
+preparation. Follow-up work must give tool-mode schema retries their own
+checkpointed accounting and add cancellation-aware async preparation while
+preserving the existing synchronous API and authorization boundary. Reviewer
+rejections are a separate counter and must not be reused for schema failures.
+
+A durable structured result separate from bounded model-visible receipts is
+another follow-up. It needs a JSON-safe result contract and recovery evidence;
+reading raw tool arguments is not a substitute. Full deferred capability
+bundles and external workflow-engine adapters remain broader design work.
+These findings establish concrete contracts, not exhaustive parity or a claim
+that either framework produces better model answers.

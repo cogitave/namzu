@@ -403,6 +403,29 @@ function delegatedAnswer(
 	return result?.result
 }
 
+/** Keep an empty answer from hiding the worker's error on any result path. */
+function delegatedResultText(completed: Pick<TaskHandle, 'state' | 'result'>): {
+	resultText: string
+	outputText: string
+} {
+	const success = taskSucceeded(completed)
+	const answer = delegatedAnswer(completed.result)
+	const lastError = completed.result?.lastError
+	const outcomeText = `Task finished with outcome: ${failureLabel(completed)}`
+	const resultText =
+		(answer?.trim() ? answer : lastError) ||
+		(success ? `Task finished with state: ${completed.state}` : outcomeText)
+	const outputText =
+		success || resultText === outcomeText
+			? resultText
+			: [
+					outcomeText,
+					...(lastError && lastError !== resultText ? [`Error: ${lastError}`] : []),
+					resultText,
+				].join('\n')
+	return { resultText, outputText }
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -719,14 +742,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					: gateway.waitForTask(handle.taskId)
 				const completion = workerCompletion.then(async (completed) => {
 					const success = taskSucceeded(completed)
-					const resultText =
-						delegatedAnswer(completed.result) ??
-						completed.result?.lastError ??
-						`Task finished with state: ${failureLabel(completed)}`
+					const { outputText } = delegatedResultText(completed)
 					if (resolvedPlanTaskId && taskStore) {
 						const updated = await taskStore.update(asTaskId(resolvedPlanTaskId), {
 							status: success ? 'completed' : 'failed',
-							description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
+							description: success ? undefined : `Failed: ${outputText.substring(0, 200)}`,
 						})
 						if (!updated)
 							throw new Error(
@@ -735,7 +755,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					}
 					reportStep(
 						success ? 'completed' : 'failed',
-						success ? undefined : resultText.slice(0, 200),
+						success ? undefined : outputText.slice(0, 200),
 					)
 					return completed
 				})
@@ -822,10 +842,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// `isError: false`, while writing the plan task closed as though
 			// the work had been done.
 			const success = taskSucceeded(completed)
-			const resultText =
-				delegatedAnswer(completed.result) ??
-				completed.result?.lastError ??
-				`Task finished with state: ${failureLabel(completed)}`
+			const { resultText, outputText } = delegatedResultText(completed)
 
 			return {
 				success,
@@ -850,7 +867,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						attributes: { agent: agent_id, task: handle.taskId },
 						provenance: `This is the output of the delegated agent "${agent_id}", not this agent's own work.`,
 					},
-					resultText,
+					outputText,
 				),
 				data: {
 					task_id: handle.taskId,
@@ -942,11 +959,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			}
 			completionInbox?.claim(taskId)
 
-			const success = completed.state === 'completed'
-			const resultText =
-				delegatedAnswer(completed.result) ??
-				completed.result?.lastError ??
-				`Task finished with state: ${completed.state}`
+			// Finishing the invocation does not prove the worker succeeded. Use
+			// the same two-authority check as the call that launched this task.
+			const success = taskSucceeded(completed)
+			const lastError = completed.result?.lastError
+			const { resultText, outputText } = delegatedResultText(completed)
 			return {
 				success,
 				output: wrapUntrusted(
@@ -955,12 +972,16 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						attributes: { agent: completed.agentId, task: completed.taskId },
 						provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
 					},
-					resultText,
+					outputText,
 				),
 				data: {
 					task_id,
 					agent_id: completed.agentId,
 					state: completed.state,
+					...(completed.result?.status === undefined
+						? {}
+						: { turn_status: completed.result.status }),
+					...(lastError === undefined || lastError === null ? {} : { last_error: lastError }),
 					result: resultText,
 				},
 			}

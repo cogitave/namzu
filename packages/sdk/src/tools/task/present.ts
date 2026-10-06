@@ -72,7 +72,7 @@ export function taskUpdateVerb(status: unknown): string {
 		case 'deleted':
 			return 'Remove task'
 		case 'pending':
-			return 'Reopen task'
+			return 'Set task pending'
 		default:
 			return 'Update task'
 	}
@@ -88,7 +88,22 @@ export function presentTaskUpdateCall(input: {
 }
 
 export function presentTaskUpdateResult(_input: unknown, result: ToolResult): ToolResultView {
-	if (!result.success) return failure(result, 'The task was not changed')
+	if (!result.success) {
+		const data = result.data as { status?: unknown; requestedStatus?: unknown } | undefined
+		if (
+			typeof data?.requestedStatus === 'string' &&
+			data.requestedStatus !== data.status &&
+			(data.status === 'pending' ||
+				data.status === 'in_progress' ||
+				data.status === 'completed' ||
+				data.status === 'failed')
+		)
+			return {
+				kind: 'generic',
+				label: `Task remains ${data.status.replace('_', ' ')}; other edits may have applied`,
+			}
+		return failure(result, 'The task was not changed')
+	}
 	return HIDDEN_RESULT
 }
 

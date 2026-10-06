@@ -71,12 +71,17 @@ Tool mode remains the default. [Native mode](native-structured-output.md) uses
 provider response schemas with local validation and the same host reviewer.
 Existing prose `reviewAnswer` behavior is unchanged.
 
-In tool mode, review reads the retained tool-result JSON, not a separate result artifact. The
-default tool-output budget is 40,000 characters. A truncated or transformed
-receipt that is no longer JSON fails before review; it cannot be accepted as
-validated output. Hosts expecting larger results must raise `maxToolOutputChars`
-(or explicitly set zero to disable that cap) and budget model context accordingly.
-A separate durable structured-result channel remains future work.
+In tool mode, settlement reads the retained tool-result JSON, not a separate
+result artifact. The default tool-output budget is 40,000 characters. A
+truncated or transformed receipt that is no longer JSON fails the turn before
+review, including when no reviewer is configured. No raw-text fallback is
+published in `Turn.structuredOutput`; the runtime does not recover raw tool
+input or data that would bypass result screening or hooks. Hosts expecting
+larger results must raise `maxToolOutputChars` (or explicitly set zero to
+disable that cap) and budget model context accordingly. Alternatively, select
+[native mode](native-structured-output.md) with a capable provider; native
+results do not pass through the tool-output preview cap. A separate durable
+structured-result channel remains future work.
 
 ## Anthropic provider-level native JSON format
 
