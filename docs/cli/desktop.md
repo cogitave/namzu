@@ -429,8 +429,16 @@ by the operator without allowing model work. Providers without the optional
 arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal-computer.md#exclusive-operator-control)
 document the boundary, including guest-process limitations.
 
-The top Pal status reveals Pause/Resume on hover or keyboard focus, and Connected
-reveals Stop computer in the same position. The card has no separate pause footer.
+The top Pal status reveals Pause/Resume on hover or keyboard focus. The computer
+status reveals Start computer over Offline, or Stop computer over Connected,
+in the same position; there is no separate start/stop button row in the card.
+Connecting is a status without a lifecycle action. A computer requiring stop
+recovery reveals Stop computer over Offline before another start is possible.
+When no stop recovery is required, unavailable start handlers, including paused
+Pals, leave Offline as plain text; disabled stop actions retain their status
+instead of showing an actionable label.
+Touch layouts show the available action in the same status position. The card
+has no separate pause footer.
 Stop computer is refused while known turns, queued messages, approvals or
 background jobs still own work. Cleanup failures retain a recovery notice and
 allow a stop retry. Pausing blocks new admissions, model steps and subsequent

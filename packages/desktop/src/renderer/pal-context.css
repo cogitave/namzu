@@ -391,14 +391,14 @@
 .pal-computer-status-placeholder {
 	opacity: 0;
 }
-.pal-computer-entry .pal-computer-stop {
+.pal-computer-entry .pal-computer-action {
 	position: absolute;
 	top: 25px;
 	left: 32px;
 	z-index: 1;
 	max-width: calc(100% - 96px);
 }
-.pal-computer-stop:disabled {
+.pal-computer-action:disabled {
 	pointer-events: auto;
 	cursor: default;
 }
@@ -408,13 +408,6 @@
 	font-size: 12px;
 	line-height: 18px;
 	overflow-wrap: anywhere;
-}
-.pal-computer-actions {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 4px;
-	margin-top: 10px;
 }
 .pal-context-empty {
 	margin: 0;

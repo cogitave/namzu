@@ -1,0 +1,506 @@
+{
+  "version": 1,
+  "passed": true,
+  "verifiedAt": "2026-10-06T11:38:31.896Z",
+  "origin": "http://127.0.0.1:5199/preview",
+  "scope": "Isolated browser design preview; actual PalContextCard with memory-only computer API stubs.",
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "guestActions": 0,
+  "nativeActions": 0,
+  "externalRequests": {
+    "allowed": 0,
+    "blocked": []
+  },
+  "checks": [
+    "No separate card lifecycle footer",
+    "Offline rest reveals Start on hover without target movement",
+    "Actual keyboard Tab reveals Start and Enter invokes exactly one synthetic startup",
+    "Connecting hides lifecycle actions",
+    "Connected rest reveals Stop on hover and click invokes synthetic stop",
+    "Paused offline has no Start action",
+    "Permission and working states disable Stop; disabled hover stays Connected and click cannot fall through to Open",
+    "Startup failure keeps inline Start retry available",
+    "Failed cleanup prioritizes Stop retry over Start",
+    "Short viewport preserves stable inline action target"
+  ],
+  "state": {
+    "computer": {
+      "status": "stopped"
+    },
+    "statusReads": 7,
+    "screenReads": 2,
+    "starts": [
+      "sample-pal-1"
+    ],
+    "stops": [
+      "sample-pal-1",
+      "sample-pal-1"
+    ],
+    "modelRequests": 0,
+    "sessionId": "sample-thread-7",
+    "projectId": "project-sample-pal-1",
+    "startPending": false
+  },
+  "measurements": [
+    {
+      "name": "offline-rest",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 1,
+        "hoverOpacity": 0,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "offline-hover",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "offline-keyboard",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": true,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "connecting",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 390
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": null
+    },
+    {
+      "name": "ready-rest",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 362
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Stop computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.6875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Connected",
+        "hover": "Stop computer",
+        "restOpacity": 1,
+        "hoverOpacity": 0,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "ready-hover",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 362
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Stop computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.6875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Connected",
+        "hover": "Stop computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "paused-offline",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": null
+    },
+    {
+      "name": "permission-disabled",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 362
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Stop computer",
+        "disabled": true,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.6875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Connected",
+        "hover": "Stop computer",
+        "restOpacity": 1,
+        "hoverOpacity": 0,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "working-disabled",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 362
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Stop computer",
+        "disabled": true,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.6875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Connected",
+        "hover": "Stop computer",
+        "restOpacity": 1,
+        "hoverOpacity": 0,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "failed-start-retry",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "cleanup-retry",
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 408
+      },
+      "entry": {
+        "x": 882.25,
+        "y": 250,
+        "width": 279.75,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Stop computer",
+        "disabled": false,
+        "box": {
+          "x": 914.25,
+          "y": 275,
+          "width": 85.6875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Stop computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "short-offline-rest",
+      "viewport": {
+        "width": 1024,
+        "height": 420
+      },
+      "card": {
+        "x": 768,
+        "y": 100,
+        "width": 240,
+        "height": 304
+      },
+      "entry": {
+        "x": 778,
+        "y": 250,
+        "width": 220,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 810,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 1,
+        "hoverOpacity": 0,
+        "pointerEvents": "auto"
+      }
+    },
+    {
+      "name": "short-offline-hover",
+      "viewport": {
+        "width": 1024,
+        "height": 420
+      },
+      "card": {
+        "x": 768,
+        "y": 100,
+        "width": 240,
+        "height": 304
+      },
+      "entry": {
+        "x": 778,
+        "y": 250,
+        "width": 220,
+        "height": 52
+      },
+      "footerCount": 0,
+      "documentOverflow": false,
+      "action": {
+        "label": "Start computer",
+        "disabled": false,
+        "box": {
+          "x": 810,
+          "y": 275,
+          "width": 85.96875,
+          "height": 20
+        },
+        "focusVisible": false,
+        "rest": "Offline",
+        "hover": "Start computer",
+        "restOpacity": 0,
+        "hoverOpacity": 1,
+        "pointerEvents": "auto"
+      }
+    }
+  ],
+  "screenshots": [
+    "pal-computer-status-offline-rest-20261006.png",
+    "pal-computer-status-offline-hover-20261006.png",
+    "pal-computer-status-connected-hover-20261006.png",
+    "pal-computer-status-cleanup-hover-20261006.png",
+    "pal-computer-status-short-hover-20261006.png"
+  ],
+  "faults": []
+}

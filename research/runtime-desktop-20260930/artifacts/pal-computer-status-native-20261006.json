@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "passed": true,
+  "verifiedAt": "2026-10-06T11:49:49.035Z",
+  "scope": "Deployed native Windows renderer; rest/hover/focus appearance checked with forced CSS pseudo-states, with no real computer lifecycle or control action.",
+  "sourceRendererManifestSha256": "094dfd6a45480ebce7681e008be41a35a0222dd82b50610b11d2cd0a12fc9671",
+  "sourceFiles": [
+    {
+      "file": "packages/desktop/src/renderer/pal-context.tsx",
+      "sha256": "ec3dc024a823503cf5e7d8943b62b28619f44283ddfd91df48d9c34a929e0398"
+    },
+    {
+      "file": "packages/desktop/src/renderer/pal-context.css",
+      "sha256": "f6fb1389f379d4c278d5bb5e92d57be1901d68cc533ba30fed145883328e7c64"
+    }
+  ],
+  "assetRefs": [
+    "assets/index--pQH62ld.js",
+    "assets/index-Q29K7iuO.css"
+  ],
+  "deployment": {
+    "rendererApplied": true,
+    "rendererReloaded": true,
+    "previousRendererBackedUp": true,
+    "desktopProcessRestarted": false,
+    "before": {
+      "activePal": "Kiro",
+      "taskCount": 0,
+      "transcriptProgressCount": 0,
+      "cardSeparateActionCount": 1,
+      "cardStatusActionCount": 0
+    },
+    "after": {
+      "activePal": "Kiro",
+      "taskCount": 0,
+      "transcriptProgressCount": 0,
+      "cardSeparateActionCount": 0,
+      "cardStatusActionCount": 1
+    }
+  },
+  "initialDeploymentCheck": {
+    "passed": false,
+    "storedStateDifferences": [],
+    "presentationDifferences": [
+      "focus"
+    ],
+    "reason": "Renderer reload reset DOM focus; the original focus descriptor was not retained, so exact restoration was not claimed."
+  },
+  "state": {
+    "openSessions": 2,
+    "originalPersistentStatePreserved": true,
+    "persistentStateSha256": "239ad2fd9ffa090171ae67f89dc78bb5876efb6d8aa14b142dbce35cd392f2eb",
+    "activeTabAndScrollPreservedAtReload": true,
+    "originalDomFocusPreservedAcrossReload": false,
+    "exactOriginalFocusRestorationAvailable": false,
+    "currentFocus": "BODY",
+    "currentFullPresentationPreservedAcrossProbes": true,
+    "currentPresentationSha256": "dad95efcdfff783c214b592b3a0777cadb05bff47e5606305fb857b7ca607ac3"
+  },
+  "nativeProcesses": {
+    "desktopPid": 69128,
+    "ownedAcpCount": 6,
+    "originalPidsAndCreationDatesPreserved": true
+  },
+  "appearance": {
+    "rest": {
+      "restText": "Offline",
+      "revealText": "Start computer",
+      "restOpacity": 1,
+      "revealOpacity": 0,
+      "disabled": false,
+      "ariaLabel": "Start computer"
+    },
+    "hover": {
+      "restText": "Offline",
+      "revealText": "Start computer",
+      "restOpacity": 0,
+      "revealOpacity": 1,
+      "disabled": false,
+      "ariaLabel": "Start computer"
+    },
+    "focus-visible": {
+      "restText": "Offline",
+      "revealText": "Start computer",
+      "restOpacity": 0,
+      "revealOpacity": 1,
+      "disabled": false,
+      "ariaLabel": "Start computer"
+    }
+  },
+  "verification": {
+    "allNativeHoverAndFocusAppearanceChecksUseForcedCss": true,
+    "forcedPseudoStatesCleared": true,
+    "observedPageErrors": 0,
+    "errorScope": "During the final verification observer only",
+    "rendererManifestMatchesReviewedSource": true,
+    "runtimeFilesUnchangedDuringVerification": true,
+    "realPointerTabAndCallbackProof": "pal-computer-status-browser-20261006.json"
+  },
+  "effects": {
+    "deploymentRendererReloads": 1,
+    "verification": {
+      "modelRequests": 0,
+      "guestCalls": 0,
+      "computerStarts": 0,
+      "computerStops": 0,
+      "controlChanges": 0,
+      "clicks": 0,
+      "pointerMoves": 0,
+      "focusRestorations": 0,
+      "scrollWrites": 0,
+      "disclosureWrites": 0,
+      "preferenceWrites": 0,
+      "processRestarts": 0,
+      "reloads": 0,
+      "rendererWrites": 0
+    }
+  },
+  "limitations": [
+    "Connected Stop, connecting, paused, disabled and recovery branches use isolated memory fixtures; the native computer stayed stopped.",
+    "The initial strict deployment check failed only on DOM focus. A read-only inspection found no unique target reproducing the original presentation hash; no focus, scroll or preference mutation was made to guess a replacement.",
+    "The final native check proves current rest, forced hover and forced focus-visible styling and state preservation during those probes. Real native Start/Stop was not exercised."
+  ],
+  "checks": {
+    "workspaceTypecheck": "passed",
+    "workspaceLint": "passed with 12 pre-existing CLI warnings",
+    "workspaceTests": "passed",
+    "packageTests": [
+      {
+        "package": "packages/files",
+        "passed": 48,
+        "skipped": 11
+      },
+      {
+        "package": "packages/sdk",
+        "passed": 10269,
+        "skipped": 0
+      },
+      {
+        "package": "packages/desktop",
+        "passed": 620,
+        "skipped": 0
+      },
+      {
+        "package": "packages/computer-use",
+        "passed": 165,
+        "skipped": 0
+      },
+      {
+        "package": "packages/browser",
+        "passed": 133,
+        "skipped": 42
+      },
+      {
+        "package": "packages/ag-ui",
+        "passed": 189,
+        "skipped": 0
+      },
+      {
+        "package": "packages/live",
+        "passed": 25,
+        "skipped": 0
+      },
+      {
+        "package": "packages/lsp",
+        "passed": 27,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/anthropic",
+        "passed": 259,
+        "skipped": 44
+      },
+      {
+        "package": "packages/providers/bedrock",
+        "passed": 127,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/http",
+        "passed": 83,
+        "skipped": 10
+      },
+      {
+        "package": "packages/providers/google",
+        "passed": 29,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/deepseek",
+        "passed": 44,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/lmstudio",
+        "passed": 29,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/ollama",
+        "passed": 36,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/openrouter",
+        "passed": 80,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/zen",
+        "passed": 261,
+        "skipped": 0
+      },
+      {
+        "package": "packages/providers/openai",
+        "passed": 129,
+        "skipped": 0
+      },
+      {
+        "package": "packages/telemetry",
+        "passed": 33,
+        "skipped": 0
+      },
+      {
+        "package": "packages/sandbox",
+        "passed": 1857,
+        "skipped": 3
+      },
+      {
+        "package": "packages/cli",
+        "passed": 5157,
+        "skipped": 6
+      }
+    ],
+    "desktopProductionBuild": "passed",
+    "docsCheck": "passed",
+    "browserProof": "passed",
+    "nativeCurrentStateProof": "passed",
+    "diffCheck": "passed"
+  }
+}

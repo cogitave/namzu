@@ -105,7 +105,12 @@ function PalContextBody({
 			: computer.status === 'connecting'
 				? 'Connecting…'
 				: 'Offline'
-	const inlineStop = computer.status === 'ready' && !!onStopComputer
+	const computerAction =
+		computer.status !== 'connecting' && onStopComputer
+			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
+			: computer.status === 'error' && onStartComputer
+				? { label: 'Start computer', onClick: onStartComputer, disabled: false }
+				: undefined
 	return (
 		<div className="pal-context-body">
 			<header className="pal-context-heading">
@@ -182,8 +187,8 @@ function PalContextBody({
 						<span className="pal-context-copy">
 							<strong title={computer.name}>{computer.name}</strong>
 							<span
-								className={`pal-computer-status${inlineStop ? ' pal-computer-status-placeholder' : ''}`}
-								aria-hidden={inlineStop || undefined}
+								className={`pal-computer-status${computerAction ? ' pal-computer-status-placeholder' : ''}`}
+								aria-hidden={!!computerAction || undefined}
 							>
 								{computerStatus}
 							</span>
@@ -198,23 +203,23 @@ function PalContextBody({
 							)}
 						</span>
 					</Button>
-					{inlineStop && (
+					{computerAction && (
 						<>
 							<output className="sr-only" aria-live="polite">
 								{computerStatus}
 							</output>
 							<Button
 								variant="ghost-muted"
-								className="pal-status-action pal-computer-stop"
-								aria-label="Stop computer"
-								disabled={stopComputerDisabled}
-								onClick={onStopComputer}
+								className="pal-status-action pal-computer-action"
+								aria-label={computerAction.label}
+								disabled={computerAction.disabled}
+								onClick={computerAction.onClick}
 							>
 								<span className="pal-status-rest" aria-hidden="true">
 									<span>{computerStatus}</span>
 								</span>
 								<span className="pal-status-hover" aria-hidden="true">
-									<span>Stop computer</span>
+									<span>{computerAction.label}</span>
 								</span>
 							</Button>
 						</>
@@ -232,30 +237,6 @@ function PalContextBody({
 					</div>
 				)}
 				{computer.notice && <p className="pal-context-note">{computer.notice}</p>}
-				{computer.status !== 'ready' && (onStartComputer || onStopComputer) && (
-					<div className="pal-computer-actions">
-						{onStartComputer && (
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={computer.status === 'connecting'}
-								onClick={onStartComputer}
-							>
-								Start computer
-							</Button>
-						)}
-						{onStopComputer && (
-							<Button
-								variant="ghost-muted"
-								size="sm"
-								onClick={onStopComputer}
-								disabled={stopComputerDisabled}
-							>
-								Stop computer
-							</Button>
-						)}
-					</div>
-				)}
 			</section>
 			{tasks && (tasks.tasks.length > 0 || tasks.tasksNotice) && (
 				<div className="pal-context-section pal-context-tasks">

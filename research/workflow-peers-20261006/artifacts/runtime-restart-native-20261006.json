@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "passed": true,
+  "sourceRevision": "5a0a1f757",
+  "at": "2026-10-06T11:33:01.350Z",
+  "scope": "User-approved native Windows SDK/CLI activation and fresh desktop launch. No real provider inference or guest interaction.",
+  "prelaunch": {
+    "freshOwnedDesktopProcesses": 0,
+    "desktopWasAlreadyClosed": true,
+    "forcedProcessCloses": 0,
+    "freshBeforeCloseFullStateSnapshotAvailable": false
+  },
+  "activation": {
+    "nativeWindows": true,
+    "node": "v22.20.0",
+    "payloadFiles": 2433,
+    "copiedFiles": 37,
+    "backedUpFiles": 37,
+    "newFiles": 0,
+    "payloadSha256": "1e998abd04c12201a026cb9d33c351ee45a20aca5ab468ab3d627d55e27e2d1e",
+    "sourceManifestHash": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "targetManifestHash": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "packageGraphEqual": true,
+    "graphManifestChanged": false,
+    "nodeModulesOrJunctionsChanged": false,
+    "deletions": 0,
+    "packageInstalls": 0,
+    "modelRequests": 0
+  },
+  "activeGraph": {
+    "passed": true,
+    "platform": "win32",
+    "node": "v22.20.0",
+    "packages": 130,
+    "copiedWorkspacePackages": 13,
+    "links": 225,
+    "singleSdkRoot": true,
+    "zenRegistration": true,
+    "registryTypes": [
+      "mock",
+      "zen"
+    ],
+    "runtimeAssets": [
+      "assets/pal-blender-mcp.py",
+      "assets/pal-godot-mcp.cjs",
+      "assets/pal-godot-mcp-pin.json"
+    ],
+    "networkCalls": 0,
+    "profilesOrSessionsTouched": false
+  },
+  "activeProductionFiles": [
+    {
+      "label": "sdk/pals/prompt",
+      "sha256": "0f507ad9599b9da40f31356754adda15630d6ca5369accad346b7d4a1477d997",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/index",
+      "sha256": "229ac5d942ef1c57bde6df1b4656a890e5f67ee0d2fe2fab9df440b9cc775a77",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/iteration",
+      "sha256": "85d57c8013266c3ab033388239dd40e7497ae1642c21e30ae39341fa1ced3986",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/executor",
+      "sha256": "3711d29539ad8ec84c8da8fc90e30b6e0468422c490836ca3c10d47d72cedd48",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/admission",
+      "sha256": "5f25e6484ebdc6e65aed94a24efe98b1060fa8be1101ddd185107740fe5f5ef7",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/tool-executions",
+      "sha256": "d4b64538ce8ac2f9b01c14a1de1e75da7dd1deb8fdd6eb95de57524f3ea9a26d",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/query/resume-pending",
+      "sha256": "8c36617e4b7ddd16c4e6e0491f766e50cf72508553e711109a967e4fd16b4118",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "sdk/session/records",
+      "sha256": "b2474bd305c6980e8b2e0a5d5e68909ad59944d09997f89f4a0171dfad68233d",
+      "matchesCurrentBuildAndTestedStage": true
+    },
+    {
+      "label": "cli/pals/agent-session",
+      "sha256": "d78260f4241a2b86a4a7b603636eac2b18eb4f5af3486a7098a7ff228a05bdcd",
+      "matchesCurrentBuildAndTestedStage": true
+    }
+  ],
+  "isolatedNativeMockProbe": {
+    "result": "passed",
+    "verifiedAt": "2026-10-06T11:31:15.218Z",
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v22.20.0",
+    "manifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "packageCount": 130,
+    "verifiedLinks": 225,
+    "sdkUsers": 11,
+    "singleSdkRoot": true,
+    "presenceCases": [
+      "operator",
+      "pal",
+      "transitioning",
+      "unavailable"
+    ],
+    "skipProofs": [
+      {
+        "kind": "structured-output",
+        "withReview": false,
+        "requests": 2,
+        "result": {
+          "score": 2
+        },
+        "skippedReceiptMarked": true,
+        "skipChargedSchemaCorrection": false
+      },
+      {
+        "kind": "structured-output",
+        "withReview": true,
+        "requests": 2,
+        "result": {
+          "score": 2
+        },
+        "skippedReceiptMarked": true,
+        "skipChargedSchemaCorrection": false
+      },
+      {
+        "kind": "terminal-answer",
+        "requests": 2,
+        "actualExecutions": 0,
+        "resultFromNextModelTurn": true,
+        "skippedReceiptMarked": true
+      }
+    ],
+    "structuredOutputProbe": {
+      "mode": "tool",
+      "provider": "MockLLMProvider",
+      "maxRetries": 0,
+      "requests": 1,
+      "stopReason": "structured_output_failed",
+      "structuredValuePublished": false,
+      "checkpoints": 1,
+      "review": {
+        "structuredAttempts": 0,
+        "answerAttempts": 0,
+        "nativeStructuredAttempts": 0,
+        "toolStructuredAttempts": 1
+      },
+      "toolResults": 1,
+      "toolResultIsError": true,
+      "toolInputFailure": "schema_validation"
+    },
+    "modelRequestsToRealProviders": 0,
+    "networkCalls": 0,
+    "packageInstallCalls": 0
+  },
+  "postLaunch": {
+    "observationProvenance": "transcribed_summary_from_observed_tool_stdout",
+    "observedAt": "2026-10-06T11:33:01.350Z",
+    "desktopPid": 69128,
+    "ownedAcpPids": [
+      9028,
+      30584,
+      35356,
+      47096,
+      83628,
+      85992
+    ],
+    "allOwnedAcpParentCurrentMain": true,
+    "allOwnedAcpCurrentCliTarget": true,
+    "allOwnedAcpDesktopMode": true,
+    "processInventoryUnchangedDuringObserver": true,
+    "workspace": {
+      "windowCount": 1,
+      "openTabCount": 2,
+      "focusedPal": "Kiro",
+      "pendingTransfer": false,
+      "outgoingTransfer": false,
+      "closingWindow": false
+    },
+    "restoredConversations": [
+      {
+        "pal": "Sıtkı",
+        "messageCount": 12,
+        "taskStatuses": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "idle": true,
+        "draftCharacters": 0,
+        "unsavedDraft": false,
+        "computerStatus": "stopped",
+        "generation": null
+      },
+      {
+        "pal": "Kiro",
+        "messageCount": 4,
+        "taskStatuses": [],
+        "idle": true,
+        "draftCharacters": 0,
+        "unsavedDraft": false,
+        "computerStatus": "stopped",
+        "generation": null
+      }
+    ],
+    "rendererObservedPageErrors": 0,
+    "rendererObservedConsoleErrors": 0,
+    "errorObservationScope": "after CDP attachment only",
+    "logDelta": {
+      "stdout": {
+        "baselineBytes": 14,
+        "currentBytes": 16,
+        "nonemptyLines": 0
+      },
+      "stderr": {
+        "baselineBytes": 16143,
+        "currentBytes": 16243,
+        "nonemptyLines": 1,
+        "devToolsListeningLines": 1,
+        "otherNonemptyLines": 0
+      },
+      "rawLogLinesExported": false
+    },
+    "observerEffects": {
+      "modelRequests": 0,
+      "guestCalls": 0,
+      "computerStarts": 0,
+      "computerStops": 0,
+      "controlChanges": 0,
+      "reloads": 0,
+      "preferencesWrites": 0
+    }
+  },
+  "limitations": [
+    "The desktop was already closed at fresh prelaunch inspection. This receipt does not claim a before-close full-state comparison or that this turn closed a running guest.",
+    "Restoration records observed postlaunch conversation counts and current state; no message bodies or private profile context are exported.",
+    "Both Pal computers remained stopped after launch; no computer was started for this verification.",
+    "Prompt presence branches and query behavior were tested in isolated native mock probes and active file hash comparisons. A fresh live model reply was not requested."
+  ]
+}
