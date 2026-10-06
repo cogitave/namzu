@@ -58,6 +58,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
+import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import {
 	type ToolAdmissionHost,
@@ -313,6 +314,8 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
 	tools: ToolManager
+	/** Exact runtime output-tool owner allowed to retain post-screen, post-hook JSON before preview capping. */
+	durableStructuredOutputTool?: ToolDefinition
 	sessionId: SessionId
 	turnId: TurnId
 	workingDirectory: string
@@ -504,6 +507,8 @@ export interface ToolCallOutcome {
 	inputFailure?: CompletedToolRecord['inputFailure']
 	/** A pre-tool hook deliberately skipped execution; its receipt is not an output candidate. */
 	skipped?: true
+	/** Opt-in execution evidence, never provider content or accepted output. */
+	structuredResultJson?: string
 	/** The tool asked for a person; see `ToolResult.handoff`. */
 	handoff?: ToolHandoff
 	/**
@@ -543,7 +548,7 @@ export type ToolCallDenials = ReadonlyMap<string, string>
  */
 export type PriorToolResult = Pick<
 	CompletedToolRecord,
-	'result' | 'isError' | 'inputFailure' | 'skipped'
+	'result' | 'isError' | 'inputFailure' | 'skipped' | 'structuredResultJson'
 >
 export type PriorToolResults = ReadonlyMap<string, PriorToolResult>
 
@@ -1171,6 +1176,9 @@ export class ToolExecutor {
 					isError: recovered.isError,
 					...(recovered.inputFailure ? { inputFailure: recovered.inputFailure } : {}),
 					...(recovered.skipped ? { skipped: true as const } : {}),
+					...(recovered.structuredResultJson !== undefined
+						? { structuredResultJson: recovered.structuredResultJson }
+						: {}),
 				}
 				if (isBarrier) schedule(async () => {}, true, true)
 				return
@@ -1962,6 +1970,28 @@ export class ToolExecutor {
 		}
 		const maxToolOutputChars = this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS
 		const sourceOutput = output
+		// This owner-bound channel follows the selected receipt after both result
+		// screening and post-tool replacement. ToolResult.data and raw input can
+		// still carry pre-redaction values and must never be promoted here.
+		let structuredResultJson: string | undefined
+		if (
+			prepared &&
+			executedDefinition !== undefined &&
+			executedDefinition === this.config.durableStructuredOutputTool &&
+			toolName === 'structured_output' &&
+			toolCall.function.name === 'structured_output' &&
+			result.success &&
+			!postOverride?.isError &&
+			!this.config.abortSignal.aborted
+		) {
+			try {
+				parseStructuredResultJson(sourceOutput)
+				structuredResultJson = sourceOutput
+			} catch {
+				// Keep the completion receipt: malformed host output fails at the
+				// normal candidate-integrity boundary, never as a schema correction.
+			}
+		}
 
 		// Compression is opportunistic and shell-only; the budget is the
 		// hard bound that applies to every final tool result, including a
@@ -2072,6 +2102,7 @@ export class ToolExecutor {
 		// call it has already removed. Detached work reporting after a timeout is
 		// ignored because close() also revokes the publisher.
 		await settleProgress()
+		if (this.config.abortSignal.aborted) structuredResultJson = undefined
 		await this.emitEvent({
 			type: 'tool_completed',
 			turnId: this.config.turnId,
@@ -2083,6 +2114,7 @@ export class ToolExecutor {
 				: {}),
 			isError: effectiveIsError,
 			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
+			...(structuredResultJson !== undefined ? { structuredResultJson } : {}),
 			durationMs,
 			// Pre-truncation size, so a host can show "returned 2.1 MB" even
 			// though the model only ever saw a preview.
@@ -2116,6 +2148,7 @@ export class ToolExecutor {
 			output,
 			isError: effectiveIsError,
 			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
+			...(structuredResultJson !== undefined ? { structuredResultJson } : {}),
 			// Rich content follows the override's own decision.
 			//
 			// An ERROR override drops it: the payload is no longer the tool's,

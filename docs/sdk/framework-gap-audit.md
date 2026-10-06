@@ -253,9 +253,16 @@ remain effective. Legacy records without the field are unchanged, and receipt
 text or a tool-authored field cannot manufacture the classification. See
 [tool execution](tool-execution.md) and [structured settlement](structured-output-review.md).
 
-A durable structured result separate from bounded model-visible receipts is
-another follow-up. It needs a JSON-safe result contract and recovery evidence;
-reading raw tool arguments is not a substitute. Full deferred capability
-bundles and external workflow-engine adapters remain broader design work.
+Tool mode now offers opt-in `toolResultRetention: 'durable'`: the exact runtime
+output tool retains screened, post-hook JSON independently of its capped preview.
+Verified completions and recovered outcomes preserve that candidate evidence;
+no raw arguments or stale `ToolResult.data` bypass result processing. Default
+receipt settlement is unchanged. The session record ceiling still applies,
+and recovery still obtains a fresh model response rather than accepting a
+pre-crash candidate without its original review snapshot. See
+[structured result retention](structured-output-review.md#retaining-structured-tool-results).
+General typed tool-result artifacts, structured-result spilling, original-review
+dispatch recovery, full deferred capability bundles and external workflow-engine
+adapters remain follow-ups.
 These findings establish concrete contracts, not exhaustive parity or a claim
 that either framework produces better model answers.

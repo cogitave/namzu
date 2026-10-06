@@ -17,6 +17,15 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	mode?: 'tool' | 'native'
 
 	/**
+	 * Tool mode only. Default `receipt` settles from the bounded tool message.
+	 * `durable` also records the screened, post-hook JSON before preview capping,
+	 * so a truncated preview does not destroy the candidate. The session log's
+	 * record size limit still applies. This is execution evidence, not acceptance;
+	 * recovered batches retain the existing fresh-inference settlement policy.
+	 */
+	toolResultRetention?: 'receipt' | 'durable'
+
+	/**
 	 * Correction opportunities after missing output or model-argument validation
 	 * failure. Default 2; zero stops after the first invalid response. Tool-mode
 	 * prose and invalid output calls share a checkpointed counter, once per response.

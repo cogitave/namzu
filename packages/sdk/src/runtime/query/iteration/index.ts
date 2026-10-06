@@ -49,6 +49,7 @@ import type { LLMToolSchema } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
+import { parseStructuredResultJson } from '../../../utils/structured-result-json.js'
 import { createCallbackInference } from '../callback-inference.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
@@ -228,6 +229,11 @@ export class IterationOrchestrator {
 		)
 			throw new RangeError('Unknown structuredOutput.mode')
 		const maxReviews = ctx.structuredOutput?.maxReviews
+		const retention = ctx.structuredOutput?.toolResultRetention
+		if (retention !== undefined && !['receipt', 'durable'].includes(retention))
+			throw new RangeError('Unknown structuredOutput.toolResultRetention')
+		if (retention === 'durable' && ctx.structuredOutput?.mode === 'native')
+			throw new RangeError('structuredOutput.toolResultRetention: durable requires tool mode')
 		if (maxReviews !== undefined && (!Number.isSafeInteger(maxReviews) || maxReviews < 0))
 			throw new RangeError('structuredOutput.maxReviews must be a nonnegative safe integer')
 		if (
@@ -2227,7 +2233,12 @@ export class IterationOrchestrator {
 
 		let parsed: unknown
 		try {
-			parsed = JSON.parse(hit.output)
+			parsed =
+				this.ctx.structuredOutput?.toolResultRetention === 'durable'
+					? parseStructuredResultJson(
+							hit.structuredResultJson === undefined ? hit.output : hit.structuredResultJson,
+						)
+					: JSON.parse(hit.output)
 		} catch {
 			// Screening, hooks or output budgeting can change the validated
 			// tool's receipt. A raw-text fallback is not a structured result;

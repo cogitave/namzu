@@ -1,4 +1,5 @@
 import type { SessionLog } from '../../store/session-log/index.js'
+import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../tools/builtins/structuredOutput.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { SessionRecord } from '../../types/session/records.js'
 import type {
@@ -6,11 +7,12 @@ import type {
 	ToolExecutionRecord,
 	ToolExecutionSnapshot,
 } from '../../types/session/tool-execution.js'
+import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 
 /**
  * Collects the latest execution boundary of selected tool calls from one
- * turn's records: metadata only, never retained output bodies beyond the
- * completion's own result.
+ * turn's records, including bounded receipts and optional runtime-owned JSON
+ * candidates. Original output bodies are never recovered from spill references.
  */
 export class ToolExecutionCollector {
 	private started = false
@@ -55,6 +57,20 @@ export class ToolExecutionCollector {
 			(skipped !== true || event.isError !== false || inputFailure !== undefined)
 		)
 			throw new Error('Tool recovery found an invalid skipped completion classification.')
+		const structuredResultJson = event.structuredResultJson
+		if (structuredResultJson !== undefined) {
+			if (
+				event.toolName !== STRUCTURED_OUTPUT_TOOL_NAME ||
+				event.isError !== false ||
+				skipped !== undefined ||
+				inputFailure !== undefined ||
+				event.via !== undefined
+			)
+				throw new Error(
+					'Tool recovery found an invalid durable structured completion classification.',
+				)
+			parseStructuredResultJson(structuredResultJson)
+		}
 		this.records.set(event.toolUseId, {
 			...identity,
 			status: 'completed',
@@ -64,6 +80,9 @@ export class ToolExecutionCollector {
 				? { inputFailure: inputFailure as CompletedToolRecord['inputFailure'] }
 				: {}),
 			...(skipped ? { skipped: true as const } : {}),
+			...(structuredResultJson !== undefined
+				? { structuredResultJson: structuredResultJson as string }
+				: {}),
 		})
 	}
 

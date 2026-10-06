@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-06T12:57:11.824955+00:00",
+  "workingTreeBasedOn": "84452ec80d1a3468af6e1ce774eed333b9edf751",
+  "verificationStatus": "passed",
+  "scope": "Opt-in durable structured tool JSON separated from bounded receipts, after result screening and post-tool hooks; exact execution authority, strict completion evidence and interrupted-batch recovery.",
+  "externalModelRequests": 0,
+  "liveRuntimeActivated": false,
+  "livePalActions": 0,
+  "workspaceDependenciesInstalled": false,
+  "newRegressionCases": 66,
+  "verifiedContracts": [
+    "Default and explicit receipt mode remain unchanged; a truncated receipt still fails structured settlement.",
+    "Durable mode retains 50,000-character JSON independently of capped tool previews and supplies an isolated full value to host review; asynchronous schema transformation runs once.",
+    "Guardrail and post-hook JSON rewrites become the candidate; stale ToolResult.data, raw inputs and injected result/provider metadata cannot mint retained evidence.",
+    "Only a prepared direct call to the exact bound output-tool definition with the original structured_output name can mint the marker. Same-name replacements, unbound or legacy execution, renamed calls and nested execution cannot inherit it.",
+    "Refusals, halts, post-hook errors, skips, invalid admission and cancellation observed before completion recording produce no marker. Sibling batches relay and inbound steering invalidates stale settlement.",
+    "Full JSON is an opt-in live host event and persisted completion field, never a provider ToolMessage or StepToolResult field. Final output guardrails still clear accepted structured output.",
+    "Strict records and collectors reject malformed JSON, unsafe numbers and contradictory success/name/skip/inputFailure/nested classifications. Later starts invalidate prior completion evidence.",
+    "A real query cut at its actual completion recovers exact JSON and its bounded receipt without schema reexecution or duplicate completion. Resume still requests and reviews one fresh candidate.",
+    "Legacy completion bytes and hashes are unchanged. A corrupt custom-log candidate produces an unknown outcome and does not authorize replay.",
+    "Native durable configuration and unknown retention values fail before inference. An oversized post-hook candidate is refused by the session-record ceiling without acceptance."
+  ],
+  "initialCorrections": [
+    "The oversized-result test first used a huge input, which hit the input-event limit. A small call with a huge post-hook JSON result now probes the intended completion-record limit.",
+    "Early build and type checks encountered test fixtures still being authored: missing TokenUsage cached fields, pendingDecision shape, SessionRecord narrowing and a too-narrow ToolDefinition generic. Corrected fixtures and reran final workspace gates; no production workaround.",
+    "The first documentation fence used a boolean review verdict without rejection feedback. Corrected it to the actual AnswerReview union and reran the fence gate."
+  ],
+  "limits": [
+    "The full JSON field is additional opt-in host-visible data; maxToolOutputChars does not cap that field.",
+    "The 4 MiB session-record ceiling includes JSON escaping and metadata. Completion and inline settlement must fit; a write failure can reject query without a returned Turn or durable terminal record.",
+    "Retention records execution evidence, not acceptance. An abort during asynchronous completion append may leave evidence, but later cancellation checks prevent acceptance.",
+    "When marker is absent, durable settlement preserves the existing intact-receipt fallback, including host-provided output tools when the runtime tool is disabled. Exact-definition binding governs marker minting.",
+    "Recovery preserves the marker but does not restore the original review dispatch snapshot or automatically settle a pre-crash candidate. Structured-result spilling and general typed ToolResult.data artifacts remain future work.",
+    "This receipt does not claim activation of the open native Windows runtime, live model behavior or complete release CI validation. No push or publish was performed."
+  ],
+  "checks": [
+    {
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "privateLogSha256": "7febdc02e55cfb71a7431045b2cf22721d39864d7a0d27b37c130db3fb16f3b8"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "privateLogSha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de"
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "privateLogSha256": "ac39e6f276d1facb648d5030b31c2cd475f4048d70b0054e534a7279ec1e4502"
+    },
+    {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "privateLogSha256": "b1bbe85a31385440d15951070bd992dc37456efd5a7e428b75dbe76c23f77d1f"
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "privateLogSha256": "0a4c49604afd6dc052708da85563c92d78b41154d2993ed61da8040054fc6139"
+    },
+    {
+      "command": "pnpm docs:fences",
+      "exitCode": 0,
+      "privateLogSha256": "04cb93f9e022bc9a173e75abb617dfeefcf3956cb077be4fff69fb3d9551e766"
+    },
+    {
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "privateLogSha256": "f7cf4976fad548c90ed4fca42b4b45de3c538eafa87be23086e04c863f0806b8"
+    },
+    {
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "privateLogSha256": "a7b33de365df93703acdd136c8b635c17ec9c859007d773912217445bc9c1b7a"
+    }
+  ],
+  "workspaceResults": {
+    "passed": 19711,
+    "skipped": 116,
+    "failed": 0,
+    "packages": 21,
+    "packageTestSummaries": {
+      "packages/files": {
+        "Test Files": "3 passed | 1 skipped (4)",
+        "Tests": "48 passed | 11 skipped (59)"
+      },
+      "packages/sdk": {
+        "Test Files": "917 passed (917)",
+        "Tests": "10380 passed (10380)"
+      },
+      "packages/desktop": {
+        "Test Files": "67 passed (67)",
+        "Tests": "620 passed (620)"
+      },
+      "packages/computer-use": {
+        "Test Files": "17 passed (17)",
+        "Tests": "165 passed (165)"
+      },
+      "packages/browser": {
+        "Test Files": "9 passed | 2 skipped (11)",
+        "Tests": "133 passed | 42 skipped (175)"
+      },
+      "packages/ag-ui": {
+        "Test Files": "8 passed (8)",
+        "Tests": "189 passed (189)"
+      },
+      "packages/live": {
+        "Test Files": "3 passed (3)",
+        "Tests": "25 passed (25)"
+      },
+      "packages/lsp": {
+        "Test Files": "2 passed (2)",
+        "Tests": "27 passed (27)"
+      },
+      "packages/providers/anthropic": {
+        "Test Files": "21 passed | 3 skipped (24)",
+        "Tests": "259 passed | 44 skipped (303)"
+      },
+      "packages/providers/bedrock": {
+        "Test Files": "13 passed (13)",
+        "Tests": "127 passed (127)"
+      },
+      "packages/providers/deepseek": {
+        "Test Files": "6 passed (6)",
+        "Tests": "44 passed (44)"
+      },
+      "packages/providers/google": {
+        "Test Files": "4 passed (4)",
+        "Tests": "29 passed (29)"
+      },
+      "packages/providers/http": {
+        "Test Files": "9 passed (9)",
+        "Tests": "83 passed | 10 skipped (93)"
+      },
+      "packages/providers/lmstudio": {
+        "Test Files": "5 passed (5)",
+        "Tests": "29 passed (29)"
+      },
+      "packages/providers/ollama": {
+        "Test Files": "8 passed (8)",
+        "Tests": "36 passed (36)"
+      },
+      "packages/providers/openrouter": {
+        "Test Files": "12 passed (12)",
+        "Tests": "80 passed (80)"
+      },
+      "packages/providers/zen": {
+        "Test Files": "17 passed (17)",
+        "Tests": "261 passed (261)"
+      },
+      "packages/providers/openai": {
+        "Test Files": "11 passed (11)",
+        "Tests": "129 passed (129)"
+      },
+      "packages/telemetry": {
+        "Test Files": "4 passed (4)",
+        "Tests": "33 passed (33)"
+      },
+      "packages/sandbox": {
+        "Test Files": "103 passed (103)",
+        "Tests": "1857 passed | 3 skipped (1860)"
+      },
+      "packages/cli": {
+        "Test Files": "557 passed (557)",
+        "Tests": "5157 passed | 6 skipped (5163)"
+      }
+    }
+  },
+  "focusedVerification": {
+    "suites": 6,
+    "testsPassed": 69,
+    "command": "pnpm --filter @namzu/sdk test -- src/runtime/query/__tests__/durable-structured-output.test.ts src/runtime/query/__tests__/durable-structured-result-recovery.test.ts src/runtime/query/__tests__/structured-output-integrity.test.ts src/runtime/query/__tests__/structured-review.test.ts src/runtime/query/__tests__/skipped-tool-completions.test.ts src/runtime/query/__tests__/tool-structured-retry-durability.test.ts"
+  },
+  "existingCliLintWarnings": 12,
+  "documentationFences": {
+    "compiled": 116,
+    "declaredSketchSkips": 15,
+    "compiledPackageReadmes": 21,
+    "problems": 0
+  },
+  "independentReview": {
+    "materialNewAcceptanceBypassFound": false,
+    "documentationPrecisionCorrectionsApplied": [
+      "absent-marker receipt fallback",
+      "cancellation during append",
+      "record overflow query rejection"
+    ]
+  },
+  "sourceSha256": {
+    "packages/sdk/src/runtime/query/executor.ts": "4f3083ca7a29b42679e46b93fd3b5fcc1bc026cf486d663126d3b1902def1829",
+    "packages/sdk/src/runtime/query/index.ts": "3a0058686b70eff25b2da636f728331244d5499dc75c45a69cff6fe226c36a1a",
+    "packages/sdk/src/runtime/query/iteration/index.ts": "466821a8c7734f77ce7fcc031047ada03b9c8b6e720c60fe691614f23f9e0f88",
+    "packages/sdk/src/runtime/query/resume-pending.ts": "2124ff17f806963e3eea5ced47c5351f29a6b1bcab1c6006e12254cc8ba43574",
+    "packages/sdk/src/runtime/query/tool-executions.ts": "46b2be32923cd1004a3ac00025a23593995eec938fd7b38649b0fb575028d839",
+    "packages/sdk/src/runtime/query/tooling.ts": "32a8699b0b012fd513a1fd2dfa7360343f629582c321422c6578a6fe5d2978dc",
+    "packages/sdk/src/types/session/events.ts": "66bc9232b837270210a746492b7cee96f5458ad006dcd7b7f3d65a72a3c50ab2",
+    "packages/sdk/src/types/session/records.ts": "342d7d49210f70e68e043279bc66c1fd0804ad37d90525c3c8d85d03d22e4380",
+    "packages/sdk/src/types/session/tool-execution.ts": "ac2d29a9848055eebb340745a5d19f20db9e9ef10cc6ae8f022deb5b708b5211",
+    "packages/sdk/src/types/structured-output/index.ts": "78c631561bff037e2ada76fabfdf0bdb2a0045711448e8d2ab2ab1f5f1339b53",
+    "packages/sdk/src/utils/structured-result-json.ts": "e32407160473571e01b74d2a0cec6f56844493c4e921dc4e4a5394f0723ce7c5"
+  },
+  "regressionSourceSha256": {
+    "packages/sdk/src/runtime/query/__tests__/durable-structured-output.test.ts": "01c07f766618fdbc7feca5e9d8875a302bf9d4373ad47f8bfce4e2d7ff17c645",
+    "packages/sdk/src/runtime/query/__tests__/durable-structured-result-authority.test.ts": "2ee5028b86749752885fe722e0265d4000261b486aeb5c27eeffe67f18fda1b8",
+    "packages/sdk/src/runtime/query/__tests__/durable-structured-result-recovery.test.ts": "754970b5fcbe3fcc05215225c07dd4cf5ce783bf97e5412b18182cdf2b529133",
+    "packages/sdk/src/utils/structured-result-json.test.ts": "b7fddc505f44c0a517e2233fff584a33aa9054159c2ba3425969566eb1d7817e"
+  },
+  "builtSha256": {
+    "packages/sdk/dist/runtime/query/executor.js": "6b63c39fb051c57cd904d918d0a09cbddb8be8e2212b89fafd4836671d81afd3",
+    "packages/sdk/dist/runtime/query/index.js": "69860104ad78f1b6e001acdad550d1a9f37aa6c4933200db313b16366f0bd25b",
+    "packages/sdk/dist/runtime/query/iteration/index.js": "8d4506a22862d64e6d72b015f6d40589d463c0b3c34686abb319b9ffd14d7fc2",
+    "packages/sdk/dist/runtime/query/resume-pending.js": "548907c77440bfcb5f25af53e7949efb41ee73b914aa3f7a329e3f6b4a6e599a",
+    "packages/sdk/dist/runtime/query/tool-executions.js": "f4f09500ed5088ffe2025d794ce6a525575bab7cb01f83236c00659851967df0",
+    "packages/sdk/dist/runtime/query/tooling.js": "4c5563a68dd10996bd738b73d05046299292f1eb7854a65b689d011449d549e5",
+    "packages/sdk/dist/types/session/events.js": "63fb7cb213e69dbe5cc96c537b2fd28dc5ab69433e023034c62d65db4dc1bc28",
+    "packages/sdk/dist/types/session/records.js": "c535a58b760ee242dc385b73824fbf659820a486975f7e637f14b988dd3ab7be",
+    "packages/sdk/dist/types/session/tool-execution.js": "a3a8c21ab5947d73405e1d497898d5f972be311b436fa4035ec69e003888d136",
+    "packages/sdk/dist/types/structured-output/index.js": "827c148a2159c5d098f9fe33185b555382ad63931193dda5f41f6af38a6a4445",
+    "packages/sdk/dist/utils/structured-result-json.js": "0f8612b02214c42aaacaabb796be0f9cd55f37e5697555b73cdf8472423f75c8",
+    "packages/sdk/dist/types/structured-output/index.d.ts": "1d217df1025e5c7bccfe22b68d4a961ab9f77b1c405d168fcedcdd791aea9e5b",
+    "packages/sdk/dist/types/session/events.d.ts": "4c384f72dd6ea8dfae58decc2f2cc2908478599539fd9c45949cb90ce41bde52",
+    "packages/sdk/dist/types/session/tool-execution.d.ts": "8444dbe4d59156fd50a3733ee6891621e997b683308e556a0ad365e13b5cde43"
+  }
+}

@@ -607,6 +607,9 @@ export async function recoverCompletedCalls(
 					isError: record.isError,
 					...(record.inputFailure ? { inputFailure: record.inputFailure } : {}),
 					...(record.skipped ? { skipped: true as const } : {}),
+					...(record.structuredResultJson !== undefined
+						? { structuredResultJson: record.structuredResultJson }
+						: {}),
 				})
 				continue
 			}

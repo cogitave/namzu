@@ -18,6 +18,8 @@ export interface CompletedToolRecord {
 	readonly inputFailure?: 'invalid_json' | 'schema_validation' | 'input_truncated'
 	/** Trusted pre-tool hook skip, absent in legacy records; the tool produced no output. */
 	readonly skipped?: true
+	/** Opt-in screened, post-hook JSON from a successful structured_output; independent of the bounded receipt. */
+	readonly structuredResultJson?: string
 }
 
 /** The latest recorded execution boundary of a tool call, not its inferred external effect. */

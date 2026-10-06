@@ -121,8 +121,8 @@ zero without rewriting their original bytes or hashes. Supply the output
 configuration again on resume; selecting an older checkpoint restores that
 checkpoint's count.
 
-In tool mode, settlement reads the retained tool-result JSON, not a separate
-result artifact. The default tool-output budget is 40,000 characters. A
+By default, tool-mode settlement reads the retained tool-result JSON. The
+default tool-output budget is 40,000 characters. A
 truncated or transformed candidate receipt that is no longer JSON fails the turn
 before review, including when no reviewer is configured. Legacy synthetic
 receipts without a trusted skip marker retain this integrity check; the runtime
@@ -132,8 +132,80 @@ input or data that would bypass result screening or hooks. Hosts expecting
 larger results must raise `maxToolOutputChars` (or explicitly set zero to
 disable that cap) and budget model context accordingly. Alternatively, select
 [native mode](native-structured-output.md) with a capable provider; native
-results do not pass through the tool-output preview cap. A separate durable
-structured-result channel remains future work.
+results do not pass through the tool-output preview cap. The opt-in retention
+below separates a tool-mode candidate from that preview.
+
+## Retaining structured tool results
+
+Set `toolResultRetention: 'durable'` in tool mode to retain the final selected
+JSON text before the tool-output preview budget applies. The default and explicit
+`'receipt'` keep the behavior above. Native mode rejects `'durable'`, since it
+does not use tool receipts; unknown retention values are rejected before inference.
+
+```ts
+import type { StructuredOutputConfig } from '@namzu/sdk'
+import { z } from 'zod'
+
+export const output: StructuredOutputConfig = {
+  schema: z.object({ report: z.string() }),
+  toolResultRetention: 'durable',
+  review: (candidate) => candidate === null
+    ? { accept: false, feedback: 'Return a report object.' }
+    : { accept: true },
+}
+```
+
+Retention occurs after tool-result guardrails and `post_tool_use` hooks, using
+their selected `output` text. A JSON redaction or replacement becomes the
+candidate; the original `ToolResult.data` and tool arguments are never recovered
+as an alternative. This follows the same text channel as receipt settlement.
+Rich provider `content` remains a separate model channel. The schema is not rerun
+while retaining, decoding or reviewing the result; host replacements remain
+host decisions, and review can enforce an additional result policy.
+
+Only the exact runtime output-tool definition on a successful, prepared direct
+`structured_output` call can mint `structuredResultJson`. A failed, denied,
+skipped or nested call, or cancellation observed before completion recording,
+cannot mint it; a different definition or a
+different original tool name routed to that tool cannot inherit retention.
+Malformed selected JSON retains the ordinary completion receipt and fails the
+candidate-integrity check without charging a schema correction. Retained JSON
+must decode to JSON-safe values, including finite numbers; unsafe transformed
+host values are not an alternate result channel.
+
+`tool_completed.structuredResultJson` contains the full JSON string in the live
+host event and persisted completion. This is an explicit additional host-visible
+payload: `maxToolOutputChars` still bounds `result` and model-visible tool messages,
+not this field. It is absent from provider messages and `StepToolResult`. The
+host reviewer receives an isolated full decoded value; `Turn.structuredOutput`
+and `Turn.result` publish it only after the existing review, inbound-message,
+cancellation and final output-guardrail checks. A recorded candidate is execution
+evidence, not proof that it was accepted.
+
+Cancellation during an asynchronous completion append may leave evidence of
+the already executed call in the log. The later cancellation checks still
+prevent that candidate from being accepted in the cancelled turn.
+
+The verified recovery scan carries this optional field into `CompletedToolRecord`
+and recovered batch outcomes without reexecuting the tool or its schema. An
+absent field uses the existing receipt path; only an intact JSON receipt can then
+supply a candidate. This includes legacy records and host-provided output tools
+when the runtime output tool was disabled: the exact-definition binding applies
+to minting retained evidence, not to replacing existing receipt settlement.
+A present malformed or contradictory field is refused, never silently
+downgraded to a preview or raw input. Existing resume policy remains unchanged:
+after answering a restored pending batch, the loop requests fresh inference;
+it does not automatically review or publish a pre-crash candidate, since the
+original review dispatch snapshot is not restored by this option.
+
+Retention remains bounded by the [session log](session-log.md) record ceiling
+of 4 MiB, including JSON escaping and metadata. This is not a promised maximum
+candidate size. The completion and final settlement must fit; a write failure
+can reject the query without a durable terminal record or returned `Turn`, and
+does not make an oversized result accepted. This option does
+not create an unlimited artifact store or a general typed `ToolResult.data`
+channel. Separate structured-result spilling and review-dispatch recovery remain
+future work.
 
 ## Anthropic provider-level native JSON format
 

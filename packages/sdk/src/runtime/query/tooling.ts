@@ -8,7 +8,7 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
 import type { SessionRecord } from '../../types/session/records.js'
-import type { RequestToolPause, SkillRegistryRef } from '../../types/tool/index.js'
+import type { RequestToolPause, SkillRegistryRef, ToolDefinition } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { Logger } from '../../utils/logger.js'
@@ -20,6 +20,8 @@ import type { EmitEvent } from './events.js'
 export interface ToolingBootstrapConfig {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	tools: ToolManager
+	/** Exact runtime output-tool owner for opt-in JSON retention; see ToolExecutorConfig. */
+	durableStructuredOutputTool?: ToolDefinition
 	sessionId: SessionId
 	turnId: TurnId
 	workingDirectory: string
@@ -79,6 +81,9 @@ export class ToolingBootstrap {
 		return new ToolExecutor(
 			{
 				tools: config.tools,
+				...(config.durableStructuredOutputTool
+					? { durableStructuredOutputTool: config.durableStructuredOutputTool }
+					: {}),
 				...(config.fileReadTracker ? { fileReadTracker: config.fileReadTracker } : {}),
 				sessionId: config.sessionId,
 				turnId: config.turnId,

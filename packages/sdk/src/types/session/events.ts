@@ -426,6 +426,8 @@ type CoreSessionEvent =
 			inputFailure?: 'invalid_json' | 'schema_validation' | 'input_truncated'
 			/** Execution was deliberately skipped by a pre-tool hook; a non-error receipt, not a produced output. */
 			skipped?: true
+			/** Opt-in successful structured_output JSON after screening and post-tool hooks, before preview capping. Not an accepted result. */
+			structuredResultJson?: string
 			/** See {@link tool_executing}'s `via`. Carried on both, so a
 			 * consumer can pair them without holding the start event. */
 			via?: {

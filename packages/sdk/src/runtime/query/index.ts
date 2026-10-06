@@ -1151,9 +1151,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// invalidate the whole prompt cache for the rest of the turn — the same
 		// reason the forced-final turn keeps its tools array and uses
 		// `toolChoice: 'none'` instead of dropping it.
-		if (params.structuredOutput && params.structuredOutput.mode !== 'native') {
-			addRuntimeTool(createStructuredOutputTool(params.structuredOutput.schema), 'active')
-		}
+		const structuredOutputTool =
+			params.structuredOutput && params.structuredOutput.mode !== 'native'
+				? createStructuredOutputTool(params.structuredOutput.schema)
+				: undefined
+		if (structuredOutputTool) addRuntimeTool(structuredOutputTool, 'active')
 
 		for (const tool of advisoryToolDefs) addRuntimeTool(tool, 'active')
 
@@ -1363,6 +1365,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			{
 				skillGrants,
 				tools: toolManager,
+				...(params.structuredOutput?.toolResultRetention === 'durable' && structuredOutputTool
+					? { durableStructuredOutputTool: structuredOutputTool }
+					: {}),
 				sessionId: ctx.sessionId,
 				turnId: ctx.turnId,
 				workingDirectory: ctx.cwd,

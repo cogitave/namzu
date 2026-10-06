@@ -90,9 +90,20 @@ One record per line: the record as JSON, then `\n`. A line's hash is the
 SHA-256 of exactly those bytes, the newline included; nothing is
 canonicalised (`recordSha256`, `parseSessionLogLine`,
 `formatSessionLogLine` in `packages/sdk/src/session/log-hash.ts`). A record is
-at most 4 MiB (`SESSION_RECORD_MAX_BYTES`); a larger body is spilled to
-`tool-results/`, and the spill file and its manifest are on disk before the
-record that points at them.
+at most 4 MiB (`SESSION_RECORD_MAX_BYTES`). Message bodies, compaction summaries
+and completed-result text above that threshold can spill to `tool-results/`;
+the spill file and its manifest are on disk before the record that points at
+them. Other fields still have to fit inside the record. In particular, opt-in
+[`tool_completed.structuredResultJson`](structured-output-review.md#retaining-structured-tool-results)
+and `turn_completed.settlement.structuredOutput` are inline. The ceiling includes
+escaping and metadata; an oversized record is refused, not silently truncated.
+
+`structuredResultJson`, when present, is JSON-safe text from a successful direct
+`structured_output` execution after result guardrails and post-tool hooks. Strict
+record admission rejects malformed JSON, non-finite decoded numbers and a field
+paired with failure, skip, input-failure classification, another tool name or
+nested `via` metadata. It is candidate evidence, not an acceptance flag. Legacy
+completions without this optional field retain their original bytes and hashes.
 
 Every record carries this envelope:
 

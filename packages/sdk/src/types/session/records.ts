@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { type EntityIdKind, isEntityId } from '../../utils/id.js'
+import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { HarnessBindingSchema, HarnessJournalTransitionSchema } from '../harness/schema.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../hitl/index.js'
 import type {
@@ -822,6 +823,30 @@ export const SessionRecordSchema = z
 				path: ['skipped'],
 				message: 'skipped must classify a non-error pre-tool hook skip without an input failure',
 			})
+		}
+		if (r.type === 'tool_completed' && r.structuredResultJson !== undefined) {
+			let validJson = false
+			try {
+				parseStructuredResultJson(r.structuredResultJson)
+				validJson = true
+			} catch {
+				// Retained evidence is never repaired or downgraded to a preview.
+			}
+			if (
+				!validJson ||
+				r.toolName !== 'structured_output' ||
+				r.isError !== false ||
+				r.skipped !== undefined ||
+				r.inputFailure !== undefined ||
+				r.via !== undefined
+			) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ['structuredResultJson'],
+					message:
+						'structuredResultJson must hold JSON from a successful direct structured_output execution',
+				})
+			}
 		}
 		if (r.type === 'message') {
 			const content = r.content as { role: unknown }
