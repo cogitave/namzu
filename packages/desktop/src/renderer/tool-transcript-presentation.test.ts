@@ -27,6 +27,45 @@ function result(
 }
 const key = '1:call'
 
+it('keeps a proved skipped historical action distinct from successful execution', () => {
+	const thread = result(
+		start({ kind: 'generic', label: 'Saved action' }),
+		{
+			kind: 'generic',
+			label: 'Skipped action\nDetails were not recorded.',
+		},
+		'completed',
+	)
+	thread.running = false
+	thread.tools[key] = { ...thread.tools[key]!, historicalStatus: 'skipped' }
+	expect(toolTranscriptPresentation(thread, key)).toMatchObject({
+		state: 'skipped',
+		statusLabel: 'Skipped',
+	})
+})
+
+it('does not admit a historical display marker from a live ACP action update', () => {
+	for (const status of ['pending', 'failed'] as const) {
+		const thread = applyEvent(start({ kind: 'generic', label: 'Read the guide' }), {
+			kind: 'update',
+			sessionId: 'session',
+			projectId: 'project',
+			update: {
+				kind: 'tool_call',
+				toolCallId: 'call',
+				title: 'Read the guide',
+				status,
+				view: { kind: 'generic', label: 'Read the guide' },
+				historicalStatus: 'skipped',
+			} as never,
+		})
+		expect(thread.tools[key]?.historicalStatus).toBeUndefined()
+		expect(toolTranscriptPresentation(thread, key)?.state).toBe(
+			status === 'pending' ? 'running' : 'failed',
+		)
+	}
+})
+
 describe('authored tool content', () => {
 	it('preserves a task action caption when success adds no receipt, without deleting the tool or mutating state', () => {
 		const thread = result(

@@ -524,6 +524,8 @@ describe('ensureSandboxSeed', () => {
 		expect(sandbox.scripts.join('\n')).not.toContain('--upload-pack')
 	})
 
+	// This fixture launches real sh/git subprocesses and performs a local clone;
+	// let Vitest detect a hang without making loaded CI fail at the default 5 seconds.
 	it('survives a crash before the move: the stale partial is swept, a peer’s fresh one is not', async () => {
 		const stale = join(root, 'app.namzu-partial-crashed')
 		const fresh = join(root, 'app.namzu-partial-peer')
@@ -536,7 +538,7 @@ describe('ensureSandboxSeed', () => {
 		expect(report.repositories[0]?.status).toBe('cloned')
 		expect(existsSync(stale)).toBe(false)
 		expect(existsSync(fresh)).toBe(true)
-	})
+	}, 30_000)
 
 	it('lets two concurrent calls on one root both succeed, with one clone in place', async () => {
 		const [a, b] = await Promise.all([

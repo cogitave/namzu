@@ -513,7 +513,7 @@ it('omits tool-only assistant history without truncating text, media placeholder
 		])
 		const original = await loadConversation(state, sessionId)
 		const indexed = vi.spyOn(sdk, 'openSessionIndex')
-		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
+		expect(await host['namzu/conversations/history']({ sessionId })).toMatchObject({
 			messages: [
 				{ role: 'user', text: 'Check this file.' },
 				{ role: 'assistant', text: 'Checking the requested file.' },
@@ -578,7 +578,7 @@ it('restores only proven commentary and final phases from a fresh ordinary journ
 		])
 		const original = await loadConversation(state, sessionId)
 		const fresh = createDesktopHostExtensions(owner, cwd)
-		expect(await fresh['namzu/conversations/history']({ sessionId })).toEqual({
+		expect(await fresh['namzu/conversations/history']({ sessionId })).toMatchObject({
 			messages: [
 				{ role: 'user', text: 'Review the file.' },
 				{ role: 'assistant', text: 'Checking the file.', phase: 'commentary' },
@@ -841,7 +841,7 @@ it('authorizes and reads history through one state if the application home chang
 			return selected
 		})
 	try {
-		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
+		expect(await host['namzu/conversations/history']({ sessionId })).toMatchObject({
 			partial: false,
 			messages: [
 				{ role: 'user', text: 'Stored request' },

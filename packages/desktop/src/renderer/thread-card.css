@@ -4,6 +4,29 @@
 	flex: 0 0 28px;
 	justify-content: flex-end;
 }
+.sidebar-conversation-button .conversation-row-state:has(.thread-background-work) {
+	width: 42px;
+	min-width: 42px;
+	flex-basis: 42px;
+}
+.thread-background-work {
+	display: inline-grid;
+	place-items: center;
+	width: 12px;
+	height: 12px;
+	flex: none;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--sidebar-muted-foreground);
+}
+.thread-background-work svg {
+	width: 12px;
+	height: 12px;
+}
+.thread-background-work[data-background-work="attention"] {
+	color: var(--warning-foreground);
+}
 .sidebar-conversation-button .conversation-age {
 	min-width: 0;
 	overflow: hidden;

@@ -7,6 +7,7 @@ import type {
 	ReasoningEffort,
 	ReviewMode,
 } from '@namzu/sdk'
+import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
 import type {
 	PalCommunicationView,
 	PalPermissionChange,
@@ -251,6 +252,7 @@ export interface DesktopRetryStatus {
 	notice?: string
 }
 export type DesktopEvent = (
+	| BackgroundWorkStatusEvent
 	| {
 			kind: 'prompt'
 			sessionId: string
@@ -389,6 +391,8 @@ export interface DesktopApi {
 	removeQueued(sessionId: string, itemId: string): Promise<void>
 	approve(sessionId: string, requestId: string, approved: boolean): Promise<void>
 	jobs(sessionId: string): Promise<JobView[]>
+	/** Metadata for already observed ordinary work; never admission or a job-output read. */
+	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>
 	/** Refresh the existing planning projection without starting a turn. */
 	refreshTasks?(sessionId: string): Promise<void>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>

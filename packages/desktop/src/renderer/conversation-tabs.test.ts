@@ -71,3 +71,23 @@ it('keeps tab selection, closing and creation disabled while their real owner is
 		expect(button).toMatch(/\bdisabled=/)
 	}
 })
+
+it('shows only fresh ordinary Namzu shell status without replacing the tab identity', () => {
+	const fresh = {
+		state: 'known' as const,
+		runningCount: 2,
+		needsAttention: false,
+		checkedAt: Date.now(),
+		expiresAt: Date.now() + 10_000,
+	}
+	const html = render({
+		backgroundWork: { ordinary: fresh, native: { ...fresh, needsAttention: true } },
+	})
+	expect(html).toContain('aria-label="Namzu: First thread"')
+	expect(html).toContain('aria-description="2 processes running in background"')
+	expect(html.match(/data-background-work="running"/g)).toHaveLength(1)
+	expect(html).not.toContain('data-background-work="attention"')
+	expect(
+		render({ backgroundWork: { ordinary: { ...fresh, expiresAt: Date.now() - 1 } } }),
+	).not.toContain('data-background-work=')
+})

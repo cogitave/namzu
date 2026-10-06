@@ -7,6 +7,7 @@ import {
 	DiskTaskStore,
 	type PalComputerInput,
 	type SessionRecord,
+	type ToolCallView,
 	asSessionId,
 	isEntityId,
 	selectAssistantText,
@@ -16,7 +17,6 @@ import {
 	archiveConversation,
 	closeSessions,
 	listRecent,
-	loadConversation,
 	loadConversationSnapshot,
 	openSessionScope,
 	openSessions,
@@ -115,6 +115,327 @@ function cancelledPalReplies(records: readonly SessionRecord[]): ReadonlyMap<str
 			cancelled.set(id, completion.content)
 	}
 	return cancelled
+}
+
+// Additive display-only history wire. Keep this closed shape aligned with Desktop
+// shared/history-work.ts; it carries no execution, permission or recovery authority.
+interface HistoryTurnView {
+	turnId: string
+	userMessageId: string
+	order: number
+	status: 'completed' | 'failed' | 'cancelled' | 'paused' | 'interrupted'
+	reason?: string
+	durationMs?: number
+}
+interface HistoryToolView {
+	turnId: string
+	toolUseId: string
+	name: string
+	order: number
+	status: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'skipped'
+	presentation?: ToolCallView
+	durationMs?: number
+	detailUnavailable?: true
+}
+const historyReasons = new Set([
+	'end_turn',
+	'stop_condition',
+	'cancelled',
+	'token_budget',
+	'cost_limit',
+	'cost_unmeasurable',
+	'timeout',
+	'max_iterations',
+	'plan_rejected',
+	'step_refused',
+	'structured_output_failed',
+	'answer_rejected',
+	'input_guardrail',
+	'output_guardrail',
+])
+const historyCount = (value: unknown): value is number =>
+	typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+const historyId = (value: unknown): value is string =>
+	typeof value === 'string' &&
+	value.length > 0 &&
+	Buffer.byteLength(value) <= 512 &&
+	[...value].every((char) => char.charCodeAt(0) >= 32)
+
+/** A recorded public view is distinct from raw arguments and selected tool output. */
+function historyPresentation(value: unknown): ToolCallView | undefined {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+	const data = value as Record<string, unknown>
+	const optional = (key: string) => data[key] === undefined || typeof data[key] === 'string'
+	let view: ToolCallView
+	if (
+		data.kind === 'generic' &&
+		typeof data.label === 'string' &&
+		(data.presentation === undefined || data.presentation === 'activity') &&
+		(data.activity === undefined || data.activity === 'exploration') &&
+		(data.visibility === undefined || data.visibility === 'hidden') &&
+		(data.outcome === undefined || data.outcome === 'cancelled')
+	) {
+		view = {
+			kind: 'generic',
+			label: data.label,
+			...(data.presentation === 'activity' ? { presentation: 'activity' } : {}),
+			...(data.activity === 'exploration' ? { activity: 'exploration' } : {}),
+			...(data.visibility === 'hidden' ? { visibility: 'hidden' } : {}),
+			...(data.outcome === 'cancelled' ? { outcome: 'cancelled' } : {}),
+		}
+	} else if (
+		data.kind === 'diff' &&
+		typeof data.before === 'string' &&
+		typeof data.after === 'string' &&
+		optional('path') &&
+		optional('label')
+	) {
+		view = {
+			kind: 'diff',
+			before: data.before,
+			after: data.after,
+			...(typeof data.path === 'string' ? { path: data.path } : {}),
+			...(typeof data.label === 'string' ? { label: data.label } : {}),
+		}
+	} else if (data.kind === 'terminal' && typeof data.output === 'string' && optional('command')) {
+		view = {
+			kind: 'terminal',
+			output: data.output,
+			...(typeof data.command === 'string' ? { command: data.command } : {}),
+		}
+	} else return undefined
+	return Buffer.byteLength(JSON.stringify(view)) <= 32 * 1024 ? view : undefined
+}
+
+function historyWork(
+	records: readonly SessionRecord[],
+	rows: readonly { messageId?: string; role: 'user' | 'assistant' }[],
+) {
+	const retainedIds = new Set(rows.flatMap((row) => (row.messageId ? [row.messageId] : [])))
+	const owners = new Map<
+		string,
+		{ turnId: string; role: string; order: number; ambiguous: boolean }
+	>()
+	const starts = new Map<string, { turnId: string; order: number; ambiguous: boolean }>()
+	const turns = new Map<string, HistoryTurnView>()
+	const ambiguousTurns = new Set<string>()
+	for (const record of records) {
+		if (record.type === 'turn_started' && retainedIds.has(record.userMessageId)) {
+			if (turns.has(record.turnId)) ambiguousTurns.add(record.turnId)
+			turns.set(record.turnId, {
+				turnId: record.turnId,
+				userMessageId: record.userMessageId,
+				order: record.seq,
+				status: 'interrupted',
+				reason: 'interrupted',
+			})
+		} else if (record.type === 'message_started' && retainedIds.has(record.messageId)) {
+			const previous = starts.get(record.messageId)
+			starts.set(record.messageId, {
+				turnId: record.turnId,
+				order: previous?.order ?? record.seq,
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.type === 'message' && retainedIds.has(record.messageId)) {
+			const previous = owners.get(record.messageId)
+			const start = starts.get(record.messageId)
+			owners.set(record.messageId, {
+				turnId: record.turnId,
+				role: record.role,
+				order:
+					previous?.order ??
+					(start && !start.ambiguous && start.turnId === record.turnId ? start.order : record.seq),
+				ambiguous: Boolean(
+					previous &&
+						(previous.ambiguous ||
+							previous.turnId !== record.turnId ||
+							previous.role !== record.role),
+				),
+			})
+		} else if ('turnId' in record && typeof record.turnId === 'string') {
+			const turn = turns.get(record.turnId)
+			if (!turn) continue
+			if (record.type === 'turn_paused') {
+				turn.status = 'paused'
+				turn.reason = 'paused'
+			} else if (record.type === 'turn_resuming') {
+				turn.status = 'interrupted'
+				turn.reason = 'interrupted'
+			} else if (record.type === 'turn_failed') {
+				turn.status = 'failed'
+				turn.reason = 'error'
+				turn.durationMs = record.settlement.durationMs
+			} else if (record.type === 'turn_completed') {
+				turn.status = record.settlement.status === 'cancelled' ? 'cancelled' : 'completed'
+				turn.reason =
+					record.settlement.status === 'cancelled'
+						? 'cancelled'
+						: record.stopReason && historyReasons.has(record.stopReason)
+							? record.stopReason
+							: undefined
+				turn.durationMs = record.settlement.durationMs
+			}
+		}
+	}
+	const anchors = rows.flatMap((row, index) => {
+		const owner = row.messageId && owners.get(row.messageId)
+		return owner &&
+			!owner.ambiguous &&
+			owner.role === row.role &&
+			historyId(row.messageId) &&
+			historyId(owner.turnId)
+			? [{ index, messageId: row.messageId, turnId: owner.turnId, order: owner.order }]
+			: []
+	})
+	const selectedTurns = [...turns.values()]
+		.filter((turn) => {
+			const prompt = anchors.find(
+				(anchor) =>
+					anchor.messageId === turn.userMessageId &&
+					anchor.turnId === turn.turnId &&
+					rows[anchor.index]?.role === 'user',
+			)
+			const own = anchors.filter((anchor) => anchor.turnId === turn.turnId)
+			// Compaction can retain/reorder old bodies. Ambiguous order supplies no work anchor.
+			return (
+				!ambiguousTurns.has(turn.turnId) &&
+				prompt &&
+				own[0] === prompt &&
+				own.every(
+					(anchor, index) =>
+						anchor.order > turn.order &&
+						(index === 0 || anchor.order > (own[index - 1]?.order ?? Number.POSITIVE_INFINITY)),
+				) &&
+				own.every((anchor, index) => {
+					const previous = own[index - 1]
+					return (
+						!previous ||
+						rows.every(
+							(row, rowIndex) =>
+								rowIndex <= previous.index ||
+								rowIndex >= anchor.index ||
+								row.role !== 'user' ||
+								anchors.some((other) => other.index === rowIndex && other.turnId === turn.turnId),
+						)
+					)
+				}) &&
+				own.every(
+					(anchor, index) =>
+						index === 0 ||
+						!anchors.some(
+							(other) =>
+								other.index > (own[index - 1]?.index ?? Number.POSITIVE_INFINITY) &&
+								other.index < anchor.index &&
+								other.turnId !== turn.turnId,
+						),
+				)
+			)
+		})
+		.slice(-200)
+	const accepted = new Set(selectedTurns.map((turn) => turn.turnId))
+	let partial = false
+	// Select only a bounded set of latest identities before collecting their boundaries.
+	const wanted = new Set<string>()
+	for (let index = records.length - 1; index >= 0; index--) {
+		const record = records[index]
+		if (!record) continue
+		if (
+			(record.type !== 'tool_executing' && record.type !== 'tool_completed') ||
+			!accepted.has(record.turnId)
+		)
+			continue
+		if (!historyId(record.toolUseId)) {
+			partial = true
+			continue
+		}
+		const key = JSON.stringify([record.turnId, record.toolUseId])
+		if (wanted.has(key)) continue
+		if (wanted.size >= 100) {
+			partial = true
+			break
+		}
+		wanted.add(key)
+	}
+	const calls = new Map<
+		string,
+		{
+			firstOrder: number
+			name: string
+			ambiguous: boolean
+			latest: Extract<SessionRecord, { type: 'tool_executing' | 'tool_completed' }>
+		}
+	>()
+	for (const record of records) {
+		if (record.type !== 'tool_executing' && record.type !== 'tool_completed') continue
+		const key = JSON.stringify([record.turnId, record.toolUseId])
+		if (!wanted.has(key)) continue
+		const previous = calls.get(key)
+		calls.set(key, {
+			firstOrder: previous?.firstOrder ?? record.seq,
+			name: record.toolName,
+			ambiguous: Boolean(previous && (previous.ambiguous || previous.name !== record.toolName)),
+			latest: record,
+		})
+	}
+	const compacted = records.filter((record) => record.type === 'compaction')
+	let presentationBytes = 0
+	const tools: HistoryToolView[] = []
+	for (const call of [...calls.values()].sort((a, b) => a.firstOrder - b.firstOrder)) {
+		const latest = call.latest
+		const turn = turns.get(latest.turnId)
+		if (
+			call.ambiguous ||
+			!historyId(call.name) ||
+			!turn ||
+			call.firstOrder <= turn.order ||
+			compacted.some((record) => call.firstOrder <= record.replacesSeqRange[1])
+		) {
+			partial = true
+			continue
+		}
+		let status: HistoryToolView['status'] = 'interrupted'
+		let presentation: ToolCallView | undefined
+		let durationMs: number | undefined
+		if (
+			latest.type === 'tool_completed' &&
+			typeof latest.isError === 'boolean' &&
+			typeof latest.result === 'string'
+		) {
+			status = latest.skipped === true ? 'skipped' : latest.isError ? 'failed' : 'completed'
+			if (
+				latest.skipped === undefined &&
+				(latest.outputTruncated === undefined || latest.outputTruncated === false)
+			)
+				presentation = historyPresentation(latest.presentation)
+			if (presentation?.kind === 'generic' && presentation.outcome === 'cancelled') {
+				if (latest.isError) status = 'cancelled'
+				else presentation = undefined
+			}
+			if (presentation) {
+				const size = Buffer.byteLength(JSON.stringify(presentation))
+				if (presentationBytes + size > 128 * 1024) presentation = undefined
+				else presentationBytes += size
+			}
+			if (historyCount(latest.durationMs)) durationMs = latest.durationMs
+		}
+		if (!presentation) partial = true
+		tools.push({
+			turnId: latest.turnId,
+			toolUseId: latest.toolUseId,
+			name: call.name,
+			order: call.firstOrder,
+			status,
+			...(presentation ? { presentation } : { detailUnavailable: true as const }),
+			...(durationMs === undefined ? {} : { durationMs }),
+		})
+	}
+	return {
+		v: 1 as const,
+		partial,
+		messages: anchors.filter((anchor) => accepted.has(anchor.turnId)),
+		turns: selectedTurns,
+		tools,
+	}
 }
 
 export function createDesktopHostExtensions(
@@ -354,12 +675,11 @@ export function createDesktopHostExtensions(
 			return withReadScope(async (state) => {
 				const id = await ownedSessionIn(params, state)
 				const ownedPal = Boolean(palAtWorkspace(cwd, state.root))
-				const palSnapshot = ownedPal
-					? await loadConversationSnapshot(state, asSessionId(id))
-					: undefined
-				const messages = palSnapshot?.messages ?? (await loadConversation(state, asSessionId(id)))
-				const cancelled = palSnapshot && cancelledPalReplies(palSnapshot.records)
+				const snapshot = await loadConversationSnapshot(state, asSessionId(id))
+				const messages = snapshot.messages
+				const cancelled = ownedPal ? cancelledPalReplies(snapshot.records) : undefined
 				const shown = messages.flatMap<{
+					messageId?: string
 					role: 'user' | 'assistant'
 					content: string | null
 					phase?: 'commentary' | 'final_answer'
@@ -369,7 +689,14 @@ export function createDesktopHostExtensions(
 							// A tool-only assistant has no public message body or media.
 							if (message.content === null && message.toolCalls?.length) return []
 							const phase = storedAssistantPhase(message)
-							return [{ role: message.role, content: message.content, ...(phase ? { phase } : {}) }]
+							return [
+								{
+									messageId: message.id,
+									role: message.role,
+									content: message.content,
+									...(phase ? { phase } : {}),
+								},
+							]
 						}
 						if (message.id && cancelled?.get(message.id) === message.content) return []
 						const content = palPublicAssistantText(message)
@@ -378,9 +705,10 @@ export function createDesktopHostExtensions(
 					return message.role === 'user' &&
 						(!message.source ||
 							(message.source.type === 'runtime-context' && message.source.kind === 'steering'))
-						? [{ role: message.role, content: message.content }]
+						? [{ messageId: message.id, role: message.role, content: message.content }]
 						: []
 				})
+				const retained: { messageId?: string; role: 'user' | 'assistant' }[] = []
 				let remaining = 200_000
 				let partial = false
 				const rows: {
@@ -394,6 +722,7 @@ export function createDesktopHostExtensions(
 					const value = content.slice(0, Math.min(32_000, remaining))
 					partial ||= value.length < content.length
 					remaining -= value.length
+					retained.unshift({ messageId: message.messageId, role: message.role })
 					rows.unshift({
 						role: message.role as 'user' | 'assistant',
 						text: value,
@@ -403,6 +732,7 @@ export function createDesktopHostExtensions(
 				return {
 					messages: rows,
 					partial: partial || rows.length < shown.length || remaining <= 0,
+					...(!ownedPal ? { work: historyWork(snapshot.records, retained) } : {}),
 				}
 			})
 		},

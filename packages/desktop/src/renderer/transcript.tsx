@@ -180,6 +180,10 @@ function TurnActivity({
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const label = live ? 'Work details' : turnActivityLabel(thread, turn)
+	const savedDuration =
+		!live &&
+		thread.turns[turn]?.recordedDurationMs !== undefined &&
+		thread.turns[turn]?.startedAt === undefined
 	return (
 		<Collapsible
 			className="turn-activity"
@@ -187,7 +191,12 @@ function TurnActivity({
 			onOpenChange={setChosenOpen}
 			data-activity-turn={turn}
 		>
-			<CollapsibleTrigger className="activity-trigger" aria-label={label}>
+			<CollapsibleTrigger
+				className="activity-trigger"
+				aria-label={label}
+				title={savedDuration ? 'Time reported for this saved work' : undefined}
+				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
+			>
 				<PhaseLabel label={label} animate={animate} />
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
@@ -250,6 +259,9 @@ export function Transcript({
 		: undefined
 	return (
 		<div className="normal-transcript" ref={ref}>
+			{thread.historyWorkPartial && (
+				<p className="notice">Some saved work details are unavailable.</p>
+			)}
 			{transcriptTurns(thread).map((group) => (
 				<div className="transcript-turn" key={group.turn} data-transcript-turn={group.turn}>
 					{group.user.map((entry) => (

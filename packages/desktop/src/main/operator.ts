@@ -7,13 +7,15 @@ import type {
 	AcpSessionPromptResult,
 	AcpSessionUpdateNotification,
 } from '@namzu/sdk'
+import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from '../shared/pal-communication-protocol.js'
-import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import type {
 	AttachmentInput,
 	AttachmentView,
@@ -47,6 +49,7 @@ import {
 	readChosenFile,
 	validateAttachmentBatch,
 } from './attachments.js'
+import { type BackgroundWorkOwner, BackgroundWorkStatusTracker } from './background-work-status.js'
 import {
 	type DesktopConversationSnapshot,
 	DesktopConversationStore,
@@ -219,6 +222,7 @@ export class Operator {
 	>()
 	private readonly attachmentFiles = new Map<string, OwnedAttachment>()
 	private readonly changingPlugins = new Set<string>()
+	private readonly backgroundWork: BackgroundWorkStatusTracker
 	private readonly desktopStore?: DesktopConversationStore
 	private savedDesktop?: DesktopConversationSnapshot
 	constructor(
@@ -228,6 +232,7 @@ export class Operator {
 		private readonly diagnostics?: DesktopDiagnosticSink,
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 	) {
+		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
 			this.communicationScope.bind(this),
 			diagnostics,
@@ -248,6 +253,62 @@ export class Operator {
 				diagnostics?.record('project_restore_failed', { error })
 			}
 		}
+	}
+	/** Volatile UI knowledge. Missing entries are unknown, never zero. */
+	backgroundWorkStatuses(): Record<string, BackgroundWorkStatus> {
+		const statuses = this.backgroundWork.snapshot()
+		for (const session of this.conversations.values()) {
+			if (session.view.palId) continue
+			if (session.view.harness === 'codex-cli' || session.view.harness === 'claude-code')
+				statuses[session.view.id] = { state: 'unavailable' }
+		}
+		return statuses
+	}
+	/** Observe only an exact connected ordinary Namzu owner. */
+	trackBackgroundWork(sessionId: string): void {
+		const session = this.conversations.get(sessionId)
+		if (!session || session.view.palId || !session.hasPrompted) {
+			this.backgroundWork.invalidate(sessionId)
+			return
+		}
+		if (session.view.harness === 'codex-cli' || session.view.harness === 'claude-code') {
+			this.backgroundWork.invalidate(sessionId, { state: 'unavailable' })
+			return
+		}
+		const project = this.projects.get(session.view.projectId)
+		if (
+			!project ||
+			project.view.status !== 'ready' ||
+			!project.view.trusted ||
+			session.client !== project.client
+		) {
+			this.backgroundWork.invalidate(sessionId)
+			return
+		}
+		const client = project.client
+		const runtimeSessionId = session.runtimeSessionId
+		const owner: BackgroundWorkOwner = {
+			projectId: project.view.id,
+			sessionId,
+			runtimeSessionId,
+			connection: client,
+		}
+		const current = () =>
+			!this.closing &&
+			this.projects.get(project.view.id) === project &&
+			project.view.status === 'ready' &&
+			project.view.trusted &&
+			this.conversations.get(sessionId) === session &&
+			session.client === client &&
+			session.runtimeSessionId === runtimeSessionId &&
+			session.hasPrompted &&
+			!session.view.palId &&
+			(!session.view.harness || session.view.harness === 'namzu')
+		this.backgroundWork.observe(
+			owner,
+			() => client.request('namzu/jobs/list', { sessionId: runtimeSessionId }, 8_000),
+			current,
+		)
 	}
 	/** Private desktop metadata restores view/draft identities; submitted prompts are never replayed. */
 	private persistDesktop(reportOnly = false): void {
@@ -529,6 +590,7 @@ export class Operator {
 			this.deletedPals.set(id, expectedRevision)
 			this.deletingPals.delete(id)
 			this.palRecords.delete(id)
+			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const sessionId of scope.sessionIds) this.conversations.delete(sessionId)
 			const retiredOwners = new Set(scope.sessionIds)
@@ -1076,6 +1138,7 @@ export class Operator {
 			if (existing) return existing.view
 		}
 		if (existing) {
+			this.backgroundWork.invalidateProject(existing.view.id)
 			await this.closeClient(existing.client)
 			if (this.closing) throw new Error('Namzu is closing.')
 			this.projects.delete(existing.view.id)
@@ -1125,6 +1188,7 @@ export class Operator {
 		})
 		client.on('closed', (error: Error) => {
 			if (this.closing || this.projects.get(view.id) !== project) return
+			this.backgroundWork.invalidateProject(view.id)
 			const failure = view.status === 'error' && view.error ? view.error : error.message
 			view.status = 'error'
 			view.error = failure
@@ -1350,6 +1414,7 @@ export class Operator {
 			}
 			this.removedConversations.set(sessionId, archived)
 			this.pendingConversationRemovals.delete(sessionId)
+			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
 			for (const [attachmentId, file] of this.attachmentFiles)
 				if (file.ownerId === sessionId) this.attachmentFiles.delete(attachmentId)
@@ -1432,6 +1497,11 @@ export class Operator {
 		)) as HarnessView
 		assertCurrent()
 		if (session) {
+			if (session.view.harness !== view.selected)
+				this.backgroundWork.invalidate(
+					session.view.id,
+					view.selected === 'namzu' ? { state: 'unknown' } : { state: 'unavailable' },
+				)
 			session.view.harness = view.selected
 			this.persistDesktop()
 		}
@@ -1463,6 +1533,11 @@ export class Operator {
 				engine,
 			})) as HarnessView
 			assertCurrent()
+			if (session.view.harness !== view.selected)
+				this.backgroundWork.invalidate(
+					sessionId,
+					view.selected === 'namzu' ? { state: 'unknown' } : { state: 'unavailable' },
+				)
 			session.view.harness = view.selected
 			session.providers = undefined
 			session.providerSelection =
@@ -1486,6 +1561,7 @@ export class Operator {
 				}
 			}
 			this.persistDesktop()
+			this.trackBackgroundWork(sessionId)
 			return view
 		} finally {
 			session.selectionPending = false
@@ -1559,7 +1635,7 @@ export class Operator {
 			if (!view) throw new Error('This conversation is no longer in this project.')
 			const history = (await project.client.request('namzu/conversations/history', {
 				sessionId,
-			})) as { messages: ChatMessage[]; partial: boolean }
+			})) as { messages: ChatMessage[]; partial: boolean; work?: HistoryWorkSnapshot }
 			assertCurrent()
 			this.assertConversationAvailable(sessionId)
 			const record: Conversation = {
@@ -1573,17 +1649,19 @@ export class Operator {
 				queue: [],
 				draft: '',
 				projection: {
-					...restoreMessages(emptyThread(), history.messages),
+					...restoreHistoryWork(emptyThread(), history.messages, history.work),
 					partial: history.partial,
 				},
 				permissions: new Map(),
 			}
 			this.conversations.set(sessionId, record)
 			this.persistDesktop()
+			this.trackBackgroundWork(sessionId)
 			return { ...history, thread: record.projection }
 		}
 		await this.restoreConversationHistory(existing)
 		this.assertConversationAvailable(sessionId)
+		this.trackBackgroundWork(sessionId)
 		// An unsent tab already owns its local draft and projection. Display it
 		// immediately; readiness and metadata restore the exact engine/model
 		// against its replacement runtime before admitting actions.
@@ -1614,7 +1692,7 @@ export class Operator {
 		const promise = (async () => {
 			const history = (await client.request('namzu/conversations/history', {
 				sessionId: runtimeId,
-			})) as { messages: ChatMessage[]; partial: boolean }
+			})) as { messages: ChatMessage[]; partial: boolean; work?: HistoryWorkSnapshot }
 			assertCurrent()
 			if (
 				this.conversations.get(session.view.id) !== session ||
@@ -1623,7 +1701,7 @@ export class Operator {
 			)
 				throw new Error('This conversation changed while opening. Open it again.')
 			session.projection = {
-				...restoreMessages(session.projection, history.messages),
+				...restoreHistoryWork(session.projection, history.messages, history.work),
 				partial: history.partial,
 			}
 			session.needsHistory = false
@@ -1751,6 +1829,7 @@ export class Operator {
 					if (owner && owner !== session)
 						throw new Error('Namzu returned an identity owned by another conversation.')
 					session.runtimeSessionId = result.sessionId
+					this.backgroundWork.invalidate(session.view.id)
 					session.replacement = { client, id: result.sessionId }
 				}
 				if (session.view.palId)
@@ -1788,6 +1867,7 @@ export class Operator {
 						)
 					}
 					session.view.harness = engine
+					this.backgroundWork.invalidate(session.view.id)
 				} else if (requested) {
 					const restored = (await client.request('namzu/harnesses/select', {
 						sessionId: session.runtimeSessionId,
@@ -1797,6 +1877,7 @@ export class Operator {
 					if (restored.selected !== requested.engine)
 						throw new Error('The selected engine could not be restored. Your draft is retained.')
 					session.view.harness = requested.engine
+					this.backgroundWork.invalidate(session.view.id)
 				}
 				if (
 					(!engine || engine === 'namzu') &&
@@ -2841,13 +2922,19 @@ export class Operator {
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)
-			if (session?.view.projectId === project.view.id && session.running)
+			if (session?.view.projectId === project.view.id && session.running) {
 				this.emit({
 					kind: 'update',
 					projectId: project.view.id,
 					sessionId: session.view.id,
 					update: params.update,
 				})
+				if (
+					(params.update?.kind === 'tool_call' && params.update.status !== 'pending') ||
+					params.update?.kind === 'turn_ended'
+				)
+					this.trackBackgroundWork(session.view.id)
+			}
 		} else if (
 			frame.method === 'session/request_permission' &&
 			(typeof frame.id === 'string' || typeof frame.id === 'number')
@@ -2914,9 +3001,12 @@ export class Operator {
 			sessionId: session.runtimeSessionId,
 			jobId,
 		})
+		this.backgroundWork.invalidate(sessionId)
+		this.trackBackgroundWork(sessionId)
 	}
 	async close(): Promise<void> {
 		this.closing = true
+		this.backgroundWork.close()
 		for (const id of this.computerViewers.keys()) this.closePalComputerStream(id)
 		const closing = await Promise.allSettled(
 			[...this.ownedClients].map((client) => this.closeClient(client)),

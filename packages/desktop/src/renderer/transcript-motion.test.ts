@@ -295,3 +295,19 @@ it('uses a successful configured stop condition but leaves unknown restored work
 	thread.turns[1] = { stopReason: 'cancelled', reason: 'aborted' }
 	expect(turnActivityLabel(thread, 1)).toBe('Stopped')
 })
+
+it('uses a recorded duration without inventing historical host clocks or an outcome', () => {
+	const thread = historyThread()
+	thread.turns[1] = { recordedDurationMs: 8_400 }
+	expect(turnActivityLabel(thread, 1)).toBe('Work details · 8s')
+	thread.turns[1].reason = 'stop_condition'
+	expect(turnActivityLabel(thread, 1)).toBe('Worked for 8s')
+	expect(thread.turns[1].startedAt).toBeUndefined()
+	expect(thread.turns[1].endedAt).toBeUndefined()
+	thread.turns[1].recordedDurationMs = Number.NaN
+	expect(turnActivityLabel(thread, 1)).toBe('Worked')
+	thread.turns[1].recordedDurationMs = -1
+	expect(turnActivityLabel(thread, 1)).toBe('Worked')
+	thread.turns[1] = { startedAt: 100, endedAt: 2100, recordedDurationMs: 8400, reason: 'aborted' }
+	expect(turnActivityLabel(thread, 1)).toBe('Stopped · 2s')
+})

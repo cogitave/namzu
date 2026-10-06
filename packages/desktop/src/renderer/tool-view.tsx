@@ -8,6 +8,7 @@ function emptyOutput(state?: ToolTranscriptState): string {
 	if (state === 'failed') return 'No output was returned before the failure.'
 	if (state === 'cancelled') return 'No output was returned before cancellation.'
 	if (state === 'interrupted') return 'No output was returned before interruption.'
+	if (state === 'skipped') return 'This action was not executed.'
 	return 'No output.'
 }
 

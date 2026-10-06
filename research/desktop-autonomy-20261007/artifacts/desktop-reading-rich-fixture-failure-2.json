@@ -1,0 +1,40 @@
+{
+  "passed": false,
+  "realRenderer": true,
+  "browserOnly": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "nativeActions": 0,
+  "checks": [
+    "120 historical messages: streaming preserves reader position; V8 coverage records eight Markdown processor calls for four changed live bodies in development StrictMode (two calls per changed body, zero settled reparses).",
+    "Keyboard jump resumes streaming follow; downward wheel at the bottom and a touch without scrolling do not stop following.",
+    "Warm A → B → A navigation restores the reader position without losing streamed messages.",
+    "Inactive ordinary tab and sidebar show exact running count and terminal attention; unknown, expired and unavailable snapshots show no stale badge or live transcript status."
+  ],
+  "screenshots": [
+    "desktop-reading-v2-reading-dark-20261007.png",
+    "desktop-reading-v2-background-other-tab-20261007.png"
+  ],
+  "referenceEvidence": "Pinned upstream source notes in ../README.md",
+  "limitations": [
+    "Isolated event fixtures with 60 distinct historical turns; no provider prompt or native computer action.",
+    "Reference live DOM unavailable; no pixel-parity claim."
+  ],
+  "markdownProcessor": [
+    {
+      "url": "/node_modules/.vite/deps/react-markdown.js?v=6a50e84f",
+      "name": "Markdown",
+      "calls": 8
+    },
+    {
+      "url": "/node_modules/.vite/deps/react-markdown.js?v=6a50e84f",
+      "name": "createProcessor",
+      "calls": 8
+    }
+  ],
+  "error": {
+    "name": "Error",
+    "message": "expect(locator).toContainText(expected) failed\n\nLocator: locator('.tool-list')\nExpected substring: \"Skipped\"\nError: strict mode violation: locator('.tool-list') resolved to 2 elements:\n    1) <div class=\"tool-list\" data-timeline-turn=\"1\" data-transcript-entry-key=\"tool-1:write\">…</div> aka locator('div').filter({ hasText: /^Edited note\\.txtCompletednote\\.txtBeforePrevious exact textAfterChecked exact text$/ }).nth(3)\n    2) <div class=\"tool-list\" data-timeline-turn=\"1\" data-transcript-entry-key=\"tool-1:optional\">…</div> aka locator('div').filter({ hasText: /^Skipped actionSkipped$/ }).nth(3)\n\nCall log:\n  - Expect \"toContainText\" locator('.tool-list') with timeout 5000ms\n  - waiting for locator('.tool-list')\n"
+  },
+  "rendererErrors": []
+}

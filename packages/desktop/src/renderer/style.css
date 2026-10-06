@@ -556,6 +556,19 @@ pre {
 	max-width: var(--chat-max-width);
 	margin: 0 auto;
 }
+.transcript-latest {
+	position: absolute;
+	bottom: min(calc(var(--composer-height, 200px) + 18px), calc(100% - 44px));
+	left: 50%;
+	z-index: 3;
+	translate: -50% 0;
+	animation: content-arrive 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.transcript-latest {
+		animation: none;
+	}
+}
 .message {
 	animation: content-arrive 180ms ease-out;
 }

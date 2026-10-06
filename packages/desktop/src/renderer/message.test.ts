@@ -1,7 +1,110 @@
-import { createElement } from 'react'
+import { act, createElement } from 'react'
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageContent } from './message.js'
+
+const parsed = vi.hoisted(() => vi.fn<(text: string) => void>())
+vi.mock('react-markdown', async (original) => {
+	const actual = await original<typeof import('react-markdown')>()
+	return {
+		...actual,
+		default: (props: Parameters<typeof actual.default>[0]) => {
+			parsed(props.children ?? '')
+			return createElement(actual.default, props)
+		},
+	}
+})
+beforeEach(() => parsed.mockClear())
+afterEach(() => vi.unstubAllGlobals())
+
+// Only React's DOM mutations are needed for this reconciliation test: no layout,
+// browser timing, events or HTML parser. Markdown still uses its real processor.
+class MemoryNode {
+	namespaceURI = 'http://www.w3.org/1999/xhtml'
+	parentNode: MemoryNode | null = null
+	childNodes: MemoryNode[] = []
+	attributes = new Map<string, string>()
+	style = {}
+	nodeValue = ''
+	nodeName: string
+	tagName: string
+	constructor(
+		readonly tag: string,
+		readonly ownerDocument: unknown,
+		readonly nodeType = 1,
+	) {
+		this.tagName = this.nodeName = tag.toUpperCase()
+	}
+	get firstChild() {
+		return this.childNodes[0] ?? null
+	}
+	get nextSibling() {
+		const siblings = this.parentNode?.childNodes ?? []
+		return siblings[siblings.indexOf(this) + 1] ?? null
+	}
+	get textContent(): string {
+		return this.childNodes.length
+			? this.childNodes.map((child) => child.textContent).join('')
+			: this.nodeValue
+	}
+	set textContent(value: string) {
+		for (const child of this.childNodes) child.parentNode = null
+		this.childNodes = []
+		this.nodeValue = value
+	}
+	appendChild(child: MemoryNode) {
+		child.parentNode?.removeChild(child)
+		this.childNodes.push(child)
+		child.parentNode = this
+		return child
+	}
+	insertBefore(child: MemoryNode, before: MemoryNode) {
+		child.parentNode?.removeChild(child)
+		this.childNodes.splice(this.childNodes.indexOf(before), 0, child)
+		child.parentNode = this
+		return child
+	}
+	removeChild(child: MemoryNode) {
+		this.childNodes.splice(this.childNodes.indexOf(child), 1)
+		child.parentNode = null
+		return child
+	}
+	setAttribute(name: string, value: string) {
+		this.attributes.set(name, value)
+	}
+	removeAttribute(name: string) {
+		this.attributes.delete(name)
+	}
+	addEventListener() {}
+	removeEventListener() {}
+}
+function mountedMessage() {
+	const document = {
+		nodeType: 9,
+		activeElement: null,
+		defaultView: { HTMLIFrameElement: class {} },
+		addEventListener() {},
+		createElement: (tag: string): MemoryNode => new MemoryNode(tag, document),
+		createTextNode: (text: string) => {
+			const node = new MemoryNode('#text', document, 3)
+			node.nodeValue = text
+			return node
+		},
+	}
+	vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+	vi.stubGlobal('window', document.defaultView)
+	vi.stubGlobal('document', document)
+	const container = document.createElement('div')
+	const root = createRoot(container as unknown as HTMLElement)
+	return {
+		container,
+		render: (content: ReturnType<typeof createElement>) =>
+			act(() => flushSync(() => root.render(content))),
+		unmount: () => act(() => flushSync(() => root.unmount())),
+	}
+}
 
 describe('message presentation', () => {
 	it('renders assistant structure without making model content executable or fetching media', () => {
@@ -25,5 +128,57 @@ describe('message presentation', () => {
 		)
 		expect(html).toContain('**exact text** &lt;button&gt;Run&lt;/button&gt;')
 		expect(html).not.toContain('<button')
+	})
+})
+
+describe('settled Markdown reconciliation', () => {
+	it('parses only the streaming body while settled message text is unchanged', () => {
+		const mounted = mountedMessage()
+		const body = (live: string) =>
+			createElement(
+				'section',
+				{},
+				createElement(MessageContent, { key: 'first', markdown: true, text: '**First** result' }),
+				createElement(MessageContent, { key: 'second', markdown: true, text: '**Second** result' }),
+				createElement(MessageContent, { key: 'live', markdown: true, text: live }),
+			)
+		try {
+			mounted.render(body('Streaming'))
+			mounted.render(body('Streaming the'))
+			mounted.render(body('Streaming the answer'))
+			expect(parsed.mock.calls.map(([text]) => text)).toEqual([
+				'**First** result',
+				'**Second** result',
+				'Streaming',
+				'Streaming the',
+				'Streaming the answer',
+			])
+			expect(mounted.container.textContent).toBe('First resultSecond resultStreaming the answer')
+		} finally {
+			mounted.unmount()
+		}
+	})
+	it('keeps wrapper/theme attributes and text mode updates live around an unchanged parsed body', () => {
+		const mounted = mountedMessage()
+		const body = (text: string, markdown: boolean, theme: string) =>
+			createElement(MessageContent, { markdown, text, className: `theme-${theme}`, title: theme })
+		try {
+			mounted.render(body('**Result**', true, 'light'))
+			mounted.render(body('**Result**', true, 'dark'))
+			expect(parsed).toHaveBeenCalledExactlyOnceWith('**Result**')
+			expect(mounted.container.firstChild?.attributes.get('class')).toContain('theme-dark')
+			expect(mounted.container.firstChild?.attributes.get('title')).toBe('dark')
+			mounted.render(body('**Changed**', true, 'dark'))
+			expect(parsed).toHaveBeenLastCalledWith('**Changed**')
+			expect(mounted.container.textContent).toBe('Changed')
+			mounted.render(body('**Changed** <button>Run</button>', false, 'dark'))
+			expect(parsed).toHaveBeenCalledTimes(2)
+			expect(mounted.container.textContent).toBe('**Changed** <button>Run</button>')
+			mounted.render(body('**Changed**', true, 'dark'))
+			expect(parsed).toHaveBeenCalledTimes(3)
+			expect(mounted.container.textContent).toBe('Changed')
+		} finally {
+			mounted.unmount()
+		}
 	})
 })

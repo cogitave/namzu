@@ -145,6 +145,7 @@ const OPERATIONS = new Set([
 	'removeQueued',
 	'approve',
 	'jobs',
+	'backgroundWorkStatuses',
 	'readJob',
 	'stopJob',
 	'refreshTasks',

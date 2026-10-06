@@ -22,6 +22,8 @@ export interface TurnState {
 	/** Host admission/settlement timestamps, unavailable for cold text history. */
 	startedAt?: number
 	endedAt?: number
+	/** Durable runtime duration, distinct from Desktop host admission/settlement clocks. */
+	recordedDurationMs?: number
 	turnId?: string
 	stopReason?: string
 	reason?: string
@@ -30,6 +32,8 @@ export interface TurnState {
 export type ProjectedToolCall = Extract<AcpSessionUpdate, { kind: 'tool_call' }> & {
 	/** First admitted call presentation, distinct from the current result view. */
 	readonly callView?: ToolCallView
+	/** Display-only historical outcome absent from ACP's live three-state union. */
+	readonly historicalStatus?: 'skipped'
 }
 export interface ThreadState {
 	revision: number
@@ -54,6 +58,8 @@ export interface ThreadState {
 	activeReasoningId?: string
 	responding: boolean
 	partial?: boolean
+	/** Some saved action details were absent or exceeded their display bounds. */
+	historyWorkPartial?: boolean
 	stopReason?: string
 	reason?: string
 	result?: string
@@ -97,6 +103,7 @@ export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): T
 		result: undefined,
 		retry: undefined,
 		retryNotice: undefined,
+		historyWorkPartial: undefined,
 	}
 }
 /** Explicit waiting and real tools take precedence over model streaming. */
@@ -270,7 +277,7 @@ function settledAnswer(
 	)
 }
 export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadState {
-	if (event.kind === 'connection') return previous
+	if (event.kind === 'connection' || event.kind === 'background-work-status') return previous
 	if (event.revision !== undefined && event.revision <= previous.revision) return previous
 	let thread = event.revision === undefined ? previous : { ...previous, revision: event.revision }
 	if (event.kind === 'tasks')
@@ -467,7 +474,8 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			update.progress && prior
 				? { ...prior, ...update, status: prior.status, view: prior.view }
 				: update
-		const tool: ProjectedToolCall = { ...currentTool, callView }
+		const { historicalStatus: _historicalStatus, ...liveTool } = currentTool as ProjectedToolCall
+		const tool: ProjectedToolCall = { ...liveTool, callView }
 		const activeToolIds = thread.activeToolIds.filter((id) => id !== toolKey)
 		if (current && thread.running && thread.stopReason === undefined && tool.status === 'pending')
 			activeToolIds.push(toolKey)

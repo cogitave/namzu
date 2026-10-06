@@ -1092,7 +1092,8 @@ model phase remains Working. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
 opaque reasoning, signatures or replay material.
 
-In ordinary conversations, each authored prompt owns one turn. Its public
+In ordinary conversations, work belongs to its admitted runtime turn. Saved
+steering messages with the same recorded turn identity stay in that turn. Its public
 reasoning, tool receipts and explicit commentary stay in admission order inside
 a collapsible work summary. While live its heading is Work details; one status
 line near the composer owns Thinking, Working or Waiting for your decision and
@@ -1115,7 +1116,7 @@ proves it. A cold history with no completion metadata says **Work details**,
 without inventing a successful outcome or elapsed duration.
 
 Action rows distinguish Running, Waiting for approval, Completed, Failed,
-Cancelled and Interrupted using the exact call's admitted state. An approval
+Cancelled, Interrupted and recorded Skipped actions using the exact call's admitted state. An approval
 for one call does not relabel its siblings. Cancelled confirmations are neutral;
 failed command output remains inspectable. Command and file labels require
 actual command/path metadata rather than a terminal-shaped result alone.
@@ -1190,8 +1191,9 @@ Checkpointed provider faults retain their failure explanation in the live
 transcript's error alert even when the compatibility stop category is
 `cancelled`. Reopening that conversation while its runtime connection remains
 alive retains the explanation; the next authored prompt clears it. Ordinary
-review pauses and user cancellation do not create an error. Cold text-only
-history retains its existing limit: it does not reconstruct these live receipts.
+review pauses and user cancellation do not create an error. Cold history restores
+recorded terminal classifications and bounded public receipt views. It does not
+restore raw provider fault text, a live permission or retry authority.
 
 The desktop offers **Retry turn** only when the connected runtime confirms an
 exact retryable provider checkpoint with resolved request accounting and known
@@ -1224,9 +1226,20 @@ settlement. It includes preparation, model work, tools and approval waits; time
 spent in an unstarted message queue is excluded. This is observed wall-clock
 elapsed time, not provider compute time, billed latency or the sum of tool
 durations. Clock adjustments can affect it. Reattaching the interface preserves
-the same timestamps and settled duration while main lives. A cold text-history
-load has no activity receipts or start/end timestamps, so it supplies neither
-reconstructed reasoning nor an invented duration.
+the same timestamps and settled duration while main lives. Cold ordinary history
+can display an explicitly recorded runtime duration, with a tooltip identifying
+it as saved work time. This is distinct from the native host admission clock;
+the desktop does not invent historical start/end timestamps or reconstruct
+reasoning bodies. Legacy history with no saved timing keeps it absent.
+
+Streaming follows the latest message only while the reader is at the bottom.
+Reading older output preserves its position as new messages arrive. A small,
+keyboard-accessible **Jump to latest messages** control returns to the end and
+resumes following; reduced motion uses immediate movement. Warm tab navigation
+restores the saved reading position. Settled Markdown bodies retain their parsed
+subtree when only a live body changes. The [renderer proof](../../research/desktop-autonomy-20261007/artifacts/desktop-reading-browser-proof.json)
+checks these behaviors, ordinary background indicators, narrow light layouts and
+the separate Pal chat, without model requests or computer actions.
 
 ## Operator flow
 
@@ -1506,6 +1519,18 @@ after any older in-flight poll; failure never fabricates a stopped state and
 unconfirmed termination keeps its retry action. A failed process-list read is
 unconfirmed, rather than a zero running count.
 
+Tabs and Recents also show a compact indicator for observed background work in
+another ordinary Namzu conversation. One main-process observer serializes reads
+across windows, starts at most one per second and refreshes a confirmed running
+session no more often than every two seconds. Confirmations expire after 15
+seconds and become unknown; terminal failure and zero-running confirmations do
+not poll repeatedly. Owned conversation opening, tool settlement and stop actions
+can seed a fresh observation. A late read cannot revive a removed conversation,
+an old connection, runtime alias or harness. Closed process panels do not keep
+their own polling loop. This display metadata never supplies stop, archive,
+computer-idle or permission admission. Pal views and externally owned native
+engine processes do not receive a Namzu shell-registry indicator.
+
 The [background work reference observations](../../research/runtime-desktop-20260930/artifacts/background-work-reference-observations-20261006.json)
 record the installed reference's compact process section and the limit of its
 source-only inspection. Namzu retains its own named-job controls and output
@@ -1575,7 +1600,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/project/status` | none | canonical cwd and remembered trust |
 | `namzu/project/trust` | exact `cwd`, `confirmed: true` | updated trust; client must require an operator confirmation |
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
-| `namzu/conversations/history` | `sessionId` | bounded text messages and `partial` |
+| `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
 | `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
 | `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
@@ -1587,6 +1612,20 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
+
+The additive ordinary history `work` snapshot has `v: 1`, a receipt-completeness
+`partial` flag, and arrays `messages`, `turns`, and `tools`. Message anchors carry
+the retained row index, actual message/turn IDs and journal order. Turns carry
+the actual user-message identity, terminal classification and optional recorded
+runtime duration. At most 100 selected tool receipts carry actual turn/call IDs,
+latest-attempt order, name, outcome and an optional recorded public presentation.
+Each presentation is cloned from known fields and bounded to 32 KiB, with a
+128 KiB aggregate view limit. Text bounds remain unchanged. Missing legacy or
+oversized details are explicit; raw inputs, structured spills and opaque
+reasoning are excluded. The same strict owned snapshot supplies messages and
+receipts; folded replacements and compaction determine which identities survive.
+An unfinished historical action is Interrupted, never a restored running action
+or approval. Pal friend-chat filtering and its history wire remain unchanged.
 
 The native main process owns these methods. Its preload exposes only named UI
 actions, and checks the requesting registered window, exact web contents,

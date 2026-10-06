@@ -8,6 +8,7 @@ export type ToolTranscriptState =
 	| 'failed'
 	| 'cancelled'
 	| 'interrupted'
+	| 'skipped'
 
 export interface ToolTranscriptPresentation {
 	label: string
@@ -23,6 +24,7 @@ const statusLabels: Record<ToolTranscriptState, string> = {
 	failed: 'Failed',
 	cancelled: 'Cancelled',
 	interrupted: 'Interrupted',
+	skipped: 'Skipped',
 }
 
 function nonBlank(text?: string): string | undefined {
@@ -45,6 +47,7 @@ function caption(view?: ToolCallView): string | undefined {
 }
 
 function toolState(thread: ThreadState, id: string, tool: ProjectedToolCall): ToolTranscriptState {
+	if (tool.historicalStatus === 'skipped') return 'skipped'
 	if (tool.status !== 'pending') {
 		if (tool.view.kind === 'generic' && tool.view.outcome === 'cancelled') return 'cancelled'
 		return tool.status
@@ -72,6 +75,7 @@ function commandLabel(command: string, state: ToolTranscriptState): string {
 		failed: 'Command failed:',
 		cancelled: 'Cancelled command:',
 		interrupted: 'Interrupted',
+		skipped: 'Skipped command:',
 	}
 	return `${prefix[state]} ${command}`
 }
@@ -84,6 +88,7 @@ function diffLabel(path: string, state: ToolTranscriptState): string {
 		failed: 'Failed edit of',
 		cancelled: 'Cancelled edit of',
 		interrupted: 'Interrupted edit of',
+		skipped: 'Skipped edit of',
 	}
 	return `${prefix[state]} ${path}`
 }

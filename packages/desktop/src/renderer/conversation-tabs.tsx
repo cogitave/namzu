@@ -7,6 +7,10 @@ import {
 	SplitSquareVertical,
 } from 'lucide-react'
 import { Fragment, useEffect, useRef } from 'react'
+import {
+	type BackgroundWorkStatus,
+	freshBackgroundWorkStatus,
+} from '../shared/background-work-protocol.js'
 import type { ConversationView } from '../shared/protocol.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import {
@@ -18,7 +22,14 @@ import {
 	computerWorkspaceIds,
 } from './computer-workspace-toolbar.js'
 import { HarnessMark } from './harness-picker.js'
-import { LoaderCircleIcon, MoreHorizontalIcon, PlusIcon, TrashIcon, XIcon } from './icons.js'
+import {
+	LoaderCircleIcon,
+	MoreHorizontalIcon,
+	PlusIcon,
+	TerminalIcon,
+	TrashIcon,
+	XIcon,
+} from './icons.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
 import {
@@ -61,6 +72,7 @@ interface ConversationTabProps {
 	active: boolean
 	busy: boolean
 	running: boolean
+	backgroundWork?: BackgroundWorkStatus
 	palName?: string
 	pal?: ConversationPalWorkspace
 	onClose: (view: ConversationView) => void
@@ -76,6 +88,7 @@ function ConversationTab({
 	active,
 	busy,
 	running,
+	backgroundWork,
 	palName,
 	pal,
 	onClose,
@@ -85,6 +98,16 @@ function ConversationTab({
 }: ConversationTabProps) {
 	const label = palName ?? pal?.palName ?? view.title
 	const isPal = !!view.palId || !!pal
+	const work =
+		isPal || (view.harness && view.harness !== 'namzu')
+			? { state: 'unavailable' as const }
+			: freshBackgroundWorkStatus(backgroundWork)
+	const workLabel =
+		work.state === 'known' && (work.runningCount > 0 || work.needsAttention)
+			? work.runningCount > 0
+				? `${work.runningCount} ${work.runningCount === 1 ? 'process' : 'processes'} running in background${work.needsAttention ? '; background work needs attention' : ''}`
+				: 'Background work needs attention'
+			: undefined
 	const ids = pal ? computerWorkspaceIds(pal.idPrefix) : undefined
 	const trigger = useRef<HTMLButtonElement>(null)
 	const accepted = useRef(false)
@@ -172,6 +195,7 @@ function ConversationTab({
 				aria-controls={ids?.chatPanel}
 				value={view.id}
 				disabled={busy}
+				aria-description={workLabel}
 				onAuxClick={(event) => {
 					if (event.button !== 1 || busy) return
 					event.preventDefault()
@@ -200,6 +224,16 @@ function ConversationTab({
 				<span className="truncate" title={label}>
 					{label}
 				</span>
+				{workLabel && work.state === 'known' && (
+					<span
+						className="conversation-tab-background-work"
+						data-background-work={work.needsAttention ? 'attention' : 'running'}
+						aria-hidden="true"
+					>
+						{work.needsAttention ? '!' : <TerminalIcon />}
+						{work.runningCount > 0 && <span>{work.runningCount}</span>}
+					</span>
+				)}
 			</Tabs.Tab>
 			<div className="conversation-tab-actions">
 				<Menu.Root
@@ -313,6 +347,7 @@ export function ConversationTabs({
 	active,
 	busy,
 	running,
+	backgroundWork,
 	onSelect,
 	onClose,
 	onRemove,
@@ -328,6 +363,7 @@ export function ConversationTabs({
 	active: string
 	busy: boolean
 	running: (id: string) => boolean
+	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
 	onSelect: (view: ConversationView) => void
 	onClose: (view: ConversationView) => void
 	onRemove?: (view: ConversationView, trigger: HTMLElement | null) => void
@@ -363,6 +399,7 @@ export function ConversationTabs({
 							active={selected === view.id}
 							busy={busy}
 							running={running(view.id)}
+							backgroundWork={backgroundWork?.[view.id]}
 							palName={view.palId ? palNames?.[view.palId] : undefined}
 							pal={view.id === currentPal?.conversationId ? currentPal : undefined}
 							onClose={onClose}

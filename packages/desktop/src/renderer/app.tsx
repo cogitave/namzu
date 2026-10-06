@@ -1,6 +1,7 @@
-import { MessageSquare, Minus } from 'lucide-react'
+import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
+import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
 	type ThreadState,
@@ -84,6 +85,7 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { useAttachments } from './use-attachments.js'
 import { useDraftSettings } from './use-draft-settings.js'
+import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import { Wordmark } from './wordmark.js'
 import {
@@ -555,6 +557,8 @@ export function App({
 		trigger?.focus({ preventScroll: true })
 	}, [panelTab])
 	const [jobs, setJobs] = useState<JobView[]>([])
+	const [backgroundWork, setBackgroundWork] = useState<Record<string, BackgroundWorkStatus>>({})
+	const backgroundWorkVersions = useRef(new Map<string, number>())
 	const [jobsSessionId, setJobsSessionId] = useState('')
 	const refreshJobs = useRef<(() => Promise<void>) | undefined>(undefined)
 	const [jobsError, setJobsError] = useState('')
@@ -565,6 +569,7 @@ export function App({
 	const input = useRef<HTMLTextAreaElement>(null)
 	const transcript = useRef<HTMLDivElement>(null)
 	const follow = useRef(true)
+	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow)
 	const project = projects.find((item) => item.id === projectId)
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
@@ -929,12 +934,50 @@ export function App({
 		}
 	}, [api])
 	useEffect(() => {
+		if (!api.backgroundWorkStatuses) return
+		let current = true
+		const versions = new Map(backgroundWorkVersions.current)
+		void api.backgroundWorkStatuses().then(
+			(statuses) => {
+				if (!current) return
+				setBackgroundWork((all) => {
+					const next = { ...all }
+					for (const [id, status] of Object.entries(statuses)) {
+						if (
+							!removedConversations.current.has(id) &&
+							backgroundWorkVersions.current.get(id) === versions.get(id)
+						)
+							next[id] = status
+					}
+					return next
+				})
+			},
+			() => {},
+		)
+		return () => {
+			current = false
+		}
+	}, [api])
+	useEffect(() => {
 		if (!api) {
 			setError('Open Namzu using the desktop application.')
 			return
 		}
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'workspace') return
+			if (event.kind === 'background-work-status') {
+				if (
+					removedConversations.current.has(event.sessionId) ||
+					removedProjects.current.has(event.projectId)
+				)
+					return
+				backgroundWorkVersions.current.set(
+					event.sessionId,
+					(backgroundWorkVersions.current.get(event.sessionId) ?? 0) + 1,
+				)
+				setBackgroundWork((all) => ({ ...all, [event.sessionId]: event.status }))
+				return
+			}
 			if (event.kind === 'pal-deleted') {
 				removedPals.current.add(event.palId)
 				const ids = new Set(event.sessionIds)
@@ -965,6 +1008,7 @@ export function App({
 				setProjects((all) => all.filter((item) => !projectIds.has(item.id)))
 				setConversations((all) => all.filter((item) => !ids.has(item.id)))
 				setThreads((all) => omitRecords(all, ids))
+				setBackgroundWork((all) => omitRecords(all, ids))
 				setDrafts((all) => omitRecords(all, ids))
 				draftsRef.current = omitRecords(draftsRef.current, ids)
 				setEditingPal((value) => (value?.id === event.palId ? undefined : value))
@@ -999,6 +1043,7 @@ export function App({
 				draftAdmissions.current.delete(id)
 				setConversations((all) => all.filter((item) => item.id !== id))
 				setThreads((all) => omitRecords(all, ids))
+				setBackgroundWork((all) => omitRecords(all, ids))
 				setDrafts((all) => omitRecords(all, ids))
 				draftsRef.current = omitRecords(draftsRef.current, ids)
 				setRemovingConversation((value) => (value?.id === id ? undefined : value))
@@ -1016,6 +1061,14 @@ export function App({
 				return
 			}
 			if (event.kind === 'connection') {
+				const ids = new Set(
+					catalogueRows.current.conversations
+						.filter((item) => item.projectId === event.project.id)
+						.map((item) => item.id),
+				)
+				for (const id of ids)
+					backgroundWorkVersions.current.set(id, (backgroundWorkVersions.current.get(id) ?? 0) + 1)
+				setBackgroundWork((all) => omitRecords(all, ids))
 				warmSessions.current.invalidateProject(event.project.id)
 				invalidateModelCatalogueDisplayCache(window.namzu, event.project.id)
 				if (event.project.palId) palCatalogueActivity.current.changed(event.project.palId)
@@ -1094,8 +1147,17 @@ export function App({
 				...all,
 				[id]: applyEvent(all[id] ?? emptyThread(), event),
 			}))
-			if (event.kind === 'state' && !event.running)
-				void attached.reload(event.sessionId).catch((failure) => setError(errorText(failure)))
+			if (event.kind === 'state' && !event.running) {
+				const generation = navigation.current
+				void attached.reload(event.sessionId).catch((failure) => {
+					if (
+						mounted.current &&
+						activeSession.current === event.sessionId &&
+						navigation.current === generation
+					)
+						setError(errorText(failure))
+				})
+			}
 			if (event.kind === 'prompt')
 				setConversations((all) =>
 					all.map((item) =>
@@ -1163,7 +1225,15 @@ export function App({
 		}
 	}, [projectId, windowId, group.id, api])
 	useEffect(() => {
-		if (!sessionId || !api || palConversation || historyPending || restoringTabs) {
+		if (
+			!sessionId ||
+			!api ||
+			palConversation ||
+			historyPending ||
+			restoringTabs ||
+			!detailsOpen ||
+			panelTab !== 'jobs'
+		) {
 			setJobs([])
 			setJobsSessionId('')
 			return
@@ -1207,7 +1277,7 @@ export function App({
 			if (refreshJobs.current === refresh) refreshJobs.current = undefined
 			clearInterval(timer)
 		}
-	}, [sessionId, palConversation, api, historyPending, restoringTabs])
+	}, [sessionId, palConversation, api, historyPending, restoringTabs, detailsOpen, panelTab])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -1231,26 +1301,6 @@ export function App({
 			current = false
 		}
 	}, [sessionId, detailsOpen, panelTab, palTasksVisible, api, historyPending, restoringTabs])
-	useEffect(() => {
-		const node = transcript.current
-		if (!node || !sessionId) return
-		let scrollFrame: number | undefined
-		const observer = new ResizeObserver(() => {
-			if (scrollFrame !== undefined) return
-			scrollFrame = requestAnimationFrame(() => {
-				scrollFrame = undefined
-				if (!follow.current) return
-				const bottom = Math.max(0, node.scrollHeight - node.clientHeight)
-				if (Math.abs(node.scrollTop - bottom) > 0.5) node.scrollTop = bottom
-			})
-		})
-		observer.observe(node)
-		if (node.firstElementChild) observer.observe(node.firstElementChild)
-		return () => {
-			observer.disconnect()
-			if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
-		}
-	}, [sessionId])
 	useEffect(() => {
 		if (
 			!pal &&
@@ -2778,7 +2828,14 @@ export function App({
 			attached.consume(target, attachmentIds)
 			// A fast failure may settle before this admission reply arrives. Read main's
 			// draft after consumption as well as on settlement, so retry files stay visible.
-			void attached.reload(target).catch((failure) => setError(errorText(failure)))
+			void attached.reload(target).catch((failure) => {
+				if (
+					mounted.current &&
+					activeSession.current === target &&
+					navigation.current === generation
+				)
+					setError(errorText(failure))
+			})
 			if (
 				draftsRef.current[target] === prompt &&
 				!admission.restored &&
@@ -2995,6 +3052,7 @@ export function App({
 			onRemove={api.removeConversation ? requestConversationRemoval : undefined}
 			palNames={Object.fromEntries(pals.map((item) => [item.id, item.name]))}
 			palWorkspace={palTabs}
+			backgroundWork={backgroundWork}
 			running={(id) => threads[id]?.running ?? false}
 			onNew={() => void act(newConversation)}
 			onSelect={(view) => void act(() => openConversation(view))}
@@ -3159,6 +3217,7 @@ export function App({
 							conversationCollection={conversationCollection}
 							onRemoveConversation={api.removeConversation ? requestConversationRemoval : undefined}
 							threads={threads}
+							backgroundWork={backgroundWork}
 							open={railSection !== 'plugins' && sideOpen}
 							collapsed={sideCollapsed}
 							opening={loading}
@@ -3564,15 +3623,7 @@ export function App({
 								role={pal ? 'region' : undefined}
 								aria-label={pal ? `${pal.name} conversation` : undefined}
 								tabIndex={pal ? 0 : undefined}
-								ref={transcript}
-								onScroll={() => {
-									if (transcript.current)
-										follow.current =
-											transcript.current.scrollHeight -
-												transcript.current.scrollTop -
-												transcript.current.clientHeight <
-											100
-								}}
+								ref={transcriptScroll.ref}
 							>
 								<div className="conversation-body" aria-busy={historyPending}>
 									{thread.partial && (
@@ -3641,6 +3692,18 @@ export function App({
 									/>
 								</div>
 							</div>
+							{transcriptScroll.showLatest && !historyPending && (
+								<Button
+									className="transcript-latest"
+									variant="glass"
+									size="icon"
+									aria-label="Jump to latest messages"
+									title="Jump to latest messages"
+									onClick={transcriptScroll.jumpToLatest}
+								>
+									<ArrowDown aria-hidden="true" />
+								</Button>
+							)}
 							<Composer
 								variant={pal ? 'pal' : 'default'}
 								pluginsSupported={!pal}

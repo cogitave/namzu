@@ -1,0 +1,55 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "browserOnly": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "nativeActions": 0,
+  "checks": [
+    "120 historical messages: streaming preserves reader position; V8 coverage records eight Markdown processor calls for four changed live bodies in development StrictMode (two calls per changed body, zero settled reparses).",
+    "Keyboard jump returns to the latest message and resumes streaming follow.",
+    "Warm A → B → A navigation restores the reader position without losing streamed messages.",
+    "Narrow, short light viewport keeps the control inside its lane; reduced motion jumps instantly with no entrance animation.",
+    "Pal keeps friend-style bubbles and hidden scrollbar; new delivered replies preserve reading position and the latest control works without coding panels."
+  ],
+  "screenshots": [
+    "desktop-reading-reading-dark-20261007.png",
+    "desktop-reading-light-narrow-reduced-20261007.png",
+    "desktop-reading-pal-reading-20261007.png"
+  ],
+  "referenceEvidence": "Pinned upstream source notes in ../README.md",
+  "limitations": [
+    "Isolated event fixtures; no provider prompt or native computer action.",
+    "Reference live DOM unavailable; no pixel-parity claim."
+  ],
+  "markdownProcessor": [
+    {
+      "url": "/node_modules/.vite/deps/react-markdown.js?v=6a50e84f",
+      "name": "Markdown",
+      "calls": 8
+    },
+    {
+      "url": "/node_modules/.vite/deps/react-markdown.js?v=6a50e84f",
+      "name": "createProcessor",
+      "calls": 8
+    }
+  ],
+  "narrow": {
+    "button": {
+      "x": 368,
+      "y": 414,
+      "width": 32,
+      "height": 32
+    },
+    "lane": {
+      "x": 48,
+      "y": 84,
+      "width": 672,
+      "height": 536
+    },
+    "overflow": false,
+    "animations": 0
+  },
+  "apiErrors": [],
+  "rendererErrors": []
+}

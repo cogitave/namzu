@@ -132,6 +132,76 @@ it('refuses a late catalogue from a replaced connection before caching its displ
 	}
 })
 
+it('projects admitted cold work with its messages before provider readiness, without live authority', async () => {
+	const { owner, count } = harness((method) =>
+		method === 'namzu/conversations/history'
+			? Promise.resolve({
+					messages: [
+						{ role: 'user', text: 'Existing plan' },
+						{ role: 'assistant', text: 'The saved change is ready.', phase: 'final_answer' },
+					],
+					partial: false,
+					work: {
+						v: 1,
+						partial: false,
+						messages: [
+							{ index: 0, messageId: 'u', turnId: 't', order: 2 },
+							{ index: 1, messageId: 'a', turnId: 't', order: 5 },
+						],
+						turns: [
+							{
+								turnId: 't',
+								userMessageId: 'u',
+								order: 1,
+								status: 'completed',
+								reason: 'end_turn',
+								durationMs: 2400,
+							},
+						],
+						tools: [
+							{
+								turnId: 't',
+								toolUseId: 'call',
+								name: 'write',
+								order: 3,
+								status: 'completed',
+								presentation: { kind: 'diff', path: 'note.txt', before: '', after: 'Saved bytes' },
+							},
+						],
+					},
+				})
+			: undefined,
+	)
+	const project = await owner.openProject(process.cwd())
+	const history = await owner.openConversation(project.id, 'cold-session')
+	expect(history.thread?.tools['1:call']?.view).toEqual({
+		kind: 'diff',
+		path: 'note.txt',
+		before: '',
+		after: 'Saved bytes',
+	})
+	expect(history.thread?.timeline).toEqual([
+		{ kind: 'message', index: 0, turn: 1 },
+		{ kind: 'tool', id: '1:call', turn: 1 },
+		{ kind: 'message', index: 1, turn: 1 },
+	])
+	expect(history.thread?.turns[1]).toMatchObject({
+		turnId: 't',
+		reason: 'end_turn',
+		recordedDurationMs: 2400,
+	})
+	expect(history.thread?.turns[1]?.startedAt).toBeUndefined()
+	expect(history.thread).toMatchObject({
+		running: false,
+		permissions: [],
+		activeToolIds: [],
+		responding: false,
+	})
+	expect(history.thread?.retry).toBeUndefined()
+	expect(count('namzu/conversations/history')).toBe(1)
+	expect(count('session/load')).toBe(0)
+})
+
 async function savedConversation(hasPrompted = true) {
 	const directory = await mkdtemp(join(tmpdir(), 'namzu-recents-restored-'))
 	directories.push(directory)

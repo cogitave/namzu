@@ -33,7 +33,11 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 	const duration =
 		timing?.startedAt !== undefined && timing.endedAt !== undefined
 			? elapsedLabel(timing.endedAt - timing.startedAt)
-			: undefined
+			: timing?.recordedDurationMs !== undefined &&
+					Number.isFinite(timing.recordedDurationMs) &&
+					timing.recordedDurationMs >= 0
+				? elapsedLabel(timing.recordedDurationMs)
+				: undefined
 	const outcome = transcriptOutcome(reason)
 	const label =
 		turn === thread.turn && thread.error

@@ -11,7 +11,10 @@ const hooks = vi.hoisted(() => ({
 	stateIndex: 0,
 	callbacks: [] as { value: unknown; dependencies: readonly unknown[] }[],
 	callbackIndex: 0,
+	memos: [] as { value: unknown; dependencies: readonly unknown[] }[],
+	memoIndex: 0,
 	setups: [] as (() => undefined | (() => void))[],
+	layoutSetups: [] as { setup: () => undefined | (() => void); dependencies: readonly unknown[] }[],
 }))
 vi.mock('react', async (original) => ({
 	...(await original<typeof import('react')>()),
@@ -41,6 +44,20 @@ vi.mock('react', async (original) => ({
 			hooks.callbacks[index] = { value, dependencies }
 		return hooks.callbacks[index]?.value
 	},
+	useMemo<T>(create: () => T, dependencies: readonly unknown[]): T {
+		const index = hooks.memoIndex++
+		const previous = hooks.memos[index]
+		if (
+			!previous ||
+			dependencies.length !== previous.dependencies.length ||
+			dependencies.some((dependency, position) => dependency !== previous.dependencies[position])
+		)
+			hooks.memos[index] = { value: create(), dependencies }
+		return hooks.memos[index]?.value as T
+	},
+	useLayoutEffect(setup: () => undefined | (() => void), dependencies: readonly unknown[]) {
+		hooks.layoutSetups.push({ setup, dependencies })
+	},
 	useEffect(setup: () => undefined | (() => void)) {
 		hooks.setups.push(setup)
 	},
@@ -54,6 +71,9 @@ beforeEach(() => {
 	hooks.callbacks = []
 	hooks.callbackIndex = 0
 	hooks.setups = []
+	hooks.memos = []
+	hooks.memoIndex = 0
+	hooks.layoutSetups = []
 })
 function deferred<T>() {
 	let resolve!: (value: T) => void
@@ -72,18 +92,54 @@ function fixture() {
 	const pickAttachments = vi.fn<DesktopApi['pickAttachments']>()
 	const report = vi.fn()
 	const api = { attachments, pickAttachments } as unknown as DesktopApi
-	const render = (owner = 'session', connected = true, bridge = api) => {
+	let layouts: {
+		dependencies: readonly unknown[]
+		cleanup: undefined | (() => void)
+	}[] = []
+	const render = (owner = 'session', connected = true, bridge = api, commit = true) => {
 		hooks.refIndex = 0
 		hooks.stateIndex = 0
 		hooks.callbackIndex = 0
+		hooks.memoIndex = 0
 		hooks.setups = []
-		return useAttachments(owner, connected, report, bridge)
+		hooks.layoutSetups = []
+		const result = useAttachments(owner, connected, report, bridge)
+		if (commit)
+			for (const [index, { setup, dependencies }] of hooks.layoutSetups.entries()) {
+				const previous = layouts[index]
+				if (
+					!previous ||
+					dependencies.some(
+						(dependency, position) => dependency !== previous.dependencies[position],
+					)
+				) {
+					previous?.cleanup?.()
+					layouts[index] = { dependencies, cleanup: setup() }
+				}
+			}
+		return result
+	}
+	const speculativeRender = (owner = 'session', bridge = api) => {
+		const memos = hooks.memos.slice()
+		const callbacks = hooks.callbacks.slice()
+		const result = render(owner, true, bridge, false)
+		hooks.memos = memos
+		hooks.callbacks = callbacks
+		return result
 	}
 	const startEligibilityEffect = () => hooks.setups[0]?.()
-	const startLifetimeEffect = () => hooks.setups[1]?.()
+	const startLifetimeEffect = () => {
+		const captured = layouts[1]
+		return () => {
+			captured?.cleanup?.()
+			if (layouts[1] === captured) layouts = []
+		}
+	}
 	const startEffect = () => {
+		const leave = startLifetimeEffect()
 		const cleanups = hooks.setups.map((setup) => setup())
 		return () => {
+			leave()
 			for (const cleanup of cleanups) cleanup?.()
 		}
 	}
@@ -92,6 +148,7 @@ function fixture() {
 		pickAttachments,
 		report,
 		render,
+		speculativeRender,
 		startEffect,
 		startEligibilityEffect,
 		startLifetimeEffect,
@@ -142,7 +199,7 @@ it('keeps a reload started while readiness is paused when that same owner become
 	leaveOwner?.()
 })
 
-it('refuses a retired bridge snapshot even before its passive cleanup runs', async () => {
+it('refuses a committed retired bridge snapshot without reporting its refusal in the new pane', async () => {
 	const { attachments, report, render, startEffect } = fixture()
 	const previous = deferred<AttachmentView[]>()
 	const current = deferred<AttachmentView[]>()
@@ -153,8 +210,7 @@ it('refuses a retired bridge snapshot even before its passive cleanup runs', asy
 	const cleanup = startEffect()
 	const nextAttachments = vi.fn<DesktopApi['attachments']>().mockReturnValue(current.promise)
 	const nextBridge = { attachments: nextAttachments } as unknown as DesktopApi
-	// Rendering a replacement bridge fences its old response immediately; passive
-	// cleanup must still retire the owner before a fresh read can be admitted.
+	// Layout commits retire the bridge before the old passive observer cleans up.
 	render('session', true, nextBridge)
 	previous.resolve([file('retired')])
 	await refused
@@ -168,9 +224,7 @@ it('refuses a retired bridge snapshot even before its passive cleanup runs', asy
 	await reloading
 	expect(render('session', true, nextBridge).files).toEqual([file('current')])
 	expect(nextAttachments).toHaveBeenCalledExactlyOnceWith('session')
-	// The active old read effect may report the refusal before cleanup. It cannot
-	// publish or turn the retired files into the replacement bridge's snapshot.
-	expect(report).toHaveBeenCalledOnce()
+	expect(report).not.toHaveBeenCalled()
 })
 
 it('shares an explicit opening reload with the newly selected owner effect and admits files before it resolves', async () => {
@@ -284,4 +338,134 @@ it('retires a pending owner read on cleanup and requires a fresh read when that 
 	expect(attachments).toHaveBeenCalledTimes(2)
 	expect(render().files).toEqual([file('current')])
 	expect(report).not.toHaveBeenCalled()
+})
+
+it('suppresses a departed owner failure before its passive observer cleanup', async () => {
+	const f = fixture()
+	const read = deferred<AttachmentView[]>()
+	f.attachments.mockReturnValue(read.promise)
+	const opening = f.render('previous')
+	f.startEligibilityEffect()
+	const refreshing = opening.reload('previous')
+	const refused = expect(refreshing).rejects.toThrow('Previous owner read failed')
+	await Promise.resolve()
+	// Commit B without cleaning up A's passive effect: A cannot use the current
+	// error handler merely because its eligibility cleanup has not run yet.
+	f.render('current', false)
+	read.reject(new Error('Previous owner read failed'))
+	await refused
+	expect(f.report).not.toHaveBeenCalled()
+	expect(f.render('current', false).files).toEqual([])
+})
+
+it('fences a departed read when the same owner returns before old observer cleanup', async () => {
+	const f = fixture()
+	const previous = deferred<AttachmentView[]>()
+	const current = deferred<AttachmentView[]>()
+	f.attachments.mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise)
+	const opening = f.render()
+	f.startEligibilityEffect()
+	const older = opening.reload('session')
+	const refused = expect(older).rejects.toThrow('attachments changed while loading')
+	await Promise.resolve()
+	f.render('another-owner', false)
+	const returning = f.render()
+	f.startEligibilityEffect()
+	const newer = returning.reload('session')
+	previous.resolve([file('retired')])
+	await refused
+	expect(f.render().files).toEqual([])
+	expect(f.report).not.toHaveBeenCalled()
+	current.resolve([file('current')])
+	await newer
+	expect(f.render().files).toEqual([file('current')])
+	expect(f.attachments).toHaveBeenCalledTimes(2)
+})
+
+it.each(['owner', 'api'] as const)(
+	'keeps the committed read when a speculative %s render never commits',
+	async (replacement) => {
+		const f = fixture()
+		const read = deferred<AttachmentView[]>()
+		f.attachments.mockReturnValue(read.promise)
+		const opening = f.render()
+		f.startEligibilityEffect()
+		const refreshing = opening.reload('session')
+		await Promise.resolve()
+		if (replacement === 'owner') f.speculativeRender('another-owner')
+		else
+			f.speculativeRender('session', {
+				attachments: vi.fn().mockResolvedValue([file('another-bridge')]),
+			} as unknown as DesktopApi)
+		read.resolve([file('committed')])
+		await refreshing
+		expect(f.render().files).toEqual([file('committed')])
+		expect(f.attachments).toHaveBeenCalledExactlyOnceWith('session')
+		expect(f.report).not.toHaveBeenCalled()
+	},
+)
+
+it('does not reuse a known same-owner snapshot across committed bridges', async () => {
+	const f = fixture()
+	f.attachments.mockResolvedValue([file('old-bridge')])
+	await f.render().reload('session')
+	expect(f.render().loaded).toBe(true)
+	const nextAttachments = vi.fn<DesktopApi['attachments']>().mockResolvedValue([file('new-bridge')])
+	const nextBridge = { attachments: nextAttachments } as unknown as DesktopApi
+	const next = f.render('session', true, nextBridge)
+	expect(next.files).toEqual([])
+	expect(next.loaded).toBe(false)
+	f.startEligibilityEffect()
+	await next.reload('session')
+	expect(f.render('session', true, nextBridge).files).toEqual([file('new-bridge')])
+	expect(nextAttachments).toHaveBeenCalledExactlyOnceWith('session')
+})
+
+it('keeps an admitted chooser on its captured bridge without publishing into its replacement', async () => {
+	const f = fixture()
+	const picked = deferred<AttachmentView[]>()
+	f.pickAttachments.mockReturnValue(picked.promise)
+	const picking = f.render().pick()
+	const nextPick = vi.fn<DesktopApi['pickAttachments']>()
+	const nextBridge = { attachments: vi.fn(), pickAttachments: nextPick } as unknown as DesktopApi
+	f.render('session', false, nextBridge)
+	picked.resolve([file('old-bridge')])
+	await picking
+	expect(f.pickAttachments).toHaveBeenCalledExactlyOnceWith('session')
+	expect(nextPick).not.toHaveBeenCalled()
+	const current = f.render('session', false, nextBridge)
+	expect(current.files).toEqual([])
+	expect(current.loaded).toBe(false)
+	expect(current.busy).toBe(false)
+	expect(f.report).not.toHaveBeenCalled()
+})
+
+it('keeps a next-owner explicit reload through the previous owner layout cleanup', async () => {
+	const f = fixture()
+	const read = deferred<AttachmentView[]>()
+	f.attachments.mockReturnValue(read.promise)
+	const previous = f.render('previous', false)
+	// Opening starts metadata before React commits the next visible owner.
+	const refreshing = previous.reload('next')
+	await Promise.resolve()
+	const next = f.render('next')
+	f.startEligibilityEffect()
+	read.resolve([file('next-owner')])
+	await refreshing
+	expect(next.get('next')).toEqual([file('next-owner')])
+	expect(f.render('next').files).toEqual([file('next-owner')])
+	expect(f.attachments).toHaveBeenCalledExactlyOnceWith('next')
+})
+
+it('retains the chooser owner while another conversation is displayed', async () => {
+	const f = fixture()
+	const picked = deferred<AttachmentView[]>()
+	f.pickAttachments.mockReturnValue(picked.promise)
+	const picking = f.render('previous').pick()
+	f.render('current', false)
+	picked.resolve([file('previous-owner')])
+	await picking
+	expect(f.pickAttachments).toHaveBeenCalledExactlyOnceWith('previous')
+	expect(f.render('current', false).files).toEqual([])
+	expect(f.render('previous', false).files).toEqual([file('previous-owner')])
 })

@@ -1,9 +1,19 @@
 import { Menu } from '@base-ui/react/menu'
 import { useId, useRef } from 'react'
+import {
+	type BackgroundWorkStatus,
+	freshBackgroundWorkStatus,
+} from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { LoaderCircleIcon, MoreHorizontalIcon, ShieldQuestionIcon, TrashIcon } from './icons.js'
+import {
+	LoaderCircleIcon,
+	MoreHorizontalIcon,
+	ShieldQuestionIcon,
+	TerminalIcon,
+	TrashIcon,
+} from './icons.js'
 import { cn } from './lib/utils.js'
 import { Button } from './ui/button.js'
 import './thread-card.css'
@@ -12,6 +22,7 @@ export function ThreadCard({
 	conversation,
 	project,
 	thread,
+	backgroundWork,
 	active,
 	onClick,
 	onRemove,
@@ -19,6 +30,7 @@ export function ThreadCard({
 	conversation: ConversationView
 	project: ProjectView
 	thread?: ThreadState
+	backgroundWork?: BackgroundWorkStatus
 	active: boolean
 	onClick: () => void
 	onRemove?: (trigger: HTMLElement | null) => void
@@ -36,13 +48,24 @@ export function ThreadCard({
 				: age < 86400000
 					? `${Math.floor(age / 3600000)}h`
 					: `${Math.floor(age / 86400000)}d`
-	const status = thread?.permissions.length
+	const work =
+		conversation.palId || (conversation.harness && conversation.harness !== 'namzu')
+			? { state: 'unavailable' as const }
+			: freshBackgroundWorkStatus(backgroundWork)
+	const workText =
+		work.state === 'known' && (work.runningCount > 0 || work.needsAttention)
+			? work.runningCount > 0
+				? `${work.runningCount} ${work.runningCount === 1 ? 'process' : 'processes'} running in background${work.needsAttention ? '; background work needs attention' : ''}`
+				: 'Background work needs attention'
+			: undefined
+	const threadStatus = thread?.permissions.length
 		? 'Approval needed'
 		: thread?.running
 			? 'Running'
 			: thread?.error
 				? 'Needs attention'
 				: undefined
+	const status = [threadStatus, workText].filter(Boolean).join('; ') || undefined
 	return (
 		<li
 			data-thread-item
@@ -71,6 +94,15 @@ export function ThreadCard({
 				<div className="conversation-row" title={`${conversation.title} · ${project.name}`}>
 					<span className="conversation-row-title">{conversation.title}</span>
 					<span className="conversation-row-state">
+						{workText && work.state === 'known' && (
+							<span
+								className="thread-background-work"
+								data-background-work={work.needsAttention ? 'attention' : 'running'}
+								aria-hidden="true"
+							>
+								{work.needsAttention ? '!' : <TerminalIcon />}
+							</span>
+						)}
 						{thread?.permissions.length ? (
 							<ShieldQuestionIcon
 								className="size-3.5 text-warning-foreground"

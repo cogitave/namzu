@@ -83,6 +83,23 @@
 	font-size: 6px;
 	line-height: 1;
 }
+.conversation-tab-background-work {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--sidebar-muted-foreground);
+}
+.conversation-tab-background-work svg {
+	width: 12px;
+	height: 12px;
+}
+.conversation-tab-background-work[data-background-work="attention"] {
+	color: var(--warning-foreground);
+}
 @media (prefers-reduced-motion: reduce) {
 	.conversation-tab {
 		transition: none;

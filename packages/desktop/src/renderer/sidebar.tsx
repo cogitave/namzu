@@ -1,5 +1,9 @@
 import { Menu } from '@base-ui/react/menu'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import {
+	type BackgroundWorkStatus,
+	freshBackgroundWorkStatus,
+} from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import { BrandDither } from './brand-dither.js'
@@ -23,6 +27,14 @@ import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
+function hasVisibleBackgroundWork(
+	view: ConversationView,
+	status: BackgroundWorkStatus | undefined,
+): boolean {
+	if (view.palId || (view.harness && view.harness !== 'namzu')) return false
+	const fresh = freshBackgroundWorkStatus(status)
+	return fresh.state === 'known' && (fresh.runningCount > 0 || fresh.needsAttention)
+}
 export function Sidebar({
 	projects,
 	conversations,
@@ -30,6 +42,7 @@ export function Sidebar({
 	sessionId,
 	conversationCollection,
 	threads,
+	backgroundWork,
 	open,
 	opening,
 	onClose,
@@ -49,6 +62,7 @@ export function Sidebar({
 	sessionId: string
 	conversationCollection: ConversationCollection
 	threads: Record<string, ThreadState>
+	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
 	open: boolean
 	opening: boolean
 	onClose: () => void
@@ -74,7 +88,13 @@ export function Sidebar({
 	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
 		.filter((item) => projectById.has(item.projectId))
 		.sort(compareConversationRecency)
-		.filter((item, index) => index < 10 || item.id === sessionId || threads[item.id]?.running)
+		.filter(
+			(item, index) =>
+				index < 10 ||
+				item.id === sessionId ||
+				threads[item.id]?.running ||
+				hasVisibleBackgroundWork(item, backgroundWork?.[item.id]),
+		)
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
 		: projectId
@@ -232,6 +252,7 @@ export function Sidebar({
 										rows={rows}
 										project={project}
 										threads={threads}
+										backgroundWork={backgroundWork}
 										sessionId={sessionId}
 										active={conversationCollection === 'projects'}
 										expanded={Boolean(expandedLists[project.id])}
@@ -266,6 +287,7 @@ export function Sidebar({
 								rows={recent}
 								projects={projectById}
 								threads={threads}
+								backgroundWork={backgroundWork}
 								sessionId={sessionId}
 								active={conversationCollection === 'recents'}
 								onConversation={(view) => onConversation(view, 'recents')}
@@ -283,6 +305,7 @@ function ThreadList({
 	rows,
 	project,
 	threads,
+	backgroundWork,
 	sessionId,
 	active,
 	expanded,
@@ -293,6 +316,7 @@ function ThreadList({
 	rows: ConversationView[]
 	project: ProjectView
 	threads: Record<string, ThreadState>
+	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
 	sessionId: string
 	active: boolean
 	expanded: boolean
@@ -301,7 +325,11 @@ function ThreadList({
 	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
 }) {
 	const limitedRows = rows.filter(
-		(item, index) => index < 5 || item.id === sessionId || threads[item.id]?.running,
+		(item, index) =>
+			index < 5 ||
+			item.id === sessionId ||
+			threads[item.id]?.running ||
+			hasVisibleBackgroundWork(item, backgroundWork?.[item.id]),
 	)
 	const shownRows = expanded ? rows : limitedRows
 	const hasExtra = limitedRows.length < rows.length
@@ -318,6 +346,7 @@ function ThreadList({
 					conversation={item}
 					project={project}
 					thread={threads[item.id]}
+					backgroundWork={backgroundWork?.[item.id]}
 					active={active && item.id === sessionId}
 					onClick={() => onConversation(item)}
 					onRemove={
@@ -345,6 +374,7 @@ function RecentList({
 	rows,
 	projects,
 	threads,
+	backgroundWork,
 	sessionId,
 	active,
 	onConversation,
@@ -353,6 +383,7 @@ function RecentList({
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
 	threads: Record<string, ThreadState>
+	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
 	sessionId: string
 	active: boolean
 	onConversation: (view: ConversationView) => void
@@ -373,6 +404,7 @@ function RecentList({
 						conversation={item}
 						project={project}
 						thread={threads[item.id]}
+						backgroundWork={backgroundWork?.[item.id]}
 						active={active && item.id === sessionId}
 						onClick={() => onConversation(item)}
 						onRemove={
