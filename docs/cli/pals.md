@@ -34,6 +34,15 @@ change the current pause state, optionally using `--revision`. Metadata commands
 accept `--json`. An omitted expected revision uses the version read when the
 command begins; a competing update is still refused rather than overwritten.
 
+The desktop host also exposes `namzu/pals/delete` with exactly
+`{ id, expectedRevision }`, returning `{ id, deleted: true }` after a logical
+identity deletion. It preserves conversation journals, prior revisions, host
+files and guest volumes. The desktop must first confirm stop on the computer's
+owning connection. This metadata endpoint refuses another Pal's workspace and
+any active or warm computer known to its own existing runtime; it never starts
+a computer provider to delete an offline profile. The current `namzu pal`
+terminal command does not provide a deletion verb.
+
 `create` and `update` accept `--appearance <character>/<color>`, for example
 `--appearance spark/violet`. Characters are `pixel`, `sprout` and `spark`; colors
 are `green`, `blue`, `amber`, `violet` and `rose`. Both choices are saved together

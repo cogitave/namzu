@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "realChromiumPointerEvents": true,
+  "isolatedSampleOnlyRenderer": true,
+  "nativeActions": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "checks": [
+    "middle release closes an inactive ordinary tab once without selection, drag, pane focus, or focus theft",
+    "middle release on the Pal chat tab uses the conversation view close callback",
+    "middle release on the computer tab uses view-only close, without computer controls",
+    "nested close, profile, and menu actions never middle-close their parent tab",
+    "right click remains inert; primary selection and X close retain their callbacks",
+    "busy owner disables middle close for ordinary and computer tabs"
+  ]
+}

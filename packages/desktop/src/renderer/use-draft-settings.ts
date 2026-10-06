@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DesktopApi, DraftSettings } from '../shared/protocol.js'
 import { type DraftSettingsSnapshot, DraftSettingsStore } from './draft-settings-store.js'
 
@@ -9,24 +9,63 @@ export function useDraftSettings(
 	onError: (error: unknown) => void,
 	api: DesktopApi = window.namzu,
 ) {
-	const [snapshots, setSnapshots] = useState<Record<string, DraftSettingsSnapshot>>({})
+	const [snapshots, setSnapshots] = useState<{
+		store: DraftSettingsStore | null
+		values: Record<string, DraftSettingsSnapshot>
+	}>({ store: null, values: {} })
 	const failure = useRef(onError)
-	failure.current = onError
-	const bridge = useRef(api)
-	bridge.current = api
-	const store = useRef<DraftSettingsStore | null>(null)
-	if (!store.current)
-		store.current = new DraftSettingsStore(
-			(target) => bridge.current.draftSettings(target),
-			(target, value) => bridge.current.saveDraftSettings(target, value),
-			(target, value) => setSnapshots((all) => ({ ...all, [target]: value })),
-			(error) => failure.current(error),
+	useLayoutEffect(() => {
+		failure.current = onError
+	}, [onError])
+	const activeOwner = useRef<{
+		owner: string
+		state: DraftSettingsStore
+		active: boolean
+	} | null>(null)
+	// Constructing a candidate during render cannot retire the committed bridge:
+	// React may abandon this render before it changes the visible owner or API.
+	const state = useMemo(() => {
+		const admittedApi = api
+		const candidate = new DraftSettingsStore(
+			async (target) => {
+				const value = await admittedApi.draftSettings(target)
+				if (activeOwner.current?.state !== candidate)
+					throw new Error('This conversation’s message settings changed while loading. Try again.')
+				return value
+			},
+			// A queued write retains the bridge that admitted it, even if a later
+			// renderer API replaces that bridge before the write begins.
+			(target, value) => admittedApi.saveDraftSettings(target, value),
+			(target, value) => {
+				if (activeOwner.current?.state !== candidate) return
+				setSnapshots((all) => ({
+					store: candidate,
+					values: { ...(all.store === candidate ? all.values : {}), [target]: value },
+				}))
+			},
+			(target, error) => {
+				const lifetime = activeOwner.current
+				if (lifetime?.owner === target && lifetime.state === candidate && lifetime.active)
+					failure.current(error)
+			},
 		)
-	const state = store.current
+		return candidate
+	}, [api])
+	const lifetime = useMemo(() => ({ owner, state, active: false }), [owner, state])
+	useLayoutEffect(() => {
+		activeOwner.current = lifetime
+		lifetime.active = true
+		return () => {
+			lifetime.active = false
+			if (activeOwner.current === lifetime) {
+				activeOwner.current = null
+				state.cancelRead(owner)
+			}
+		}
+	}, [owner, state, lifetime])
 	useEffect(() => {
 		if (!enabled) return
 		void state.load(owner)
-		return () => state.cancelRead(owner)
 	}, [enabled, owner, state])
 	const get = useCallback((target: string) => state.get(target), [state])
 	const save = useCallback(
@@ -35,9 +74,13 @@ export function useDraftSettings(
 	)
 	const refresh = useCallback((target: string) => state.reload(target), [state])
 	const retry = useCallback(() => {
-		if (enabled) void state.retry(owner).catch((error) => failure.current(error))
-	}, [enabled, owner, state])
-	const snapshot = snapshots[owner] ?? state.snapshot(owner)
+		if (enabled)
+			void state.retry(owner).catch((error) => {
+				if (activeOwner.current === lifetime && lifetime.active) failure.current(error)
+			})
+	}, [enabled, owner, state, lifetime])
+	const snapshot =
+		(snapshots.store === state ? snapshots.values[owner] : undefined) ?? state.snapshot(owner)
 	return {
 		value: snapshot.value ?? {},
 		loading: enabled && snapshot.loading,

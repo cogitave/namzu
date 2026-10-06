@@ -1,0 +1,355 @@
+{
+  "schema": "namzu.native-harness-ui-proof.v1",
+  "date": "2026-10-06",
+  "status": "features_passed_profile_restored",
+  "passed": true,
+  "pendingFinalPalVerification": false,
+  "privacy": "Only allowlisted aggregate/configuration evidence is retained. Private receipt names, identities, paths, message text, answers, authentication and raw diagnostics are omitted.",
+  "coverage": {
+    "realPromptsSent": 5,
+    "answeredTurnsObserved": 5,
+    "allObservedRoutesMatched": true,
+    "enginesWithObservedAnswers": [
+      "claude-code",
+      "codex-cli",
+      "namzu"
+    ],
+    "ordinaryConversationArchiveVerified": true,
+    "finalPalCreateAndDeleteVerified": true,
+    "warmCatalogueReopens": 10,
+    "repeatedWarmCatalogueRequests": 0
+  },
+  "runs": [
+    {
+      "label": "all-engines-initial",
+      "privateReceiptSha256": "c0072e86183cbcda0a2173c00bb788d1935e458e3e0f0096f12cd149a7457353",
+      "runReportedPassed": false,
+      "nativeWindows": true,
+      "isolationVerified": true,
+      "realPromptsSent": 4,
+      "pageErrorCount": 0,
+      "runtimeIdentity": {
+        "cliEntrySha256ReportedByRun": "dc9fb7dff47b7d6f11ce11c5ae7f4c61dc708c1c5146b0c05cedfc2aec5be239",
+        "coverage": "Recorded CLI entry digest only; no renderer or complete runtime digest is inferred."
+      },
+      "engines": [
+        {
+          "engine": "namzu",
+          "offered": true,
+          "offeredModelRows": 8,
+          "initialModelSelection": "space-bunny-free",
+          "warmCatalogue": {
+            "reopens": 2,
+            "repeatedCatalogueRequests": 0,
+            "offeredModelRows": 8
+          },
+          "effortOffered": true,
+          "turns": [
+            {
+              "mode": "prompt",
+              "stopReason": "end_turn",
+              "hadError": false,
+              "userMessageRows": 1,
+              "assistantMessageRows": 1,
+              "routeMatched": true
+            }
+          ],
+          "effortSelectionRecorded": "low",
+          "effortLevelsOfferedCountRecorded": 5,
+          "modesUiSelectionVerified": [
+            "prompt",
+            "auto",
+            "plan"
+          ]
+        },
+        {
+          "engine": "codex-cli",
+          "offered": true,
+          "offeredModelRows": 4,
+          "initialModelSelection": "gpt-6-astra",
+          "warmCatalogue": {
+            "reopens": 2,
+            "repeatedCatalogueRequests": 0,
+            "offeredModelRows": 4
+          },
+          "effortOffered": true,
+          "turns": [
+            {
+              "mode": "prompt",
+              "stopReason": "end_turn",
+              "hadError": false,
+              "userMessageRows": 1,
+              "assistantMessageRows": 1,
+              "routeMatched": true
+            },
+            {
+              "mode": "plan",
+              "stopReason": "end_turn",
+              "hadError": false,
+              "userMessageRows": 1,
+              "assistantMessageRows": 1,
+              "routeMatched": true
+            }
+          ],
+          "laterModelSelection": "gpt-5.6-sol",
+          "warmCatalogueAfterModelChange": {
+            "reopens": 2,
+            "repeatedCatalogueRequests": 0,
+            "offeredModelRows": 4
+          },
+          "effortSelectionRecorded": "low",
+          "effortLevelsOfferedCountRecorded": 6,
+          "modesUiSelectionVerified": [
+            "prompt",
+            "auto",
+            "plan"
+          ]
+        },
+        {
+          "engine": "claude-code",
+          "offered": true,
+          "offeredModelRows": 11,
+          "initialModelSelection": "haiku",
+          "warmCatalogue": {
+            "reopens": 2,
+            "repeatedCatalogueRequests": 0,
+            "offeredModelRows": 11
+          },
+          "effortOffered": false,
+          "turns": [
+            {
+              "mode": "prompt",
+              "stopReason": "end_turn",
+              "hadError": false,
+              "userMessageRows": 1,
+              "assistantMessageRows": 1,
+              "routeMatched": true
+            }
+          ],
+          "modesUiSelectionVerified": [
+            "prompt",
+            "plan"
+          ]
+        }
+      ],
+      "ordinaryConversationRemoval": {
+        "requested": true,
+        "passed": false,
+        "failureCategory": "inactive_native_writer_not_released"
+      },
+      "palRemoval": {
+        "status": "not_reached"
+      },
+      "modesCoverage": "UI selection roundtrips; actual answer turns below cover only their recorded modes."
+    },
+    {
+      "label": "ordinary-native-archive-retry",
+      "privateReceiptSha256": "a6642fc46500858d5bdfa224e57dd31e15185586fe6ac5c99a86c17e16353885",
+      "runReportedPassed": false,
+      "nativeWindows": true,
+      "isolationVerified": true,
+      "realPromptsSent": 1,
+      "pageErrorCount": 0,
+      "runtimeIdentity": {
+        "cliEntrySha256ReportedByRun": "dc9fb7dff47b7d6f11ce11c5ae7f4c61dc708c1c5146b0c05cedfc2aec5be239",
+        "coverage": "Recorded CLI entry digest only; no renderer or complete runtime digest is inferred."
+      },
+      "engines": [
+        {
+          "engine": "codex-cli",
+          "offered": true,
+          "offeredModelRows": 4,
+          "initialModelSelection": "gpt-5.6-luna",
+          "warmCatalogue": {
+            "reopens": 2,
+            "repeatedCatalogueRequests": 0,
+            "offeredModelRows": 4
+          },
+          "effortOffered": true,
+          "turns": [
+            {
+              "mode": "prompt",
+              "stopReason": "end_turn",
+              "hadError": false,
+              "userMessageRows": 1,
+              "assistantMessageRows": 1,
+              "routeMatched": true
+            }
+          ],
+          "effortSelectionRecorded": "low",
+          "effortLevelsOfferedCountRecorded": 5,
+          "modesUiSelectionVerified": [
+            "prompt"
+          ]
+        }
+      ],
+      "ordinaryConversationRemoval": {
+        "requested": true,
+        "passed": true,
+        "uiConfirmed": true,
+        "durableArchiveAcknowledged": true,
+        "catalogueAbsent": true,
+        "tabAbsent": true,
+        "archiveAcknowledgements": [
+          {
+            "archived": true,
+            "missing": false
+          }
+        ]
+      },
+      "palRemoval": {
+        "requested": true,
+        "passed": false,
+        "failureCategory": "pal_workspace_case_mismatch"
+      },
+      "modesCoverage": "UI selection roundtrips; actual answer turns below cover only their recorded modes."
+    },
+    {
+      "label": "fresh-pal-initial",
+      "privateReceiptSha256": "b2992c0ab2eac37205b846f01210826cb61c6f970509f3c58b8ebc4d50bd511b",
+      "runReportedPassed": false,
+      "nativeWindows": true,
+      "isolationVerified": true,
+      "realPromptsSent": 0,
+      "pageErrorCount": 0,
+      "runtimeIdentity": {
+        "cliEntrySha256ReportedByRun": "dc9fb7dff47b7d6f11ce11c5ae7f4c61dc708c1c5146b0c05cedfc2aec5be239",
+        "coverage": "Recorded CLI entry digest only; no renderer or complete runtime digest is inferred."
+      },
+      "engines": [],
+      "ordinaryConversationRemoval": {
+        "status": "not_requested"
+      },
+      "palRemoval": {
+        "requested": true,
+        "passed": false,
+        "failureCategory": "pal_workspace_case_mismatch"
+      },
+      "modesCoverage": "UI selection roundtrips; actual answer turns below cover only their recorded modes."
+    },
+    {
+      "label": "final-pal-zero-prompt",
+      "privateReceiptSha256": "71a20a839cda6a25f4c732b9832b7d7d40c40ac69dc62d1b8b95bad0fe6427e3",
+      "runReportedPassed": true,
+      "nativeWindows": true,
+      "isolationVerified": true,
+      "realPromptsSent": 0,
+      "pageErrorCount": 0,
+      "runtimeIdentity": {
+        "cliEntrySha256ReportedByRun": "dc9fb7dff47b7d6f11ce11c5ae7f4c61dc708c1c5146b0c05cedfc2aec5be239",
+        "nativeProofSourceSha256VerifiedForThisRun": "ea0a2ebc3b18e69b2e396230a24976d3f78a3bf83041397cb1ef72bb7e70d6e7",
+        "deploymentEvidence": {
+          "publicAudit": "pal-conversation-removal-semantic-audit-20261006-v7.json",
+          "privateActivationReceiptSha256": "44f4e32c113089d3533297702e567d4da195616877eaa24ac063faccb6e56475",
+          "desktopSourceManifestSha256": "0e2bfc2323e945c7d4d68fe01cafd2a0a27e924799df2357090ead83b54aa2fa",
+          "cliAfterManifestSha256": "0768929a71eb6367078f5d414c1f07f809151c539449feae2740e68a19bb0970",
+          "sdkAfterManifestSha256": "5b4fc1c058dc025b1f98cf8e19fdeb049d19fe31496c44c4f057c0f1cdb5c1ae"
+        },
+        "coverage": "Proof source and v7 deployment evidence apply only to this final Pal run; earlier runs retain their recorded identities."
+      },
+      "engines": [],
+      "ordinaryConversationRemoval": {
+        "status": "not_requested"
+      },
+      "palRemoval": {
+        "requested": true,
+        "passed": true,
+        "uiCreated": true,
+        "uiConfirmed": true,
+        "computerStopped": true,
+        "palProjectsAbsent": true,
+        "palConversationsAbsent": true,
+        "palTabsAbsent": true,
+        "ordinaryProjectsAndTabsPreserved": true,
+        "workspaceDirectoryPreserved": true,
+        "profilesBefore": 0,
+        "profilesCreated": 1,
+        "profilesAfter": 0,
+        "additionalPrompts": 0,
+        "forbiddenExecutionOrSetupRequests": 0
+      },
+      "cleanup": {
+        "ownedFixtureClosedReported": true,
+        "originalProcessStillAliveReported": false,
+        "currentOriginalProcessLivenessClaimed": false
+      }
+    }
+  ],
+  "finalPalVerification": {
+    "status": "passed",
+    "realPromptsSent": 0,
+    "runLabel": "final-pal-zero-prompt",
+    "publicDeploymentAudit": "pal-conversation-removal-semantic-audit-20261006-v7.json"
+  },
+  "limitations": [
+    "Native prompts requested tool-free answers. This proof does not exercise real writes, tool approval dialogs, sandbox effects or equivalent permission enforcement between engines.",
+    "Mode/model/effort selections and warm catalogue request counts are observations from each individual run, not an assertion that all engines expose identical capabilities.",
+    "Earlier failed receipts remain failures; a later successful stage does not rewrite their outcomes.",
+    "Recorded CLI entry hashes are run evidence only and do not identify all changed modules, renderer bytes or current source.",
+    "Combined pass uses successful feature stages from different isolated runs; it does not claim that an earlier failed run passed or that every stage ran in one fixture.",
+    "The final Pal receipt reports originalProcessStillAlive:false. This feature aggregate retains that flag and makes no current original-process liveness claim from it."
+  ],
+  "passCriteria": [
+    "Observed real answered turns with matching routes for Namzu, Codex CLI and Claude Code.",
+    "Later ordinary native conversation UI archive acknowledged and absent from catalogue/tabs.",
+    "Final zero-prompt Pal UI creation/deletion acknowledged with normal fixture projects/tabs and workspace directory preserved."
+  ],
+  "featureVerificationPassed": true,
+  "passScope": "Only the explicit feature criteria; original-process continuity is evaluated separately.",
+  "originalProcessPersistence": {
+    "passed": false,
+    "originalProcessSurvivalReported": false,
+    "verifiedStoppedBySupplementalObserver": true,
+    "cause": "not_established",
+    "restoration": {
+      "status": "observed",
+      "restorationObserved": true,
+      "protectedStateMatchVerified": true,
+      "protectedSlicesMatched": 7,
+      "sourceMatchesAtObservation": true,
+      "publicAudit": "pal-conversation-removal-post-test-restore-native-20261006.json",
+      "publicAuditSha256": "5bbaf59cb7b279edb464d9fdfa5bb968ea8692f034d6cf808280572f5cba669d",
+      "privateHydratedPrepareReceiptSha256": "e8bf94a9e314a0614687726810ba2c6f116b63a50d6e0ef8d4be27ee7a9c1647",
+      "coverage": "Read-only hydrated restoration evidence compared with the exact v7 post-activation protected state; original process continuity remains failed."
+    },
+    "receiptOutcomeRelabelled": false
+  },
+  "restorationObserved": true,
+  "protectedStateMatchVerified": true,
+  "laterDeployment": {
+    "label": "v8-main-reconnect-fix",
+    "publicAudit": "pal-conversation-removal-semantic-audit-20261006-v8.json",
+    "publicAuditSha256": "cb09af6f6c92ce7c4a5c3272eb595120cd0c65cac639eecad1d5827972c73770",
+    "privateActivationReceiptSha256": "beb7516e436b8935ac2f8e0324f4fda44d5c9795566011ef5681b574cc4b0a80",
+    "desktopSourceManifestSha256": "c34890255d4a06c30515b3528e4abea32e94c64d072d024217f379de31bc6793",
+    "cliAfterManifestSha256": "0768929a71eb6367078f5d414c1f07f809151c539449feae2740e68a19bb0970",
+    "sdkAfterManifestSha256": "5b4fc1c058dc025b1f98cf8e19fdeb049d19fe31496c44c4f057c0f1cdb5c1ae",
+    "cliAndSdkUnchangedFromV7": true,
+    "scope": "Main process reconnect correction only. Historical native feature results remain bound to their recorded runs, including v7.",
+    "verification": {
+      "mainPalTestsPassed": 86,
+      "desktopTestsPassed": 720,
+      "typecheckPassed": true,
+      "lintPassed": true,
+      "buildPassed": true,
+      "unchangedCliTestsPassed": 5201,
+      "unchangedCliTestsSkipped": 6,
+      "nativePromptsSent": 0,
+      "nativeFeatureTestsRerun": false,
+      "nativeFeatureResultsReattributed": false
+    },
+    "finalWindowObservation": {
+      "privateReceiptSha256": "834b4c40411f9807e2021fe563065e2dcfd1c1b19211ce985e033cee976d3173",
+      "observerInputActivationReceiptSha256": "beb7516e436b8935ac2f8e0324f4fda44d5c9795566011ef5681b574cc4b0a80",
+      "liveWindowObservedAtFinalCheck": true,
+      "exactExecutableAndAppArgumentMatched": true,
+      "activationAndDesktopProcessIdentityMatched": true,
+      "readOnly": true,
+      "processActions": 0,
+      "apiCalls": 0,
+      "modelRequests": 0,
+      "computerActions": 0,
+      "coverage": "An observed current window at the final check; it does not change the earlier failed original-process continuity result."
+    }
+  }
+}

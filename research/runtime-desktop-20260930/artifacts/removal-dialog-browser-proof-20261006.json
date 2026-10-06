@@ -1,0 +1,46 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "reactStrictMode": true,
+  "sampleOnly": true,
+  "nativeActions": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "checks": [
+    "inactive Recents menu is independent of row selection; confirmation cancel sends no write and returns focus",
+    "failed archive retains row and error; retry runs once, pending cannot dismiss, successful ACK retires both project and Recents rows",
+    "ordinary tab removal closes active view; deleting an inactive recent required no openConversation",
+    "late cold-history completion cannot reintroduce a removed conversation",
+    "Pal edit exposes deletion; retained-data disclosure, cleanup failure retention and successful all-view retirement exercised"
+  ],
+  "calls": [
+    {
+      "kind": "conversation",
+      "id": "sample-thread-2"
+    },
+    {
+      "kind": "conversation",
+      "id": "sample-thread-2"
+    },
+    {
+      "kind": "conversation",
+      "id": "sample-thread-1"
+    },
+    {
+      "kind": "conversation",
+      "id": "sample-thread-3"
+    },
+    {
+      "kind": "pal",
+      "id": "sample-pal-1",
+      "expectedRevision": 1
+    },
+    {
+      "kind": "pal",
+      "id": "sample-pal-1",
+      "expectedRevision": 1
+    }
+  ],
+  "screenshot": "removal-empty-state-browser-20261006.png",
+  "pageErrors": []
+}

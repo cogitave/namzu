@@ -211,6 +211,12 @@ Older profiles without appearance display Pixel in green without changing the
 stored revision. An unavailable model catalogue leaves setup and customization
 usable; the Pal may use the host's configured model when its own model is null.
 
+Opening a Pal requires a ready, trusted CLI connection that reports the same
+Pal id and approved workspace. If Windows path resolution changes only letter
+casing, the host preserves the profile's stored spelling after verifying that
+both paths name the same physical directory. A failed open keeps the profile
+available for retry and retains the original metadata error.
+
 Save opens an owned conversation with a stable English introduction from the
 original profile revision. It starts no paid inference or guest computer, and
 the introduction remains visible through later messages, reloads and renames.
@@ -390,8 +396,15 @@ create an ordinary conversation. Pal chat uses a compact message composer, with
 attachment, model and tool settings under its plus control. Ordinary conversations
 keep their existing composer.
 The Pal menu provides customization, guarded pause/resume and guarded computer
-reboot. Delete is shown disabled because the saved Pal deletion contract is not
-implemented; it never pretends to delete a profile or persistent volume.
+reboot and Delete Pal. Deletion is also available inside the customization dialog.
+Confirmation names the retained data: the saved conversations, workspace files,
+profile revisions and persistent volume remain; this is not a storage purge.
+Main validates the exact profile revision, refuses active/queued/review/recovery
+work and confirms cleanup through the actual owning computer client before
+publishing a terminal profile revision. Failed or unconfirmed cleanup keeps the
+Pal visible for retry. Confirmed removal retires its projects and conversation
+tabs in every registered window. Offline deletion does not initialize a sandbox
+provider or start a guest. See [Pal lifecycle](pals.md#storage-and-conversation-ownership).
 
 The native host validates the guest's exact generation and keeps its allocation
 bearer private. An Origin-checked loopback WebSocket proxy exposes only an ephemeral,
@@ -733,6 +746,16 @@ replacement runtime slot and exact engine/model. Provider and engine metadata,
 readiness and message admission still await that shared restoration. An unavailable
 model leaves the draft visible and actions blocked; opening the display does not
 replay a prompt or choose a replacement model.
+If the first prompt is refused before the engine starts, main restores that
+prompt only when its draft has not been edited or explicitly cleared since
+admission. The state event carries the actual restored draft; the renderer
+keeps it visible even if the send acknowledgement arrives after the refusal.
+Newer typing, clearing and retyping the same text retain their edit ownership.
+This recovery does not substitute a model or effort level or replay the prompt.
+The [draft recovery browser proof](../../research/runtime-desktop-20260930/artifacts/send-draft-recovery-browser-proof-20261006.json)
+checks the real composer and retained sample draft before and after held send
+acknowledgements, edits, explicit clears, same-text retyping and navigation.
+It simulates the protocol boundary and does not call a model.
 The CLI history request opens one fresh session scope for ownership validation,
 strict journal reading and Pal public-message projection. All three use that
 scope's captured home. Reading one conversation does not construct or synchronize
@@ -771,7 +794,19 @@ first history and readiness. Until a shell read finishes, its state remains
 unknown rather than reporting zero running jobs. A removed tab still refreshes main's live projection,
 so the saved display cannot become admitted history in place of the current
 snapshot. Initial attachment reads share an in-flight refresh for
-the same owner and mutation revision rather than superseding its admission.
+the same owner, API and mutation revision rather than superseding its admission.
+Pausing automatic reads while that owner changes engines or reloads history does
+not retire the explicit snapshot awaited by setup. Leaving the owner, replacing
+the API or changing its files still refuses an obsolete response; old API cleanup
+cannot cancel the replacement API's read.
+Saved message settings also share one explicit refresh for the same owner and
+API while setup waits. Eligibility changes leave that refresh admitted; owner
+navigation and API replacement retire it before late responses can publish.
+Returning to the same conversation gets a new read lifetime, which an old
+cleanup cannot cancel. A refresh waits for admitted local saves and retains an
+unconfirmed choice after a failed save. Pending and queued saves keep the API
+that admitted them rather than moving to a replacement bridge. A late read or
+retry error cannot appear on another owner or API.
 The [deferred restoration browser proof](../../research/runtime-desktop-20260930/artifacts/pal-reopen-progressive-browser-proof-20261006.json)
 holds history and provider responses to verify saved and current history,
 blocked actions, independent reads, error recovery, obsolete navigation
@@ -1072,18 +1107,22 @@ phase metadata retain their admitted order without invented commentary labels.
 An authoritative completion replaces its streamed partial text, including an
 explicit empty result that withdraws rejected output.
 
-New admitted transcript entries fade in with a 4px vertical movement over
-150ms. Phase labels crossfade over 300ms; status presence and work disclosures
-change height over 200ms. Scoped motion tokens are shared across ordinary
-transcript entries and states. Streaming chunks do not restart an entry effect,
+New admitted transcript entries fade from 65% opacity over 120ms without moving
+the text. A phase change retains one readable label and a 120ms opacity effect;
+there is no outgoing label or moving text gradient. A small status dot indicates
+ongoing work and stays still while a review waits. Status presence and work
+disclosures change height over 160ms. The height effect completes independently
+of the shorter text effect. Streaming chunks do not restart an entry effect,
 and mounted history, navigation and pending restoration do not replay it.
-Interrupted phase changes start from their observed opacity and height;
-outgoing decorative labels never remain accessible statuses. Reduced motion
-settles the current state immediately. Pal conversations retain their delivered
+Interrupted changes retain the observed opacity and height without dimming the
+new phase below 65%. Reduced motion settles the current state immediately. Pal conversations retain their delivered
 chat bubbles and their own concise Typing/Working states. The
 [single live status browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-single-live-status-motion-proof-20261006.json)
-checks expanded, collapsed and private-reasoning states, retained historical
-outcomes, phase motion, interruption and reduced motion against the real renderer.
+records the earlier expanded, collapsed and private-reasoning behavior. The
+[supplemental calm-motion proof](../../research/runtime-desktop-20260930/artifacts/calm-transcript-motion-browser-proof-20261006.json)
+verifies the current timings, one label, streaming identity, uninterrupted frame
+completion, reversal, history navigation and reduced motion in the actual
+renderer. Both proofs use isolated events rather than native/model actions.
 
 The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
 record the installed Codex build's verified source labels and motion constants.
@@ -1162,7 +1201,58 @@ conversation slot in a ready trusted ordinary project; neither a model nor an
 external engine starts until a prompt is sent. Disconnected or untrusted contexts
 show the blank landing composer until preparation is possible. Ordinary peer tabs
 retain separate drafts, models, queues and approvals. Closing a tab only hides its
-view; reopening a recent conversation restores it. Empty tabs are omitted from
+view; reopening a recent conversation restores it. The mouse middle button on
+an ordinary, Pal chat or computer tab label invokes the same close operation as
+its existing X button. Nested menu/profile controls do not trigger middle close;
+computer-view close does not stop the guest.
+
+Opening a saved or newly customized Pal checks that its exact workspace client
+is still current and ready, both before and after the conversation catalogue
+read. Failed setup retains its original diagnostic and saved profile; it does
+not attempt a new conversation, claim or computer start. An explicit reopening
+can retry the same profile.
+Retrying a disconnected, previously verified Pal reopens its current approved
+profile, retaining its stored workspace spelling and existing project id.
+A deleted profile is refused before a replacement client is started.
+
+Delete conversation is available in ordinary tab menus and the action menu on
+project/Recents rows. A confirmation explains that saved history is archived and
+project files remain. Inactive Recents removal does not open or prepare the model.
+Main verifies the selected project and each actual stable/runtime journal alias,
+refuses active/queued/review/background/recovery work and uses the existing scoped
+archive writer lease. For an ordinary native engine, only its matching idle writer
+is closed before the archive; an in-memory reservation blocks new engine/model
+admission until the archive settles. A failed close keeps the native owner for
+retry. Claimed Pal journals retain their existing scoped path. Unknown or corrupt
+journals keep the conversation visible.
+A never-prompted local conversation is removed without claiming archival only
+when every owned alias is confirmed absent. An acknowledgement retires the view
+and tabs in every window; errors keep the dialog and retry choice. This is not a
+journal or file purge. [The renderer removal proof](../../research/runtime-desktop-20260930/artifacts/removal-dialog-browser-proof-20261006.json)
+uses isolated sample receipts; backend tests separately exercise real scoped
+journal and cleanup behavior.
+
+The [native Windows harness and removal proof](../../research/runtime-desktop-20260930/artifacts/native-harness-ui-proof-20261006.json)
+records real answered turns through Namzu's free route, Codex CLI and Claude Code,
+including model and effort changes. Ten warm model-popup reopens made no additional
+catalogue RPCs. A subsequent GPT Luna turn and inactive Recents deletion confirmed
+durable archival; a fresh, model-free Pal was created and deleted through the UI,
+with its files and ordinary tabs retained. Earlier writer-release and Windows
+path-spelling failures remain recorded separately. These tool-free turns verify
+routes and selections, not actual write approval or sandbox effects for every
+engine. The [deployment preservation audit](../../research/runtime-desktop-20260930/artifacts/pal-conversation-removal-semantic-audit-20261006-v8.json)
+compares the original protected state across seven activation pairs and three strict
+journal reads; it retains the earlier failed strict comparison and its explanation.
+The final main-process update adds the verified Pal reconnect path. Its 86 Pal
+tests and all 720 desktop tests pass; CLI/SDK runtime bytes remain identical to
+the preceding native feature run. That update does not claim another model run.
+The original window ceased during the isolated Pal run; its cause was not
+established and that receipt's failed process-survival observation is retained.
+A separate [normal-profile restoration check](../../research/runtime-desktop-20260930/artifacts/pal-conversation-removal-post-test-restore-native-20261006.json)
+verifies the relaunched native window and exact protected state after read-only
+Pal presence hydration, without rewriting the earlier observation.
+
+Empty tabs are omitted from
 the sidebar recent list. Suggestions fill the
 editor for review rather than submitting a prompt. Navigation during creation
 leaves the submitted prompt bound to its captured project and model; it cannot
@@ -1231,6 +1321,22 @@ notice without the driver's raw diagnostic. A published model
 list is not proof that the account can run every listed model. Listings are read
 on demand rather than delaying project startup, shared while one request is in
 flight, and cancelled when the CLI connection closes.
+The renderer additionally retains a bounded, two-minute catalogue display cache
+for the exact window API, project, conversation, provider, available-provider
+metadata and selected harness. Reopening its popup or returning to the same
+conversation can show the retained list immediately. Matching concurrent reads
+share their promise. Connection replacement, confirmed harness changes, project
+removal and Retry setup invalidate the affected scope. A provider refresh and
+failed-list Retry explicitly read again. Late replies cannot refill a retired
+scope or appear under another conversation or harness. Merely changing a model
+within a provider does not invalidate that provider's list. Codex CLI and Claude
+Code echo the current selection in their provider `defaultModel`; that route
+echo is omitted from the display key, while Namzu provider defaults retain their
+catalogue identity. Metadata cannot
+detect an external credential replacement that retains every visible field;
+the short lifetime and explicit refresh cover that limit. Catalogue display does
+not grant access: model selection, settings and Send keep their fresh exact
+backend admission. The cache is not persisted to browser storage.
 The account catalogue uses the driver's strict listing when available, keeping
 an authentication or network failure distinct from its legacy bundled menu.
 The menu has a provider column when more than one provider is available and
@@ -1425,6 +1531,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/project/trust` | exact `cwd`, `confirmed: true` | updated trust; client must require an operator confirmation |
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages and `partial` |
+| `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
+| `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
 | `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 actual listed rows; unavailable selections and failed lists have explicit notices |
 | `namzu/providers/select` | `sessionId`, `provider`, optional `model` | checks access and supported wire before replacing a session-local choice; active work blocks changes |

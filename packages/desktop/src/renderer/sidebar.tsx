@@ -39,6 +39,7 @@ export function Sidebar({
 	onNewConversation,
 	onProject,
 	onConversation,
+	onRemoveConversation,
 	pals,
 }: {
 	activeProject?: ProjectView
@@ -57,6 +58,7 @@ export function Sidebar({
 	onNewConversation: () => void
 	onProject: (id: string) => void
 	onConversation: (view: ConversationView, collection: ConversationCollection) => void
+	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
 	pals?: ReactNode
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
@@ -240,6 +242,7 @@ export function Sidebar({
 											}))
 										}
 										onConversation={(view) => onConversation(view, 'projects')}
+										onRemoveConversation={onRemoveConversation}
 									/>
 								</CollapsiblePanel>
 							</Collapsible>
@@ -266,6 +269,7 @@ export function Sidebar({
 								sessionId={sessionId}
 								active={conversationCollection === 'recents'}
 								onConversation={(view) => onConversation(view, 'recents')}
+								onRemoveConversation={onRemoveConversation}
 							/>
 						</section>
 					)}
@@ -284,6 +288,7 @@ function ThreadList({
 	expanded,
 	onExpandedChange,
 	onConversation,
+	onRemoveConversation,
 }: {
 	rows: ConversationView[]
 	project: ProjectView
@@ -293,6 +298,7 @@ function ThreadList({
 	expanded: boolean
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
+	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
 }) {
 	const limitedRows = rows.filter(
 		(item, index) => index < 5 || item.id === sessionId || threads[item.id]?.running,
@@ -314,6 +320,9 @@ function ThreadList({
 					thread={threads[item.id]}
 					active={active && item.id === sessionId}
 					onClick={() => onConversation(item)}
+					onRemove={
+						onRemoveConversation ? (trigger) => onRemoveConversation(item, trigger) : undefined
+					}
 				/>
 			))}
 			{hasExtra && (
@@ -339,6 +348,7 @@ function RecentList({
 	sessionId,
 	active,
 	onConversation,
+	onRemoveConversation,
 }: {
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
@@ -346,6 +356,7 @@ function RecentList({
 	sessionId: string
 	active: boolean
 	onConversation: (view: ConversationView) => void
+	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
 }) {
 	const list = useThreadListMotion()
 	return (
@@ -364,6 +375,9 @@ function RecentList({
 						thread={threads[item.id]}
 						active={active && item.id === sessionId}
 						onClick={() => onConversation(item)}
+						onRemove={
+							onRemoveConversation ? (trigger) => onRemoveConversation(item, trigger) : undefined
+						}
 					/>
 				) : null
 			})}

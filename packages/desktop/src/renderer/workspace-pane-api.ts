@@ -42,6 +42,8 @@ export function createWorkspacePaneApi(
 		createPalSubscription,
 		disablePalSubscription,
 		retryTurn,
+		deletePal,
+		removeConversation,
 	} = base
 	const assertLifetime = (admittedGeneration = generation) => {
 		if (invalidated || generation !== admittedGeneration)
@@ -191,6 +193,21 @@ export function createWorkspacePaneApi(
 		createPal: (input) => invoke(() => base.createPal(input), [], { global: true }),
 		updatePal: (id, revision, changes) =>
 			invoke(() => base.updatePal(id, revision, changes), [], { global: true }),
+		...(deletePal
+			? {
+					deletePal: (id, revision) =>
+						invoke(() => deletePal(id, revision), [], {
+							global: true,
+							serializeOwner: `pal:${id}`,
+						}),
+				}
+			: {}),
+		...(removeConversation
+			? {
+					removeConversation: (id) =>
+						invoke(() => removeConversation(id), [], { global: true, serializeOwner: id }),
+				}
+			: {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
 		stopPalComputer: (id) => invoke(() => base.stopPalComputer(id), [], { global: true }),
 		openProject: () => invoke(() => base.openProject(), [], { global: true }),

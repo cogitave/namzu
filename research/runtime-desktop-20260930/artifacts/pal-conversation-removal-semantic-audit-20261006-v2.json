@@ -1,0 +1,74 @@
+{
+  "schema": "namzu.native-removal-semantic-supplement.v1",
+  "at": "2026-10-06T19:11:09.294Z",
+  "passed": false,
+  "readOnly": true,
+  "effects": {
+    "nativeConnections": 0,
+    "appApiCalls": 0,
+    "processActions": 0,
+    "modelRequests": 0,
+    "computerActions": 0,
+    "stateWrites": 0
+  },
+  "strictReaderProvenance": "Built repository SDK strict readSessionLog over actual Windows journal files through WSL filesystem; no native runtime invocation.",
+  "originalActivationRelabelled": false,
+  "pairs": [],
+  "journals": {
+    "rejected": {
+      "strictChainAndSchemaVerified": true,
+      "physicallyMissing": false,
+      "bytes": 787,
+      "sha256": "b11bac61a2600a5a614faeda0079ef554b29d64b197739a17e4cc8cd6b8dcfa3",
+      "records": 1,
+      "counts": {
+        "session_started": 1
+      }
+    },
+    "claude": {
+      "strictChainAndSchemaVerified": true,
+      "physicallyMissing": false,
+      "bytes": 15050,
+      "sha256": "665a693571a0017fbcbb93231fb1d2caf2276b29894a0ecd5b7ec3ecbd7ced06",
+      "records": 20,
+      "counts": {
+        "session_started": 1,
+        "turn_started": 2,
+        "message": 4,
+        "session_updated": 7,
+        "message_started": 2,
+        "message_completed": 2,
+        "turn_completed": 2
+      }
+    },
+    "rejectedCurrentRuntimeAlias": {
+      "strictChainAndSchemaVerified": true,
+      "physicallyMissing": true,
+      "records": 0,
+      "counts": {}
+    }
+  },
+  "retainedAuthoredDraft": {
+    "characters": 186,
+    "sha256": "aa6e3270d97eaeacaa5892c7440c717091cd112a70934bac5d71d4714580a770",
+    "hasPrompted": false
+  },
+  "metadata": {
+    "fileSha256": "5dae81d6b0514705634224b104c51d2a642f83ae342af3085aa92e446623a8be",
+    "fields": [
+      "view",
+      "runtimeSessionId",
+      "hasPrompted",
+      "draft",
+      "draftSettings",
+      "providerSelection"
+    ],
+    "limitation": "No pre-activation raw desktop metadata copy was captured; per-owner saved drafts/settings are independently compared through the immutable before/after snapshots."
+  },
+  "phase": "original-activation-v2:catalogues",
+  "failure": {
+    "kind": "AssertionError",
+    "location": "138:14",
+    "assertion": "Expected values to be strictly equal:"
+  }
+}

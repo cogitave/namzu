@@ -10,6 +10,7 @@ import {
 	cliPalScreenStream,
 	closeCliPalRuntime,
 	executeCliPalComputerInput,
+	existingCliPalRuntime,
 	getCliPalRuntime,
 	returnCliPalComputerControl,
 	startCliPalComputer,
@@ -83,6 +84,11 @@ function fixture(supported = true) {
 	createProvider.mockReturnValue({ acquire, probe })
 	return { pal, control, lease, execute, acquire }
 }
+
+it('observes no existing runtime without loading a computer provider', async () => {
+	expect(await existingCliPalRuntime()).toBeNull()
+	expect(createProvider).not.toHaveBeenCalled()
+})
 function deferred<T>() {
 	let resolve!: (value: T) => void
 	const promise = new Promise<T>((done) => {

@@ -1,16 +1,27 @@
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import {
+	appendFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import * as sdk from '@namzu/sdk'
 import {
 	ACPServer,
 	DiskSessionLog,
 	DiskTaskStore,
+	type HarnessAdapter,
 	HostCommandRegistry,
 	type MCPJsonRpcMessage,
 	type MCPTransport,
 	type Message,
 	MockLLMProvider,
+	PalRuntime,
 	ToolManager,
 	asSessionId,
 	createAssistantMessage,
@@ -41,8 +52,10 @@ import {
 import * as sessionStorage from '../../integrations/sessions/store.js'
 import { claimPalConversation } from '../../pals/conversations.js'
 import * as palConversations from '../../pals/conversations.js'
-import { createPal, getPalRevision, listPals } from '../../pals/store.js'
+import * as palEnvironment from '../../pals/environment.js'
+import { createPal, getCliPalStore, getPal, getPalRevision, listPals } from '../../pals/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
+import { withCliHarnesses } from '../acp-harness.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 import { createDesktopHostExtensions } from '../desktop-host.js'
 import { providerPaused } from './support/provider-paused.js'
@@ -57,6 +70,7 @@ beforeEach(() => {
 	vi.stubEnv('NAMZU_HOME', join(root, 'state'))
 })
 afterEach(() => {
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 	vi.unstubAllEnvs()
 	removeTempDir(root)
@@ -1017,6 +1031,525 @@ it('persists appearance through the actual desktop ACP extensions and keeps earl
 		).toThrow('appearance')
 		expect(listPals()).toHaveLength(1)
 	} finally {
+		await owner.close()
+	}
+})
+
+it('logically deletes an offline Pal through the metadata host without initializing its computer', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	const pal = createPal({ name: 'Deleted fixture' })
+	const proof = join(pal.workspace, 'retained.txt')
+	writeFileSync(proof, 'Retained output')
+	const initialize = vi.spyOn(palEnvironment, 'getCliPalRuntime')
+	try {
+		expect(await host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).toEqual({
+			id: pal.id,
+			deleted: true,
+		})
+		expect(host['namzu/pals/get']({ id: pal.id })).toBeNull()
+		expect(host['namzu/pals/list']()).toEqual([])
+		expect(getPalRevision(pal.id, 1)).toEqual(pal)
+		expect(await host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).toEqual({
+			id: pal.id,
+			deleted: true,
+		})
+		await expect(
+			host['namzu/pals/update']({ id: pal.id, expectedRevision: 1, paused: false }),
+		).rejects.toThrow('does not exist')
+		expect(initialize).not.toHaveBeenCalled()
+		expect(readFileSync(proof, 'utf8')).toBe('Retained output')
+	} finally {
+		await owner.close()
+	}
+})
+
+it('validates exact deletion identity and revision before reading any computer state', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	const pal = createPal({ name: 'Validation fixture' })
+	const observed = vi.spyOn(palEnvironment, 'existingCliPalRuntime')
+	try {
+		for (const request of [
+			{ id: '../escape', expectedRevision: 1 },
+			{ id: pal.id, expectedRevision: 0 },
+			{ id: pal.id, expectedRevision: 1.5 },
+			{ id: pal.id, expectedRevision: Number.MAX_SAFE_INTEGER },
+			{ id: pal.id, expectedRevision: '1' },
+			{ id: pal.id },
+			{ id: pal.id, expectedRevision: 1, purge: true },
+		])
+			await expect(host['namzu/pals/delete'](request)).rejects.toThrow('Invalid')
+		expect(observed).not.toHaveBeenCalled()
+		expect(getPal(pal.id)).toEqual(pal)
+	} finally {
+		await owner.close()
+	}
+})
+
+it('refuses deletion of another Pal from an owned Pal workspace', async () => {
+	const owner = runtime()
+	const pal = createPal({ name: 'Owning fixture' })
+	const other = createPal({ name: 'Other fixture' })
+	try {
+		await expect(
+			createDesktopHostExtensions(owner, pal.workspace)['namzu/pals/delete']({
+				id: other.id,
+				expectedRevision: other.revision,
+			}),
+		).rejects.toThrow('does not own')
+		expect(getPal(pal.id)).toEqual(pal)
+		expect(getPal(other.id)).toEqual(other)
+	} finally {
+		await owner.close()
+	}
+})
+
+it('retains the admitted home when observing the existing runtime yields to a home change', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	const pal = createPal({ name: 'Original home' })
+	const originalHome = process.env.NAMZU_HOME!
+	const replacementHome = join(root, 'replacement-delete-state')
+	mkdirSync(replacementHome)
+	vi.stubEnv('NAMZU_HOME', replacementHome)
+	const unrelated = createPal({ name: 'Replacement home' })
+	vi.stubEnv('NAMZU_HOME', originalHome)
+	vi.spyOn(palEnvironment, 'existingCliPalRuntime').mockImplementation(async () => {
+		vi.stubEnv('NAMZU_HOME', replacementHome)
+		return null
+	})
+	try {
+		expect(await host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).toEqual({
+			id: pal.id,
+			deleted: true,
+		})
+		expect(getPal(pal.id, originalHome)).toBeNull()
+		expect(getPal(unrelated.id, replacementHome)).toEqual(unrelated)
+		expect(getPalRevision(pal.id, 1, originalHome)).toEqual(pal)
+	} finally {
+		vi.stubEnv('NAMZU_HOME', originalHome)
+		await owner.close()
+	}
+})
+
+it('requires existing model authority and warm guest cleanup to finish before deleting a profile', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	const pal = createPal({ name: 'Lifecycle fixture' })
+	const release = vi.fn(async () => {})
+	const lease = {
+		palId: pal.id,
+		environmentId: 'fixture-environment',
+		generation: 1,
+		sandbox: { status: 'ready' } as sdk.Sandbox,
+		computerUseHost: {
+			capabilities: { screenshot: true, mouse: true, keyboard: true },
+		} as sdk.ComputerUseHost,
+		release,
+	}
+	const active = new PalRuntime({
+		store: getCliPalStore(),
+		environments: { acquire: async () => lease },
+	})
+	vi.spyOn(palEnvironment, 'existingCliPalRuntime').mockResolvedValue(active)
+	try {
+		const admission = await active.admitConversation({ palId: pal.id, conversationId: 'text' })
+		await expect(host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).rejects.toThrow(
+			'Stop this Pal',
+		)
+		await admission.release()
+		await active.startComputer(pal.id)
+		expect(active.busy(pal.id)).toBe(false)
+		await expect(host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).rejects.toThrow(
+			'Stop this Pal',
+		)
+		expect(getPal(pal.id)).toEqual(pal)
+		expect(release).not.toHaveBeenCalled()
+		await active.stopComputer(pal.id)
+		expect(release).toHaveBeenCalledTimes(1)
+		expect(await host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).toEqual({
+			id: pal.id,
+			deleted: true,
+		})
+	} finally {
+		await active.close()
+		await owner.close()
+	}
+})
+
+it('archives owned settled history idempotently while preserving strict messages and immutable log bytes', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const file = state.paths.sessionLog({ sessionId })
+	const before = readFileSync(file, 'utf8')
+	const original = await loadConversation(state, sessionId)
+	try {
+		const response = { sessionId, archived: true }
+		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual(response)
+		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual(response)
+		expect(await host['namzu/conversations/list']()).toEqual([])
+		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+			{ role: 'user', text: 'Stored request' },
+			{ role: 'assistant', text: 'Stored answer' },
+		])
+		expect(await loadConversation(state, sessionId)).toEqual(original)
+		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
+		const facts = await sessionStorage.readConversationFacts(state, sessionId)
+		expect(facts?.archived).toBe(true)
+		expect(
+			facts?.records.filter((record) => record.type === 'session_updated' && record.archived),
+		).toHaveLength(1)
+		await expect(owner.gateway.load?.(sessionId, cwd)).rejects.toThrow('archived')
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('archives settled native history by releasing only its owning SDK harness writer', async () => {
+	const base = runtime()
+	const close = vi.fn(async () => ({ stopped: true as const }))
+	const adapter: HarnessAdapter = {
+		engineId: 'codex',
+		profileRef: 'archive-native-fixture',
+		open: async ({ cwd, model, resume }, emit) => {
+			const binding = resume ?? {
+				v: 1,
+				engineId: 'codex',
+				profileRef: 'archive-native-fixture',
+				nativeSessionId: 'opaque-archive-native-session',
+				cwd,
+				initialModel: model as string,
+			}
+			return {
+				binding,
+				capabilities: {
+					persistentSessions: true,
+					history: 'snapshot',
+					models: 'discover',
+					permissions: 'interactive',
+					interrupt: 'native-terminal',
+					attachments: [],
+					reviewModes: ['prompt'],
+				},
+				models: async () => [{ id: 'native-fixture-model', label: 'Native fixture model' }],
+				dispatch: async () => {
+					const turn = { nativeSessionId: binding.nativeSessionId, nativeTurnId: 'archive-turn' }
+					await emit({ kind: 'turn-started', ...turn })
+					await emit({ kind: 'message-started', ...turn, nativeItemId: 'archive-answer' })
+					await emit({
+						kind: 'message-completed',
+						...turn,
+						nativeItemId: 'archive-answer',
+						content: 'Preserved native answer',
+						stopReason: 'end_turn',
+					})
+					await emit({
+						kind: 'turn-completed',
+						...turn,
+						status: 'completed',
+						finalItemId: 'archive-answer',
+						result: 'Preserved native answer',
+					})
+					return turn
+				},
+				interrupt: async () => ({ requested: true }),
+				respond: async () => ({ sent: true }),
+				readHistory: async () => ({ binding, events: [], pendingReviews: [], complete: true }),
+				close,
+			}
+		},
+	}
+	const owner = withCliHarnesses(base, cwd, {
+		adapter: async () => adapter,
+		models: async () => [{ id: 'native-fixture-model', label: 'Native fixture model' }],
+		installed: async () => true,
+	})
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const sessionId = generateSessionId()
+	await owner.selectHarness(sessionId, 'codex-cli')
+	await owner.gateway.prompt({
+		sessionId,
+		cwd,
+		prompt: 'Native archived request',
+		history: [],
+		filesystem: undefined,
+		signal: new AbortController().signal,
+		onEvent: () => {},
+		ask: async () => ({ kind: 'reject' }),
+	})
+	const state = await openSessions(cwd)
+	const file = state.paths.sessionLog({ sessionId })
+	const before = readFileSync(file, 'utf8')
+	try {
+		expect(
+			await DiskSessionLog.at(state.paths, { sessionId }).claim({
+				holder: 'competing-archive-fixture',
+				ttlMs: 30_000,
+			}),
+		).toBeNull()
+		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual({
+			sessionId,
+			archived: true,
+		})
+		expect(close).toHaveBeenCalledOnce()
+		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
+		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+			{ role: 'user', text: 'Native archived request' },
+			{ role: 'assistant', text: 'Preserved native answer' },
+		])
+		expect(await host['namzu/conversations/list']()).toEqual([])
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('archives a claimed Pal through its original strict path without invoking native engines', async () => {
+	const pal = createPal({ name: 'Archive ownership fixture' })
+	const adapter = vi.fn(async () => {
+		throw new Error('Pal archive must not construct a native engine')
+	})
+	const models = vi.fn(async () => {
+		throw new Error('Pal archive must not discover native models')
+	})
+	const owner = withCliHarnesses(runtime(), pal.workspace, {
+		adapter,
+		models,
+		installed: async () => false,
+	})
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const state = await openSessions(pal.workspace)
+	await recordTurn(state, sessionId, [
+		createUserMessage('Retain this Pal conversation'),
+		createAssistantMessage('The conversation will stay in history.'),
+	])
+	const file = state.paths.sessionLog({ sessionId })
+	const before = readFileSync(file, 'utf8')
+	try {
+		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual({
+			sessionId,
+			archived: true,
+		})
+		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
+		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+			{ role: 'user', text: 'Retain this Pal conversation' },
+			{ role: 'assistant', text: 'The conversation will stay in history.' },
+		])
+		expect(adapter).not.toHaveBeenCalled()
+		expect(models).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('reports absent unsent history truthfully without creating a journal or preparing a runtime', async () => {
+	const owner = runtime()
+	const id = generateSessionId()
+	const host = createDesktopHostExtensions(owner, cwd, (sessionId) =>
+		sessionId === id ? cwd : undefined,
+	)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const load = vi.spyOn(owner.gateway, 'load')
+	const prepare = vi.spyOn(owner, 'providerStatus')
+	try {
+		expect(await host['namzu/conversations/archive']({ sessionId: id })).toEqual({
+			sessionId: id,
+			archived: false,
+			missing: true,
+		})
+		expect(existsSync(state.paths.sessionLog({ sessionId: id }))).toBe(false)
+		expect(load).not.toHaveBeenCalled()
+		expect(prepare).not.toHaveBeenCalled()
+		expect(await host['namzu/conversations/list']()).toEqual([])
+		await expect(
+			host['namzu/conversations/archive']({ sessionId: 'unowned-path' }),
+		).rejects.toThrow('conversation id')
+		await expect(
+			host['namzu/conversations/archive']({ sessionId: id, purge: true }),
+		).rejects.toThrow('archive request')
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it.each(['empty', ...(process.platform === 'win32' ? [] : ['dangling symlink'])])(
+	'refuses an existing %s journal instead of claiming physical absence or repairing it',
+	async (kind) => {
+		const owner = runtime()
+		const host = createDesktopHostExtensions(owner, cwd)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const state = await openSessions(cwd)
+		const sessionId = generateSessionId()
+		const file = state.paths.sessionLog({ sessionId })
+		mkdirSync(dirname(file), { recursive: true })
+		if (kind === 'empty') writeFileSync(file, '')
+		else symlinkSync(join(root, 'deliberately-absent-journal'), file)
+		const original = lstatSync(file)
+		try {
+			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
+				'no verified session header',
+			)
+			const retained = lstatSync(file)
+			expect(retained.ino).toBe(original.ino)
+			expect(retained.size).toBe(original.size)
+			expect(retained.isSymbolicLink()).toBe(kind !== 'empty')
+			if (kind === 'empty') expect(readFileSync(file, 'utf8')).toBe('')
+		} finally {
+			closeSessions(state)
+			await owner.close()
+		}
+	},
+)
+
+it.each(['projectId', 'tenantId'] as const)(
+	'refuses archive when the real journal records another %s',
+	async (field) => {
+		const owner = runtime()
+		const host = createDesktopHostExtensions(owner, cwd)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const state = await openSessions(cwd)
+		const sessionId = await startConversation(
+			field === 'projectId'
+				? { ...state, projectId: generateProjectId() }
+				: { ...state, tenantId: generateTenantId() },
+		)
+		const before = readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')
+		try {
+			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
+				'does not belong',
+			)
+			expect(readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')).toBe(before)
+		} finally {
+			closeSessions(state)
+			await owner.close()
+		}
+	},
+)
+
+it('refuses corrupt archive history and open parked turns without mutating either log', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const corruptId = await startConversation(state)
+	const parkedId = await startConversation(state)
+	await recordTurn(state, parkedId, [createUserMessage('Waiting for review')], { status: 'paused' })
+	appendFileSync(state.paths.sessionLog({ sessionId: corruptId }), '{broken durable record}\n')
+	try {
+		for (const sessionId of [corruptId, parkedId]) {
+			const before = readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')
+			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow()
+			expect(readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')).toBe(before)
+		}
+		expect((await sessionStorage.readConversationFacts(state, parkedId))?.archived).toBe(false)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('requires idle known background jobs for both durable archive and missing receipts', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const missingId = generateSessionId()
+	const jobs = vi.spyOn(owner, 'jobs')
+	try {
+		for (const unsafe of [
+			[{ status: 'running' }],
+			[{ status: 'exited', recoveryRequired: true }],
+			undefined,
+		]) {
+			jobs.mockReturnValue(unsafe as unknown as readonly sdk.BackgroundJob[])
+			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
+				'background work',
+			)
+			await expect(host['namzu/conversations/archive']({ sessionId: missingId })).rejects.toThrow(
+				'background work',
+			)
+		}
+		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(false)
+		expect(existsSync(state.paths.sessionLog({ sessionId: missingId }))).toBe(false)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('archives only the captured trusted home when indexed opening yields to an ambient home change', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const replacementHome = join(root, 'replacement-archive-state')
+	mkdirSync(replacementHome)
+	const actualOpen = sessionStorage.openSessions
+	vi.spyOn(sessionStorage, 'openSessions').mockImplementation(async (...args) => {
+		const opened = await actualOpen(...args)
+		vi.stubEnv('NAMZU_HOME', replacementHome)
+		return opened
+	})
+	try {
+		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual({
+			sessionId,
+			archived: true,
+		})
+		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+	} finally {
+		vi.stubEnv('NAMZU_HOME', state.root)
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('keeps idempotent archive retries behind an existing writer lease', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	await archiveConversation(state, sessionId)
+	const log = DiskSessionLog.at(state.paths, { sessionId })
+	const held = await log.claim({ holder: 'fixture-writer', ttlMs: 30_000 })
+	expect(held).not.toBeNull()
+	let attempted!: () => void
+	const blocked = new Promise<void>((resolve) => {
+		attempted = resolve
+	})
+	const claim = DiskSessionLog.prototype.claim
+	vi.spyOn(DiskSessionLog.prototype, 'claim').mockImplementation(async function (
+		this: DiskSessionLog,
+		request,
+	) {
+		const result = await claim.call(this, request)
+		if (this.sessionId === sessionId && !result) attempted()
+		return result
+	})
+	vi.useFakeTimers()
+	try {
+		const rejected = expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
+			'another writer holds',
+		)
+		await blocked
+		await vi.advanceTimersByTimeAsync(5_000)
+		await rejected
+		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+	} finally {
+		vi.useRealTimers()
+		await log.release(held!)
+		closeSessions(state)
 		await owner.close()
 	}
 })

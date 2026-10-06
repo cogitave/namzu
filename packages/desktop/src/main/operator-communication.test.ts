@@ -217,12 +217,55 @@ it('fences delayed reads across a mutation and consumes the token after an ambig
 	// The interceptor owns the one issued write; no retry reached the actual process.
 	expect(calls.filter(({ method }) => method.endsWith('/permissions/update'))).toEqual([])
 })
+
+it('refuses Pal deletion while an admitted communication permission change is unsettled', async () => {
+	const { owner, session, client, calls } = await fixture()
+	const first = await owner.palCommunication(session.id, 'one')
+	const entered = deferred<void>()
+	const finish = deferred<unknown>()
+	const activeClient = client()
+	vi.spyOn(RuntimeClient.prototype, 'request').mockImplementation(function (
+		this: RuntimeClient,
+		method,
+		params,
+		timeout,
+	) {
+		calls.push({ method, params })
+		if (this === activeClient && method.endsWith('/permissions/update')) {
+			entered.resolve()
+			return finish.promise
+		}
+		return realRequest.call(this, method, params, timeout)
+	})
+	const mutation = owner.updatePalPermission(session.id, 'one', {
+		snapshotId: first.snapshotId,
+		peerPalId: 'two',
+		enabled: true,
+		allowWake: false,
+	})
+	const rejection = expect(mutation).rejects.toThrow('could not be confirmed')
+	await entered.promise
+	try {
+		await expect(owner.deletePal('one', 1)).rejects.toThrow('settings change')
+		expect(calls.some(({ method }) => /computer\/stop$|pals\/delete$/.test(method))).toBe(false)
+	} finally {
+		finish.reject(new Error('Ambiguous permission acknowledgement'))
+		await rejection
+	}
+})
 it('ignores successful old-client data after the exact Pal project reconnects', async () => {
 	const { owner, session, client, project } = await fixture()
 	const peers = deferred<unknown>()
 	const started = deferred<void>()
 	const oldClient = client()
 	const request = oldClient.request.bind(oldClient)
+	// The fixture spies on the prototype. Give this client its own dispatcher so
+	// intercepting the old read cannot replace the prototype for its reconnect.
+	Object.defineProperty(oldClient, 'request', {
+		configurable: true,
+		writable: true,
+		value: request,
+	})
 	vi.spyOn(oldClient, 'request').mockImplementation((method, params, timeout) => {
 		if (method.endsWith('/peers')) {
 			started.resolve()

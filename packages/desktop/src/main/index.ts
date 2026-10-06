@@ -184,6 +184,14 @@ const command = cliEntry
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
+		if (event.kind === 'pal-deleted' || event.kind === 'conversation-removed') {
+			try {
+				workspace.retireTabs(event.kind === 'pal-deleted' ? event.sessionIds : [event.sessionId])
+				discardAbortedWindows()
+			} catch (error) {
+				diagnostics.record('ipc_failed', { operation: 'workspaceAction', error })
+			}
+		}
 		windows.fanout(event)
 	},
 	app.getPath('userData'),
@@ -249,6 +257,8 @@ function register(): void {
 	const globalWrites = new Set([
 		'createPal',
 		'updatePal',
+		'deletePal',
+		'removeConversation',
 		'startPalComputer',
 		'stopPalComputer',
 		'rebootPalComputer',
@@ -448,6 +458,8 @@ function register(): void {
 	handle('updatePal', (id: string, revision: number, changes: Partial<PalChanges>) =>
 		operator.updatePal(id, revision, changes),
 	)
+	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
+	handle('removeConversation', (id: string) => operator.removeConversation(id))
 	handle('openPal', (id: string) => operator.openPal(id))
 	handle('palComputer', (id: string) => operator.palComputer(id))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))

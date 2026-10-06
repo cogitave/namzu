@@ -10,10 +10,14 @@ export function useAttachments(
 ) {
 	const report = useRef(onError)
 	report.current = onError
+	const bridge = useRef(api)
+	bridge.current = api
 	const [all, setAll] = useState<Record<string, AttachmentView[]>>({})
 	const values = useRef<Record<string, AttachmentView[]>>({})
 	const revisions = useRef<Record<string, number>>({})
-	const reads = useRef(new Map<string, { revision: number; promise: Promise<void> }>())
+	const reads = useRef(
+		new Map<string, { revision: number; api: DesktopApi; promise: Promise<void> }>(),
+	)
 	const pending = useRef(new Set<string>())
 	const [busy, setBusy] = useState<Record<string, boolean>>({})
 	const put = useCallback((target: string, files: AttachmentView[]) => {
@@ -24,13 +28,18 @@ export function useAttachments(
 		(target: string): Promise<void> => {
 			const revision = revisions.current[target] ?? 0
 			const current = reads.current.get(target)
-			if (current?.revision === revision) return current.promise
-			const read: { revision: number; promise: Promise<void> } = {
+			if (current?.revision === revision && current.api === api) return current.promise
+			const read: { revision: number; api: DesktopApi; promise: Promise<void> } = {
 				revision,
+				api,
 				promise: Promise.resolve()
 					.then(() => api.attachments(target))
 					.then((files) => {
-						if (reads.current.get(target) !== read || revision !== (revisions.current[target] ?? 0))
+						if (
+							bridge.current !== api ||
+							reads.current.get(target) !== read ||
+							revision !== (revisions.current[target] ?? 0)
+						)
 							throw new Error('This conversation’s attachments changed while loading. Try again.')
 						put(target, files)
 					})
@@ -55,9 +64,16 @@ export function useAttachments(
 			})
 		return () => {
 			active = false
-			reads.current.delete(owner)
 		}
 	}, [owner, connected, reload])
+	useEffect(
+		() => () => {
+			// Setup readiness may pause while the same owner changes its engine or
+			// reloads history. Only leaving that owner or bridge retires its snapshot.
+			if (reads.current.get(owner)?.api === api) reads.current.delete(owner)
+		},
+		[owner, api],
+	)
 	const change = async (target: string, operation: () => Promise<AttachmentView[]>) => {
 		if (pending.current.has(target)) return
 		pending.current.add(target)

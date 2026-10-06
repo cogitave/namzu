@@ -17,6 +17,76 @@ function deferred<T>() {
 const bridge = (methods: Partial<DesktopApi>): DesktopApi => methods as DesktopApi
 
 describe('pane write admission', () => {
+	it('wraps optional deletion/removal as authenticated global mutations even for an inactive Recent', async () => {
+		const deletePal = vi
+			.fn<NonNullable<DesktopApi['deletePal']>>()
+			.mockResolvedValue({ id: 'pal', deleted: true })
+		const removeConversation = vi
+			.fn<NonNullable<DesktopApi['removeConversation']>>()
+			.mockResolvedValue({ sessionId: 'inactive', removed: true, archived: false })
+		const original = Object.freeze(bridge({ deletePal, removeConversation }))
+		let blocked = false
+		let writable = false
+		const controller = createWorkspacePaneApi(original, {
+			owns: () => false,
+			blocked: () => blocked,
+			allowGlobalMutations: () => writable,
+		})
+		await expect(controller.api.deletePal?.('pal', 1)).rejects.toThrow('read-only')
+		await expect(controller.api.removeConversation?.('inactive')).rejects.toThrow('read-only')
+		writable = true
+		blocked = true
+		await expect(controller.api.deletePal?.('pal', 1)).rejects.toThrow('moving')
+		await expect(controller.api.removeConversation?.('inactive')).rejects.toThrow('moving')
+		expect(deletePal).not.toHaveBeenCalled()
+		expect(removeConversation).not.toHaveBeenCalled()
+		blocked = false
+		await expect(controller.api.deletePal?.('pal', 1)).resolves.toEqual({
+			id: 'pal',
+			deleted: true,
+		})
+		await expect(controller.api.removeConversation?.('inactive')).resolves.toEqual({
+			sessionId: 'inactive',
+			removed: true,
+			archived: false,
+		})
+		expect(original.deletePal).toBe(deletePal)
+		expect(controller.api.deletePal).not.toBe(deletePal)
+		controller.invalidate()
+		await expect(controller.api.removeConversation?.('inactive')).rejects.toThrow('closed')
+		expect(removeConversation).toHaveBeenCalledTimes(1)
+	})
+
+	it('drains an admitted draft before its removal and includes both writes in transfer flush', async () => {
+		const entered = deferred<void>()
+		const saved = deferred<void>()
+		const removed = deferred<{ sessionId: string; removed: true; archived: boolean }>()
+		const saveDraft = vi.fn<DesktopApi['saveDraft']>().mockImplementation(async () => {
+			entered.resolve()
+			await saved.promise
+		})
+		const removeStarted = deferred<void>()
+		const removeConversation = vi
+			.fn<NonNullable<DesktopApi['removeConversation']>>()
+			.mockImplementation(() => {
+				removeStarted.resolve()
+				return removed.promise
+			})
+		const controller = createWorkspacePaneApi(bridge({ saveDraft, removeConversation }), {
+			owns: () => true,
+			blocked: () => false,
+		})
+		const draft = controller.api.saveDraft('owned', 'Unsaved text')
+		const removal = controller.api.removeConversation?.('owned')
+		await entered.promise
+		expect(removeConversation).not.toHaveBeenCalled()
+		const flushed = controller.flush()
+		saved.resolve()
+		await removeStarted.promise
+		removed.resolve({ sessionId: 'owned', removed: true, archived: true })
+		await Promise.all([draft, removal, flushed])
+		expect(removeConversation).toHaveBeenCalledExactlyOnceWith('owned')
+	})
 	it('fences communication consent by its conversation owner and drains admitted metadata writes before transfer', async () => {
 		const started = deferred<void>()
 		const saved = deferred<Awaited<ReturnType<NonNullable<DesktopApi['updatePalPermission']>>>>()

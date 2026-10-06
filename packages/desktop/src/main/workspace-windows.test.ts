@@ -26,6 +26,34 @@ function setup() {
 }
 
 describe('main owned conversation workspace', () => {
+	it('retires confirmed deleted views across windows while preserving every unrelated tab and window', () => {
+		const { host } = setup()
+		host.addWindow('other')
+		host.open('other', 'pal-second-chat')
+		host.open('other', 'unrelated')
+		host.retireTabs(['running-session', 'pal-second-chat', 'not-open'])
+		expect(host.snapshot().windows.map((window) => window.id)).toEqual(['source', 'other'])
+		expect(locateWorkspaceTab(host.snapshot(), 'running-session')).toBeNull()
+		expect(locateWorkspaceTab(host.snapshot(), 'pal-second-chat')).toBeNull()
+		expect(locateWorkspaceTab(host.snapshot(), 'draft-session')?.windowId).toBe('source')
+		expect(locateWorkspaceTab(host.snapshot(), 'unrelated')?.windowId).toBe('other')
+	})
+
+	it('cancels a retired tab’s detach and removes stale close-request IDs without accepting a late transfer ACK', () => {
+		const { host } = setup()
+		const transfer = host.beginDetach('source', 'running-session', 'home-source')
+		host.retireTabs(['running-session'])
+		expect(host.snapshot().windows.map((window) => window.id)).toEqual(['source'])
+		expect(host.view('source').outgoingTransfer).toBeUndefined()
+		expect(() => host.ready(transfer.destinationWindowId, transfer.id)).toThrow(
+			'cannot acknowledge',
+		)
+		const close = host.beginClose('source')
+		host.retireTabs(['draft-session'])
+		expect(host.view('source').closingWindow).toEqual({ id: close, tabIds: [] })
+		expect(host.snapshot().windows[0]?.root).toBeNull()
+	})
+
 	it('keeps the empty composer controller identity when its first session opens', () => {
 		const host = new WorkspaceWindows(
 			undefined,

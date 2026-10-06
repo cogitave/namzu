@@ -237,6 +237,34 @@ export class WorkspaceWindows {
 			openWorkspaceTab(this.layout, { windowId, tabId, groupId, newGroupId: `home-${windowId}` }),
 		)
 	}
+	/** Confirmed profile/session retirement removes every view without changing runtime authority. */
+	retireTabs(tabIds: readonly string[]): void {
+		const retired = new Set(tabIds)
+		for (const transfer of [...this.transfers.values()])
+			if (retired.has(transfer.tabId)) this.rollback(transfer.id)
+		let next = this.layout
+		for (const tabId of retired) {
+			const owner = locateWorkspaceTab(next, tabId)
+			if (!owner) continue
+			const closed = closeWorkspaceTab(next, { ...owner, tabId })
+			if (!closed) throw new Error('The retired conversation’s workspace could not close.')
+			next = closed
+		}
+		const closing = [...this.closing.values()].map((close) => ({ close, before: close.tabIds }))
+		for (const { close, before } of closing)
+			close.tabIds = before.filter((tabId) => !retired.has(tabId))
+		try {
+			if (
+				next === this.layout &&
+				closing.some(({ close, before }) => close.tabIds.length !== before.length)
+			)
+				this.publish()
+			else this.commit(next)
+		} catch (error) {
+			for (const { close, before } of closing) close.tabIds = before
+			throw error
+		}
+	}
 	action(
 		windowId: string,
 		action: Exclude<WorkspaceAction, { kind: 'detach' }>,

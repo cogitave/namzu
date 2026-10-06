@@ -6,6 +6,7 @@ import {
 	ChevronRightIcon,
 	LoaderCircleIcon,
 	PlusIcon,
+	TrashIcon,
 	UserRoundIcon,
 	XIcon,
 } from './icons.js'
@@ -65,8 +66,14 @@ function PalModelChoice({
 		}
 	}, [loadProviders, retry])
 	const configured = providers?.selected
-	const route = value ?? { provider: configured?.id ?? '', model: configured?.model ?? '' }
-	const choice = { ...route, label: labels[`${route.provider}:${route.model}`] }
+	const route = value ?? {
+		provider: configured?.id ?? '',
+		model: configured?.model ?? '',
+	}
+	const choice = {
+		...route,
+		label: labels[`${route.provider}:${route.model}`],
+	}
 	return (
 		<div className="pal-model-choice">
 			{providers && providers.available.length > 0 ? (
@@ -120,6 +127,7 @@ export function PalCustomizeDialog({
 	onModelChange,
 	onClose,
 	onSave,
+	onDelete,
 	loadProviders,
 	loadModels,
 }: ModelLoaders & {
@@ -130,6 +138,7 @@ export function PalCustomizeDialog({
 	onModelChange: (model: PalView['model']) => void
 	onClose: () => void
 	onSave: (input: PalInput, id?: string) => Promise<void>
+	onDelete?: (pal: PalView) => void
 }) {
 	const id = useId()
 	const [name, setName] = useState(editing?.name ?? '')
@@ -183,7 +192,10 @@ export function PalCustomizeDialog({
 													checked={appearance.color === color.id}
 													disabled={saving}
 													onChange={() =>
-														setAppearance((current) => ({ ...current, color: color.id }))
+														setAppearance((current) => ({
+															...current,
+															color: color.id,
+														}))
 													}
 												/>
 												<span aria-hidden="true" />
@@ -204,11 +216,17 @@ export function PalCustomizeDialog({
 													checked={appearance.character === character.id}
 													disabled={saving}
 													onChange={() =>
-														setAppearance((current) => ({ ...current, character: character.id }))
+														setAppearance((current) => ({
+															...current,
+															character: character.id,
+														}))
 													}
 												/>
 												<PalCharacter
-													appearance={{ ...appearance, character: character.id }}
+													appearance={{
+														...appearance,
+														character: character.id,
+													}}
 													size="choice"
 												/>
 												<span>{character.label}</span>
@@ -234,6 +252,16 @@ export function PalCustomizeDialog({
 									<p className="pal-error" role="alert">
 										{error}
 									</p>
+								)}
+								{editing && onDelete && (
+									<Button
+										variant="ghost-destructive"
+										size="sm"
+										disabled={saving}
+										onClick={() => onDelete(editing)}
+									>
+										<TrashIcon /> Delete {editing.name}
+									</Button>
 								)}
 							</div>
 							<div className="pal-customize-preview">

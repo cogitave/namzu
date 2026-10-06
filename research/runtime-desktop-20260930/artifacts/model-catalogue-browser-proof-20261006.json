@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "realBrowserPopup": true,
+  "isolation": "Vite design preview with a synthetic models method",
+  "nativeActions": 0,
+  "inferenceRequests": 0,
+  "checks": [
+    "reopen renders retained catalogue immediately without another model read",
+    "tab round trip isolates exact session and reuses only its own catalogue",
+    "harness metadata scope changes the catalogue without changing the model choice",
+    "late prior-engine result, including an uncached oversized result, cannot publish into the current popup",
+    "failed read stays generic and explicit Retry obtains a new catalogue",
+    "explicit Refresh replaces a successful cached catalogue",
+    "project connection invalidation reloads an open popup and fences old display",
+    "a deterministic expired catalogue reloads on popup revisit",
+    "an evicted provider catalogue reloads on popup revisit",
+    "native provider selected-model default echo does not refetch its one-provider popup catalogue",
+    "acknowledged native engine changes invalidate retained rows and request the new engine catalogue"
+  ]
+}

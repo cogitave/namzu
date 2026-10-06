@@ -21,6 +21,7 @@ import {
 } from '../integrations/harness/codex-adapter.js'
 import { resolveHarnessExecutable } from '../integrations/harness/native-executable.js'
 import {
+	type CliSessionScope,
 	type CliSessions,
 	closeSessions,
 	loadResumableConversation,
@@ -29,6 +30,7 @@ import {
 	readConversationFacts,
 	refreshIndex,
 } from '../integrations/sessions/store.js'
+import { isTrustedAtStateRoot } from '../integrations/trust/store.js'
 import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -95,6 +97,12 @@ function engineForBinding(id: string): ExternalEngine | undefined {
 export interface CliHarnessRuntime extends CliAcpRuntime {
 	harnesses(sessionId?: string): Promise<CliHarnessView>
 	selectHarness(sessionId: string, engine: string): Promise<CliHarnessView>
+	/** Release only this connection's idle native writer, reserving it until archive settles. */
+	withIdleConversationForArchive?<T>(
+		sessionId: string,
+		scope: CliSessionScope,
+		archive: () => Promise<T>,
+	): Promise<T>
 }
 
 /** One controller per ACP connection. Native IDs never participate in Namzu lookup. */
@@ -116,15 +124,16 @@ export function withCliHarnesses(
 	const reserving = new Set<string>()
 	const catalogues = new Map<string, Promise<readonly HarnessModel[]>>()
 	let closed = false
-	const trusted = (requested = directory) => {
+	const trusted = (requested = directory, stateRoot?: string) => {
 		if (closed) throw new Error('The connection is closed.')
 		const trust = (deps.decideTrust ?? decideHeadlessTrust)({
 			cwd: requested,
 			trustFlag: false,
+			...(stateRoot ? { trusted: (path: string) => isTrustedAtStateRoot(path, stateRoot) } : {}),
 		})
 		if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
 		const cwd = canonicalProjectPath(trust.cwd)
-		if ((deps.isPal ?? ((path) => Boolean(palAtWorkspace(path))))(cwd))
+		if ((deps.isPal ?? ((path) => Boolean(palAtWorkspace(path, stateRoot))))(cwd))
 			throw new Error('External engines are available in normal conversations only.')
 		return cwd
 	}
@@ -367,6 +376,54 @@ export function withCliHarnesses(
 		...base,
 		gateway,
 		harnesses: view,
+		withIdleConversationForArchive: async (id, scope, archive) => {
+			const cwd = trusted(directory, scope.root)
+			const record = records.get(id)
+			const assertIdle = () => {
+				if (
+					record?.route ||
+					record?.review ||
+					record?.session.currentTurnId ||
+					(record && !['idle', 'disconnected', 'closed'].includes(record.session.status))
+				)
+					throw new Error('Stop this conversation’s active work before archiving it.')
+				const jobs = base.jobs(id)
+				if (
+					!Array.isArray(jobs) ||
+					jobs.some((job) => job.status === 'running' || job.recoveryRequired)
+				)
+					throw new Error('Stop this conversation’s background work before archiving it.')
+			}
+			if (reserving.has(id))
+				throw new Error('Wait for this conversation’s pending operation before archiving it.')
+			assertIdle()
+			if (
+				record &&
+				(record.session.scope.cwd !== cwd ||
+					record.state.root !== scope.root ||
+					record.state.projectRoot !== scope.projectRoot ||
+					record.state.projectId !== scope.projectId ||
+					record.state.tenantId !== scope.tenantId ||
+					record.state.topicId !== scope.topicId ||
+					record.state.paths.sessionLog({ sessionId: asSessionId(id) }) !==
+						scope.paths.sessionLog({ sessionId: asSessionId(id) }))
+			)
+				throw new Error('This conversation does not belong to this archive scope.')
+			reserving.add(id)
+			try {
+				if (record) {
+					// A failed close retains the exact native owner for cleanup/retry.
+					await record.session.close()
+					closeSessions(record.state)
+					records.delete(id)
+				}
+				trusted(directory, scope.root)
+				assertIdle()
+				return await archive()
+			} finally {
+				reserving.delete(id)
+			}
+		},
 		selectHarness: async (id, engine) => {
 			const cwd = trusted()
 			if (engine !== 'namzu' && !external(engine)) throw new Error('Unknown execution engine.')

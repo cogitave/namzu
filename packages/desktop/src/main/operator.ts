@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, realpath, stat } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { lstat, mkdir, realpath, stat } from 'node:fs/promises'
+import { basename, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
 	AcpSessionPromptResult,
@@ -62,6 +63,8 @@ interface PendingMessage {
 	id: string
 	prompt: string
 	files: OwnedAttachment[]
+	/** Authored edits and explicit clears fence first-prompt recovery. */
+	draftRevision: number
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
 }
 interface OwnedAttachment extends AdmittedAttachment {
@@ -97,6 +100,7 @@ interface Conversation {
 	runSettled?: Promise<void>
 	queue: PendingMessage[]
 	draft: string
+	draftRevision?: number
 	draftSettings?: DraftSettings
 	providers?: ProviderView
 	projection: ThreadState
@@ -132,6 +136,8 @@ export class Operator {
 		const runtimeSessionId = session.runtimeSessionId
 		const revision = this.palRecords.get(palId)?.revision
 		const assertCurrent = () => {
+			this.assertPalAvailable(palId)
+			if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
 			if (
 				this.closing ||
 				this.conversations.get(sessionId) !== session ||
@@ -153,13 +159,30 @@ export class Operator {
 		return this.communication.read(sessionId, palId)
 	}
 	updatePalPermission(sessionId: string, palId: string, change: PalPermissionChange) {
-		return this.communication.updatePermission(sessionId, palId, change)
+		return this.changePalCommunication(palId, () =>
+			this.communication.updatePermission(sessionId, palId, change),
+		)
 	}
 	createPalSubscription(sessionId: string, palId: string, input: PalSubscriptionCreate) {
-		return this.communication.createSubscription(sessionId, palId, input)
+		return this.changePalCommunication(palId, () =>
+			this.communication.createSubscription(sessionId, palId, input),
+		)
 	}
 	disablePalSubscription(sessionId: string, palId: string, input: PalSubscriptionDisable) {
-		return this.communication.disableSubscription(sessionId, palId, input)
+		return this.changePalCommunication(palId, () =>
+			this.communication.disableSubscription(sessionId, palId, input),
+		)
+	}
+	private async changePalCommunication<T>(palId: string, change: () => Promise<T>): Promise<T> {
+		this.assertPalAvailable(palId)
+		if (this.changingPals.has(palId) || this.changingPalCommunication.has(palId))
+			throw new Error('Wait for this Pal’s changes to finish.')
+		this.changingPalCommunication.add(palId)
+		try {
+			return await change()
+		} finally {
+			this.changingPalCommunication.delete(palId)
+		}
 	}
 	private closing = false
 	private registryClient?: RuntimeClient
@@ -175,6 +198,18 @@ export class Operator {
 		{ palId: string; client: RuntimeClient; onClosed: () => void }
 	>()
 	private readonly changingPals = new Set<string>()
+	private readonly changingPalCommunication = new Set<string>()
+	private readonly deletedPals = new Map<string, number>()
+	private readonly deletingPals = new Map<
+		string,
+		{ expectedRevision: number; projectIds: string[]; sessionIds: string[] }
+	>()
+	private readonly openingPals = new Map<string, number>()
+	private readonly startingPalComputers = new Set<string>()
+	private readonly startingPalConversations = new Map<string, number>()
+	private readonly archivingConversations = new Set<string>()
+	private readonly pendingConversationRemovals = new Set<string>()
+	private readonly removedConversations = new Map<string, boolean>()
 	private readonly projects = new Map<string, Project>()
 	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
 	private readonly conversations = new Map<string, Conversation>()
@@ -309,8 +344,9 @@ export class Operator {
 		const client = await this.registry()
 		const pals = (await client.request('namzu/pals/list')) as PalView[]
 		if (!Array.isArray(pals)) throw new Error('Namzu returned an invalid Pal list.')
-		for (const pal of pals) this.palRecords.set(pal.id, pal)
-		return pals
+		const available = pals.filter((pal) => !this.deletedPals.has(pal.id))
+		for (const pal of available) this.palRecords.set(pal.id, pal)
+		return available
 	}
 	async palProviders(): Promise<ProviderView> {
 		return (await (await this.registry()).request('namzu/providers/status')) as ProviderView
@@ -336,6 +372,7 @@ export class Operator {
 		expectedRevision: number,
 		changes: Partial<PalChanges>,
 	): Promise<PalView> {
+		this.assertPalAvailable(id)
 		if (typeof id !== 'string' || this.changingPals.has(id))
 			throw new Error('Wait for this Pal’s changes to finish.')
 		this.changingPals.add(id)
@@ -361,22 +398,227 @@ export class Operator {
 			this.changingPals.delete(id)
 		}
 	}
+	private assertPalAvailable(id: string): void {
+		if (typeof id !== 'string' || !id.trim() || id.length > 400) throw new Error('Invalid Pal.')
+		if (this.deletedPals.has(id)) throw new Error('This Pal was deleted.')
+		if (this.deletingPals.has(id))
+			throw new Error('This Pal deletion needs confirmation. Retry deleting it.')
+	}
+	private assertPalDeletionIdle(id: string, workspace?: string): void {
+		this.assertPalComputerForegroundIdle(id)
+		if (
+			this.openingPals.has(id) ||
+			this.startingPalComputers.has(id) ||
+			this.startingPalConversations.has(id) ||
+			this.changingPalCommunication.has(id) ||
+			(workspace && this.projectStarting.has(workspace)) ||
+			[...this.conversations.values()].some(
+				(item) =>
+					item.view.palId === id &&
+					(item.reattaching ||
+						item.selectionPending ||
+						this.changingPlugins.has(item.view.id) ||
+						this.archivingConversations.has(item.view.id) ||
+						this.pendingConversationRemovals.has(item.view.id)),
+			)
+		)
+			throw new Error('Wait for this Pal’s connection or settings change to finish.')
+	}
+	async deletePal(id: string, expectedRevision: number): Promise<{ id: string; deleted: true }> {
+		if (
+			typeof id !== 'string' ||
+			!id.trim() ||
+			id.length > 400 ||
+			!Number.isSafeInteger(expectedRevision) ||
+			expectedRevision < 1
+		)
+			throw new Error('Invalid Pal deletion.')
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		const deletedRevision = this.deletedPals.get(id)
+		if (deletedRevision !== undefined) {
+			if (deletedRevision !== expectedRevision) throw new Error('This Pal changed. Refresh it.')
+			return { id, deleted: true }
+		}
+		this.changingPals.add(id)
+		this.advanceComputerAuthority(id)
+		try {
+			const registry = await this.registry()
+			let scope = this.deletingPals.get(id)
+			if (scope && scope.expectedRevision !== expectedRevision)
+				throw new Error('This Pal changed. Refresh it.')
+			if (!scope) {
+				const current = (await registry.request('namzu/pals/get', { id })) as PalView
+				if (!current || current.id !== id || current.revision !== expectedRevision)
+					throw new Error('This Pal changed. Refresh it before deleting.')
+				this.assertPalDeletionIdle(id, current.workspace)
+				const client = await this.controlClient(id, true)
+				this.assertPalDeletionIdle(id, current.workspace)
+				const computer = await this.computerStatus(client, id)
+				if (computer.control?.mode === 'transitioning')
+					throw new Error('Wait for this Pal computer’s control change to finish.')
+				const projects = [...this.projects.values()].filter((item) => item.view.palId === id)
+				const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
+				const claimed = (await client.request('namzu/pals/conversations/list', { palId: id })) as {
+					id: string
+				}[]
+				if (!Array.isArray(claimed) || claimed.some((item) => !item || typeof item.id !== 'string'))
+					throw new Error('This Pal’s background work could not be verified.')
+				const runtimeIds = new Set([
+					...claimed.map((item) => item.id),
+					...owned.map((item) => item.runtimeSessionId),
+				])
+				for (const sessionId of runtimeIds) {
+					const jobs = (await client.request('namzu/jobs/list', { sessionId })) as JobView[]
+					if (
+						!Array.isArray(jobs) ||
+						jobs.some(
+							(job) =>
+								!job ||
+								typeof job.status !== 'string' ||
+								job.status === 'running' ||
+								job.recoveryRequired,
+						)
+					)
+						throw new Error('Stop this Pal’s background work before deleting it.')
+				}
+				const latest = (await registry.request('namzu/pals/get', { id })) as PalView
+				if (
+					!latest ||
+					latest.id !== id ||
+					latest.revision !== expectedRevision ||
+					latest.workspace !== current.workspace
+				)
+					throw new Error('This Pal changed. Refresh it before deleting.')
+				this.assertPalDeletionIdle(id, current.workspace)
+				if (
+					!this.ownedClients.has(client) ||
+					!projects.some(
+						(item) => item.client === client && this.projects.get(item.view.id) === item,
+					)
+				)
+					throw new Error('This Pal’s connection changed before deleting.')
+				const stopped = await this.stopOwnedPalComputer(id, client)
+				if (stopped.status !== 'stopped' || stopped.requiresStop)
+					throw new Error('The Pal computer did not confirm its stop. Recover it before deleting.')
+				this.assertPalDeletionIdle(id, current.workspace)
+				for (const ownedClient of new Set(projects.map((item) => item.client)))
+					await this.closeClient(ownedClient)
+				scope = {
+					expectedRevision,
+					projectIds: projects.map((item) => item.view.id),
+					sessionIds: [
+						...new Set([
+							...claimed.map((item) => item.id),
+							...owned.map((item) => item.view.id),
+							...(this.savedDesktop?.conversations ?? [])
+								.filter((item) => item.view.palId === id)
+								.map((item) => item.view.id),
+						]),
+					],
+				}
+				// An uncertain metadata acknowledgement may be retried at the same
+				// revision. It never reopens a guest or admits work before confirmation.
+				this.deletingPals.set(id, scope)
+			}
+			const result = (await registry.request('namzu/pals/delete', { id, expectedRevision })) as {
+				id?: unknown
+				deleted?: unknown
+			}
+			if (!result || result.id !== id || result.deleted !== true)
+				throw new Error('Pal deletion was not confirmed. Retry deleting it.')
+			this.deletedPals.set(id, expectedRevision)
+			this.deletingPals.delete(id)
+			this.palRecords.delete(id)
+			for (const projectId of scope.projectIds) this.projects.delete(projectId)
+			for (const sessionId of scope.sessionIds) this.conversations.delete(sessionId)
+			const retiredOwners = new Set(scope.sessionIds)
+			for (const ownerId of this.projectDrafts.keys()) {
+				const owner = projectDraftOwner(ownerId)
+				if (owner && scope.projectIds.includes(owner.projectId)) {
+					retiredOwners.add(ownerId)
+					this.projectDrafts.delete(ownerId)
+				}
+			}
+			for (const [attachmentId, file] of this.attachmentFiles)
+				if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
+			if (this.savedDesktop)
+				this.savedDesktop = {
+					...this.savedDesktop,
+					projects: this.savedDesktop.projects.filter(
+						(item) => !scope.projectIds.includes(item.id),
+					),
+					conversations: this.savedDesktop.conversations.filter((item) => item.view.palId !== id),
+				}
+			this.persistDesktop(true)
+			this.emit({
+				kind: 'pal-deleted',
+				palId: id,
+				projectIds: scope.projectIds,
+				sessionIds: scope.sessionIds,
+			})
+			return { id, deleted: true }
+		} finally {
+			this.advanceComputerAuthority(id)
+			this.changingPals.delete(id)
+		}
+	}
 	async openPal(id: string): Promise<{
 		pal: PalView
 		project: ProjectView
 		conversations: ConversationView[]
 	}> {
+		this.assertPalAvailable(id)
+		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
+		this.openingPals.set(id, (this.openingPals.get(id) ?? 0) + 1)
+		try {
+			return await this.openOwnedPal(id)
+		} finally {
+			const remaining = (this.openingPals.get(id) ?? 1) - 1
+			if (remaining) this.openingPals.set(id, remaining)
+			else this.openingPals.delete(id)
+		}
+	}
+	private async openOwnedPal(id: string): Promise<{
+		pal: PalView
+		project: ProjectView
+		conversations: ConversationView[]
+	}> {
+		this.assertPalAvailable(id)
 		const pal = (await (await this.registry()).request('namzu/pals/get', { id })) as PalView
+		this.assertPalAvailable(id)
+		if (!pal || pal.id !== id) throw new Error('This Pal is unavailable.')
 		this.palRecords.set(pal.id, pal)
-		const view = await this.openProject(pal.workspace)
+		const view = await this.openProjectDirectory(pal.workspace, true)
 		const project = this.projects.get(view.id)
 		if (!project) throw new Error('This Pal could not connect its local workspace.')
+		const assertConnected = () => {
+			this.assertPalAvailable(id)
+			if (this.closing || this.projects.get(view.id) !== project)
+				throw new Error('This Pal’s connection changed while opening. Reopen it.')
+			if (project.view.status !== 'ready')
+				throw new Error(project.view.error ?? 'This Pal could not connect its local workspace.')
+			if (
+				!project.view.trusted ||
+				project.view.palId !== pal.id ||
+				project.view.path !== pal.workspace
+			)
+				throw new Error('This Pal’s workspace ownership could not be verified.')
+		}
+		assertConnected()
 		project.view.palId = pal.id
 		project.view.name = pal.name
+		let conversations: ConversationView[]
+		try {
+			conversations = await this.listConversations(view.id)
+		} catch (error) {
+			assertConnected()
+			throw error
+		}
+		assertConnected()
 		return {
 			pal,
 			project: { ...project.view },
-			conversations: await this.listConversations(view.id),
+			conversations,
 		}
 	}
 	async palComputer(id: string): Promise<PalComputerView> {
@@ -406,6 +648,7 @@ export class Operator {
 	}
 	private async controlClient(id: string, reuseReady: boolean): Promise<RuntimeClient> {
 		if (this.closing) throw new Error('Namzu is closing.')
+		this.assertPalAvailable(id)
 		if (reuseReady) {
 			const owned = [...this.projects.values()].find(
 				({ view, client }) =>
@@ -416,7 +659,7 @@ export class Operator {
 			)
 			if (owned) return this.project(owned.view.id).client
 		}
-		const { project } = await this.openPal(id)
+		const { project } = await this.openOwnedPal(id)
 		return this.project(project.id).client
 	}
 	private async controlledComputer(
@@ -532,12 +775,19 @@ export class Operator {
 		if (result?.type !== 'ok') throw new Error('The Pal computer did not confirm this input.')
 	}
 	async startPalComputer(id: string): Promise<PalComputerView> {
+		this.assertPalAvailable(id)
 		if (this.changingPals.has(id)) throw new Error('Wait for this Pal’s changes to finish.')
-		const epoch = this.computerAuthorityEpochs.get(id) ?? 0
-		const { project } = await this.openPal(id)
-		if (this.changingPals.has(id) || epoch !== (this.computerAuthorityEpochs.get(id) ?? 0))
-			throw new Error('This Pal computer changed before it could start. Refresh its status.')
-		return this.startOwnedPalComputer(id, this.project(project.id).client)
+		if (this.startingPalComputers.has(id)) throw new Error('Wait for this Pal computer to start.')
+		this.startingPalComputers.add(id)
+		try {
+			const epoch = this.computerAuthorityEpochs.get(id) ?? 0
+			const { project } = await this.openOwnedPal(id)
+			if (this.changingPals.has(id) || epoch !== (this.computerAuthorityEpochs.get(id) ?? 0))
+				throw new Error('This Pal computer changed before it could start. Refresh its status.')
+			return await this.startOwnedPalComputer(id, this.project(project.id).client)
+		} finally {
+			this.startingPalComputers.delete(id)
+		}
 	}
 	private async startOwnedPalComputer(id: string, client: RuntimeClient): Promise<PalComputerView> {
 		return (await client.request(
@@ -552,7 +802,8 @@ export class Operator {
 		if (
 			[...this.conversations.values()].some(
 				(item) =>
-					item.view.palId === id && (item.running || item.queue.length || item.permissions.size),
+					item.view.palId === id &&
+					(item.running || item.admitting || item.queue.length || item.permissions.size),
 			)
 		)
 			throw new Error('Stop this Pal’s active work before stopping its computer.')
@@ -581,7 +832,7 @@ export class Operator {
 		const state = (await client.request('namzu/pals/computer/stop', {
 			palId: id,
 		})) as PalComputerView
-		if (state.status === 'stopped') {
+		if (state.status === 'stopped' && !state.requiresStop) {
 			this.operatorComputers.delete(id)
 			for (const [viewerId, viewer] of this.computerViewers)
 				if (viewer.palId === id) this.closePalComputerStream(viewerId)
@@ -593,7 +844,7 @@ export class Operator {
 		this.changingPals.add(id)
 		this.advanceComputerAuthority(id)
 		try {
-			const { project } = await this.openPal(id)
+			const { project } = await this.openOwnedPal(id)
 			await this.assertPalComputerIdle(id)
 			return await this.stopOwnedPalComputer(id, this.project(project.id).client)
 		} finally {
@@ -612,7 +863,7 @@ export class Operator {
 		this.changingPals.add(id)
 		this.advanceComputerAuthority(id)
 		try {
-			const { pal, project } = await this.openPal(id)
+			const { pal, project } = await this.openOwnedPal(id)
 			if (pal.paused) throw new Error('Resume this Pal before restarting its computer.')
 			const client = this.project(project.id).client
 			const assertGeneration = async () => {
@@ -709,7 +960,7 @@ export class Operator {
 		this.streamProxy?.close(id)
 	}
 	private emit(event: DesktopEvent): void {
-		if (event.kind !== 'connection' && event.kind !== 'workspace') {
+		if (event.kind !== 'connection' && event.kind !== 'workspace' && event.kind !== 'pal-deleted') {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
 			if (session) {
@@ -763,13 +1014,49 @@ export class Operator {
 		}
 	}
 	async openProject(path: string): Promise<ProjectView> {
+		return this.openProjectDirectory(path)
+	}
+	private async openProjectDirectory(
+		path: string,
+		ownedPalWorkspace = false,
+	): Promise<ProjectView> {
 		if (this.closing) throw new Error('Namzu is closing.')
-		const cwd = await realpath(path)
+		const canonical = await realpath(path)
+		let cwd = canonical
+		if (ownedPalWorkspace) {
+			// Windows' native realpath can change only directory spelling while the
+			// SDK's saved control path remains exact. Keep that approved spelling
+			// only after fresh directory identity and the SDK's alias guard agree.
+			const expected = resolve(path)
+			const original = await lstat(expected, { bigint: true })
+			if (
+				path !== expected ||
+				!original.isDirectory() ||
+				original.isSymbolicLink() ||
+				realpathSync(expected) !== expected
+			)
+				throw new Error('This Pal’s workspace identity changed.')
+			if (canonical !== expected) {
+				if (process.platform !== 'win32' || canonical.toLowerCase() !== expected.toLowerCase())
+					throw new Error('This Pal’s workspace identity changed.')
+				const actual = await lstat(canonical, { bigint: true })
+				if (
+					!actual.isDirectory() ||
+					actual.isSymbolicLink() ||
+					original.ino <= 0n ||
+					actual.dev !== original.dev ||
+					actual.ino !== original.ino ||
+					actual.birthtimeNs !== original.birthtimeNs
+				)
+					throw new Error('This Pal’s workspace identity changed.')
+			}
+			cwd = expected
+		}
 		if (!(await stat(cwd)).isDirectory()) throw new Error('Choose a folder.')
 		if (this.closing) throw new Error('Namzu is closing.')
 		const pending = this.projectStarting.get(cwd)
 		if (pending) return pending
-		const operation = this.connectProject(cwd)
+		const operation = this.connectProject(cwd, ownedPalWorkspace ? canonical : undefined)
 		this.projectStarting.set(cwd, operation)
 		try {
 			return await operation
@@ -777,8 +1064,14 @@ export class Operator {
 			if (this.projectStarting.get(cwd) === operation) this.projectStarting.delete(cwd)
 		}
 	}
-	private async connectProject(cwd: string): Promise<ProjectView> {
-		const existing = [...this.projects.values()].find(({ view }) => view.path === cwd)
+	private async connectProject(cwd: string, ownedPalCanonical?: string): Promise<ProjectView> {
+		const existing = [...this.projects.values()].find(
+			({ view }) =>
+				view.path === cwd ||
+				(view.status === 'error' &&
+					ownedPalCanonical !== undefined &&
+					view.path === ownedPalCanonical),
+		)
 		if (existing?.view.status !== 'error') {
 			if (existing) return existing.view
 		}
@@ -832,13 +1125,14 @@ export class Operator {
 		})
 		client.on('closed', (error: Error) => {
 			if (this.closing || this.projects.get(view.id) !== project) return
+			const failure = view.status === 'error' && view.error ? view.error : error.message
 			view.status = 'error'
-			view.error = error.message
+			view.error = failure
 			for (const session of this.conversations.values()) {
 				if (session.view.projectId !== view.id) continue
 				session.running = false
 				session.permissions.clear()
-				this.state(session, error.message)
+				this.state(session, failure)
 				this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			}
 			this.emit({ kind: 'connection', project: { ...view } })
@@ -878,10 +1172,17 @@ export class Operator {
 	}
 	private session(id: unknown): Conversation {
 		if (typeof id !== 'string') throw new Error('Invalid conversation.')
+		this.assertConversationAvailable(id)
 		const session = this.conversations.get(id)
 		if (!session) throw new Error('Open this conversation first.')
 		this.project(session.view.projectId)
 		return session
+	}
+	private assertConversationAvailable(id: string): void {
+		if (this.removedConversations.has(id))
+			throw new Error('This conversation is no longer available.')
+		if (this.archivingConversations.has(id) || this.pendingConversationRemovals.has(id))
+			throw new Error('Wait for this conversation’s removal to finish.')
 	}
 	async trust(id: string): Promise<ProjectView> {
 		const project = this.project(id)
@@ -913,19 +1214,21 @@ export class Operator {
 		}[]
 		assertCurrent()
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
-		const views = rows.map((row) => ({
-			id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
-			title: row.title,
-			updatedAt: row.updatedAt,
-			projectId: id,
-			...(row.harness
-				? { harness: row.harness }
-				: this.runtimeSession(project, row.id)?.view.harness
-					? { harness: this.runtimeSession(project, row.id)?.view.harness }
-					: {}),
-			...(project.view.palId ? { palId: project.view.palId } : {}),
-			...(project.view.palId && row.palGreeting ? { palGreeting: row.palGreeting } : {}),
-		}))
+		const views = rows
+			.filter((row) => !this.removedConversations.has(row.id))
+			.map((row) => ({
+				id: this.runtimeSession(project, row.id)?.view.id ?? row.id,
+				title: row.title,
+				updatedAt: row.updatedAt,
+				projectId: id,
+				...(row.harness
+					? { harness: row.harness }
+					: this.runtimeSession(project, row.id)?.view.harness
+						? { harness: this.runtimeSession(project, row.id)?.view.harness }
+						: {}),
+				...(project.view.palId ? { palId: project.view.palId } : {}),
+				...(project.view.palId && row.palGreeting ? { palGreeting: row.palGreeting } : {}),
+			}))
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
 			if (session.view.projectId !== id || returned.has(session.view.id)) continue
@@ -945,42 +1248,175 @@ export class Operator {
 		project.conversationCatalogue = new Map(views.map((view) => [view.id, { ...view }]))
 		return views
 	}
+	async removeConversation(
+		sessionId: string,
+	): Promise<{ sessionId: string; removed: true; archived: boolean }> {
+		if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		if (this.archivingConversations.has(sessionId))
+			throw new Error('Wait for this conversation’s removal to finish.')
+		if (this.removedConversations.has(sessionId))
+			return {
+				sessionId,
+				removed: true,
+				archived: this.removedConversations.get(sessionId) as boolean,
+			}
+		const session = this.conversations.get(sessionId)
+		const view =
+			session?.view ??
+			[...this.projects.values()]
+				.flatMap((project) => [...(project.conversationCatalogue?.values() ?? [])])
+				.find((item) => item.id === sessionId) ??
+			this.savedDesktop?.conversations.find((item) => item.view.id === sessionId)?.view
+		if (!view) throw new Error('This conversation is no longer in the connected catalogue.')
+		const runtimeId = session?.runtimeSessionId
+		const unsent = Boolean(
+			session &&
+				!session.hasPrompted &&
+				!session.needsHistory &&
+				!session.projection.messages.some((message) => message.role === 'user') &&
+				!session.projection.timeline.some((entry) => entry.kind !== 'message'),
+		)
+		const aliases = [...new Set([sessionId, ...(runtimeId ? [runtimeId] : [])])]
+		const project = this.project(view.projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (view.palId) {
+			this.assertPalAvailable(view.palId)
+			if (this.changingPals.has(view.palId))
+				throw new Error('Wait for this Pal’s changes to finish.')
+		}
+		const assertIdle = () => {
+			if (this.projects.get(view.projectId) !== project || project.view.status !== 'ready')
+				throw new Error('This conversation’s connection changed. Reopen it before removing.')
+			if (
+				session &&
+				(this.conversations.get(sessionId) !== session ||
+					session.runtimeSessionId !== runtimeId ||
+					session.client !== project.client)
+			)
+				throw new Error('This conversation changed while removing it.')
+			if (
+				session &&
+				(session.running ||
+					session.admitting ||
+					session.queue.length ||
+					session.permissions.size ||
+					session.reattaching ||
+					session.selectionPending ||
+					this.changingPlugins.has(sessionId))
+			)
+				throw new Error('Stop this conversation’s active work before removing it.')
+			if (view.palId && this.changingPals.has(view.palId))
+				throw new Error('Wait for this Pal’s changes to finish.')
+		}
+		assertIdle()
+		this.archivingConversations.add(sessionId)
+		try {
+			let archived = false
+			for (const alias of aliases) {
+				// A proven never-prompted local owner can have no log at all. The
+				// archive endpoint validates absence/ownership and existing jobs without
+				// creating a provider context. Ordinary durable rows still preflight jobs.
+				if (!unsent) {
+					const jobs = (await project.client.request('namzu/jobs/list', {
+						sessionId: alias,
+					})) as JobView[]
+					if (
+						!Array.isArray(jobs) ||
+						jobs.some(
+							(job) =>
+								!job ||
+								typeof job.status !== 'string' ||
+								job.status === 'running' ||
+								job.recoveryRequired,
+						)
+					)
+						throw new Error('Stop this conversation’s background work before removing it.')
+				}
+				assertIdle()
+				this.pendingConversationRemovals.add(sessionId)
+				const result = (await project.client.request('namzu/conversations/archive', {
+					sessionId: alias,
+				})) as { sessionId?: unknown; archived?: unknown; missing?: unknown }
+				if (
+					!result ||
+					result.sessionId !== alias ||
+					(result.archived !== true &&
+						!(unsent && result.archived === false && result.missing === true))
+				)
+					throw new Error('Conversation removal was not confirmed. Retry removing it.')
+				archived ||= result.archived === true
+				assertIdle()
+			}
+			this.removedConversations.set(sessionId, archived)
+			this.pendingConversationRemovals.delete(sessionId)
+			this.conversations.delete(sessionId)
+			for (const [attachmentId, file] of this.attachmentFiles)
+				if (file.ownerId === sessionId) this.attachmentFiles.delete(attachmentId)
+			project.conversationCatalogue?.delete(sessionId)
+			if (this.savedDesktop)
+				this.savedDesktop = {
+					...this.savedDesktop,
+					conversations: this.savedDesktop.conversations.filter(
+						(item) => item.view.id !== sessionId,
+					),
+				}
+			this.persistDesktop(true)
+			this.emit({ kind: 'conversation-removed', sessionId, projectId: view.projectId, archived })
+			return { sessionId, removed: true, archived }
+		} finally {
+			this.archivingConversations.delete(sessionId)
+		}
+	}
 	async newConversation(projectId: string): Promise<ConversationView> {
 		const project = this.project(projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
 		this.assertPalAdmission(project.view.palId)
-		const result = (await project.client.request('session/new', {
-			cwd: project.view.path,
-		})) as {
-			sessionId: string
+		const palId = project.view.palId
+		if (palId)
+			this.startingPalConversations.set(palId, (this.startingPalConversations.get(palId) ?? 0) + 1)
+		try {
+			const result = (await project.client.request('session/new', {
+				cwd: project.view.path,
+			})) as {
+				sessionId: string
+			}
+			this.assertPalAdmission(palId)
+			const claim = project.view.palId
+				? ((await project.client.request('namzu/pals/conversations/claim', {
+						palId: project.view.palId,
+						sessionId: result.sessionId,
+					})) as { palGreeting?: ConversationView['palGreeting'] })
+				: undefined
+			this.assertPalAdmission(palId)
+			const view: ConversationView = {
+				id: result.sessionId,
+				title: 'New conversation',
+				projectId,
+				updatedAt: new Date().toISOString(),
+				...(project.view.palId ? { palId: project.view.palId } : {}),
+				...(claim?.palGreeting ? { palGreeting: claim.palGreeting } : {}),
+			}
+			this.conversations.set(view.id, {
+				view,
+				runtimeSessionId: view.id,
+				hasPrompted: Boolean(project.view.palId),
+				client: project.client,
+				running: false,
+				queue: [],
+				draft: '',
+				projection: emptyThread(),
+				permissions: new Map(),
+			})
+			this.persistDesktop()
+			return view
+		} finally {
+			if (palId) {
+				const remaining = (this.startingPalConversations.get(palId) ?? 1) - 1
+				if (remaining) this.startingPalConversations.set(palId, remaining)
+				else this.startingPalConversations.delete(palId)
+			}
 		}
-		const claim = project.view.palId
-			? ((await project.client.request('namzu/pals/conversations/claim', {
-					palId: project.view.palId,
-					sessionId: result.sessionId,
-				})) as { palGreeting?: ConversationView['palGreeting'] })
-			: undefined
-		const view: ConversationView = {
-			id: result.sessionId,
-			title: 'New conversation',
-			projectId,
-			updatedAt: new Date().toISOString(),
-			...(project.view.palId ? { palId: project.view.palId } : {}),
-			...(claim?.palGreeting ? { palGreeting: claim.palGreeting } : {}),
-		}
-		this.conversations.set(view.id, {
-			view,
-			runtimeSessionId: view.id,
-			hasPrompted: Boolean(project.view.palId),
-			client: project.client,
-			running: false,
-			queue: [],
-			draft: '',
-			projection: emptyThread(),
-			permissions: new Map(),
-		})
-		this.persistDesktop()
-		return view
 	}
 	async harnesses(projectId: string, sessionId?: string): Promise<HarnessView> {
 		const project = this.project(projectId)
@@ -1102,6 +1538,7 @@ export class Operator {
 		partial: boolean
 		thread?: ThreadState
 	}> {
+		this.assertConversationAvailable(sessionId)
 		const existing = this.conversations.get(sessionId)
 		if (existing && existing.view.projectId !== projectId)
 			throw new Error('This conversation belongs to another project.')
@@ -1117,12 +1554,14 @@ export class Operator {
 			const indexed = project.conversationCatalogue?.get(sessionId)
 			const list = indexed ? [indexed] : await this.listConversations(projectId)
 			assertCurrent()
+			this.assertConversationAvailable(sessionId)
 			const view = list.find((row) => row.id === sessionId)
 			if (!view) throw new Error('This conversation is no longer in this project.')
 			const history = (await project.client.request('namzu/conversations/history', {
 				sessionId,
 			})) as { messages: ChatMessage[]; partial: boolean }
 			assertCurrent()
+			this.assertConversationAvailable(sessionId)
 			const record: Conversation = {
 				view,
 				runtimeSessionId: sessionId,
@@ -1144,6 +1583,7 @@ export class Operator {
 			return { ...history, thread: record.projection }
 		}
 		await this.restoreConversationHistory(existing)
+		this.assertConversationAvailable(sessionId)
 		// An unsent tab already owns its local draft and projection. Display it
 		// immediately; readiness and metadata restore the exact engine/model
 		// against its replacement runtime before admitting actions.
@@ -1392,6 +1832,7 @@ export class Operator {
 		const project = this.projects.get(id)
 		if (!project) throw new Error('Unknown project.')
 		if (project.view.status !== 'error') return { ...project.view }
+		if (project.view.palId) return (await this.openPal(project.view.palId)).project
 		return this.openProject(project.view.path)
 	}
 	async providers(id: string, sessionId?: string): Promise<ProviderView> {
@@ -1624,6 +2065,7 @@ export class Operator {
 	}
 	private assertPalAdmission(palId?: string, computerWork = false): void {
 		if (!palId) return
+		this.assertPalAvailable(palId)
 		if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
 		if (computerWork && this.operatorComputers.has(palId))
 			throw new Error('Return this Pal computer’s control before sending a message.')
@@ -1702,6 +2144,7 @@ export class Operator {
 			id: randomUUID(),
 			prompt,
 			files,
+			draftRevision: session.draftRevision ?? 0,
 			...(options || session.view.palId
 				? {
 						options: resolveComposerSendOptions(options, session.view.palId),
@@ -1715,6 +2158,10 @@ export class Operator {
 				file.ownerId = sessionId
 			}
 			session.queue.push(captured)
+			// A newer admitted queue item owns the empty composer. An earlier
+			// preflight failure must not put its prompt back over that ownership.
+			session.draftRevision = (session.draftRevision ?? 0) + 1
+			captured.draftRevision = session.draftRevision
 			if (session.draft === prompt) session.draft = ''
 			this.state(session)
 			return
@@ -2116,9 +2563,11 @@ export class Operator {
 		if (otherCharacters + draft.length > 1_000_000)
 			throw new Error('Draft storage is full. Send or clear another draft before writing more.')
 		session.draft = draft
+		const conversation = this.conversations.get(sessionId)
+		if (conversation) conversation.draftRevision = (conversation.draftRevision ?? 0) + 1
 		this.persistDesktop()
 	}
-	private state(session: Conversation, error?: string): void {
+	private state(session: Conversation, error?: string, restoredDraft?: string): void {
 		this.emit({
 			kind: 'state',
 			sessionId: session.view.id,
@@ -2131,6 +2580,7 @@ export class Operator {
 				...item.options,
 			})),
 			...(error ? { error } : {}),
+			...(restoredDraft !== undefined ? { restoredDraft } : {}),
 		})
 	}
 	private startRun(session: Conversation, item: PendingMessage): void {
@@ -2163,6 +2613,7 @@ export class Operator {
 		this.state(session)
 		let completed = false
 		let failed = false
+		let restoredDraft: string | undefined
 		let promptedRuntime: { client: RuntimeClient; id: string } | undefined
 		try {
 			await this.reattach(session)
@@ -2260,7 +2711,10 @@ export class Operator {
 					// CLI creates a journal. Save its authored text without replaying it
 					// or replacing a newer draft the user wrote while it was running.
 					session.hasPrompted = false
-					if (!session.draft) session.draft = prompt
+					if (!session.draft && (session.draftRevision ?? 0) === item.draftRevision) {
+						session.draft = prompt
+						restoredDraft = prompt
+					}
 				}
 			}
 			for (const file of files) {
@@ -2283,7 +2737,13 @@ export class Operator {
 				}
 			}
 			await this.readTasksSnapshot(session, true)
-			this.state(session)
+			this.state(
+				session,
+				undefined,
+				(session.draftRevision ?? 0) === item.draftRevision && session.draft === restoredDraft
+					? restoredDraft
+					: undefined,
+			)
 			if (session.admitting === settlement) {
 				// Release and hand off in one synchronous span; new admission cannot
 				// race the previous run's status read or consume its authored queue.

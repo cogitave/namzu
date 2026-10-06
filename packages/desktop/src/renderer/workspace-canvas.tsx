@@ -216,7 +216,15 @@ export function WorkspaceCanvas({
 						}
 						style={boxStyle(rect)}
 						onFocusCapture={() => onPaneFocus(group.id)}
-						onPointerDownCapture={() => onPaneFocus(group.id)}
+						onPointerDownCapture={(event) => {
+							if (
+								event.button === 1 &&
+								event.target instanceof Element &&
+								event.target.closest('.conversation-tab-label, .computer-workspace-tab-label')
+							)
+								return
+							onPaneFocus(group.id)
+						}}
 						onDragOver={(event) => dragOver(event, group.id, rect)}
 						onDrop={(event) => receiveTab(event, group, rect)}
 					>

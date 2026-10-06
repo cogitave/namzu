@@ -1,9 +1,11 @@
-import { useId } from 'react'
+import { Menu } from '@base-ui/react/menu'
+import { useId, useRef } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { LoaderCircleIcon, ShieldQuestionIcon } from './icons.js'
+import { LoaderCircleIcon, MoreHorizontalIcon, ShieldQuestionIcon, TrashIcon } from './icons.js'
 import { cn } from './lib/utils.js'
+import { Button } from './ui/button.js'
 import './thread-card.css'
 
 export function ThreadCard({
@@ -12,14 +14,18 @@ export function ThreadCard({
 	thread,
 	active,
 	onClick,
+	onRemove,
 }: {
 	conversation: ConversationView
 	project: ProjectView
 	thread?: ThreadState
 	active: boolean
 	onClick: () => void
+	onRemove?: (trigger: HTMLElement | null) => void
 }) {
 	const statusId = useId()
+	const trigger = useRef<HTMLButtonElement>(null)
+	const accepted = useRef(false)
 	const age = Date.now() - Date.parse(conversation.updatedAt)
 	const time = !Number.isFinite(age)
 		? ''
@@ -41,7 +47,8 @@ export function ThreadCard({
 		<li
 			data-thread-item
 			data-session-id={conversation.id}
-			className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]"
+			className="sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]"
+			data-removable={!!onRemove || undefined}
 		>
 			<button
 				type="button"
@@ -85,6 +92,52 @@ export function ThreadCard({
 					</span>
 				</div>
 			</button>
+			{onRemove && (
+				<Menu.Root
+					onOpenChange={(open) => {
+						if (open) accepted.current = false
+					}}
+				>
+					<Menu.Trigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								ref={trigger}
+								className="sidebar-thread-menu"
+								aria-label={`Actions for ${conversation.title}`}
+							/>
+						}
+					>
+						<MoreHorizontalIcon aria-hidden="true" />
+					</Menu.Trigger>
+					<Menu.Portal>
+						<Menu.Positioner
+							className="z-[150] outline-none"
+							side="right"
+							align="start"
+							sideOffset={4}
+						>
+							<Menu.Popup
+								finalFocus={() => (accepted.current ? false : (trigger.current ?? true))}
+								className="window-titlebar-popup dropdown-glass min-w-44 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none"
+							>
+								<Menu.Item
+									className="window-titlebar-item text-destructive-foreground"
+									onClick={() => {
+										accepted.current = true
+										onRemove(trigger.current)
+									}}
+									disabled={!!thread?.running || !!thread?.permissions.length}
+								>
+									<TrashIcon className="size-4" aria-hidden="true" />
+									<span>Delete conversation</span>
+								</Menu.Item>
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
+			)}
 		</li>
 	)
 }

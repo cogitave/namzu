@@ -1,0 +1,120 @@
+{
+  "schema": "namzu.pal-conversation-removal.post-test-restore.v1",
+  "at": "2026-10-06T20:11:35.586Z",
+  "passed": true,
+  "readOnly": true,
+  "effects": {
+    "nativeConnections": 0,
+    "appApiCalls": 0,
+    "processActions": 0,
+    "modelRequests": 0,
+    "computerActions": 0,
+    "stateWrites": 0
+  },
+  "evidenceProvenance": {
+    "activation": {
+      "receiptSha256": "44f4e32c113089d3533297702e567d4da195616877eaa24ac063faccb6e56475",
+      "originalPassed": true
+    },
+    "initial": {
+      "receiptSha256": "1a336cd345dc465db467f5f89b7c0ddf24acb414f698503d1a86fcc22dd777b2",
+      "originalPassed": true
+    },
+    "hydrated": {
+      "receiptSha256": "e8bf94a9e314a0614687726810ba2c6f116b63a50d6e0ef8d4be27ee7a9c1647",
+      "originalPassed": true
+    },
+    "feature": {
+      "receiptSha256": "71a20a839cda6a25f4c732b9832b7d7d40c40ac69dc62d1b8b95bad0fe6427e3",
+      "originalPassed": true
+    },
+    "observer": {
+      "receiptSha256": "7eb7421b15c6f4c560ab22960c7b89c1a7c66dddcc3bf49f9d0eb455cdc23537",
+      "originalPassed": true
+    }
+  },
+  "originalReceiptsRelabelled": false,
+  "previousReceiptsPreserved": true,
+  "phase": "complete",
+  "originalProcessPersistence": {
+    "passed": false,
+    "originalProcessStillAlive": false,
+    "cause": "not_established",
+    "featureProofPassed": true,
+    "originalReceiptPreserved": true,
+    "receiptSha256": "71a20a839cda6a25f4c732b9832b7d7d40c40ac69dc62d1b8b95bad0fe6427e3"
+  },
+  "restorationObserved": true,
+  "protectedStateMatchVerified": true,
+  "protectedSlicesMatched": 7,
+  "protectedSliceDigests": {
+    "groups": "a058b4a4753a6e2a7c18561a0597fd259f66af284af7ba39e9ee79515fea28e2",
+    "catalogues": "b17466e6c8c4c0e3b86a3217bef1132bbf49b49d7f8b719759b5d77a0cb260e6",
+    "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+    "computers": "253fa5b6a7d2f722ef580b12be08e7c6c973f9ad2f41498b587d20fce6a6652f",
+    "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+    "presentation": "cc51327cd0ad5cbccd720c9186cdf6df694ab09682b71cf61a4a8f71e3336853",
+    "sessions": "b309961dbc475d288efe9c90ab0c794aa606fec209ee1a034e49372d0068b248"
+  },
+  "snapshots": {
+    "activationAfterSha256": "3f066f990a9660b010bdc5c06e2de3f716c425dd7c5c9b12ec036ef439a0b696",
+    "initialRelaunchSha256": "b1da6c844be13c691f4cf3b4789d60697c421dadcb0a8f1869241eb8ae17a762",
+    "hydratedRelaunchSha256": "3f066f990a9660b010bdc5c06e2de3f716c425dd7c5c9b12ec036ef439a0b696",
+    "exactHydratedFullSnapshotMatch": true
+  },
+  "initialHydration": {
+    "originalPreparePassed": true,
+    "originalReceiptPreserved": true,
+    "completeRestoreComparisonPassed": false,
+    "differingSlices": [
+      "projects",
+      "catalogues"
+    ],
+    "projectsBeforeHydration": 3,
+    "projectsAfterHydration": 5,
+    "missingPalOwnedProjects": 2,
+    "otherStateExact": true,
+    "classification": "Pal projects and their catalogue rows were lazily registered after the first project-list capture.",
+    "sourceEvidence": [
+      {
+        "file": "research/runtime-desktop-20260930/pal-conversation-removal-desktop-activation-native-20261006.cjs",
+        "sha256": "2038c689a0fdc39dce2e2b96bd9808dd91f87dc6ac886f8f76907b07739a2292",
+        "seam": "readState captures projects/catalogues before palComputer calls"
+      },
+      {
+        "file": "packages/desktop/src/main/operator.ts",
+        "sha256": "61effcff538e8f11899dc2fd1efddf6cb6146bdcea54876c7101acbe819619ad",
+        "seam": "palComputer → controlClient → openOwnedPal when no ready owned client exists"
+      }
+    ]
+  },
+  "sourceMatches": true,
+  "buildAndGraphBytes": {
+    "allVerified": true,
+    "desktopFiles": 630,
+    "reviewedCliModules": 6,
+    "reviewedSdkModules": 1,
+    "sourceManifestSha256": "0e2bfc2323e945c7d4d68fe01cafd2a0a27e924799df2357090ead83b54aa2fa",
+    "cliManifestSha256": "0768929a71eb6367078f5d414c1f07f809151c539449feae2740e68a19bb0970",
+    "sdkManifestSha256": "5b4fc1c058dc025b1f98cf8e19fdeb049d19fe31496c44c4f057c0f1cdb5c1ae",
+    "packageGraphManifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "packageGraphSha256": "960245d5bde908186f6ba39df824692384b9c771c87f6a37abf4b75620ad049b",
+    "dependencyLinks": 225,
+    "sdkUsers": 11,
+    "singleSdkRoot": true
+  },
+  "liveWindowObservation": {
+    "liveWindowObserved": true,
+    "pidMatch": true,
+    "observedAt": "2026-10-06T20:09:29.406Z",
+    "receiptSha256": "7eb7421b15c6f4c560ab22960c7b89c1a7c66dddcc3bf49f9d0eb455cdc23537",
+    "exactExecutable": true,
+    "exactAppArgument": true,
+    "source": "separate recorded Windows CIM observation; this audit does not query processes",
+    "continuousOriginalProcessPersistence": false
+  },
+  "verifierProvenance": {
+    "sha256": "50c55ad192534b343a02a4a1555576857c3319b3c1875c72702849125bf229a3",
+    "filesystemOnly": true
+  }
+}

@@ -74,6 +74,11 @@ export async function getCliPalRuntime(): Promise<PalRuntime> {
 	return (await environment()).runtime
 }
 
+/** Observe an already initialized runtime without loading an optional computer provider. */
+export async function existingCliPalRuntime(): Promise<PalRuntime | null> {
+	return host ? (await host).runtime : null
+}
+
 function readyComputer(runtime: PalRuntime, palId: string) {
 	const lease = runtime.computer(palId)
 	return lease && (lease.sandbox.status === 'ready' || lease.sandbox.status === 'busy')

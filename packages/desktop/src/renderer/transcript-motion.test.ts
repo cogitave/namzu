@@ -162,7 +162,8 @@ describe('normal transcript entry provenance', () => {
 		thread.timeline.push({ kind: 'message', index: 2, turn: 1 })
 		controller.update(thread, true)
 		expect(added.animate).toHaveBeenCalledOnce()
-		expect(f.effects[0]?.effect.options.duration).toBe(150)
+		expect(f.effects[0]?.effect.options.duration).toBe(120)
+		expect(f.effects[0]?.effect.frames).toEqual([{ opacity: 0.65 }, { opacity: 1 }])
 		thread.messages[2].text += ' continued'
 		controller.update(thread, true)
 		expect(added.animate).toHaveBeenCalledOnce()
@@ -205,7 +206,7 @@ describe('normal transcript entry provenance', () => {
 })
 
 describe('phase transition interruption', () => {
-	it('crossfades only changed labels and reverses from the actual visible opacity', () => {
+	it('keeps one readable label and resumes interrupted changes without darkening the text', () => {
 		const f = fixture()
 		const controller = createTranscriptPhaseMotion(f.root)
 		f.text.textContent = 'Working'
@@ -213,19 +214,14 @@ describe('phase transition interruption', () => {
 		expect(f.effects).toEqual([])
 		f.text.textContent = 'Thinking'
 		controller.update('Thinking')
-		expect(f.effects.map(({ effect }) => effect.id)).toEqual([
-			'namzu-transcript-phase-out',
-			'namzu-transcript-phase-in',
-		])
-		expect(f.effects[0]?.effect.options.duration).toBe(300)
-		const old = (f.root as unknown as { children: (typeof f.text)[] }).children[1]
-		expect(old.attributes['aria-hidden']).toBe('true')
-		old.paintOpacity = '0.7'
-		f.text.paintOpacity = '0.3'
+		expect(f.effects.map(({ effect }) => effect.id)).toEqual(['namzu-transcript-phase-in'])
+		expect(f.effects[0]?.effect.options.duration).toBe(120)
+		expect(f.effects[0]?.effect.frames[0]).toEqual({ opacity: 0.65 })
+		expect((f.root as unknown as { children: unknown[] }).children).toHaveLength(1)
+		f.text.paintOpacity = '0.8'
 		f.text.textContent = 'Working'
 		controller.update('Working')
-		expect(f.effects[2]?.effect.frames[0]).toEqual({ opacity: 0.3 })
-		expect(f.effects[3]?.effect.frames[0]).toEqual({ opacity: 0.7 })
+		expect(f.effects[1]?.effect.frames[0]).toEqual({ opacity: 0.8 })
 		const count = f.effects.length
 		controller.update('Working')
 		expect(f.effects).toHaveLength(count)
@@ -239,16 +235,19 @@ describe('phase transition interruption', () => {
 		f.text.textContent = 'Working'
 		controller.update('Working')
 		controller.update(undefined)
-		const exit = f.effects.at(-1)?.effect
-		expect(f.effects[0]?.effect.options.duration).toBe(200)
+		const exit = f.effects[0]?.effect
+		expect(f.effects[0]?.effect.options.duration).toBe(160)
 		f.paint(26, '0.5')
 		f.text.textContent = 'Thinking'
 		controller.update('Thinking')
-		expect(f.effects[2]?.effect.frames[0]).toMatchObject({ height: '26px', opacity: 0.5 })
+		expect(f.effects[2]?.effect.frames[0]).toMatchObject({
+			height: '26px',
+			opacity: 0.5,
+		})
 		exit?.finish()
 		expect(f.root.style.display).not.toBe('none')
 		f.clearPaint()
-		f.effects.at(-1)?.effect.finish()
+		f.effects[2]?.effect.finish()
 		expect(f.root.style.height).toBeUndefined()
 		controller.update(undefined)
 		f.reduce()
@@ -268,7 +267,11 @@ describe('truthful turn labels', () => {
 		thread.permissions = [{ id: 'review', sessionId: 's', projectId: 'p', calls: [] }]
 		expect(turnActivityLabel(thread, 1)).toBe('Waiting for your decision')
 		thread.running = false
-		thread.turns[1] = { startedAt: 1000, endedAt: 66000, stopReason: 'end_turn' }
+		thread.turns[1] = {
+			startedAt: 1000,
+			endedAt: 66000,
+			stopReason: 'end_turn',
+		}
 		expect(turnActivityLabel(thread, 1)).toBe('Worked for 1m 5s')
 		thread.turns[1].stopReason = 'cancelled'
 		expect(turnActivityLabel(thread, 1)).toBe('Stopped · 1m 5s')

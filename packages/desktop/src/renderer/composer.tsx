@@ -171,6 +171,7 @@ export function Composer({
 		<ModelPicker
 			projectId={projectId}
 			sessionId={sessionId}
+			catalogueHarnessScope={permissionEngine ?? harnessView?.selected ?? 'namzu'}
 			providers={providers}
 			choice={choice}
 			onChange={onChoiceChange}

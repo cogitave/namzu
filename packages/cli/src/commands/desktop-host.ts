@@ -1,4 +1,5 @@
 /** Scoped operator methods; ACP owns prompts, cancellation and review. */
+import { lstat } from 'node:fs/promises'
 import {
 	type AcpSessionPromptParams,
 	type AcpSessionPromptResult,
@@ -9,6 +10,7 @@ import {
 } from '@namzu/sdk'
 import {
 	type CliSessionScope,
+	archiveConversation,
 	closeSessions,
 	listRecent,
 	loadConversation,
@@ -29,6 +31,7 @@ import {
 	cliPalScreen,
 	cliPalScreenStream,
 	executeCliPalComputerInput,
+	existingCliPalRuntime,
 	getCliPalRuntime,
 	returnCliPalComputerControl,
 	startCliPalComputer,
@@ -36,7 +39,7 @@ import {
 	takeOverCliPalComputer,
 } from '../pals/environment.js'
 import { palPublicAssistantText } from '../pals/public-transcript.js'
-import { createPal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
+import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
@@ -205,6 +208,34 @@ export function createDesktopHostExtensions(
 				...(params.paused === undefined ? {} : { paused: params.paused as boolean }),
 			})
 		},
+		'namzu/pals/delete': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'id' && key !== 'expectedRevision')
+			)
+				throw new Error('Invalid Pal deletion request.')
+			const id = text(params, 'id')
+			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(id))
+				throw new Error('Invalid Pal id.')
+			const expectedRevision = params.expectedRevision as number
+			if (
+				!Number.isSafeInteger(expectedRevision) ||
+				expectedRevision < 1 ||
+				!Number.isSafeInteger(expectedRevision + 1)
+			)
+				throw new Error('Invalid Pal revision.')
+			const home = resolveNamzuHome()
+			const active = await existingCliPalRuntime()
+			const currentPal = palAtWorkspace(cwd, home)
+			if (currentPal && currentPal.id !== id)
+				throw new Error('This Pal does not own the current workspace.')
+			if (active && (active.busy(id) || active.computer(id)))
+				throw new Error('Stop this Pal’s active work and computer before deleting it.')
+			deletePal(id, expectedRevision, home)
+			return { id, deleted: true as const }
+		},
 		'namzu/pals/computer/status': (params: Record<string, unknown>) =>
 			cliPalComputerStatus(ownedPal(params)),
 		'namzu/pals/computer/start': (params: Record<string, unknown>) =>
@@ -301,6 +332,83 @@ export function createDesktopHostExtensions(
 					partial: partial || rows.length < shown.length || remaining <= 0,
 				}
 			})
+		},
+		'namzu/conversations/archive': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'sessionId')
+			)
+				throw new Error('Invalid conversation archive request.')
+			const requestedId = session(params)
+			const home = resolveNamzuHome()
+			const assertTrust = () => {
+				if (!isTrustedAtStateRoot(cwd, home))
+					throw new Error('Trust this folder before archiving its conversations.')
+			}
+			assertTrust()
+			const state = await openSessions(cwd, { stateRoot: home })
+			try {
+				assertTrust()
+				const id = asSessionId(requestedId)
+				const facts = await readConversationFacts(state, id)
+				const assertJobsIdle = () => {
+					const jobs = runtime.jobs(id)
+					if (
+						!Array.isArray(jobs) ||
+						jobs.some((job) => job.status === 'running' || job.recoveryRequired)
+					)
+						throw new Error('Stop this conversation’s background work before archiving it.')
+				}
+				if (!facts) {
+					let absent = false
+					try {
+						await lstat(state.paths.sessionLog({ sessionId: id }))
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+						absent = true
+					}
+					if (!absent)
+						throw new Error('This conversation’s journal has no verified session header.')
+					const publishedCwd = publishedSessionCwd?.(id)
+					if (publishedCwd !== undefined && canonicalProjectPath(publishedCwd) !== cwd)
+						throw new Error('This conversation does not belong to this project.')
+					assertJobsIdle()
+					assertTrust()
+					// Absence is an observation, never an archive or execution admission.
+					return { sessionId: id, archived: false as const, missing: true as const }
+				}
+				await ownedSessionIn({ sessionId: requestedId }, state)
+				if (facts.activeTurn)
+					throw new Error('Resolve this conversation’s open turn before archiving it.')
+				assertJobsIdle()
+				assertTrust()
+				const archive = async () => {
+					assertJobsIdle()
+					assertTrust()
+					try {
+						await archiveConversation(state, id)
+					} catch (error) {
+						// An idempotent retry still passes the real writer/scope gate.
+						if (
+							!(error instanceof Error) ||
+							error.message !== `Conversation ${id} is already archived.`
+						)
+							throw error
+						const current = await readConversationFacts(state, id)
+						if (!current?.archived || current.activeTurn) throw error
+					}
+					return { sessionId: id, archived: true as const }
+				}
+				const harness = runtime as Partial<CliHarnessRuntime>
+				return !palAtWorkspace(cwd, state.root) &&
+					typeof harness.withIdleConversationForArchive === 'function'
+					? await harness.withIdleConversationForArchive(id, state, archive)
+					: await archive()
+			} finally {
+				closeSessions(state)
+			}
 		},
 		'namzu/tasks/list': async (params: Record<string, unknown>) => {
 			return withReadScope(async (state) => {

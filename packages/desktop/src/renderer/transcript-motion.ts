@@ -3,9 +3,9 @@ import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/pro
 import { elapsedLabel } from './transcript-layout.js'
 
 export const transcriptMotion = {
-	entry: { duration: 150, easing: 'ease-out' },
-	phase: { duration: 300, easing: 'cubic-bezier(0.19, 1, 0.22, 1)' },
-	frame: { duration: 200, easing: 'ease-out' },
+	entry: { duration: 120, easing: 'ease-out' },
+	phase: { duration: 120, easing: 'ease-out' },
+	frame: { duration: 160, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
 } as const
 
 export function transcriptEntryKey(entry: TimelineEntry): string {
@@ -70,7 +70,13 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 	const view = node.ownerDocument.defaultView
 	const media = view?.matchMedia('(prefers-reduced-motion: reduce)')
 	let previous:
-		| { keys: string[]; running: boolean; turn: number; history?: string; enabled: boolean }
+		| {
+				keys: string[]
+				running: boolean
+				turn: number
+				history?: string
+				enabled: boolean
+		  }
 		| undefined
 	const effects = new Set<Animation>()
 	const cancel = () => {
@@ -105,21 +111,26 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 				previous.keys.every((key, index) => keys[index] === key)
 			const added =
 				eligible && previous ? new Set(keys.slice(previous.keys.length)) : new Set<string>()
-			previous = { keys, running: thread.running, turn: thread.turn, history, enabled }
+			previous = {
+				keys,
+				running: thread.running,
+				turn: thread.turn,
+				history,
+				enabled,
+			}
 			if (!enabled || pendingHistory(history)) cancel()
 			if (media?.matches || !added.size) return
 			for (const row of node.querySelectorAll<HTMLElement>('[data-transcript-entry-key]')) {
 				if (!added.has(row.dataset.transcriptEntryKey ?? '') || !row.animate) continue
 				const effect = row.animate(
-					[
-						{ opacity: 0, transform: 'translateY(4px)' },
-						{ opacity: 1, transform: 'none' },
-					],
+					[{ opacity: 0.65 }, { opacity: 1 }],
 					motionOptions(node, 'entry'),
 				)
 				effect.id = 'namzu-transcript-entry'
 				effects.add(effect)
-				effect.addEventListener('finish', () => effects.delete(effect), { once: true })
+				effect.addEventListener('finish', () => effects.delete(effect), {
+					once: true,
+				})
 			}
 		},
 		dispose() {
@@ -129,7 +140,7 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 	}
 }
 
-/** The outgoing label is decorative only. It never retains an old accessible status. */
+/** A single readable label brightens gently; phase changes never overlap old text. */
 export function createTranscriptPhaseMotion(node: HTMLElement, presence = false) {
 	const view = node.ownerDocument.defaultView
 	const media = view?.matchMedia('(prefers-reduced-motion: reduce)')
@@ -137,7 +148,6 @@ export function createTranscriptPhaseMotion(node: HTMLElement, presence = false)
 	let previous: string | undefined
 	let previousHistory: string | undefined
 	let previousEnabled = false
-	let outgoing: HTMLElement | undefined
 	let generation = 0
 	const effects = new Set<Animation>()
 	const opacity = (target: HTMLElement | null | undefined) => {
@@ -148,8 +158,6 @@ export function createTranscriptPhaseMotion(node: HTMLElement, presence = false)
 		generation++
 		for (const effect of effects) effect.cancel()
 		effects.clear()
-		outgoing?.remove()
-		outgoing = undefined
 	}
 	const clearFrame = () => {
 		for (const property of [
@@ -211,7 +219,7 @@ export function createTranscriptPhaseMotion(node: HTMLElement, presence = false)
 			const text = node.querySelector<HTMLElement>('.transcript-phase-text')
 			const old = previous
 			const fromOpacity = opacity(text)
-			const reverseOpacity = outgoing?.textContent === label ? opacity(outgoing) : 0
+			const wasAnimating = effects.size > 0
 			const fromHeight = node.getBoundingClientRect().height
 			const style = view?.getComputedStyle(node)
 			const from = {
@@ -238,37 +246,30 @@ export function createTranscriptPhaseMotion(node: HTMLElement, presence = false)
 					paddingTop: label ? (endStyle?.paddingTop ?? '0px') : '0px',
 					paddingBottom: label ? (endStyle?.paddingBottom ?? '0px') : '0px',
 				}
-				Object.assign(node.style, { ...end, overflow: 'hidden', opacity: label ? '1' : '0' })
-				animate(node, [from, end], motionOptions(node, 'frame'), 'namzu-transcript-status-frame')
+				Object.assign(node.style, {
+					...end,
+					overflow: 'hidden',
+					opacity: label ? '1' : '0',
+				})
+				animate(
+					node,
+					[from, end],
+					motionOptions(node, 'frame'),
+					'namzu-transcript-status-frame',
+					settle,
+				)
 				animate(
 					node,
 					[{ opacity: fromHeight > 0 ? from.opacity : 0 }, { opacity: label ? 1 : 0 }],
 					motionOptions(node, 'phase'),
 					'namzu-transcript-status-opacity',
-					settle,
 				)
 				if (visibilityChanged) return
 			}
 			if (!label || !old || !text.animate) return
-			outgoing = text.cloneNode(false) as HTMLElement
-			outgoing.textContent = old
-			outgoing.setAttribute('aria-hidden', 'true')
-			outgoing.dataset.transcriptPhaseOutgoing = ''
-			text.parentElement?.append(outgoing)
-			const ghost = outgoing
-			animate(
-				ghost,
-				[{ opacity: fromOpacity }, { opacity: 0 }],
-				motionOptions(node, 'phase'),
-				'namzu-transcript-phase-out',
-				() => {
-					ghost.remove()
-					if (outgoing === ghost) outgoing = undefined
-				},
-			)
 			animate(
 				text,
-				[{ opacity: reverseOpacity }, { opacity: 1 }],
+				[{ opacity: Math.max(0.65, wasAnimating ? fromOpacity : 0.65) }, { opacity: 1 }],
 				motionOptions(node, 'phase'),
 				'namzu-transcript-phase-in',
 			)

@@ -18,7 +18,7 @@ import {
 	computerWorkspaceIds,
 } from './computer-workspace-toolbar.js'
 import { HarnessMark } from './harness-picker.js'
-import { LoaderCircleIcon, MoreHorizontalIcon, PlusIcon, XIcon } from './icons.js'
+import { LoaderCircleIcon, MoreHorizontalIcon, PlusIcon, TrashIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
 import {
@@ -64,6 +64,7 @@ interface ConversationTabProps {
 	palName?: string
 	pal?: ConversationPalWorkspace
 	onClose: (view: ConversationView) => void
+	onRemove?: (view: ConversationView, trigger: HTMLElement | null) => void
 	onDetach: (view: ConversationView, bounds?: WorkspaceWindowBounds) => void
 	onSplit?: (view: ConversationView, position: 'right' | 'bottom') => void
 }
@@ -78,6 +79,7 @@ function ConversationTab({
 	palName,
 	pal,
 	onClose,
+	onRemove,
 	onDetach,
 	onSplit,
 }: ConversationTabProps) {
@@ -86,7 +88,10 @@ function ConversationTab({
 	const ids = pal ? computerWorkspaceIds(pal.idPrefix) : undefined
 	const trigger = useRef<HTMLButtonElement>(null)
 	const accepted = useRef(false)
-	const drag = useRef<{ cancelled: boolean; allowed: boolean }>({ cancelled: false, allowed: true })
+	const drag = useRef<{ cancelled: boolean; allowed: boolean }>({
+		cancelled: false,
+		allowed: true,
+	})
 	const stopEscape = useRef<(() => void) | undefined>(undefined)
 	useEffect(() => () => stopEscape.current?.(), [])
 	const act = (action: () => void) => {
@@ -102,6 +107,16 @@ function ConversationTab({
 			data-tab-id={view.id}
 			draggable={!busy}
 			onPointerDownCapture={(event) => {
+				if (
+					event.button === 1 &&
+					event.target instanceof Element &&
+					event.target.closest('.conversation-tab-label')
+				) {
+					drag.current.allowed = false
+					event.preventDefault()
+					event.stopPropagation()
+					return
+				}
 				drag.current.allowed = !(
 					event.target instanceof Element && event.target.closest('.conversation-tab-actions')
 				)
@@ -157,6 +172,12 @@ function ConversationTab({
 				aria-controls={ids?.chatPanel}
 				value={view.id}
 				disabled={busy}
+				onAuxClick={(event) => {
+					if (event.button !== 1 || busy) return
+					event.preventDefault()
+					event.stopPropagation()
+					onClose(view)
+				}}
 				render={<Button variant="ghost" size="sm" />}
 				className="conversation-tab-label"
 				aria-label={
@@ -252,6 +273,19 @@ function ConversationTab({
 									<PanelsTopLeft aria-hidden="true" />
 									Move to new window
 								</Menu.Item>
+								{!isPal && onRemove && (
+									<>
+										<Menu.Separator className="computer-workspace-menu-separator" />
+										<Menu.Item
+											className="computer-workspace-menu-item text-destructive-foreground"
+											disabled={busy || running}
+											onClick={() => act(() => onRemove(view, trigger.current))}
+										>
+											<TrashIcon aria-hidden="true" />
+											Delete conversation
+										</Menu.Item>
+									</>
+								)}
 							</Menu.Popup>
 						</Menu.Positioner>
 					</Menu.Portal>
@@ -281,6 +315,7 @@ export function ConversationTabs({
 	running,
 	onSelect,
 	onClose,
+	onRemove,
 	onNew,
 	onDetach,
 	onSplit,
@@ -295,6 +330,7 @@ export function ConversationTabs({
 	running: (id: string) => boolean
 	onSelect: (view: ConversationView) => void
 	onClose: (view: ConversationView) => void
+	onRemove?: (view: ConversationView, trigger: HTMLElement | null) => void
 	onNew: () => void
 	onDetach: (view: ConversationView, bounds?: WorkspaceWindowBounds) => void
 	onSplit?: (view: ConversationView, position: 'right' | 'bottom') => void
@@ -330,6 +366,7 @@ export function ConversationTabs({
 							palName={view.palId ? palNames?.[view.palId] : undefined}
 							pal={view.id === currentPal?.conversationId ? currentPal : undefined}
 							onClose={onClose}
+							onRemove={onRemove}
 							onDetach={onDetach}
 							onSplit={onSplit}
 						/>

@@ -22,6 +22,121 @@ const otherChoice: DraftSettings = {
 }
 
 describe('saved draft settings admission', () => {
+	it('coalesces overlapping authoritative refreshes into one admitted snapshot', async () => {
+		const started = deferred<void>()
+		const refreshed = deferred<DraftSettings>()
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockResolvedValueOnce(choice)
+			.mockImplementationOnce(() => {
+				started.resolve()
+				return refreshed.promise
+			})
+		const store = new DraftSettingsStore(
+			read,
+			async () => {},
+			() => {},
+			() => {},
+		)
+		await store.load('session')
+		const first = store.reload('session')
+		const second = store.reload('session')
+		expect(first).toBe(second)
+		await started.promise
+		expect(read).toHaveBeenCalledTimes(2)
+		refreshed.resolve(otherChoice)
+		await Promise.all([first, second])
+		expect(store.snapshot('session')).toEqual({
+			value: otherChoice,
+			loading: false,
+			error: undefined,
+		})
+	})
+	it('refuses a cancelled refresh without letting its settlement retire the returning owner read', async () => {
+		const previous = deferred<DraftSettings>()
+		const current = deferred<DraftSettings>()
+		const oldStarted = deferred<void>()
+		const newStarted = deferred<void>()
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockImplementationOnce(() => {
+				oldStarted.resolve()
+				return previous.promise
+			})
+			.mockImplementationOnce(() => {
+				newStarted.resolve()
+				return current.promise
+			})
+		const store = new DraftSettingsStore(
+			read,
+			async () => {},
+			() => {},
+			() => {},
+		)
+		const older = store.reload('session')
+		const refused = expect(older).rejects.toThrow('message settings changed while loading')
+		await oldStarted.promise
+		store.cancelRead('session')
+		const newer = store.reload('session')
+		await newStarted.promise
+		previous.resolve(choice)
+		await refused
+		expect(store.snapshot('session').loading).toBe(true)
+		expect(store.reload('session')).toBe(newer)
+		current.resolve(otherChoice)
+		await newer
+		expect(store.get('session')).toEqual(otherChoice)
+	})
+	it('refuses a refresh superseded by queued saves and waits for those writes before the next refresh', async () => {
+		const previous = deferred<DraftSettings>()
+		const current = deferred<DraftSettings>()
+		const oldStarted = deferred<void>()
+		const newStarted = deferred<void>()
+		const writeStarted = deferred<void>()
+		const firstWrite = deferred<void>()
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockImplementationOnce(() => {
+				oldStarted.resolve()
+				return previous.promise
+			})
+			.mockImplementationOnce(() => {
+				newStarted.resolve()
+				return current.promise
+			})
+		const write = vi
+			.fn<(_owner: string, _value: DraftSettings) => Promise<void>>()
+			.mockImplementationOnce(() => {
+				writeStarted.resolve()
+				return firstWrite.promise
+			})
+			.mockResolvedValueOnce(undefined)
+		const store = new DraftSettingsStore(
+			read,
+			write,
+			() => {},
+			() => {},
+		)
+		const older = store.reload('session')
+		const refused = expect(older).rejects.toThrow('message settings changed while loading')
+		await oldStarted.promise
+		const first = store.save('session', choice)
+		await writeStarted.promise
+		const second = store.save('session', otherChoice)
+		const reloading = store.reload('session')
+		previous.resolve(choice)
+		await refused
+		expect(read).toHaveBeenCalledOnce()
+		expect(store.get('session')).toEqual(otherChoice)
+		firstWrite.resolve()
+		await Promise.all([first, second])
+		await newStarted.promise
+		current.resolve(otherChoice)
+		await reloading
+		expect(write.mock.calls.map(([, value]) => value)).toEqual([choice, otherChoice])
+		expect(store.get('session')).toEqual(otherChoice)
+		expect(store.snapshot('session').loading).toBe(false)
+	})
 	it('keeps a failed read unavailable and recovers the actual saved model on explicit retry', async () => {
 		const failed = vi.fn()
 		const changed = vi.fn()

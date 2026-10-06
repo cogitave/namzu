@@ -2,7 +2,16 @@ import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { Tabs } from '@base-ui/react/tabs'
 import type { ReasoningEffort } from '@namzu/sdk'
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import {
+	type KeyboardEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react'
 import type { ComposerModelSettings, ModelCatalogueView, ProviderView } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffort } from './composer-settings.js'
@@ -11,10 +20,15 @@ import {
 	CloudIcon,
 	LoaderCircleIcon,
 	ProviderIcons,
+	RefreshIcon,
 	SearchIcon,
 	ServerIcon,
 	XIcon,
 } from './icons.js'
+import {
+	ModelCatalogueDisplayCache,
+	modelCatalogueDisplayCacheForApi,
+} from './model-catalogue-display-cache.js'
 import { SelectedModelIcon } from './selected-model-icon.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
@@ -32,6 +46,7 @@ type Catalogue = {
 	loading: boolean
 	value?: ModelCatalogueView
 	error?: string
+	scopeKey?: string
 }
 
 function ProviderMark({ provider }: { provider: Provider }) {
@@ -58,6 +73,7 @@ export function ModelPicker({
 	projectId,
 	sessionId,
 	loadCatalogue,
+	catalogueHarnessScope,
 	positionerClassName,
 	settings,
 	effort,
@@ -70,12 +86,24 @@ export function ModelPicker({
 	projectId: string
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
+	/** The authoritative engine identity, independent of selected model. */
+	catalogueHarnessScope?: string
 	positionerClassName?: string
 	settings?: ComposerModelSettings | null
 	effort?: ReasoningEffort
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
 }) {
 	const [open, setOpen] = useState(false)
+	const localCache = useRef<{
+		loader?: typeof loadCatalogue
+		cache: ModelCatalogueDisplayCache
+	}>(null)
+	if (!localCache.current || localCache.current.loader !== loadCatalogue)
+		localCache.current = { loader: loadCatalogue, cache: new ModelCatalogueDisplayCache() }
+	const displayCache =
+		!loadCatalogue && typeof window !== 'undefined' && window.namzu
+			? modelCatalogueDisplayCacheForApi(window.namzu)
+			: localCache.current.cache
 	const provider = providers.available.find((item) => item.id === choice.provider)
 	const model = choice.label || choice.model || provider?.defaultModel || 'Select model'
 	useEffect(() => {
@@ -143,6 +171,8 @@ export function ModelPicker({
 						projectId={projectId}
 						sessionId={sessionId}
 						loadCatalogue={loadCatalogue}
+						catalogueHarnessScope={catalogueHarnessScope}
+						displayCache={displayCache}
 						effortControl={effortControl}
 						settingsNotice={settings?.notice}
 						onChoose={(next, close) => {
@@ -164,6 +194,8 @@ function ModelBrowser({
 	sessionId,
 	onChoose,
 	loadCatalogue,
+	catalogueHarnessScope,
+	displayCache,
 	effortControl,
 	settingsNotice,
 }: {
@@ -172,14 +204,23 @@ function ModelBrowser({
 	projectId: string
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
+	catalogueHarnessScope?: string
+	displayCache: ModelCatalogueDisplayCache
 	onChoose: (choice: ModelChoice, close?: boolean) => void
 	effortControl?: ReactNode
 	settingsNotice?: string
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
 	const [catalogues, setCatalogues] = useState<Record<string, Catalogue>>({})
-	const requested = useRef(new Set<string>())
+	const inFlight = useRef(new Set<string>())
+	const uncachedScopes = useRef(new Map<string, string>())
+	const currentScopes = useRef(new Map<string, string>())
 	const mounted = useRef(true)
+	const cacheVersion = useSyncExternalStore(
+		displayCache.subscribe,
+		displayCache.version,
+		displayCache.version,
+	)
 	const [searching, setSearching] = useState(false)
 	const [query, setQuery] = useState('')
 	const search = useRef<HTMLInputElement>(null)
@@ -195,46 +236,98 @@ function ModelBrowser({
 			mounted.current = false
 		}
 	}, [])
+	const scopeFor = useCallback(
+		(provider: Provider) =>
+			displayCache.scope({
+				projectId,
+				sessionId,
+				provider,
+				available: providers.available,
+				harnessScope: catalogueHarnessScope,
+			}),
+		[displayCache, projectId, sessionId, providers.available, catalogueHarnessScope],
+	)
+	useLayoutEffect(() => {
+		void cacheVersion
+		currentScopes.current = new Map(
+			providers.available.map((provider) => [provider.id, scopeFor(provider).key]),
+		)
+	}, [providers.available, scopeFor, cacheVersion])
+	const read = useCallback(
+		(provider: Provider) =>
+			loadCatalogue
+				? loadCatalogue(provider.id)
+				: window.namzu.models(projectId, provider.id, sessionId),
+		[loadCatalogue, projectId, sessionId],
+	)
 	const load = useCallback(
-		(provider: Provider) => {
-			if (requested.current.has(provider.id)) return
-			requested.current.add(provider.id)
-			setCatalogues((all) => ({ ...all, [provider.id]: { loading: true } }))
-			void (
-				loadCatalogue
-					? loadCatalogue(provider.id)
-					: window.namzu.models(projectId, provider.id, sessionId)
+		(provider: Provider, refresh = false) => {
+			const scope = scopeFor(provider)
+			if (
+				!refresh &&
+				(inFlight.current.has(scope.key) || uncachedScopes.current.get(provider.id) === scope.key)
 			)
-				.then((value) => {
-					if (mounted.current)
+				return
+			if (!refresh && displayCache.peek(scope).state !== 'idle') return
+			inFlight.current.add(scope.key)
+			uncachedScopes.current.delete(provider.id)
+			setCatalogues((all) => {
+				const next = { ...all }
+				delete next[provider.id]
+				return next
+			})
+			void displayCache
+				.load(scope, () => read(provider), refresh)
+				.then((result) => {
+					if (
+						mounted.current &&
+						result.current &&
+						!result.retained &&
+						currentScopes.current.get(provider.id) === scope.key
+					) {
+						uncachedScopes.current.set(provider.id, scope.key)
 						setCatalogues((all) => ({
 							...all,
-							[provider.id]: { loading: false, value },
+							[provider.id]: { scopeKey: scope.key, loading: false, value: result.value },
 						}))
+					}
 				})
 				.catch(() => {
-					if (mounted.current)
-						setCatalogues((all) => ({
-							...all,
-							[provider.id]: {
-								loading: false,
-								error: 'Could not load these models. Try again.',
-							},
-						}))
+					/* The shared cache publishes the retryable generic error. */
+				})
+				.finally(() => {
+					inFlight.current.delete(scope.key)
 				})
 		},
-		[projectId, sessionId, loadCatalogue],
+		[displayCache, read, scopeFor],
 	)
 	useEffect(() => {
+		// A project or engine rebind invalidates the cache without remounting this popup.
+		void cacheVersion
 		const targets = searching ? providers.available : active ? [active] : []
 		for (const provider of targets) load(provider)
-	}, [active, providers.available, searching, load])
+	}, [active, providers.available, searching, load, cacheVersion])
 	useEffect(() => {
 		if (searching) search.current?.focus({ preventScroll: true })
 	}, [searching])
 	const shownProviders = searching ? providers.available : active ? [active] : []
+	const catalogueFor = (provider: Provider): Catalogue | undefined => {
+		const scope = scopeFor(provider)
+		const snapshot = displayCache.peek(scope)
+		if (snapshot.state === 'ready') return { loading: false, value: snapshot.value }
+		if (snapshot.state === 'loading') return { loading: true }
+		if (snapshot.state === 'error')
+			return { loading: false, error: 'Could not load these models. Try again.' }
+		const local = catalogues[provider.id]
+		return local && (local.scopeKey === undefined || local.scopeKey === scope.key)
+			? local
+			: undefined
+	}
+	const shownCatalogues = new Map(
+		shownProviders.map((provider) => [provider.id, catalogueFor(provider)]),
+	)
 	const models = shownProviders.flatMap((provider) =>
-		(catalogues[provider.id]?.value?.models ?? []).map((model) => ({
+		(shownCatalogues.get(provider.id)?.value?.models ?? []).map((model) => ({
 			...model,
 			provider,
 		})),
@@ -245,21 +338,20 @@ function ModelBrowser({
 			.includes(query.trim().toLowerCase()),
 	)
 	const loading = shownProviders.some(
-		(provider) => !catalogues[provider.id] || catalogues[provider.id]?.loading,
+		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,
 	)
-	const errors = shownProviders.filter((provider) => catalogues[provider.id]?.error)
+	const errors = shownProviders.filter((provider) => shownCatalogues.get(provider.id)?.error)
 	const retry = (id: string) => {
-		requested.current.delete(id)
 		const provider = providers.available.find((provider) => provider.id === id)
-		if (provider) load(provider)
+		if (provider) load(provider, true)
 	}
 	const notices = shownProviders.flatMap((provider) => {
-		const notice = catalogues[provider.id]?.value?.notice
+		const notice = shownCatalogues.get(provider.id)?.value?.notice
 		return notice ? [{ provider, notice }] : []
 	})
 	const sharedNotes = new Map<string, string>()
 	for (const provider of shownProviders) {
-		const listed = catalogues[provider.id]?.value?.models ?? []
+		const listed = shownCatalogues.get(provider.id)?.value?.models ?? []
 		const note = listed[0]?.note?.trim()
 		if (note && listed.length > 1 && listed.every((model) => model.note?.trim() === note))
 			sharedNotes.set(provider.id, note)
@@ -337,15 +429,28 @@ function ModelBrowser({
 								</span>
 							)}
 						</div>
-						<Button
-							variant="ghost-muted"
-							size="icon-xs"
-							aria-label="Search models"
-							title="Search models (/)"
-							onClick={() => setSearching(true)}
-						>
-							<SearchIcon aria-hidden="true" />
-						</Button>
+						<div className="model-picker-heading-actions">
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								aria-label={`Refresh ${active?.label ?? 'current'} models`}
+								disabled={!active}
+								onClick={() => {
+									if (active) retry(active.id)
+								}}
+							>
+								<RefreshIcon aria-hidden="true" />
+							</Button>
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								aria-label="Search models"
+								title="Search models (/)"
+								onClick={() => setSearching(true)}
+							>
+								<SearchIcon aria-hidden="true" />
+							</Button>
+						</div>
 					</>
 				)}
 			</header>
@@ -469,7 +574,7 @@ function ModelBrowser({
 					{errors.map((provider) => (
 						<div key={provider.id} className="model-picker-status" role="alert">
 							<span>
-								{provider.label}: {catalogues[provider.id]?.error}
+								{provider.label}: {shownCatalogues.get(provider.id)?.error}
 							</span>
 							<Button
 								variant="ghost-muted"
@@ -483,7 +588,8 @@ function ModelBrowser({
 					))}
 					{shownProviders.map((provider) => {
 						const note = sharedNotes.get(provider.id)
-						if (!note || note === catalogues[provider.id]?.value?.notice?.trim()) return null
+						if (!note || note === shownCatalogues.get(provider.id)?.value?.notice?.trim())
+							return null
 						return (
 							<p key={provider.id} className="model-picker-shared-note">
 								{searching && `${provider.label}: `}
@@ -501,7 +607,7 @@ function ModelBrowser({
 								variant="ghost-muted"
 								size="xs"
 								onClick={() => retry(provider.id)}
-								disabled={catalogues[provider.id]?.loading}
+								disabled={shownCatalogues.get(provider.id)?.loading}
 								aria-label={`Retry ${provider.label} models`}
 							>
 								Retry

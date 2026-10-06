@@ -71,6 +71,11 @@ Default effort or changing models. If the native catalogue does not report a
 valid default, dispatch requires an explicitly offered effort; Namzu does not
 guess one.
 
+Before SDK turn admission, the connection reports the effort levels discovered
+from the native model catalogue. Each dispatch then checks the selected effort
+against a fresh row for the selected model. A level offered by another model
+does not authorize that choice, and Namzu adds no guessed effort levels.
+
 The adapter subscribes before initialization and dispatch. Native turn/item
 IDs map to stable host message and observed tool identities. Final snapshots
 replace partial output; a terminal notification arriving before dispatch ACK

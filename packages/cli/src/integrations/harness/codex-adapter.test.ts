@@ -119,7 +119,137 @@ async function open() {
 	return { adapter, connection, events }
 }
 
+function nativeEffortCatalogue() {
+	fixture.onWrite = async (frame, emit) => {
+		if (frame.method !== 'model/list') return false
+		await emit({
+			id: frame.id,
+			result: {
+				data: [
+					{
+						model: 'native-model',
+						isDefault: true,
+						supportedReasoningEfforts: [{ reasoningEffort: 'high' }],
+						defaultReasoningEffort: 'high',
+					},
+					{
+						model: 'other-native-model',
+						supportedReasoningEfforts: [{ reasoningEffort: 'medium' }],
+						defaultReasoningEffort: 'medium',
+					},
+				],
+				nextCursor: null,
+			},
+		})
+		return true
+	}
+}
+
+async function sdkEffortSession() {
+	const scope = {
+		sessionId: generateSessionId(),
+		projectId: generateProjectId(),
+		tenantId: generateTenantId(),
+		topicId: generateTopicId(),
+		cwd: '/workspace',
+	}
+	const log = new InMemorySessionLog({ sessionId: scope.sessionId })
+	const adapter = await createCodexHarnessAdapter({ profileRef: 'sdk-effort-profile' })
+	const session = createHarnessSession({
+		scope,
+		sessionLog: log,
+		adapter,
+		assertAdmission: async () => undefined,
+		onEvent: () => undefined,
+		onReview: () => undefined,
+	})
+	return { session, log }
+}
+
 describe('Codex owned external engine adapter', () => {
+	it('admits UI-discovered explicit efforts through the real SDK run and sends the chosen model and effort', async () => {
+		nativeEffortCatalogue()
+		const discovered = await discoverCodexHarnessModels({ cwd: '/workspace' })
+		expect(discovered.map((model) => model.effortLevels)).toEqual([['high'], ['medium']])
+		const discovery = fixture.onWrite!
+		let sequence = 0
+		fixture.onWrite = async (frame, emit) => {
+			if (await discovery(frame, emit)) return true
+			if (frame.method !== 'turn/start') return false
+			const params = frame.params as Record<string, unknown>
+			const turn = { id: `sdk-effort-turn-${++sequence}`, status: 'completed' }
+			await emit({
+				method: 'item/completed',
+				params: {
+					threadId: params.threadId,
+					turnId: turn.id,
+					item: {
+						type: 'agentMessage',
+						id: `sdk-effort-answer-${sequence}`,
+						text: 'Explicit effort accepted.',
+						phase: 'final_answer',
+					},
+				},
+			})
+			await emit({ method: 'turn/completed', params: { threadId: params.threadId, turn } })
+			await emit({ id: frame.id, result: { turn } })
+			return true
+		}
+		const { session, log } = await sdkEffortSession()
+		try {
+			await expect(
+				session.run({
+					prompt: 'Refuse unoffered effort.',
+					model: 'native-model',
+					effort: 'xhigh',
+					permissionMode: 'prompt',
+				}),
+			).rejects.toThrow('does not support the selected effort')
+			expect(fixture.frames.filter((frame) => frame.method === 'turn/start')).toEqual([])
+			expect(
+				(await log.readAll()).entries.some(({ record }) => record.type === 'turn_started'),
+			).toBe(false)
+			for (const model of discovered) {
+				const effort = model.effortLevels?.[0]
+				if (!effort) throw new Error('Fixture model must offer its actual effort.')
+				expect(
+					await session.run({
+						prompt: 'Use the UI-selected effort.',
+						model: model.id,
+						effort,
+						permissionMode: 'prompt',
+					}),
+				).toMatchObject({ status: 'completed' })
+			}
+			expect(
+				fixture.frames
+					.filter((frame) => frame.method === 'turn/start')
+					.map((frame) => frame.params),
+			).toEqual([
+				expect.objectContaining({ model: 'native-model', effort: 'high' }),
+				expect.objectContaining({ model: 'other-native-model', effort: 'medium' }),
+			])
+		} finally {
+			await session.close()
+		}
+	})
+	it('retains fresh per-model refusal when another discovered model offers the explicit effort', async () => {
+		nativeEffortCatalogue()
+		const { session } = await sdkEffortSession()
+		try {
+			await expect(
+				session.run({
+					prompt: 'Refuse another model’s effort.',
+					model: 'native-model',
+					effort: 'medium',
+					permissionMode: 'prompt',
+				}),
+			).rejects.toThrow('selected Codex model or effort is unavailable')
+			expect(fixture.frames.filter((frame) => frame.method === 'turn/start')).toEqual([])
+		} finally {
+			await session.close()
+		}
+	})
 	it('resets persistent native effort to the selected model default, including after a model change', async () => {
 		const effective: { model: unknown; effort: unknown }[] = []
 		let retainedEffort: unknown

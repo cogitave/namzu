@@ -17,6 +17,7 @@ const api: DesktopApi = {
 	palModels: (provider) => invoke('palModels', provider),
 	createPal: (input) => invoke('createPal', input),
 	updatePal: (id, revision, changes) => invoke('updatePal', id, revision, changes),
+	deletePal: (id, revision) => invoke('deletePal', id, revision),
 	palCommunication: (sessionId, palId) => invoke('palCommunication', sessionId, palId),
 	updatePalPermission: (sessionId, palId, change) =>
 		invoke('updatePalPermission', sessionId, palId, change),
@@ -46,6 +47,7 @@ const api: DesktopApi = {
 	selectHarness: (id, engine) => invoke('selectHarness', id, engine),
 	openConversation: (project, id) => invoke('openConversation', project, id),
 	readyConversation: (project, id) => invoke('readyConversation', project, id),
+	removeConversation: (id) => invoke('removeConversation', id),
 	providers: (id, sessionId) => invoke('providers', id, sessionId),
 	models: (id, provider, sessionId) => invoke('models', id, provider, sessionId),
 	modelSettings: (id, provider, model, sessionId) =>

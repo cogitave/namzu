@@ -19,8 +19,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { readdir, realpath } from 'node:fs/promises'
+import { lstatSync, mkdirSync } from 'node:fs'
+import { lstat, readdir, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -75,7 +75,7 @@ export interface CliSessionScope {
 	readonly paths: SessionPaths
 	/** The project's directory name under `projects/`. */
 	readonly slug: string
-	/** The canonical checkout root the project stands for. */
+	/** The canonical checkout root, or the validated Pal control directory's stored spelling. */
 	readonly projectRoot: string
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
@@ -163,17 +163,46 @@ export async function openSessionScope(
 	// A Pal's private workspace is its project even if NAMZU_HOME was configured
 	// under some outer Git checkout. It must never inherit that checkout's logs.
 	const pal = palAtWorkspace(cwd, root)
+	const palDirectory = pal ? lstatSync(pal.workspace, { bigint: true }) : undefined
 	const project = await ensureProject({
 		home: root,
 		cwd: pal ? workingDirectory : cliProjectRoot(workingDirectory),
 	})
+	if (pal && palDirectory) {
+		// Native Windows realpath may change casing without changing the project.
+		// Its document stays canonical, while Pal journal ownership uses the exact
+		// stored control path. Revalidate that authority after project preparation.
+		if (
+			project.cwd !== pal.workspace &&
+			(process.platform !== 'win32' || project.cwd.toLowerCase() !== pal.workspace.toLowerCase())
+		)
+			throw new Error('Pal workspace identity changed while opening its conversations.')
+		const preparedDirectory = await lstat(project.cwd, { bigint: true })
+		const current = palAtWorkspace(cwd, root)
+		const liveDirectory = current ? lstatSync(current.workspace, { bigint: true }) : undefined
+		const sameDirectory = (entry: typeof palDirectory | undefined) =>
+			entry?.isDirectory() &&
+			!entry.isSymbolicLink() &&
+			palDirectory.ino > 0n &&
+			entry.dev === palDirectory.dev &&
+			entry.ino === palDirectory.ino &&
+			entry.birthtimeNs === palDirectory.birthtimeNs
+		if (
+			!current ||
+			current.id !== pal.id ||
+			current.workspace !== pal.workspace ||
+			!sameDirectory(preparedDirectory) ||
+			!sameDirectory(liveDirectory)
+		)
+			throw new Error('Pal workspace identity changed while opening its conversations.')
+	}
 	ensurePrivateStateDirectory(projectsDir, project.slug)
 	const paths = new SessionPaths({ home: root, slug: project.slug })
 	const partial = {
 		root,
 		paths,
 		slug: project.slug,
-		projectRoot: project.cwd,
+		projectRoot: pal?.workspace ?? project.cwd,
 		projectId: project.projectId,
 		topicId: topicIdFor(project.projectId),
 		tenantId,

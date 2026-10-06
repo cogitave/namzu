@@ -276,9 +276,13 @@ export type DesktopEvent = (
 			queued: string[]
 			queuedItems?: QueuedMessageView[]
 			error?: string
+			/** Actual first-prompt preflight recovery; never overwrites a newer authored edit. */
+			restoredDraft?: string
 	  }
 	| { kind: 'connection'; project: ProjectView }
 	| { kind: 'workspace'; view: WorkspaceView }
+	| { kind: 'pal-deleted'; palId: string; projectIds: string[]; sessionIds: string[] }
+	| { kind: 'conversation-removed'; sessionId: string; projectId: string; archived: boolean }
 ) & { readonly revision?: number; readonly at?: number }
 export interface DesktopApi {
 	workspace?(): Promise<WorkspaceView>
@@ -297,6 +301,8 @@ export interface DesktopApi {
 	palModels(provider: string): Promise<ModelCatalogueView>
 	createPal(input: PalInput): Promise<PalView>
 	updatePal(id: string, expectedRevision: number, changes: Partial<PalChanges>): Promise<PalView>
+	/** Retire the profile after confirmed guest cleanup; workspace files and journals remain. */
+	deletePal?(id: string, expectedRevision: number): Promise<{ id: string; deleted: true }>
 	palCommunication?(sessionId: string, palId: string): Promise<PalCommunicationView>
 	updatePalPermission?(
 		sessionId: string,
@@ -347,6 +353,10 @@ export interface DesktopApi {
 	}>
 	/** Refresh tasks/retry state after history is visible, before admitting actions. */
 	readyConversation?(projectId: string, sessionId: string): Promise<void>
+	/** Remove a conversation from active lists; its durable journal remains readable. */
+	removeConversation?(
+		sessionId: string,
+	): Promise<{ sessionId: string; removed: true; archived: boolean }>
 	providers(projectId: string, sessionId?: string): Promise<ProviderView>
 	models(projectId: string, provider: string, sessionId?: string): Promise<ModelCatalogueView>
 	modelSettings(

@@ -26,6 +26,9 @@ virtual computer, an execution filesystem or a security boundary.
 
 The store exposes `create(PalCreate)`, `get(id)`, `list()`,
 `getRevision(id, revision)` and `update(id, expectedRevision, PalUpdate)`.
+`DiskPalStore.delete(id, expectedRevision)` additionally publishes a terminal
+deletion using the same exclusive next revision as an edit. Existing `PalStore`
+implementations do not need to implement this concrete disk-store method.
 `DiskPalStore.atWorkspace(cwd)` additionally resolves an exact owned control
 directory. Reserved control-root descendants and aliases are refused; they
 cannot fall through to ordinary host execution.
@@ -51,6 +54,22 @@ both publish it: the loser receives `PalConflictError` and must reload.
 Definitions and host control directories survive process restart. The optional
 `secureDirectory(path)` hook lets hosts enforce user-specific Windows ACLs;
 the default sets owner-only permissions on POSIX systems.
+
+After deletion, `get` returns `null`, `list` excludes the Pal, and updates or
+new admissions cannot revive it. Earlier `getRevision` definitions remain
+available for historical inspection; the terminal deletion revision is not a
+`PalDefinition`. Retrying deletion with the original expected revision succeeds
+without publishing another record. A competing edit or a different expected
+revision is refused with `PalConflictError`. The preserved control directory
+remains reserved and cannot become an ordinary host execution workspace.
+
+Deletion removes no host files, conversation journals, historical revisions or
+guest data volumes. Hosts must stop and confirm the Pal's active work and
+computer before publishing deletion; the disk store itself owns no runtime or
+guest provider. Already admitted controllers recheck current availability before
+their next model or guest effect. The private terminal revision is intentionally
+unavailable to older binaries that do not recognize deletion; do not downgrade
+those readers to inspect a registry containing deleted profiles.
 
 ## Conversational identity
 

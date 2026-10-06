@@ -28,6 +28,11 @@ import type {
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
 const REVISION_FILE = /^[1-9][0-9]*\.json$/u
 
+/** Private terminal publication; historical Pal definitions keep their original shape. */
+interface DeletedPalRevision extends Omit<PalDefinition, 'kind'> {
+	readonly kind: 'pal-deleted'
+}
+
 export class PalConflictError extends Error {
 	override readonly name = 'PalConflictError'
 	constructor(readonly id: string) {
@@ -105,21 +110,23 @@ function safeAppearance(value: unknown): PalAppearance {
 		throw new Error('Invalid Pal appearance.')
 	return { character, color } as PalAppearance
 }
-function readRevision(
+function readStoredRevision(
 	home: string,
 	workspaceRoot: string,
 	id: string,
 	revision: number,
-): PalDefinition {
+): PalDefinition | DeletedPalRevision {
 	const source = join(paths(home, workspaceRoot, id).revisions, `${revision}.json`)
 	assertDirectory(paths(home, workspaceRoot, id).palDir)
 	assertDirectory(paths(home, workspaceRoot, id).revisions)
 	const file = lstatSync(source)
 	if (!file.isFile() || file.isSymbolicLink()) throw new Error('Pal revision must be a real file.')
-	const raw = JSON.parse(readFileSync(source, 'utf8')) as Partial<PalDefinition>
+	const raw = JSON.parse(readFileSync(source, 'utf8')) as Partial<
+		Omit<PalDefinition, 'kind'> & { kind: 'pal' | 'pal-deleted' }
+	>
 	if (
 		raw.v !== 1 ||
-		raw.kind !== 'pal' ||
+		(raw.kind !== 'pal' && raw.kind !== 'pal-deleted') ||
 		raw.id !== id ||
 		raw.revision !== revision ||
 		!Number.isSafeInteger(revision) ||
@@ -142,7 +149,7 @@ function readRevision(
 		throw new Error(`Pal ${id} workspace identity changed.`)
 	return {
 		v: 1,
-		kind: 'pal',
+		kind: raw.kind,
 		id,
 		revision,
 		name: safeText(raw.name, 'name', 80),
@@ -194,12 +201,16 @@ export class DiskPalStore implements PalStore {
 		palId(id)
 		assertDirectory(this.root)
 		const revision = latestRevision(this.root, this.workspaceRoot, id)
-		return revision === null ? null : readRevision(this.root, this.workspaceRoot, id, revision)
+		if (revision === null) return null
+		const value = readStoredRevision(this.root, this.workspaceRoot, id, revision)
+		return value.kind === 'pal-deleted' ? null : value
 	}
 	getRevision(id: string, revision: number): PalDefinition {
 		palId(id)
 		if (!Number.isSafeInteger(revision) || revision < 1) throw new Error('Invalid Pal revision.')
-		return readRevision(this.root, this.workspaceRoot, id, revision)
+		const value = readStoredRevision(this.root, this.workspaceRoot, id, revision)
+		if (value.kind === 'pal-deleted') throw new Error('This Pal revision records its deletion.')
+		return value
 	}
 	list(): PalDefinition[] {
 		assertDirectory(this.root)
@@ -276,6 +287,42 @@ export class DiskPalStore implements PalStore {
 		)
 			throw new PalConflictError(id)
 		return next
+	}
+	/**
+	 * Publish a terminal next revision without removing profiles, journals or files.
+	 * Hosts must retire active work and computers before deleting their identity.
+	 * Retrying the original expected revision after a successful delete is idempotent.
+	 */
+	delete(id: string, expectedRevision: number): void {
+		palId(id)
+		if (
+			!Number.isSafeInteger(expectedRevision) ||
+			expectedRevision < 1 ||
+			!Number.isSafeInteger(expectedRevision + 1)
+		)
+			throw new Error('Invalid Pal revision.')
+		assertDirectory(this.root)
+		const revision = latestRevision(this.root, this.workspaceRoot, id)
+		if (revision === null) throw new Error('Pal does not exist.')
+		const current = readStoredRevision(this.root, this.workspaceRoot, id, revision)
+		if (current.kind === 'pal-deleted') {
+			if (current.revision === expectedRevision + 1) return
+			throw new PalConflictError(id)
+		}
+		if (current.revision !== expectedRevision) throw new PalConflictError(id)
+		const deleted: DeletedPalRevision = {
+			...current,
+			kind: 'pal-deleted',
+			revision: expectedRevision + 1,
+			updatedAt: new Date().toISOString(),
+		}
+		if (
+			!publishExclusive(
+				join(paths(this.root, this.workspaceRoot, id).revisions, `${deleted.revision}.json`),
+				deleted,
+			)
+		)
+			throw new PalConflictError(id)
 	}
 	/** Exact validated host control directory; never an execution-computer claim. */
 	atWorkspace(cwd: string): PalDefinition | null {

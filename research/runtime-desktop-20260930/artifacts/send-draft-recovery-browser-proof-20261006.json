@@ -1,0 +1,81 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "reactStrictMode": true,
+  "sampleOnly": true,
+  "nativeActions": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "synchronization": "Controlled admission/ACK promises and actual sample draft writes; no wall-clock races.",
+  "checks": [
+    {
+      "name": "failure before ACK restores authored draft immediately",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 32
+    },
+    {
+      "name": "late success ACK cannot clear the earlier restored draft",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 32
+    },
+    {
+      "name": "normal admission clears the submitted draft before settlement",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 0
+    },
+    {
+      "name": "failure after ACK restores the authored draft",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 32
+    },
+    {
+      "name": "newer draft rejects a delayed old restoration event",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 34
+    },
+    {
+      "name": "newer draft survives the held admission ACK",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 34
+    },
+    {
+      "name": "explicitly cleared draft rejects delayed restoration",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 0
+    },
+    {
+      "name": "explicit clear remains empty after the held ACK",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 0
+    },
+    {
+      "name": "clear and retype of the identical prompt survives ACK by edit revision",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 32
+    },
+    {
+      "name": "inactive owner recovery cannot replace the active owner draft",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 52
+    },
+    {
+      "name": "returning to the original owner reveals its restored draft",
+      "textareaMatches": true,
+      "persistedDraftMatches": true,
+      "expectedLength": 32,
+      "otherOwnerPersisted": true
+    }
+  ],
+  "pageErrors": [],
+  "screenshot": "send-draft-recovery-browser-20261006.png"
+}

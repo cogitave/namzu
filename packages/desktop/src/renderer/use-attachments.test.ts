@@ -72,16 +72,106 @@ function fixture() {
 	const pickAttachments = vi.fn<DesktopApi['pickAttachments']>()
 	const report = vi.fn()
 	const api = { attachments, pickAttachments } as unknown as DesktopApi
-	const render = (owner = 'session') => {
+	const render = (owner = 'session', connected = true, bridge = api) => {
 		hooks.refIndex = 0
 		hooks.stateIndex = 0
 		hooks.callbackIndex = 0
 		hooks.setups = []
-		return useAttachments(owner, true, report, api)
+		return useAttachments(owner, connected, report, bridge)
 	}
-	const startEffect = () => hooks.setups[0]?.()
-	return { attachments, pickAttachments, report, render, startEffect }
+	const startEligibilityEffect = () => hooks.setups[0]?.()
+	const startLifetimeEffect = () => hooks.setups[1]?.()
+	const startEffect = () => {
+		const cleanups = hooks.setups.map((setup) => setup())
+		return () => {
+			for (const cleanup of cleanups) cleanup?.()
+		}
+	}
+	return {
+		attachments,
+		pickAttachments,
+		report,
+		render,
+		startEffect,
+		startEligibilityEffect,
+		startLifetimeEffect,
+	}
 }
+
+it('keeps the selected owner opening reload admitted while history or harness readiness pauses', async () => {
+	const { attachments, report, render, startEligibilityEffect, startLifetimeEffect } = fixture()
+	const read = deferred<AttachmentView[]>()
+	attachments.mockReturnValue(read.promise)
+	const opening = render()
+	const reload = opening.reload('session')
+	const pauseEligibility = startEligibilityEffect()
+	const leaveOwner = startLifetimeEffect()
+	await Promise.resolve()
+	// A harness switch reopens this same owner while pending history disables
+	// automatic attachment reads. It must keep the explicit setup read alive.
+	pauseEligibility?.()
+	render('session', false)
+	startEligibilityEffect()
+	read.resolve([file('saved')])
+	await reload
+	expect(render('session', false).files).toEqual([file('saved')])
+	expect(report).not.toHaveBeenCalled()
+	render('session', true)
+	startEligibilityEffect()
+	expect(attachments).toHaveBeenCalledExactlyOnceWith('session')
+	expect(render().loaded).toBe(true)
+	leaveOwner?.()
+})
+
+it('keeps a reload started while readiness is paused when that same owner becomes ready', async () => {
+	const { attachments, report, render, startEligibilityEffect, startLifetimeEffect } = fixture()
+	const read = deferred<AttachmentView[]>()
+	attachments.mockReturnValue(read.promise)
+	const opening = render('session', false)
+	startEligibilityEffect()
+	const leaveOwner = startLifetimeEffect()
+	const reload = opening.reload('session')
+	render('session', true)
+	startEligibilityEffect()
+	await Promise.resolve()
+	read.resolve([file('fresh')])
+	await reload
+	expect(render().files).toEqual([file('fresh')])
+	expect(attachments).toHaveBeenCalledExactlyOnceWith('session')
+	expect(report).not.toHaveBeenCalled()
+	leaveOwner?.()
+})
+
+it('refuses a retired bridge snapshot even before its passive cleanup runs', async () => {
+	const { attachments, report, render, startEffect } = fixture()
+	const previous = deferred<AttachmentView[]>()
+	const current = deferred<AttachmentView[]>()
+	attachments.mockReturnValue(previous.promise)
+	const opening = render()
+	const reload = opening.reload('session')
+	const refused = expect(reload).rejects.toThrow('attachments changed while loading')
+	const cleanup = startEffect()
+	const nextAttachments = vi.fn<DesktopApi['attachments']>().mockReturnValue(current.promise)
+	const nextBridge = { attachments: nextAttachments } as unknown as DesktopApi
+	// Rendering a replacement bridge fences its old response immediately; passive
+	// cleanup must still retire the owner before a fresh read can be admitted.
+	render('session', true, nextBridge)
+	previous.resolve([file('retired')])
+	await refused
+	expect(render('session', true, nextBridge).files).toEqual([])
+	const returning = render('session', true, nextBridge)
+	const reloading = returning.reload('session')
+	// The old bridge's delayed cleanup cannot retire a new bridge's same-owner read.
+	cleanup?.()
+	startEffect()
+	current.resolve([file('current')])
+	await reloading
+	expect(render('session', true, nextBridge).files).toEqual([file('current')])
+	expect(nextAttachments).toHaveBeenCalledExactlyOnceWith('session')
+	// The active old read effect may report the refusal before cleanup. It cannot
+	// publish or turn the retired files into the replacement bridge's snapshot.
+	expect(report).toHaveBeenCalledOnce()
+})
 
 it('shares an explicit opening reload with the newly selected owner effect and admits files before it resolves', async () => {
 	const { attachments, render, startEffect } = fixture()

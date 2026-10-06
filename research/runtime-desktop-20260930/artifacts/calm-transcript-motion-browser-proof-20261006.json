@@ -1,0 +1,504 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "browserOnly": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "nativeActions": 0,
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "frames": {
+    "reveal": {
+      "durations": {
+        "frame": 160,
+        "opacity": 120
+      },
+      "easing": {
+        "frame": "cubic-bezier(0.2, 0, 0, 1)",
+        "opacity": "ease-out"
+      },
+      "timeline": "paired effects sampled at the same explicit time",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 0,
+          "height": 0,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 60,
+          "frameTime": 60,
+          "opacityTime": 60,
+          "opacity": 0.684643,
+          "height": 41.234375,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 80,
+          "frameTime": 80,
+          "opacityTime": 80,
+          "opacity": 0.843836,
+          "height": 46.515625,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 120,
+          "frameTime": 120,
+          "opacityTime": 120,
+          "opacity": 1,
+          "height": 51.6875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 160,
+          "frameTime": 160,
+          "opacityTime": 120,
+          "opacity": 1,
+          "height": 53,
+          "transform": "none",
+          "display": "flex"
+        }
+      ],
+      "interrupted": {
+        "time": 80,
+        "frameTime": 80,
+        "opacityTime": 80,
+        "opacity": 0.843836,
+        "height": 46.515625,
+        "transform": "none",
+        "display": "flex"
+      }
+    },
+    "reasoningEntry": {
+      "identity": 1,
+      "id": "namzu-transcript-entry",
+      "duration": 120,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.65",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.65,
+          "transform": "none",
+          "height": "38.75px"
+        },
+        {
+          "time": 60,
+          "opacity": 0.889625,
+          "transform": "none",
+          "height": "38.75px"
+        },
+        {
+          "time": 120,
+          "opacity": 1,
+          "transform": "none",
+          "height": "38.75px"
+        }
+      ]
+    },
+    "phase": {
+      "identity": 2,
+      "id": "namzu-transcript-phase-in",
+      "duration": 120,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.65",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.65,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 60,
+          "opacity": 0.889625,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 120,
+          "opacity": 1,
+          "transform": "none",
+          "height": "21px"
+        }
+      ]
+    },
+    "phaseReversal": {
+      "identity": 3,
+      "id": "namzu-transcript-phase-in",
+      "duration": 120,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.889625",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.889625,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 60,
+          "opacity": 0.965192,
+          "transform": "none",
+          "height": "21px"
+        },
+        {
+          "time": 120,
+          "opacity": 1,
+          "transform": "none",
+          "height": "21px"
+        }
+      ]
+    },
+    "toolEntry": {
+      "identity": 4,
+      "id": "namzu-transcript-entry",
+      "duration": 120,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.65",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.65,
+          "transform": "none",
+          "height": "34.75px"
+        },
+        {
+          "time": 60,
+          "opacity": 0.889625,
+          "transform": "none",
+          "height": "34.75px"
+        },
+        {
+          "time": 120,
+          "opacity": 1,
+          "transform": "none",
+          "height": "34.75px"
+        }
+      ]
+    },
+    "messageEntry": {
+      "identity": 5,
+      "id": "namzu-transcript-entry",
+      "duration": 120,
+      "easing": "ease-out",
+      "keyframes": [
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "0.65",
+          "computedOffset": 0
+        },
+        {
+          "offset": null,
+          "easing": "linear",
+          "composite": "auto",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "values": [
+        {
+          "time": 0,
+          "opacity": 0.65,
+          "transform": "none",
+          "height": "42.75px"
+        },
+        {
+          "time": 60,
+          "opacity": 0.889625,
+          "transform": "none",
+          "height": "42.75px"
+        },
+        {
+          "time": 120,
+          "opacity": 1,
+          "transform": "none",
+          "height": "42.75px"
+        }
+      ]
+    },
+    "exit": {
+      "durations": {
+        "frame": 160,
+        "opacity": 120
+      },
+      "easing": {
+        "frame": "cubic-bezier(0.2, 0, 0, 1)",
+        "opacity": "ease-out"
+      },
+      "timeline": "paired effects sampled at the same explicit time",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 1,
+          "height": 53,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 60,
+          "frameTime": 60,
+          "opacityTime": 60,
+          "opacity": 0.315357,
+          "height": 11.75,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 80,
+          "frameTime": 80,
+          "opacityTime": 80,
+          "opacity": 0.156164,
+          "height": 6.46875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 120,
+          "frameTime": 120,
+          "opacityTime": 120,
+          "opacity": 0.0245199,
+          "height": 1.296875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 160,
+          "frameTime": 160,
+          "opacityTime": 120,
+          "opacity": 0,
+          "height": 0,
+          "transform": "none",
+          "display": "flex"
+        }
+      ],
+      "interrupted": {
+        "time": 80,
+        "frameTime": 80,
+        "opacityTime": 80,
+        "opacity": 0.156164,
+        "height": 6.46875,
+        "transform": "none",
+        "display": "flex"
+      }
+    },
+    "reversal": {
+      "durations": {
+        "frame": 160,
+        "opacity": 120
+      },
+      "easing": {
+        "frame": "cubic-bezier(0.2, 0, 0, 1)",
+        "opacity": "ease-out"
+      },
+      "timeline": "paired effects sampled at the same explicit time",
+      "values": [
+        {
+          "time": 0,
+          "frameTime": 0,
+          "opacityTime": 0,
+          "opacity": 0.0245199,
+          "height": 1.296875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 60,
+          "frameTime": 60,
+          "opacityTime": 60,
+          "opacity": 0.692376,
+          "height": 41.53125,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 80,
+          "frameTime": 80,
+          "opacityTime": 80,
+          "opacity": 0.847665,
+          "height": 46.671875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 120,
+          "frameTime": 120,
+          "opacityTime": 120,
+          "opacity": 0.976081,
+          "height": 51.71875,
+          "transform": "none",
+          "display": "flex"
+        },
+        {
+          "time": 160,
+          "frameTime": 160,
+          "opacityTime": 120,
+          "opacity": 1,
+          "height": 53,
+          "transform": "none",
+          "display": "flex"
+        }
+      ]
+    }
+  },
+  "checks": [
+    "historical mount and opening stored work details have no entry effects",
+    "reveal uses opacity120ms and frame160ms; opacity finish does not cancel the unfinished frame",
+    "single phase label brightens120ms; interrupted phase reversal preserves opacity without ghost labels; shimmer replaced by a5px breathing dot, waiting stays still",
+    "reasoning/tool/message entries brighten .65→1 over120ms without translation; chunks, progress, and reopening work details never replay",
+    "exit remains framed until160ms frame finish, reverses from actual interrupted opacity/height, then fully hides; completed and paused duration labels stay truthful",
+    "historical tab navigation preserves retained messages without replaying entry effects",
+    "reduced motion disables all transcript effects, dot breathing, and disclosure transitions"
+  ],
+  "supplements": "transcript-single-live-status-motion-proof-20261006.json",
+  "timelineControl": "browser animations paused at creation and selected by explicit currentTime",
+  "singleLiveStatus": [
+    {
+      "label": "Thinking",
+      "phaseLabels": 1,
+      "outgoingLabels": 0
+    },
+    {
+      "label": "Working",
+      "phaseLabels": 1,
+      "outgoingLabels": 0
+    },
+    {
+      "label": "Waiting for your decision",
+      "phaseLabels": 1,
+      "outgoingLabels": 0
+    },
+    {
+      "label": "Working",
+      "phaseLabels": 1,
+      "outgoingLabels": 0
+    }
+  ],
+  "opacityFinishBeforeRevealFrame": {
+    "frameTime": 120,
+    "framePlayState": "paused",
+    "display": "flex",
+    "height": 51.6875
+  },
+  "statusStyles": {
+    "labelBackground": "none",
+    "labelAnimation": "none",
+    "dotWidth": "5px",
+    "dotAnimation": "transcript-status-breathe",
+    "dotDuration": "1.8s"
+  },
+  "screenshots": [
+    "calm-transcript-live-20261006.png",
+    "calm-transcript-reduced-20261006.png"
+  ],
+  "opacityFinishBeforeExitFrame": {
+    "frameTime": 120,
+    "framePlayState": "paused",
+    "display": "flex",
+    "height": 1.296875
+  },
+  "interruptedPresence": {
+    "display": "flex",
+    "opacity": 0.0245199,
+    "height": 1.296875,
+    "ariaHidden": "true",
+    "inert": true,
+    "outgoing": 0
+  },
+  "settledReversal": {
+    "display": "flex",
+    "opacity": 1,
+    "height": 53,
+    "ariaHidden": "false",
+    "inert": false,
+    "outgoing": 0
+  },
+  "settledExit": {
+    "display": "none",
+    "opacity": 1,
+    "height": 0,
+    "ariaHidden": "true",
+    "inert": true,
+    "outgoing": 0
+  },
+  "reducedMotion": {
+    "animations": [],
+    "panelTransition": "0s",
+    "dotAnimation": "none",
+    "outgoing": 0
+  },
+  "apiErrors": [],
+  "rendererErrors": []
+}

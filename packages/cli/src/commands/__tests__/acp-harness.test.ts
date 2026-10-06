@@ -11,6 +11,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+	archiveConversation,
 	closeSessions,
 	openConversationLog,
 	openSessions,
@@ -68,6 +69,7 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 	let emit!: HarnessEventSink
 	let native!: HarnessNativeTurn
 	let turns = 0
+	const close = vi.fn(async () => ({ stopped: true as const }))
 	const dispatches: HarnessPrompt[] = []
 	const terminal = async () => {
 		const nativeItemId = `answer-${turns}`
@@ -158,7 +160,7 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 					pendingReviews: [],
 					complete: true,
 				}),
-				close: async () => ({ stopped: true }),
+				close,
 			}
 		}),
 	}
@@ -182,6 +184,9 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 	}
 	const runtime = withCliHarnesses(base, root, dependencies)
 	runtimes.push(runtime)
+	const archiveIdle = runtime.withIdleConversationForArchive
+	expect(archiveIdle).toBeTypeOf('function')
+	if (!archiveIdle) throw new Error('The native runtime must provide its idle archive reservation.')
 	const prompt = (
 		text = 'First external prompt',
 		ask: Parameters<CliAcpRuntime['gateway']['prompt']>[0]['ask'] = vi.fn(async () => ({
@@ -203,8 +208,10 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 	return {
 		root,
 		runtime,
+		archiveIdle,
 		dependencies,
 		adapter,
+		close,
 		base,
 		sessionId,
 		prompt,
@@ -214,6 +221,114 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 		},
 	}
 }
+
+it('releases its idle native writer while reserving the conversation until strict archive settles', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.prompt()
+	const state = await f.dependencies.openSessions(f.root)
+	const log = openConversationLog(state, f.sessionId)
+	const entered = deferred<void>()
+	const allowed = deferred<void>()
+	try {
+		expect(await log.claim({ holder: 'competing-fixture', ttlMs: 30_000 })).toBeNull()
+		const archiving = f.archiveIdle(f.sessionId, state, async () => {
+			entered.resolve()
+			await allowed.promise
+			await archiveConversation(state, f.sessionId)
+			return { archived: true }
+		})
+		await entered.promise
+		expect(f.close).toHaveBeenCalledOnce()
+		expect(f.base.close).not.toHaveBeenCalled()
+		await expect(f.prompt('Cannot start before archive acknowledgement')).rejects.toThrow(
+			'already connecting',
+		)
+		await expect(f.runtime.selectProvider(f.sessionId, 'codex-cli', 'other-model')).rejects.toThrow(
+			'before changing its model',
+		)
+		expect(f.dispatches).toHaveLength(1)
+		allowed.resolve()
+		expect(await archiving).toEqual({ archived: true })
+		expect((await readConversationFacts(state, f.sessionId))?.archived).toBe(true)
+		await expect(f.runtime.gateway.load?.(f.sessionId, f.root)).rejects.toThrow('archived')
+	} finally {
+		allowed.resolve()
+		closeSessions(state)
+	}
+})
+
+it('refuses a waiting native review before closing its connection or invoking archive', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	f.review()
+	const asked = deferred<void>()
+	const decision = deferred<{ kind: 'approve' }>()
+	const prompt = f.prompt('Wait for review', async () => {
+		asked.resolve()
+		return decision.promise
+	})
+	await asked.promise
+	const state = await f.dependencies.openSessions(f.root)
+	const archive = vi.fn(async () => {})
+	try {
+		await expect(f.archiveIdle(f.sessionId, state, archive)).rejects.toThrow('pending operation')
+		expect(f.close).not.toHaveBeenCalled()
+		expect(archive).not.toHaveBeenCalled()
+		expect((await readConversationFacts(state, f.sessionId))?.activeTurn).toBeDefined()
+	} finally {
+		decision.resolve({ kind: 'approve' })
+		await prompt
+		closeSessions(state)
+	}
+})
+
+it('retains the native cleanup owner and writer after close fails so archive can be retried', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.prompt()
+	const state = await f.dependencies.openSessions(f.root)
+	const archive = vi.fn(async () => {
+		await archiveConversation(state, f.sessionId)
+	})
+	f.close.mockRejectedValueOnce(new Error('native cleanup not confirmed'))
+	try {
+		await expect(f.archiveIdle(f.sessionId, state, archive)).rejects.toThrow(
+			'native cleanup not confirmed',
+		)
+		expect(archive).not.toHaveBeenCalled()
+		expect((await readConversationFacts(state, f.sessionId))?.archived).toBe(false)
+		expect(
+			await openConversationLog(state, f.sessionId).claim({
+				holder: 'competing-fixture',
+				ttlMs: 30_000,
+			}),
+		).toBeNull()
+		await f.archiveIdle(f.sessionId, state, archive)
+		expect(f.close).toHaveBeenCalledTimes(2)
+		expect(archive).toHaveBeenCalledOnce()
+		expect((await readConversationFacts(state, f.sessionId))?.archived).toBe(true)
+	} finally {
+		closeSessions(state)
+	}
+})
+
+it('refuses a different captured archive home before touching its native owner', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.prompt()
+	const state = await f.dependencies.openSessions(f.root)
+	const archive = vi.fn(async () => {})
+	try {
+		await expect(
+			f.archiveIdle(f.sessionId, { ...state, root: join(f.root, 'different-state') }, archive),
+		).rejects.toThrow('archive scope')
+		expect(f.close).not.toHaveBeenCalled()
+		expect(archive).not.toHaveBeenCalled()
+	} finally {
+		closeSessions(state)
+	}
+})
 
 it('uses a separate native catalogue and durable engine without constructing a Namzu provider', async () => {
 	const f = await fixture()

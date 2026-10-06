@@ -97,6 +97,10 @@ export function updatePal(
 ): Pal {
 	return cliPalStore(home).update(id, expectedRevision, changes)
 }
+/** Logical identity deletion; owned files, journals and computer data remain untouched. */
+export function deletePal(id: string, expectedRevision: number, home?: string): void {
+	cliPalStore(home).delete(id, expectedRevision)
+}
 function reserved(path: string, root: string): boolean {
 	const rel = relative(root, path)
 	return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`)

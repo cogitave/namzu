@@ -201,7 +201,7 @@ function completedAnswer(
 }
 
 class CodexConnection implements HarnessConnection {
-	readonly capabilities: HarnessCapabilities = {
+	private capabilitiesValue: HarnessCapabilities = {
 		persistentSessions: true,
 		history: 'snapshot',
 		models: 'discover',
@@ -209,6 +209,9 @@ class CodexConnection implements HarnessConnection {
 		interrupt: 'native-terminal',
 		attachments: [],
 		reviewModes: ['prompt', 'accept-edits', 'auto', 'strict', 'plan'],
+	}
+	get capabilities(): HarnessCapabilities {
+		return this.capabilitiesValue
 	}
 	private bindingValue?: HarnessBinding
 	private active?: HarnessNativeTurn
@@ -311,8 +314,15 @@ class CodexConnection implements HarnessConnection {
 			throw error
 		}
 	}
-	models(signal?: AbortSignal): Promise<readonly HarnessModel[]> {
-		return this.wire.models(signal)
+	async models(signal?: AbortSignal): Promise<readonly HarnessModel[]> {
+		const models = await this.wire.models(signal)
+		// SDK admission captures these engine-wide capabilities when open returns.
+		// Dispatch still validates the chosen effort against its fresh model row.
+		this.capabilitiesValue = {
+			...this.capabilitiesValue,
+			effortLevels: [...new Set(models.flatMap((model) => model.effortLevels ?? []))],
+		}
+		return models
 	}
 	private async emit(event: HarnessEvent): Promise<void> {
 		if ('nativeSessionId' in event && event.nativeSessionId !== this.binding.nativeSessionId) return

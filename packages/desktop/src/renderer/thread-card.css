@@ -10,6 +10,31 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.sidebar-thread-menu {
+	position: absolute;
+	right: 4px;
+	top: 50%;
+	transform: translateY(-50%);
+	opacity: 0;
+	transition: opacity 100ms ease-out;
+}
+.sidebar-thread-item:hover .sidebar-thread-menu,
+.sidebar-thread-item:focus-within .sidebar-thread-menu,
+.sidebar-thread-menu[data-popup-open] {
+	opacity: 1;
+}
+.sidebar-thread-item[data-removable]:hover .conversation-row-state,
+.sidebar-thread-item[data-removable]:focus-within .conversation-row-state {
+	opacity: 0;
+}
+@media (hover: none) {
+	.sidebar-thread-menu {
+		opacity: 1;
+	}
+	.sidebar-thread-item[data-removable] .conversation-row-state {
+		opacity: 0;
+	}
+}
 .thread-running-indicator {
 	display: block;
 	width: 12px;
@@ -24,6 +49,9 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
+	.sidebar-thread-menu {
+		transition: none;
+	}
 	.thread-running-indicator {
 		animation: none;
 	}

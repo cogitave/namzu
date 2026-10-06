@@ -1,10 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import * as filesystem from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PalComputerStreamView, PalView } from '../shared/protocol.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
+import type { RuntimeClient } from './rpc-client.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
+
+vi.mock('node:fs/promises', { spy: true })
 
 const transport = vi.hoisted(() => ({
 	pal: undefined as PalView | undefined,
@@ -108,6 +112,15 @@ vi.mock('./rpc-client.js', async () => {
 						if (transport.pal?.id === next.id) transport.pal = next
 						return next
 					}
+					case 'namzu/pals/delete': {
+						const current = transport.pals.get(params.id as string)
+						if (!current || current.revision !== params.expectedRevision)
+							throw new Error('Pal revision changed')
+						transport.pals.delete(current.id)
+						return { id: current.id, deleted: true }
+					}
+					case 'namzu/conversations/archive':
+						return { sessionId: params.sessionId, archived: true }
 					case 'namzu/jobs/list':
 						return []
 					case 'namzu/pals/computer/status':
@@ -124,6 +137,7 @@ vi.mock('./rpc-client.js', async () => {
 import { Operator } from './operator.js'
 const roots: string[] = []
 const owners: Operator[] = []
+const nativePlatform = process.platform
 function fixture(
 	publish: (event: DesktopEvent) => void = () => {},
 	streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
@@ -155,6 +169,8 @@ function fixture(
 	return { owner, workspace, pal: transport.pal }
 }
 afterEach(async () => {
+	vi.restoreAllMocks()
+	Object.defineProperty(process, 'platform', { value: nativePlatform })
 	transport.startHook = undefined
 	transport.closeHook = undefined
 	transport.requestHook = undefined
@@ -339,6 +355,237 @@ it('publishes a new conversation only after the runtime confirms its Pal claim',
 	const methods = transport.calls.map((call) => call.method)
 	expect(methods.at(-1)).toBe('namzu/pals/conversations/claim')
 })
+
+it('retains the actual workspace setup failure when intentional close follows a saved Pal creation', async () => {
+	const { owner, workspace, pal } = fixture()
+	transport.requestHook = async (cwd, method) => {
+		if (method === 'namzu/pals/create') return pal
+		if (cwd === workspace && method === 'namzu/project/status')
+			throw new Error('Pal workspace metadata could not be verified')
+	}
+	transport.closeHook = async (cwd) => {
+		if (cwd === workspace)
+			transport.instances
+				.find((client) => client.cwd === workspace)
+				?.emit('closed', new Error('The Namzu connection was closed.'))
+	}
+	const created = await owner.createPal({ name: pal.name, model: null })
+	await expect(owner.openPal(created.id)).rejects.toThrow(
+		'Pal workspace metadata could not be verified',
+	)
+	expect(owner.listProjects()).toMatchObject([
+		{ path: workspace, status: 'error', error: 'Pal workspace metadata could not be verified' },
+	])
+	expect(await owner.listPals()).toEqual([pal])
+	expect(transport.clients.find((client) => client.cwd === workspace)?.closed).toBe(true)
+	expect(
+		transport.calls.some((call) =>
+			['session/new', 'namzu/pals/conversations/claim', 'namzu/pals/computer/start'].includes(
+				call.method,
+			),
+		),
+	).toBe(false)
+	// An explicit retry reconnects the same saved Pal; creation is not repeated.
+	transport.requestHook = undefined
+	transport.closeHook = undefined
+	const reopened = await owner.openPal(created.id)
+	expect(reopened.project.status).toBe('ready')
+	expect((await owner.newConversation(reopened.project.id)).palId).toBe(pal.id)
+	expect(transport.calls.filter((call) => call.method === 'namzu/pals/create')).toHaveLength(1)
+})
+
+it('refuses a Pal opening when its ready connection closes during the held catalogue read', async () => {
+	const { owner, workspace, pal } = fixture()
+	const entered = deferred()
+	const released = deferred()
+	transport.requestHook = async (cwd, method) => {
+		if (cwd === workspace && method === 'namzu/pals/conversations/list') {
+			entered.resolve()
+			await released.promise
+			return []
+		}
+	}
+	const opening = owner.openPal(pal.id)
+	const rejected = expect(opening).rejects.toThrow(
+		'Owned Pal transport closed during catalogue read',
+	)
+	await entered.promise
+	transport.instances
+		.find((client) => client.cwd === workspace)
+		?.emit('closed', new Error('Owned Pal transport closed during catalogue read'))
+	released.resolve()
+	await rejected
+	expect(owner.listProjects()).toMatchObject([
+		{ path: workspace, status: 'error', error: 'Owned Pal transport closed during catalogue read' },
+	])
+	expect(
+		transport.calls.some((call) =>
+			['session/new', 'namzu/pals/conversations/claim', 'namzu/pals/computer/start'].includes(
+				call.method,
+			),
+		),
+	).toBe(false)
+})
+
+it('keeps the approved Windows Pal path spelling through status and claim after matching directory identity', async () => {
+	const { owner, workspace, pal } = fixture()
+	const canonical = workspace.replace('control', 'CONTROL')
+	const identity = await filesystem.lstat(workspace, { bigint: true })
+	const {
+		realpath: nativeRealpath,
+		lstat: nativeLstat,
+		stat: nativeStat,
+	} = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+	Object.defineProperty(process, 'platform', { value: 'win32' })
+	vi.spyOn(filesystem, 'realpath').mockImplementation(async (path, options) => {
+		if (path === workspace) return canonical as never
+		return nativeRealpath(path, options as never) as never
+	})
+	vi.spyOn(filesystem, 'lstat').mockImplementation(async (path, options) => {
+		if (path === canonical) return identity as never
+		return nativeLstat(path, options as never) as never
+	})
+	vi.spyOn(filesystem, 'stat').mockImplementation(async (path, options) => {
+		if (path === canonical) return identity as never
+		return nativeStat(path, options as never) as never
+	})
+	transport.requestHook = async (cwd, method) => {
+		if (cwd === canonical && method === 'namzu/project/status')
+			throw new Error('Pal workspace has no matching definition.')
+	}
+	const failed = await owner.openProject(workspace)
+	expect(failed).toMatchObject({ path: canonical, status: 'error' })
+	transport.requestHook = undefined
+	const before = transport.calls.length
+	const opened = await owner.openPal(pal.id)
+	expect(opened.project.path).toBe(workspace)
+	expect(opened.project.id).toBe(failed.id)
+	expect(owner.listProjects()).toEqual([opened.project])
+	const conversation = await owner.newConversation(opened.project.id)
+	expect(conversation.palId).toBe(pal.id)
+	expect(
+		transport.calls
+			.slice(before)
+			.filter((call) =>
+				['namzu/project/status', 'session/new', 'namzu/pals/conversations/claim'].includes(
+					call.method,
+				),
+			),
+	).toEqual([
+		{ cwd: workspace, method: 'namzu/project/status', params: {} },
+		{ cwd: workspace, method: 'session/new', params: { cwd: workspace } },
+		{
+			cwd: workspace,
+			method: 'namzu/pals/conversations/claim',
+			params: { palId: pal.id, sessionId: conversation.id },
+		},
+	])
+})
+
+it('reconnects an errored Windows Pal through its saved path and refuses a removed profile', async () => {
+	const { owner, workspace, pal } = fixture()
+	const canonical = workspace.replace('control', 'CONTROL')
+	const identity = await filesystem.lstat(workspace, { bigint: true })
+	const { realpath: nativeRealpath, lstat: nativeLstat } =
+		await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+	Object.defineProperty(process, 'platform', { value: 'win32' })
+	vi.spyOn(filesystem, 'realpath').mockImplementation(async (path, options) => {
+		if (path === workspace) return canonical as never
+		return nativeRealpath(path, options as never) as never
+	})
+	vi.spyOn(filesystem, 'lstat').mockImplementation(async (path, options) => {
+		if (path === canonical) return identity as never
+		return nativeLstat(path, options as never) as never
+	})
+	const opened = await owner.openPal(pal.id)
+	workspaceClient(workspace).emit('closed', new Error('Disconnected'))
+	const before = transport.calls.length
+	const reconnected = await owner.reconnect(opened.project.id)
+	expect(reconnected).toMatchObject({
+		id: opened.project.id,
+		path: workspace,
+		palId: pal.id,
+		status: 'ready',
+	})
+	expect(owner.listProjects()).toEqual([reconnected])
+	expect(transport.clients.filter((client) => client.cwd === workspace)).toHaveLength(2)
+	expect(transport.clients.some((client) => client.cwd === canonical)).toBe(false)
+	expect(
+		transport.calls.slice(before).filter((call) => call.method === 'namzu/project/status'),
+	).toEqual([{ cwd: workspace, method: 'namzu/project/status', params: {} }])
+
+	workspaceClient(workspace).emit('closed', new Error('Disconnected again'))
+	transport.pals.delete(pal.id)
+	await expect(owner.reconnect(opened.project.id)).rejects.toThrow('unavailable')
+	expect(owner.listProjects()).toMatchObject([{ id: opened.project.id, status: 'error' }])
+	expect(transport.clients.filter((client) => client.cwd === workspace)).toHaveLength(2)
+})
+
+it('refuses a differently cased Windows directory that is a different object before connecting a Pal', async () => {
+	const { owner, workspace, pal } = fixture()
+	const canonical = workspace.replace('control', 'CONTROL')
+	const neighbor = join(workspace, 'different-object')
+	mkdirSync(neighbor)
+	const { realpath: nativeRealpath, lstat: nativeLstat } =
+		await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+	const identity = await nativeLstat(neighbor, { bigint: true })
+	Object.defineProperty(process, 'platform', { value: 'win32' })
+	vi.spyOn(filesystem, 'realpath').mockImplementation(async (path, options) => {
+		if (path === workspace) return canonical as never
+		return nativeRealpath(path, options as never) as never
+	})
+	vi.spyOn(filesystem, 'lstat').mockImplementation(async (path, options) => {
+		if (path === canonical) return identity as never
+		return nativeLstat(path, options as never) as never
+	})
+	await expect(owner.openPal(pal.id)).rejects.toThrow('workspace identity changed')
+	expect(owner.listProjects()).toEqual([])
+	expect(
+		transport.calls.some((call) =>
+			['namzu/project/status', 'session/new', 'namzu/pals/conversations/claim'].includes(
+				call.method,
+			),
+		),
+	).toBe(false)
+})
+
+it('refuses a Pal control directory alias while ordinary folder opening still resolves it', async () => {
+	const { owner, workspace, pal } = fixture()
+	const alias = join(workspace, '..', 'alias-control')
+	symlinkSync(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+	transport.pals.set(pal.id, { ...pal, workspace: alias })
+	await expect(owner.openPal(pal.id)).rejects.toThrow('workspace identity changed')
+	expect(owner.listProjects()).toEqual([])
+	expect(transport.calls.some((call) => call.method === 'namzu/project/status')).toBe(false)
+	const ordinary = await owner.openProject(alias)
+	expect(ordinary.path).toBe(await filesystem.realpath(workspace))
+	expect(ordinary.status).toBe('ready')
+})
+
+it.each(['ordinary', 'foreign', 'untrusted'] as const)(
+	'refuses to mark a connection as the captured Pal when status reports %s ownership',
+	async (status) => {
+		const { owner, workspace, pal } = fixture()
+		transport.requestHook = async (cwd, method) => {
+			if (cwd === workspace && method === 'namzu/project/status')
+				return {
+					trusted: status !== 'untrusted',
+					...(status === 'ordinary'
+						? {}
+						: { pal: { ...pal, id: status === 'foreign' ? 'other-pal' : pal.id } }),
+				}
+		}
+		await expect(owner.openPal(pal.id)).rejects.toThrow('workspace ownership could not be verified')
+		expect(
+			transport.calls.some((call) =>
+				/session\/new|pals\/conversations\/(list|claim)/.test(call.method),
+			),
+		).toBe(false)
+		expect(owner.listProjects()[0]?.palId).toBe(
+			status === 'ordinary' ? undefined : status === 'foreign' ? 'other-pal' : pal.id,
+		)
+	},
+)
 it.each([
 	[undefined, { permissionMode: 'auto' }],
 	[{ effort: 'high' }, { effort: 'high', permissionMode: 'auto' }],
@@ -1370,3 +1617,452 @@ it('refuses an earlier independent start preflight after a complete reboot', asy
 		transport.calls.filter((call) => call.method === 'namzu/pals/computer/start'),
 	).toHaveLength(1)
 })
+
+it('deletes only after owned guest and runtime cleanup, retiring its cached views without deleting workspace bytes', async () => {
+	const events: DesktopEvent[] = []
+	const { proxy, views } = fakeStreamProxy()
+	const { owner, pal, workspace } = fixture((event) => events.push(event), proxy)
+	writeFileSync(join(workspace, 'preserved.txt'), 'Keep the workspace and journal data')
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (cwd, method) => {
+		if (method === 'namzu/pals/computer/status')
+			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+		if (method === 'namzu/pals/computer/stream') return { generation: '1' }
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+		if (method === 'namzu/pals/delete') {
+			expect(cwd).not.toBe(workspace)
+			expect(
+				transport.clients
+					.filter((client) => client.cwd === workspace)
+					.every((client) => client.closed),
+			).toBe(true)
+		}
+	}
+	const viewer = await owner.openPalComputerStream(pal.id, '1')
+	const before = transport.calls.length
+	expect(await owner.deletePal(pal.id, pal.revision)).toEqual({ id: pal.id, deleted: true })
+	expect(views.has(viewer.id)).toBe(false)
+	expect(owner.listProjects()).toEqual([])
+	expect(await owner.listPals()).toEqual([])
+	expect(readFileSync(join(workspace, 'preserved.txt'), 'utf8')).toBe(
+		'Keep the workspace and journal data',
+	)
+	expect(events.filter((event) => event.kind === 'pal-deleted')).toEqual([
+		{
+			kind: 'pal-deleted',
+			palId: pal.id,
+			projectIds: [opened.project.id],
+			sessionIds: [conversation.id],
+		},
+	])
+	const calls = transport.calls.slice(before)
+	expect(calls.findIndex((call) => call.method === 'namzu/pals/computer/stop')).toBeLessThan(
+		calls.findIndex((call) => call.method === 'namzu/pals/delete'),
+	)
+	expect(calls.filter((call) => call.method === 'namzu/pals/computer/stop')).toEqual([
+		{ cwd: workspace, method: 'namzu/pals/computer/stop', params: { palId: pal.id } },
+	])
+	await expect(owner.openPal(pal.id)).rejects.toThrow('deleted')
+	await expect(owner.startPalComputer(pal.id)).rejects.toThrow('deleted')
+	await expect(owner.deletePal(pal.id, pal.revision)).resolves.toEqual({
+		id: pal.id,
+		deleted: true,
+	})
+	expect(calls.some((call) => call.method === 'session/prompt')).toBe(false)
+})
+
+it('rejects stale deletion revision before any guest stop or metadata deletion', async () => {
+	const { owner, pal } = fixture()
+	await owner.openPal(pal.id)
+	await expect(owner.deletePal(pal.id, pal.revision + 1)).rejects.toThrow('changed')
+	expect(transport.calls.some((call) => /computer\/stop$|pals\/delete$/.test(call.method))).toBe(
+		false,
+	)
+})
+
+it.each(['throw', 'ready', 'recovery'])(
+	'keeps the profile and viewer when deletion cleanup is %s',
+	async (outcome) => {
+		const events: DesktopEvent[] = []
+		const { proxy, views } = fakeStreamProxy()
+		const { owner, pal } = fixture((event) => events.push(event), proxy)
+		await owner.openPal(pal.id)
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/pals/computer/status') return { status: 'ready', generation: '1' }
+			if (method === 'namzu/pals/computer/stream') return { generation: '1' }
+			if (method === 'namzu/pals/computer/stop') {
+				if (outcome === 'throw') throw new Error('Stop not confirmed')
+				return outcome === 'ready' ? { status: 'ready' } : { status: 'stopped', requiresStop: true }
+			}
+		}
+		const viewer = await owner.openPalComputerStream(pal.id, '1')
+		await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow(
+			/not confirmed|did not confirm/,
+		)
+		expect(transport.pals.get(pal.id)).toEqual(pal)
+		expect(views.has(viewer.id)).toBe(true)
+		expect(transport.calls.some((call) => call.method === 'namzu/pals/delete')).toBe(false)
+		expect(events.some((event) => event.kind === 'pal-deleted')).toBe(false)
+	},
+)
+
+it('refuses profile deletion when owned runtime cleanup fails after guest stop', async () => {
+	const { owner, pal, workspace } = fixture()
+	await owner.openPal(pal.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+	}
+	transport.closeHook = async (cwd) => {
+		if (cwd === workspace) throw new Error('Owned runtime closure unconfirmed')
+	}
+	await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow('closure unconfirmed')
+	expect(transport.pals.get(pal.id)).toEqual(pal)
+	expect(transport.calls.some((call) => call.method === 'namzu/pals/delete')).toBe(false)
+})
+
+it.each([
+	[{ id: 'job', status: 'running' }],
+	[{ id: 'job', status: 'killed', recoveryRequired: true }],
+	{ unknown: true },
+])('checks uncached claimed background work before deleting ($0)', async (jobs) => {
+	const { owner, pal, workspace } = fixture()
+	transport.claims.set(workspace, ['unopened-durable-session'])
+	await owner.openPal(pal.id)
+	transport.requestHook = async (_cwd, method, params) => {
+		if (method === 'namzu/jobs/list') {
+			expect(params.sessionId).toBe('unopened-durable-session')
+			return jobs
+		}
+	}
+	await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow('background work')
+	expect(transport.calls.some((call) => /computer\/stop$|pals\/delete$/.test(call.method))).toBe(
+		false,
+	)
+})
+
+it('fences fresh mutations throughout deletion and retries an uncertain metadata receipt without reopening a guest', async () => {
+	const events: DesktopEvent[] = []
+	const { owner, pal } = fixture((event) => events.push(event))
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const stopEntered = deferred()
+	const stopDone = deferred()
+	let uncertain = true
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/stop') {
+			stopEntered.resolve()
+			await stopDone.promise
+			return { status: 'stopped' }
+		}
+		if (method === 'namzu/pals/delete' && uncertain) return { id: pal.id, deleted: false }
+	}
+	const deletion = owner.deletePal(pal.id, pal.revision)
+	await stopEntered.promise
+	expect(() => owner.send(conversation.id, 'Concurrent prompt')).toThrow('changes to finish')
+	await expect(owner.newConversation(opened.project.id)).rejects.toThrow('changes to finish')
+	await expect(owner.openPal(pal.id)).rejects.toThrow('changes to finish')
+	await expect(owner.startPalComputer(pal.id)).rejects.toThrow('changes to finish')
+	const rejected = expect(deletion).rejects.toThrow('not confirmed')
+	stopDone.resolve()
+	await rejected
+	expect(events.some((event) => event.kind === 'pal-deleted')).toBe(false)
+	expect(() => owner.send(conversation.id, 'Unknown deletion outcome')).toThrow(
+		'needs confirmation',
+	)
+	await expect(owner.startPalComputer(pal.id)).rejects.toThrow('needs confirmation')
+	await expect(owner.deletePal(pal.id, pal.revision + 1)).rejects.toThrow('changed')
+	uncertain = false
+	await expect(owner.deletePal(pal.id, pal.revision)).resolves.toEqual({
+		id: pal.id,
+		deleted: true,
+	})
+	expect(transport.calls.filter((call) => call.method === 'namzu/pals/computer/stop')).toHaveLength(
+		1,
+	)
+	expect(events.filter((event) => event.kind === 'pal-deleted')).toHaveLength(1)
+})
+
+it.each(['start', 'new-conversation'])(
+	'refuses deletion while %s was already admitted',
+	async (operation) => {
+		const { owner, pal } = fixture()
+		const opened = await owner.openPal(pal.id)
+		const entered = deferred()
+		const released = deferred()
+		transport.requestHook = async (_cwd, method) => {
+			if (method === (operation === 'start' ? 'namzu/pals/computer/start' : 'session/new')) {
+				entered.resolve()
+				await released.promise
+				if (operation === 'start') return { status: 'ready', generation: '1' }
+			}
+		}
+		const admitted =
+			operation === 'start'
+				? owner.startPalComputer(pal.id)
+				: owner.newConversation(opened.project.id)
+		await entered.promise
+		await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow('connection or settings')
+		expect(transport.calls.some((call) => /computer\/stop$|pals\/delete$/.test(call.method))).toBe(
+			false,
+		)
+		released.resolve()
+		await admitted
+	},
+)
+
+it('rejects Pal deletion during asynchronous prompt admission before any provider request', async () => {
+	const { owner, pal, workspace } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	const client = workspaceClient(workspace) as unknown as Pick<RuntimeClient, 'supportsTurnRetry'>
+	vi.spyOn(client, 'supportsTurnRetry').mockReturnValue(true)
+	const entered = deferred()
+	const released = deferred()
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/sessions/retry-status') {
+			entered.resolve()
+			await released.promise
+			return { notice: 'Retry required' }
+		}
+	}
+	const sending = Promise.resolve(owner.send(conversation.id, 'Unadmitted prompt'))
+	const rejectedSending = expect(sending).rejects.toThrow('Retry required')
+	await entered.promise
+	await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow('active work')
+	expect(
+		transport.calls.some((call) =>
+			/computer\/stop$|pals\/delete$|session\/prompt$/.test(call.method),
+		),
+	).toBe(false)
+	released.resolve()
+	await rejectedSending
+})
+
+it('removes an unopened durable Recent only after exact owned archive acknowledgement without loading a model', async () => {
+	const events: DesktopEvent[] = []
+	const { owner, pal, workspace } = fixture((event) => events.push(event))
+	transport.claims.set(workspace, ['closed-durable-chat'])
+	const opened = await owner.openPal(pal.id)
+	const before = transport.calls.length
+	expect(await owner.removeConversation('closed-durable-chat')).toEqual({
+		sessionId: 'closed-durable-chat',
+		removed: true,
+		archived: true,
+	})
+	expect(await owner.listConversations(opened.project.id)).toEqual([])
+	expect(events.filter((event) => event.kind === 'conversation-removed')).toEqual([
+		{
+			kind: 'conversation-removed',
+			sessionId: 'closed-durable-chat',
+			projectId: opened.project.id,
+			archived: true,
+		},
+	])
+	expect(
+		transport.calls
+			.slice(before)
+			.filter((call) => /session\/(new|load|prompt)|providers\//.test(call.method)),
+	).toEqual([])
+	await expect(owner.openConversation(opened.project.id, 'closed-durable-chat')).rejects.toThrow(
+		'no longer',
+	)
+})
+
+it.each(['unknown', 'foreign', 'missing', 'throws'])(
+	'keeps a durable conversation and its draft when archive returns %s',
+	async (outcome) => {
+		const events: DesktopEvent[] = []
+		const { owner, pal } = fixture((event) => events.push(event))
+		const opened = await owner.openPal(pal.id)
+		const conversation = await owner.newConversation(opened.project.id)
+		owner.saveDraft(conversation.id, 'Retained authored text')
+		transport.requestHook = async (_cwd, method) => {
+			if (method !== 'namzu/conversations/archive') return
+			if (outcome === 'throws') throw new Error('Corrupt/foreign journal refused')
+			if (outcome === 'missing')
+				return { sessionId: conversation.id, archived: false, missing: true }
+			return {
+				sessionId: outcome === 'foreign' ? 'another-session' : conversation.id,
+				archived: outcome === 'foreign',
+			}
+		}
+		await expect(owner.removeConversation(conversation.id)).rejects.toThrow(
+			outcome === 'throws' ? 'journal refused' : 'not confirmed',
+		)
+		expect(events.some((event) => event.kind === 'conversation-removed')).toBe(false)
+		expect(
+			(await owner.listConversations(opened.project.id)).some(
+				(view) => view.id === conversation.id,
+			),
+		).toBe(true)
+		expect(() => owner.send(conversation.id, 'Unknown archive outcome')).toThrow(
+			'removal to finish',
+		)
+		transport.requestHook = undefined
+		await expect(owner.removeConversation(conversation.id)).resolves.toMatchObject({
+			removed: true,
+			archived: true,
+		})
+	},
+)
+
+it('removes only a known never-prompted local draft after strict missing receipt without claiming a durable archive', async () => {
+	const events: DesktopEvent[] = []
+	const { owner, workspace } = fixture((event) => events.push(event))
+	const ordinary = join(workspace, 'ordinary-project')
+	mkdirSync(ordinary)
+	const project = await owner.openProject(ordinary)
+	const conversation = await owner.newConversation(project.id)
+	owner.saveDraft(conversation.id, 'Local unsent draft')
+	transport.requestHook = async (_cwd, method, params) => {
+		if (method === 'namzu/conversations/archive')
+			return { sessionId: params.sessionId, archived: false, missing: true }
+	}
+	const before = transport.calls.length
+	expect(await owner.removeConversation(conversation.id)).toEqual({
+		sessionId: conversation.id,
+		removed: true,
+		archived: false,
+	})
+	expect(events.filter((event) => event.kind === 'conversation-removed')).toEqual([
+		{
+			kind: 'conversation-removed',
+			sessionId: conversation.id,
+			projectId: project.id,
+			archived: false,
+		},
+	])
+	expect(
+		transport.calls
+			.slice(before)
+			.some((call) => /session\/(new|load|prompt)|jobs\/list/.test(call.method)),
+	).toBe(false)
+	expect(() => owner.draft(conversation.id)).toThrow('Open this conversation')
+	await expect(owner.removeConversation(conversation.id)).resolves.toEqual({
+		sessionId: conversation.id,
+		removed: true,
+		archived: false,
+	})
+})
+
+it('does not archive a conversation with unconfirmed background termination', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/jobs/list') return [{ status: 'killed', recoveryRequired: true }]
+	}
+	await expect(owner.removeConversation(conversation.id)).rejects.toThrow('background work')
+	expect(transport.calls.some((call) => call.method === 'namzu/conversations/archive')).toBe(false)
+	expect(() => owner.draft(conversation.id)).not.toThrow()
+})
+
+it.each([true, false])(
+	'checks both stable and replacement unsent aliases before removal (durable original: %s)',
+	async (durableOriginal) => {
+		const { owner, workspace } = fixture()
+		const ordinary = join(workspace, 'ordinary-project')
+		mkdirSync(ordinary)
+		const project = await owner.openProject(ordinary)
+		const conversation = await owner.newConversation(project.id)
+		owner.saveDraft(conversation.id, 'Unsent text survives replacement')
+		workspaceClient(ordinary).emit('closed', new Error('Disconnected'))
+		await owner.reconnect(project.id)
+		transport.sessionIds.set(ordinary, 'replacement-slot')
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/providers/status') return { available: [], selected: null }
+		}
+		await owner.providers(project.id, conversation.id)
+		transport.requestHook = async (_cwd, method, params) => {
+			if (method === 'namzu/conversations/archive')
+				return params.sessionId === conversation.id && durableOriginal
+					? { sessionId: params.sessionId, archived: true }
+					: { sessionId: params.sessionId, archived: false, missing: true }
+		}
+		const before = transport.calls.length
+		expect(await owner.removeConversation(conversation.id)).toEqual({
+			sessionId: conversation.id,
+			removed: true,
+			archived: durableOriginal,
+		})
+		const removalCalls = transport.calls.slice(before)
+		expect(removalCalls.filter((call) => call.method === 'namzu/conversations/archive')).toEqual([
+			{
+				cwd: ordinary,
+				method: 'namzu/conversations/archive',
+				params: { sessionId: conversation.id },
+			},
+			{
+				cwd: ordinary,
+				method: 'namzu/conversations/archive',
+				params: { sessionId: 'replacement-slot' },
+			},
+		])
+		expect(
+			removalCalls.some((call) =>
+				/session\/(new|load|prompt)|jobs\/list|providers\//.test(call.method),
+			),
+		).toBe(false)
+	},
+)
+
+it('fences Pal deletion after an unconfirmed conversation removal until removal is retried', async () => {
+	const { owner, pal } = fixture()
+	const opened = await owner.openPal(pal.id)
+	const conversation = await owner.newConversation(opened.project.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/conversations/archive') return { sessionId: conversation.id }
+	}
+	await expect(owner.removeConversation(conversation.id)).rejects.toThrow('not confirmed')
+	await expect(owner.deletePal(pal.id, pal.revision)).rejects.toThrow('settings change')
+	expect(transport.calls.some((call) => /computer\/stop$|pals\/delete$/.test(call.method))).toBe(
+		false,
+	)
+	transport.requestHook = undefined
+	await owner.removeConversation(conversation.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
+	}
+	await expect(owner.deletePal(pal.id, pal.revision)).resolves.toEqual({
+		id: pal.id,
+		deleted: true,
+	})
+})
+
+it.each([true, false])(
+	'does not resurrect an unopened Recent from delayed history after removal (confirmed: %s)',
+	async (confirmed) => {
+		const { owner, pal, workspace } = fixture()
+		const id = 'cold-retirement'
+		transport.claims.set(workspace, [id])
+		const opened = await owner.openPal(pal.id)
+		const entered = deferred()
+		const release = deferred()
+		transport.requestHook = async (_cwd, method) => {
+			if (method === 'namzu/conversations/history') {
+				entered.resolve()
+				await release.promise
+				return { messages: [{ role: 'assistant', text: 'Historical answer' }], partial: false }
+			}
+			if (method === 'namzu/conversations/archive' && !confirmed) return { sessionId: id }
+		}
+		const opening = owner.openConversation(opened.project.id, id)
+		const rejection = expect(opening).rejects.toThrow(confirmed ? 'no longer' : 'removal to finish')
+		await entered.promise
+		if (confirmed) await owner.removeConversation(id)
+		else await expect(owner.removeConversation(id)).rejects.toThrow('not confirmed')
+		release.resolve()
+		await rejection
+		expect(() => owner.draft(id)).toThrow('Open this conversation')
+		const requests = transport.calls.filter(
+			(call) => call.method === 'namzu/conversations/history',
+		).length
+		await expect(owner.openConversation(opened.project.id, id)).rejects.toThrow(
+			confirmed ? 'no longer' : 'removal to finish',
+		)
+		expect(
+			transport.calls.filter((call) => call.method === 'namzu/conversations/history'),
+		).toHaveLength(requests)
+	},
+)

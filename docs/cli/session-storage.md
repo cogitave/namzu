@@ -16,6 +16,16 @@ The CLI and the SDK share one layout under the application home, `~/.namzu`
 becomes a path segment. [Project and session state](project-state.md) says how
 a working directory picks its project; this page says what is on disk.
 
+An owned Pal keeps the exact workspace spelling from its approved profile in
+conversation ownership and journal headers. On Windows, asynchronous native
+path resolution can return different letter casing for that same directory.
+The CLI accepts that difference only after checking the prepared project and
+the current profile against the original directory's device, inode and birth
+time, rejecting symbolic links, replacement and deletion during preparation.
+The project document, id and slug retain their canonical identity; ordinary
+project scopes are unchanged. Existing Pal profiles and journals are not
+rewritten.
+
 ```text
 ~/.namzu/
 ├── config.yaml, credentials.json, preferences.json, trust.json, cli.json, plugin-settings/
@@ -106,6 +116,28 @@ cannot start another turn. The CLI refuses to archive a conversation with an
 open turn, including one paused for a decision. Archiving and restoring each
 hold that conversation's writer lease, so concurrent operations cannot both
 publish a change from the same state.
+
+The desktop host exposes `namzu/conversations/archive` with exactly one
+`sessionId`. It uses the same scoped journal and writer checks, also refusing
+running or unresolved background work. A durable success returns
+`{ sessionId, archived: true }`; retrying an already archived conversation
+still checks its writer lease. This removes the conversation from the active
+list without deleting its history, files, or child sessions.
+
+An owned native engine can retain its writer after a turn finishes. The desktop
+host closes only that exact idle connection before strict archival, checking
+the captured home, project, tenant and execution directory first. Its archive
+reservation prevents another prompt or engine/model change until the operation
+settles. A waiting turn, unresolved native state or background work refuses this
+cleanup; a failed close retains its owner and writer for retry. Embedded runtimes
+without this optional reservation keep the existing strict writer gate.
+
+When the selected project's strict journal is physically absent, the endpoint
+returns `{ sessionId, archived: false, missing: true }`. This is evidence of
+absence in that captured home and project, not an archive or authorization to
+remove another conversation. A host may use it only to discard its own known,
+never-prompted local projection after checking any runtime alias. Present
+foreign, corrupt, and open-turn journals fail instead of returning this receipt.
 
 Older Namzu versions could archive a conversation whose turn was still open.
 Restoring that conversation is permitted; its turn remains paused or

@@ -1,10 +1,10 @@
 .normal-transcript {
-	--transcript-entry-duration: 150ms;
-	--transcript-phase-duration: 300ms;
-	--transcript-frame-duration: 200ms;
+	--transcript-entry-duration: 120ms;
+	--transcript-phase-duration: 120ms;
+	--transcript-frame-duration: 160ms;
 	--transcript-entry-ease: ease-out;
-	--transcript-phase-ease: cubic-bezier(0.19, 1, 0.22, 1);
-	--transcript-frame-ease: ease-out;
+	--transcript-phase-ease: ease-out;
+	--transcript-frame-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 .normal-transcript .message {
 	/* Stored history and tab selection are immediate. Live entries use their admission effects. */
@@ -17,14 +17,37 @@
 .normal-transcript .transcript-phase-text {
 	grid-area: 1 / 1;
 }
-.normal-transcript [data-transcript-phase-outgoing] {
-	pointer-events: none;
-	opacity: 0;
+.normal-transcript .working-label,
+.normal-transcript .tool.active .tool-label {
+	background: none;
+	color: var(--muted-foreground);
+	animation: none;
+}
+.normal-transcript .working::before {
+	content: "";
+	width: 5px;
+	height: 5px;
+	flex: none;
+	border-radius: 50%;
+	background: currentColor;
+	animation: transcript-status-breathe 1.8s ease-in-out infinite;
+}
+.normal-transcript .working.waiting::before {
+	animation: none;
 }
 .normal-transcript [data-slot="collapsible-panel"] {
 	transition-duration: var(--transcript-frame-duration);
+	transition-timing-function: var(--transcript-frame-ease);
+}
+@keyframes transcript-status-breathe {
+	50% {
+		opacity: 0.5;
+	}
 }
 @media (prefers-reduced-motion: reduce) {
+	.normal-transcript .working::before {
+		animation: none;
+	}
 	.normal-transcript [data-slot="collapsible-panel"],
 	.normal-transcript .disclosure-chevron {
 		transition: none;

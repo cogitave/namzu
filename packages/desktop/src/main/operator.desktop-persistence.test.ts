@@ -2,13 +2,16 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import type { DesktopEvent } from '../shared/protocol.js'
 import { DesktopConversationStore } from './desktop-conversation-store.js'
 import { Operator } from './operator.js'
+import { RuntimeClient } from './rpc-client.js'
 
 const owners: Operator[] = []
 const directories: string[] = []
 afterEach(async () => {
+	vi.restoreAllMocks()
 	await Promise.all(owners.splice(0).map((owner) => owner.close()))
 	await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
@@ -196,6 +199,7 @@ it.each(['empty', 'missing'])(
 	async (mode) => {
 		const root = await directory()
 		const log = join(root, 'requests.ndjson')
+		const events: DesktopEvent[] = []
 		let resolveEnded: (() => void) | undefined
 		const ended = new Promise<void>((resolve) => {
 			resolveEnded = resolve
@@ -212,6 +216,7 @@ it.each(['empty', 'missing'])(
 				},
 			},
 			(event) => {
+				events.push(event)
 				if (event.kind === 'state' && !event.running) resolveEnded?.()
 			},
 			root,
@@ -222,6 +227,16 @@ it.each(['empty', 'missing'])(
 		before.send(view.id, 'Reject turn with fixture')
 		await ended
 		expect(before.draft(view.id)).toBe('Reject turn with fixture')
+		expect(
+			events.filter((event) => event.kind === 'state' && event.restoredDraft !== undefined),
+		).toEqual([
+			expect.objectContaining({
+				kind: 'state',
+				sessionId: view.id,
+				running: false,
+				restoredDraft: 'Reject turn with fixture',
+			}),
+		])
 		await before.close()
 		owners.splice(owners.indexOf(before), 1)
 		const after = operator(root, log)
@@ -233,6 +248,65 @@ it.each(['empty', 'missing'])(
 		expect(calls.filter((item) => item.method === 'session/load')).toEqual([])
 		expect(calls.filter((item) => item.method === 'session/prompt')).toHaveLength(1)
 		expect(calls.filter((item) => item.method === 'session/new')).toHaveLength(2)
+	},
+)
+
+it.each(['Newer authored request', '', 'Reject turn with fixture'])(
+	'preserves a newer authored draft %j and publishes no stale recovery after first-prompt refusal',
+	async (nextDraft) => {
+		const root = await directory()
+		const events: DesktopEvent[] = []
+		let resolveEntered!: () => void
+		const entered = new Promise<void>((resolve) => {
+			resolveEntered = resolve
+		})
+		let resolveRelease!: () => void
+		const release = new Promise<void>((resolve) => {
+			resolveRelease = resolve
+		})
+		let resolveEnded!: () => void
+		const ended = new Promise<void>((resolve) => {
+			resolveEnded = resolve
+		})
+		const owner = new Operator(
+			{
+				program: process.execPath,
+				args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
+				env: { ...process.env, FIXTURE_HISTORY_MODE: 'empty' },
+			},
+			(event) => {
+				events.push(event)
+				if (event.kind === 'state' && !event.running) resolveEnded()
+			},
+			root,
+		)
+		owners.push(owner)
+		const project = await owner.openProject(process.cwd())
+		const view = await owner.newConversation(project.id)
+		const request = RuntimeClient.prototype.request
+		vi.spyOn(RuntimeClient.prototype, 'request').mockImplementation(async function (
+			this: RuntimeClient,
+			method,
+			params,
+			timeout,
+		) {
+			if (method === 'session/prompt') {
+				resolveEntered()
+				await release
+			}
+			return await request.call(this, method, params, timeout)
+		})
+		owner.saveDraft(view.id, 'Reject turn with fixture')
+		owner.send(view.id, 'Reject turn with fixture')
+		await entered
+		owner.saveDraft(view.id, nextDraft)
+		resolveRelease()
+		await ended
+		expect(owner.draft(view.id)).toBe(nextDraft)
+		expect(
+			events.filter((event) => event.kind === 'state' && event.restoredDraft !== undefined),
+		).toEqual([])
+		expect(new DesktopConversationStore(root).read()?.conversations[0]?.draft).toBe(nextDraft)
 	},
 )
 

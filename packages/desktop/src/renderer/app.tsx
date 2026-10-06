@@ -1,5 +1,5 @@
 import { MessageSquare, Minus } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
@@ -43,6 +43,7 @@ import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
+import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import { compareConversationRecency } from './conversation-order.js'
 import { type ConversationPalWorkspace, ConversationTabs } from './conversation-tabs.js'
 import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
@@ -58,6 +59,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
+import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-cache.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
@@ -97,6 +99,9 @@ import { readWorkspacePresentation, writeWorkspacePresentation } from './workspa
 import { WorkspaceSessionCache } from './workspace-session-cache.js'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+function omitRecords<T>(records: Record<string, T>, ids: ReadonlySet<string>): Record<string, T> {
+	return Object.fromEntries(Object.entries(records).filter(([id]) => !ids.has(id)))
+}
 function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 'close' }) {
 	const Component = {
 		folder: FolderIcon,
@@ -145,6 +150,14 @@ export function App({
 	const createdSessions = useRef(new Set<string>())
 	for (const id of group.tabs) createdSessions.current.delete(id)
 	const operations = useRef(new Set<Promise<unknown>>())
+	const removedPals = useRef(new Set<string>())
+	const removedProjects = useRef(new Set<string>())
+	const removedConversations = useRef(new Set<string>())
+	const [removedCatalogue, setRemovedCatalogue] = useState(() => ({
+		pals: new Set<string>(),
+		projects: new Set<string>(),
+		conversations: new Set<string>(),
+	}))
 	const facade = useRef<ReturnType<typeof createWorkspacePaneApi> | null>(null)
 	if (!facade.current)
 		facade.current = createWorkspacePaneApi(window.namzu, {
@@ -191,13 +204,20 @@ export function App({
 	const openingHistory = useRef<number | null>(null)
 	const writePresentation = useRef<() => void>(() => {})
 
-	const [pals, setPals] = useState<PalView[]>([])
+	const [palRecords, setPals] = useState<PalView[]>([])
+	const pals = useMemo(
+		() => palRecords.filter((item) => !removedCatalogue.pals.has(item.id)),
+		[palRecords, removedCatalogue],
+	)
 	const [palsLoading, setPalsLoading] = useState(true)
 	const [palsError, setPalsError] = useState('')
 	const [palsSaving, setPalsSaving] = useState(false)
 	const [palsPage, setPalsPage] = useState(false)
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
+	const [deletingPal, setDeletingPal] = useState<PalView>()
+	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
+	const removalTrigger = useRef<HTMLElement | null>(null)
 	const [communicationOwner, setCommunicationOwner] = useState<{
 		palId: string
 		sessionId: string
@@ -269,9 +289,28 @@ export function App({
 	}, [retireComputerPendingInput])
 	const [inputBusy, setInputBusy] = useState(false)
 	const previousNormalProject = useRef<string | undefined>(undefined)
-	const [projects, setProjects] = useState<ProjectView[]>([])
+	const [projectRecords, setProjects] = useState<ProjectView[]>([])
+	const projects = useMemo(
+		() =>
+			projectRecords.filter(
+				(item) =>
+					!removedCatalogue.projects.has(item.id) &&
+					(!item.palId || !removedCatalogue.pals.has(item.palId)),
+			),
+		[projectRecords, removedCatalogue],
+	)
 	const [projectId, setProjectId] = useState('')
-	const [conversations, setConversations] = useState<ConversationView[]>([])
+	const [conversationRecords, setConversations] = useState<ConversationView[]>([])
+	const conversations = useMemo(
+		() =>
+			conversationRecords.filter(
+				(item) =>
+					!removedCatalogue.conversations.has(item.id) &&
+					!removedCatalogue.projects.has(item.projectId) &&
+					(!item.palId || !removedCatalogue.pals.has(item.palId)),
+			),
+		[conversationRecords, removedCatalogue],
+	)
 	const catalogueRows = useRef({ projects, conversations })
 	catalogueRows.current = { projects, conversations }
 	const palCatalogueActivity = useRef(new PalCatalogueActivity())
@@ -348,6 +387,18 @@ export function App({
 	threadsRef.current = threads
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
 	const draftsRef = useRef<Record<string, string>>({})
+	const draftEditRevisions = useRef(new Map<string, number>())
+	const draftAdmissions = useRef(
+		new Map<
+			string,
+			{
+				prompt: string
+				editRevision: number
+				restored: boolean
+				started: boolean
+			}
+		>(),
+	)
 	const navigation = useRef(0)
 	const snapshotRead = useRef<{
 		generation: number
@@ -838,6 +889,7 @@ export function App({
 	}
 	const retryConversationSetup = async () => {
 		if (!project || !project.trusted || project.status !== 'ready' || harnessBusy) return
+		invalidateModelCatalogueDisplayCache(window.namzu, project.id)
 		const owner = providerKey
 		const epoch = ++providerGeneration.current
 		const harnessEpoch = ++harnessGeneration.current
@@ -883,8 +935,89 @@ export function App({
 		}
 		return api.onEvent((event: DesktopEvent) => {
 			if (event.kind === 'workspace') return
+			if (event.kind === 'pal-deleted') {
+				removedPals.current.add(event.palId)
+				const ids = new Set(event.sessionIds)
+				const projectIds = new Set(event.projectIds)
+				for (const item of catalogueRows.current.projects)
+					if (item.palId === event.palId) projectIds.add(item.id)
+				for (const item of catalogueRows.current.conversations)
+					if (item.palId === event.palId || projectIds.has(item.projectId)) ids.add(item.id)
+				for (const id of projectIds) {
+					removedProjects.current.add(id)
+					warmSessions.current.invalidateProject(id)
+					invalidateModelCatalogueDisplayCache(window.namzu, id)
+				}
+				for (const id of ids) {
+					removedConversations.current.add(id)
+					loadedHistory.current.delete(id)
+					warmSessions.current.forget(id)
+					createdSessions.current.delete(id)
+					draftEditRevisions.current.delete(id)
+					draftAdmissions.current.delete(id)
+				}
+				setRemovedCatalogue({
+					pals: new Set(removedPals.current),
+					projects: new Set(removedProjects.current),
+					conversations: new Set(removedConversations.current),
+				})
+				setPals((all) => all.filter((item) => item.id !== event.palId))
+				setProjects((all) => all.filter((item) => !projectIds.has(item.id)))
+				setConversations((all) => all.filter((item) => !ids.has(item.id)))
+				setThreads((all) => omitRecords(all, ids))
+				setDrafts((all) => omitRecords(all, ids))
+				draftsRef.current = omitRecords(draftsRef.current, ids)
+				setEditingPal((value) => (value?.id === event.palId ? undefined : value))
+				setDeletingPal((value) => (value?.id === event.palId ? undefined : value))
+				setCommunicationOwner((value) => (value?.palId === event.palId ? undefined : value))
+				setPalScreen((value) => (value?.palId === event.palId ? undefined : value))
+				setPalComputers((all) => omitRecords(all, new Set([event.palId])))
+				setPalScreens((all) => omitRecords(all, new Set([event.palId])))
+				if (ids.has(activeSession.current)) {
+					navigation.current++
+					snapshotRead.current = null
+					invalidateComputerInput()
+					setSessionId('')
+					setProjectId('')
+					setHistoryDisplay(null)
+				}
+				return
+			}
+			if (event.kind === 'conversation-removed') {
+				const id = event.sessionId
+				const ids = new Set([id])
+				removedConversations.current.add(id)
+				setRemovedCatalogue({
+					pals: new Set(removedPals.current),
+					projects: new Set(removedProjects.current),
+					conversations: new Set(removedConversations.current),
+				})
+				loadedHistory.current.delete(id)
+				warmSessions.current.forget(id)
+				createdSessions.current.delete(id)
+				draftEditRevisions.current.delete(id)
+				draftAdmissions.current.delete(id)
+				setConversations((all) => all.filter((item) => item.id !== id))
+				setThreads((all) => omitRecords(all, ids))
+				setDrafts((all) => omitRecords(all, ids))
+				draftsRef.current = omitRecords(draftsRef.current, ids)
+				setRemovingConversation((value) => (value?.id === id ? undefined : value))
+				if (
+					snapshotRead.current?.sessionId === id ||
+					openFlights.current.get(id)?.generation === navigation.current
+				)
+					navigation.current++
+				if (activeSession.current === id) {
+					navigation.current++
+					snapshotRead.current = null
+					setSessionId('')
+					setHistoryDisplay(null)
+				}
+				return
+			}
 			if (event.kind === 'connection') {
 				warmSessions.current.invalidateProject(event.project.id)
+				invalidateModelCatalogueDisplayCache(window.namzu, event.project.id)
 				if (event.project.palId) palCatalogueActivity.current.changed(event.project.palId)
 				for (const [id, owner] of loadedHistory.current)
 					if (owner.projectId === event.project.id) loadedHistory.current.delete(id)
@@ -903,6 +1036,31 @@ export function App({
 				return
 			}
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
+			if (removedConversations.current.has(id)) return
+			if (event.kind === 'state') {
+				const admission = draftAdmissions.current.get(id)
+				if (admission && event.running) admission.started = true
+				if (event.restoredDraft !== undefined) {
+					const restoredDraft = event.restoredDraft
+					if (admission) admission.restored = true
+					const editRevision = draftEditRevisions.current.get(id) ?? 0
+					const currentDraft = draftsRef.current[id] ?? ''
+					if (
+						(admission
+							? admission.prompt === restoredDraft && admission.editRevision === editRevision
+							: editRevision === 0) &&
+						(!currentDraft || currentDraft === restoredDraft)
+					) {
+						draftsRef.current[id] = restoredDraft
+						setDrafts((all) => ({ ...all, [id]: restoredDraft }))
+					}
+				}
+				if (
+					!event.running &&
+					(admission?.started || event.error || event.restoredDraft !== undefined)
+				)
+					draftAdmissions.current.delete(id)
+			}
 			if (event.kind === 'prompt' || event.kind === 'update' || event.kind === 'retry') {
 				const rows = catalogueRows.current
 				const owner =
@@ -954,7 +1112,7 @@ export function App({
 					),
 				)
 		})
-	}, [updateProject, attached.reload, api])
+	}, [updateProject, attached.reload, api, invalidateComputerInput])
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch
@@ -1223,6 +1381,7 @@ export function App({
 			finishMutation = warmSessions.current.beginMutation(target)
 			setMetadataEpoch((epoch) => epoch + 1)
 			const view = await api.selectHarness(target, engine)
+			invalidateModelCatalogueDisplayCache(window.namzu, sourceProject.id)
 			setConversations((all) =>
 				all.map((item) => (item.id === target ? { ...item, harness: view.selected } : item)),
 			)
@@ -1362,6 +1521,8 @@ export function App({
 			collection: ConversationCollection = 'projects',
 			restoring = false,
 		) => {
+			if (removedConversations.current.has(view.id) || removedProjects.current.has(view.projectId))
+				return Promise.resolve()
 			const flight = openFlights.current.get(view.id)
 			if (flight?.generation === navigation.current) return flight.promise
 			const generation = ++navigation.current
@@ -1797,6 +1958,31 @@ export function App({
 		if (value) setDraftPalModel(value.model)
 		setPalsError('')
 	}
+	const requestPalDeletion = (value: PalView) => {
+		if (context.current.frozen || palsSaving || !api.deletePal) return
+		removalTrigger.current =
+			document.activeElement instanceof HTMLElement ? document.activeElement : null
+		setDeletingPal(value)
+	}
+	const requestConversationRemoval = (value: ConversationView, trigger: HTMLElement | null) => {
+		if (context.current.frozen || value.palId || !api.removeConversation) return
+		removalTrigger.current = trigger
+		setRemovingConversation(value)
+	}
+	const removalReturnFocus = () =>
+		removalTrigger.current?.isConnected
+			? removalTrigger.current
+			: document.querySelector<HTMLElement>('.sidebar-new-conversation')
+	const confirmedRemoval = async (action: () => Promise<unknown>) => {
+		if (context.current.frozen) throw new Error('Wait for this conversation to finish moving.')
+		const pending = Promise.resolve().then(action)
+		operations.current.add(pending)
+		try {
+			await pending
+		} finally {
+			operations.current.delete(pending)
+		}
+	}
 	const openPal = async (value: PalView) => {
 		const remembered = warmPalConversation(
 			value.id,
@@ -1828,6 +2014,7 @@ export function App({
 		try {
 			const activity = palCatalogueActivity.current.ticket(value.id)
 			const opened = await api.openPal(value.id)
+			if (removedPals.current.has(value.id)) throw new Error('This Pal has been deleted.')
 			palCatalogueActivity.current.confirm(value.id, activity)
 			upsertPal(opened.pal)
 			updateProject(opened.project)
@@ -2456,6 +2643,7 @@ export function App({
 	}
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
+		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
 		draftsRef.current[target] = value
 		setDrafts((all) => ({ ...all, [target]: value }))
 		void api.saveDraft(target, value).catch((failure) => setError(errorText(failure)))
@@ -2533,12 +2721,15 @@ export function App({
 		const route = { ...choice }
 		const generation = navigation.current
 		let target = sessionId
+		let targetEditRevision = draftEditRevisions.current.get(owner) ?? 0
+		let submitted = false
 		sendingRef.current.add(owner)
 		setSending((all) => ({ ...all, [owner]: true }))
 		try {
 			if (!target) {
 				const view = await api.newConversation(project.id)
 				target = view.id
+				targetEditRevision = draftEditRevisions.current.get(target) ?? 0
 				setConversations((all) => [view, ...all])
 				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
 				// The created conversation owns retries, even if route selection fails.
@@ -2574,18 +2765,31 @@ export function App({
 			}
 			// Preserve the actual route even when it came from a provider default.
 			await savedSettings.save(target, { choice: route, options: settings })
+			const admission = {
+				prompt,
+				editRevision: targetEditRevision,
+				restored: false,
+				started: false,
+			}
+			if (!thread.running) draftAdmissions.current.set(target, admission)
 			if (!thread.running) await api.selectProvider(target, route.provider, route.model)
 			await api.send(target, prompt, options)
+			submitted = true
 			attached.consume(target, attachmentIds)
 			// A fast failure may settle before this admission reply arrives. Read main's
 			// draft after consumption as well as on settlement, so retry files stay visible.
 			void attached.reload(target).catch((failure) => setError(errorText(failure)))
-			if (draftsRef.current[target] === prompt) {
+			if (
+				draftsRef.current[target] === prompt &&
+				!admission.restored &&
+				admission.editRevision === (draftEditRevisions.current.get(target) ?? 0)
+			) {
 				draftsRef.current[target] = ''
 				setDrafts((all) => ({ ...all, [target]: '' }))
 			}
 			if (activeSession.current === target) follow.current = true
 		} finally {
+			if (!submitted) draftAdmissions.current.delete(target)
 			sendingRef.current.delete(owner)
 			sendingRef.current.delete(target)
 			setSending((all) => ({ ...all, [owner]: false, [target]: false }))
@@ -2732,6 +2936,7 @@ export function App({
 					chatOpen: computerChat !== 'hidden',
 					floating: computerChat === 'floating',
 					onRename: () => showPalEditor(pal),
+					onDelete: api.deletePal ? () => requestPalDeletion(pal) : undefined,
 					onPause: palContextProps?.onPause,
 					onReboot:
 						palComputer?.status === 'ready' && !pal.paused && api.rebootPalComputer
@@ -2787,6 +2992,7 @@ export function App({
 			tabs={normalTabs}
 			active={group.activeTabId || sessionId}
 			busy={loading || harnessBusy || frozen}
+			onRemove={api.removeConversation ? requestConversationRemoval : undefined}
 			palNames={Object.fromEntries(pals.map((item) => [item.id, item.name]))}
 			palWorkspace={palTabs}
 			running={(id) => threads[id]?.running ?? false}
@@ -2840,8 +3046,46 @@ export function App({
 									setEditingPal(undefined)
 								}}
 								onSave={savePal}
+								onDelete={api.deletePal ? requestPalDeletion : undefined}
 								loadProviders={api.palProviders}
 								loadModels={api.palModels}
+							/>
+						)}
+						{deletingPal && (
+							<ConfirmRemovalDialog
+								key={`delete-pal:${deletingPal.id}:${deletingPal.revision}`}
+								title={`Delete ${deletingPal.name}?`}
+								description="This will stop the computer and remove your Pal from Namzu. Its saved conversations and files will stay on this computer. This does not erase its stored data."
+								actionLabel="Delete Pal"
+								onClose={() => setDeletingPal(undefined)}
+								returnFocus={removalReturnFocus}
+								onConfirm={() =>
+									confirmedRemoval(async () => {
+										if (!api.deletePal) throw new Error('Pal deletion is unavailable.')
+										const result = await api.deletePal(deletingPal.id, deletingPal.revision)
+										if (result.id !== deletingPal.id || result.deleted !== true)
+											throw new Error('Pal deletion was not confirmed. Try again.')
+									})
+								}
+							/>
+						)}
+						{removingConversation && (
+							<ConfirmRemovalDialog
+								key={`remove-conversation:${removingConversation.id}`}
+								title="Delete conversation?"
+								description="This will remove this conversation from Namzu’s lists and close its tabs. Saved history is archived, and project files are kept."
+								actionLabel="Delete conversation"
+								onClose={() => setRemovingConversation(undefined)}
+								returnFocus={removalReturnFocus}
+								onConfirm={() =>
+									confirmedRemoval(async () => {
+										if (!api.removeConversation)
+											throw new Error('Conversation removal is unavailable.')
+										const result = await api.removeConversation(removingConversation.id)
+										if (result.sessionId !== removingConversation.id || result.removed !== true)
+											throw new Error('Conversation removal was not confirmed. Try again.')
+									})
+								}
 							/>
 						)}
 
@@ -2913,6 +3157,7 @@ export function App({
 							projectId={palsPage ? '' : projectId}
 							sessionId={palsPage ? '' : sessionId}
 							conversationCollection={conversationCollection}
+							onRemoveConversation={api.removeConversation ? requestConversationRemoval : undefined}
 							threads={threads}
 							open={railSection !== 'plugins' && sideOpen}
 							collapsed={sideCollapsed}

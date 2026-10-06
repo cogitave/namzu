@@ -318,6 +318,12 @@
 .model-picker-heading-copy .model-picker-title {
 	flex: none;
 }
+.model-picker-heading-actions {
+	display: flex;
+	align-items: center;
+	flex: none;
+	gap: 2px;
+}
 .model-search {
 	display: flex;
 	align-items: center;

@@ -138,6 +138,16 @@ export function ComputerWorkspaceComputerTab({
 		<div
 			className={`computer-workspace-tab computer-workspace-computer-tab${shared ? ' conversation-tab' : ''}`}
 			data-active={activeTab === 'computer'}
+			onPointerDownCapture={(event) => {
+				if (
+					event.button !== 1 ||
+					!(event.target instanceof Element) ||
+					!event.target.closest('.computer-workspace-tab-label')
+				)
+					return
+				event.preventDefault()
+				event.stopPropagation()
+			}}
 		>
 			<Tabs.Tab
 				id={ids.computerTab}
@@ -145,6 +155,12 @@ export function ComputerWorkspaceComputerTab({
 				aria-controls={ids.computerPanel}
 				aria-label={`${palName}’s computer`}
 				disabled={disabled || !onOpenComputer}
+				onAuxClick={(event) => {
+					if (event.button !== 1 || disabled || !onCloseComputer) return
+					event.preventDefault()
+					event.stopPropagation()
+					onCloseComputer()
+				}}
 				render={<Button variant="ghost" size="sm" className="computer-workspace-tab-label" />}
 			>
 				<MonitorIcon /> <span title={`${palName}’s computer`}>{palName}’s computer</span>
