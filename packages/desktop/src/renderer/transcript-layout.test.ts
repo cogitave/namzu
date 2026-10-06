@@ -72,6 +72,13 @@ it('does not move an early final part across later tool events or invent work in
 		{ role: 'assistant', text: 'Early answer', phase: 'final_answer' },
 		{ role: 'assistant', text: 'Updated answer' },
 	]
+	thread.tools['1:tool'] = {
+		kind: 'tool_call',
+		toolCallId: 'tool',
+		title: 'Read document',
+		status: 'completed',
+		view: { kind: 'terminal', output: 'Actual document' },
+	}
 	thread.timeline = [
 		{ kind: 'message', index: 0, turn: 1 },
 		{ kind: 'message', index: 1, turn: 1 },
@@ -111,4 +118,65 @@ it('does not label failed or interrupted command groups as completed work', () =
 	expect(toolGroupLabel([tool, { ...tool, status: 'failed' }], false)).toBe('Commands · failed')
 	expect(toolGroupLabel([tool, { ...tool, status: 'pending' }], true)).toBe('Running commands')
 	expect(toolGroupLabel([tool, tool], false)).toBe('Ran commands')
+})
+
+it('classifies actual stop metadata without promising unsupported recovery or blaming the user', () => {
+	expect(terminalNotice('stop_condition')).toBeUndefined()
+	for (const reason of ['cancelled', 'canceled', 'aborted'])
+		expect(terminalNotice(reason)).toBe('Stopped.')
+	for (const reason of ['paused', 'timeout'])
+		expect(terminalNotice(reason)).not.toMatch(/continue|retry/i)
+	expect(terminalNotice('step_refused')).toContain('execution policy')
+	expect(terminalNotice('step_refused')).not.toContain('approved')
+	expect(terminalNotice('cost_unmeasurable')).toContain('could not be measured')
+	expect(terminalNotice('answer_rejected')).toContain('response')
+	expect(terminalNotice('plan_rejected')).toContain('plan')
+	expect(terminalNotice('max_iterations')).toContain('turn limit')
+})
+
+it('does not infer command execution from terminal-shaped generic output', () => {
+	const output = {
+		kind: 'tool_call' as const,
+		toolCallId: 'read',
+		title: 'Read document',
+		status: 'completed' as const,
+		view: { kind: 'terminal' as const, output: 'Document contents' },
+	}
+	expect(toolGroupLabel([output, output], false, ['completed', 'completed'])).toBe(
+		'Actions completed',
+	)
+	expect(
+		toolGroupLabel([output, { ...output, status: 'pending' }], true, ['completed', 'waiting']),
+	).toBe('Actions · 1 completed, 1 waiting for approval')
+})
+
+it('keeps a real answer visible when later commentary or reasoning has no public content', () => {
+	let thread = applyEvent(emptyThread(), { kind: 'prompt', sessionId: 's', prompt: 'Check' })
+	for (const update of [
+		{
+			kind: 'agent_message' as const,
+			status: 'completed' as const,
+			messageId: 'final',
+			content: 'A real final reply',
+			textParts: [{ id: 'final-part', phase: 'final_answer' as const, text: 'A real final reply' }],
+			stopReason: 'end_turn' as const,
+		},
+		{
+			kind: 'agent_message_chunk' as const,
+			messageId: 'empty-update',
+			text: '\n  ',
+			phase: 'commentary' as const,
+		},
+		{ kind: 'agent_thought_chunk' as const, text: ' \n\t' },
+	])
+		thread = applyEvent(thread, { kind: 'update', sessionId: 's', projectId: 'p', update })
+	const before = structuredClone(thread)
+	const [turn] = transcriptTurns(thread)
+	expect(turn?.activity).toEqual([])
+	expect(
+		turn?.answer.map((entry) =>
+			entry.kind === 'message' ? thread.messages[entry.index]?.text : entry.kind,
+		),
+	).toEqual(['A real final reply'])
+	expect(thread).toEqual(before)
 })

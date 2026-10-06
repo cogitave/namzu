@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import { AttachmentList } from './attachment-list.js'
-import { ChevronRightIcon, FileDiffIcon, TerminalIcon, WrenchIcon } from './icons.js'
+import { ChevronRightIcon, FileDiffIcon, TerminalIcon } from './icons.js'
 import { Message, MessageContent } from './message.js'
-import { ToolView } from './tool-view.js'
+import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
+import { ToolTranscriptRow } from './tool-transcript-row.js'
 import {
 	elapsedLabel,
 	terminalNotice,
@@ -20,60 +21,6 @@ import {
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import './transcript-motion.css'
 
-function ToolRow({
-	tool,
-	active,
-	onOpenChange,
-}: {
-	tool: ThreadState['tools'][string]
-	active: boolean
-	onOpenChange?: (open: boolean) => void
-}) {
-	const Icon =
-		tool.view.kind === 'terminal'
-			? TerminalIcon
-			: tool.view.kind === 'diff'
-				? FileDiffIcon
-				: WrenchIcon
-	const label =
-		tool.view.kind === 'terminal'
-			? `${tool.status === 'pending' ? (active ? 'Running' : 'Interrupted') : 'Ran'} ${tool.view.command || tool.title}`
-			: tool.view.kind === 'diff'
-				? `${tool.status === 'pending' ? (active ? 'Editing' : 'Interrupted edit of') : tool.status === 'failed' ? 'Failed edit of' : 'Edited'} ${tool.view.path || tool.title}`
-				: tool.view.label
-	return (
-		<Collapsible
-			className={`tool ${tool.status} ${active ? 'active' : ''}`}
-			data-tool-call-id={tool.toolCallId}
-			onOpenChange={onOpenChange}
-		>
-			<CollapsibleTrigger className="tool-trigger" title={label}>
-				<Icon className="tool-icon" aria-hidden="true" />
-				<span className="tool-label">{label}</span>
-				{tool.status === 'failed' ? (
-					<span className="tool-status">Failed</span>
-				) : tool.status === 'pending' && !active ? (
-					<span className="tool-status">Interrupted</span>
-				) : tool.durationMs !== undefined ? (
-					<span className="tool-status">{elapsedLabel(tool.durationMs)}</span>
-				) : null}
-				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
-			</CollapsibleTrigger>
-			<CollapsiblePanel>
-				<ToolView view={tool.view} />
-				{tool.progress && (
-					<output className="tool-progress">
-						{tool.progress.message}
-						{tool.progress.fraction !== undefined && (
-							<progress value={tool.progress.fraction} max={1} />
-						)}
-					</output>
-				)}
-			</CollapsiblePanel>
-		</Collapsible>
-	)
-}
-
 function Entry({
 	entry,
 	thread,
@@ -87,37 +34,35 @@ function Entry({
 				data-timeline-turn={entry.turn}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
 			>
-				<ToolRow
-					tool={tool}
-					active={thread.activeToolIds.includes(entry.id)}
-					onOpenChange={onToolOpenChange}
-				/>
+				<ToolTranscriptRow thread={thread} id={entry.id} onOpenChange={onToolOpenChange} />
 			</div>
 		) : null
 	}
 	if (entry.kind === 'reasoning') {
 		const thought = thread.reasoning[entry.id]
 		// A redacted block can drive Thinking, but cannot invent a public body.
-		return thought?.text ? (
+		return thought?.text.trim() ? (
 			<div
 				className="reasoning"
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
 			>
+				<span className="transcript-content-label">Reasoning</span>
 				<MessageContent text={thought.text} markdown />
 			</div>
 		) : null
 	}
 	const message = thread.messages[entry.index]
-	return message?.text || message?.attachments?.length ? (
+	return message?.text.trim() || message?.attachments?.length ? (
 		<Message
 			from={message.role}
-			className={`message ${message.role}`}
+			className={`message ${message.role}${message.phase === 'commentary' ? ' commentary' : ''}`}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
 			data-transcript-entry-key={transcriptEntryKey(entry)}
 		>
+			{message.phase === 'commentary' && <span className="transcript-content-label">Update</span>}
 			<MessageContent text={message.text} markdown={message.role === 'assistant'} />
 			{message.attachments && (
 				<div className="mt-2">
@@ -147,9 +92,12 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 	const tools = entries.flatMap((entry) =>
 		entry.kind === 'tool' && thread.tools[entry.id] ? [thread.tools[entry.id]] : [],
 	)
-	const active = entries.some(
-		(entry) => entry.kind === 'tool' && thread.activeToolIds.includes(entry.id),
-	)
+	const states = entries.flatMap((entry) => {
+		const presentation =
+			entry.kind === 'tool' ? toolTranscriptPresentation(thread, entry.id) : undefined
+		return presentation ? [presentation.state] : []
+	})
+	const active = states.some((state) => state === 'running' || state === 'waiting')
 	const Icon = tools.some((tool) => tool.view.kind === 'diff') ? FileDiffIcon : TerminalIcon
 	return (
 		<Collapsible
@@ -160,7 +108,7 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 			{multiple && (
 				<CollapsibleTrigger className="tool-trigger">
 					<Icon className="tool-icon" aria-hidden="true" />
-					<span className="tool-label">{toolGroupLabel(tools, active)}</span>
+					<span className="tool-label">{toolGroupLabel(tools, active, states)}</span>
 					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 				</CollapsibleTrigger>
 			)}
@@ -217,9 +165,9 @@ function ActivityEntries({ entries, thread }: { entries: TimelineEntry[]; thread
 function hasPublicActivity(entries: TimelineEntry[], thread: ThreadState): boolean {
 	return entries.some((entry) => {
 		if (entry.kind === 'tool') return Boolean(thread.tools[entry.id])
-		if (entry.kind === 'reasoning') return Boolean(thread.reasoning[entry.id]?.text)
+		if (entry.kind === 'reasoning') return Boolean(thread.reasoning[entry.id]?.text.trim())
 		const message = thread.messages[entry.index]
-		return Boolean(message?.text || message?.attachments?.length)
+		return Boolean(message?.text.trim() || message?.attachments?.length)
 	})
 }
 

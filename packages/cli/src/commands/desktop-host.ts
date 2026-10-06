@@ -3,10 +3,13 @@ import { lstat } from 'node:fs/promises'
 import {
 	type AcpSessionPromptParams,
 	type AcpSessionPromptResult,
+	type AssistantMessage,
 	DiskTaskStore,
 	type PalComputerInput,
+	type SessionRecord,
 	asSessionId,
 	isEntityId,
+	selectAssistantText,
 } from '@namzu/sdk'
 import {
 	type CliSessionScope,
@@ -14,6 +17,7 @@ import {
 	closeSessions,
 	listRecent,
 	loadConversation,
+	loadConversationSnapshot,
 	openSessionScope,
 	openSessions,
 	readConversationFacts,
@@ -54,6 +58,63 @@ function session(params: Record<string, unknown>): string {
 	const value = text(params, 'sessionId')
 	if (!isEntityId(value, 'session')) throw new Error('Invalid conversation id.')
 	return value
+}
+
+/** Preserve only a phase proved by the selected, unchanged public text. */
+function storedAssistantPhase(
+	message: AssistantMessage,
+): 'commentary' | 'final_answer' | undefined {
+	const parts = message.textParts
+	if (!parts?.length || typeof message.content !== 'string') return undefined
+	if (selectAssistantText(parts) !== message.content) return undefined
+	const finals = parts.filter((part) => part.phase === 'final_answer')
+	const selected = finals.length ? finals : parts
+	const phase = selected[0]?.phase
+	return phase && selected.every((part) => part.phase === phase) ? phase : undefined
+}
+
+/** Only a durable completion for this exact, unchanged Pal reply can hide it. */
+function cancelledPalReplies(records: readonly SessionRecord[]): ReadonlyMap<string, string> {
+	const messages = new Map<string, { turnId: string; seq: number; ambiguous: boolean }>()
+	const completions = new Map<
+		string,
+		{ turnId: string; seq: number; stopReason: string; content?: string }
+	>()
+	const replacements = new Map<string, number>()
+	for (const record of records) {
+		if (record.type === 'message' && record.role === 'assistant') {
+			const previous = messages.get(record.messageId)
+			messages.set(record.messageId, {
+				turnId: record.turnId,
+				seq: record.seq,
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.type === 'message_completed') {
+			completions.set(record.messageId, {
+				turnId: record.turnId,
+				seq: record.seq,
+				stopReason: record.stopReason,
+				...(record.content === undefined ? {} : { content: record.content }),
+			})
+		} else if (record.type === 'message_replaced') {
+			replacements.set(record.targetMessageId, record.seq)
+		}
+	}
+	const cancelled = new Map<string, string>()
+	for (const [id, completion] of completions) {
+		const message = messages.get(id)
+		if (
+			completion.stopReason === 'cancelled' &&
+			typeof completion.content === 'string' &&
+			message &&
+			!message.ambiguous &&
+			message.turnId === completion.turnId &&
+			message.seq < completion.seq &&
+			(replacements.get(id) ?? 0) < completion.seq
+		)
+			cancelled.set(id, completion.content)
+	}
+	return cancelled
 }
 
 export function createDesktopHostExtensions(
@@ -292,18 +353,25 @@ export function createDesktopHostExtensions(
 		'namzu/conversations/history': async (params: Record<string, unknown>) => {
 			return withReadScope(async (state) => {
 				const id = await ownedSessionIn(params, state)
-				const messages = await loadConversation(state, asSessionId(id))
 				const ownedPal = Boolean(palAtWorkspace(cwd, state.root))
+				const palSnapshot = ownedPal
+					? await loadConversationSnapshot(state, asSessionId(id))
+					: undefined
+				const messages = palSnapshot?.messages ?? (await loadConversation(state, asSessionId(id)))
+				const cancelled = palSnapshot && cancelledPalReplies(palSnapshot.records)
 				const shown = messages.flatMap<{
 					role: 'user' | 'assistant'
 					content: string | null
+					phase?: 'commentary' | 'final_answer'
 				}>((message) => {
 					if (message.role === 'assistant') {
 						if (!ownedPal) {
 							// A tool-only assistant has no public message body or media.
 							if (message.content === null && message.toolCalls?.length) return []
-							return [{ role: message.role, content: message.content }]
+							const phase = storedAssistantPhase(message)
+							return [{ role: message.role, content: message.content, ...(phase ? { phase } : {}) }]
 						}
+						if (message.id && cancelled?.get(message.id) === message.content) return []
 						const content = palPublicAssistantText(message)
 						return content === undefined ? [] : [{ role: message.role, content }]
 					}
@@ -315,7 +383,11 @@ export function createDesktopHostExtensions(
 				})
 				let remaining = 200_000
 				let partial = false
-				const rows: { role: 'user' | 'assistant'; text: string }[] = []
+				const rows: {
+					role: 'user' | 'assistant'
+					text: string
+					phase?: 'commentary' | 'final_answer'
+				}[] = []
 				for (const message of shown.slice(-200).reverse()) {
 					if (remaining <= 0) break
 					const content = typeof message.content === 'string' ? message.content : '[Media message]'
@@ -325,6 +397,7 @@ export function createDesktopHostExtensions(
 					rows.unshift({
 						role: message.role as 'user' | 'assistant',
 						text: value,
+						...(message.phase ? { phase: message.phase } : {}),
 					})
 				}
 				return {

@@ -679,8 +679,19 @@ export async function loadConversation(
 	s: ConversationReadContext,
 	sessionId: SessionId,
 ): Promise<Message[]> {
+	return (await loadConversationSnapshot(s, sessionId)).messages
+}
+
+/** Read one admitted journal snapshot with its folded history for display projections. */
+export async function loadConversationSnapshot(
+	s: ConversationReadContext,
+	sessionId: SessionId,
+): Promise<{ messages: Message[]; records: readonly SessionRecord[] }> {
 	const facts = await requireConversationInScope(s, sessionId, 'load conversation history')
-	return await foldConversation(s, sessionId, facts.records)
+	return {
+		messages: await foldConversation(s, sessionId, facts.records),
+		records: facts.records,
+	}
 }
 
 /**

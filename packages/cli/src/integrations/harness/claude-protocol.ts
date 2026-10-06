@@ -403,7 +403,7 @@ export class ClaudeTurnProjection {
 						.filter((block) => block.type === 'text')
 						.map((block) => block.text)
 						.join(''),
-					cancelled ? 'cancelled' : 'end_turn',
+					cancelled || failed ? 'cancelled' : 'end_turn',
 				)
 		}
 		for (const [id, tool] of this.tools) {

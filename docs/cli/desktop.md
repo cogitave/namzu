@@ -1107,6 +1107,45 @@ phase metadata retain their admitted order without invented commentary labels.
 An authoritative completion replaces its streamed partial text, including an
 explicit empty result that withdraws rejected output.
 
+Public commentary carries an **Update** label and admitted readable reasoning
+carries **Reasoning** inside work details; the final answer stays outside that
+disclosure. Whitespace-only entries do not hide a substantive trailing answer.
+Restored commentary keeps its phase only when unchanged selected journal text
+proves it. A cold history with no completion metadata says **Work details**,
+without inventing a successful outcome or elapsed duration.
+
+Action rows distinguish Running, Waiting for approval, Completed, Failed,
+Cancelled and Interrupted using the exact call's admitted state. An approval
+for one call does not relabel its siblings. Cancelled confirmations are neutral;
+failed command output remains inspectable. Command and file labels require
+actual command/path metadata rather than a terminal-shaped result alone.
+Mixed groups retain waiting and unsuccessful states in their heading.
+The initial action caption survives a successful hidden receipt; redundant
+single-line result text does not create an empty or duplicate disclosure.
+Distinct output, diffs and progress retain their actual content. Empty pending
+output says **No output yet**, while settled rows describe the actual outcome.
+
+An interrupted assistant lifecycle is not a delivered Pal reply. Live Pal chat
+and cold history exclude explicitly cancelled partial messages, retaining
+genuinely completed earlier replies and the durable journal. The
+[content browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-content-browser-proof-20261007.json)
+checks real renderer disclosures, content boundaries, keyboard access, themes,
+narrow layout and Pal delivery with isolated events and no model requests.
+
+The [native preservation audit](../../research/runtime-desktop-20260930/artifacts/transcript-content-native-preservation-20261007.json)
+checks the Windows update's 634 renderer files and three changed CLI modules;
+the installed SDK remains unchanged. The original exact-state activation receipt
+remains failed because four restored assistant messages gained source-backed
+commentary/final phases. The separate audit proves those four additions from
+strict, ordered journal projection and preserves all 22 displayed message bodies,
+drafts, model choices and other protected state. Journal hashes are observed
+after activation; this does not establish a before/after journal byte comparison.
+A separate native process/window observation confirms the updated window remained
+open after the read-only browser connection closed. This update makes no model
+or computer request. The [verification summary](../../research/runtime-desktop-20260930/artifacts/transcript-content-verification-20261007.json)
+records workspace checks, affected builds and the renderer tests; it does not
+claim the remaining release gates passed.
+
 New admitted transcript entries fade from 65% opacity over 120ms without moving
 the text. A phase change retains one readable label and a 120ms opacity effect;
 there is no outgoing label or moving text gradient. A small status dot indicates
@@ -1140,6 +1179,12 @@ the native host admits the prompt response as the missing end once. A streamed
 end followed by its response does not create a second completion. Pending
 reviews are cleared; authored queued messages remain available after a stopped
 turn.
+
+A successful configured `stop_condition` does not produce an incomplete-work
+notice. Execution policy refusal is separate from an operator decision;
+unmeasurable cost, answer review and plan review have their own explanations.
+Pause/stop/timeout notices do not promise recovery. Only the authoritative
+recovery controls below decide whether a turn can be retried or resumed.
 
 Checkpointed provider faults retain their failure explanation in the live
 transcript's error alert even when the compatibility stop category is

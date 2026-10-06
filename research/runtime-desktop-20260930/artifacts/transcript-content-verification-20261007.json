@@ -1,0 +1,162 @@
+{
+  "date": "2026-10-07",
+  "scope": "Transcript public content, cold history and interrupted delivery",
+  "sourceBase": "815433f50",
+  "verification": {
+    "workspaceTypecheck": {
+      "command": "pnpm typecheck",
+      "exitCode": 0
+    },
+    "workspaceLint": {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "existingWarningsRetained": true
+    },
+    "workspaceTests": {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "packagesWithTestSummary": 21,
+      "passed": 19978,
+      "skipped": 116,
+      "packages": [
+        {
+          "package": "packages/files",
+          "passed": 48,
+          "skipped": 11
+        },
+        {
+          "package": "packages/sdk",
+          "passed": 10461,
+          "skipped": 0
+        },
+        {
+          "package": "packages/computer-use",
+          "passed": 165,
+          "skipped": 0
+        },
+        {
+          "package": "packages/browser",
+          "passed": 133,
+          "skipped": 42
+        },
+        {
+          "package": "packages/desktop",
+          "passed": 752,
+          "skipped": 0
+        },
+        {
+          "package": "packages/ag-ui",
+          "passed": 189,
+          "skipped": 0
+        },
+        {
+          "package": "packages/live",
+          "passed": 25,
+          "skipped": 0
+        },
+        {
+          "package": "packages/lsp",
+          "passed": 27,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/anthropic",
+          "passed": 259,
+          "skipped": 44
+        },
+        {
+          "package": "packages/providers/bedrock",
+          "passed": 127,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/google",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/deepseek",
+          "passed": 44,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/http",
+          "passed": 83,
+          "skipped": 10
+        },
+        {
+          "package": "packages/providers/lmstudio",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/ollama",
+          "passed": 36,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/openrouter",
+          "passed": 80,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/zen",
+          "passed": 261,
+          "skipped": 0
+        },
+        {
+          "package": "packages/providers/openai",
+          "passed": 129,
+          "skipped": 0
+        },
+        {
+          "package": "packages/telemetry",
+          "passed": 33,
+          "skipped": 0
+        },
+        {
+          "package": "packages/sandbox",
+          "passed": 1857,
+          "skipped": 3
+        },
+        {
+          "package": "packages/cli",
+          "passed": 5211,
+          "skipped": 6
+        }
+      ],
+      "logSha256": "68458c392169e14cf271846eefbed0873d64c691bcc3d26b80ecf609768735dd"
+    },
+    "desktopTests": {
+      "command": "pnpm --filter @namzu/desktop test",
+      "files": 76,
+      "passed": 752,
+      "exitCode": 0
+    },
+    "affectedBuilds": [
+      {
+        "command": "pnpm --filter @namzu/desktop build",
+        "exitCode": 0
+      },
+      {
+        "command": "pnpm --filter @namzu/cli build",
+        "exitCode": 0
+      }
+    ],
+    "docs": {
+      "command": "pnpm docs:check",
+      "exitCode": 0
+    },
+    "browser": "transcript-content-browser-proof-20261007.json"
+  },
+  "appModelRequests": 0,
+  "computerActions": 0,
+  "publication": {
+    "pushed": false,
+    "released": false
+  },
+  "limitations": [
+    "Native content and deployment verification makes no new provider prompt.",
+    "Remaining release CI gates were not run; no push or release requested."
+  ]
+}

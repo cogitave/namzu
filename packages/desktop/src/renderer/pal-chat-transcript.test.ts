@@ -215,6 +215,41 @@ describe('delivered Pal chat rows', () => {
 		expect(render(thread)).not.toContain('I will call a tool')
 	})
 
+	it.each(['cancelled', 'error'] as const)(
+		'keeps an interrupted partial out of delivered chat after %s settlement',
+		(reason) => {
+			let thread = update(started(), {
+				kind: 'agent_message',
+				status: 'completed',
+				messageId: 'delivered',
+				content: 'A real delivered reply.',
+				stopReason: 'end_turn',
+			})
+			thread = update(thread, {
+				kind: 'agent_message_chunk',
+				messageId: 'partial',
+				text: 'An unfinished reply',
+			})
+			thread = update(thread, {
+				kind: 'agent_message',
+				status: 'completed',
+				messageId: 'partial',
+				content: 'An unfinished reply',
+				stopReason: 'cancelled',
+			})
+			thread = update(thread, { kind: 'turn_ended', stopReason: reason, reason })
+			const before = structuredClone(thread)
+			expect(palChatRows(thread).map(({ message }) => message.text)).toEqual([
+				'Hello',
+				'A real delivered reply.',
+			])
+			expect(render(thread)).not.toContain('An unfinished reply')
+			expect(render(thread)).toContain('A real delivered reply.')
+			expect(thread.messages.at(-1)?.text).toBe('An unfinished reply')
+			expect(thread).toEqual(before)
+		},
+	)
+
 	it('does not move an early completed answer across later work into the chat suffix', () => {
 		let thread = update(started(), {
 			kind: 'agent_message',
@@ -369,8 +404,8 @@ describe('actual Pal chat activity', () => {
 	})
 
 	it.each([
-		['cancelled', 'Stopped. You can continue from here.'],
-		['refused', 'The action was not approved.'],
+		['cancelled', 'Stopped.'],
+		['refused', 'The action was declined.'],
 		['output_guardrail', 'This turn was blocked by a configured guardrail.'],
 	])(
 		'shows the actual %s settlement notice without delivering provisional output',

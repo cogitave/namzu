@@ -1,0 +1,247 @@
+{
+  "schema": "namzu.transcript-content.native-preservation.v1",
+  "at": "2026-10-06T22:26:38.432Z",
+  "passed": true,
+  "readOnly": true,
+  "originalReceiptsRelabelled": false,
+  "effects": {
+    "nativeConnections": 0,
+    "appApiCalls": 0,
+    "processActions": 0,
+    "modelRequests": 0,
+    "computerActions": 0,
+    "packageInstalls": 0,
+    "userStateWrites": 0,
+    "originalReceiptWrites": 0
+  },
+  "phase": "complete",
+  "provenance": {
+    "activation": {
+      "receiptSha256": "fafa4c7af5be725866a7c9fa19e82698fd99cef6345b78a93c4bb3198350954e"
+    },
+    "observer": {
+      "receiptSha256": "e8279162dc9d74f644a1185e99027ef7dce70161df4f3a908a6009f56c998626"
+    },
+    "journals": {
+      "receiptSha256": "245ff672cd644222289044b8f01c732919f8ce4c0e2022ba30e55ab72e8dbcf6"
+    }
+  },
+  "payload": {
+    "desktopFiles": 634,
+    "allDesktopSourceBytesMatch": true,
+    "sourceManifestSha256": "f47b81a988dcdc1b0c22dc09d849878729ef2d6c7d61a0ffaa1548fa718a322b",
+    "cliManifestBeforeSha256": "0768929a71eb6367078f5d414c1f07f809151c539449feae2740e68a19bb0970",
+    "cliManifestAfterSha256": "d6708fa71b6b41f6e3d904b16334689c666a062964458b10949cc7e91ec8bfc1",
+    "sdkManifestSha256": "5b4fc1c058dc025b1f98cf8e19fdeb049d19fe31496c44c4f057c0f1cdb5c1ae",
+    "sdkUnchanged": true,
+    "changedCliModules": [
+      {
+        "file": "commands/desktop-host.js",
+        "beforeSha256": "2f9daf605a919f80512ea399141a03d587b5102a86c8bbdf78081536c60621b7",
+        "afterSha256": "0cfe4b58efa0500e02397fb37926751d7c8e2be0d20149acf7980801aafb8acc"
+      },
+      {
+        "file": "integrations/sessions/store.js",
+        "beforeSha256": "607df548de3c6d5f4f896231f473d3f80160fa88f03310f3692ee7c5d8ba6465",
+        "afterSha256": "a8ae55d57bb4dc7f5e76da516b52efb10b7acc6bdd1bb9e7f0507592867f900e"
+      },
+      {
+        "file": "integrations/harness/claude-protocol.js",
+        "beforeSha256": "b24fa037837b9ffadb4efe490a95c1bc4a33923a881170219402fc1ecea78c86",
+        "afterSha256": "75895f0072b4d66a37243fd39f54cc06501e59dfa863fd35d89519a28c257794"
+      }
+    ],
+    "onlyThreeReviewedCliModulesChanged": true,
+    "allReviewedCliModulesMatchBuild": true,
+    "packageGraphManifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "packageGraphSha256": "960245d5bde908186f6ba39df824692384b9c771c87f6a37abf4b75620ad049b",
+    "dependencyLinks": 225,
+    "sdkUsers": 11,
+    "singleSdkRoot": true
+  },
+  "content": {
+    "sessions": 5,
+    "displayedMessages": 22,
+    "displayedBodyBytes": 5542,
+    "allRolesTextsAndMessageBodiesPreserved": true,
+    "provedPhaseAdditions": [
+      {
+        "sessionOrdinal": 4,
+        "messageOrdinal": 2,
+        "role": "assistant",
+        "phase": "commentary",
+        "orderedDurableProjectionMatches": true,
+        "selectedTextPartsMatchExactly": true,
+        "bodyUnchanged": true
+      },
+      {
+        "sessionOrdinal": 4,
+        "messageOrdinal": 3,
+        "role": "assistant",
+        "phase": "final_answer",
+        "orderedDurableProjectionMatches": true,
+        "selectedTextPartsMatchExactly": true,
+        "bodyUnchanged": true
+      },
+      {
+        "sessionOrdinal": 4,
+        "messageOrdinal": 5,
+        "role": "assistant",
+        "phase": "commentary",
+        "orderedDurableProjectionMatches": true,
+        "selectedTextPartsMatchExactly": true,
+        "bodyUnchanged": true
+      },
+      {
+        "sessionOrdinal": 4,
+        "messageOrdinal": 6,
+        "role": "assistant",
+        "phase": "final_answer",
+        "orderedDurableProjectionMatches": true,
+        "selectedTextPartsMatchExactly": true,
+        "bodyUnchanged": true
+      }
+    ],
+    "strictJournals": [
+      {
+        "sessionOrdinal": 1,
+        "physicallyAbsent": true,
+        "visibleMessages": 0,
+        "noJournalCreated": true
+      },
+      {
+        "sessionOrdinal": 2,
+        "strictChainVerified": true,
+        "tornBytes": 0,
+        "records": 20,
+        "foldedMessages": 4,
+        "displayedMessages": 4,
+        "selectedOwnerMatches": true,
+        "projectedHistoryMatches": true,
+        "sha256": "665a693571a0017fbcbb93231fb1d2caf2276b29894a0ecd5b7ec3ecbd7ced06",
+        "bytes": 15050,
+        "observationBoundary": "post-activation only"
+      },
+      {
+        "sessionOrdinal": 3,
+        "strictChainVerified": true,
+        "tornBytes": 0,
+        "records": 232,
+        "foldedMessages": 21,
+        "displayedMessages": 12,
+        "selectedOwnerMatches": true,
+        "projectedHistoryMatches": true,
+        "sha256": "54573e7209c9477f91664137c20ac1876f3e4ac80bd23486ab80aa5a2b04f7b3",
+        "bytes": 281748,
+        "observationBoundary": "post-activation only"
+      },
+      {
+        "sessionOrdinal": 4,
+        "strictChainVerified": true,
+        "tornBytes": 0,
+        "records": 39,
+        "foldedMessages": 6,
+        "displayedMessages": 6,
+        "selectedOwnerMatches": true,
+        "projectedHistoryMatches": true,
+        "sha256": "2224100f07aa14a6e431593b31d3ee7ecd3bf0e46d0c2597012fe7b005a92221",
+        "bytes": 23939,
+        "observationBoundary": "post-activation only"
+      },
+      {
+        "sessionOrdinal": 5,
+        "strictChainVerified": true,
+        "tornBytes": 0,
+        "records": 1,
+        "foldedMessages": 0,
+        "displayedMessages": 0,
+        "selectedOwnerMatches": true,
+        "projectedHistoryMatches": true,
+        "sha256": "b11bac61a2600a5a614faeda0079ef554b29d64b197739a17e4cc8cd6b8dcfa3",
+        "bytes": 787,
+        "observationBoundary": "post-activation only"
+      }
+    ],
+    "strictChainsVerified": 4,
+    "physicallyAbsentEmptySlots": 1,
+    "projectionCaps": {
+      "messages": 200,
+      "totalCharacters": 200000,
+      "perMessageCharacters": 32000
+    },
+    "nonprotectedProjectionDifference": {
+      "sessionOrdinal": 3,
+      "field": "thread.revision",
+      "classification": "In-memory event ordering counter; excluded by the unchanged original semantic guard.",
+      "source": "packages/desktop/src/shared/projection.ts:applyEvent"
+    },
+    "journalHashesMatchRecordedPostObservation": true,
+    "journalBytesUnchangedAcrossActivationClaimed": false
+  },
+  "protectedState": {
+    "unchangedDomains": [
+      "groups",
+      "catalogues",
+      "profiles",
+      "computers",
+      "projects",
+      "presentation"
+    ],
+    "beforeDigests": {
+      "groups": "caa03755d4560a1e68b09e0a781a53261ee2237422857529ac902f053f488586",
+      "catalogues": "b17466e6c8c4c0e3b86a3217bef1132bbf49b49d7f8b719759b5d77a0cb260e6",
+      "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+      "computers": "253fa5b6a7d2f722ef580b12be08e7c6c973f9ad2f41498b587d20fce6a6652f",
+      "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+      "presentation": "e23fa145bf97499c978a672780eb135849ed09daf726402ba6ebb847a2349eff",
+      "sessions": "b309961dbc475d288efe9c90ab0c794aa606fec209ee1a034e49372d0068b248"
+    },
+    "afterDigests": {
+      "groups": "caa03755d4560a1e68b09e0a781a53261ee2237422857529ac902f053f488586",
+      "catalogues": "b17466e6c8c4c0e3b86a3217bef1132bbf49b49d7f8b719759b5d77a0cb260e6",
+      "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+      "computers": "253fa5b6a7d2f722ef580b12be08e7c6c973f9ad2f41498b587d20fce6a6652f",
+      "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+      "presentation": "e23fa145bf97499c978a672780eb135849ed09daf726402ba6ebb847a2349eff",
+      "sessions": "c396260e503b6b5600d0fc517359da4405ea0e9efb03c2496e671b9fc6a1b693"
+    },
+    "currentObservedDigests": {
+      "groups": "caa03755d4560a1e68b09e0a781a53261ee2237422857529ac902f053f488586",
+      "catalogues": "b17466e6c8c4c0e3b86a3217bef1132bbf49b49d7f8b719759b5d77a0cb260e6",
+      "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+      "computers": "253fa5b6a7d2f722ef580b12be08e7c6c973f9ad2f41498b587d20fce6a6652f",
+      "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+      "presentation": "e23fa145bf97499c978a672780eb135849ed09daf726402ba6ebb847a2349eff",
+      "sessions": "c396260e503b6b5600d0fc517359da4405ea0e9efb03c2496e671b9fc6a1b693"
+    },
+    "exactCurrentObservedStateMatchesApplyAfter": true,
+    "beforeSnapshotSha256": "3c20760de418e43f5eb211819958a907bd913b7516f8abe234ede8648c9eeec3",
+    "afterSnapshotSha256": "b19643187d73abeb5dc90c0741770a4ecfb55e413ce5e8a9d3fbfee67d9c436c",
+    "currentSnapshotSha256": "b19643187d73abeb5dc90c0741770a4ecfb55e413ce5e8a9d3fbfee67d9c436c",
+    "onlySourceProvedPhaseDifference": true
+  },
+  "windowObservation": {
+    "liveWindowObserved": true,
+    "observedAt": "2026-10-06T21:40:18.659Z",
+    "capturedPidMatchesPostJournalObservationAndSavedDesktopPid": true,
+    "exactExecutable": true,
+    "visibleWindowHandleRecorded": true,
+    "source": "Separate root-owned Windows CIM observation; this audit does not query processes."
+  },
+  "originalStrictActivation": {
+    "passed": false,
+    "phase": "verify",
+    "originalReceiptPreserved": true,
+    "classification": "The exact sessions guard rejected four newly restored assistant phase fields. Each addition is separately proved from strict durable textParts; the original false result remains false."
+  },
+  "verifier": {
+    "file": "research/runtime-desktop-20260930/transcript-content-preservation-audit-20261007.mjs",
+    "sha256": "fee0485add3260e8cec126feab18e65ae8ea0120855cec0dea89d2ac7f2c9388",
+    "guardSemanticSourceSha256": "5bdc7edf4320263d1e10464b1754c66151d01d2a0563b697639ef257034a6187",
+    "guardSha256": "f85cd8f55dd95cd76ffdbfc166d15410d383470f7c6fd3296cfb8dee4693e56d",
+    "hostPhaseFunctionSha256": "8c76895bf15d6ba3b9696e92e64fa33cc1b6eecb86fad0eaff5055e70895e576",
+    "sdkFoldSha256": "64ef78e334d2054708b51754b47915c27845c7812b28696bbfa346a4b006445b",
+    "sdkChainSha256": "9b47b97316a5365e8a01a28e827f7f78607deda4b3866732c5c27b327bec4cf4",
+    "sdkTextSelectionSha256": "1612889635e59319f332e7b8845fde104c8427d02a51376e999a43b9b15f84f1"
+  }
+}

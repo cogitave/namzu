@@ -31,7 +31,8 @@ export function palChatRows(thread: ThreadState): PalChatRow[] {
 				(message.phase === 'final_answer' ||
 					!message.messageId ||
 					!finalMessageIds.has(message.messageId)) &&
-				message.stopReason !== 'tool_use'
+				message.stopReason !== 'tool_use' &&
+				message.stopReason !== 'cancelled'
 				? [{ index: entry.index, message }]
 				: []
 		})
@@ -50,7 +51,9 @@ export function palChatRows(thread: ThreadState): PalChatRow[] {
 					settled ||
 					(message.status === undefined && (turn.turn < thread.turn || !thread.running)),
 			),
-		].filter(({ message }) => message.text.length > 0 || Boolean(message.attachments?.length))
+		].filter(
+			({ message }) => message.text.trim().length > 0 || Boolean(message.attachments?.length),
+		)
 	})
 }
 

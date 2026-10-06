@@ -67,7 +67,7 @@ it('keeps exact admitted receipt order and presentation outside public chat', ()
 	for (const row of rows) expect(row.tool).toBe(thread.tools[row.id])
 	expect(rows.map(({ tool }) => tool.toolCallId)).toEqual(['first', 'second'])
 	const html = render(thread)
-	expect(html.indexOf('Read workspace')).toBeLessThan(html.indexOf('Update file'))
+	expect(html.indexOf('Ran pwd')).toBeLessThan(html.indexOf('Edited /guest/workspace/test.txt'))
 	for (const exact of [
 		'/guest/workspace/current',
 		'pwd',
@@ -92,7 +92,7 @@ it('reports actual pending, interrupted and failed action states without claimin
 			view: { kind: 'generic', label: 'Exact presentation' },
 		},
 	)
-	expect(render(thread)).toContain('Working')
+	expect(render(thread)).toContain('Running')
 	const interrupted = { ...thread, activeToolIds: [] }
 	expect(render(interrupted)).toContain('Interrupted')
 	expect(render(interrupted)).not.toContain('Completed')

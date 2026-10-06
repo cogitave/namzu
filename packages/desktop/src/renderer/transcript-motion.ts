@@ -1,6 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
-import { elapsedLabel } from './transcript-layout.js'
+import { elapsedLabel, transcriptOutcome } from './transcript-layout.js'
 
 export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
@@ -34,14 +34,19 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 		timing?.startedAt !== undefined && timing.endedAt !== undefined
 			? elapsedLabel(timing.endedAt - timing.startedAt)
 			: undefined
+	const outcome = transcriptOutcome(reason)
 	const label =
-		reason === 'paused'
-			? 'Paused'
-			: reason === 'cancelled'
-				? 'Stopped'
-				: (reason && reason !== 'end_turn') || (turn === thread.turn && thread.error)
-					? 'Work incomplete'
-					: 'Worked'
+		turn === thread.turn && thread.error
+			? 'Work incomplete'
+			: outcome === 'paused'
+				? 'Paused'
+				: outcome === 'stopped'
+					? 'Stopped'
+					: outcome === 'incomplete'
+						? 'Work incomplete'
+						: outcome === 'completed'
+							? 'Worked'
+							: 'Work details'
 	return duration ? `${label}${label === 'Worked' ? ' for ' : ' · '}${duration}` : label
 }
 
@@ -92,11 +97,11 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 			const entries = thread.timeline.filter((entry) =>
 				entry.kind === 'message'
 					? Boolean(
-							thread.messages[entry.index]?.text ||
+							thread.messages[entry.index]?.text.trim() ||
 								thread.messages[entry.index]?.attachments?.length,
 						)
 					: entry.kind === 'reasoning'
-						? Boolean(thread.reasoning[entry.id]?.text)
+						? Boolean(thread.reasoning[entry.id]?.text.trim())
 						: Boolean(thread.tools[entry.id]),
 			)
 			const keys = entries.map(transcriptEntryKey)

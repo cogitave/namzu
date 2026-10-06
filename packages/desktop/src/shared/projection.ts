@@ -1,4 +1,4 @@
-import type { AcpSessionUpdate, AcpTask } from '@namzu/sdk'
+import type { AcpSessionUpdate, AcpTask, ToolCallView } from '@namzu/sdk'
 import type {
 	ChatMessage,
 	DesktopEvent,
@@ -27,6 +27,10 @@ export interface TurnState {
 	reason?: string
 	result?: string
 }
+export type ProjectedToolCall = Extract<AcpSessionUpdate, { kind: 'tool_call' }> & {
+	/** First admitted call presentation, distinct from the current result view. */
+	readonly callView?: ToolCallView
+}
 export interface ThreadState {
 	revision: number
 	/** Agent-maintained planning records; completion is not a verification receipt. */
@@ -43,7 +47,7 @@ export interface ThreadState {
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
-	tools: Record<string, Extract<AcpSessionUpdate, { kind: 'tool_call' }>>
+	tools: Record<string, ProjectedToolCall>
 	activeToolIds: string[]
 	permissions: PermissionView[]
 	reasoning: Record<string, ReasoningSegment>
@@ -457,10 +461,13 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if (update.kind === 'tool_call') {
 		const toolKey = `${turn}:${update.toolCallId}`
 		const prior = thread.tools[toolKey]
-		const tool =
+		const callView =
+			prior?.callView ?? (!update.progress && update.status === 'pending' ? update.view : undefined)
+		const currentTool =
 			update.progress && prior
 				? { ...prior, ...update, status: prior.status, view: prior.view }
 				: update
+		const tool: ProjectedToolCall = { ...currentTool, callView }
 		const activeToolIds = thread.activeToolIds.filter((id) => id !== toolKey)
 		if (current && thread.running && thread.stopReason === undefined && tool.status === 'pending')
 			activeToolIds.push(toolKey)

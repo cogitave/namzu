@@ -286,3 +286,12 @@ describe('truthful turn labels', () => {
 		expect(livePhaseLabel(thread)).toBeUndefined()
 	})
 })
+
+it('uses a successful configured stop condition but leaves unknown restored work unclassified', () => {
+	const thread = historyThread()
+	expect(turnActivityLabel(thread, 1)).toBe('Work details')
+	thread.turns[1] = { stopReason: 'end_turn', reason: 'stop_condition' }
+	expect(turnActivityLabel(thread, 1)).toBe('Worked')
+	thread.turns[1] = { stopReason: 'cancelled', reason: 'aborted' }
+	expect(turnActivityLabel(thread, 1)).toBe('Stopped')
+})

@@ -29,6 +29,7 @@ import {
 	createToolPresenter,
 	createUserMessage,
 	drainQuery,
+	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
@@ -527,6 +528,260 @@ it('omits tool-only assistant history without truncating text, media placeholder
 		expect(original).toContainEqual(expect.objectContaining(toolOnly))
 		expect(original).toContainEqual(expect.objectContaining(narration))
 		expect(original).toContainEqual(expect.objectContaining({ role: 'tool' }))
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('restores only proven commentary and final phases from a fresh ordinary journal read', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const sessionId = await startConversation(state)
+	const commentary = {
+		...createAssistantMessage('Checking the file.'),
+		textParts: [{ id: 'progress', text: 'Checking the file.', phase: 'commentary' as const }],
+	}
+	const final = {
+		...createAssistantMessage('Ready.'),
+		textParts: [{ id: 'answer', text: 'Ready.', phase: 'final_answer' as const }],
+	}
+	const mixed = {
+		...createAssistantMessage('Selected answer.'),
+		textParts: [
+			{ id: 'mixed-progress', text: 'More work.', phase: 'commentary' as const },
+			{ id: 'mixed-answer', text: 'Selected answer.', phase: 'final_answer' as const },
+		],
+	}
+	const ambiguous = {
+		...createAssistantMessage('Commentary.\n\nUnphased.'),
+		textParts: [
+			{ id: 'ambiguous-progress', text: 'Commentary.', phase: 'commentary' as const },
+			{ id: 'ambiguous-other', text: 'Unphased.' },
+		],
+	}
+	const revised = {
+		...createAssistantMessage('Revised answer.'),
+		textParts: [{ id: 'old-answer', text: 'Old answer.', phase: 'final_answer' as const }],
+	}
+	try {
+		await recordTurn(state, sessionId, [
+			createUserMessage('Review the file.'),
+			commentary,
+			final,
+			mixed,
+			createAssistantMessage('Legacy answer.'),
+			ambiguous,
+			revised,
+		])
+		const original = await loadConversation(state, sessionId)
+		const fresh = createDesktopHostExtensions(owner, cwd)
+		expect(await fresh['namzu/conversations/history']({ sessionId })).toEqual({
+			messages: [
+				{ role: 'user', text: 'Review the file.' },
+				{ role: 'assistant', text: 'Checking the file.', phase: 'commentary' },
+				{ role: 'assistant', text: 'Ready.', phase: 'final_answer' },
+				{ role: 'assistant', text: 'Selected answer.', phase: 'final_answer' },
+				{ role: 'assistant', text: 'Legacy answer.' },
+				{ role: 'assistant', text: 'Commentary.\n\nUnphased.' },
+				{ role: 'assistant', text: 'Revised answer.' },
+			],
+			partial: false,
+		})
+		expect(await loadConversation(state, sessionId)).toEqual(original)
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('keeps the Pal history filter unchanged while ordinary phase metadata is available', async () => {
+	const pal = createPal({ name: 'Private commentary fixture' })
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const state = await openSessions(pal.workspace)
+	try {
+		await recordTurn(state, sessionId, [
+			createUserMessage('Report the result.'),
+			{
+				...createAssistantMessage('Private progress.'),
+				textParts: [{ id: 'progress', text: 'Private progress.', phase: 'commentary' }],
+			},
+			{
+				...createAssistantMessage('Public result.'),
+				textParts: [
+					{ id: 'more-progress', text: 'More private progress.', phase: 'commentary' },
+					{ id: 'answer', text: 'Public result.', phase: 'final_answer' },
+				],
+			},
+		])
+		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
+			messages: [
+				{ role: 'user', text: 'Report the result.' },
+				{ role: 'assistant', text: 'Public result.' },
+			],
+			partial: false,
+		})
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('restores completed Pal replies but omits only unchanged, journal-proven cancelled partials', async () => {
+	const pal = createPal({ name: 'Interrupted reply fixture' })
+	const owner = runtime()
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const state = await openSessions(pal.workspace)
+	const log = sessionStorage.openConversationLog(state, sessionId)
+	const lease = await log.claim({ holder: 'test:pal-history', ttlMs: 30_000 })
+	if (!lease) throw new Error('fixture could not lease the Pal journal')
+	const settlement = (
+		status: 'cancelled' | 'failed',
+		resultMessageId: ReturnType<typeof generateMessageId>,
+	) => ({
+		status,
+		iterations: 1,
+		usage: {
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+		durationMs: 1,
+		resultMessageId,
+		resultSource: 'model' as const,
+		abandonedTaskIds: [],
+		abandonedJobIds: [],
+	})
+	const begin = async (prompt: string) => {
+		const turnId = generateTurnId()
+		const userMessageId = generateMessageId()
+		await log.beginTurn(lease, {
+			turnId,
+			userMessageId,
+			config: { model: 'fixture', tokenBudget: 100_000, timeoutMs: 30_000 },
+		})
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId: userMessageId,
+			role: 'user',
+			kind: 'prompt',
+			content: createUserMessage(prompt),
+		})
+		return turnId
+	}
+	const reply = async (
+		turnId: ReturnType<typeof generateTurnId>,
+		content: string,
+		stopReason: 'end_turn' | 'cancelled',
+	) => {
+		const messageId = generateMessageId()
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId,
+			role: 'assistant',
+			content: createAssistantMessage(content),
+		})
+		await log.append(lease, {
+			type: 'message_completed',
+			turnId,
+			iteration: 0,
+			messageId,
+			content,
+			stopReason,
+		})
+		return messageId
+	}
+	try {
+		const interrupted = await begin('First task')
+		await reply(interrupted, 'Completed before interruption.', 'end_turn')
+		const partial = await reply(interrupted, 'Unfinished partial.', 'cancelled')
+		await log.append(lease, {
+			type: 'turn_completed',
+			turnId: interrupted,
+			result: 'Unfinished partial.',
+			stopReason: 'cancelled',
+			settlement: settlement('cancelled', partial),
+		})
+
+		const failed = await begin('Second task')
+		const retained = await reply(failed, 'Completed before failure.', 'end_turn')
+		await log.append(lease, {
+			type: 'turn_failed',
+			turnId: failed,
+			error: 'Native turn failed.',
+			settlement: settlement('failed', retained),
+		})
+
+		const failedPartial = await begin('Failed partial task')
+		const failedPartialId = await reply(failedPartial, 'Failed partial.', 'cancelled')
+		await log.append(lease, {
+			type: 'turn_failed',
+			turnId: failedPartial,
+			error: 'Native turn failed.',
+			settlement: settlement('failed', failedPartialId),
+		})
+
+		const revised = await begin('Third task')
+		const revisedId = await reply(revised, 'Original partial.', 'cancelled')
+		await log.append(lease, {
+			type: 'turn_failed',
+			turnId: revised,
+			error: 'Native turn failed.',
+			settlement: settlement('failed', revisedId),
+		})
+		await log.append(lease, {
+			type: 'message_replaced',
+			targetMessageId: revisedId,
+			content: createAssistantMessage('Revised delivered answer.'),
+			reason: 'history-repair',
+		})
+	} finally {
+		await log.release(lease)
+	}
+	try {
+		await recordTurn(
+			state,
+			sessionId,
+			[createUserMessage('Legacy task'), createAssistantMessage('Legacy partial.')],
+			{ status: 'failed' },
+		)
+		const original = await loadConversation(state, sessionId)
+		expect(
+			original.filter((message) => message.role === 'assistant').map((message) => message.content),
+		).toEqual([
+			'Completed before interruption.',
+			'Unfinished partial.',
+			'Completed before failure.',
+			'Failed partial.',
+			'Revised delivered answer.',
+			'Legacy partial.',
+		])
+		const fresh = createDesktopHostExtensions(owner, pal.workspace)
+		expect(await fresh['namzu/conversations/history']({ sessionId })).toEqual({
+			messages: [
+				{ role: 'user', text: 'First task' },
+				{ role: 'assistant', text: 'Completed before interruption.' },
+				{ role: 'user', text: 'Second task' },
+				{ role: 'assistant', text: 'Completed before failure.' },
+				{ role: 'user', text: 'Failed partial task' },
+				{ role: 'user', text: 'Third task' },
+				{ role: 'assistant', text: 'Revised delivered answer.' },
+				{ role: 'user', text: 'Legacy task' },
+				{ role: 'assistant', text: 'Legacy partial.' },
+			],
+			partial: false,
+		})
 	} finally {
 		closeSessions(state)
 		await owner.close()

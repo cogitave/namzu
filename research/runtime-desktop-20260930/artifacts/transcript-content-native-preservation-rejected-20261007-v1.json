@@ -1,0 +1,33 @@
+{
+  "schema": "namzu.transcript-content.native-preservation.v1",
+  "at": "2026-10-06T21:43:53.542Z",
+  "passed": false,
+  "readOnly": true,
+  "originalReceiptsRelabelled": false,
+  "effects": {
+    "nativeConnections": 0,
+    "appApiCalls": 0,
+    "processActions": 0,
+    "modelRequests": 0,
+    "computerActions": 0,
+    "packageInstalls": 0,
+    "userStateWrites": 0,
+    "originalReceiptWrites": 0
+  },
+  "phase": "installed-and-source-payloads",
+  "provenance": {
+    "activation": {
+      "receiptSha256": "fafa4c7af5be725866a7c9fa19e82698fd99cef6345b78a93c4bb3198350954e"
+    },
+    "observer": {
+      "receiptSha256": "e8279162dc9d74f644a1185e99027ef7dce70161df4f3a908a6009f56c998626"
+    },
+    "journals": {
+      "receiptSha256": "245ff672cd644222289044b8f01c732919f8ce4c0e2022ba30e55ab72e8dbcf6"
+    }
+  },
+  "failure": {
+    "name": "AssertionError",
+    "stage": "installed-and-source-payloads"
+  }
+}

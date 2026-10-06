@@ -108,6 +108,19 @@ log: the latest compaction's summary, the messages after it, and every
 replacement applied. An answer rewritten by a guardrail or review is shown
 rewritten; the raw text stays in the log for audit only.
 
+Desktop history reads the same folded journal. For an ordinary conversation,
+it retains a commentary or final-answer display phase only when the stored
+public text parts unambiguously carry that phase and still exactly select the
+folded message content. This keeps recorded progress commentary in the work
+details after reopening. An unphased message or a revised message whose parts
+no longer match its selected content has no inferred phase. Pal history keeps
+its separate public-reply filter and omits commentary. A Pal reply whose exact
+folded message still matches a durable `message_completed` event with
+`stopReason: cancelled` is also omitted after reopening. A completed earlier
+reply, a later revision, or a legacy message without that event remains
+visible. These display rows do not change the journal or model replay, and
+cold history does not reconstruct tool receipts or reasoning.
+
 ## Archived conversations
 
 `/archive` asks before archiving the current conversation and exiting. Its

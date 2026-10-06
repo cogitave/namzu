@@ -1,0 +1,67 @@
+{
+  "schema": "namzu.transcript-content.native-preservation.v1",
+  "at": "2026-10-06T21:46:00.302Z",
+  "passed": false,
+  "readOnly": true,
+  "originalReceiptsRelabelled": false,
+  "effects": {
+    "nativeConnections": 0,
+    "appApiCalls": 0,
+    "processActions": 0,
+    "modelRequests": 0,
+    "computerActions": 0,
+    "packageInstalls": 0,
+    "userStateWrites": 0,
+    "originalReceiptWrites": 0
+  },
+  "phase": "strict-journals-and-proved-phase-projection",
+  "provenance": {
+    "activation": {
+      "receiptSha256": "fafa4c7af5be725866a7c9fa19e82698fd99cef6345b78a93c4bb3198350954e"
+    },
+    "observer": {
+      "receiptSha256": "e8279162dc9d74f644a1185e99027ef7dce70161df4f3a908a6009f56c998626"
+    },
+    "journals": {
+      "receiptSha256": "245ff672cd644222289044b8f01c732919f8ce4c0e2022ba30e55ab72e8dbcf6"
+    }
+  },
+  "payload": {
+    "desktopFiles": 634,
+    "allDesktopSourceBytesMatch": true,
+    "sourceManifestSha256": "f47b81a988dcdc1b0c22dc09d849878729ef2d6c7d61a0ffaa1548fa718a322b",
+    "cliManifestBeforeSha256": "0768929a71eb6367078f5d414c1f07f809151c539449feae2740e68a19bb0970",
+    "cliManifestAfterSha256": "d6708fa71b6b41f6e3d904b16334689c666a062964458b10949cc7e91ec8bfc1",
+    "sdkManifestSha256": "5b4fc1c058dc025b1f98cf8e19fdeb049d19fe31496c44c4f057c0f1cdb5c1ae",
+    "sdkUnchanged": true,
+    "changedCliModules": [
+      {
+        "file": "commands/desktop-host.js",
+        "beforeSha256": "2f9daf605a919f80512ea399141a03d587b5102a86c8bbdf78081536c60621b7",
+        "afterSha256": "0cfe4b58efa0500e02397fb37926751d7c8e2be0d20149acf7980801aafb8acc"
+      },
+      {
+        "file": "integrations/sessions/store.js",
+        "beforeSha256": "607df548de3c6d5f4f896231f473d3f80160fa88f03310f3692ee7c5d8ba6465",
+        "afterSha256": "a8ae55d57bb4dc7f5e76da516b52efb10b7acc6bdd1bb9e7f0507592867f900e"
+      },
+      {
+        "file": "integrations/harness/claude-protocol.js",
+        "beforeSha256": "b24fa037837b9ffadb4efe490a95c1bc4a33923a881170219402fc1ecea78c86",
+        "afterSha256": "75895f0072b4d66a37243fd39f54cc06501e59dfa863fd35d89519a28c257794"
+      }
+    ],
+    "onlyThreeReviewedCliModulesChanged": true,
+    "allReviewedCliModulesMatchBuild": true,
+    "packageGraphManifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+    "packageGraphSha256": "960245d5bde908186f6ba39df824692384b9c771c87f6a37abf4b75620ad049b",
+    "dependencyLinks": 225,
+    "sdkUsers": 11,
+    "singleSdkRoot": true
+  },
+  "failure": {
+    "name": "AssertionError",
+    "stage": "strict-journals-and-proved-phase-projection",
+    "verifierLine": 340
+  }
+}

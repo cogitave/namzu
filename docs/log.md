@@ -1,5 +1,13 @@
 # Documentation update log
 
+## 2026-10-07
+
+- **Update** Clarify [desktop transcript content](cli/desktop.md#live-phases): distinguish admitted updates, readable reasoning, action state and final replies; preserve initial action captions, exact failure output and neutral cancellation without duplicate or empty receipts. Keep successful configured stops and unknown restored outcomes truthful. Verify keyboard disclosures, dark/light narrow views, reduced motion and Pal message boundaries in the [isolated renderer proof](../research/runtime-desktop-20260930/artifacts/transcript-content-browser-proof-20261007.json), with no model or computer request.
+
+- **Update** Preserve source-backed commentary/final phases in [stored ordinary conversation history](cli/session-storage.md) and exclude explicitly interrupted Pal partial replies using durable matching completion records. [Claude Code settlement](cli/native-engines.md) closes unfinished failed or cancelled messages as interrupted without relabelling a failed turn or withdrawing a genuinely completed earlier reply. Add CLI patch changesets and real-journal regressions; retain stored source records unchanged.
+
+- **Update** Record the transcript [native preservation audit](../research/runtime-desktop-20260930/artifacts/transcript-content-native-preservation-20261007.json) and [verification summary](../research/runtime-desktop-20260930/artifacts/transcript-content-verification-20261007.json): preserve the original strict activation rejection, separately prove four intended phase additions against ordered durable history, preserve all 22 displayed message bodies and other protected state, and verify the updated Windows window with no new model or computer request. Keep journal hash observations explicitly limited to the post-activation state.
+
 ## 2026-10-06
 
 - **Update** Verify the final Pal reconnect deployment in the [V8 preservation audit](../research/runtime-desktop-20260930/artifacts/pal-conversation-removal-semantic-audit-20261006-v8.json): seven activation pairs, three strict journal reads and exact protected state. CLI/SDK runtime bytes match the preceding native feature run; retain that run's own identities, the failed process-survival observation and the separate successful restoration. A fresh native observation confirms the final updated window is open, without extra model calls.

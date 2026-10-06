@@ -124,6 +124,12 @@ snapshot identity. Full messages replace partial text; two messages with the
 same text keep separate identities. Public thinking text can be shown, while
 signature and redacted replay blocks are omitted.
 
+When a failed or interrupted result closes an unfinished streamed message,
+the message lifecycle uses `stopReason: 'cancelled'` and retains its partial
+text. A failed turn still reports `status: 'failed'` with its existing error;
+this message marker does not report a user cancellation. Earlier messages
+already completed by the engine retain their original stop reason.
+
 A successful result-only frame uses its actual native result UUID as the
 message identity, so final text is retained in the original journal even when
 the engine emits no assistant message frame.

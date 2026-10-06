@@ -15,7 +15,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClaudeHarnessAdapter, discoverClaudeHarnessModels } from './claude-adapter.js'
-import { claudeJson, claudeModels } from './claude-protocol.js'
+import { ClaudeTurnProjection, claudeJson, claudeModels } from './claude-protocol.js'
 import type { HarnessProcessOptions, NativeHarnessCommand } from './process.js'
 
 function deferred<T>() {
@@ -136,6 +136,21 @@ function result(session: string, id = 'result-1', extra: Record<string, unknown>
 		...extra,
 	}
 }
+function partialMessage(session: string, id: string, text: string): Record<string, unknown>[] {
+	return [
+		{ type: 'message_start', message: { id } },
+		{
+			type: 'content_block_start',
+			index: 0,
+			content_block: { type: 'text', text: '' },
+		},
+		{
+			type: 'content_block_delta',
+			index: 0,
+			delta: { type: 'text_delta', text },
+		},
+	].map((event) => ({ type: 'stream_event', session_id: session, event }))
+}
 function request(session: string, id = 'request-1', input = { command: 'echo fixture' }) {
 	return {
 		type: 'control_request',
@@ -149,6 +164,213 @@ function review(): HarnessReviewRequest {
 	if (!event || event.kind !== 'review-requested') throw new Error('Missing fixture review')
 	return event.request
 }
+
+describe('native engine unfinished message settlement', () => {
+	it.each([
+		{
+			label: 'successful',
+			frame: {},
+			status: 'completed',
+			stopReason: 'end_turn',
+		},
+		{
+			label: 'failed success subtype',
+			frame: { is_error: true },
+			status: 'failed',
+			stopReason: 'cancelled',
+		},
+		{
+			label: 'failed error subtype',
+			frame: { subtype: 'error_during_execution' },
+			status: 'failed',
+			stopReason: 'cancelled',
+		},
+		{
+			label: 'interrupted',
+			frame: { subtype: 'error_interrupted', is_error: true },
+			status: 'cancelled',
+			stopReason: 'cancelled',
+		},
+	])(
+		'settles an unfinished $label message without rewriting an earlier completed message',
+		({ frame, status, stopReason }) => {
+			const turn = {
+				nativeSessionId: 'projection-session',
+				nativeTurnId: 'projection-operation',
+				turnIdSource: 'operation' as const,
+			}
+			const projection = new ClaudeTurnProjection(turn, new Set())
+			const completed = projection.consume(assistant(turn.nativeSessionId, 'already-completed'))
+			expect(completed).toContainEqual({
+				...turn,
+				kind: 'message-completed',
+				nativeItemId: 'already-completed',
+				content: 'public response',
+				stopReason: 'end_turn',
+			})
+			for (const item of partialMessage(turn.nativeSessionId, 'unfinished', 'Partial reply'))
+				projection.consume(item)
+			const terminal = projection.consume(result(turn.nativeSessionId, 'terminal', frame))
+			expect(terminal.filter((event) => event.kind === 'message-completed')).toEqual([
+				{
+					...turn,
+					kind: 'message-completed',
+					nativeItemId: 'unfinished',
+					content: 'Partial reply',
+					stopReason,
+				},
+			])
+			expect(terminal.find((event) => event.kind === 'turn-completed')).toMatchObject({ status })
+			if (status === 'failed')
+				expect(terminal.find((event) => event.kind === 'turn-completed')).toMatchObject({
+					error: { code: 'native-turn-failed' },
+				})
+			expect(
+				projection.consume(assistant(turn.nativeSessionId, 'unfinished', 'Late complete reply')),
+			).toEqual([])
+			expect(
+				projection.consume(
+					assistant(turn.nativeSessionId, 'already-completed', 'Late changed reply'),
+				),
+			).toEqual([])
+		},
+	)
+
+	it.each(['failure', 'interrupt'] as const)(
+		'retains partial %s text and refuses late native completion in a later operation',
+		async (kind) => {
+			const connection = await open()
+			try {
+				const turn = await connection.dispatch(prompt())
+				for (const frame of partialMessage(
+					turn.nativeSessionId,
+					'unfinished-message',
+					'Partial reply',
+				))
+					await fixture.emit(frame)
+				if (kind === 'interrupt') {
+					await connection.interrupt(turn)
+					expect(events.some((event) => event.kind === 'turn-completed')).toBe(false)
+				}
+				const terminal = result(turn.nativeSessionId, 'unfinished-result', {
+					is_error: true,
+					subtype: kind === 'interrupt' ? 'error_interrupted' : 'error_during_execution',
+				})
+				await fixture.emit(terminal)
+				expect(events.filter((event) => event.kind === 'message-completed')).toEqual([
+					{
+						...turn,
+						kind: 'message-completed',
+						nativeItemId: 'unfinished-message',
+						content: 'Partial reply',
+						stopReason: 'cancelled',
+					},
+				])
+				expect(events.filter((event) => event.kind === 'turn-completed')).toMatchObject([
+					{ status: kind === 'interrupt' ? 'cancelled' : 'failed' },
+				])
+				const next = await connection.dispatch(prompt('operation-2'))
+				await fixture.emit(
+					assistant(turn.nativeSessionId, 'unfinished-message', 'Late complete reply'),
+				)
+				for (const frame of partialMessage(
+					turn.nativeSessionId,
+					'unfinished-message',
+					'Late streamed reply',
+				))
+					await fixture.emit(frame)
+				await fixture.emit(terminal)
+				expect(events.filter((event) => event.kind === 'message-completed')).toHaveLength(1)
+				expect(events.filter((event) => event.kind === 'turn-completed')).toHaveLength(1)
+				await fixture.emit(assistant(next.nativeSessionId, 'next-message', 'Next complete reply'))
+				await fixture.emit(
+					result(next.nativeSessionId, 'next-result', {
+						result: 'Next complete reply',
+					}),
+				)
+				expect(events.filter((event) => event.kind === 'message-completed').at(-1)).toEqual({
+					...next,
+					kind: 'message-completed',
+					nativeItemId: 'next-message',
+					content: 'Next complete reply',
+					stopReason: 'end_turn',
+				})
+				expect(events.filter((event) => event.kind === 'turn-completed').at(-1)).toMatchObject({
+					status: 'completed',
+				})
+			} finally {
+				await connection.close()
+			}
+		},
+	)
+
+	it('journals unfinished text with cancelled message lifecycle while its native turn remains failed', async () => {
+		const sessionId = generateSessionId()
+		const log = new InMemorySessionLog({ sessionId })
+		const session = createHarnessSession({
+			scope: {
+				sessionId,
+				tenantId: generateTenantId(),
+				projectId: generateProjectId(),
+				topicId: generateTopicId(),
+				cwd,
+			},
+			sessionLog: log,
+			adapter: adapter(),
+			assertAdmission: async () => undefined,
+			onEvent: () => undefined,
+			onReview: () => {
+				throw new Error('This message-only fixture must not request tool approval.')
+			},
+		})
+		const dispatched = deferred<string>()
+		fixture.writeHook = async (frame) => {
+			if (frame.type === 'user') dispatched.resolve(frame.session_id as string)
+		}
+		const pending = session.run({
+			prompt: 'fixture interrupted request',
+			model: 'sonnet',
+			permissionMode: 'prompt',
+		})
+		try {
+			const nativeSessionId = await dispatched.promise
+			for (const frame of partialMessage(
+				nativeSessionId,
+				'unfinished-journal-message',
+				'Partial journal reply',
+			))
+				await fixture.emit(frame)
+			await fixture.emit(
+				result(nativeSessionId, 'failed-journal-result', {
+					is_error: true,
+					api_error_status: 401,
+					result: 'SYNTHETIC_REMOTE_DIAGNOSTIC',
+				}),
+			)
+			expect((await pending).status).toBe('failed')
+			const records = (await log.readAll()).entries.map((entry) => entry.record)
+			expect(records.filter((record) => record.type === 'message_completed')).toMatchObject([
+				{ content: 'Partial journal reply', stopReason: 'cancelled' },
+			])
+			expect(records.filter((record) => record.type === 'turn_failed')).toMatchObject([
+				{ settlement: { status: 'failed' } },
+			])
+			expect(records.filter((record) => record.type === 'turn_completed')).toEqual([])
+			expect(
+				(await session.history()).filter((message) => message.role === 'assistant'),
+			).toMatchObject([{ content: 'Partial journal reply' }])
+			expect(JSON.stringify(records)).not.toContain('SYNTHETIC_REMOTE_DIAGNOSTIC')
+			const beforeLateFrame = (await log.readAll()).entries.length
+			await fixture.emit(
+				assistant(nativeSessionId, 'unfinished-journal-message', 'Late complete journal reply'),
+			)
+			expect((await log.readAll()).entries).toHaveLength(beforeLateFrame)
+		} finally {
+			await session.close()
+			await pending.catch(() => undefined)
+		}
+	})
+})
 
 describe('native engine model discovery', () => {
 	it('uses actual metadata rows and closes its own process without sending a prompt', async () => {

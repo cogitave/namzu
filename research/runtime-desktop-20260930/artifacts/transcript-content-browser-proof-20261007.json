@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "browserOnly": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "nativeActions": 0,
+  "checks": [
+    "Cold commentary stays in keyboard-accessible work details, final reply remains standalone; unknown outcome is not labelled successful.",
+    "One live status; exact waiting action, failed sibling and real output remain distinct; real disclosures support keyboard operation.",
+    "Actual cancelled outcomes are neutral; hidden successful receipts retain captions without empty buttons; normal configured stop is success, whitespace cannot hide the final reply.",
+    "Narrow light view has no transcript/document horizontal overflow; reduced motion has no finite transcript effects.",
+    "Pal keeps its genuinely delivered reply while an explicitly interrupted partial stays undelivered after error; coding details do not enter friend chat."
+  ],
+  "screenshots": [
+    "transcript-content-history-20261007.png",
+    "transcript-content-approval-20261007.png",
+    "transcript-content-failure-output-20261007.png",
+    "transcript-content-settled-20261007.png",
+    "transcript-content-light-narrow-reduced-20261007.png",
+    "transcript-content-pal-delivery-20261007.png"
+  ],
+  "referenceEvidence": "transcript-reference-observations-20261006.json",
+  "limitations": [
+    "Isolated event fixtures; no provider prompt or native computer action.",
+    "Reference live DOM unavailable; no pixel-parity claim."
+  ],
+  "narrow": {
+    "width": 620,
+    "viewport": 720,
+    "documentOverflow": false,
+    "rootOverflow": false,
+    "finiteAnimations": 0
+  },
+  "apiErrors": [],
+  "rendererErrors": []
+}
