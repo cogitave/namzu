@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "result": "passed",
+  "verifiedAt": "2026-10-06T11:01:48.281Z",
+  "platform": "win32",
+  "scope": "Renderer-only update for Pal composer Progress removal in the existing desktop app",
+  "rendererManifestSha256": "b1bf2093e4c7f8c6ba40f9825b8309c7e4d6695dcef6693b2e3a76b157203e1b",
+  "before": {
+    "palTranscriptProgressSummaries": 1,
+    "rightCardProgressSections": 1
+  },
+  "after": {
+    "palTranscriptProgressSummaries": 0,
+    "palPaneProgressSummaries": 0,
+    "rightCardProgressSections": 1,
+    "completedDisclosureVerified": true,
+    "actualCompletedRows": 3,
+    "originalDisclosureRestored": true
+  },
+  "preservation": {
+    "messagesDraftsModelsTasksAttachmentsProfilesWorkspacePreserved": true,
+    "storedPresentationStatePreserved": true,
+    "electronProcessPreserved": true,
+    "cliProcessCountPreserved": 6,
+    "computerGenerationAndControlPreserved": true,
+    "observedComputerControl": "operator",
+    "runtimeSourceFilesAndLaunchConfigPreserved": true,
+    "priorRendererRetainedInBackup": true
+  },
+  "pageErrors": 0,
+  "modelRequests": 0,
+  "guestCalls": 0,
+  "computerControlActions": 0,
+  "runtimeSyncOrProcessRestart": false,
+  "sdkCliSourceFixesActivated": false,
+  "artifacts": [
+    {
+      "file": "pal-progress-no-composer-native-20261006.png",
+      "caption": "Empty Pal composer without the duplicate Progress summary",
+      "sha256": "8f20b07785e2443e3b454d878ce64abb13f557323014ceb5797ae137903a1100",
+      "source": "Native Windows Namzu screenshot crop; no conversation text or private transcript exported"
+    },
+    {
+      "file": "pal-progress-no-composer-native-card-20261006.png",
+      "caption": "Progress heading and completed count retained in the right Pal card",
+      "sha256": "0c07259bfc4f31eb9f46112b4d9989e0f33322bcc3dd08054ce951620fdce0bf",
+      "source": "Native Windows Namzu screenshot crop; no conversation text or private transcript exported"
+    }
+  ],
+  "privacy": "Only the composer and the Progress header/count are exported; no raw messages, session IDs, host identities or private state are included."
+}

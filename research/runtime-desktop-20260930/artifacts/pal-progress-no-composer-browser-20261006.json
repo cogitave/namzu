@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "passed": true,
+  "verifiedAt": "2026-10-06T10:59:30.657Z",
+  "scope": "Synthetic Vite preview only; no live runtime state",
+  "modelRequests": 0,
+  "providerRequests": 0,
+  "computerCalls": 0,
+  "externalRequests": "aborted",
+  "checks": [
+    "Pal transcript has no duplicate task progress in completed, mixed, failed and unavailable states",
+    "Pal card retains named Progress region and keyboard disclosure",
+    "Wide and short viewport retain a single card plan",
+    "Ordinary task summary opens Activity and retains its real fixture plan"
+  ],
+  "measurements": [
+    {
+      "viewport": {
+        "width": 1188,
+        "height": 900
+      },
+      "card": {
+        "x": 872.25,
+        "y": 100,
+        "width": 299.75,
+        "height": 784
+      },
+      "composer": {
+        "x": 356,
+        "y": 836,
+        "width": 488.25,
+        "height": 44
+      },
+      "transcriptSummaries": 0,
+      "cardPlans": 1
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 420
+      },
+      "card": {
+        "x": 768,
+        "y": 100,
+        "width": 240,
+        "height": 304
+      },
+      "composer": {
+        "x": 356,
+        "y": 356,
+        "width": 384,
+        "height": 44
+      },
+      "transcriptSummaries": 0,
+      "cardPlans": 1
+    }
+  ],
+  "faults": [],
+  "sourceSha256": "700688d91d6f0931b794401f46278a35b96d94610bed385b555c84560277fb51",
+  "verificationCommands": [
+    {
+      "command": "pnpm --filter @namzu/desktop typecheck",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop lint",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop test",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm --filter @namzu/desktop build",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0
+    }
+  ],
+  "desktopTestsPassed": 620
+}

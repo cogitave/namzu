@@ -3261,32 +3261,15 @@ export function App({
 											/>
 										</>
 									)}
-									<TasksProgress
-										thread={thread}
-										palName={pal?.name}
-										onOpen={() => {
-											if (pal) {
-												setJobsOpen(false)
-												if (computerPage) setComputerProfileOpen(true)
-												else setPalProfileOpen(true)
-												const target = sessionId
-												requestAnimationFrame(() => {
-													if (activeSession.current !== target) return
-													const tasks = paneRoot.current?.querySelector<HTMLElement>(
-														'.pal-context-card .conversation-tasks',
-													)
-													tasks?.focus({ preventScroll: true })
-													tasks?.scrollIntoView({
-														block: 'nearest',
-														inline: 'nearest',
-													})
-												})
-											} else {
+									{!palConversation && (
+										<TasksProgress
+											thread={thread}
+											onOpen={() => {
 												setPanelTab('jobs')
 												setJobsOpen(true)
-											}
-										}}
-									/>
+											}}
+										/>
+									)}
 									{thread.error && (
 										<p className="inline-error" role="alert">
 											{thread.error}

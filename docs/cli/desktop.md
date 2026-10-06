@@ -257,8 +257,9 @@ A finished plan starts folded;
 its step titles remain available through the keyboard-accessible disclosure.
 Open or failed steps start visible. Dependency labels resolve task subjects;
 failed prerequisites remain visible as needing attention but do not invent an
-unresolved wait after the runtime treats them as terminal. The Progress summary above the
-composer reveals and focuses that list. Saved Pal view preferences that previously
+unresolved wait after the runtime treats them as terminal. Pal progress appears
+only inside the card, without a duplicate summary above the composer, including
+while the profile catalogue loads. Saved Pal view preferences that previously
 opened Activity or Changes restore with those panes closed. The Pal route excludes
 their DOM and layout column even while its profile catalogue loads.
 Recent activity rows are noninteractive summaries; completed file outputs expand
@@ -856,8 +857,9 @@ records this separately from the earlier empty-conversation restoration.
 ### Planning tasks
 
 Namzu conversations retain their existing session planning list in the shared
-conversation projection. In Pal conversations, task progress reveals the Tasks
-section of the existing Pal card; ordinary conversations open Activity.
+conversation projection. In Pal conversations, progress appears inside the
+existing Pal card. Ordinary conversations retain the task summary above the
+composer, which opens Activity.
 Subjects, reported statuses and dependency subjects are shown without raw IDs.
 Planning state is agent-maintained: a completed item does not independently
 verify an artifact. Failed items remain distinct from completed items. The
@@ -869,6 +871,17 @@ folded; active, pending and failed rows start disclosed, with state icons and
 dependency subjects. A failed dependency is terminal rather than an unresolved
 wait, and its failed outcome stays visible. The ordinary Activity task list
 retains its existing presentation.
+
+The [composer-summary removal preview](../../research/runtime-desktop-20260930/artifacts/pal-progress-no-composer-browser-20261006.json)
+verifies a single Pal progress region in the card, no transcript summary for
+completed, mixed, failed or unavailable plans, keyboard disclosure and wide/short
+layouts. Synthetic ordinary tasks still open Activity from their summary. This
+preview uses in-memory fixtures without model or computer actions.
+The [native Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-no-composer-native-20261006.json)
+verifies the renderer-only update: the extra summary changes from one to zero,
+the card retains its three real completed steps and disclosure, and messages,
+drafts, model choices, tasks, computer generation/control and native processes
+remain unchanged. This update does not activate the separately staged SDK/CLI fixes.
 
 **Recent activity** uses plain intent labels and actual execution states.
 For example, `send_pal_message` appears as **Message to another Pal · Sent to
