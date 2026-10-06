@@ -2,6 +2,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { type FileHandle, link, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 
+import { decode, openEvidence, readBytes, stamp } from '../evidence/io.js'
+
 /**
  * Content too large for one record, written beside the log before the record
  * that names it.
@@ -183,7 +185,52 @@ async function durableCreateFile(target: string, content: string): Promise<boole
 /** Where spills are kept. The disk log uses files; the in-memory log a map. */
 export interface SpillStore {
 	write(key: string, content: SpillManifest['content'], text: string): Promise<SpillRef>
-	read(ref: SpillRef): Promise<string>
+	read(ref: SpillRef, options?: SpillReadOptions): Promise<string>
+}
+
+/** Optional bounds for full-body spill reads; omitted limits preserve legacy reads. */
+export interface SpillReadOptions {
+	/** Maximum UTF-8 body bytes. Must be a nonnegative safe integer. */
+	readonly maxBytes?: number
+	/** Stops waiting at I/O boundaries and prevents publication of a cancelled read. */
+	readonly signal?: AbortSignal
+}
+
+function checkedReadLimit(ref: SpillRef, options?: SpillReadOptions): number | undefined {
+	options?.signal?.throwIfAborted()
+	const maxBytes = options?.maxBytes
+	if (maxBytes === undefined) return undefined
+	if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+		throw new RangeError('SpillReadOptions.maxBytes must be a nonnegative safe integer.')
+	}
+	if (!Number.isSafeInteger(ref.bytes) || ref.bytes < 0) {
+		throw new SpillIntegrityError(
+			ref.path,
+			`Spill ${ref.path} has an invalid declared byte length.`,
+		)
+	}
+	if (ref.bytes > maxBytes) {
+		throw new SpillIntegrityError(
+			ref.path,
+			`Spill ${ref.path} declares ${ref.bytes} bytes, exceeding the ${maxBytes}-byte read limit.`,
+		)
+	}
+	return maxBytes
+}
+
+function checkActualReadSize(ref: SpillRef, bytes: number, maxBytes: number): void {
+	if (bytes > maxBytes) {
+		throw new SpillIntegrityError(
+			ref.path,
+			`Spill ${ref.path} is ${bytes} bytes, exceeding the ${maxBytes}-byte read limit.`,
+		)
+	}
+	if (bytes !== ref.bytes) {
+		throw new SpillIntegrityError(
+			ref.path,
+			`Spill ${ref.path} is ${bytes} bytes; its record says ${ref.bytes}.`,
+		)
+	}
 }
 
 function checkRelative(path: string): string {
@@ -262,19 +309,50 @@ export class DiskSpillStore implements SpillStore {
 		return ref
 	}
 
-	async read(ref: SpillRef): Promise<string> {
+	async read(ref: SpillRef, options?: SpillReadOptions): Promise<string> {
+		const maxBytes = checkedReadLimit(ref, options)
 		const path = join(this.sessionDir, checkRelative(ref.path))
 		let text: string
 		try {
-			text = await readFile(path, 'utf8')
+			options?.signal?.throwIfAborted()
+			if (maxBytes === undefined) {
+				text = await readFile(path, { encoding: 'utf8', signal: options?.signal })
+			} else {
+				// Reject links and special files before allocating a body buffer. The
+				// same narrow I/O primitives protect retained evidence readers.
+				const handle = await openEvidence(path)
+				try {
+					options?.signal?.throwIfAborted()
+					const before = await handle.stat()
+					checkActualReadSize(ref, before.size, maxBytes)
+					const bytes = await readBytes(handle, 0, before.size, {
+						bytes: 0,
+						limit: maxBytes,
+						signal: options?.signal,
+					})
+					options?.signal?.throwIfAborted()
+					if (stamp(before) !== stamp(await handle.stat())) {
+						throw new SpillIntegrityError(ref.path, `Spill ${ref.path} changed while reading.`)
+					}
+					options?.signal?.throwIfAborted()
+					text = decode(bytes)
+				} finally {
+					await handle.close()
+				}
+			}
 		} catch (error) {
+			options?.signal?.throwIfAborted()
+			if (error instanceof SpillIntegrityError) throw error
 			throw new SpillIntegrityError(
 				ref.path,
 				`Spill ${ref.path} cannot be read (${(error as NodeJS.ErrnoException).code ?? 'error'}). Refusing rather than folding a message the log cannot vouch for.`,
 				{ cause: error },
 			)
 		}
-		return verify(ref, text)
+		options?.signal?.throwIfAborted()
+		const verified = verify(ref, text)
+		options?.signal?.throwIfAborted()
+		return verified
 	}
 }
 
@@ -301,11 +379,16 @@ export class InMemorySpillStore implements SpillStore {
 		return ref
 	}
 
-	async read(ref: SpillRef): Promise<string> {
+	async read(ref: SpillRef, options?: SpillReadOptions): Promise<string> {
+		const maxBytes = checkedReadLimit(ref, options)
 		const text = this.#files.get(checkRelative(ref.path).split(sep).join('/'))
 		if (text === undefined) {
 			throw new SpillIntegrityError(ref.path, `Spill ${ref.path} does not exist.`)
 		}
-		return verify(ref, text)
+		if (maxBytes !== undefined) checkActualReadSize(ref, Buffer.byteLength(text, 'utf8'), maxBytes)
+		options?.signal?.throwIfAborted()
+		const verified = verify(ref, text)
+		options?.signal?.throwIfAborted()
+		return verified
 	}
 }

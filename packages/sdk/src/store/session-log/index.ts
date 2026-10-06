@@ -83,7 +83,10 @@ export {
 	SPILL_DIR,
 	SpillIntegrityError,
 	type SpillManifest,
+	type SpillReadOptions,
 	type SpillRef,
 	type SpillStore,
 	spillFileName,
 } from './spill.js'
+export { readStructuredOutput, type StructuredResultReadOptions } from './structured-result.js'
+export { STRUCTURED_RESULT_MAX_BYTES } from '../../utils/structured-result-json.js'

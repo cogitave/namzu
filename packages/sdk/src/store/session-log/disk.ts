@@ -133,7 +133,10 @@ export class DiskLogMedium implements LogMedium {
 }
 
 export interface DiskSessionLogOptions
-	extends Pick<SessionLogCoreOptions, 'now' | 'spillAboveBytes' | 'sync'> {
+	extends Pick<
+		SessionLogCoreOptions,
+		'now' | 'spillAboveBytes' | 'structuredResultSpilling' | 'sync'
+	> {
 	readonly sessionId: SessionId
 	/** `<session-id>.jsonl`. */
 	readonly file: string
@@ -168,6 +171,7 @@ export class DiskSessionLog extends SessionLogCore {
 			spills: new DiskSpillStore(options.sessionDir, options.now),
 			now: options.now,
 			spillAboveBytes: options.spillAboveBytes,
+			structuredResultSpilling: options.structuredResultSpilling,
 			sync: options.sync,
 		})
 		this.file = options.file
@@ -184,7 +188,10 @@ export class DiskSessionLog extends SessionLogCore {
 	static at(
 		paths: SessionPaths,
 		locator: SessionLocator,
-		options: Pick<SessionLogCoreOptions, 'now' | 'spillAboveBytes' | 'sync'> = {},
+		options: Pick<
+			SessionLogCoreOptions,
+			'now' | 'spillAboveBytes' | 'structuredResultSpilling' | 'sync'
+		> = {},
 	): DiskSessionLog {
 		return new DiskSessionLog({
 			...options,

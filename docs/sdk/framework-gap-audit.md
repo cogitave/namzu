@@ -257,11 +257,25 @@ Tool mode now offers opt-in `toolResultRetention: 'durable'`: the exact runtime
 output tool retains screened, post-hook JSON independently of its capped preview.
 Verified completions and recovered outcomes preserve that candidate evidence;
 no raw arguments or stale `ToolResult.data` bypass result processing. Default
-receipt settlement is unchanged. The session record ceiling still applies,
+receipt settlement is unchanged. The session record ceiling still applies by default,
 and recovery still obtains a fresh model response rather than accepting a
 pre-crash candidate without its original review snapshot. See
 [structured result retention](structured-output-review.md#retaining-structured-tool-results).
-General typed tool-result artifacts, structured-result spilling, original-review
+The next storage improvement adds opt-in
+[structured-result spilling](structured-output-review.md#spilling-large-structured-results)
+for both the screened completion and accepted terminal JSON. Checked, bounded
+reads preserve exact values without replaying tools or their schema callbacks.
+This follows the large-payload reference approach described in current
+[Pydantic AI Temporal documentation](https://pydantic.dev/docs/ai/capabilities/durable_execution/temporal/#large-payloads)
+and [Temporal's claim-check example](https://docs.temporal.io/ai/cookbook/claim-check-pattern-python),
+reviewed on 6 October 2026 against Pydantic AI release `v2.54.0`
+(3 October) and source `b7588715ce0223cb096c751e846ea5548c2db789`.
+Reusing Namzu's existing spill store is an engineering inference from this
+pattern; no external workflow engine or peer SDK is required. The option has a
+16 MiB JSON body limit and does not promise unlimited storage or original
+review restoration.
+
+General typed tool-result artifacts, original-review
 dispatch recovery, full deferred capability bundles and external workflow-engine
 adapters remain follow-ups.
 These findings establish concrete contracts, not exhaustive parity or a claim

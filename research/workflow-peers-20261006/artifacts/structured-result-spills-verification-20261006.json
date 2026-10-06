@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "workingTreeBasedOn": "be9f8b65f6fd74bbbf92d22af5ef2fb7489e73ce",
+  "verificationStatus": "passed",
+  "scope": "Opt-in structured candidate and accepted-output spills on builtin session logs, bounded verified reading and latest-completion recovery.",
+  "externalModelRequests": 0,
+  "liveRuntimeActivated": false,
+  "livePalActions": 0,
+  "workspaceDependenciesInstalled": false,
+  "newRegressionCases": 72,
+  "primarySources": [
+    {
+      "url": "https://pydantic.dev/docs/ai/capabilities/durable_execution/temporal/#large-payloads",
+      "accessedOn": "2026-10-06",
+      "observation": "Large payloads can be kept in external storage with a reference in history; unavailable stored payloads prevent decoding/replay."
+    },
+    {
+      "url": "https://docs.temporal.io/ai/cookbook/claim-check-pattern-python",
+      "accessedOn": "2026-10-06",
+      "observation": "Keep small payloads inline and resolve large payload references through a checked storage boundary."
+    },
+    {
+      "url": "https://github.com/pydantic/pydantic-ai/releases/tag/v2.54.0",
+      "publishedAt": "2026-10-03T03:21:28Z",
+      "releaseTitleDate": "2026-10-02"
+    },
+    {
+      "url": "https://github.com/pydantic/pydantic-ai/commit/b7588715ce0223cb096c751e846ea5548c2db789",
+      "committedAt": "2026-10-06T13:11:58Z",
+      "revisionKind": "development source, distinct from published release"
+    }
+  ],
+  "engineeringInference": "Reuse Namzu existing append-only log and atomic SpillStore rather than embedding another SDK or workflow engine.",
+  "verifiedContracts": [
+    "Absent/false option preserves inline behavior; small opt-in results stay inline. Legacy record version remains 1.",
+    "Real tool-mode query accepts over 4 MiB screened post-hook JSON from a small raw model input; full reviewer and Turn value coexist with a 100-character provider tool receipt.",
+    "Real native query transforms a small model JSON response asynchronously into over 4 MiB accepted JSON with zero tool calls and no tool retention setting.",
+    "Candidate, final JSON and result text use separate record-scoped checked spill keys; actual on-disk records stay within 4 MiB and reopened logs restore exact bytes/value.",
+    "Original successful direct-call classification is checked before spilling. Contradictory reference/inline values, failure, skip, input failure, nesting, wrong tool and wrong accepted result source are refused.",
+    "Structured bodies are limited to 16 MiB; recovery preflights a 64 MiB aggregate across latest selected references before any read.",
+    "Builtin bounded readers check declared and actual size before allocation, regular files, symlinks, stable metadata, fatal UTF-8, byte length and SHA-256. Chunk-boundary cancellation preserves the actual abort reason and closes handles.",
+    "Custom readers receive the limit and signal; returned byte length, SHA-256 and JSON safety are checked independently. Caller cancellation stops waiting even for an uncooperative custom read.",
+    "Strict recovery verifies the whole log first, hydrates only latest selected completions and ignores overwritten/unselected obsolete bodies. Missing/corrupt/current over-budget outcomes cannot authorize tool or schema replay.",
+    "Cancellation during completion append or review may retain candidate evidence but cannot publish accepted structured output. Completion/terminal storage failure rejects without a false successful terminal record."
+  ],
+  "reviewCorrections": [
+    "Independent review found that final references could accompany completed non-structured result sources. Added structured_output source enforcement, plus small cancelled/incorrect-source opt-in writer refusals and regressions.",
+    "Independent review identified multiplication of 16 MiB spills over 4096 selected calls. Added a 64 MiB aggregate preflight with zero-read and unknown-outcome regression.",
+    "Early scoped typing overlapped with fixture authoring and reported missing resumeHandler, async reviewer typing and previously untyped persisted resultSpill. Fixed fixtures and added the existing optional resultSpill to the persisted TypeScript record view.",
+    "An initial signature audit ran during build and saw 19 packages; final audit after completed build passed 1014 signatures across 20 packages."
+  ],
+  "limits": [
+    "This is opt-in on built-in log constructors; third-party SessionLog implementations do not spill automatically, and public conformance contract version is unchanged.",
+    "The 16 MiB cap counts each UTF-8 JSON body; other record fields still must fit the 4 MiB line ceiling. Bulk recovery uses a separate 64 MiB aggregate bound.",
+    "Raw records preserve references. readStructuredOutput requires a completed record obtained from a verified read; it validates session/record/body but does not walk the hash chain itself.",
+    "A custom backend is trusted to honor its storage contract; returned data are checked, but SDK cannot cap uncooperative backend internal memory/I/O or undo external work.",
+    "Spill body integrity is anchored in record bytes/SHA; manifests are durably written but not reread as an independent authority. Existing unbounded read behavior remains when no maxBytes is supplied.",
+    "Candidate evidence is not acceptance. Resume still requests fresh inference; original review dispatch and general typed tool data artifacts remain separate work.",
+    "Append failures can leave unreferenced spills or reject without a returned Turn or durable failed terminal. Automatic spill garbage collection is not implemented.",
+    "No native Windows runtime activation, paid/live model call, push or publish occurred. This does not claim completion of every release CI gate."
+  ],
+  "checks": [
+    {
+      "command": "pnpm -r build",
+      "exitCode": 0,
+      "privateLogSha256": "344651f258f5944fa3b9931877fc769281a96690168c7d41d810c576b73ce2e3"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "privateLogSha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de"
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "privateLogSha256": "3791b97ba8f5f8af45f2329c6faa7de39071fc34ee410db3db893123fe6580c5"
+    },
+    {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "privateLogSha256": "e22abab870f5afe794bc12798a443f0be521592f8e667dbceb026617496907de"
+    },
+    {
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "privateLogSha256": "a15aa125ab9ae6fc824cdad11ec0e0bf54aa6bec5d66ee7afe7956a6fd5a3ddb"
+    },
+    {
+      "command": "pnpm docs:fences",
+      "exitCode": 0,
+      "privateLogSha256": "de818258944c8f9f3d874a2dadec29518857fe745865b4dcdacb1b1e58e82bc8"
+    },
+    {
+      "command": "node .github/scripts/check-signature-types-exported.mjs",
+      "exitCode": 0,
+      "privateLogSha256": "5c281b8459a3312067354169d0ff8853b4e03c958ab8439c8c1982277ad46015"
+    },
+    {
+      "command": "node scripts/check-log-standard.mjs",
+      "exitCode": 0,
+      "privateLogSha256": "8f191935373c1b7436a5e7ba7159101fac8a6aa6820ab9b54a855c81b4e0b419"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "verifiedAt": "2026-10-06T13:35:55.534076+00:00",
+  "workspaceTests": {
+    "packages": [
+      {
+        "packagePath": "packages/files",
+        "passed": 48,
+        "skipped": 11,
+        "total": 59
+      },
+      {
+        "packagePath": "packages/sdk",
+        "passed": 10452,
+        "skipped": 0,
+        "total": 10452
+      },
+      {
+        "packagePath": "packages/computer-use",
+        "passed": 165,
+        "skipped": 0,
+        "total": 165
+      },
+      {
+        "packagePath": "packages/browser",
+        "passed": 133,
+        "skipped": 42,
+        "total": 175
+      },
+      {
+        "packagePath": "packages/desktop",
+        "passed": 620,
+        "skipped": 0,
+        "total": 620
+      },
+      {
+        "packagePath": "packages/ag-ui",
+        "passed": 189,
+        "skipped": 0,
+        "total": 189
+      },
+      {
+        "packagePath": "packages/lsp",
+        "passed": 27,
+        "skipped": 0,
+        "total": 27
+      },
+      {
+        "packagePath": "packages/live",
+        "passed": 25,
+        "skipped": 0,
+        "total": 25
+      },
+      {
+        "packagePath": "packages/providers/anthropic",
+        "passed": 259,
+        "skipped": 44,
+        "total": 303
+      },
+      {
+        "packagePath": "packages/providers/bedrock",
+        "passed": 127,
+        "skipped": 0,
+        "total": 127
+      },
+      {
+        "packagePath": "packages/providers/deepseek",
+        "passed": 44,
+        "skipped": 0,
+        "total": 44
+      },
+      {
+        "packagePath": "packages/providers/google",
+        "passed": 29,
+        "skipped": 0,
+        "total": 29
+      },
+      {
+        "packagePath": "packages/providers/http",
+        "passed": 83,
+        "skipped": 10,
+        "total": 93
+      },
+      {
+        "packagePath": "packages/providers/lmstudio",
+        "passed": 29,
+        "skipped": 0,
+        "total": 29
+      },
+      {
+        "packagePath": "packages/providers/ollama",
+        "passed": 36,
+        "skipped": 0,
+        "total": 36
+      },
+      {
+        "packagePath": "packages/providers/openrouter",
+        "passed": 80,
+        "skipped": 0,
+        "total": 80
+      },
+      {
+        "packagePath": "packages/providers/zen",
+        "passed": 261,
+        "skipped": 0,
+        "total": 261
+      },
+      {
+        "packagePath": "packages/providers/openai",
+        "passed": 129,
+        "skipped": 0,
+        "total": 129
+      },
+      {
+        "packagePath": "packages/telemetry",
+        "passed": 33,
+        "skipped": 0,
+        "total": 33
+      },
+      {
+        "packagePath": "packages/sandbox",
+        "passed": 1857,
+        "skipped": 3,
+        "total": 1860
+      },
+      {
+        "packagePath": "packages/cli",
+        "passed": 5157,
+        "skipped": 6,
+        "total": 5163
+      }
+    ],
+    "passed": 19783,
+    "skipped": 116,
+    "failed": 0
+  },
+  "lintNotes": {
+    "existingCliWarnings": 12,
+    "newSdkWarnings": 0
+  },
+  "documentationFences": {
+    "compiled": 117,
+    "declaredSketchSkips": 15,
+    "publishableReadmes": 21,
+    "problems": 0
+  },
+  "signatureGate": {
+    "signatures": 1014,
+    "packages": 20
+  },
+  "productionFiles": [
+    {
+      "sourcePath": "packages/sdk/src/runtime/query/tool-executions.ts",
+      "sourceSha256": "aaf17db63c8b5fcd7812cebacccd4fc804f515c133afa825addc43cc191b7727",
+      "builtPath": "packages/sdk/dist/runtime/query/tool-executions.js",
+      "builtSha256": "af882eba8140b09ef6d9cc8b258e45745e839d40505c5e0fe8d1e388fd939c4d"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/core.ts",
+      "sourceSha256": "2b1eae72f844c9e81c0757487701361a7e76424f694222c2f43c8a8ef8de22da",
+      "builtPath": "packages/sdk/dist/store/session-log/core.js",
+      "builtSha256": "c584df7028b5bcf9ef0308bf0cda1b8954faf05e5a023e80ecf830093f97a963"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/disk.ts",
+      "sourceSha256": "d75f8cf543ac9bfd95c569df17b5beb13c9cad143c681b958e748440dc35bdef",
+      "builtPath": "packages/sdk/dist/store/session-log/disk.js",
+      "builtSha256": "73b9c06ba95e3a531a2041244411f6a03cb517fac0650ad7f3a425cb5a29b426"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/index.ts",
+      "sourceSha256": "93077794a1d517bbb25391027c0867c01b1f0145b99d90f5566775194e96ec4c",
+      "builtPath": "packages/sdk/dist/store/session-log/index.js",
+      "builtSha256": "1d6c8a882f6f920648106249b58cc312e6695501fbc88dc0fcee0dd11657d455"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/memory.ts",
+      "sourceSha256": "66aabd03fb163e40d574cbe6ed364779560b04182ac5b753c83623b0b28bacd8",
+      "builtPath": "packages/sdk/dist/store/session-log/memory.js",
+      "builtSha256": "054bdf1de4c6f386c00dc4fff9d3942ef60e77ebe184dfbda4bfe33880fea5cc"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/spill.ts",
+      "sourceSha256": "5dacee2a42b5b4ad7d8f6e2fab01025b90ca06e22aa59305da2e54e2fa242b8d",
+      "builtPath": "packages/sdk/dist/store/session-log/spill.js",
+      "builtSha256": "edb66a2efdd170fa2767a9a77b14b4e7948e85adca1ecad89d58edde6fee37ac"
+    },
+    {
+      "sourcePath": "packages/sdk/src/store/session-log/structured-result.ts",
+      "sourceSha256": "6760f596e380f417159206fae59a155868b17bdceaba97cb3673510d8c31e767",
+      "builtPath": "packages/sdk/dist/store/session-log/structured-result.js",
+      "builtSha256": "3eaecc09e61b4e427c46868804728f275f944e49aaa55e625579cc45dfa3f117"
+    },
+    {
+      "sourcePath": "packages/sdk/src/types/session/records.ts",
+      "sourceSha256": "bee50071283a873a65f7d9838d65783593504ff20d4601d791f1c3ab475af108",
+      "builtPath": "packages/sdk/dist/types/session/records.js",
+      "builtSha256": "7dae6dcd9b9b9fa2563e3481ca30d5cce24ac8c1ebb615a7b18759fdbc93d194"
+    },
+    {
+      "sourcePath": "packages/sdk/src/utils/structured-result-json.ts",
+      "sourceSha256": "cf711654ee2752eb76ab11006bf50a7b2e3d8a329de9787a00d35da7f2e49e53",
+      "builtPath": "packages/sdk/dist/utils/structured-result-json.js",
+      "builtSha256": "683f0ee799d9448db48c1eca0a0306512d0aafb4a2b836bf1ac0da7fd9a8220a"
+    }
+  ],
+  "newTestFiles": [
+    {
+      "path": "packages/sdk/src/runtime/query/__tests__/spilled-structured-output.test.ts",
+      "sha256": "e6fd3709611b790a8b7d4c037ecb786147f43b6e0c87d07cd0c6c9ade61c093b",
+      "cases": 10
+    },
+    {
+      "path": "packages/sdk/src/store/session-log/__tests__/bounded-spill-read.test.ts",
+      "sha256": "df082be9b82ceebf68d53fda67d5ac7bde2fd2a8088d2327a8fc43f994912575",
+      "cases": 31
+    },
+    {
+      "path": "packages/sdk/src/store/session-log/__tests__/structured-result-spills.test.ts",
+      "sha256": "227025dfeebc3a4a6f6b4a46a3e30ada20089fe54416c72e421ce86eb811db3a",
+      "cases": 31
+    }
+  ]
+}

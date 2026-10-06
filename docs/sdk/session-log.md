@@ -93,7 +93,7 @@ canonicalised (`recordSha256`, `parseSessionLogLine`,
 at most 4 MiB (`SESSION_RECORD_MAX_BYTES`). Message bodies, compaction summaries
 and completed-result text above that threshold can spill to `tool-results/`;
 the spill file and its manifest are on disk before the record that points at
-them. Other fields still have to fit inside the record. In particular, opt-in
+them. Other fields still have to fit inside the record. By default, opt-in
 [`tool_completed.structuredResultJson`](structured-output-review.md#retaining-structured-tool-results)
 and `turn_completed.settlement.structuredOutput` are inline. The ceiling includes
 escaping and metadata; an oversized record is refused, not silently truncated.
@@ -104,6 +104,49 @@ record admission rejects malformed JSON, non-finite decoded numbers and a field
 paired with failure, skip, input-failure classification, another tool name or
 nested `via` metadata. It is candidate evidence, not an acceptance flag. Legacy
 completions without this optional field retain their original bytes and hashes.
+
+### Structured JSON spills
+
+`SessionLogCoreOptions.structuredResultSpilling` (also on `DiskSessionLog`,
+`DiskSessionLog.at` and `InMemorySessionLog`) defaults to `false`. With `true`,
+a record above `spillAboveBytes` stores its screened candidate in
+`tool_completed.structuredResultSpill` or its accepted value in
+`turn_completed.structuredOutputSpill`. The corresponding inline JSON field is
+absent. Each reference is `{path, manifest, bytes, sha256}`; its body is at most
+`STRUCTURED_RESULT_MAX_BYTES` (16 MiB UTF-8), and its paths are canonical
+`tool-results/<sha256-of-key>.txt` and the matching `.manifest.json`.
+
+Admission checks the original completion's successful direct output-tool
+classification before spilling, and rejects contradictory inline/reference
+evidence. A final structured reference requires `settlement.status: 'completed'`
+and `settlement.resultSource: 'structured_output'`
+without inline `structuredOutput`. Record-scoped keys separate candidates,
+accepted JSON and ordinary result text. Writes finish before records append;
+an append failure may leave an unreferenced body. Small records, live events
+and returned `Turn` values retain their original representation.
+
+Raw reads return references. `readStructuredOutput(log, verifiedCompletedRecord,
+{signal?})` reconstructs accepted JSON; the caller obtains that record from a
+verified log read. It does not rerun validation callbacks or reviews. Pending
+tool recovery verifies the log first and hydrates only each selected call's
+latest completion. A missing, changed or malformed body is refused, never
+repaired from preview text or raw tool input. Evidence search still indexes
+bounded tool receipts; it does not expand structured spills into searchable text.
+Recovery preflights a **64 MiB aggregate limit** across the latest selected
+structured references before reading any body. Exceeding it leaves the batch's
+outcomes unknown and does not permit automatic replay. Individual writes remain
+subject to the separate 16 MiB body limit.
+
+`SpillStore.read` and `SessionLog.readSpill` accept optional `SpillReadOptions`
+with `{maxBytes?, signal?}`. `maxBytes` is a nonnegative safe integer; omitted
+limits preserve existing reads. Built-in bounded disk reads inspect actual size
+before allocation, read in chunks and verify stable regular-file bytes, UTF-8,
+length and SHA-256. They refuse symlinks. Structured hydration always supplies
+the 16 MiB limit and verifies custom-reader output independently; custom
+backends are responsible for their own internal I/O bounds and cancellation.
+This constructor option does not alter the public session-log conformance
+version or make third-party logs spill automatically. See
+[structured result storage](structured-output-review.md#spilling-large-structured-results).
 
 Every record carries this envelope:
 

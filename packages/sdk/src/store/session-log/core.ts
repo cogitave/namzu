@@ -18,6 +18,8 @@ import {
 	type TurnSettlement,
 } from '../../types/session/turn.js'
 import { generateRecordId } from '../../utils/id.js'
+import { cloneJsonValue } from '../../utils/json-snapshot.js'
+import { STRUCTURED_RESULT_MAX_BYTES } from '../../utils/structured-result-json.js'
 import {
 	LineSplitter,
 	type LogBytes,
@@ -47,7 +49,7 @@ import {
 	StaleSessionLeaseError,
 	isLeaseLive,
 } from './lease.js'
-import type { SpillRef, SpillStore } from './spill.js'
+import type { SpillReadOptions, SpillRef, SpillStore } from './spill.js'
 
 // ─── public types ─────────────────────────────────────────────────────────
 
@@ -186,7 +188,7 @@ export interface SessionLog {
 	readAll(options?: ReadSessionLogOptions): Promise<SessionLogRead>
 	/** The folded conversation (spec §4.5), spills read back. */
 	messages(options?: { readonly throughSeq?: number }): Promise<Message[]>
-	readSpill(ref: SpillRef): Promise<string>
+	readSpill(ref: SpillRef, options?: SpillReadOptions): Promise<string>
 }
 
 /** A draft that is not a valid session record once enveloped. */
@@ -227,6 +229,12 @@ export interface SessionLogCoreOptions {
 	 * bytes spills its body first. Default {@link SESSION_RECORD_MAX_BYTES}.
 	 */
 	readonly spillAboveBytes?: number
+	/**
+	 * Spill screened structured tool JSON and accepted structured output when
+	 * their record exceeds spillAboveBytes. Default false preserves inline
+	 * records. Each JSON body is limited to STRUCTURED_RESULT_MAX_BYTES.
+	 */
+	readonly structuredResultSpilling?: boolean
 	/**
 	 * Which appends are fsynced. `boundaries` (the default): the records
 	 * others depend on — `session_started`, the turn lifecycle, checkpoints
@@ -285,6 +293,7 @@ export class SessionLogCore implements SessionLog {
 	readonly #spills: SpillStore
 	readonly #now: () => number
 	readonly #spillAbove: number
+	readonly #structuredResultSpilling: boolean
 	readonly #sync: 'boundaries' | 'all' | 'none'
 	readonly #mutex = new Mutex()
 
@@ -303,6 +312,13 @@ export class SessionLogCore implements SessionLog {
 		this.#medium = options.medium
 		this.#leases = options.leases
 		this.#spills = options.spills
+		if (
+			options.structuredResultSpilling !== undefined &&
+			typeof options.structuredResultSpilling !== 'boolean'
+		) {
+			throw new TypeError('structuredResultSpilling must be a boolean')
+		}
+		this.#structuredResultSpilling = options.structuredResultSpilling ?? false
 		this.#now = options.now ?? Date.now
 		this.#spillAbove = Math.min(
 			options.spillAboveBytes ?? SESSION_RECORD_MAX_BYTES,
@@ -591,7 +607,10 @@ export class SessionLogCore implements SessionLog {
 		return entry
 	}
 
-	async #spillIfLarge(candidate: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async #spillIfLarge(original: Record<string, unknown>): Promise<Record<string, unknown>> {
+		const candidate = this.#structuredResultSpilling
+			? await this.#spillStructuredResults(original)
+			: original
 		const type = candidate.type
 		if (
 			type !== 'message' &&
@@ -637,6 +656,55 @@ export class SessionLogCore implements SessionLog {
 			...(typeof content.toolCallId === 'string' ? { toolCallId: content.toolCallId } : {}),
 		}
 		return { ...candidate, content: preview, spill: ref }
+	}
+
+	async #spillStructuredResults(
+		candidate: Record<string, unknown>,
+	): Promise<Record<string, unknown>> {
+		const hasCandidate =
+			candidate.type === 'tool_completed' && candidate.structuredResultJson !== undefined
+		const settlement =
+			candidate.type === 'turn_completed'
+				? (candidate.settlement as Record<string, unknown> | undefined)
+				: undefined
+		const hasOutput = settlement?.structuredOutput !== undefined
+		if (!hasCandidate && !hasOutput) return candidate
+		// Check the original classification before removing any inline evidence.
+		// Otherwise spilling could hide malformed or contradictory metadata.
+		const parsed = SessionRecordSchema.safeParse(candidate)
+		if (!parsed.success) throw new InvalidSessionRecordError(parsed.error.message)
+		if (
+			hasOutput &&
+			(settlement?.status !== 'completed' || settlement.resultSource !== 'structured_output')
+		) {
+			throw new InvalidSessionRecordError(
+				'Only a completed structured_output settlement can retain structured output.',
+			)
+		}
+		let json: string
+		try {
+			json = hasCandidate
+				? (candidate.structuredResultJson as string)
+				: JSON.stringify(cloneJsonValue(settlement?.structuredOutput, false))
+		} catch (error) {
+			throw new InvalidSessionRecordError(`Structured result must be JSON-safe: ${String(error)}`)
+		}
+		const size = Buffer.byteLength(`${JSON.stringify(candidate)}\n`, 'utf8')
+		if (size <= this.#spillAbove) return candidate
+		if (Buffer.byteLength(json, 'utf8') > STRUCTURED_RESULT_MAX_BYTES) {
+			throw new InvalidSessionRecordError(
+				`Structured result exceeds ${STRUCTURED_RESULT_MAX_BYTES} bytes.`,
+			)
+		}
+		// Separate from model-preview spills and from other bodies in this record.
+		const field = hasCandidate ? 'structuredResult' : 'structuredOutput'
+		const ref = await this.#spills.write(`record:${String(candidate.id)}:${field}`, 'text', json)
+		if (hasCandidate) {
+			const { structuredResultJson: _json, ...rest } = candidate
+			return { ...rest, structuredResultSpill: ref }
+		}
+		const { structuredOutput: _output, ...rest } = settlement as Record<string, unknown>
+		return { ...candidate, settlement: rest, structuredOutputSpill: ref }
 	}
 
 	// ── reads ──
@@ -686,8 +754,8 @@ export class SessionLogCore implements SessionLog {
 		})
 	}
 
-	readSpill(ref: SpillRef): Promise<string> {
-		return this.#spills.read(ref)
+	readSpill(ref: SpillRef, options?: SpillReadOptions): Promise<string> {
+		return this.#spills.read(ref, options)
 	}
 }
 

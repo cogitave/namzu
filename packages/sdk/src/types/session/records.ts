@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { type EntityIdKind, isEntityId } from '../../utils/id.js'
-import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
+import {
+	STRUCTURED_RESULT_MAX_BYTES,
+	parseStructuredResultJson,
+} from '../../utils/structured-result-json.js'
 import { HarnessBindingSchema, HarnessJournalTransitionSchema } from '../harness/schema.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../hitl/index.js'
 import type {
@@ -286,6 +289,16 @@ const spill = z
 	})
 	.strict()
 
+const structuredResultSpill = spill
+	.extend({
+		path: text.regex(/^tool-results\/[a-f0-9]{64}\.txt$/),
+		manifest: text.regex(/^tool-results\/[a-f0-9]{64}\.txt\.manifest\.json$/),
+		bytes: positive.max(STRUCTURED_RESULT_MAX_BYTES),
+	})
+	.refine((ref) => ref.manifest === `${ref.path}.manifest.json`, {
+		message: 'a structured spill manifest must name its body',
+	})
+
 const subSessionKind = z.enum(['agent_spawn', 'user_handoff', 'intervention'])
 
 const actorRef = z.custom<ActorRef>(
@@ -394,6 +407,8 @@ export const TurnCompletedRecordSchema = inTurn('turn_completed', {
 	/** The settled answer, or a preview of it when `resultSpill` holds the whole text. */
 	result: text,
 	resultSpill: spill.optional(),
+	/** Accepted JSON stored separately; settlement.structuredOutput is then absent. */
+	structuredOutputSpill: structuredResultSpill.optional(),
 	stopReason: stopReason.optional(),
 	cancelCause: cancelCause.optional(),
 	budget: tokenBudgetSummary.optional(),
@@ -824,11 +839,20 @@ export const SessionRecordSchema = z
 				message: 'skipped must classify a non-error pre-tool hook skip without an input failure',
 			})
 		}
-		if (r.type === 'tool_completed' && r.structuredResultJson !== undefined) {
+		if (
+			r.type === 'tool_completed' &&
+			(r.structuredResultJson !== undefined || r.structuredResultSpill !== undefined)
+		) {
 			let validJson = false
 			try {
-				parseStructuredResultJson(r.structuredResultJson)
-				validJson = true
+				if (r.structuredResultSpill !== undefined) {
+					validJson =
+						r.structuredResultJson === undefined &&
+						structuredResultSpill.safeParse(r.structuredResultSpill).success
+				} else {
+					parseStructuredResultJson(r.structuredResultJson)
+					validJson = true
+				}
 			} catch {
 				// Retained evidence is never repaired or downgraded to a preview.
 			}
@@ -842,9 +866,28 @@ export const SessionRecordSchema = z
 			) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
-					path: ['structuredResultJson'],
+					path: [
+						r.structuredResultSpill !== undefined
+							? 'structuredResultSpill'
+							: 'structuredResultJson',
+					],
 					message:
-						'structuredResultJson must hold JSON from a successful direct structured_output execution',
+						'structured result evidence must hold JSON or a spill from a successful direct structured_output execution, never both',
+				})
+			}
+		}
+		if (r.type === 'turn_completed' && r.structuredOutputSpill !== undefined) {
+			const settlement = r.settlement as Record<string, unknown>
+			if (
+				settlement.status !== 'completed' ||
+				settlement.resultSource !== 'structured_output' ||
+				settlement.structuredOutput !== undefined
+			) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ['structuredOutputSpill'],
+					message:
+						'a structured output spill requires a completed structured_output settlement without inline structuredOutput',
 				})
 			}
 		}
@@ -912,6 +955,14 @@ export type SessionEventRecord<T extends PersistedSessionEventType = PersistedSe
 	T extends PersistedSessionEventType
 		? Omit<EventOf<T>, 'sessionId' | 'turnId' | 'lineage' | 'v' | 'seq' | 'generation'> &
 				RecordEnvelope &
+				(T extends 'tool_completed'
+					? { readonly structuredResultSpill?: z.infer<typeof structuredResultSpill> }
+					: T extends 'turn_completed'
+						? {
+								readonly resultSpill?: z.infer<typeof spill>
+								readonly structuredOutputSpill?: z.infer<typeof structuredResultSpill>
+							}
+						: unknown) &
 				(T extends TurnBoundSessionEventType ? { readonly turnId: TurnId } : unknown)
 		: never
 

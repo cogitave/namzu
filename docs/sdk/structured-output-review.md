@@ -198,14 +198,74 @@ after answering a restored pending batch, the loop requests fresh inference;
 it does not automatically review or publish a pre-crash candidate, since the
 original review dispatch snapshot is not restored by this option.
 
-Retention remains bounded by the [session log](session-log.md) record ceiling
-of 4 MiB, including JSON escaping and metadata. This is not a promised maximum
-candidate size. The completion and final settlement must fit; a write failure
-can reject the query without a durable terminal record or returned `Turn`, and
-does not make an oversized result accepted. This option does
-not create an unlimited artifact store or a general typed `ToolResult.data`
-channel. Separate structured-result spilling and review-dispatch recovery remain
-future work.
+Without structured-result spilling, retention remains bounded by the
+[session log](session-log.md) record ceiling of 4 MiB, including JSON escaping
+and metadata. This is not a promised maximum candidate size. The completion and
+final settlement must fit; a write failure can reject the query without a
+durable terminal record or returned `Turn`, and does not make an oversized
+result accepted.
+
+### Spilling large structured results
+
+Built-in session logs accept `structuredResultSpilling: true`. The default is
+`false`, preserving inline records. This is a storage option, separate from
+`toolResultRetention`: tool mode needs durable retention to retain a full
+candidate independently of its preview. Native mode can use the same log option
+for its accepted final JSON without enabling tool retention.
+
+When the serialized record exceeds `spillAboveBytes` (default 4 MiB), the log
+writes the full JSON to its checked spill store before appending the record:
+
+| Recorded value | Persisted representation |
+| --- | --- |
+| Screened, post-hook tool candidate | `tool_completed.structuredResultSpill`, without `structuredResultJson` |
+| Accepted final value | `turn_completed.structuredOutputSpill`, without `settlement.structuredOutput` |
+
+Each structured JSON body is limited to `STRUCTURED_RESULT_MAX_BYTES`, **16 MiB
+of UTF-8 text**, independently of JSON escaping in the record. The two bodies
+use separate record-scoped keys; model-preview files cannot supply either one.
+Other fields, including the ordinary tool receipt, still have to fit inside the
+4 MiB record. Small results stay inline, and the live event, reviewer and returned
+`Turn` keep their full value. A recorded candidate still does not prove acceptance.
+
+```ts
+import { DiskSessionLog, readStructuredOutput } from '@namzu/sdk'
+import type { SessionPaths, SessionLocator } from '@namzu/sdk'
+
+export async function lastStructuredOutput(
+  paths: SessionPaths,
+  locator: SessionLocator,
+) {
+  const log = DiskSessionLog.at(paths, locator, { structuredResultSpilling: true })
+  const verified = await log.readAll({ mode: 'strict' })
+  const completed = verified.entries
+    .map((entry) => entry.record)
+    .reverse()
+    .find((record) => record.type === 'turn_completed')
+  if (!completed || completed.type !== 'turn_completed') return undefined
+  return readStructuredOutput(log, completed)
+}
+```
+
+Raw log reads preserve references; callers supply a record from a verified log
+read to `readStructuredOutput`. The helper checks session identity, record
+classification, byte length, SHA-256 and JSON safety, without rerunning a tool,
+schema or reviewer. Its optional `{ signal }` cancels the read. A missing or
+corrupt body is an error, never an inline-preview fallback. Built-in bounded
+disk reads refuse symlinks, nonregular files, oversized actual bodies and invalid
+UTF-8 before publication. Custom readers receive the byte limit and signal;
+the helper also verifies their returned bytes, but cannot constrain an
+uncooperative backend's internal allocation or execution.
+
+Completed-call recovery hydrates only the latest selected completion after the
+whole log verifies. Superseded retries do not read obsolete bodies. An unreadable
+current body leaves the outcome unknown and cannot authorize automatic replay.
+The recovery snapshot has a 64 MiB aggregate structured-body budget, checked
+before any spill read; exceeding it also leaves outcomes unknown.
+Resume still requests fresh inference; original review-dispatch recovery and a
+general typed `ToolResult.data` artifact channel remain separate work. Storage
+failure and cancellation can retain already written evidence without publishing
+an accepted result. Spills have no automatic garbage collection in this option.
 
 ## Anthropic provider-level native JSON format
 

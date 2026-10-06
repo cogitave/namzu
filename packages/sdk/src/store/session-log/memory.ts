@@ -63,7 +63,7 @@ export class InMemoryLogMedium implements LogMedium {
 }
 
 export interface InMemorySessionLogOptions
-	extends Pick<SessionLogCoreOptions, 'now' | 'spillAboveBytes'> {
+	extends Pick<SessionLogCoreOptions, 'now' | 'spillAboveBytes' | 'structuredResultSpilling'> {
 	readonly sessionId: SessionId
 	/**
 	 * Share storage with another instance, as a second process would see one
@@ -91,6 +91,7 @@ export class InMemorySessionLog extends SessionLogCore {
 			spills,
 			now: options.now,
 			spillAboveBytes: options.spillAboveBytes,
+			structuredResultSpilling: options.structuredResultSpilling,
 			sync: 'none',
 		})
 		this.medium = medium
