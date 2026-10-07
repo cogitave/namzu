@@ -1,0 +1,18 @@
+{
+  "passed": false,
+  "mode": "check",
+  "at": "2026-10-07T11:45:09.894Z",
+  "phase": "preflight",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "error": {
+    "name": "AssertionError",
+    "message": "Refused: source dist is missing main/link-preview.js (an old or unbuilt desktop build)"
+  }
+}

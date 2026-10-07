@@ -1,0 +1,188 @@
+{
+  "passed": false,
+  "mode": "verify-after",
+  "at": "2026-10-07T11:54:24.404Z",
+  "phase": "verify",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dist has all required entries",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "source": {
+    "files": 758,
+    "manifestSha256": "8a2d199a202d296c060c2b20bb28ced85c15924c1f51ea8ccef8f15424901c46"
+  },
+  "beforePid": 16076,
+  "verifiedAgainst": "link-preview-before-private-20261007T115321424Z.json",
+  "before": {
+    "groups": [
+      {
+        "tabs": [
+          "01a1161f-d8be-74be-9c40-2fd924d51000",
+          "01a1162f-3c30-751f-ad81-5be10195645f",
+          "01a11630-8e74-7046-955a-e3ca3f868707"
+        ],
+        "active": "01a1162f-3c30-751f-ad81-5be10195645f",
+        "focused": true
+      }
+    ],
+    "sessions": [
+      {
+        "id": "8384c667e20750f6213a5fd5003c295e897627f77c435b59d1165e906c4d6bb9",
+        "messageCount": 9,
+        "messageHashes": [
+          "770323626b58b46730ed2e427e3d6eb5a2f891de193a974390c75e01f4af3603",
+          "05e2c4b454236e56e00ce247e5681c606c41943619301845deb3ba79ca507ef3",
+          "11058d9f2952b249d2e9f2df18e3f2e7de9d748aa1b4c2ef649d19cd7ef34edf",
+          "4d5bc4e8d033a6818f97203695921fd97fcff351a727c52a388e020077c512cb",
+          "925c22aced08485d0f3460a315646ebd48383e0ad352c0f4b09d6e5031e6f4ed",
+          "d593b35481a25048848d44affb8b1ddd40c2e6467cd117dbaaba818aa70e239c",
+          "cbc10f76bb8a0f629a1debe76c8ce0ee1de5b60ae551c8bb57cd1927811a95af",
+          "d7a4c1fd21b46e2b44d2918ec420fa2d6c5b9fc606e2250a944ac62504978605",
+          "44e804b7101f47a4bc8c8bb10dac373d956b947e794eec31f154c44447b8e32a"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "7077c0713c795a13b6cea51f14084a3cbb5d385b37295ee30c1fd3f64f6584a6",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "61d1bf895c8816e4ee21b611e9f81415ccc07968c5b60870ef65c06ff591997c",
+        "jobCount": 0
+      },
+      {
+        "id": "aa6c85141dd39370ce77fb67bc23c50ac2d6ed906e6d22dc036b5234fee27ff9",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "65a6e82854b3d13f485b2b6899b2666961d6abf5ea0606135bbc29efeb542c9f",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "20fb34f894d60f508bf0b871ce526b2cdc8bc2ff25adc1939ee7f932b18b1e10",
+        "jobCount": 0
+      },
+      {
+        "id": "ad8ff8c3039bd34ac45257c9a457a8e8bef8f4686a9bdb6e0bc303567e9c67f0",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "bac45b5e620759b12655b03a74835a70b628e79903c1dfd2618cde574bc9a899",
+        "jobCount": 0
+      }
+    ],
+    "computers": [
+      {
+        "id": "34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35",
+        "status": "unavailable"
+      }
+    ],
+    "presentation": {
+      "otherEntriesHash": "f6cc08cac41a6a07a9d171929b7c123e8abf563bf8049af2d2ef3bb14ea5be92",
+      "entryCount": 51,
+      "appearanceHash": "e6bb5689beec52c4672bd4df92c3613d128d30cdc2b704f76953fe43d89c4ae8",
+      "collapsedHash": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "sidebarCollapsed": "false",
+      "page": "chat"
+    },
+    "scroll": {
+      "sidebarScrollTop": 0,
+      "transcriptScrollTop": 0,
+      "transcriptScrollRange": 0
+    }
+  },
+  "afterPid": 16076,
+  "after": {
+    "groups": [
+      {
+        "tabs": [
+          "01a1161f-d8be-74be-9c40-2fd924d51000",
+          "01a1162f-3c30-751f-ad81-5be10195645f",
+          "01a11630-8e74-7046-955a-e3ca3f868707"
+        ],
+        "active": "01a1162f-3c30-751f-ad81-5be10195645f",
+        "focused": true
+      }
+    ],
+    "sessions": [
+      {
+        "id": "8384c667e20750f6213a5fd5003c295e897627f77c435b59d1165e906c4d6bb9",
+        "messageCount": 8,
+        "messageHashes": [
+          "f72cdc75da91a6d50addd33096039e9641dd2f622ed6434d25f275dd33270cc5",
+          "5b0e8ff2561ba24c80f5df34c8fabbc7b1d266bd161338666b06a53008f020a9",
+          "d1a78c1df1c2e27e09dad6c3049d46d05aaf966e1e0c1535fca1ed3b42b2531d",
+          "e05d8dba0a463c822381d9da498724f25b258a9b50754cd9c497b557ccc9f694",
+          "1c67a8e16e92daa9aa1b815e67d2472c287172c45eff2d5e42ab0816f1dc47ea",
+          "78c13b5e495c102f2e9ad2de971f61148e93588cbe0ee3dee6c9a8eb5ef0d2ec",
+          "03a5f0af8252000b42457eca160142fbe5a8cc325401bb06aec65e9e9f2e26ee",
+          "a029e3e7bf26b7228f7b03b6276112bd67c66645b9f75cee9da0ffe85ee4a22b"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "7077c0713c795a13b6cea51f14084a3cbb5d385b37295ee30c1fd3f64f6584a6",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "61d1bf895c8816e4ee21b611e9f81415ccc07968c5b60870ef65c06ff591997c",
+        "jobCount": 0
+      },
+      {
+        "id": "aa6c85141dd39370ce77fb67bc23c50ac2d6ed906e6d22dc036b5234fee27ff9",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "65a6e82854b3d13f485b2b6899b2666961d6abf5ea0606135bbc29efeb542c9f",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "20fb34f894d60f508bf0b871ce526b2cdc8bc2ff25adc1939ee7f932b18b1e10",
+        "jobCount": 0
+      },
+      {
+        "id": "ad8ff8c3039bd34ac45257c9a457a8e8bef8f4686a9bdb6e0bc303567e9c67f0",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "bac45b5e620759b12655b03a74835a70b628e79903c1dfd2618cde574bc9a899",
+        "jobCount": 0
+      }
+    ],
+    "computers": [
+      {
+        "id": "34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35",
+        "status": "unavailable"
+      }
+    ],
+    "presentation": {
+      "otherEntriesHash": "f6cc08cac41a6a07a9d171929b7c123e8abf563bf8049af2d2ef3bb14ea5be92",
+      "entryCount": 51,
+      "appearanceHash": "e6bb5689beec52c4672bd4df92c3613d128d30cdc2b704f76953fe43d89c4ae8",
+      "collapsedHash": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "sidebarCollapsed": "false",
+      "page": "chat"
+    },
+    "scroll": {
+      "sidebarScrollTop": 0,
+      "transcriptScrollTop": 0,
+      "transcriptScrollRange": 0
+    }
+  },
+  "error": {
+    "name": "AssertionError",
+    "message": "Protected state changed across the update + actual - expected ... Skipped lines { computers: [ { id: '34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35', status: 'unavailable' ... jobCount: 0, + messageCount: 8, - messageCount: 9, messageHashes: [ + 'f72cdc75da91a6d50addd33096039e9641"
+  }
+}
