@@ -456,3 +456,69 @@ describe('single live transcript status', () => {
 		expect(html).not.toContain('aria-live="polite"')
 	})
 })
+
+describe('sent attachments and date separators', () => {
+	const image = (preview?: string) => ({
+		id: 'img',
+		name: 'shot.png',
+		kind: 'image' as const,
+		size: 2048,
+		mediaType: 'image/png',
+		...(preview ? { preview } : {}),
+	})
+	const withMessages = (messages: ChatMessage[]): ThreadState => {
+		const thread = emptyThread()
+		thread.messages = messages
+		thread.timeline = messages.map((_, index) => ({ kind: 'message', index, turn: index + 1 }))
+		thread.turn = messages.length
+		return thread
+	}
+	it('renders attachments above the bubble and no bubble for an attachment-only message', () => {
+		const html = render(
+			withMessages([
+				{ role: 'user', text: 'Look at this', attachments: [image('data:image/png;base64,AA==')] },
+				{ role: 'user', text: '', attachments: [image('data:image/png;base64,AA==')] },
+			]),
+		)
+		const [first, second] = html.split('data-message-role="user"').slice(1)
+		expect(first?.indexOf('attachment-cards')).toBeLessThan(first?.indexOf('message-text') ?? 0)
+		expect(second).toContain('attachment-cards')
+		expect(second).not.toContain('message-text')
+	})
+	it('holds a spinner box while delivery is pending and keeps Preview unavailable afterwards', () => {
+		const pending = render(
+			withMessages([{ role: 'user', text: '', status: 'pending', attachments: [image()] }]),
+		)
+		expect(pending).toContain('data-attachment-state="pending"')
+		expect(pending).toContain('Loading preview')
+		const evicted = render(withMessages([{ role: 'user', text: 'x', attachments: [image()] }]))
+		expect(evicted).toContain('data-attachment-state="unavailable"')
+		expect(evicted).toContain('Preview unavailable')
+	})
+	it('puts a date separator before the first known time and after a long gap, not for unknown times', () => {
+		const known = (hour: number) => ({
+			at: new Date(2026, 7, 6, hour).getTime(),
+			source: 'host' as const,
+		})
+		const html = render(
+			withMessages([
+				{ role: 'user', text: 'a' },
+				{ role: 'user', text: 'b', time: known(9) },
+				{ role: 'user', text: 'c', time: known(10) },
+				{ role: 'user', text: 'd' },
+				{ role: 'user', text: 'e', time: known(18) },
+			]),
+		)
+		expect(html.match(/transcript-date-separator/g)).toHaveLength(2)
+		expect(html.indexOf('transcript-date-separator')).toBeGreaterThan(html.indexOf('>a<'))
+		expect(html.indexOf('transcript-date-separator')).toBeLessThan(html.indexOf('>b<'))
+		expect(
+			renderToStaticMarkup(
+				createElement(Transcript, {
+					thread: withMessages([{ role: 'user', text: 'b', time: known(9) }]),
+					dateSeparators: false,
+				}),
+			),
+		).not.toContain('transcript-date-separator')
+	})
+})

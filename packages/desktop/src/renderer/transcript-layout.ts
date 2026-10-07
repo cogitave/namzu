@@ -169,3 +169,66 @@ export function terminalNotice(reason?: string): string | undefined {
 		return 'The response did not match the required format.'
 	return 'This turn could not finish.'
 }
+
+/**
+ * How long a finished turn took, from what was actually recorded: host start and end, the
+ * durable runtime duration, or the host start and the last time seen in the turn. Never guessed.
+ */
+export function turnDurationMs(thread: ThreadState, turn: number): number | undefined {
+	const timing = thread.turns[turn]
+	if (timing?.startedAt !== undefined && timing.endedAt !== undefined)
+		return Math.max(0, timing.endedAt - timing.startedAt)
+	const recorded = timing?.recordedDurationMs
+	if (recorded !== undefined && Number.isFinite(recorded) && recorded >= 0) return recorded
+	if (timing?.startedAt === undefined) return undefined
+	let last: number | undefined
+	for (const entry of thread.timeline) {
+		if (entry.turn !== turn) continue
+		const time =
+			entry.kind === 'message'
+				? thread.messages[entry.index]?.time
+				: entry.kind === 'tool'
+					? (thread.tools[entry.id]?.endedTime ?? thread.tools[entry.id]?.startedTime)
+					: (thread.reasoning[entry.id]?.endedTime ?? thread.reasoning[entry.id]?.startedTime)
+		if (time && Number.isFinite(time.at) && (last === undefined || time.at > last)) last = time.at
+	}
+	return last !== undefined && last >= timing.startedAt ? last - timing.startedAt : undefined
+}
+
+const SEPARATOR_GAP_MS = 6 * 60 * 60 * 1000
+
+/**
+ * Which known times get a date separator before them: the first one, a new calendar day, or a
+ * gap of more than six hours. Unknown times (undefined) never produce one and never move the
+ * reference point. The result is parallel to the input.
+ */
+export function dateSeparatorFlags(times: readonly (number | undefined)[]): boolean[] {
+	let previous: number | undefined
+	return times.map((at) => {
+		if (at === undefined || !Number.isFinite(at)) return false
+		const show =
+			previous === undefined || !sameLocalDay(previous, at) || at - previous > SEPARATOR_GAP_MS
+		previous = at
+		return show
+	})
+}
+
+function sameLocalDay(a: number, b: number): boolean {
+	const x = new Date(a)
+	const y = new Date(b)
+	return (
+		x.getFullYear() === y.getFullYear() &&
+		x.getMonth() === y.getMonth() &&
+		x.getDate() === y.getDate()
+	)
+}
+
+export function dateSeparatorLabel(at: number, locale?: string | string[]): string {
+	return new Intl.DateTimeFormat(locale, {
+		weekday: 'short',
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+	}).format(new Date(at))
+}

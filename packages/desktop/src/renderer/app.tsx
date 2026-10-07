@@ -31,7 +31,6 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
-import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
@@ -590,6 +589,18 @@ export function App({
 	}, [railSection])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
+	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
+	const [changesFilterState, setChangesFilterState] = useState<{
+		sessionId: string
+		ids: string[]
+	}>()
+	// Tied to its conversation, so a switch never shows another conversation's receipt ids for a frame.
+	const changesFilter =
+		changesFilterState?.sessionId === sessionId ? changesFilterState.ids : undefined
+	const setChangesFilter = useCallback(
+		(ids: string[] | undefined) => setChangesFilterState(ids && { sessionId, ids }),
+		[sessionId],
+	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
@@ -3794,6 +3805,7 @@ export function App({
 								}
 								onOpenChanges={() => {
 									setDetailsPopoverOpen(false)
+									setChangesFilter(undefined)
 									setPanelTab('changes')
 									setJobsOpen(true)
 								}}
@@ -4106,6 +4118,11 @@ export function App({
 												onWorkDisclosureChange={(key, open) =>
 													onWorkDisclosureChange(sessionId, key, open)
 												}
+												onOpenTurnChanges={(receiptIds) => {
+													setChangesFilter(receiptIds)
+													setPanelTab('changes')
+													setJobsOpen(true)
+												}}
 												renderMessageAction={(message, key) => (
 													<MessageActions text={message.text}>
 														<LocalSpeechReadAloud
@@ -4115,13 +4132,6 @@ export function App({
 														/>
 													</MessageActions>
 												)}
-											/>
-											<ChangedFilesCard
-												tools={thread.tools}
-												onOpen={() => {
-													setPanelTab('changes')
-													setJobsOpen(true)
-												}}
 											/>
 										</>
 									)}
@@ -4295,7 +4305,10 @@ export function App({
 									size="xs"
 									variant="ghost-muted"
 									aria-pressed={panelTab === 'changes'}
-									onClick={() => setPanelTab('changes')}
+									onClick={() => {
+										setChangesFilter(undefined)
+										setPanelTab('changes')
+									}}
 								>
 									<FileDiffIcon className="size-3.5" />
 									Changes
@@ -4324,6 +4337,8 @@ export function App({
 						{panelTab === 'changes' ? (
 							<ChangesPanel
 								tools={thread.tools}
+								receiptIds={changesFilter}
+								onShowAll={() => setChangesFilter(undefined)}
 								dark={
 									appearance === 'dark' ||
 									(appearance === 'system' &&

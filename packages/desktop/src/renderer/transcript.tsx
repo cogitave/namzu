@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
@@ -7,6 +7,8 @@ import { Message, MessageContent, MessageFooter, MessageTime } from './message.j
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow } from './tool-transcript-row.js'
 import {
+	dateSeparatorFlags,
+	dateSeparatorLabel,
 	elapsedLabel,
 	terminalNotice,
 	toolGroupLabel,
@@ -19,6 +21,8 @@ import {
 	useTranscriptEntryMotion,
 	useTranscriptPhaseMotion,
 } from './transcript-motion.js'
+import { TurnChangesCard } from './turn-changes-card.js'
+import { turnChanges } from './turn-changes.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
@@ -73,8 +77,18 @@ function Entry({
 			data-message-phase={message.phase}
 			data-transcript-entry-key={transcriptEntryKey(entry)}
 		>
-			<MessageContent text={message.text} markdown={message.role === 'assistant'} />
-			{message.attachments && (
+			{message.role === 'user' && message.attachments?.length ? (
+				<AttachmentList
+					attachments={message.attachments}
+					layout="cards"
+					delivering={message.status === 'pending'}
+				/>
+			) : null}
+			{/* A message of attachments alone has no bubble. */}
+			{(message.text.trim() || message.role !== 'user') && (
+				<MessageContent text={message.text} markdown={message.role === 'assistant'} />
+			)}
+			{message.role !== 'user' && message.attachments && (
 				<div className="mt-2">
 					<AttachmentList attachments={message.attachments} />
 				</div>
@@ -91,6 +105,35 @@ function Entry({
 }
 
 const entryKey = transcriptEntryKey
+
+function DateSeparator({ at }: { at: number }) {
+	return (
+		<p className="transcript-date-separator">
+			<time dateTime={new Date(at).toISOString()}>{dateSeparatorLabel(at)}</time>
+		</p>
+	)
+}
+
+/** Times of the visible messages that start a new stretch of the conversation, by entry key. */
+function separatorTimes(
+	groups: ReturnType<typeof transcriptTurns>,
+	thread: ThreadState,
+): Map<string, number> {
+	const visible: { key: string; at: number | undefined }[] = []
+	for (const group of groups)
+		for (const segment of group.segments)
+			for (const entry of [...segment.user, ...segment.answer])
+				visible.push({
+					key: entryKey(entry),
+					at: entry.kind === 'message' ? thread.messages[entry.index]?.time?.at : undefined,
+				})
+	const flags = dateSeparatorFlags(visible.map((item) => item.at))
+	const result = new Map<string, number>()
+	visible.forEach((item, index) => {
+		if (flags[index] && item.at !== undefined) result.set(item.key, item.at)
+	})
+	return result
+}
 
 function PhaseLabel({ label, animate }: { label: string; animate: boolean }) {
 	const ref = useRef<HTMLSpanElement>(null)
@@ -312,12 +355,17 @@ export function Transcript({
 	renderMessageAction,
 	workDisclosures,
 	onWorkDisclosureChange,
+	onOpenTurnChanges,
+	dateSeparators = true,
 }: {
 	thread: ThreadState
 	animate?: boolean
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
+	/** Receipt ids of the edits one reply made; without it no per-reply edit card shows. */
+	onOpenTurnChanges?: (receiptIds: string[]) => void
+	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
 	useTranscriptEntryMotion(ref, thread, animate)
@@ -325,6 +373,13 @@ export function Transcript({
 		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
 		: undefined
 	const groups = transcriptTurns(thread)
+	const { timeline, tools } = thread
+	// Line totals are costly to recompute for every streamed token, so they follow the receipts.
+	const changes = useMemo(
+		() => (onOpenTurnChanges ? turnChanges({ timeline, tools }) : new Map()),
+		[timeline, tools, onOpenTurnChanges],
+	)
+	const separators = dateSeparators ? separatorTimes(groups, thread) : new Map<string, number>()
 	const hasLiveActivity =
 		thread.running &&
 		groups.some(
@@ -362,7 +417,12 @@ export function Transcript({
 							}
 						>
 							{segment.user.map((entry) => (
-								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+								<Fragment key={entryKey(entry)}>
+									{separators.has(entryKey(entry)) && (
+										<DateSeparator at={separators.get(entryKey(entry)) as number} />
+									)}
+									<Entry entry={entry} thread={thread} />
+								</Fragment>
 							))}
 							{hasPublicActivity(segment.activity, thread) && (
 								<TurnActivity
@@ -386,15 +446,20 @@ export function Transcript({
 								/>
 							)}
 							{segment.answer.map((entry) => (
-								<Entry
-									key={entryKey(entry)}
-									entry={entry}
-									thread={thread}
-									renderMessageAction={renderMessageAction}
-								/>
+								<Fragment key={entryKey(entry)}>
+									{separators.has(entryKey(entry)) && (
+										<DateSeparator at={separators.get(entryKey(entry)) as number} />
+									)}
+									<Entry entry={entry} thread={thread} renderMessageAction={renderMessageAction} />
+								</Fragment>
 							))}
 						</Fragment>
 					))}
+					{onOpenTurnChanges &&
+						changes.has(group.turn) &&
+						!(thread.running && thread.stopReason === undefined && thread.turn === group.turn) && (
+							<TurnChangesCard changes={changes.get(group.turn)} onOpen={onOpenTurnChanges} />
+						)}
 				</div>
 			))}
 			<LiveStatus

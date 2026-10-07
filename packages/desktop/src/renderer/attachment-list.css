@@ -61,6 +61,46 @@
 	color: var(--muted-foreground);
 	font-size: 10px;
 }
+/* Sent images sit above the bubble, right-aligned; the pending box and the loaded image share one size. */
+.attachment-groups {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 8px;
+	min-width: 0;
+}
+.attachment-cards {
+	align-items: flex-start;
+	justify-content: flex-end;
+}
+.attachment-card:not([data-attachment-state="unavailable"]) {
+	padding: 0;
+	border-radius: 14px;
+	overflow: hidden;
+}
+.attachment-card:not([data-attachment-state="unavailable"]) .attachment-name {
+	display: none;
+}
+.attachment-card-box {
+	display: grid;
+	place-items: center;
+	width: 200px;
+	height: auto;
+	aspect-ratio: 1;
+	border-radius: 0;
+	background: var(--accent);
+	color: var(--muted-foreground);
+}
+.attachment-card-pending svg {
+	width: 18px;
+	height: 18px;
+	animation: attachment-spin 1s linear infinite;
+}
+@keyframes attachment-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
 .attachment-preview-backdrop {
 	position: fixed;
 	inset: 0;
@@ -140,7 +180,8 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.attachment-item {
+	.attachment-item,
+	.attachment-card-pending svg {
 		animation: none;
 	}
 	.attachment-preview,

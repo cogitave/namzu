@@ -1,10 +1,13 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { applyEvent, emptyThread } from '../shared/projection.js'
 import {
+	dateSeparatorFlags,
+	dateSeparatorLabel,
 	elapsedLabel,
 	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
+	turnDurationMs,
 } from './transcript-layout.js'
 
 it('keeps commentary, tools and thoughts in admitted order above the answer', () => {
@@ -270,4 +273,56 @@ it('keeps a real answer visible when later commentary or reasoning has no public
 		),
 	).toEqual(['A real final reply'])
 	expect(thread).toEqual(before)
+})
+
+describe('finished turn duration', () => {
+	const timed = (turn: object, times: number[] = []) => {
+		const thread = emptyThread()
+		thread.turn = 1
+		thread.turns[1] = turn
+		times.forEach((at, index) => {
+			thread.messages.push({ role: 'assistant', text: `m${index}`, time: { at, source: 'host' } })
+			thread.timeline.push({ kind: 'message', index, turn: 1 })
+		})
+		return thread
+	}
+	it('prefers the host start and end, then the recorded duration', () => {
+		expect(turnDurationMs(timed({ startedAt: 1000, endedAt: 5000 }), 1)).toBe(4000)
+		expect(turnDurationMs(timed({ recordedDurationMs: 257000 }), 1)).toBe(257000)
+	})
+	it('falls back to the start and the last time seen in the turn', () => {
+		expect(turnDurationMs(timed({ startedAt: 1000 }, [2000, 9000, 4000]), 1)).toBe(8000)
+	})
+	it('never invents one', () => {
+		expect(turnDurationMs(timed({}, [2000, 9000]), 1)).toBeUndefined()
+		expect(turnDurationMs(timed({ startedAt: 1000 }), 1)).toBeUndefined()
+		expect(turnDurationMs(timed({ startedAt: 10000 }, [2000]), 1)).toBeUndefined()
+		expect(turnDurationMs(emptyThread(), 1)).toBeUndefined()
+	})
+})
+
+describe('date separators', () => {
+	const t = (day: number, hour: number, minute = 0) =>
+		new Date(2026, 7, day, hour, minute).getTime()
+	it('starts at the first known time and then marks a new day or a gap over six hours', () => {
+		expect(
+			dateSeparatorFlags([t(6, 10), t(6, 10, 30), t(6, 16), t(6, 16, 1), t(6, 23, 59), t(7, 0, 1)]),
+		).toEqual([true, false, false, false, true, true])
+		expect(dateSeparatorFlags([t(6, 10), t(6, 16, 0)])).toEqual([true, false])
+		expect(dateSeparatorFlags([t(6, 10), t(6, 16, 1)])).toEqual([true, true])
+	})
+	it('lets unknown times neither produce nor move a separator', () => {
+		expect(dateSeparatorFlags([undefined, t(6, 10), undefined, t(6, 11), undefined])).toEqual([
+			false,
+			true,
+			false,
+			false,
+			false,
+		])
+		expect(dateSeparatorFlags([undefined, undefined])).toEqual([false, false])
+	})
+	it('formats weekday, day, month and clock in the given locale', () => {
+		expect(dateSeparatorLabel(t(6, 10, 6), 'en-GB')).toBe('Thu 6 Aug, 10:06')
+		expect(dateSeparatorLabel(t(6, 10, 6), 'en-GB')).not.toContain('2026')
+	})
 })

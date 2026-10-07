@@ -1,7 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AttachmentView } from '../shared/protocol.js'
-import { FileTextIcon, XIcon } from './icons.js'
+import { FileTextIcon, LoaderCircleIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './attachment-list.css'
 
@@ -22,29 +22,51 @@ function AttachmentItem({
 	attachment,
 	onRemove,
 	disabled,
+	card,
+	delivering,
 }: {
 	attachment: AttachmentView
 	onRemove?: (id: string) => void
 	disabled: boolean
+	/** A sent image shows as a thumbnail card rather than a chip. */
+	card: boolean
+	/** The preview is still on its way; its box is held so nothing moves when it lands. */
+	delivering: boolean
 }) {
 	const row = useRef<HTMLLIElement>(null)
 	const [open, setOpen] = useState(false)
-	const unavailable = attachment.kind === 'image' && !attachment.preview
+	const waiting = card && delivering && attachment.kind === 'image' && !attachment.preview
+	const unavailable = attachment.kind === 'image' && !attachment.preview && !waiting
+	const asCard = card && attachment.kind === 'image'
 	useLayoutEffect(() => {
 		if (!attachment.preview) setOpen(false)
 	}, [attachment.preview])
 	return (
 		<li
 			ref={row}
-			className="attachment-item"
+			className={asCard ? 'attachment-item attachment-card' : 'attachment-item'}
 			data-attachment-id={attachment.id}
-			tabIndex={unavailable ? -1 : undefined}
-			aria-label={unavailable ? `${attachment.name}: Preview unavailable` : undefined}
+			data-attachment-state={waiting ? 'pending' : unavailable ? 'unavailable' : undefined}
+			tabIndex={unavailable || waiting ? -1 : undefined}
+			aria-label={
+				waiting
+					? `${attachment.name}: Loading preview`
+					: unavailable
+						? `${attachment.name}: Preview unavailable`
+						: undefined
+			}
 		>
-			{attachment.kind === 'image' ? (
+			{waiting ? (
+				<span className="attachment-card-box attachment-card-pending">
+					<LoaderCircleIcon aria-hidden="true" />
+				</span>
+			) : attachment.kind === 'image' ? (
 				<Dialog.Root open={open && Boolean(attachment.preview)} onOpenChange={setOpen}>
 					{attachment.preview ? (
-						<Dialog.Trigger className="attachment-image" aria-label={`Preview ${attachment.name}`}>
+						<Dialog.Trigger
+							className={asCard ? 'attachment-image attachment-card-box' : 'attachment-image'}
+							aria-label={`Preview ${attachment.name}`}
+						>
 							<img src={attachment.preview} alt={attachment.name} />
 						</Dialog.Trigger>
 					) : (
@@ -108,12 +130,18 @@ export function AttachmentList({
 	onRemove,
 	disabled = false,
 	fallbackFocus,
+	layout = 'chips',
+	delivering = false,
 }: {
 	attachments: AttachmentView[]
 	onRemove?: (id: string) => void
 	disabled?: boolean
 	/** Where focus goes when the last chip is removed. */
 	fallbackFocus?: RefObject<HTMLElement | null>
+	/** `cards` is the sent-message layout: image thumbnails above the bubble. */
+	layout?: 'chips' | 'cards'
+	/** The message is still being delivered, so missing previews are loading, not lost. */
+	delivering?: boolean
 }) {
 	const list = useRef<HTMLUListElement>(null)
 	const pending = useRef<{
@@ -147,34 +175,55 @@ export function AttachmentList({
 		;(next ?? fallbackFocus?.current)?.focus()
 	})
 	if (attachments.length === 0) return null
+	const renderItem = (attachment: AttachmentView) => (
+		<AttachmentItem
+			key={attachment.id}
+			attachment={attachment}
+			onRemove={
+				onRemove &&
+				((id) => {
+					const target = neighbourAfterRemoval(attachments, id)
+					pending.current = { removed: id, target, sawDisabled: false, waited: false }
+					// Before removal, so focus never falls to the page while the chip unmounts.
+					;(target
+						? list.current?.querySelector<HTMLElement>(
+								`[data-attachment-id="${CSS.escape(target)}"] .attachment-remove`,
+							)
+						: fallbackFocus?.current
+					)?.focus()
+					onRemove(id)
+				})
+			}
+			disabled={disabled}
+			card={layout === 'cards'}
+			delivering={delivering}
+		/>
+	)
+	const label = onRemove ? 'Attached files' : 'Message attachments'
+	if (layout !== 'cards')
+		return (
+			<ul ref={list} className="attachment-list" aria-label={label}>
+				{attachments.map(renderItem)}
+			</ul>
+		)
+	// Thumbnails and chips sit on their own right-aligned rows, so a 200px image never strands a chip.
+	const isThumb = (attachment: AttachmentView) =>
+		attachment.kind === 'image' && (Boolean(attachment.preview) || delivering)
+	const groups = [attachments.filter((a) => !isThumb(a)), attachments.filter(isThumb)].filter(
+		(group) => group.length > 0,
+	)
 	return (
-		<ul
-			ref={list}
-			className="attachment-list"
-			aria-label={onRemove ? 'Attached files' : 'Message attachments'}
-		>
-			{attachments.map((attachment) => (
-				<AttachmentItem
-					key={attachment.id}
-					attachment={attachment}
-					onRemove={
-						onRemove &&
-						((id) => {
-							const target = neighbourAfterRemoval(attachments, id)
-							pending.current = { removed: id, target, sawDisabled: false, waited: false }
-							// Before removal, so focus never falls to the page while the chip unmounts.
-							;(target
-								? list.current?.querySelector<HTMLElement>(
-										`[data-attachment-id="${CSS.escape(target)}"] .attachment-remove`,
-									)
-								: fallbackFocus?.current
-							)?.focus()
-							onRemove(id)
-						})
-					}
-					disabled={disabled}
-				/>
+		<div className="attachment-groups">
+			{groups.map((group, index) => (
+				<ul
+					key={group[0]?.id}
+					ref={index === 0 ? list : undefined}
+					className="attachment-list attachment-cards"
+					aria-label={label}
+				>
+					{group.map(renderItem)}
+				</ul>
 			))}
-		</ul>
+		</div>
 	)
 }

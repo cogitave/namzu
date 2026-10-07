@@ -1,6 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
-import { elapsedLabel, transcriptOutcome } from './transcript-layout.js'
+import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
 export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
@@ -30,14 +30,8 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 		timing?.reason ??
 		timing?.stopReason ??
 		(turn === thread.turn ? (thread.reason ?? thread.stopReason) : undefined)
-	const duration =
-		timing?.startedAt !== undefined && timing.endedAt !== undefined
-			? elapsedLabel(timing.endedAt - timing.startedAt)
-			: timing?.recordedDurationMs !== undefined &&
-					Number.isFinite(timing.recordedDurationMs) &&
-					timing.recordedDurationMs >= 0
-				? elapsedLabel(timing.recordedDurationMs)
-				: undefined
+	const milliseconds = turnDurationMs(thread, turn)
+	const duration = milliseconds === undefined ? undefined : elapsedLabel(milliseconds)
 	const outcome = transcriptOutcome(reason)
 	const label =
 		turn === thread.turn && thread.error

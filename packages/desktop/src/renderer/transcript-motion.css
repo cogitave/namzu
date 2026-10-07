@@ -210,3 +210,12 @@
 		transition: none;
 	}
 }
+.transcript-date-separator {
+	margin: 40px 0 20px;
+	text-align: center;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.transcript-date-separator:first-child {
+	margin-top: 24px;
+}

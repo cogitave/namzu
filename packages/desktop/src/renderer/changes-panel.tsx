@@ -7,11 +7,26 @@ import { Button } from './ui/button.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 /** The exact before/after from completed calls; no inferred repository or pending changes. */
-export function ChangesPanel({ tools, dark }: { tools: Record<string, Tool>; dark: boolean }) {
+export function ChangesPanel({
+	tools,
+	dark,
+	receiptIds,
+	onShowAll,
+}: {
+	tools: Record<string, Tool>
+	dark: boolean
+	/** Show only these receipts (one reply's edits); `onShowAll` leaves the filter. */
+	receiptIds?: readonly string[]
+	onShowAll?: () => void
+}) {
 	const [split, setSplit] = useState(false)
 	const [wrap, setWrap] = useState(false)
+	const filtered = receiptIds !== undefined && onShowAll !== undefined
 	const changes = Object.entries(tools).filter(
-		([, tool]) => tool.status === 'completed' && tool.view.kind === 'diff',
+		([id, tool]) =>
+			tool.status === 'completed' &&
+			tool.view.kind === 'diff' &&
+			(!filtered || receiptIds.includes(id)),
 	)
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -42,6 +57,17 @@ export function ChangesPanel({ tools, dark }: { tools: Record<string, Tool>; dar
 					</Button>
 				</div>
 			</div>
+			{filtered && (
+				<div
+					className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-1.5 text-xs text-muted-foreground"
+					data-changes-filter="reply"
+				>
+					<span>Showing selected changes</span>
+					<Button variant="ghost-muted" size="xs" onClick={onShowAll}>
+						Show all
+					</Button>
+				</div>
+			)}
 			<div className="min-h-0 flex-1 overflow-auto">
 				{changes.length === 0 && (
 					<p className="px-4 py-6 text-sm text-muted-foreground">

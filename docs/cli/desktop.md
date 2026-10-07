@@ -802,7 +802,7 @@ so the same stack can resolve to different faces on different operating systems.
 The project and conversation breadcrumb uses 14px medium labels with native
 text-box trimming where supported; narrow windows retain the conversation title.
 Completed file actions expose their bounded before/after previews in Changes.
-Open diff opens the same previews; unified/split display and line wrapping work
+Open diff opens the same previews (per reply, see [Reply summary, attachments and dates](#reply-summary-attachments-and-dates)); unified/split display and line wrapping work
 without reading additional files. Line numbers refer to the preview, which may
 contain only the changed fragment. These result views survive a window reload
 while the connection lives; the current restart history projection contains text
@@ -1215,6 +1215,36 @@ Older CLI connections keep their existing behavior without this optional
 extension. External harness transcripts are not silently interpreted as Namzu
 planning tasks. See [task tracking](../sdk/task-tracking.md) for the existing
 planning, delegated-invocation and resident-pursuit contracts.
+
+### Reply summary, attachments and dates
+
+Each reply that completed file edits carries its own card right under its final
+reply: one file reads "Edited name.css +12 −3" (full path in the tooltip), several
+read "Edited 3 files" with the totals and expand to a list with each file's own
+totals. Totals count a file once, from its first before to its last after; a file
+whose edits cancel out is left out, and a reply with nothing left has no card. The
+card appears when the turn settles, groups by the turn each receipt belongs to, and
+works the same for history restored from the journal. View changes (or a file row)
+opens the Changes pane filtered to that reply's receipts, headed "Showing selected
+changes" with Show all to return; the conversation header's Changes button
+and the Changes tab always show everything. There is no Undo yet; it needs durable
+checkpoints. Pal conversations keep their own outputs.
+
+A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
+start and end, the journal's recorded duration, or the host start and the last time
+seen in the turn, in that order. Otherwise it reads "Worked" with no figure.
+
+A sent message shows its image attachments as a right-aligned stack of thumbnail
+cards (200px square, cropped to fill) above the bubble, and text files as compact
+cards. While a message is still being delivered an image whose preview has not
+arrived shows a spinner in a box of the same size, so nothing moves when it lands
+(static under reduced motion); after a preview is evicted the card keeps saying
+"Preview unavailable". A message with attachments and no text has no bubble.
+
+A centred muted date separator ("Thu 6 Aug, 10:06", in the app locale) precedes
+the first message with a known time, any later one on a different calendar day, and
+any later one more than six hours after the previous known time. Messages with an
+unknown time never produce or move a separator. Pal friend chat has none.
 
 ### Live phases
 

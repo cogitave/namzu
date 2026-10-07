@@ -86,7 +86,16 @@ const messages = new Map<string, ChatMessage[]>(
 	]),
 )
 // The first sample conversation carries attachments, saved file edits and a pinned-looking history,
-// so the details popover has sources, line totals and a diff drawer to show.
+// so the details popover has sources, line totals and a diff drawer to show. Its three saved turns
+// edited one file, three files, and nothing; they sit on two days with a long gap on the second.
+const at = (day: number, hour: number, minute: number) => ({
+	at: new Date(2026, 9, day, hour, minute).getTime(),
+	source: 'journal' as const,
+})
+const thumbnail = (from: string, to: string) =>
+	`data:image/svg+xml,${encodeURIComponent(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="400" height="300" fill="url(#g)"/><rect x="40" y="48" width="120" height="204" rx="10" fill="rgba(255,255,255,.35)"/><rect x="184" y="48" width="176" height="28" rx="8" fill="rgba(255,255,255,.55)"/></svg>`,
+	)}`
 const sampleThread1 = messages.get('sample-thread-1')
 if (sampleThread1)
 	sampleThread1.splice(
@@ -95,6 +104,7 @@ if (sampleThread1)
 		{
 			role: 'user',
 			text: 'Let’s work on refining the navigation. Here are my notes and mockups.',
+			time: at(5, 10, 6),
 			attachments: [
 				{
 					id: 'att-1',
@@ -109,6 +119,7 @@ if (sampleThread1)
 					kind: 'image',
 					size: 91000,
 					mediaType: 'image/png',
+					preview: thumbnail('#6366f1', '#06b6d4'),
 				},
 				{
 					id: 'att-3',
@@ -127,8 +138,64 @@ if (sampleThread1)
 			],
 		},
 		{ role: 'assistant', text: 'Reading the notes.', phase: 'commentary' },
-		{ role: 'user', text: 'Then apply the spacing changes.' },
+		{ role: 'user', text: 'Then apply the spacing changes.', time: at(5, 10, 8) },
 	)
+// The original sample answer stays where it was, as the end of the first turn.
+const firstAnswer = sampleThread1?.at(-1)
+if (firstAnswer) firstAnswer.time = at(5, 10, 12)
+if (sampleThread1)
+	sampleThread1.push(
+		{
+			role: 'user',
+			text: 'Add focus and hover states across the rail, the tokens and the header.',
+			time: at(6, 9, 30),
+		},
+		{
+			role: 'assistant',
+			text: 'Done. The rail, the token file and the header now share one focus ring and hover tint.',
+			time: at(6, 9, 41),
+		},
+		{
+			role: 'user',
+			text: 'Here is the new header mockup.',
+			time: at(6, 17, 20),
+			attachments: [
+				{
+					id: 'att-5',
+					name: 'header-v2.png',
+					kind: 'image',
+					size: 52000,
+					mediaType: 'image/png',
+					preview: thumbnail('#f59e0b', '#ef4444'),
+				},
+			],
+		},
+		{
+			role: 'assistant',
+			text: 'Thanks. I will compare it with the rail next.',
+			time: at(6, 17, 21),
+		},
+		{
+			role: 'user',
+			text: '',
+			status: 'pending',
+			attachments: [
+				{
+					id: 'att-6',
+					name: 'footer-mockup.png',
+					kind: 'image',
+					size: 48000,
+					mediaType: 'image/png',
+				},
+			],
+		},
+	)
+const diff = (path: string, before: string, after: string) => ({
+	kind: 'diff' as const,
+	path,
+	before,
+	after,
+})
 const sampleWork: HistoryWorkSnapshot = {
 	v: 1,
 	partial: false,
@@ -137,6 +204,10 @@ const sampleWork: HistoryWorkSnapshot = {
 		{ index: 1, messageId: 'a0', turnId: 't1', order: 3 },
 		{ index: 2, messageId: 'u2', turnId: 't1', order: 4 },
 		{ index: 3, messageId: 'a1', turnId: 't1', order: 7 },
+		{ index: 4, messageId: 'u3', turnId: 't2', order: 12 },
+		{ index: 5, messageId: 'a2', turnId: 't2', order: 17 },
+		{ index: 6, messageId: 'u4', turnId: 't3', order: 22 },
+		{ index: 7, messageId: 'a3', turnId: 't3', order: 23 },
 	],
 	turns: [
 		{
@@ -145,7 +216,22 @@ const sampleWork: HistoryWorkSnapshot = {
 			order: 1,
 			status: 'completed',
 			reason: 'end_turn',
-			durationMs: 4000,
+			durationMs: 257000,
+		},
+		{
+			turnId: 't2',
+			userMessageId: 'u3',
+			order: 11,
+			status: 'completed',
+			reason: 'end_turn',
+			durationMs: 83000,
+		},
+		{
+			turnId: 't3',
+			userMessageId: 'u4',
+			order: 21,
+			status: 'completed',
+			reason: 'end_turn',
 		},
 	],
 	tools: [
@@ -155,12 +241,11 @@ const sampleWork: HistoryWorkSnapshot = {
 			name: 'write',
 			order: 5,
 			status: 'completed',
-			presentation: {
-				kind: 'diff',
-				path: 'src/sidebar.css',
-				before: '.row {\n  padding: 4px;\n  gap: 4px;\n}\n',
-				after: '.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
-			},
+			presentation: diff(
+				'src/sidebar.css',
+				'.row {\n  padding: 4px;\n  gap: 4px;\n}\n',
+				'.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
+			),
 		},
 		{
 			turnId: 't1',
@@ -168,13 +253,47 @@ const sampleWork: HistoryWorkSnapshot = {
 			name: 'write',
 			order: 6,
 			status: 'completed',
-			presentation: {
-				kind: 'diff',
-				path: 'src/sidebar.css',
-				before: '.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
-				after:
-					'.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n.row:hover {\n  background: var(--accent);\n}\n',
-			},
+			presentation: diff(
+				'src/sidebar.css',
+				'.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
+				'.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n.row:hover {\n  background: var(--accent);\n}\n',
+			),
+		},
+		{
+			turnId: 't2',
+			toolUseId: 'edit3',
+			name: 'write',
+			order: 13,
+			status: 'completed',
+			presentation: diff(
+				'src/rail.css',
+				'.rail a {\n  color: inherit;\n}\n',
+				'.rail a {\n  color: inherit;\n}\n.rail a:hover {\n  background: var(--accent);\n}\n.rail a:focus-visible {\n  outline: 2px solid var(--ring);\n}\n',
+			),
+		},
+		{
+			turnId: 't2',
+			toolUseId: 'edit4',
+			name: 'write',
+			order: 14,
+			status: 'completed',
+			presentation: diff(
+				'design/tokens.json',
+				'{\n  "ring": "#6366f1"\n}\n',
+				'{\n  "ring": "#6366f1",\n  "hover": "#f4f4f5"\n}\n',
+			),
+		},
+		{
+			turnId: 't2',
+			toolUseId: 'edit5',
+			name: 'write',
+			order: 15,
+			status: 'completed',
+			presentation: diff(
+				'src/components/header.tsx',
+				'export const Header = () => <header />\n',
+				'export const Header = () => (\n  <header className="focus-ring">\n    <nav />\n  </header>\n)\n',
+			),
 		},
 	],
 }
