@@ -10,7 +10,15 @@ import type {
 	PalView,
 	ProjectView,
 	ProviderView,
+	WorkspaceView,
 } from '../shared/protocol.js'
+import {
+	activateWorkspaceTab,
+	closeWorkspaceTab,
+	moveWorkspaceTab,
+	openWorkspaceTab,
+	resizeWorkspaceSplit,
+} from '../shared/workspace-layout.js'
 
 // This separate development entry never substitutes for the native preload API.
 if (!import.meta.env.DEV || window.namzu)
@@ -99,9 +107,44 @@ function conversation(id: string): ConversationView {
 	if (!found) throw new Error('Choose a sample conversation in this design preview.')
 	return found
 }
-function owner(id: string): void {
+function owner(value: string): void {
+	// Pane drafts are keyed `project:<id>:workspace:<window>:<group>`.
+	const id = value.replace(/:workspace:.*$/, '')
 	if (id.startsWith('project:')) project(id.slice('project:'.length))
 	else conversation(id)
+}
+// One in-memory window whose panes use the app's own layout operations.
+const windowId = 'preview-window'
+const workspace: WorkspaceView = {
+	windowId,
+	sequence: 0,
+	homeGroupId: 'preview-home',
+	layout: {
+		version: 1,
+		revision: 0,
+		windows: [
+			{
+				id: windowId,
+				focusedGroupId: 'preview-home',
+				root: {
+					kind: 'group',
+					id: 'preview-home',
+					tabs: ['sample-thread-1', 'sample-thread-2'],
+					activeTabId: 'sample-thread-1',
+				},
+			},
+		],
+	},
+}
+let nextGroup = 1
+function commitLayout(next: WorkspaceView['layout'] | null): WorkspaceView {
+	if (next && next !== workspace.layout) {
+		workspace.layout = { ...next, revision: workspace.layout.revision + 1 }
+		workspace.sequence++
+		const view = clone(workspace)
+		for (const listener of listeners) listener({ kind: 'workspace', view })
+	}
+	return clone(workspace)
 }
 function nativeOnly(action: string): never {
 	throw new Error(
@@ -117,6 +160,59 @@ const api: DesktopApi = {
 		await navigator.clipboard.writeText(value)
 	},
 	windowChrome: async () => ({ platform: 'other', height: 32 }),
+	workspace: async () => clone(workspace),
+	workspaceReady: async () => clone(workspace),
+	workspaceCloseReady: async () => {},
+	workspaceAction: async (action) => {
+		const layout = workspace.layout
+		switch (action.kind) {
+			case 'open': {
+				const found = layout.windows[0]?.root
+				return commitLayout(
+					openWorkspaceTab(layout, {
+						windowId,
+						tabId: action.tabId,
+						groupId: action.groupId ?? (found?.kind === 'group' ? found.id : undefined),
+						newGroupId: `preview-group-${nextGroup++}`,
+					}) ??
+						(action.groupId
+							? activateWorkspaceTab(layout, {
+									windowId,
+									groupId: action.groupId,
+									tabId: action.tabId,
+								})
+							: null),
+				)
+			}
+			case 'activate':
+				return commitLayout(activateWorkspaceTab(layout, { windowId, ...action }))
+			case 'close':
+				return commitLayout(closeWorkspaceTab(layout, { windowId, ...action }))
+			case 'focus':
+				return clone(workspace)
+			case 'resize':
+				return commitLayout(resizeWorkspaceSplit(layout, { windowId, ...action }))
+			case 'move':
+				return commitLayout(
+					moveWorkspaceTab(layout, {
+						tabId: action.tabId,
+						sourceWindowId: windowId,
+						sourceGroupId: action.sourceGroupId,
+						targetWindowId: windowId,
+						targetGroupId: action.targetGroupId,
+						position: action.position,
+						...(action.index === undefined ? {} : { index: action.index }),
+						newGroupId: `preview-group-${nextGroup++}`,
+						newSplitId: `preview-split-${nextGroup++}`,
+						...(action.size ? { targetSize: action.size } : {}),
+					}),
+				)
+			case 'detach':
+				return nativeOnly('Moving a conversation to a new window')
+			default:
+				return clone(workspace)
+		}
+	},
 	setWindowAppearance: async () => {},
 	popupWindowMenu: async () => nativeOnly('Native window menus'),
 	projects: async () => clone(projects),
