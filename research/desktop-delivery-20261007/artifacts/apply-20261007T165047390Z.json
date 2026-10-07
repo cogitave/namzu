@@ -1,0 +1,496 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-07T16:50:47.391Z",
+  "phase": "startup",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page",
+    "live state read: idle, no dialogs, composer matches saved draft",
+    "installed package.json dependencies equal the snapshot commit",
+    "installed dists differ from source; plan computed",
+    "staged copies match source manifests",
+    "state re-read after staging, immediately before the close",
+    "desktop and every runtime child process gone",
+    "dists swapped; previous dists retained as backups"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "d203b7fe6",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 766,
+      "sourceFiles": 804,
+      "installedManifestSha256": "51a281ec07c60f39b4ada8a3c0ee52fce7ba478c36361ca7cf45ccb5062cf6b0",
+      "sourceManifestSha256": "f4ef8d86cdcbebfd423fb819a67fbec3e82d02b037ed2a5fadd69e0ff982ffe0",
+      "changedCount": 22,
+      "addedCount": 40,
+      "removedCount": 2,
+      "changed": [
+        "THIRD-PARTY-NOTICES.txt",
+        "main/index.js",
+        "main/index.js.map",
+        "main/link-preview.d.ts",
+        "main/link-preview.d.ts.map",
+        "main/link-preview.js",
+        "main/link-preview.js.map",
+        "main/operator.conversation-actions.test.js",
+        "main/operator.conversation-actions.test.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/rpc-client.d.ts",
+        "main/rpc-client.d.ts.map",
+        "main/rpc-client.js",
+        "main/rpc-client.js.map",
+        "preload.cjs",
+        "preload.cjs.map",
+        "renderer/index.html",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map"
+      ],
+      "added": [
+        "dev/preview-changes.d.ts",
+        "dev/preview-changes.d.ts.map",
+        "dev/preview-changes.js",
+        "dev/preview-changes.js.map",
+        "dev/preview-files.d.ts",
+        "dev/preview-files.d.ts.map",
+        "dev/preview-files.js",
+        "dev/preview-files.js.map",
+        "licenses/files-fuzzysort-MIT.txt",
+        "licenses/files-headless-tree-MIT.txt",
+        "licenses/files-ignore-MIT.txt",
+        "licenses/files-remark-frontmatter-MIT.txt",
+        "licenses/files-tanstack-react-virtual-MIT.txt",
+        "licenses/files-yaml-ISC.txt",
+        "main/open-in.d.ts",
+        "main/open-in.d.ts.map",
+        "main/open-in.js",
+        "main/open-in.js.map",
+        "main/open-in.test.d.ts",
+        "main/open-in.test.d.ts.map",
+        "main/open-in.test.js",
+        "main/open-in.test.js.map",
+        "main/operator.project-files.test.d.ts",
+        "main/operator.project-files.test.d.ts.map",
+        "main/operator.project-files.test.js",
+        "main/operator.project-files.test.js.map",
+        "main/project-files.d.ts",
+        "main/project-files.d.ts.map",
+        "main/project-files.js",
+        "main/project-files.js.map",
+        "main/project-files.test.d.ts",
+        "main/project-files.test.d.ts.map",
+        "main/project-files.test.js",
+        "main/project-files.test.js.map",
+        "main/zz-probe.test.d.ts",
+        "main/zz-probe.test.d.ts.map",
+        "main/zz-probe.test.js",
+        "main/zz-probe.test.js.map",
+        "renderer/assets/index-C1gasAch.css",
+        "renderer/assets/index-C76Dg0ZD.js"
+      ],
+      "removed": [
+        "renderer/assets/index-DCXCK9jV.css",
+        "renderer/assets/index-Dc-gz76Y.js"
+      ],
+      "classification": {
+        "runtime": [
+          "THIRD-PARTY-NOTICES.txt",
+          "dev/preview-changes.js",
+          "dev/preview-files.js",
+          "licenses/files-fuzzysort-MIT.txt",
+          "licenses/files-headless-tree-MIT.txt",
+          "licenses/files-ignore-MIT.txt",
+          "licenses/files-remark-frontmatter-MIT.txt",
+          "licenses/files-tanstack-react-virtual-MIT.txt",
+          "licenses/files-yaml-ISC.txt",
+          "main/index.js",
+          "main/link-preview.js",
+          "main/open-in.js",
+          "main/open-in.test.js",
+          "main/operator.conversation-actions.test.js",
+          "main/operator.js",
+          "main/operator.project-files.test.js",
+          "main/project-files.js",
+          "main/project-files.test.js",
+          "main/rpc-client.js",
+          "main/zz-probe.test.js",
+          "preload.cjs",
+          "renderer/assets/index-C1gasAch.css",
+          "renderer/assets/index-C76Dg0ZD.js",
+          "renderer/assets/index-DCXCK9jV.css",
+          "renderer/assets/index-Dc-gz76Y.js",
+          "renderer/index.html"
+        ],
+        "noise": [
+          "dev/preview-changes.d.ts",
+          "dev/preview-changes.d.ts.map",
+          "dev/preview-changes.js.map",
+          "dev/preview-files.d.ts",
+          "dev/preview-files.d.ts.map",
+          "dev/preview-files.js.map",
+          "main/index.js.map",
+          "main/link-preview.d.ts",
+          "main/link-preview.d.ts.map",
+          "main/link-preview.js.map",
+          "main/open-in.d.ts",
+          "main/open-in.d.ts.map",
+          "main/open-in.js.map",
+          "main/open-in.test.d.ts",
+          "main/open-in.test.d.ts.map",
+          "main/open-in.test.js.map",
+          "main/operator.conversation-actions.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/operator.project-files.test.d.ts",
+          "main/operator.project-files.test.d.ts.map",
+          "main/operator.project-files.test.js.map",
+          "main/project-files.d.ts",
+          "main/project-files.d.ts.map",
+          "main/project-files.js.map",
+          "main/project-files.test.d.ts",
+          "main/project-files.test.d.ts.map",
+          "main/project-files.test.js.map",
+          "main/rpc-client.d.ts",
+          "main/rpc-client.d.ts.map",
+          "main/rpc-client.js.map",
+          "main/zz-probe.test.d.ts",
+          "main/zz-probe.test.d.ts.map",
+          "main/zz-probe.test.js.map",
+          "preload.cjs.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 398,
+      "sourceFiles": 399,
+      "installedManifestSha256": "a0b0703142c9690162a55554e2d80d734323370f4f41ef284baeb72284b157d9",
+      "sourceManifestSha256": "9aed220070efc82c299df176c863346b7f1dfbbdbf9e9e17d33ef0d43dd529ec",
+      "changedCount": 2,
+      "addedCount": 1,
+      "removedCount": 0,
+      "changed": [
+        "commands/desktop-host-header.js",
+        "commands/desktop-host.js"
+      ],
+      "added": [
+        "commands/desktop-host-changes.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/desktop-host-changes.js",
+          "commands/desktop-host-header.js",
+          "commands/desktop-host.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 932,
+      "sourceFiles": 934,
+      "installedManifestSha256": "6738d4abe0214c1bdc51aa17c98bf971bfc1288e69c8da8b4b466237a1204db3",
+      "sourceManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "changedCount": 9,
+      "addedCount": 2,
+      "removedCount": 0,
+      "changed": [
+        "plugin/shell-hook.js",
+        "process/kill-tree.js",
+        "public-tools.js",
+        "runtime/jobs/registry.js",
+        "tools/builtins/bash.js",
+        "tools/builtins/job.js",
+        "tools/builtins/wait-for-job-bounds.js",
+        "tools/builtins/wait-for-job.js",
+        "tools/command-shell.js"
+      ],
+      "added": [
+        "tools/host-output.js",
+        "tools/oem-code-pages.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "plugin/shell-hook.js",
+          "process/kill-tree.js",
+          "public-tools.js",
+          "runtime/jobs/registry.js",
+          "tools/builtins/bash.js",
+          "tools/builtins/job.js",
+          "tools/builtins/wait-for-job-bounds.js",
+          "tools/builtins/wait-for-job.js",
+          "tools/command-shell.js",
+          "tools/host-output.js",
+          "tools/oem-code-pages.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "beforePid": 12520,
+  "ownedProcesses": [
+    {
+      "pid": 12520,
+      "ppid": 53892,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 18264,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 32376,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 38664,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43160,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 50864,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 51536,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 53476,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54040,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54716,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "privateSnapshot": "delivery-before-private-20261007T165047390Z.json",
+  "before": {
+    "groups": [
+      {
+        "tabs": [
+          "01a111ad-5a40-75eb-b43d-ddbfc3181de4"
+        ],
+        "active": "01a111ad-5a40-75eb-b43d-ddbfc3181de4",
+        "focused": true
+      }
+    ],
+    "sessions": [
+      {
+        "id": "9e917c9e7b4c05991cb8f22bc7fe7a80121fdbc23c9c597b0c55ad29cb204de8",
+        "messageCount": 28,
+        "messageHashes": [
+          "deb0eefd70869206a48e0caf3474a2cd56d4a2f17a2dedf9565c37aa8d0fc5df",
+          "9b8cdddd983bf804cb52d249140f09c37c85ea280a922400ca55a1778aedae57",
+          "a7a52b763f4de6e0b20f7ec26b64e72a0687876a4d5261ea87e7bcce608bc059",
+          "a09451a190207c8621e46e84c30fd2652cd8ea8ad490bcfedb853f64688fe407",
+          "5f5002ed1b951bf0d3e34ee881dbccbd327e3606b42e998ac2a03ef5939ea0c0",
+          "cf5e14bcab3bec633e4025d8e262d210088021ba874bee2779e75dc4455fba36",
+          "04f5d3349196b185987147f7956e21b68fe909fe6aab7a01d9c2cc34e3f5118d",
+          "d795ad2d6b09a9179204ef7ce274c8c18e80d1f886be8dae368d25d15419238b",
+          "645bec06a57798a8b4e31c11d76da30c8573839c5a4866cdc94c73dcfbf184d9",
+          "e1252355fb4b1ed5ae3259f40d2ebe19d8986300e29895ecf6caf1bc54d7242a",
+          "1595d504ba14cbf9dd31f045b2bcc739f704a5ae569162ab4244ce9757eca10f",
+          "6c52ef44aea1e36f7aae91f81d38c15efe8ea6cf568452a8cd91c6d3f4153918",
+          "1421fbaca4b47866bd4017c7c597e1c883a3d84c438c0f26f00e446613d6bc0b",
+          "39adbf587a6c7672e0cad17355fb1622573f73ee72f82bc854cae262670b08de",
+          "079c6202d84fa69be0370b3f81452136e0a8e705b1952f84086ac77be8944a9e",
+          "2998ae0e691f5783bddfff0f1044d8299c4084bf5a865fd1ae05f6efa6382246",
+          "fb48eeaa45c1ad278841f55e6243c6c1ad8e7542784b53d9e6d574d264c89a48",
+          "f5497f8d11a447654efeca76d6978257323c2454b0b4d61f6a3d9cea270a2ccc",
+          "81a17a64d6edfce933f14e9388b9610554d398bc1b1504cc21116288e7bf145c",
+          "35990a289c1e2af42dfbe4f325fb98995cda77cd697eb42eeeaf47efb51e883d",
+          "3b1125828ce3f717ee79c0f83fad4a7663baa226d1893e4dd1a9650c0a6e4509",
+          "476c55d09ed889bb99080e5f888af72390931fbbb360fd67e33283586fd72c75",
+          "9236b11727cb0ff9b36423bf1357092451a36ca73ac2fb31a679a3d8d9bffa0d",
+          "ae7e51ad838adacb3e08207c70cf8d4cf0fdfb2a476058ee47b3e3ce813708a8",
+          "4335eb0211ef9e85f70180df32d8c73743f758d14a70122107213cdcd2be6deb",
+          "1606a27dff148a0b4bb8c4b30e2ba4bec2cec90d762bed6f953ec2a09ad82061",
+          "cc0f555e1419b29e44a149f9ebe4f85e7b0faa17182ec6903a7731bd5f9b29b1",
+          "6f4126044b6e5f17afb2fc5133b49959349a78f6e2b9a964b212ec89c8c817b0"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "25ca9c414fffb976a933c730272d1ecdc253eaacd3b9c3fbccb170ea317ae469",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "7a03d12b61e54474139c0c7e0f00965cfd41d7ca2f452c4d25ca7e7d7158b9a6",
+        "jobCount": 1
+      }
+    ],
+    "computers": [
+      {
+        "id": "34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35",
+        "status": "unavailable"
+      }
+    ],
+    "presentation": {
+      "otherEntriesHash": "4e43ff7096a53e6bbac556553e23944442516f7f1f2eea7216c970862ae31187",
+      "entryCount": 52,
+      "appearanceHash": "e6bb5689beec52c4672bd4df92c3613d128d30cdc2b704f76953fe43d89c4ae8",
+      "collapsedHash": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "sidebarCollapsed": "false",
+      "page": "chat"
+    },
+    "scroll": {
+      "sidebarScrollTop": 0,
+      "transcriptScrollTop": 3827,
+      "transcriptScrollRange": 3827
+    }
+  },
+  "terminalAlertsBefore": 0,
+  "dependenciesEqual": true,
+  "plan": {
+    "replace": [
+      "desktop",
+      "cli",
+      "sdk"
+    ],
+    "stage": [
+      "dist-stage-20261007T165047390Z",
+      "dist-stage-20261007T165047390Z",
+      "dist-stage-20261007T165047390Z"
+    ],
+    "backup": [
+      "dist-before-delivery-20261007T165047390Z",
+      "dist-before-delivery-20261007T165047390Z",
+      "dist-before-delivery-20261007T165047390Z"
+    ]
+  },
+  "processesBeforeClose": [
+    {
+      "pid": 12520,
+      "ppid": 53892,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 18264,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 32376,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 38664,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43160,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 50864,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 51536,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 53476,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54040,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54716,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "afterPid": 45012,
+  "error": {
+    "name": "AssertionError",
+    "message": "Desktop did not expose its CDP page within 90 s"
+  }
+}

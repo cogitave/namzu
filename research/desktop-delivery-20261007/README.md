@@ -50,3 +50,21 @@ The snapshot dir holds `desktop-dist`, `cli-dist`, `sdk-dist` and `HEAD`. `--met
 ## Delivery of c31cf547 (2026-10-07)
 
 `--apply` passed end to end for the first time: Desktop replaced (CLI and SDK unchanged), PID 2708 → 12520 in 341 ms; tabs, focus, drafts, settings, attachments, providers, messages and preferences equal the pre-close state; installed manifests equal the snapshot; the native link-preview probe passed. Observations only: the transcript scroll range changed (wave 4 adds edit cards and separators) and the active tab's presentation entry was flushed by the graceful close.
+
+## Desktop runtime modules
+
+Failure (delivery of d203b7fe6): the new `dist/main/project-files.js` imported `yaml` and `ignore`, but the installed app has only `node_modules/ws`. Electron failed with `ERR_MODULE_NOT_FOUND`, the window showed "Error", and because the process stayed alive the startup rollback never ran. The updater compared CLI and SDK dependencies but never looked at what the Desktop main process imports.
+
+- `snapshot-modules.mjs <snapshotDir>` (WSL) scans `desktop-dist/main/**/*.js` (not `*.test.js`, not `__fixtures__`) and `preload.cjs` for bare imports (static `import`/`export ... from`, `import()`, `require()`; Node builtins and `electron` ignored), resolves each package from `packages/desktop/node_modules`, copies it (symlinks dereferenced) to `<snapshotDir>/desktop-modules/<name>` and writes `desktop-modules/manifest.json` (`name`, `version`, `dependencies`). It refuses an unresolvable package and any package with `dependencies`/`optionalDependencies`: transitive dependencies are not supported by this simple path.
+- `--check`/`--apply` repeat the same scan on the snapshot's `desktop-dist` (independent of the helper having run) and compare with `app/node_modules`: same version installed = keep; different version = refuse ("installed X a differs from the build's b"); missing = add, only if the snapshot has it with no dependencies. A required package that the manifest does not list, or a missing manifest, refuses. The plan (name, version, add/keep) is in the receipt as `runtimeModules` and `plan.addModules`.
+- `--apply` stages each added package as `app/node_modules/.<name>-stage-<stamp>` (manifest hash verified), and after the app has closed renames it to `app/node_modules/<name>` (creating `@scope` when needed) in the same swap as the dists. A failed swap undoes dists and modules together.
+- Rollback on a failed load: if the new process dies, no CDP page at `config.url` appears within 90 s, or a window/page is titled "Error", the updater captures the last 40 lines of `desktop.stderr.log` into a private file (`delivery-startup-failure-private-<stamp>.json`, never the public receipt), kills the tree (`taskkill /pid <pid> /T /F`), restores every dist and removes the added modules (renamed to `*-failed*`), relaunches the old app and waits for its page. The receipt records `rolledBackAfterStartup`, `startupFailureReason` (one line), `killedFailedProcess` and `previousAppRestored`.
+- Only `--check` has been run for this change; the apply and rollback paths are untested.
+
+## Delivery of d203b7fe6 (2026-10-07)
+
+1. An SDK-only apply (cf6f31ce8) was refused at preflight because the owner was typing; nothing changed.
+2. The first full apply replaced Desktop, CLI and SDK, but the new main process imports `yaml` and `ignore`, which the installed `app\node_modules` (only `ws`) lacked: Electron showed an "Error" window and the page never appeared. The process stayed alive, so the old startup rollback did not fire; the main session closed it and restored all three previous dists by hand (`*-failed-20261007T165047390Z` kept for inspection), and the previous app came back healthy.
+3. The updater gained the runtime-module plan and the failed-load rollback described above; `snapshot-modules.mjs` added `ignore@7.0.12` and `yaml@2.9.1` (no dependencies) to the snapshot.
+4. The second full apply passed end to end: modules added, PID 6908 → 38264 in 502 ms, protected state unchanged, manifests equal the snapshot, link-preview probe passed.
+5. A real background job through the installed SDK (Windows node, temp folder): a three-step cmd loop ran 3.1 s with exit 0 and streamed `Adim n/3 çğıöşü`, and a redirect wrote `bg-demo.txt`.

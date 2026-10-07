@@ -13,6 +13,9 @@
 //                 rename rolls every package back together.
 // --probe-only    read-only: installed manifests, preload API and the network probe only.
 // --verify-after  read-only: compares the running app with a private snapshot and runs the probe.
+// <snapshot dir>/desktop-modules/ (from snapshot-modules.mjs) carries the npm packages the Desktop main
+//   process imports; the check compares them with app/node_modules and plans adds, --apply stages and
+//   swaps them with the dists, and a failed load (dead process, no page in time, "Error" window) is rolled back.
 // Writes: a private snapshot inside the Development directory (drafts included) and a
 // public receipt (counts, hashes, PIDs, booleans, file paths) under ./artifacts.
 const assert = require('node:assert/strict');
@@ -44,6 +47,71 @@ const pidFile = path.join(root, 'desktop.pid');
 const artifacts = path.join(__dirname, 'artifacts');
 const privatePath = path.join(root, `${label}-before-private-${stamp}.json`);
 const REQUIRED = ['main/index.js', 'main/link-preview.js', 'main/link-preview-electron.js', 'preload.cjs', 'renderer/index.html'];
+
+const nodeModules = path.join(config.app, 'node_modules');
+const builtins = new Set(require('node:module').builtinModules);
+// Bare imports of compiled Desktop code (static import/export-from, import(), require()).
+function bareSpecifiers(code) {
+  const text = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const found = new Set();
+  for (const re of [/\b(?:import|export)\b[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]/g, /\bimport\s*['"]([^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g, /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g])
+    for (const m of text.matchAll(re)) found.add(m[1]);
+  return found;
+}
+function packageName(spec) {
+  if (/^(\.|\/|[A-Za-z]:|file:|data:|https?:)/.test(spec) || spec.startsWith('node:')) return null;
+  const parts = spec.split('/');
+  const name = spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  return builtins.has(spec) || builtins.has(name) || name === 'electron' ? null : name;
+}
+function requiredPackages(desktopDist) {
+  const names = new Set();
+  const scan = file => { for (const spec of bareSpecifiers(fs.readFileSync(file, 'utf8'))) { const n = packageName(spec); if (n) names.add(n); } };
+  (function visit(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) { if (e.name !== '__fixtures__') visit(path.join(dir, e.name)); }
+      else if (e.isFile() && /\.(js|cjs|mjs)$/.test(e.name) && !/\.test\.(js|cjs|mjs)$/.test(e.name)) scan(path.join(dir, e.name));
+    }
+  })(path.join(desktopDist, 'main'));
+  const preload = path.join(desktopDist, 'preload.cjs');
+  if (fs.existsSync(preload)) scan(preload);
+  return [...names].sort();
+}
+const moduleDir = (base, name) => path.join(base, ...name.split('/'));
+const modules = []; // { name, version, source, target, stage, scopeDir }
+const readJson = f => JSON.parse(fs.readFileSync(f, 'utf8'));
+// Plans the runtime npm packages the new Desktop main process needs against app/node_modules.
+function planModules() {
+  const required = requiredPackages(path.join(snapshot, 'desktop-dist'));
+  const modRoot = path.join(snapshot, 'desktop-modules');
+  const manifestFile = path.join(modRoot, 'manifest.json');
+  const declared = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
+  const rows = [];
+  for (const name of required) {
+    const installedFile = path.join(moduleDir(nodeModules, name), 'package.json');
+    const installed = fs.existsSync(installedFile) ? readJson(installedFile).version : null;
+    const want = declared?.find(d => d.name === name);
+    assert(want, `Refused: the build imports ${name} but ${declared ? 'desktop-modules/manifest.json does not list it' : 'the snapshot has no desktop-modules/manifest.json (run snapshot-modules.mjs)'}`);
+    assert(typeof want.version === 'string' && want.version, `Refused: manifest entry for ${name} has no version`);
+    if (installed) {
+      assert.equal(installed, want.version, `Refused: installed ${name} ${installed} differs from the build's ${want.version}`);
+      rows.push({ name, version: want.version, action: 'keep' });
+      continue;
+    }
+    assert(Object.keys(want.dependencies ?? {}).length === 0, `Refused: ${name} has dependencies; transitive dependencies are not supported`);
+    const source = moduleDir(modRoot, name);
+    assert(fs.existsSync(path.join(source, 'package.json')), `Refused: snapshot desktop-modules is missing the ${name} directory`);
+    const pkg = readJson(path.join(source, 'package.json'));
+    assert(pkg.name === name && pkg.version === want.version, `Refused: snapshot ${name} package.json does not match its manifest entry`);
+    assert(Object.keys({ ...pkg.dependencies, ...pkg.optionalDependencies }).length === 0, `Refused: snapshot ${name} package.json declares dependencies`);
+    const scoped = name.startsWith('@');
+    modules.push({ name, version: want.version, source, target: moduleDir(nodeModules, name),
+      stage: path.join(nodeModules, `.${name.replace('/', '+')}-stage-${stamp}`), scopeDir: scoped ? path.join(nodeModules, name.split('/')[0]) : null });
+    rows.push({ name, version: want.version, action: 'add' });
+  }
+  return { manifestPresent: !!declared, required: rows };
+}
 
 const packages = [];     // { key, name, sourceDir, targetDir, stage, backup, ... }
 function resolvePackage(name) {
@@ -272,6 +340,37 @@ async function networkProbe() {
   });
 }
 
+// MainWindowTitle of a process: a native error dialog of a failed load shows up here, not over CDP.
+function windowTitle(pid) {
+  const r = cp.spawnSync('powershell.exe', ['-NoProfile', '-Command', `$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if($p){$p.MainWindowTitle}; exit 0`], { encoding: 'utf8', windowsHide: true });
+  return r.status === 0 ? r.stdout.trim() : '';
+}
+// Waits until the app exposes its exact page. Fails fast when the process exits, a window is titled
+// "Error", or the page list shows a title "Error" / only pages other than config.url; fails at 90 s.
+async function waitForPage({ oldStamp, launchedAt, pid, label: who, attachWhenFound }) {
+  const expected = new URL(config.url).href;
+  let polls = 0, lastOther = null;
+  for (;;) {
+    assert(Date.now() - launchedAt < 90_000, `The ${who} did not expose its page (${expected}) within 90 s${lastOther ? `; saw ${lastOther}` : ''}`);
+    assert(processPath(pid), `The ${who} process exited during startup`);
+    if (polls++ % 8 === 0) assert(windowTitle(pid) !== 'Error', `The ${who} shows a window titled "Error"`);
+    try {
+      if (fs.existsSync(portFile) && fs.statSync(portFile).mtimeMs > oldStamp && fs.statSync(portFile).mtimeMs >= launchedAt - 1000 && port() > 0) {
+        const pages = (await fetch(`http://127.0.0.1:${port()}/json/list`, { signal: AbortSignal.timeout(2000) }).then(r => r.json())).filter(p => p.type === 'page');
+        const bad = pages.find(p => p.title === 'Error');
+        if (bad) lastOther = 'a page titled "Error"';
+        else {
+          const other = pages.find(p => p.url !== expected && !/^(about:blank|devtools:)/.test(p.url));
+          if (other) lastOther = `a page at another URL (${new URL(other.url, 'file:///x').protocol})`;
+        }
+        if (bad) assert.fail(`The ${who} page is titled "Error"`);
+        if (pages.some(p => p.url === expected)) { if (attachWhenFound) await attach(); return; }
+      }
+    } catch (e) { if (e instanceof assert.AssertionError) throw e; }
+    await sleep(250);
+  }
+}
+
 // ---- delivery set: desktop dist plus the installed CLI and SDK runtime dist directories ----
 const items = [];
 function buildItems() {
@@ -389,6 +488,10 @@ async function probe() {
       }
     }
     receipt.checks.push('source dists have all required entries');
+    if (mode === 'check' || mode === 'apply') {
+      receipt.runtimeModules = planModules();
+      receipt.checks.push(`desktop runtime modules planned: ${receipt.runtimeModules.required.map(m => `${m.action} ${m.name}@${m.version}`).join(', ') || 'none required'}`);
+    }
     beforePid = readPid();
     assert(Number.isInteger(beforePid) && beforePid > 0, 'Refused: desktop.pid is invalid');
     const exe = processPath(beforePid);
@@ -433,8 +536,9 @@ async function probe() {
     receipt.dependenciesEqual = depMismatch.length === 0;
     assert(depMismatch.length === 0, `Refused: dependencies differ for ${depMismatch.join(', ')}; a junction rebuild is required`);
     receipt.checks.push('installed package.json dependencies equal the snapshot commit');
-    assert(changedItems.length > 0, 'Refused: every installed dist already equals the source');
-    receipt.plan = { replace: changedItems.map(i => i.key), stage: changedItems.map(i => path.basename(i.stage)), backup: changedItems.map(i => path.basename(i.backup)) };
+    assert(changedItems.length > 0 || modules.length > 0, 'Refused: every installed dist already equals the source');
+    receipt.plan = { replace: changedItems.map(i => i.key), stage: changedItems.map(i => path.basename(i.stage)), backup: changedItems.map(i => path.basename(i.backup)),
+      addModules: modules.map(m => `${m.name}@${m.version}`), moduleStage: modules.map(m => path.basename(m.stage)) };
     receipt.checks.push('installed dists differ from source; plan computed');
     if (mode !== 'apply') { receipt.phase = 'complete'; receipt.passed = true; return; }
 
@@ -444,6 +548,11 @@ async function probe() {
       assert(!fs.existsSync(i.stage) && !fs.existsSync(i.backup), `Stage or backup already exists for ${i.key}`);
       fs.cpSync(i.source, i.stage, { recursive: true, filter: s => !i.skip(path.relative(i.source, s).split(path.sep).join('/')) });
       assert.equal(manifestHash(manifest(i.stage)), receipt.packages[i.key].sourceManifestSha256, `Staged ${i.key} copy differs from source`);
+    }
+    for (const m of modules) {
+      assert(!fs.existsSync(m.stage) && !fs.existsSync(m.target), `Stage or install already exists for ${m.name}`);
+      fs.cpSync(m.source, m.stage, { recursive: true });
+      assert.equal(manifestHash(manifest(m.stage)), manifestHash(manifest(m.source)), `Staged module ${m.name} differs from the snapshot`);
     }
     receipt.checks.push('staged copies match source manifests');
     // The copy takes a while and the app stays in use: compare against the state
@@ -465,28 +574,39 @@ async function probe() {
     }
     receipt.checks.push('desktop and every runtime child process gone');
     receipt.phase = 'swap';
-    const done = []; // { item, backedUp, staged }
+    const done = []; // { kind: 'dist'|'module', item|mod, backedUp, staged, scopeCreated }
     try {
       for (const i of changedItems) {
-        const rec = { item: i, backedUp: false, staged: false };
+        const rec = { kind: 'dist', item: i, backedUp: false, staged: false };
         done.push(rec);
         fs.renameSync(i.target, i.backup); rec.backedUp = true;
         fs.renameSync(i.stage, i.target); rec.staged = true;
       }
+      for (const m of modules) {
+        const rec = { kind: 'module', mod: m, staged: false, scopeCreated: false };
+        done.push(rec);
+        if (m.scopeDir && !fs.existsSync(m.scopeDir)) { fs.mkdirSync(m.scopeDir); rec.scopeCreated = true; }
+        fs.renameSync(m.stage, m.target); rec.staged = true;
+      }
     } catch (error) {
       const rollbackErrors = [];
-      for (const rec of done.reverse()) {
+      for (const rec of [...done].reverse()) {
         try {
+          if (rec.kind === 'module') {
+            if (rec.staged) fs.renameSync(rec.mod.target, rec.mod.stage);
+            if (rec.scopeCreated) fs.rmdirSync(rec.mod.scopeDir);
+            continue;
+          }
           if (rec.staged) fs.renameSync(rec.item.target, rec.item.stage);
           if (rec.backedUp) fs.renameSync(rec.item.backup, rec.item.target);
-        } catch (e) { rollbackErrors.push(`${rec.item.key}: ${String(e.message).slice(0, 100)}`); }
+        } catch (e) { rollbackErrors.push(`${rec.kind === 'module' ? rec.mod.name : rec.item.key}: ${String(e.message).slice(0, 100)}`); }
       }
       cp.spawnSync(process.execPath, [path.join(root, 'launch.cjs')], { encoding: 'utf8', windowsHide: true });
       receipt.rolledBack = true;
       receipt.rollbackErrors = rollbackErrors;
       throw error;
     }
-    receipt.checks.push('dists swapped; previous dists retained as backups');
+    receipt.checks.push('dists and runtime modules swapped; previous dists retained as backups');
     receipt.phase = 'startup';
     const oldStamp = fs.existsSync(portFile) ? fs.statSync(portFile).mtimeMs : 0;
     const launchedAt = Date.now();
@@ -495,33 +615,51 @@ async function probe() {
       assert.equal(launch.status, 0, 'Launcher failed');
       receipt.afterPid = readPid();
       assert.notEqual(receipt.afterPid, beforePid, 'No new process id');
-      let attached = false;
-      while (!attached) {
-        assert(Date.now() - launchedAt < 90_000, 'Desktop did not expose its CDP page within 90 s');
-        assert(processPath(readPid()), 'The new desktop process exited during startup');
-        try {
-          if (fs.existsSync(portFile) && fs.statSync(portFile).mtimeMs > oldStamp && fs.statSync(portFile).mtimeMs >= launchedAt - 1000 && port() > 0) {
-            const pages = await fetch(`http://127.0.0.1:${port()}/json/list`, { signal: AbortSignal.timeout(2000) }).then(r => r.json());
-            if (pages.some(p => p.url === new URL(config.url).href)) { await attach(); attached = true; }
-          }
-        } catch {}
-        if (!attached) await sleep(250);
-      }
+      await waitForPage({ oldStamp, launchedAt, pid: receipt.afterPid, label: 'new desktop', attachWhenFound: true });
     } catch (error) {
-      // A build that cannot start must not strand the operator: put every previous
-      // dist back (keeping the failed one for inspection) and start the old app.
-      if (!processPath(readPid())) {
-        const rollbackErrors = [];
-        for (const i of [...changedItems].reverse()) {
-          try {
-            fs.renameSync(i.target, `${i.target}-failed-${stamp}`);
-            fs.renameSync(i.backup, i.target);
-          } catch (e) { rollbackErrors.push(`${i.key}: ${String(e.message).slice(0, 100)}`); }
+      // A build that cannot load must not strand the operator, whether the process died or stays
+      // alive on a broken window: kill what is still running, put every previous dist back (keeping
+      // the failed ones for inspection), remove the added modules and start the old app.
+      receipt.startupFailureReason = String(error.message).replace(/\s+/g, ' ').slice(0, 160);
+      const alivePid = (() => { try { const pid = readPid(); return pid !== beforePid && processPath(pid) ? pid : null; } catch { return null; } })();
+      try {
+        const err = path.join(root, 'desktop.stderr.log');
+        const tail = fs.existsSync(err) ? fs.readFileSync(err, 'utf8').split(/\r?\n/).slice(-40) : [];
+        const file = path.join(root, `${label}-startup-failure-private-${stamp}.json`);
+        fs.writeFileSync(file, JSON.stringify({ stamp, reason: receipt.startupFailureReason, stderrTail: tail }), { mode: 0o600, flag: 'wx' });
+        receipt.startupFailurePrivate = path.basename(file);
+      } catch {}
+      await disconnect();
+      if (alivePid) {
+        cp.spawnSync('taskkill.exe', ['/pid', String(alivePid), '/T', '/F'], { encoding: 'utf8', windowsHide: true });
+        receipt.killedFailedProcess = true;
+        const killStart = Date.now();
+        while (processPath(alivePid) || ownedProcesses().length > 0) {
+          if (Date.now() - killStart > 30_000) { receipt.rollbackErrors = ['the failed desktop did not exit after taskkill']; throw error; }
+          await sleep(500);
         }
-        cp.spawnSync(process.execPath, [path.join(root, 'launch.cjs')], { encoding: 'utf8', windowsHide: true });
-        receipt.rolledBackAfterStartup = true;
-        receipt.rollbackErrors = rollbackErrors;
       }
+      const rollbackErrors = [];
+      for (const rec of [...done].reverse()) {
+        try {
+          if (rec.kind === 'module') {
+            fs.renameSync(rec.mod.target, `${rec.mod.stage}-failed`);
+            if (rec.scopeCreated) fs.rmdirSync(rec.mod.scopeDir);
+            continue;
+          }
+          fs.renameSync(rec.item.target, `${rec.item.target}-failed-${stamp}`);
+          fs.renameSync(rec.item.backup, rec.item.target);
+        } catch (e) { rollbackErrors.push(`${rec.kind === 'module' ? rec.mod.name : rec.item.key}: ${String(e.message).slice(0, 100)}`); }
+      }
+      receipt.rollbackErrors = rollbackErrors;
+      const oldPortStamp = fs.existsSync(portFile) ? fs.statSync(portFile).mtimeMs : 0;
+      const relaunchedAt = Date.now();
+      cp.spawnSync(process.execPath, [path.join(root, 'launch.cjs')], { encoding: 'utf8', windowsHide: true });
+      receipt.rolledBackAfterStartup = true;
+      try {
+        await waitForPage({ oldStamp: oldPortStamp, launchedAt: relaunchedAt, pid: readPid(), label: 'previous desktop', attachWhenFound: false });
+        receipt.previousAppRestored = true;
+      } catch (e) { receipt.previousAppRestored = false; receipt.rollbackErrors.push(`relaunch: ${String(e.message).slice(0, 100)}`); }
       throw error;
     }
     receipt.startupMs = Date.now() - launchedAt;

@@ -1,0 +1,191 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-07T16:21:11.082Z",
+  "phase": "state",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "cf6f31ce8",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 766,
+      "sourceFiles": 766,
+      "installedManifestSha256": "51a281ec07c60f39b4ada8a3c0ee52fce7ba478c36361ca7cf45ccb5062cf6b0",
+      "sourceManifestSha256": "51a281ec07c60f39b4ada8a3c0ee52fce7ba478c36361ca7cf45ccb5062cf6b0",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 398,
+      "sourceFiles": 398,
+      "installedManifestSha256": "a0b0703142c9690162a55554e2d80d734323370f4f41ef284baeb72284b157d9",
+      "sourceManifestSha256": "a0b0703142c9690162a55554e2d80d734323370f4f41ef284baeb72284b157d9",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 932,
+      "sourceFiles": 934,
+      "installedManifestSha256": "6738d4abe0214c1bdc51aa17c98bf971bfc1288e69c8da8b4b466237a1204db3",
+      "sourceManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "changedCount": 9,
+      "addedCount": 2,
+      "removedCount": 0,
+      "changed": [
+        "plugin/shell-hook.js",
+        "process/kill-tree.js",
+        "public-tools.js",
+        "runtime/jobs/registry.js",
+        "tools/builtins/bash.js",
+        "tools/builtins/job.js",
+        "tools/builtins/wait-for-job-bounds.js",
+        "tools/builtins/wait-for-job.js",
+        "tools/command-shell.js"
+      ],
+      "added": [
+        "tools/host-output.js",
+        "tools/oem-code-pages.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "plugin/shell-hook.js",
+          "process/kill-tree.js",
+          "public-tools.js",
+          "runtime/jobs/registry.js",
+          "tools/builtins/bash.js",
+          "tools/builtins/job.js",
+          "tools/builtins/wait-for-job-bounds.js",
+          "tools/builtins/wait-for-job.js",
+          "tools/command-shell.js",
+          "tools/host-output.js",
+          "tools/oem-code-pages.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "beforePid": 12520,
+  "ownedProcesses": [
+    {
+      "pid": 12520,
+      "ppid": 53892,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 18264,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 32376,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 38664,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43160,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 50864,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 51536,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 53476,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54040,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54716,
+      "ppid": 12520,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "error": {
+    "name": "Error",
+    "message": "page.evaluate: Error: A dialog, alert, computer canvas, or focused editor is active. at eval (eval at evaluate (:311:30), <anonymous>:61:13) at async <anonymous>:337:30"
+  }
+}
