@@ -1354,8 +1354,8 @@ turn; only the latest public segment owns the turn's time and outcome heading,
 and earlier segments say **Earlier work**. Opaque reasoning alone does not
 create an empty disclosure. Settled headings retain **Worked for** the observed
 or recorded duration, Paused, Stopped or Work incomplete as appropriate. The
-summary opens while that turn runs and collapses after settlement unless the
-operator chose otherwise. The answer appears below that group only when it is
+summary opens while that turn runs; a turn that finished while the person
+watched stays open, a restored one opens closed, and a choice the person made wins. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
 Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.
@@ -1433,18 +1433,43 @@ design. These proofs use isolated events rather than native/model actions. The
 checks constant parent, neighbour and scroll geometry through hover, reversal
 and focus in four viewport and motion settings, with the [source-bound receipt](../../research/transcript-motion-20261007/artifacts/hover-fixed-layout-564aaf64-ce37969e.json).
 
-The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
-record the installed Codex build's verified source labels and motion constants.
-Its live transcript DOM was unavailable without restarting that application,
-so these observations do not establish pixel parity with a running reference.
-The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
-uses the actual Namzu renderer with synthetic runtime events, deterministic
-animation frames, keyboard disclosures, rapid reversals, reduced motion and
-Pal separation. It performs no native, model or computer action.
+### Action rows
 
-Cancellation, pause, refusal and error end the live phase without claiming a
-successful answer. The exact runtime reason preserves Paused even when its ACP
-stop category is `cancelled`. When preparation returns without a streamed end,
+The work list sits flush with its heading (no indent, no left rail); finished rows are a step
+lighter than the running row and the run's summary line. Each action is one muted line (24 px, 14 px text, a 14 px icon);
+the live heading is one phrase ("Working for 7s", no chevron until hover or
+focus) and the current action shimmers (static under reduced motion, and still
+while it waits for approval). Only the action that is running shimmers, not the finished
+rows inside the same run.
+
+| Action | Row | On hover or focus | On click |
+| --- | --- | --- | --- |
+| Command | Running command, Ran command, Command failed | the command, one line, 200 characters at most | opens the command and its output |
+| Edit | Editing, Edited, Created or Deleted *name*; Waiting to edit; Couldn't edit | the full path | the Changes panel on that file for that reply |
+| Read | Reading, Read *name* | the full path | the file in a tab |
+| Search | Searched for *pattern*, Listed files in *folder* (60 characters, whole text in the tooltip) | the whole text | opens the results when there are any |
+
+Created and Deleted come from the receipt: an empty before is a creation, an empty
+after a deletion. The file name is the last path segment with a dotted underline; a
+relative path is shown in full against the conversation's folder, with `.` and `..`
+resolved. Screen readers get the command or the path as the row's description. An edit never expands
+in the transcript; its Before and After live in the Changes panel. When the reply has
+no completed receipt for the path yet (or the path was never receipted) the click opens
+the file instead. Status, time and duration show on hover; a failure always shows.
+
+Consecutive actions between two pieces of narration form a run. A run of two or more
+gets a summary row, with a pencil if it holds an edit and otherwise the icon of its most
+common kind, and a counted label in order of first appearance: "Edited a file, ran 2
+commands", "Read 4 files", "Searched 3 times", "Used 2 tools" (a file counts once however
+often it was edited; live it reads "Editing a file, running commands"; a failure adds
+", 1 failed" so a folded run does not read as all done). A run is open while it works,
+and a run the person watched work stays open when it ends; a restored run of five or
+fewer is open and a longer one folds to its summary. The person's choice is kept with the turn's other disclosure choices. One
+action is just its row, and the run no longer scrolls inside a box.
+
+`/preview?activity=1` adds saved replies of every shape above and `/preview?live=1`
+plays a running turn (`&hold=edit` stops it while the edit is under way).
+
 ### Streaming a long reply
 
 A streamed reply is drawn in pieces. Its text is cut at blank lines outside code, and each
@@ -1480,6 +1505,18 @@ unmeasurable cost, answer review and plan review have their own explanations.
 Pause/stop/timeout notices do not promise recovery. Only the authoritative
 recovery controls below decide whether a turn can be retried or resumed.
 
+The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
+record the installed Codex build's verified source labels and motion constants.
+Its live transcript DOM was unavailable without restarting that application,
+so these observations do not establish pixel parity with a running reference.
+The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
+uses the actual Namzu renderer with synthetic runtime events, deterministic
+animation frames, keyboard disclosures, rapid reversals, reduced motion and
+Pal separation. It performs no native, model or computer action.
+
+Cancellation, pause, refusal and error end the live phase without claiming a
+successful answer. The exact runtime reason preserves Paused even when its ACP
+stop category is `cancelled`. When preparation returns without a streamed end,
 Checkpointed provider faults retain their failure explanation in the live
 transcript's error alert even when the compatibility stop category is
 `cancelled`. Reopening that conversation while its runtime connection remains

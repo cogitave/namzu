@@ -44,7 +44,8 @@
 	opacity: 1;
 }
 .normal-transcript .transcript-visually-hidden,
-.normal-transcript .tool.completed .tool-status {
+.normal-transcript .tool.completed .tool-status,
+.normal-transcript .tool.running .tool-status {
 	position: absolute;
 	width: 1px;
 	height: 1px;
@@ -55,8 +56,64 @@
 	white-space: nowrap;
 	border: 0;
 }
-.normal-transcript .tool.completed .tool-trigger > .disclosure-chevron {
+.normal-transcript .tool-trigger > .disclosure-chevron {
+	margin-left: 0;
+}
+/* The next hidden-until-hover chip pushes the rest to the right edge. */
+.normal-transcript .tool-trigger > .message-time {
 	margin-left: auto;
+}
+.normal-transcript .tool-trigger > .tool-status {
+	margin-left: auto;
+}
+.normal-transcript .tool-trigger > .tool-status + .message-time {
+	margin-left: 8px;
+}
+/* An action's chevron shows on hover or focus; a run's summary keeps its own visible. */
+.normal-transcript .tool:not(.tool-group) .tool-trigger > .disclosure-chevron {
+	opacity: 0;
+	transition: opacity 160ms ease-out;
+}
+.normal-transcript .tool:not(.tool-group) .tool-trigger:hover > .disclosure-chevron,
+.normal-transcript .tool:not(.tool-group) .tool-trigger:focus-visible > .disclosure-chevron {
+	opacity: 1;
+}
+/* A button draws in the foreground colour by default; an action row is muted like its siblings. */
+.normal-transcript .tool-trigger {
+	color: inherit;
+}
+/* The panel clips an outline drawn outside the row, so the focus ring sits inside it. */
+.normal-transcript .tool-trigger:focus-visible {
+	outline-offset: -2px;
+}
+.normal-transcript .tool-run-trigger {
+	width: fit-content;
+	max-width: 100%;
+}
+.normal-transcript .tool-run-trigger:hover {
+	background: none;
+}
+.normal-transcript .tool-open {
+	background: none;
+	border: 0;
+	font: inherit;
+	color: inherit;
+}
+.normal-transcript .tool-open:hover {
+	background: none;
+}
+.normal-transcript .tool-file {
+	text-decoration: underline dotted;
+	text-underline-offset: 3px;
+	text-decoration-thickness: 1px;
+	cursor: inherit;
+}
+.normal-transcript .tool-open:hover .tool-file,
+.normal-transcript .tool-open:focus-visible .tool-file {
+	color: var(--foreground);
+}
+.normal-transcript .tool.failed .tool-label {
+	color: var(--error-foreground);
 }
 .normal-transcript button.message-time {
 	border: 0;
@@ -102,10 +159,32 @@
 	margin-left: 2px;
 	transition-duration: var(--transcript-frame-duration);
 }
+/* While the work is going the header is a plain status; the chevron shows on hover or focus. */
+.normal-transcript .activity-trigger[data-live] > .disclosure-chevron {
+	opacity: 0;
+}
+.normal-transcript .activity-trigger[data-live]:hover > .disclosure-chevron,
+.normal-transcript .activity-trigger[data-live]:focus-visible > .disclosure-chevron {
+	opacity: 1;
+}
+.normal-transcript .activity-text {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.3em;
+	min-width: 0;
+}
 .normal-transcript .activity-entries {
-	margin-left: 7px;
-	padding: 4px 0 8px 16px;
-	border-left: 1px solid var(--border);
+	margin-left: 0;
+	padding: 12px 0 0;
+	border-left: 0;
+}
+/* Finished rows read a step lighter than the running one and than the run's summary line. */
+.normal-transcript
+	.activity-entries
+	.tool:not(.active):not(.failed)
+	> .tool-trigger:not(.tool-run-trigger)
+	.tool-label {
+	color: color-mix(in srgb, var(--foreground) 70%, var(--muted-foreground));
 }
 .normal-transcript .activity-entries .message.commentary {
 	padding-bottom: 0;
@@ -119,7 +198,7 @@
 	color: var(--foreground);
 }
 .normal-transcript .activity-entries .tool-trigger {
-	min-height: 32px;
+	min-height: 24px;
 }
 .normal-transcript .tool-list {
 	padding-bottom: 0;
@@ -164,8 +243,13 @@
 .normal-transcript .transcript-phase-text {
 	grid-area: 1 / 1;
 }
-.normal-transcript .working-label,
-.normal-transcript .tool.active .tool-label {
+.normal-transcript .working-label {
+	background: none;
+	color: var(--muted-foreground);
+	animation: none;
+}
+/* The current action shimmers; one waiting for a decision holds still. */
+.normal-transcript .tool.waiting > .tool-trigger .tool-label {
 	background: none;
 	color: var(--muted-foreground);
 	animation: none;

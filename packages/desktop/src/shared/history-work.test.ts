@@ -307,7 +307,8 @@ it('lets a genuine resumed call replace its saved receipt rather than duplicatin
 	)
 	expect(toolTranscriptPresentation(thread, '2:same')).toMatchObject({
 		state: 'running',
-		label: 'Running actual resumed command',
+		label: 'Running command',
+		tooltip: 'actual resumed command',
 	})
 	expect(thread.tools['2:same']?.historicalStatus).toBeUndefined()
 })

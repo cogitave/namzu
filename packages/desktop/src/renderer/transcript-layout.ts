@@ -1,5 +1,5 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
-import type { ToolTranscriptState } from './tool-transcript-presentation.js'
+import type { ActionKind, ToolTranscriptState } from './tool-transcript-presentation.js'
 
 export interface TranscriptSegment {
 	user: TimelineEntry[]
@@ -60,6 +60,120 @@ export function toolGroupLabel(
 			'Actions completed'
 		)
 	return `${names || 'Actions'} · ${tools.some((tool) => tool.status === 'failed') ? 'failed' : 'interrupted'}`
+}
+
+/** One action of a run, as far as its summary row needs to know. */
+export interface RunAction {
+	kind: ActionKind
+	/** What it acted on, so two edits of one file count once. */
+	subject?: string
+	state: ToolTranscriptState
+}
+
+type RunCategory = ActionKind
+
+function counted(count: number, one: string, many: (count: number) => string): string {
+	return count === 1 ? one : many(count)
+}
+
+function categoryPhrase(category: RunCategory, count: number, live: boolean): string {
+	const phrase: Record<
+		RunCategory,
+		[string, string, (count: number) => string, (count: number) => string]
+	> = {
+		edit: [
+			'edited a file',
+			'editing a file',
+			(n) => `edited ${n} files`,
+			(n) => `editing ${n} files`,
+		],
+		command: [
+			'ran a command',
+			'running a command',
+			(n) => `ran ${n} commands`,
+			(n) => `running ${n} commands`,
+		],
+		read: ['read a file', 'reading a file', (n) => `read ${n} files`, (n) => `reading ${n} files`],
+		search: ['searched', 'searching', (n) => `searched ${n} times`, (n) => `searching ${n} times`],
+		web: [
+			'searched the web',
+			'searching the web',
+			() => 'searched the web',
+			() => 'searching the web',
+		],
+		lookup: [
+			'checked earlier messages',
+			'checking earlier messages',
+			() => 'checked earlier messages',
+			() => 'checking earlier messages',
+		],
+		other: ['used a tool', 'using a tool', (n) => `used ${n} tools`, (n) => `using ${n} tools`],
+	}
+	const [done, doing, doneMany, doingMany] = phrase[category]
+	return live ? counted(count, doing, doingMany) : counted(count, done, doneMany)
+}
+
+/**
+ * The summary of a run of consecutive actions: counted, in the order each kind first appears.
+ * "Edited a file, ran 2 commands"; while the run is live, "Editing a file, running 2 commands".
+ */
+export function actionRunLabel(actions: RunAction[], live: boolean): string {
+	const subjects = new Map<RunCategory, Set<string>>()
+	const counts = new Map<RunCategory, number>()
+	for (const action of actions) {
+		const category = action.kind
+		// Files are counted once each; the other kinds count every action.
+		if ((category === 'edit' || category === 'read') && action.subject) {
+			const seen = subjects.get(category) ?? new Set<string>()
+			seen.add(action.subject)
+			subjects.set(category, seen)
+			counts.set(category, seen.size)
+		} else counts.set(category, (counts.get(category) ?? 0) + 1)
+	}
+	const phrases = [...counts].map(([category, count]) => categoryPhrase(category, count, live))
+	// A folded run must not read as all done when some of it failed.
+	const failed = actions.filter((action) => action.state === 'failed').length
+	if (failed) phrases.push(`${failed} failed`)
+	const text = phrases.join(', ')
+	return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** A finished run this long or shorter stays open; a longer one folds to its summary row. */
+export const openRunLimit = 5
+
+/** Whether a run is open before the person chooses: while it works, or while it is short. */
+export function runDefaultOpen(live: boolean, actions: number): boolean {
+	return live || actions <= openRunLimit
+}
+
+/** Which kind names the icon of a run's summary row: an edit wins, else the most common kind. */
+export function actionRunKind(actions: RunAction[]): ActionKind {
+	if (actions.some((action) => action.kind === 'edit')) return 'edit'
+	const counts = new Map<ActionKind, number>()
+	for (const action of actions) counts.set(action.kind, (counts.get(action.kind) ?? 0) + 1)
+	let best: ActionKind = 'other'
+	let most = 0
+	// Map keeps first-appearance order, so a tie goes to the earlier kind.
+	for (const [kind, count] of counts)
+		if (count > most) {
+			best = kind
+			most = count
+		}
+	return best
+}
+
+/** Entries of one turn split at narration: each run of consecutive actions, and each other entry alone. */
+export function splitActivity(
+	entries: TimelineEntry[],
+): ({ run: TimelineEntry[] } | { entry: TimelineEntry })[] {
+	const parts: ({ run: TimelineEntry[] } | { entry: TimelineEntry })[] = []
+	for (const entry of entries) {
+		const last = parts.at(-1)
+		if (entry.kind !== 'tool') parts.push({ entry })
+		else if (last && 'run' in last) last.run.push(entry)
+		else parts.push({ run: [entry] })
+	}
+	return parts
 }
 
 /** Group activity only when the admitted events actually distinguish it. */

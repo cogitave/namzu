@@ -67,15 +67,8 @@ it('keeps exact admitted receipt order and presentation outside public chat', ()
 	for (const row of rows) expect(row.tool).toBe(thread.tools[row.id])
 	expect(rows.map(({ tool }) => tool.toolCallId)).toEqual(['first', 'second'])
 	const html = render(thread)
-	expect(html.indexOf('Ran pwd')).toBeLessThan(html.indexOf('Edited /guest/workspace/test.txt'))
-	for (const exact of [
-		'/guest/workspace/current',
-		'pwd',
-		'/guest/workspace/test.txt',
-		'before text',
-		'after text',
-	])
-		expect(html).toContain(exact)
+	expect(html.indexOf('Ran command')).toBeLessThan(html.indexOf('Edited'))
+	for (const exact of ['/guest/workspace/current', 'pwd', 'test.txt']) expect(html).toContain(exact)
 	expect(html).not.toContain('Private reasoning')
 	expect(html).not.toContain('Check it')
 	expect(thread).toEqual(before)

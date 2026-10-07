@@ -281,7 +281,7 @@ describe('single live transcript status', () => {
 		expect(html).toContain('class="turn-activity-elapsed">for 47s</span>')
 		expect(html).toContain('transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
-		expect(html).toContain('Running pwd')
+		expect(html).toContain('Running command')
 		expect(thread).toEqual(before)
 	})
 
@@ -323,7 +323,7 @@ describe('single live transcript status', () => {
 		expect(html).toContain('data-transcript-phase="waiting"')
 		expect(html).not.toContain('transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
-		expect(html).toContain('Running pwd')
+		expect(html).toContain('Running command')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
 	})
 

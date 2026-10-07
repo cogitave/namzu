@@ -29,6 +29,13 @@ import {
 	resizeWorkspaceSplit,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import {
+	activityConversation,
+	activityConversationId,
+	activityMessages,
+	activityWork,
+	createActivityLive,
+} from './preview-activity.js'
 import { sampleWorkingDiff, sampleWorkingTree } from './preview-changes.js'
 import {
 	listSampleDirectory,
@@ -36,9 +43,9 @@ import {
 	resolveSampleLinks,
 	sampleFileIndex,
 } from './preview-files.js'
-
 import { createStressStream, stressConversationId, stressMessages } from './preview-stress.js'
 // This separate development entry never substitutes for the native preload API.
+
 if (!import.meta.env.DEV || window.namzu)
 	throw new Error('The design preview is available only in a development browser.')
 
@@ -112,7 +119,6 @@ const messages = new Map<string, ChatMessage[]>(
 		],
 	]),
 )
-// The first sample conversation carries attachments, saved file edits and a pinned-looking history,
 // /preview?stress=300 adds a long conversation and window.namzuPreviewStress.start() streams a long
 // reply into it on a timer, so the transcript can be measured in a real browser.
 const stressTurns = Number(new URLSearchParams(location.search).get('stress'))
@@ -135,6 +141,22 @@ if (Number.isInteger(stressTurns) && stressTurns > 0) {
 	)
 }
 // so the details popover has sources, line totals and a diff drawer to show. Its three saved turns
+// /preview?activity=1 adds saved turns of action rows; /preview?live=1 plays a running turn when that
+// conversation is opened (&hold=edit stops it while the edit is under way).
+const activityParams = new URLSearchParams(location.search)
+const activityShown = activityParams.has('activity')
+const activityLiveShown = activityParams.has('live')
+let activityLive: ReturnType<typeof createActivityLive> | undefined
+if (activityShown || activityLiveShown) {
+	const view = activityConversation('sample-app', sampleDate)
+	conversations.unshift(view)
+	messages.set(view.id, activityShown ? activityMessages() : [])
+	activityLive = createActivityLive(view, (event) => {
+		for (const listener of listeners) listener(event)
+	})
+	;(window as unknown as { namzuPreviewActivity: unknown }).namzuPreviewActivity = activityLive
+}
+// The first sample conversation carries attachments, saved file edits and a pinned-looking history,
 // edited one file, three files, and nothing; they sit on two days with a long gap on the second.
 const at = (day: number, hour: number, minute: number) => ({
 	at: new Date(2026, 9, day, hour, minute).getTime(),
@@ -839,6 +861,20 @@ const api: DesktopApi = {
 								[...undoStatuses].map(([turnId, row]) => [turnId, clone(row)]),
 							),
 						},
+		if (id === activityConversationId && activityLive) {
+			if (activityLiveShown)
+				setTimeout(
+					() => void activityLive?.start({ hold: activityParams.get('hold') ?? undefined }),
+					600,
+				)
+			return {
+				messages: saved,
+				partial: false,
+				thread: activityShown
+					? restoreHistoryWork(emptyThread(), saved, activityWork())
+					: undefined,
+			}
+		}
 					}
 				: {}),
 		}

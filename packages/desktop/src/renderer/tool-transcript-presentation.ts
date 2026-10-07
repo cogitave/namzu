@@ -1,5 +1,6 @@
 import type { ToolCallView } from '@namzu/sdk'
 import type { ProjectedToolCall, ThreadState } from '../shared/projection.js'
+import { baseName } from './turn-changes.js'
 
 export type ToolTranscriptState =
 	| 'waiting'
@@ -10,8 +11,25 @@ export type ToolTranscriptState =
 	| 'interrupted'
 	| 'skipped'
 
+/** What an action row is about; picks its icon, its label and what a click does. */
+export type ActionKind = 'command' | 'edit' | 'read' | 'search' | 'web' | 'lookup' | 'other'
+
+export interface ActionFile {
+	/** The base name drawn in the row. */
+	name: string
+	/** The path as the tool named it; the receipt's own spelling, so it matches the Changes list. */
+	path: string
+}
+
 export interface ToolTranscriptPresentation {
 	label: string
+	kind: ActionKind
+	/** Text before the file name; the row draws `lead` and then the name, so `label` is both. */
+	lead?: string
+	file?: ActionFile
+	operation?: 'created' | 'edited' | 'deleted'
+	/** One line shown on hover or focus: the command, or the full search text. */
+	tooltip?: string
 	state: ToolTranscriptState
 	statusLabel: string
 	quietCompleted?: true
@@ -69,30 +87,114 @@ function toolState(thread: ThreadState, id: string, tool: ProjectedToolCall): To
 		: 'running'
 }
 
-function commandLabel(command: string, state: ToolTranscriptState): string {
-	const prefix: Record<ToolTranscriptState, string> = {
-		waiting: 'Waiting to run',
-		running: 'Running',
-		completed: 'Ran',
-		failed: 'Command failed:',
-		cancelled: 'Cancelled command:',
-		interrupted: 'Interrupted',
-		skipped: 'Skipped command:',
+function commandLabel(state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to run command',
+		running: 'Running command',
+		completed: 'Ran command',
+		failed: 'Command failed',
+		cancelled: 'Command cancelled',
+		interrupted: 'Command interrupted',
+		skipped: 'Command skipped',
 	}
-	return `${prefix[state]} ${command}`
+	return labels[state]
 }
 
-function diffLabel(path: string, state: ToolTranscriptState): string {
+type Operation = 'created' | 'edited' | 'deleted'
+
+/** A receipt does not say create or delete; an empty side does. */
+export function diffOperation(view: { before: string; after: string }): Operation {
+	if (!view.before && view.after) return 'created'
+	if (view.before && !view.after) return 'deleted'
+	return 'edited'
+}
+
+function diffLead(operation: Operation, state: ToolTranscriptState): string {
+	const done = operation === 'created' ? 'Created' : operation === 'deleted' ? 'Deleted' : 'Edited'
 	const prefix: Record<ToolTranscriptState, string> = {
 		waiting: 'Waiting to edit',
 		running: 'Editing',
-		completed: 'Edited',
-		failed: 'Failed edit of',
+		completed: done,
+		failed: "Couldn't edit",
 		cancelled: 'Cancelled edit of',
 		interrupted: 'Interrupted edit of',
 		skipped: 'Skipped edit of',
 	}
-	return `${prefix[state]} ${path}`
+	return prefix[state]
+}
+
+function readLead(state: ToolTranscriptState): string {
+	const prefix: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to read',
+		running: 'Reading',
+		completed: 'Read',
+		failed: "Couldn't read",
+		cancelled: 'Cancelled read of',
+		interrupted: 'Interrupted read of',
+		skipped: 'Skipped read of',
+	}
+	return prefix[state]
+}
+
+function clip(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+function firstLine(text: string): string {
+	return (
+		text
+			.split(/\r?\n/)
+			.find((line) => line.trim())
+			?.trim() ?? ''
+	)
+}
+
+type Exploration =
+	| { kind: 'read'; path: string }
+	| { kind: 'grep'; pattern: string; dir: string }
+	| { kind: 'glob'; pattern: string; dir: string }
+
+/** The SDK names these in its call label ("Read p", "Search x in d", "Find x in d"); there is no field for them. */
+function exploration(tool: ProjectedToolCall): Exploration | undefined {
+	// A saved conversation keeps only the final view, which these tools leave as their call label.
+	const named = tool.callView ?? tool.view
+	const label = named.kind === 'generic' ? firstLine(named.label) : ''
+	if (!label) return undefined
+	if (tool.title === 'read' && label.startsWith('Read ')) {
+		const path = label.slice(5).trim()
+		return path ? { kind: 'read', path } : undefined
+	}
+	const find = tool.title === 'glob' ? 'Find ' : tool.title === 'grep' ? 'Search ' : undefined
+	if (!find || !label.startsWith(find)) return undefined
+	const rest = label.slice(find.length)
+	const at = rest.lastIndexOf(' in ')
+	const pattern = at < 0 ? rest : rest.slice(0, at)
+	const dir = at < 0 ? '.' : rest.slice(at + 4).trim() || '.'
+	return pattern.trim()
+		? { kind: tool.title === 'glob' ? 'glob' : 'grep', pattern: pattern.trim(), dir }
+		: undefined
+}
+
+function searchLead(kind: 'grep' | 'glob', state: ToolTranscriptState): string {
+	const grep: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to search for',
+		running: 'Searching for',
+		completed: 'Searched for',
+		failed: "Couldn't search for",
+		cancelled: 'Cancelled search for',
+		interrupted: 'Interrupted search for',
+		skipped: 'Skipped search for',
+	}
+	const glob: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to list files in',
+		running: 'Listing files in',
+		completed: 'Listed files in',
+		failed: "Couldn't list files in",
+		cancelled: 'Cancelled listing files in',
+		interrupted: 'Interrupted listing files in',
+		skipped: 'Skipped listing files in',
+	}
+	return (kind === 'grep' ? grep : glob)[state]
 }
 
 function observedActionLabel(
@@ -149,30 +251,74 @@ export function toolTranscriptPresentation(
 	const title = nonBlank(tool.title)
 	let label = callCaption || caption(view) || title || 'Tool action'
 	let detailView: ToolCallView | undefined = view
+	let kind: ActionKind = 'other'
+	let lead: string | undefined
+	let file: ActionFile | undefined
+	let operation: Operation | undefined
+	let tooltip: string | undefined
 	const observed = observedActionLabel(tool, state)
+	const explored = exploration(tool)
 	if (observed) {
 		label = observed
+		kind = tool.title === 'search_conversation' ? 'lookup' : 'web'
 		if (view.kind === 'generic' && !view.label.trim()) detailView = undefined
 	} else if (view.kind === 'terminal') {
+		kind = 'command'
 		const command =
 			nonBlank(view.command) ||
 			(tool.callView?.kind === 'terminal' ? nonBlank(tool.callView.command) : undefined)
-		if (command) label = commandLabel(command, state)
+		// Without a command the caption the call came with is the best name there is.
+		if (command) {
+			label = commandLabel(state)
+			tooltip = clip(firstLine(command), 200)
+		}
 	} else if (view.kind === 'diff') {
-		label =
-			nonBlank(view.label) ||
-			diffLabel(nonBlank(view.path) || callCaption || title || 'document', state)
+		// The Before/After block is not drawn in the transcript; the Changes panel shows the diff.
+		kind = 'edit'
+		detailView = undefined
+		const path = nonBlank(view.path)
+		operation = diffOperation(view)
+		lead = diffLead(operation, state)
+		const name = path ? baseName(path) : callCaption || title || 'document'
+		const authored = path ? undefined : nonBlank(view.label)
+		if (path) file = { name, path }
+		label = authored ?? `${lead} ${name}`
+	} else if (explored?.kind === 'read') {
+		kind = 'read'
+		detailView = undefined
+		lead = readLead(state)
+		file = { name: baseName(explored.path), path: explored.path }
+		label = `${lead} ${file.name}`
+	} else if (explored) {
+		kind = 'search'
+		lead = searchLead(explored.kind, state)
+		const subject =
+			explored.kind === 'grep'
+				? explored.pattern
+				: explored.dir === '.'
+					? 'this folder'
+					: explored.dir
+		label = `${lead} ${clip(subject, 60)}`
+		tooltip = clip(firstLine(callCaption ?? caption(view) ?? ''), 200)
+		if (view.kind === 'generic' && view.label.trim() === (callCaption ?? caption(view)))
+			detailView = undefined
 	} else {
 		// A hidden success suppresses its redundant receipt, never the action row.
-		if (state === 'completed' && view.visibility === 'hidden') detailView = undefined
+		if (view.kind === 'generic' && state === 'completed' && view.visibility === 'hidden')
+			detailView = undefined
 		else if (
-			!view.label.trim() ||
-			(!/[\r\n]/.test(view.label) && view.label.trim() === label.trim())
+			view.kind === 'generic' &&
+			(!view.label.trim() || (!/[\r\n]/.test(view.label) && view.label.trim() === label.trim()))
 		)
 			detailView = undefined
 	}
 	return {
 		label,
+		kind,
+		...(lead ? { lead } : {}),
+		...(file ? { file } : {}),
+		...(operation ? { operation } : {}),
+		...(tooltip ? { tooltip } : {}),
 		state,
 		statusLabel: statusLabels[state],
 		...(observed && state === 'completed' ? { quietCompleted: true as const } : {}),

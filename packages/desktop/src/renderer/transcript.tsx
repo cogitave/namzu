@@ -1,16 +1,21 @@
 import { Fragment, type ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
+import { type ActivityActions, ActivityActionsContext } from './activity-actions.js'
 import { AttachmentList } from './attachment-list.js'
-import { ChevronRightIcon, SearchIcon } from './icons.js'
+import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, MessageTime } from './message.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
-import { ToolTranscriptRow } from './tool-transcript-row.js'
+import { ToolTranscriptRow, actionIcon } from './tool-transcript-row.js'
 import {
+	actionRunKind,
+	actionRunLabel,
 	dateSeparatorFlags,
 	dateSeparatorLabel,
 	elapsedLabel,
+	runDefaultOpen,
+	splitActivity,
 	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
@@ -44,12 +49,10 @@ function replySettled(
 function Entry({
 	entry,
 	thread,
-	onToolOpenChange,
 	action,
 }: {
 	entry: TimelineEntry
 	thread: ThreadState
-	onToolOpenChange?: (open: boolean) => void
 	/** The reply's action row; shown once the reply has settled. */
 	action?: ReactNode
 }) {
@@ -61,7 +64,7 @@ function Entry({
 				data-timeline-turn={entry.turn}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
 			>
-				<ToolTranscriptRow thread={thread} id={entry.id} onOpenChange={onToolOpenChange} />
+				<ToolTranscriptRow thread={thread} id={entry.id} />
 			</div>
 		) : null
 	}
@@ -161,47 +164,77 @@ function PhaseLabel({ label, animate }: { label: string; animate: boolean }) {
 	)
 }
 
-function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: ThreadState }) {
+/**
+ * Two or more consecutive actions between narration: one summary row that counts what was done,
+ * with the rows under it. Open while the work is going, and when it is short.
+ */
+function ToolRun({
+	entries,
+	thread,
+	last,
+	turnLive,
+	disclosureKey,
+	workDisclosures,
+	onWorkDisclosureChange,
+}: {
+	entries: TimelineEntry[]
+	thread: ThreadState
+	/** Nothing but this run follows it in the work, so more actions may still join it. */
+	last: boolean
+	turnLive: boolean
+	disclosureKey?: string
+	workDisclosures?: WorkDisclosureChoices
+	onWorkDisclosureChange?: (key: string, open: boolean) => void
+}) {
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
-	const [openTools, setOpenTools] = useState<string[]>([])
-	const multiple = entries.length > 1
-	const tools = entries.flatMap((entry) =>
-		entry.kind === 'tool' && thread.tools[entry.id] ? [thread.tools[entry.id]] : [],
-	)
-	const states = entries.flatMap((entry) => {
+	const presentations = entries.flatMap((entry) => {
 		const presentation =
 			entry.kind === 'tool' ? toolTranscriptPresentation(thread, entry.id) : undefined
-		return presentation ? [presentation.state] : []
+		return presentation ? [presentation] : []
 	})
-	const active = states.some((state) => state === 'running' || state === 'waiting')
+	const active = presentations.some((item) => item.state === 'running' || item.state === 'waiting')
+	const live = active || (turnLive && last)
+	const states = presentations.map((item) => item.state)
+	const actions = presentations.map((item) => ({
+		kind: item.kind,
+		subject: item.file?.path,
+		state: item.state,
+	}))
+	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
+	const label = lookups
+		? toolGroupLabel(
+				entries.flatMap((entry) =>
+					entry.kind === 'tool' && thread.tools[entry.id] ? [thread.tools[entry.id]] : [],
+				),
+				active,
+				states,
+			)
+		: actionRunLabel(actions, live)
+	const Icon = actionIcon(actionRunKind(actions))
+	// A run the person watched work stays open when it ends, however long it grew.
+	const watched = useRef(false)
+	if (live) watched.current = true
+	const defaultOpen = watched.current || runDefaultOpen(live, entries.length)
+	const controlled = !!disclosureKey && !!onWorkDisclosureChange
+	const saved = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
 	return (
 		<Collapsible
-			className={`tool ${multiple ? 'tool-group' : ''} ${active ? 'active' : ''}`}
-			open={!multiple || (chosenOpen ?? openTools.length > 0)}
-			onOpenChange={setChosenOpen}
+			className={`tool tool-group${active ? ' active' : ''}${states.includes('waiting') ? ' waiting' : ''}`}
+			open={controlled ? (saved ?? defaultOpen) : (chosenOpen ?? defaultOpen)}
+			onOpenChange={(open) => {
+				if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
+				else setChosenOpen(open)
+			}}
 		>
-			{multiple && (
-				<CollapsibleTrigger className="tool-trigger">
-					<SearchIcon className="tool-icon" aria-hidden="true" />
-					<span className="tool-label">{toolGroupLabel(tools, active, states)}</span>
-					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
-				</CollapsibleTrigger>
-			)}
+			<CollapsibleTrigger className="tool-trigger tool-run-trigger">
+				<Icon className="tool-icon" aria-hidden="true" />
+				<span className="tool-label">{label}</span>
+				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
+			</CollapsibleTrigger>
 			<CollapsiblePanel keepMounted>
-				<div className={multiple ? 'tool-group-entries' : ''}>
+				<div className="tool-group-entries">
 					{entries.map((entry) => (
-						<Entry
-							key={entryKey(entry)}
-							entry={entry}
-							thread={thread}
-							onToolOpenChange={(open) =>
-								setOpenTools((previous) =>
-									open
-										? [...previous.filter((id) => id !== entryKey(entry)), entryKey(entry)]
-										: previous.filter((id) => id !== entryKey(entry)),
-								)
-							}
-						/>
+						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
 					))}
 				</div>
 			</CollapsiblePanel>
@@ -212,33 +245,39 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 function ActivityEntries({
 	entries,
 	thread,
+	turn,
+	turnLive,
+	workDisclosures,
+	onWorkDisclosureChange,
 }: {
 	entries: TimelineEntry[]
 	thread: ThreadState
+	turn: number
+	turnLive: boolean
+	workDisclosures?: WorkDisclosureChoices
+	onWorkDisclosureChange?: (key: string, open: boolean) => void
 }) {
-	const groups: TimelineEntry[][] = []
-	for (const entry of entries) {
-		const last = groups.at(-1)
-		const earlierLookup =
-			entry.kind === 'tool' &&
-			Boolean(thread.tools[entry.id]) &&
-			thread.tools[entry.id]?.title === 'search_conversation'
-		const previous = last?.at(-1)
-		if (
-			earlierLookup &&
-			previous?.kind === 'tool' &&
-			thread.tools[previous.id]?.title === 'search_conversation'
-		)
-			last?.push(entry)
-		else groups.push([entry])
-	}
-	return groups.map((group) => {
-		const first = group[0]
+	const parts = splitActivity(
+		entries.filter((entry) => entry.kind !== 'tool' || Boolean(thread.tools[entry.id])),
+	)
+	return parts.map((part, index) => {
+		if ('entry' in part)
+			return <Entry key={entryKey(part.entry)} entry={part.entry} thread={thread} />
+		const first = part.run[0]
 		if (!first) return null
-		return first.kind === 'tool' ? (
-			<ToolGroup key={entryKey(first)} entries={group} thread={thread} />
-		) : (
-			<Entry key={entryKey(first)} entry={first} thread={thread} />
+		// One action is just its row; the summary starts at two.
+		if (part.run.length === 1) return <Entry key={entryKey(first)} entry={first} thread={thread} />
+		return (
+			<ToolRun
+				key={entryKey(first)}
+				entries={part.run}
+				thread={thread}
+				last={index === parts.length - 1}
+				turnLive={turnLive}
+				disclosureKey={workDisclosureKey(turn, `run:${entryKey(first)}`)}
+				workDisclosures={workDisclosures}
+				onWorkDisclosureChange={onWorkDisclosureChange}
+			/>
 		)
 	})
 }
@@ -274,6 +313,10 @@ function TurnActivity({
 	now: number
 }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
+	// Work that ended while the person watched stays as it was; saved history opens closed.
+	const watched = useRef(false)
+	if (live) watched.current = true
+	const defaultOpen = live || watched.current
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const savedOpen = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
@@ -294,7 +337,7 @@ function TurnActivity({
 	return (
 		<Collapsible
 			className="turn-activity"
-			open={controlled ? (savedOpen ?? live) : (chosenOpen ?? live)}
+			open={controlled ? (savedOpen ?? defaultOpen) : (chosenOpen ?? defaultOpen)}
 			onOpenChange={(open) => {
 				if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
 				else setChosenOpen(open)
@@ -306,15 +349,25 @@ function TurnActivity({
 				aria-label={elapsed ? `${label} for ${elapsed}` : label}
 				title={savedDuration ? 'Time reported for this saved work' : undefined}
 				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
+				data-live={live ? '' : undefined}
 			>
-				<PhaseLabel label={label} animate={animate} />
-				{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
+				<span className="activity-text">
+					<PhaseLabel label={label} animate={animate} />
+					{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
+				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 				{!live && <MessageTime time={savedTime} />}
 			</CollapsibleTrigger>
 			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
-					<ActivityEntries entries={entries} thread={thread} />
+					<ActivityEntries
+						entries={entries}
+						thread={thread}
+						turn={turn}
+						turnLive={live}
+						workDisclosures={workDisclosures}
+						onWorkDisclosureChange={onWorkDisclosureChange}
+					/>
 				</div>
 			</CollapsiblePanel>
 		</Collapsible>
@@ -387,6 +440,7 @@ interface TurnGroupProps {
 	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
 	onOpenChangedFile?: (path: string) => void
 	onUndoTurn?: (turnId: string) => void
+	projectRoot?: string
 }
 
 function shallowEqual(a: object | undefined, b: object | undefined): boolean {
@@ -421,74 +475,81 @@ const TurnGroupView = memo(function TurnGroupView({
 	onOpenTurnChanges,
 	onOpenChangedFile,
 	onUndoTurn,
+	projectRoot,
 }: TurnGroupProps) {
+	const actionsValue = useMemo<ActivityActions>(
+		() => ({ changes, projectRoot, onOpenTurnChanges, onOpenChangedFile }),
+		[changes, projectRoot, onOpenTurnChanges, onOpenChangedFile],
+	)
 	return (
-		<div
-			className="transcript-turn"
-			data-transcript-turn={group.turn}
-			data-transcript-live={live ? '' : undefined}
-			data-transcript-deferred={deferred && !live ? '' : undefined}
-		>
-			{group.segments.map((segment, index) => (
-				<Fragment
-					key={
-						segment.user[0]
-							? entryKey(segment.user[0])
-							: segment.activity[0]
-								? entryKey(segment.activity[0])
-								: segment.answer[0]
-									? entryKey(segment.answer[0])
-									: `${group.turn}:${index}`
-					}
-				>
-					{segment.user.map((entry) => (
-						<Fragment key={entryKey(entry)}>
-							{entryKey(entry) in separators && (
-								<DateSeparator at={separators[entryKey(entry)] as number} />
-							)}
-							<Entry entry={entry} thread={thread} />
-						</Fragment>
-					))}
-					{hasPublicActivity(segment.activity, thread) && (
-						<TurnActivity
-							thread={thread}
-							turn={group.turn}
-							entries={segment.activity}
-							disclosureKey={
-								segment.activity[0]
-									? workDisclosureKey(group.turn, entryKey(segment.activity[0]))
-									: undefined
-							}
-							workDisclosures={workDisclosures}
-							onWorkDisclosureChange={onWorkDisclosureChange}
-							ownsTurnSummary={
-								!group.segments
-									.slice(index + 1)
-									.some((later) => hasPublicActivity(later.activity, thread))
-							}
-							animate={animate}
-							now={now}
-						/>
-					)}
-					{segment.answer.map((entry) => (
-						<Fragment key={entryKey(entry)}>
-							{entryKey(entry) in separators && (
-								<DateSeparator at={separators[entryKey(entry)] as number} />
-							)}
-							<Entry entry={entry} thread={thread} action={actions[entryKey(entry)]} />
-						</Fragment>
-					))}
-				</Fragment>
-			))}
-			{onOpenTurnChanges && changes && !live && (
-				<TurnChangesCard
-					changes={changes}
-					onOpen={onOpenTurnChanges}
-					onOpenFile={onOpenChangedFile}
-					{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
-				/>
-			)}
-		</div>
+		<ActivityActionsContext.Provider value={actionsValue}>
+			<div
+				className="transcript-turn"
+				data-transcript-turn={group.turn}
+				data-transcript-live={live ? '' : undefined}
+				data-transcript-deferred={deferred && !live ? '' : undefined}
+			>
+				{group.segments.map((segment, index) => (
+					<Fragment
+						key={
+							segment.user[0]
+								? entryKey(segment.user[0])
+								: segment.activity[0]
+									? entryKey(segment.activity[0])
+									: segment.answer[0]
+										? entryKey(segment.answer[0])
+										: `${group.turn}:${index}`
+						}
+					>
+						{segment.user.map((entry) => (
+							<Fragment key={entryKey(entry)}>
+								{entryKey(entry) in separators && (
+									<DateSeparator at={separators[entryKey(entry)] as number} />
+								)}
+								<Entry entry={entry} thread={thread} />
+							</Fragment>
+						))}
+						{hasPublicActivity(segment.activity, thread) && (
+							<TurnActivity
+								thread={thread}
+								turn={group.turn}
+								entries={segment.activity}
+								disclosureKey={
+									segment.activity[0]
+										? workDisclosureKey(group.turn, entryKey(segment.activity[0]))
+										: undefined
+								}
+								workDisclosures={workDisclosures}
+								onWorkDisclosureChange={onWorkDisclosureChange}
+								ownsTurnSummary={
+									!group.segments
+										.slice(index + 1)
+										.some((later) => hasPublicActivity(later.activity, thread))
+								}
+								animate={animate}
+								now={now}
+							/>
+						)}
+						{segment.answer.map((entry) => (
+							<Fragment key={entryKey(entry)}>
+								{entryKey(entry) in separators && (
+									<DateSeparator at={separators[entryKey(entry)] as number} />
+								)}
+								<Entry entry={entry} thread={thread} action={actions[entryKey(entry)]} />
+							</Fragment>
+						))}
+					</Fragment>
+				))}
+				{onOpenTurnChanges && changes && !live && (
+					<TurnChangesCard
+						changes={changes}
+						onOpen={onOpenTurnChanges}
+						onOpenFile={onOpenChangedFile}
+						{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
+					/>
+				)}
+			</div>
+		</ActivityActionsContext.Provider>
 	)
 }, turnGroupPropsEqual)
 
@@ -499,6 +560,7 @@ function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): bo
 		previous.animate !== next.animate ||
 		previous.now !== next.now ||
 		previous.changes !== next.changes ||
+		previous.projectRoot !== next.projectRoot ||
 		previous.workDisclosures !== next.workDisclosures ||
 		// The caller builds this record anew on every render.
 		!shallowEqual(previous.undoKept, next.undoKept) ||
@@ -528,6 +590,7 @@ export function Transcript({
 	onOpenChangedFile,
 	onUndoTurn,
 	undoKept,
+	projectRoot,
 	dateSeparators = true,
 }: {
 	thread: ThreadState
@@ -543,6 +606,8 @@ export function Transcript({
 	onUndoTurn?: (turnId: string) => void
 	/** Files a partly undone reply still has to finish, by turn id. */
 	undoKept?: Record<string, number>
+	/** The conversation's folder; relative paths in action rows show in full against it. */
+	projectRoot?: string
 	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
@@ -639,6 +704,7 @@ export function Transcript({
 						now={live ? now : 0}
 						workDisclosures={workDisclosures}
 						undoKept={undoKept}
+						projectRoot={projectRoot}
 						onWorkDisclosureChange={
 							onWorkDisclosureChange ? stable.onWorkDisclosureChange : undefined
 						}

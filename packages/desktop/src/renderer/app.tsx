@@ -4446,6 +4446,7 @@ export function App({
 														: undefined
 												}
 												undoKept={undoKept}
+												projectRoot={project?.path}
 												renderMessageAction={(message, key) => (
 													<MessageActions text={message.text}>
 														<LocalSpeechReadAloud

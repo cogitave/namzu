@@ -129,6 +129,7 @@ describe('authored tool content', () => {
 		const before = structuredClone(thread)
 		expect(toolTranscriptPresentation(thread, key)).toEqual({
 			label: 'Add task · Verify output',
+			kind: 'other',
 			state: 'completed',
 			statusLabel: 'Completed',
 		})
@@ -168,6 +169,7 @@ describe('authored tool content', () => {
 		const cancelled = result(start({ kind: 'generic', label: 'Propose a skill' }), view, 'failed')
 		expect(toolTranscriptPresentation(cancelled, key)).toEqual({
 			label: 'Propose a skill',
+			kind: 'other',
 			state: 'cancelled',
 			statusLabel: 'Cancelled',
 			detailView: view,
@@ -194,6 +196,7 @@ describe('authored tool content', () => {
 		)
 		expect(toolTranscriptPresentation(thread, '0:call')).toEqual({
 			label: 'plugin operation',
+			kind: 'other',
 			state: 'completed',
 			statusLabel: 'Completed',
 		})
@@ -219,12 +222,17 @@ describe('authored tool content', () => {
 			toolTranscriptPresentation(result(emptyThread(), diff, 'completed'), '0:call'),
 		).toMatchObject({
 			label: 'Edited note.txt',
-			detailView: diff,
+			kind: 'edit',
+			file: { name: 'note.txt', path: 'note.txt' },
 		})
-		const authored = { ...diff, label: '  Change the summary  ' }
+		// The Before/After block is not drawn in the transcript; the Changes panel shows it.
 		expect(
-			toolTranscriptPresentation(result(emptyThread(), authored, 'completed'), '0:call')?.label,
-		).toBe(authored.label)
+			toolTranscriptPresentation(result(emptyThread(), diff, 'completed'), '0:call')?.detailView,
+		).toBeUndefined()
+		const unnamed = { ...diff, path: undefined, label: '  Change the summary  ' }
+		expect(
+			toolTranscriptPresentation(result(emptyThread(), unnamed, 'completed'), '0:call')?.label,
+		).toBe(unnamed.label)
 		const read = start({
 			kind: 'generic',
 			label: 'Read the project guide',
@@ -261,7 +269,8 @@ describe('actual tool lifecycle', () => {
 			},
 		})
 		expect(toolTranscriptPresentation(thread, key)).toMatchObject({
-			label: 'Waiting to run pwd',
+			label: 'Waiting to run command',
+			tooltip: 'pwd',
 			state: 'waiting',
 			statusLabel: 'Waiting for approval',
 		})
@@ -280,19 +289,19 @@ describe('actual tool lifecycle', () => {
 
 	it('labels failed commands truthfully but does not call a plain result a command execution', () => {
 		const terminal = start({ kind: 'terminal', command: 'pwd', output: '' })
-		expect(toolTranscriptPresentation(terminal, key)?.label).toBe('Running pwd')
+		expect(toolTranscriptPresentation(terminal, key)?.label).toBe('Running command')
 		expect(
 			toolTranscriptPresentation(
 				result(terminal, { kind: 'terminal', command: 'pwd', output: 'Actual failure' }, 'failed'),
 				key,
 			)?.label,
-		).toBe('Command failed: pwd')
+		).toBe('Command failed')
 		expect(
 			toolTranscriptPresentation(
 				result(terminal, { kind: 'terminal', output: 'workspace' }, 'completed'),
 				key,
 			)?.label,
-		).toBe('Ran pwd')
+		).toBe('Ran command')
 		const read = start({
 			kind: 'generic',
 			label: 'Read the project guide',
