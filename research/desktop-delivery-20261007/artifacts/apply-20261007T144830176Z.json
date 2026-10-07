@@ -1,0 +1,422 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-07T14:48:30.176Z",
+  "phase": "startup",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page",
+    "live state read: idle, no dialogs, composer matches saved draft",
+    "installed package.json dependencies equal the snapshot commit",
+    "installed dists differ from source; plan computed",
+    "staged copies match source manifests",
+    "state re-read after staging, immediately before the close",
+    "desktop and every runtime child process gone",
+    "dists swapped; previous dists retained as backups"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "8b29c3cd",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 762,
+      "sourceFiles": 766,
+      "installedManifestSha256": "edbe630fac291d160e0fa16276f2aebcb716f1e9220a0f643d44c7ea5c254444",
+      "sourceManifestSha256": "f7f036a6ca80ad9179bcdea0cac808322cfef4c5e1b8868e04af72d5ede59e26",
+      "changedCount": 18,
+      "addedCount": 6,
+      "removedCount": 2,
+      "changed": [
+        "main/desktop-conversation-store.d.ts.map",
+        "main/desktop-conversation-store.js",
+        "main/desktop-conversation-store.js.map",
+        "main/index.js",
+        "main/index.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/rpc-client.d.ts",
+        "main/rpc-client.d.ts.map",
+        "main/rpc-client.js",
+        "main/rpc-client.js.map",
+        "preload.cjs",
+        "preload.cjs.map",
+        "renderer/index.html",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map"
+      ],
+      "added": [
+        "main/operator.conversation-actions.test.d.ts",
+        "main/operator.conversation-actions.test.d.ts.map",
+        "main/operator.conversation-actions.test.js",
+        "main/operator.conversation-actions.test.js.map",
+        "renderer/assets/index-0NL_A5Ly.css",
+        "renderer/assets/index-HJH7F5Nc.js"
+      ],
+      "removed": [
+        "renderer/assets/index-35zK4K11.css",
+        "renderer/assets/index-RGnXu7LQ.js"
+      ],
+      "classification": {
+        "runtime": [
+          "main/desktop-conversation-store.js",
+          "main/index.js",
+          "main/operator.conversation-actions.test.js",
+          "main/operator.js",
+          "main/rpc-client.js",
+          "preload.cjs",
+          "renderer/assets/index-0NL_A5Ly.css",
+          "renderer/assets/index-35zK4K11.css",
+          "renderer/assets/index-HJH7F5Nc.js",
+          "renderer/assets/index-RGnXu7LQ.js",
+          "renderer/index.html"
+        ],
+        "noise": [
+          "main/desktop-conversation-store.d.ts.map",
+          "main/desktop-conversation-store.js.map",
+          "main/index.js.map",
+          "main/operator.conversation-actions.test.d.ts",
+          "main/operator.conversation-actions.test.d.ts.map",
+          "main/operator.conversation-actions.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/rpc-client.d.ts",
+          "main/rpc-client.d.ts.map",
+          "main/rpc-client.js.map",
+          "preload.cjs.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 397,
+      "sourceFiles": 398,
+      "installedManifestSha256": "3e648a9067a4b84dc4773b461e89a9a3edd89c53c33661345a1763291ac8cbc6",
+      "sourceManifestSha256": "a0b0703142c9690162a55554e2d80d734323370f4f41ef284baeb72284b157d9",
+      "changedCount": 2,
+      "addedCount": 1,
+      "removedCount": 0,
+      "changed": [
+        "commands/desktop-host.js",
+        "integrations/sessions/store.js"
+      ],
+      "added": [
+        "commands/desktop-host-header.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/desktop-host-header.js",
+          "commands/desktop-host.js",
+          "integrations/sessions/store.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 932,
+      "sourceFiles": 932,
+      "installedManifestSha256": "6738d4abe0214c1bdc51aa17c98bf971bfc1288e69c8da8b4b466237a1204db3",
+      "sourceManifestSha256": "6738d4abe0214c1bdc51aa17c98bf971bfc1288e69c8da8b4b466237a1204db3",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "beforePid": 47620,
+  "ownedProcesses": [
+    {
+      "pid": 27708,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 33332,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 36620,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 39416,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43896,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 44556,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 46148,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 46428,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47184,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47620,
+      "ppid": 37716,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "privateSnapshot": "delivery-before-private-20261007T144830176Z.json",
+  "before": {
+    "groups": [
+      {
+        "tabs": [
+          "01a115fb-b61e-7791-a40f-44952125ea1c",
+          "01a11630-8e74-7046-955a-e3ca3f868707",
+          "01a1163b-268a-7059-b41c-18230f45b474",
+          "01a1161c-4283-7734-8ace-eb3c9429d953"
+        ],
+        "active": "01a1161c-4283-7734-8ace-eb3c9429d953",
+        "focused": true
+      }
+    ],
+    "sessions": [
+      {
+        "id": "9f2aab3373c0b840d5a81e72c605a2401157cafe1ea7e20a9d3a69262c3f0028",
+        "messageCount": 6,
+        "messageHashes": [
+          "a52b637881110f8e2ae5a00a76a652af24f5a7e74fabfa9fdbdc91858be5e385",
+          "555d6ba182331fdadf74eeb6795efbe6f6fde2721dbeb322e4b19d8bb843e3f5",
+          "478dae4f20da9f4e00e777af89cf6c266d5c88acafe5e874ad4845efdb760097",
+          "940d600b42b337909ff38e4c91ecdc2da8a215cd7250c3e727024da74d7fb3b1",
+          "3d54929c8d4e083f8d9821742c98a15a43f9bb2aaec0f30edf44b33b689f8094",
+          "1e1d67342daca15b05c179d83ced57b48965b864264e59281198f3366895e331"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "b70fdc678b709e54f03b20f04a606315b1d88c6096df5309e5ff581069d5068d",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "477373a00ecae5a45833893cf2b976f49e3ee8f9ebc9c83893f5b8242a6f3e3c",
+        "jobCount": 0
+      },
+      {
+        "id": "ad8ff8c3039bd34ac45257c9a457a8e8bef8f4686a9bdb6e0bc303567e9c67f0",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "bac45b5e620759b12655b03a74835a70b628e79903c1dfd2618cde574bc9a899",
+        "jobCount": 0
+      },
+      {
+        "id": "66f045773b1a47e51f5df608add350e273b84d5347570199c8de160242e228a8",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "bac45b5e620759b12655b03a74835a70b628e79903c1dfd2618cde574bc9a899",
+        "jobCount": 0
+      },
+      {
+        "id": "86fffd82e2deeadc1818ec0fc40fd46b4814df34b8a92872436a0e67525d3fbf",
+        "messageCount": 11,
+        "messageHashes": [
+          "5a2a491137789cf5e18b47eac4d0a96d646e09a91fbaf99cef97c12b0d903825",
+          "d0fd29af24b023dc925334f05627f8f0604767a6c8e4add1ac7eef2307b2b577",
+          "d34d9f1e1a778189af717cbc54038ba5211e96953d41a664ee6b2756dfcf5f7b",
+          "c9503182dda449059d9e4950f69c9aff33dbcf8ad9d044541c68942aed6ca168",
+          "358793ad6c52681362af4e7bc835c935844595bd8dd094a02dcbdb2161a139db",
+          "ca7353c4262c4c2d177606b1ef9afbcc6e2e14e95268b84832acd5c299ed02b4",
+          "d5a2baa69cc43740ea83b002123590d839e5187152b9975dd7171da860a85333",
+          "e207906331b0437c25625b4ec1cfa11f0dd989d39ffde45b37096912eeb46c3e",
+          "bc627d005f2d438a8efe9f33be8743eb06e2a652c436b6442ac348ab003d90f0",
+          "e5f41b7de1233c97832bb06270d33c7436e5fb41f0f0769e039e6fbf5070feb9",
+          "6bbc2544a2da4b55a00adbfc55fbc9e969cfb144b37e0b580ec535e772e9e3f4"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "e60aeed77f1b8a33fd0dfb6efc9bb761f7cd96b379b67e77939b5788ee5a41c6",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "7a03d12b61e54474139c0c7e0f00965cfd41d7ca2f452c4d25ca7e7d7158b9a6",
+        "jobCount": 0
+      }
+    ],
+    "computers": [
+      {
+        "id": "34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35",
+        "status": "unavailable"
+      }
+    ],
+    "presentation": {
+      "otherEntriesHash": "f7a06cf51f819d1373c933b12a205594d936f5d85988bd1e80396332569ac891",
+      "entryCount": 52,
+      "appearanceHash": "e6bb5689beec52c4672bd4df92c3613d128d30cdc2b704f76953fe43d89c4ae8",
+      "collapsedHash": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "sidebarCollapsed": "false",
+      "page": "chat"
+    },
+    "scroll": {
+      "sidebarScrollTop": 0,
+      "transcriptScrollTop": 371,
+      "transcriptScrollRange": 1971
+    }
+  },
+  "terminalAlertsBefore": 0,
+  "dependenciesEqual": true,
+  "plan": {
+    "replace": [
+      "desktop",
+      "cli"
+    ],
+    "stage": [
+      "dist-stage-20261007T144830176Z",
+      "dist-stage-20261007T144830176Z"
+    ],
+    "backup": [
+      "dist-before-delivery-20261007T144830176Z",
+      "dist-before-delivery-20261007T144830176Z"
+    ]
+  },
+  "processesBeforeClose": [
+    {
+      "pid": 27708,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 33332,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 36620,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 39416,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43896,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 44556,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 46148,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 46428,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47184,
+      "ppid": 47620,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47620,
+      "ppid": 37716,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "afterPid": 2708,
+  "startupMs": 369,
+  "error": {
+    "name": "Error",
+    "message": "page.evaluate: Error: A dialog, alert, computer canvas, or focused editor is active. at eval (eval at evaluate (:311:30), <anonymous>:61:13) at async <anonymous>:337:30"
+  }
+}

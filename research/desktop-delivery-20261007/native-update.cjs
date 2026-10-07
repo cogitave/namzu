@@ -446,6 +446,13 @@ async function probe() {
       assert.equal(manifestHash(manifest(i.stage)), receipt.packages[i.key].sourceManifestSha256, `Staged ${i.key} copy differs from source`);
     }
     receipt.checks.push('staged copies match source manifests');
+    // The copy takes a while and the app stays in use: compare against the state
+    // read right before the close, not the one read before staging.
+    before = await readState();
+    fs.writeFileSync(privatePath.replace('-before-private-', '-preclose-private-'), JSON.stringify({ stamp, beforePid, state: before }), { mode: 0o600, flag: 'wx' });
+    receipt.before = summarize(before);
+    receipt.terminalAlertsBefore = before.dom.terminalAlerts.length;
+    receipt.checks.push('state re-read after staging, immediately before the close');
     receipt.processesBeforeClose = ownedProcesses();
     receipt.phase = 'close';
     await disconnect();

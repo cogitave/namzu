@@ -39,3 +39,10 @@ The snapshot dir holds `desktop-dist`, `cli-dist`, `sdk-dist` and `HEAD`. `--met
   - one tab ("selamlar", 12 messages) was no longer open. The layout revision moved 733 → 734 between the last preflight and the shutdown, during the ~30 s staging copy, while the app was in use (the owner continued closing tabs afterwards, revision 742 with four tabs). No code path closes tabs on restart (only a user close or an archive retires a tab); the conversation itself remains in its project list.
 - `--probe-only` afterwards passed: installed Desktop, CLI and SDK manifests equal the snapshot; link previews, images, refusals and the cached repeat work in the real main process.
 - Follow-up for the script: take the protected snapshot after staging, immediately before the close, so concurrent use during the copy is not reported as a change.
+
+## Delivery of 8b29c3cd (2026-10-07)
+
+- The updater now re-reads and stores the protected state after staging, immediately before the close.
+- `--apply` replaced Desktop and `@namzu/cli` (SDK unchanged), relaunched (PID 47620 → 2708, 369 ms) and stopped at the first post-start read because a popover was open: the owner was already using the model control.
+- `--verify-after` against the pre-close snapshot: tabs (4), drafts, messages, providers and preferences equal; one conversation gained an explicit `effort: "low"` that it did not have before the close. Opening and closing the effort panel without input does not save an effort (checked in the preview with and without a model default), so this is recorded as the owner's own change made after the restart, not attributed to the update.
+- `--probe-only` passed: installed Desktop, CLI and SDK manifests equal the snapshot; link previews work in the real main process.
